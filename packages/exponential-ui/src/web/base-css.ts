@@ -50,7 +50,14 @@ const INLINE_OVERLAYS_CSS = [
   `[data-xui-overlays="inline"] :is(.xui-Popover-content,.xui-Tooltip-content,.xui-Menu-content){animation:none}`,
 ].join(`\n`)
 
-export const BASE_CSS = `${ANIMATION_PROPERTIES_CSS}
+// #VAPP-258: a `Markdown/quote` part's border and horizontal padding are its
+// BAR (the inline-start side, as the natives paint it); the part layer keeps
+// the theme's quote rule (all sides on a plain box) to that side. The sheet
+// opens with the layer order (theme-css LAYERS), so `xui-part` ranks above
+// `xui-recipe` whichever sheet a page loads first. A task item's box sits in
+// the list gutter (the marker's place) as the natives paint it.
+export const BASE_CSS = `@layer xui-base, xui-recipe, xui-node, xui-part, xui-author;
+${ANIMATION_PROPERTIES_CSS}
 @layer xui-base{
 ${ROUND2_CSS}
 .xui-surface{display:block;position:relative;font-family:var(--xui-font-sans);color:var(--xui-color-foreground);font-size:var(--xui-type-size-sm);line-height:var(--xui-type-lineHeight-sm);-webkit-font-smoothing:antialiased}
@@ -247,6 +254,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-slider-root{display:flex;align-items:center;width:100%;min-height:var(--xui-control-slider);touch-action:none;user-select:none;position:relative}
 .xui-Slider-range{position:absolute;height:100%;left:0;border-radius:inherit}
 .xui-Slider-thumb{display:block;cursor:grab;outline:none}
+.xui-slider-row{display:flex;align-items:center;gap:var(--xui-spacing-sm);width:100%;min-width:0}
+.xui-slider-row>.xui-slider-root{flex:1 1 0;width:auto;min-width:0}
+.xui-Slider-icon{display:inline-flex;flex-shrink:0}
+.xui-Slider-icon>svg{width:100%;height:100%}
+.xui-Slider-end{flex-shrink:0;text-align:end;white-space:nowrap}
 .xui-DatePicker-calendar,.xui-DateRangePicker-calendar{display:flex;flex-direction:column;gap:var(--xui-spacing-sm);padding:var(--xui-spacing-sm)}
 .xui-calendar-head{display:flex;align-items:center;justify-content:space-between;gap:var(--xui-spacing-sm);font-weight:var(--xui-type-weight-medium)}
 .xui-calendar-nav{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:var(--xui-radius-sm);cursor:pointer;padding:0}
@@ -329,8 +341,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-md ol{list-style:decimal}
 .xui-md li>ul,.xui-md li>ol{margin-bottom:0}
 .xui-Markdown-listItem{margin:0}
-.xui-md li[data-task]{list-style:none}
-.xui-Markdown-listItem>input[type=checkbox]{appearance:none;display:inline-grid;place-content:center;vertical-align:-3px;width:16px;height:16px;margin:0;border:1px solid var(--xui-color-input);border-radius:4px;background:var(--xui-color-card)}
+.xui-md li[data-task]{list-style:none;position:relative}
+.xui-Markdown-listItem>input[type=checkbox]{appearance:none;display:inline-grid;place-content:center;position:absolute;inset-inline-start:-1.4em;line-height:inherit;top:calc((1lh - 16px) / 2);width:16px;height:16px;margin:0;border:1px solid var(--xui-color-input);border-radius:4px;background:var(--xui-color-card)}
 .xui-Markdown-listItem>input[type=checkbox]:checked{background:var(--xui-color-primary);border-color:var(--xui-color-primary)}
 .xui-Markdown-listItem>input[type=checkbox]:checked::before{content:"";width:14px;height:14px;background:var(--xui-color-primaryForeground);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat}
 .xui-Markdown-code{font-family:var(--xui-font-mono);font-size:.925em;padding:0 .3em;border-radius:4px;background:var(--xui-color-muted)}
@@ -347,6 +359,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Markdown-image[data-pressable]{cursor:pointer}
 .xui-md-chip{display:inline-flex;align-items:center;gap:var(--xui-spacing-xs);box-sizing:border-box;height:min(var(--xui-control-badge),1lh);max-width:100%;padding:0 var(--xui-spacing-sm);border-radius:var(--xui-radius-full);border-style:solid;border-width:0;vertical-align:middle;white-space:nowrap;text-decoration:none;color:inherit;cursor:pointer}
 .xui-md-chip>svg{flex-shrink:0;width:var(--xui-control-iconSm);height:var(--xui-control-iconSm)}
+.xui-md-chip>.xui-Markdown-chipIdent{display:block;flex-shrink:0;font-family:var(--xui-font-mono);white-space:nowrap}
 .xui-md-chip>.xui-Chip-label{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .xui-Markdown-attachment{margin:0 0 var(--xui-spacing-sm)}
 .xui-Markdown-attachment[data-attachment="video"]{width:min(100%,320px)}
@@ -515,4 +528,5 @@ ${SHIMMER_CSS}
 @media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
 .xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
 ${REDUCED_EXTRA.replace(/\.xui-surface /g, `.xui-surface[data-xui-motion="reduce"] `)}
-${INLINE_OVERLAYS_CSS}`
+${INLINE_OVERLAYS_CSS}
+@layer xui-part{.xui-Markdown-quote{border-top-width:0;border-right-width:0;border-bottom-width:0;padding-right:0}.xui-md>:is(ul,ol):first-child>li:first-child{margin-top:0}.xui-md>:is(ul,ol):last-child>li:last-child{margin-bottom:0}}`

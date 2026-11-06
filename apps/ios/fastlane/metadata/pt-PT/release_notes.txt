@@ -1,9 +1,3 @@
-- Os inícios de sessão no Claude voltam a usar o navegador
-- Manter sessão mantém as execuções de uma conta Claude com sessão iniciada durante um ano, sem escrever nada
-- Os chats em direto redesenham-se menos enquanto um agente trabalha, por isso o deslocamento continua fluido
-- Os registos das apps pertencem ao seu autor; os proprietários da equipa podem introduzir registos por outros
-- Os agentes podem mostrar pequenas animações nos seus cartões
-- Os inícios de sessão a partir do telemóvel voltam a mostrar a ligação e o código, e um código rejeitado é indicado
 - O cartão de uma conta indica qual o início de sessão ativo
 - Fechar um início de sessão termina-o na máquina
 - Adicione uma chave de acesso em Definições › Conta › Chaves de acesso
@@ -46,3 +40,7 @@
 - Uma sessão num dispositivo offline diz isso e oferece Mover
 - Se Marcar tudo como lido falhar, aparece uma mensagem com Tentar novamente
 - Um campo numérico com valor inicial seleciona-o ao tocar, e o primeiro Guardar funciona
+- O iPad tem barra lateral, lista e detalhe lado a lado
+- As sessões em curso como Atividade em direto no ecrã bloqueado e na Dynamic Island
+- Issues e chats no Spotlight; Siri e Atalhos criam um issue ou um chat
+- Os pull requests mostram o estado de merge com Fazer merge agora e Reter

@@ -462,10 +462,10 @@ struct ThreadConversationRow: View, Equatable {
                 Group {
                     if bubbles {
                         AgentChatBubble(time: time) {
-                            AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
+                            AgentMarkdownText(text: body, context: markdownContext)
                         }
                     } else {
-                        AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
+                        AgentMarkdownText(text: body, context: markdownContext)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }

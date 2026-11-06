@@ -1,9 +1,3 @@
-- Claude-Anmeldungen nutzen wieder die Browser-Anmeldung
-- „Anmeldung behalten“ hält die Läufe eines Claude-Kontos ein Jahr lang angemeldet, ohne dass du etwas eingibst
-- Live-Chats zeichnen weniger neu, während ein Agent arbeitet, damit das Scrollen flüssig bleibt
-- App-Einträge gehören ihrem Autor; Team-Owner können Einträge für andere anlegen
-- Agenten können kleine Animationen in ihren Karten zeigen
-- Vom Handy gestartete Anmeldungen zeigen wieder Link und Code, und ein abgelehnter Code wird gemeldet
 - Die Karte eines Kontos zeigt, welche Anmeldung aktiv ist
 - Das Schließen einer Anmeldung beendet sie auf dem Gerät
 - Passkey hinzufügen unter Einstellungen › Konto › Passkeys
@@ -46,3 +40,7 @@
 - Eine Sitzung auf einem Offline-Gerät sagt es und bietet Verschieben an
 - Schlägt Alle als gelesen markieren fehl, erscheint eine Meldung mit Erneut versuchen
 - Ein Zahlenfeld mit Startwert markiert ihn beim Antippen, damit das erste Speichern klappt
+- Das iPad bekommt Seitenleiste, Liste und Detail nebeneinander
+- Laufende Sitzungen als Live-Aktivität auf dem Sperrbildschirm und in der Dynamic Island
+- Issues und Chats in Spotlight; Siri und Kurzbefehle legen ein Issue oder einen Chat an
+- Pull Requests zeigen ihren Merge-Status mit Jetzt mergen und Halten

@@ -7,25 +7,6 @@ import UIKit
 
 private let log = Logger(subsystem: "com.exponential", category: "MarkdownConversion")
 
-/// Parse-time deviations from the interchange contract, for renders that never
-/// serialize back (EXP-440: the agent steering feed). The default — no options —
-/// IS the contract every editable surface must keep.
-public struct MarkdownParseOptions: OptionSet, Sendable {
-    public let rawValue: Int
-
-    public init(rawValue: Int) { self.rawValue = rawValue }
-
-    /// Attach cmark's GFM autolink extension, so a bare URL renders tappable.
-    /// READ-ONLY renders only — it breaks byte parity on save (see the
-    /// no-autolink note in `markdownToBlocks`).
-    public static let autolinkBareURLs = MarkdownParseOptions(rawValue: 1 << 0)
-
-    /// Chat semantics: a single newline (a cmark softbreak) renders as a LINE
-    /// BREAK rather than a space, because agent narration and steered messages
-    /// are written as terminal output, not as GFM paragraphs.
-    public static let hardLineBreaks = MarkdownParseOptions(rawValue: 1 << 1)
-}
-
 public enum ContentBlock: Identifiable, Equatable {
     case text(id: UUID, attributedContent: NSAttributedString)
     case image(id: UUID, url: String, alt: String)
@@ -56,24 +37,6 @@ public enum ContentBlock: Identifiable, Equatable {
         case .image(_, let url, _): return url
         case .attachmentLink(_, let url, _): return url
         case .text, .table: return nil
-        }
-    }
-
-    /// EXP-1238: this block's content under `other`'s id, when both are the
-    /// same kind — how a display-only re-parse keeps a row's block identity
-    /// (and with it the UITextView SwiftUI already measured) while the text
-    /// streams in. A table owns cell ids of its own, so it never adopts; nil
-    /// means "a different kind of block, keep the fresh id".
-    public func adoptingId(of other: ContentBlock) -> ContentBlock? {
-        switch (self, other) {
-        case let (.text(_, content), .text(id, _)):
-            return .text(id: id, attributedContent: content)
-        case let (.image(_, url, alt), .image(id, _, _)):
-            return .image(id: id, url: url, alt: alt)
-        case let (.attachmentLink(_, url, label), .attachmentLink(id, _, _)):
-            return .attachmentLink(id: id, url: url, label: label)
-        default:
-            return nil
         }
     }
 
@@ -272,9 +235,7 @@ public enum MarkdownConversion {
 
     public static func markdownToBlocks(
         _ markdown: String,
-        baseURL: URL? = nil,
-        options: MarkdownParseOptions = [],
-        overrides: MarkdownStyle.Overrides = .none
+        baseURL: URL? = nil
     ) -> [ContentBlock] {
         cmark_gfm_core_extensions_ensure_registered()
 
@@ -283,21 +244,16 @@ public enum MarkdownConversion {
         }
         defer { cmark_parser_free(parser) }
 
-        // NOTE: no autolink extension by DEFAULT — web (tiptap-markdown) and
+        // NOTE: no autolink extension — web (tiptap-markdown) and
         // Android leave bare URLs/emails as plain text, so autolinking here
         // would rewrite `https://x` to `[https://x](https://x)` and — worse —
         // the email part of an `@<email>` mention to `@[email](mailto:email)`
         // on every load→save cycle, breaking the byte-parity interchange
-        // contract (and the server's `@email` mention resolution with it). It
-        // stays banned for anything that serializes; `.autolinkBareURLs` is
-        // only for display-only renders (the agent steering feed, EXP-440).
+        // contract (and the server's `@email` mention resolution with it).
         for name in ["strikethrough", "table"] {
             if let ext = cmark_find_syntax_extension(name) {
                 cmark_parser_attach_syntax_extension(parser, ext)
             }
-        }
-        if options.contains(.autolinkBareURLs), let ext = cmark_find_syntax_extension("autolink") {
-            cmark_parser_attach_syntax_extension(parser, ext)
         }
 
         markdown.withCString { ptr in
@@ -310,15 +266,12 @@ public enum MarkdownConversion {
         defer { cmark_node_free(doc) }
 
         let collector = BlockCollector(baseURL: baseURL)
-        var context = RenderContext(baseURL: baseURL, options: options, overrides: overrides)
-        // EXP-787: the transcript reads at its own measure. The ROOT style
-        // frame carries it, so every run inherits the size and the leading —
-        // and a nil override leaves the interchange look byte-identical.
+        var context = RenderContext(baseURL: baseURL)
         context.styleStack = [StyleFrame(
-            font: MarkdownStyle.resolvedBodyFont(overrides.bodySize),
+            font: MarkdownStyle.resolvedBodyFont(nil),
             foregroundColor: MarkdownStyle.textColor,
             extraAttributes: [
-                .paragraphStyle: MarkdownStyle.paragraphStyle(lineSpacing: overrides.resolvedLineSpacing)
+                .paragraphStyle: MarkdownStyle.paragraphStyle(lineSpacing: nil)
             ]
         )]
         renderNodeToBlocks(doc, collector: collector, context: &context)
@@ -433,9 +386,6 @@ private struct ListContext {
 
 private struct RenderContext {
     var baseURL: URL?
-    var options: MarkdownParseOptions = []
-    /// EXP-698: display-only palette deviations (the chat feeds' code tint).
-    var overrides: MarkdownStyle.Overrides = .none
     var styleStack: [StyleFrame] = [StyleFrame(
         font: MarkdownStyle.bodyFont,
         foregroundColor: MarkdownStyle.textColor,
@@ -557,9 +507,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
                 .markdownBlockquote: true,
                 // Indent clears the gutter for the quote bar drawn by
                 // MarkdownLayoutManager (EXP-246).
-                .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle(
-                    lineSpacing: context.overrides.resolvedLineSpacing
-                ),
+                .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle(lineSpacing: nil),
             ])
         }
         let paragraphStart = collector.currentText.length
@@ -586,7 +534,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         let level = Int(cmark_node_get_heading_level(node))
         context.headingLevel = level
         context.pushStyle(
-            font: MarkdownStyle.headingFont(level: level, bodySize: context.overrides.bodySize),
+            font: MarkdownStyle.headingFont(level: level, bodySize: nil),
             extra: [.markdownHeadingLevel: level]
         )
         renderChildrenToBlocks(node, collector: collector, context: &context)
@@ -599,11 +547,8 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         collector.currentText.append(NSAttributedString(string: literal, attributes: context.makeAttributes()))
 
     case CMARK_NODE_SOFTBREAK:
-        // GFM folds a single newline into a space; chat-shaped sources keep it
-        // as a line break (`.hardLineBreaks`, EXP-440). Inside a table cell it
-        // is always a space (EXP-726).
-        let softbreak = (context.options.contains(.hardLineBreaks) && !context.inTableCell) ? "\n" : " "
-        collector.currentText.append(NSAttributedString(string: softbreak, attributes: context.makeAttributes()))
+        // GFM folds a single newline into a space (EXP-726: a table cell too).
+        collector.currentText.append(NSAttributedString(string: " ", attributes: context.makeAttributes()))
 
     case CMARK_NODE_LINEBREAK:
         let linebreak = context.inTableCell ? " " : "\n"
@@ -624,16 +569,8 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
     case CMARK_NODE_CODE:
         let literal = String(cString: cmark_node_get_literal(node))
         var attrs = context.makeAttributes()
-        attrs[.font] = MarkdownStyle.monospaceFont(bodySize: context.overrides.bodySize)
-        // EXP-698: the chat feeds tint inline code (`Semantic.codeText` on a
-        // `codeFill` wash); everywhere else keeps the neutral white@8 %.
-        attrs[.backgroundColor] = context.overrides.inlineCodeBackground
-            .map { PlatformColor($0) } ?? MarkdownStyle.codeBackground
-        if let foreground = context.overrides.inlineCodeForeground {
-            attrs[.foregroundColor] = PlatformColor(foreground)
-            // EXP-1676: the tinted span is boxed ×4 (MarkdownLayoutManager).
-            attrs[.markdownInlineCodeBoxed] = true
-        }
+        attrs[.font] = MarkdownStyle.monospaceFont(bodySize: nil)
+        attrs[.backgroundColor] = MarkdownStyle.codeBackground
         attrs[.markdownInlineCode] = true
         collector.currentText.append(NSAttributedString(string: literal, attributes: attrs))
 
@@ -642,12 +579,12 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         let literal = String(cString: cmark_node_get_literal(node))
         let lang = cmark_node_get_fence_info(node).flatMap { String(cString: $0) }
         var attrs = context.makeAttributes()
-        attrs[.font] = MarkdownStyle.monospaceFont(bodySize: context.overrides.bodySize)
+        attrs[.font] = MarkdownStyle.monospaceFont(bodySize: nil)
         // No `.backgroundColor` here: UITextView paints it per line fragment
         // (a stripe per line). MarkdownLayoutManager draws the whole fence as
         // ONE rounded box off `.markdownCodeBlock` instead (EXP-246).
         attrs[.markdownCodeBlock] = true
-        attrs[.paragraphStyle] = MarkdownStyle.codeBlockParagraphStyle(lineSpacing: context.overrides.resolvedLineSpacing)
+        attrs[.paragraphStyle] = MarkdownStyle.codeBlockParagraphStyle(lineSpacing: nil)
         if let lang, !lang.isEmpty { attrs[.markdownCodeBlockLang] = lang }
         var text = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal
         // A fence containing only blank lines would otherwise append an EMPTY run
@@ -731,7 +668,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
             context.listStack[context.listStack.count - 1] = last
         }
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = context.overrides.resolvedLineSpacing ?? MarkdownStyle.editorLeading
+        paragraphStyle.lineSpacing = MarkdownStyle.editorLeading
         paragraphStyle.paragraphSpacing = MarkdownStyle.paragraphGap
         let indent: CGFloat = CGFloat(depth) * 20 + 24
         paragraphStyle.headIndent = indent
@@ -742,20 +679,6 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         prefixAttrs[.markdownListItemIndex] = ordered ? index : 0
         prefixAttrs[.markdownListDepth] = depth
         let prefixText = NSMutableAttributedString(string: prefix, attributes: prefixAttrs)
-        // EXP-1280 (plan-card.json `card.listIndent` 24, ×4): a display render
-        // (the chat's own measure) starts the item's FIRST line where its
-        // wrapped lines start, the marker kerned out to the indent.
-        if context.overrides.bodySize != nil, let font = prefixAttrs[.font] as? PlatformFont {
-            // A task box is laid out as the 16pt checkbox, not its glyph
-            // (`MarkdownLayoutManager` draws `ExpCheckbox` in its cell).
-            let width = isTaskItem
-                ? ExpCheckbox.Metrics.side + (" " as NSString).size(withAttributes: [.font: font]).width
-                : (prefix as NSString).size(withAttributes: [.font: font]).width
-            let gap = (indent - paragraphStyle.firstLineHeadIndent) - width
-            if gap > 0 {
-                prefixText.addAttribute(.kern, value: gap, range: NSRange(location: prefixText.length - 1, length: 1))
-            }
-        }
         collector.currentText.append(prefixText)
         context.pushStyle(extra: [
             .paragraphStyle: paragraphStyle,
@@ -900,11 +823,6 @@ private func renderTableCell(
     let cellCollector = BlockCollector(baseURL: context.baseURL)
     var cellContext = context
     cellContext.inTableCell = true
-    // EXP-1676: a chat render (a body-size override = the transcript's
-    // measure) draws web's `.tiptap-chat` table at 13px on the same line box.
-    if context.overrides.bodySize != nil {
-        cellContext.overrides.bodySize = MarkdownStyle.chatTableFontSize
-    }
     cellContext.needsBlockSeparator = false
     cellContext.headingLevel = 0
     cellContext.listStack = []
@@ -948,10 +866,7 @@ private func appendBlockSeparatorToCollector(collector: BlockCollector, context:
         return
     }
     var separator = MarkdownStyle.baseAttributes
-    separator[.font] = MarkdownStyle.resolvedBodyFont(context.overrides.bodySize)
-    if let lineSpacing = context.overrides.resolvedLineSpacing {
-        separator[.paragraphStyle] = MarkdownStyle.paragraphStyle(lineSpacing: lineSpacing)
-    }
+    separator[.font] = MarkdownStyle.resolvedBodyFont(nil)
     collector.currentText.append(NSAttributedString(string: "\n", attributes: separator))
     context.needsBlockSeparator = false
 }

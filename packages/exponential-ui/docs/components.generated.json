@@ -5816,7 +5816,7 @@
       "group": "input",
       "lite": false,
       "specimenId": "exponential-ui-slider",
-      "description": "A range slider between min and max; bind `value`.",
+      "description": "A slider from min to max.",
       "children": "none",
       "slots": [],
       "events": [
@@ -5867,6 +5867,31 @@
           "bindable": true,
           "responsive": false,
           "description": "The current value; bind it."
+        },
+        {
+          "name": "icon",
+          "type": "icon",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Leading glyph."
+        },
+        {
+          "name": "endLabel",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Text after the track."
+        },
+        {
+          "name": "showValue",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": true,
+          "description": "false hides the value."
         }
       ],
       "accessibility": {

@@ -132,15 +132,6 @@ interface MarkdownEditorProps {
    * of an issue description would dwarf a one-line narration.
    */
   appearance?: `document` | `chat`
-  /**
-   * Turn bare URLs into links, and treat a single newline as a hard break —
-   * markdown-it options for text that was authored as chat, not as a GFM
-   * document. Both are read ONCE, at editor creation (tiptap-markdown builds
-   * its markdown-it instance in onBeforeCreate), so they must not change over
-   * an instance's life.
-   */
-  linkify?: boolean
-  hardBreaks?: boolean
   /** Accessible name of the editable/readonly region. */
   ariaLabel?: string
   /**
@@ -156,12 +147,6 @@ interface MarkdownEditorProps {
    * `scrollThreshold`/`scrollMargin` so edits scroll clear of the band.
    */
   topScrollInset?: number
-  /**
-   * EXP-760: chip BARE identifiers (`EXP-758`) as well as `#IDENT` ones.
-   * STEERING FEEDS ONLY — agents narrate bare identifiers, while descriptions
-   * and comments keep the `#` contract. Read once, at editor creation.
-   */
-  bareIssueRefs?: boolean
 }
 
 type MarkdownEditorInstance = Editor & {
@@ -239,11 +224,8 @@ export const MarkdownEditor = forwardRef<
       editable = true,
       topScrollInset,
       appearance = `document`,
-      linkify,
-      hardBreaks,
       ariaLabel,
       onFocusChange,
-      bareIssueRefs,
     },
     ref
   ) => {
@@ -390,7 +372,6 @@ export const MarkdownEditor = forwardRef<
           getResolved: (identifier) =>
             issueRefsRef.current?.resolve(identifier) ?? null,
           onOpen: (identifier) => issueRefsRef.current?.open(identifier),
-          bare: bareIssueRefs === true,
         }),
         MentionPillExtension.configure({
           getResolved: (email) => mentionsRef.current?.resolve(email) ?? null,
@@ -404,14 +385,12 @@ export const MarkdownEditor = forwardRef<
         Placeholder.configure({
           placeholder: placeholder ?? `Add description...`,
         }),
-        // Captured at editor creation — tiptap-markdown builds its markdown-it
-        // instance in onBeforeCreate, so later prop changes do not apply.
         Markdown.configure({
           html: false,
           transformPastedText: true,
           transformCopiedText: true,
-          linkify: linkify ?? false,
-          breaks: hardBreaks ?? false,
+          linkify: false,
+          breaks: false,
         }),
       ],
       content: markdown,

@@ -5,6 +5,7 @@ import {
   checkStatusFromGithub,
   checksBrief,
   checksQueuedText,
+  checksWakeState,
   checksWakeText,
   isFailingCheck,
   PR_CHECKS_QUEUED_FLAG_MINUTES,
@@ -51,6 +52,8 @@ export interface ChecksWrite {
   headSha: string
   /** false = a late delivery for an older head, dropped. */
   applied: boolean
+  /** #FEED-199: the wake this write settled (null = none yet). */
+  wake?: `success` | `failure` | null
 }
 
 function parseDate(value: string | null | undefined): Date | null {
@@ -93,9 +96,14 @@ export async function writePullRequestChecks(args: {
   checks: readonly CheckInput[]
   snapshot?: boolean
   required?: ReadonlySet<string>
+  /** #FEED-199: the PR's current head when the delivery names it (GitHub's
+   *  `check_run.pull_requests[].head.sha`). A delivery for another commit
+   *  (superseded by a push/rebase) is dropped, never written. */
+  prHeadSha?: string | null
   now?: Date
 }): Promise<ChecksWrite | null> {
   const now = args.now ?? new Date()
+  if (args.prHeadSha && args.prHeadSha !== args.headSha) return null
   const result = await db.transaction(async (tx) => {
     const [pr] = await tx
       .select({ id: pullRequests.id, teamId: pullRequests.teamId, checksState: pullRequests.checksState })
@@ -164,10 +172,21 @@ export async function writePullRequestChecks(args: {
       await generateTxId(tx)
       await tx.update(pullRequests).set({ checksState: after, updatedAt: now }).where(eq(pullRequests.id, pr.id))
     }
-    return { before, after, headSha: args.headSha, applied: true }
+    // #FEED-199 (fixture `wake`): a wake means the REQUIRED checks reported
+    // a real outcome at this head; a cancelled run reports nothing.
+    const required = args.required ?? new Set(rows.filter((row) => row.required).map((row) => row.name))
+    const wake = checksWakeState(rows, required)?.state ?? null
+    return { before, after, headSha: args.headSha, applied: true, wake }
   })
-  if (result?.applied && result.after !== result.before && (result.after === `success` || result.after === `failure`)) {
-    await postChecksWake({ pullRequestId: args.pullRequestId, headSha: result.headSha, state: result.after })
+  // Once per PR, head and state (postChecksWake dedupes), so every write that
+  // settles may ask.
+  if (result?.applied && result.wake) {
+    await postChecksWake({
+      pullRequestId: args.pullRequestId,
+      headSha: result.headSha,
+      state: result.wake,
+      ...(args.required ? { required: args.required } : {}),
+    })
   }
   return result
 }
@@ -256,6 +275,7 @@ export async function postChecksWake(args: {
   pullRequestId: string
   headSha: string
   state: `success` | `failure`
+  required?: ReadonlySet<string>
 }): Promise<boolean> {
   try {
     return await db.transaction(async (tx) => {
@@ -266,7 +286,13 @@ export async function postChecksWake(args: {
         .limit(1)
       if (!pr || !(LIVE_PR_STATES as readonly string[]).includes(pr.state)) return false
       const rows = await tx.select().from(pullRequestChecks).where(eq(pullRequestChecks.pullRequestId, args.pullRequestId))
-      const failing = rows.filter(isFailingCheck).map((row) => ({ name: row.name, detailsUrl: row.detailsUrl }))
+      // Head-only: a line for a commit the rows no longer hold is stale.
+      if (rows.length > 0 && rows.every((row) => row.headSha !== args.headSha)) return false
+      const required = args.required ?? new Set(rows.filter((row) => row.required).map((row) => row.name))
+      const gated = checksWakeState(rows, required)?.gated ?? rows
+      const failing = gated
+        .filter((row) => isFailingCheck(row) && row.conclusion !== `cancelled`)
+        .map((row) => ({ name: row.name, detailsUrl: row.detailsUrl }))
       return postPrChecksLine(tx, {
         pullRequestId: args.pullRequestId,
         body: checksWakeText(pr.number, args.state, failing),
@@ -346,7 +372,7 @@ export async function pullRequestsForCheck(opts: {
   repoFullName: string
   numbers: readonly number[]
   headBranch: string | null
-}): Promise<Array<{ id: string; repositoryId: string; base: string }>> {
+}): Promise<Array<{ id: string; number: number; repositoryId: string; base: string }>> {
   const repoIds = db.select({ id: repositories.id }).from(repositories).where(eq(repositories.fullName, opts.repoFullName))
   const match = [
     ...(opts.numbers.length > 0 ? [inArray(pullRequests.number, [...opts.numbers])] : []),
@@ -354,7 +380,7 @@ export async function pullRequestsForCheck(opts: {
   ]
   if (match.length === 0) return []
   return db
-    .select({ id: pullRequests.id, repositoryId: pullRequests.repositoryId, base: pullRequests.base })
+    .select({ id: pullRequests.id, number: pullRequests.number, repositoryId: pullRequests.repositoryId, base: pullRequests.base })
     .from(pullRequests)
     .where(
       and(

@@ -515,7 +515,7 @@ struct ChatTranscriptSpecimens: View {
 
     private func agent(_ text: String, _ time: String) -> some View {
         AgentChatBubble(time: time) {
-            AgentMarkdownText(text: text, context: context, options: [.hardLineBreaks])
+            AgentMarkdownText(text: text, context: context)
         }
     }
 
@@ -662,8 +662,8 @@ struct MentionPillSpecimens: View {
     /// line, an unresolved address left as written; no bubbles, no card.
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AgentMarkdownText(text: "Ready for review, @ada@example.com", context: context, options: [.hardLineBreaks])
-            AgentMarkdownText(text: "cc @x@y.com", context: context, options: [.hardLineBreaks])
+            AgentMarkdownText(text: "Ready for review, @ada@example.com", context: context)
+            AgentMarkdownText(text: "cc @x@y.com", context: context)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mention-pill-specimen")
@@ -878,7 +878,7 @@ struct SealedLockedSpecimens: View {
                 )
                 pill(.noKey)
                 AgentChatBubble(time: "21:14") {
-                    AgentMarkdownText(text: "Deferred the shape subscribe until after the first frame.", context: context, options: [.hardLineBreaks])
+                    AgentMarkdownText(text: "Deferred the shape subscribe until after the first frame.", context: context)
                 }
                 pill(.unreadable)
             }

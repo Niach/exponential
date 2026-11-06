@@ -404,6 +404,14 @@ pub struct SurfaceView {
     md_selection_key: Option<(String, u64)>,
     /// A pointer drag is extending the Markdown selection.
     md_dragging: bool,
+    /// The width this frame's layout already measured the surface at (the
+    /// host's layout probes it more than once per frame; cleared in build).
+    measured_at: Option<f32>,
+    /// [`Self::set_measure_memo`]: the view notified since its last pass
+    /// (anything that can move its layout notifies), and the subscription.
+    changed: bool,
+    passed_width: f32,
+    measure_memo: Option<gpui::Subscription>,
     /// The element being built is an exiting layer (no listeners, no focus,
     /// no a11y node).
     ghosting: Cell<bool>,
@@ -610,6 +618,10 @@ impl SurfaceView {
             md_selection: None,
             md_selection_key: None,
             md_dragging: false,
+            measured_at: None,
+            changed: true,
+            passed_width: -1.0,
+            measure_memo: None,
             ghosting: Cell::new(false),
             clock_skew: std::time::Duration::ZERO,
             executor: cx.background_executor().clone(),
@@ -627,6 +639,7 @@ impl SurfaceView {
     /// Round 2 §3: format through the host's formatter (built from the
     /// surface's locale + time zone); the tree re-binds.
     pub fn set_formatter(&mut self, formatter: Arc<dyn eui_core::format::Formatter>, cx: &mut Context<Self>) {
+        self.changed = true;
         self.surface.set_formatter(Arc::new(ClockWatch { inner: formatter, read: self.clock_read.clone() }));
         cx.notify();
     }
@@ -639,12 +652,14 @@ impl SurfaceView {
 
     /// Pin the clock relative times read (epoch ms; `None` = the wall clock).
     pub fn set_clock(&mut self, now_ms: Option<f64>, cx: &mut Context<Self>) {
+        self.changed = true;
         self.surface.set_clock(now_ms);
         cx.notify();
     }
 
     /// Apply one A2UI server→client message.
     pub fn apply(&mut self, message: &serde_json::Value, cx: &mut Context<Self>) -> Result<ApplyOutcome, String> {
+        self.changed = true;
         let out = self.surface.apply(message);
         cx.notify();
         out
@@ -653,6 +668,7 @@ impl SurfaceView {
     /// Replace the flat component list (what a host's `components` op
     /// carries, already merged by id).
     pub fn set_components(&mut self, components: Vec<FlatComponent>, cx: &mut Context<Self>) -> ApplyOutcome {
+        self.changed = true;
         let out = self.surface.set_components(components);
         self.nodes_dirty = true;
         cx.notify();
@@ -662,6 +678,7 @@ impl SurfaceView {
     /// An `updateComponents` payload: replaces components BY ID, keeps the
     /// rest; the tree reduces on the next layout.
     pub fn update_components(&mut self, components: Vec<FlatComponent>, cx: &mut Context<Self>) -> ApplyOutcome {
+        self.changed = true;
         let out = self.surface.update_components(components);
         self.nodes_dirty = true;
         cx.notify();
@@ -670,6 +687,7 @@ impl SurfaceView {
 
     /// The nested authoring form (fixtures, templates).
     pub fn set_nested(&mut self, tree: NestedNode, cx: &mut Context<Self>) -> ApplyOutcome {
+        self.changed = true;
         let out = self.surface.set_nested(tree);
         cx.notify();
         out
@@ -682,16 +700,27 @@ impl SurfaceView {
         cx.notify();
     }
 
+    /// #VAPP-258: a host whose surface changes only through this view (an
+    /// app's Markdown text) lets an unchanged view skip its layout pass on
+    /// every frame's measure: any notify (an edit, an event, a timer, a
+    /// decoded picture) lays it out again.
+    pub fn set_measure_memo(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.measure_memo = on.then(|| cx.observe_self(|this, _| this.changed = true));
+        self.changed = true;
+    }
+
     /// Write `value` at `path` of the data model (`None` removes); a
     /// refused write (VAPP-103: pointer limits, an index past the end of an
     /// array) changes nothing and returns the reason.
     pub fn set_data(&mut self, path: &str, value: Option<serde_json::Value>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.changed = true;
         self.surface.set_data(path, value)?;
         cx.notify();
         Ok(())
     }
 
     pub fn set_theme(&mut self, theme: Option<Arc<ResolvedTheme>>, cx: &mut Context<Self>) {
+        self.changed = true;
         self.fonts.set_theme(theme.as_deref());
         self.surface.set_theme(theme);
         // Every cached font/visual re-reads (the default family moved), and
@@ -702,6 +731,7 @@ impl SurfaceView {
     }
 
     pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
+        self.changed = true;
         let mut s = self.surface.settings().clone();
         s.mode = match mode {
             Mode::Light => ModeSetting::Light,
@@ -716,6 +746,7 @@ impl SurfaceView {
     /// reduced motion, insets, today (`mode: system` follows the window's
     /// appearance live).
     pub fn set_settings(&mut self, settings: SurfaceSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.changed = true;
         self.surface.set_settings(settings);
         self.sync_appearance(window);
         cx.notify();
@@ -725,6 +756,7 @@ impl SurfaceView {
     /// matches (an editor preview's phone frame). `None` (default, also via
     /// [`SurfaceViewOptions::settings`]) = derived from the surface width.
     pub fn set_form_factor(&mut self, form_factor: Option<eui_core::conditions::FormFactor>, cx: &mut Context<Self>) {
+        self.changed = true;
         if self.surface.settings().form_factor == form_factor {
             return;
         }
@@ -745,6 +777,7 @@ impl SurfaceView {
     /// Fonts were registered with the text system after this view measured:
     /// every family re-resolves and every leaf is measured again.
     pub fn fonts_changed(&mut self, cx: &mut Context<Self>) {
+        self.changed = true;
         self.fonts.invalidate(self.surface.theme().map(|t| t.as_ref()));
         self.surface.invalidate_measures();
         self.node_fonts.clear();
@@ -768,6 +801,7 @@ impl SurfaceView {
     /// back to [`GpuiMeasure`]). Conformance runs the fixed geometry measure
     /// through the painter this way.
     pub fn set_measure(&mut self, measure: Option<Box<dyn Measure>>, cx: &mut Context<Self>) {
+        self.changed = true;
         self.measure_override = measure;
         self.surface.invalidate_measures();
         cx.notify();
@@ -840,6 +874,7 @@ impl SurfaceView {
 
     /// Direct access; the next frame re-reads the node list.
     pub fn surface_mut(&mut self) -> &mut Surface {
+        self.changed = true;
         self.nodes_dirty = true;
         &mut self.surface
     }
@@ -853,6 +888,7 @@ impl SurfaceView {
     /// Dialogs centre in it). 0 = the element's clip decides.
     pub fn set_viewport_height(&mut self, height: f32, cx: &mut Context<Self>) {
         if (height - self.viewport_height).abs() > 0.5 {
+            self.changed = true;
             self.viewport_height = height.max(0.0);
             cx.notify();
         }
@@ -862,6 +898,7 @@ impl SurfaceView {
     pub fn set_width(&mut self, width: f32, cx: &mut Context<Self>) {
         self.width_fixed = true;
         if width > 0.0 && (width - self.width).abs() > 0.5 {
+            self.changed = true;
             self.width = width;
             cx.notify();
         }
@@ -1464,7 +1501,21 @@ impl SurfaceView {
             None if self.stats.passes > 0 => return Size { width: px(self.width), height: px(self.surface_height) },
             None => {}
         }
+        // #VAPP-258 ([`Self::set_measure_memo`]): not notified since the last
+        // pass, at the same width: the last pass answers.
+        if self.measure_memo.is_some() && !self.changed && self.stats.passes > 0 && self.md_remeasure.borrow().is_empty() && !self.nodes_dirty && (self.width - self.passed_width).abs() <= 0.25 {
+            return Size { width: px(self.width), height: px(self.surface_height) };
+        }
+        // A second probe of this frame's layout at the same width: nothing
+        // could change the surface in between (layout runs after every
+        // render and event), so the last pass answers.
+        if self.measured_at.is_some_and(|w| (w - self.width).abs() <= 0.25) && !self.nodes_dirty {
+            return Size { width: px(self.width), height: px(self.surface_height) };
+        }
         self.pass(window, cx);
+        self.changed = false;
+        self.passed_width = self.width;
+        self.measured_at = Some(self.width);
         Size { width: px(self.width), height: px(self.surface_height) }
     }
 
@@ -1472,6 +1523,7 @@ impl SurfaceView {
     /// region and the windowed lists the host scrolls, re-laying out once
     /// when they moved, then build the element tree.
     fn build(&mut self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.measured_at = None;
         self.origin = bounds.origin;
         let mask = window.content_mask().bounds;
         let top = (f32::from(mask.origin.y) - f32::from(bounds.origin.y)).max(0.0);

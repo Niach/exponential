@@ -36,6 +36,7 @@ import {
 } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { createTestBoard, ensureTestRepository } from "@/test/factories"
+import { runRepository } from "@/lib/merge-train/worker"
 import type { McpUser } from "./server"
 
 vi.mock(`@/lib/steer`, async (importOriginal) => {
@@ -517,6 +518,10 @@ describe.skipIf(!ready.ok)(`an agent-tree caller of team A never reaches team B 
       throw new Error(`network disabled in this test`)
     })
     w = await world()
+    // Another suite's merge-train tick (one shared database) may pass B's
+    // repository mid-case and settle its PR's display state: settle it first,
+    // so a snapshot diff can only come from the call under test.
+    await runRepository(w.b.repositoryId)
     tools = await callerTools(w)
   }, 60_000)
   afterAll(() => {

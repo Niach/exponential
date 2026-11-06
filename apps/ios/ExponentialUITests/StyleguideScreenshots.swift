@@ -41,7 +41,8 @@ import XCTest
 ///   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview ·
 ///   sg_app-settings-links · sg_app-settings-automations ·
 ///   sg_app-csv-import · sg_app-record-history · sg_app-record-undo ·
-///   sg_team-avatar · sg_device-attention
+///   sg_team-avatar · sg_device-attention ·
+///   sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -1204,6 +1205,7 @@ final class StyleguideScreenshots: XCTestCase {
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
         "needs-you", "results-tab",
+        "os-live-activity", "os-live-activity-island", "os-notification-actions",
     ]
 
     /// EXP-1635: the entries whose capture-only screen has another name.
@@ -1259,6 +1261,11 @@ final class StyleguideScreenshots: XCTestCase {
             case "share-targets": snapshot("sg_share-targets", settle: 2)
             case "share-composer": snapshot("sg_share-composer", settle: 2)
             case "composer-add-file": snapshot("sg_composer-add-file", settle: 2)
+            // #EXP-1639 / #EXP-1641: the OS-drawn surfaces (the Lock Screen
+            // card, the Dynamic Island, the expanded notification's actions).
+            case "os-live-activity": snapshot("sg_os-live-activity", settle: 2)
+            case "os-live-activity-island": snapshot("sg_os-live-activity-island", settle: 2)
+            case "os-notification-actions": snapshot("sg_os-notification-actions", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }

@@ -1,9 +1,3 @@
-- Prijave u Claude ponovno koriste prijavu putem preglednika
-- Zadrži prijavu drži pokretanja Claude računa prijavljenima godinu dana, bez upisivanja
-- Chatovi uživo manje se ponovno iscrtavaju dok agent radi, pa pomicanje ostaje glatko
-- Zapisi aplikacija pripadaju svom autoru; vlasnici tima mogu unositi zapise za druge
-- Agenti mogu prikazivati male animacije u svojim karticama
-- Prijave pokrenute s telefona ponovno prikazuju poveznicu i kôd, a odbijeni kôd to javlja
 - Kartica računa pokazuje koja je prijava aktivna
 - Zatvaranje prijave zaustavlja je na računalu
 - Dodajte pristupni ključ u Postavke › Račun › Pristupni ključevi
@@ -46,3 +40,7 @@
 - Sesija na izvanmrežnom uređaju to kaže i nudi premještanje
 - Ako Označi sve kao pročitano ne uspije, dobiješ poruku s Pokušaj ponovno
 - Brojčano polje s početnom vrijednošću označi je pri dodiru pa prvo Spremi radi
+- iPad dobiva bočnu traku, popis i detalje jedno uz drugo
+- Aktivne sesije kao Live Activity na zaključanom zaslonu i u Dynamic Islandu
+- Zadaci i chatovi u Spotlightu; Siri i Prečaci stvaraju zadatak ili chat
+- Pull requestovi prikazuju status spajanja uz Spoji sada i Zadrži

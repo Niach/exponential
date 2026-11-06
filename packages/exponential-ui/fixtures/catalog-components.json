@@ -9738,6 +9738,34 @@
       }
     },
     {
+      "name": "Slider/showValue=true",
+      "node": {
+        "id": "slider",
+        "component": "Slider",
+        "props": {
+          "label": "Volume",
+          "min": 0,
+          "max": 100,
+          "value": 40,
+          "showValue": true
+        }
+      }
+    },
+    {
+      "name": "Slider/showValue=false",
+      "node": {
+        "id": "slider",
+        "component": "Slider",
+        "props": {
+          "label": "Volume",
+          "min": 0,
+          "max": 100,
+          "value": 40,
+          "showValue": false
+        }
+      }
+    },
+    {
       "name": "Rating/example",
       "node": {
         "id": "rating",

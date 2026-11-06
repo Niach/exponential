@@ -2968,6 +2968,14 @@
                       "name": "progress-2-4",
                       "size": "lg"
                     }
+                  },
+                  {
+                    "id": "c8-brand-exponential",
+                    "component": "Icon",
+                    "props": {
+                      "name": "brand-exponential",
+                      "size": "lg"
+                    }
                   }
                 ]
               }
@@ -10206,6 +10214,40 @@
                   "min": 0,
                   "max": 100,
                   "value": 40
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-slider-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-slider-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "icon · endLabel · showValue false",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-volume",
+                "component": "Slider",
+                "props": {
+                  "min": 0,
+                  "max": 100,
+                  "value": 34,
+                  "icon": "media-volume-up",
+                  "endLabel": "34%",
+                  "showValue": false
+                },
+                "style": {
+                  "width": 320
                 }
               }
             ]

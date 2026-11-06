@@ -25,6 +25,7 @@ import at.exponential.ui.primitives.Markdown
 import at.exponential.ui.primitives.MarkdownChipStyle
 import at.exponential.ui.primitives.MarkdownInline
 import at.exponential.ui.primitives.markdownChipPlaceholders
+import at.exponential.ui.primitives.markdownChipWidth
 import at.exponential.ui.primitives.MarkdownTextMeasure
 import at.exponential.ui.primitives.MarkdownTextSpec
 import at.exponential.ui.theme.ResolvedTextStyle
@@ -301,12 +302,12 @@ class MarkdownShaper(val shaper: TextShaper, val mono: String?) : MarkdownTextMe
         return WORD.findAll(a.text).maxOfOrNull { shaper.lineWidth(a.subSequence(it.range.first, it.range.last + 1), style) } ?: 0f
     }
 
-    /** #VAPP-258: a chip label's width in the painted caption font (the painter's `MarkdownComposeText.labelWidth`). */
-    fun labelWidth(label: String, chips: MarkdownChipStyle): Float =
-        chips.labelWidth(shaper.lineWidth(label, shaper.markdownStyle(chips.label)) * shaper.density, shaper.density)
+    /** #VAPP-258: a chip label's (or ident's) width in its painted font [spec] (the painter's `MarkdownComposeText.labelWidth`). */
+    fun labelWidth(label: String, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float =
+        chips.labelWidth(shaper.lineWidth(label, shaper.markdownStyle(spec)) * shaper.density, shaper.density)
 
     private fun placeholders(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle, cap: Float?) =
-        markdownChipPlaceholders(inlines, spec, chips, cap) { labelWidth(it, chips) }
+        markdownChipPlaceholders(inlines, spec, chips, cap) { t, sp -> labelWidth(t, sp, chips) }
 
     override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?, chips: MarkdownChipStyle): Float {
         if (inlines.none { it.chip != null }) return height(inlines, spec, width)
@@ -322,7 +323,7 @@ class MarkdownShaper(val shaper: TextShaper, val mono: String?) : MarkdownTextMe
     override fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
         if (inlines.none { it.chip != null }) return widestWord(inlines, spec)
         val text = inlines.map { if (it.chip != null) it.copy(text = " ", chip = null) else it }
-        val widestChip = inlines.mapNotNull { it.chip }.maxOf { chips.width(it, labelWidth(it.label, chips)) }
+        val widestChip = inlines.mapNotNull { it.chip }.maxOf { markdownChipWidth(it, chips, null) { t, sp -> labelWidth(t, sp, chips) } }
         return max(widestWord(text, spec), widestChip)
     }
 

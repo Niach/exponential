@@ -318,7 +318,7 @@ struct MarkdownLeaf: View {
             // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
             let options = cx.model.host.markdownOptions
             let props = MarkdownPainter.props(cx.props, chat: options.chat)
-            let styles = MarkdownPainter.imaged(MarkdownPainter.styles(theme: cx.model.theme, mode: cx.model.mode, body: cx.textStyle, props: props), options: options, viewport: cx.model.viewportHeight)
+            let styles = MarkdownPainter.imaged(MarkdownPainter.styles(theme: cx.model.theme, mode: cx.model.mode, body: cx.textStyle, props: props, fontScale: cx.model.textScale), options: options, viewport: cx.model.viewportHeight)
             MarkdownView(text: text, width: cx.inner.width, styles: styles, ink: cx.ink, model: cx.model, props: props, node: cx.index)
                 .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
                 .clipped()
@@ -403,10 +403,10 @@ struct UnknownLeaf: View {
     }
 }
 
-private extension View {
+extension View {
     /// #VAPP-258 step 5 (`markdown.options.selectable`): `true` = the text
-    /// selects (macOS: the labels' own selection; iOS: a long press offers
-    /// Copy of the plain text), `false` = never (a `userSelect: text` style
+    /// selects natively, block by block (macOS: the labels' own selection;
+    /// iOS: `SelectableTextLabel`), `false` = never (a `userSelect: text` style
     /// cannot opt it back in), nil = as before.
     @ViewBuilder
     func markdownSelection(_ selectable: Bool?, text: String, model: SurfaceModel) -> some View {
@@ -414,13 +414,9 @@ private extension View {
         case .none: self
         case .some(false): self.transformEnvironment(\.xuiTextPaint) { $0.userSelect = "none" }
         case .some(true):
-            #if canImport(UIKit)
-            self.contextMenu {
-                Button(model.builtinString("copy")) { UIPasteboard.general.string = Markdown.plainText(text) }
-            }
-            #else
+            // #VAPP-258: every text block selects natively (iOS: a
+            // selectable TextKit view per block; macOS: the labels).
             self.transformEnvironment(\.xuiTextPaint) { $0.userSelect = "text" }
-            #endif
         }
     }
 }

@@ -11,17 +11,13 @@ import UIKit
 /// structure is authored on desktop web or in the IDE. Return moves to the
 /// next cell (row-major, header first) rather than growing the table.
 ///
-/// Read-only surfaces (comment cards, the description preview, the steer feed's
-/// `AgentMarkdownText`, actions) route through `MarkdownEditor(isReadOnly:)`
-/// and get the same grid with non-editable cells.
+/// A read-only editor (`MarkdownEditor(isReadOnly:)`) gets the same grid
+/// with non-editable cells; read-only Markdown is genUI's (#VAPP-258).
 struct BlockTableView: View {
     let model: IssueEditorModel
     let blockId: UUID
     let table: TableBlock
     var isReadOnly = false
-    /// EXP-1676: web's `.tiptap-chat` table (13px cells, 0.2rem 0.45rem):
-    /// the chat renders; a document keeps 14px at 0.3rem 0.6rem.
-    var chat = false
     var onIssueRefTap: ((String) -> Void)?
     /// The scroller's own width: a table narrower than it fills it (web
     /// `table { width: 100% }`, EXP-1676), a wider one scrolls.
@@ -107,15 +103,7 @@ struct BlockTableView: View {
     }
 
     private var padding: CGSize {
-        guard chat else {
-            return CGSize(width: MarkdownStyle.tableCellPadX, height: MarkdownStyle.tableCellPadY)
-        }
-        // A one-line cell has no leading to carry the transcript's 22pt line
-        // box (web's `td` inherits it), so half of it rides the padding.
-        let leading = MarkdownStyle.resolvedLineSpacing(
-            bodySize: MarkdownStyle.chatTableFontSize, lineHeight: DesignTokens.Transcript.bodyLineHeight
-        ) ?? 0
-        return CGSize(width: MarkdownStyle.chatTableCellPadX, height: MarkdownStyle.chatTableCellPadY + leading / 2)
+        CGSize(width: MarkdownStyle.tableCellPadX, height: MarkdownStyle.tableCellPadY)
     }
 
     /// Web's `th` weight, display only (`MarkdownStyle.tableHeaderStroke`).

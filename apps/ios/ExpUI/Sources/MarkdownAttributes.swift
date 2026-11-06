@@ -12,8 +12,6 @@ extension NSAttributedString.Key {
     public static let markdownCodeBlockLang = NSAttributedString.Key("exp.markdownCodeBlockLang")
     public static let markdownBlockquote = NSAttributedString.Key("exp.markdownBlockquote")
     public static let markdownInlineCode = NSAttributedString.Key("exp.markdownInlineCode")
-    /// EXP-1676: a chat's tinted code span: the layout manager draws its hairline.
-    public static let markdownInlineCodeBoxed = NSAttributedString.Key("exp.markdownInlineCodeBoxed")
     public static let markdownImageURL = NSAttributedString.Key("exp.markdownImageURL")
     public static let markdownImageAlt = NSAttributedString.Key("exp.markdownImageAlt")
     public static let markdownStrikethrough = NSAttributedString.Key("exp.markdownStrikethrough")
@@ -23,67 +21,6 @@ extension NSAttributedString.Key {
 }
 
 public enum MarkdownStyle {
-    /// EXP-698: per-RENDER palette deviations. The defaults (`nil`) are the
-    /// interchange look every editable surface keeps; the chat feeds (the
-    /// steering narration, bubbles and cards) tint their inline code with the
-    /// shared `Semantic.code*` tokens so a `path/like/this` reads as code the
-    /// way it does on web. Nothing here reaches serialization — the tint is
-    /// display only.
-    public struct Overrides: Equatable, Hashable, Sendable {
-        public var inlineCodeForeground: Color?
-        public var inlineCodeBackground: Color?
-        /// EXP-787: the point size prose renders at. The agent transcript
-        /// reads at its own measure (`DesignTokens.Transcript.bodySize`) —
-        /// every editable surface keeps the interchange body font, so `nil`
-        /// resolves back to `MarkdownStyle.bodyFont`.
-        public var bodySize: CGFloat?
-        /// EXP-787: the LINE BOX the render targets — `nil` keeps the
-        /// editors' 4pt leading. Stored as the token (22), never as leading:
-        /// both it and the font scale with Dynamic Type, so the leading
-        /// between them can only be computed at resolve time
-        /// (`resolvedLineSpacing`).
-        public var lineHeight: CGFloat?
-
-        public init(
-            inlineCodeForeground: Color? = nil,
-            inlineCodeBackground: Color? = nil,
-            bodySize: CGFloat? = nil,
-            lineHeight: CGFloat? = nil
-        ) {
-            self.inlineCodeForeground = inlineCodeForeground
-            self.inlineCodeBackground = inlineCodeBackground
-            self.bodySize = bodySize
-            self.lineHeight = lineHeight
-        }
-
-        /// The leading this render needs RIGHT NOW, at the reader's current
-        /// text size. `nil` = no deviation (the editors' 4pt).
-        public var resolvedLineSpacing: CGFloat? {
-            MarkdownStyle.resolvedLineSpacing(bodySize: bodySize, lineHeight: lineHeight)
-        }
-
-        /// No deviation — the contract look.
-        public static let none = Overrides()
-
-        /// Key material for the render caches that key on the parse inputs
-        /// (`AgentMarkdownText`). Describes BOTH colours in full: a hash would
-        /// collide eventually, and a collision there hands a cached render
-        /// back under the wrong tint — a silently wrong colour is exactly the
-        /// bug a cache key must not be able to produce.
-        public var cacheKey: String {
-            func describe(_ color: Color?) -> String {
-                guard let color else { return "-" }
-                return String(describing: color.resolve(in: EnvironmentValues()))
-            }
-            // The metrics go in RESOLVED (EXP-787): the tokens are constants,
-            // but what they render as moves with Dynamic Type — keying on the
-            // tokens would hand back a render baked at the previous text size.
-            return "fg:\(describe(inlineCodeForeground))|bg:\(describe(inlineCodeBackground))"
-                + "|size:\(bodySize.map { "\(resolvedBodyFont($0).pointSize)" } ?? "-")"
-                + "|lead:\(resolvedLineSpacing.map { "\($0)" } ?? "-")"
-        }
-    }
-
     // `nonisolated(unsafe)`: these are immutable font/color constants that
     // never mutate, so opting out of strict-concurrency checking is safe.
     /// EXP-1676: web's `.tiptap-content` 14px ×4 (Android `MdStyle.bodySize`),
@@ -156,14 +93,10 @@ public enum MarkdownStyle {
     /// off a phone before the horizontal scroller earns its keep.
     public static let tableCellMinWidth: CGFloat = 56
     public static let tableCellMaxWidth: CGFloat = 280
-    /// Web's `th, td` padding (0.3rem 0.6rem) and its `.tiptap-chat` variant
-    /// (0.2rem 0.45rem at 13px), Android `MdStyle.tableCellPad*` /
-    /// `chatTableCellPad*` (EXP-1676).
+    /// Web's `th, td` padding (0.3rem 0.6rem), Android
+    /// `MdStyle.tableCellPad*` (EXP-1676).
     public static let tableCellPadX: CGFloat = 9.6
     public static let tableCellPadY: CGFloat = 4.8
-    public static let chatTableCellPadX: CGFloat = 7.2
-    public static let chatTableCellPadY: CGFloat = 3.2
-    public static let chatTableFontSize: CGFloat = 13
     public nonisolated(unsafe) static let blockquoteTextColor = PlatformColor.white.withAlphaComponent(0.6)
     public nonisolated(unsafe) static let blockquoteBarColor = PlatformColor.white.withAlphaComponent(0.25)
     public nonisolated(unsafe) static let placeholderColor = PlatformColor.white.withAlphaComponent(0.3)

@@ -218,8 +218,8 @@ interface HostPlugin {
  */
 data class TextLinkSegment(val text: String, val href: String? = null, val chip: TextLinkChip? = null)
 
-/** #VAPP-258: a text link's chip: [kind] = `issue` | `mention` | `entity`, a non-empty [label], an optional [icon] registry name. */
-data class TextLinkChip(val kind: String, val label: String, val icon: String? = null)
+/** #VAPP-258: a text link's chip: [kind] = `issue` | `mention` | `entity`, a non-empty [label], an optional [icon] registry name and [ident] (painted mono before the label). */
+data class TextLinkChip(val kind: String, val label: String, val icon: String? = null, val ident: String? = null)
 
 /** #VAPP-258: a host's [HostPlugin.imageSize] answer (natural px; non-positive or non-finite = unknown). */
 data class ImageSize(val width: Double, val height: Double)

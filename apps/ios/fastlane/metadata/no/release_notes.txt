@@ -1,9 +1,3 @@
-- Claude-pålogginger bruker nettleserpålogging igjen
-- Behold pålogging holder kjøringene til en Claude-konto pålogget i et år, uten at du skriver noe
-- Live-chatter tegnes mindre på nytt mens en agent jobber, så rullingen holder seg jevn
-- App-poster tilhører forfatteren sin; teameiere kan legge inn poster for andre
-- Agenter kan vise små animasjoner i kortene sine
-- Pålogginger startet fra telefonen viser lenke og kode igjen, og en avvist kode sier fra
 - Kortet til en konto viser hvilken pålogging som er aktiv
 - Lukker du en pålogging, stopper den på maskinen
 - Legg til en tilgangsnøkkel under Innstillinger › Konto › Tilgangsnøkler
@@ -46,3 +40,7 @@
 - En økt på en frakoblet enhet sier fra og tilbyr flytting
 - Hvis Merk alle som lest feiler, får du en melding med Prøv igjen
 - Et tallfelt med en startverdi markerer den når du trykker, så første Lagre virker
+- iPad får sidepanel, liste og detaljer side om side
+- Kjørende økter som Live Activity på låseskjermen og i Dynamic Island
+- Saker og chatter i Spotlight; Siri og Snarveier kan opprette en sak eller chat
+- Pull requests viser flettestatus med Flett nå og Hold

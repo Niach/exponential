@@ -47,30 +47,8 @@ final class MarkdownLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             UIBezierPath(roundedRect: bar, cornerRadius: 1.5).fill()
         }
 
-        drawInlineCodeBoxes(in: glyphsToShow, at: origin)
         drawChipCapsules(in: glyphsToShow, at: origin)
         drawTaskBoxes(in: glyphsToShow, at: origin)
-    }
-
-    /// EXP-1676: web `.agent-feed code`'s inset hairline round the tint, one
-    /// box per line the span covers (`super` paints the fill).
-    private func drawInlineCodeBoxes(in glyphsToShow: NSRange, at origin: CGPoint) {
-        guard let storage = textStorage, storage.length > 0 else { return }
-        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
-        UIColor(DesignTokens.Semantic.codeStroke).setStroke()
-        storage.enumerateAttribute(.markdownInlineCodeBoxed, in: charRange, options: []) { value, range, _ in
-            guard (value as? Bool) == true else { return }
-            let glyphs = self.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            self.enumerateLineFragments(forGlyphRange: glyphs) { _, _, container, line, _ in
-                let run = NSIntersectionRange(line, glyphs)
-                guard run.length > 0 else { return }
-                let rect = self.boundingRect(forGlyphRange: run, in: container)
-                    .offsetBy(dx: origin.x, dy: origin.y)
-                let path = UIBezierPath(roundedRect: rect.insetBy(dx: -0.5, dy: 0.5), cornerRadius: 4)
-                path.lineWidth = 1
-                path.stroke()
-            }
-        }
     }
 
     // MARK: - Task boxes
@@ -237,11 +215,8 @@ final class MarkdownLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let pad = MarkdownStyle.mentionPaddingX
         let padY = MarkdownStyle.mentionPaddingY
         let stroke = MarkdownStyle.mentionBorderWidth
-        // A display pill opens with a hair space that carries its leading pad;
-        // an editor pill keeps its characters and gets the pad kerned onto
+        // An editor pill keeps its characters and gets the pad kerned onto
         // the character before it, so its box starts one pad left of the `@`.
-        let opensWithPad = (storage.string as NSString).substring(
-            with: NSRange(location: range.location, length: 1)) == MentionRefs.leadingPad
         var boxes = [CGRect]()
         enumerateLineFragments(forGlyphRange: glyphs) { fragment, used, _, lineGlyphs, _ in
             let intersect = NSIntersectionRange(lineGlyphs, glyphs)
@@ -249,7 +224,7 @@ final class MarkdownLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             let first = intersect.location
             let firstPoint = self.location(forGlyphAt: first)
             var minX = fragment.minX + firstPoint.x
-            if first == glyphs.location, !opensWithPad { minX = max(fragment.minX, minX - pad) }
+            if first == glyphs.location { minX = max(fragment.minX, minX - pad) }
             let after = NSMaxRange(intersect)
             let maxX: CGFloat
             if after < NSMaxRange(lineGlyphs) {

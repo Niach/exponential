@@ -184,7 +184,7 @@ import {
   type ViewerPhase,
   type ToolItem,
 } from "@/lib/steer-session-store"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { ReadMarkdown } from "@/components/read-markdown"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { SessionAccountSwitchButton } from "@/components/session-account-switch"
@@ -1471,18 +1471,15 @@ function LaneRows({
   )
 }
 
-/** Read-only editors never emit — one shared handler keeps every feed bubble
- *  out of the "new function identity per render" trap. */
-const noop = () => {}
-
-// memo: a live feed re-renders on every incoming frame, and a bubble that
-// rendered markdown owns a TipTap editor — re-running that for unchanged text
-// is the one cost worth avoiding here.
+// memo: a live feed re-renders on every incoming frame; re-painting the
+// markdown of unchanged text is the one cost worth avoiding here.
 export const NarrationBubble = memo(function NarrationBubble({
   text,
 }: {
   text: string
 }) {
+  // #VAPP-258: a live turn's prose paints as a growing prefix.
+  const streaming = useContext(TranscriptStreamingContext)
   return (
     // EXP-696: no bubble, matching the natives (EXP-274) — a small assistant
     // glyph and the agent's prose running the full width of the feed.
@@ -1491,7 +1488,7 @@ export const NarrationBubble = memo(function NarrationBubble({
       <div
         className={cn(`min-w-0 flex-1 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}
       >
-        <FeedText text={text} ariaLabel="Agent message" hardBreaks />
+        <FeedText text={text} ariaLabel="Agent message" hardBreaks streaming={streaming} />
       </div>
     </div>
   )
@@ -2257,12 +2254,7 @@ function QuestionCard({
             // The plan is GFM markdown — always rendered as markdown, always
             // in full (EXP-738).
             <div className="text-sm">
-              <MarkdownEditor
-                markdown={item.text}
-                editable={false}
-                onChange={noop}
-                linkify
-              />
+              <ReadMarkdown text={item.text} ariaLabel="Plan" agentProse />
             </div>
           ) : (
             <div

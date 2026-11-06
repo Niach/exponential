@@ -1,9 +1,3 @@
-- Gli accessi a Claude usano di nuovo l'accesso dal browser
-- Mantieni accesso tiene connesse per un anno le esecuzioni di un account Claude, senza digitare nulla
-- Le chat dal vivo si ridisegnano meno mentre un agente lavora, così lo scorrimento resta fluido
-- I record delle app appartengono al loro autore; i proprietari del team possono inserire record per altri
-- Gli agenti possono mostrare piccole animazioni nelle loro schede
-- Gli accessi avviati dal telefono mostrano di nuovo link e codice, e un codice rifiutato viene segnalato
 - La scheda di un account indica quale accesso è attivo
 - Chiudere un accesso lo interrompe sulla macchina
 - Aggiungi una passkey da Impostazioni › Account › Passkey
@@ -46,3 +40,7 @@
 - Una sessione su un dispositivo offline lo dice e offre Sposta
 - Se Segna tutto come letto non riesce, compare un messaggio con Riprova
 - Un campo numerico con un valore iniziale lo seleziona al tocco, così il primo Salva funziona
+- L'iPad ha barra laterale, elenco e dettaglio affiancati
+- Le sessioni in corso come Attività in tempo reale sulla schermata di blocco e nella Dynamic Island
+- Issue e chat in Spotlight; Siri e Comandi rapidi creano una issue o una chat
+- Le pull request mostrano lo stato di merge con Unisci ora e Trattieni

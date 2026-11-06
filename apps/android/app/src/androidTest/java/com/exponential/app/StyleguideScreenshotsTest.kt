@@ -96,6 +96,12 @@ import com.exponential.app.ui.styleguide.ChatHeaderSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceAttentionSpecimenScreen
 import com.exponential.app.ui.styleguide.DeviceAttentionSpecimenTestId
+import com.exponential.app.ui.styleguide.OsLiveActivityChipSpecimenScreen
+import com.exponential.app.ui.styleguide.OsLiveActivityChipSpecimenTestId
+import com.exponential.app.ui.styleguide.OsLiveActivitySpecimenScreen
+import com.exponential.app.ui.styleguide.OsLiveActivitySpecimenTestId
+import com.exponential.app.ui.styleguide.OsNotificationActionsSpecimenScreen
+import com.exponential.app.ui.styleguide.OsNotificationActionsSpecimenTestId
 import com.exponential.app.ui.styleguide.TeamAvatarSpecimenScreen
 import com.exponential.app.ui.styleguide.TeamAvatarSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenScreen
@@ -160,7 +166,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
  *   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview · sg_app-record-history ·
  *   sg_app-record-undo · sg_app-csv-import · sg_app-settings-links · sg_app-settings-automations ·
- *   sg_device-attention ·
+ *   sg_device-attention · sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions ·
  *   sg_apps · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
@@ -273,6 +279,8 @@ class StyleguideScreenshotsTest {
             "sg_device-readiness",
             // #EXP-1493: THE plan page (plan-page.json `specimen`, phone).
             "sg_plan-page",
+            // #EXP-1639 / #EXP-1641: the OS-drawn surfaces, mocked over the real models.
+            "sg_os-live-activity", "sg_os-live-activity-island", "sg_os-notification-actions",
             // #FEED-191: THE Needs you entry + list, THE Results tab body.
             "sg_needs-you", "sg_results-tab",
         )
@@ -1974,6 +1982,17 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_needs-you")
         show(ResultsTabSpecimenTestId) { ResultsTabSpecimenScreen() }
         flow.screenshot("sg_results-tab")
+        // --- sg_os-live-activity · sg_os-live-activity-island ·
+        // sg_os-notification-actions (#EXP-1639, #EXP-1641): the OS draws
+        // them (a promoted ProgressStyle Live Update + its status-bar chip;
+        // Actions + RemoteInput), so these mock the shade over the real
+        // LiveActivity / NotificationActions models and the fixtures' copy.
+        show(OsLiveActivitySpecimenTestId) { OsLiveActivitySpecimenScreen() }
+        flow.screenshot("sg_os-live-activity")
+        show(OsLiveActivityChipSpecimenTestId) { OsLiveActivityChipSpecimenScreen() }
+        flow.screenshot("sg_os-live-activity-island")
+        show(OsNotificationActionsSpecimenTestId) { OsNotificationActionsSpecimenScreen() }
+        flow.screenshot("sg_os-notification-actions")
 
         finished = true
     }

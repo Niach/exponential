@@ -317,6 +317,10 @@ public final class SurfaceModel {
     /// #VAPP-258: node `index`'s content changed size outside the tree (a
     /// Markdown block image decoded at a size the host did not know):
     /// measure it again.
+    /// #VAPP-258: the type scale in force (Dynamic Type or the host's
+    /// `fontScale`); the core scales the node text styles by it.
+    var textScale: CGFloat { CGFloat(appliedSettings?.fontScale ?? 1) }
+
     func remeasure(_ index: Int) {
         guard surface.markDirty(index: UInt32(index)) else { return }
         invalidate(structure: false)
@@ -402,7 +406,7 @@ public final class SurfaceModel {
                     MainActor.assumeIsolated { self.mediaRequest(src) != nil }
                 }, markdownBlocks: { [unowned self] text in
                     MainActor.assumeIsolated { MarkdownPainter.painted(text, model: self) }
-                }, markdownOptions: host.markdownOptions, viewportHeight: viewportHeight > 0 ? viewportHeight : nil)
+                }, markdownOptions: host.markdownOptions, viewportHeight: viewportHeight > 0 ? viewportHeight : nil, fontScale: textScale)
                 out = surface.layout(measurer: measurer)
                 calls += measurer.calls
             }

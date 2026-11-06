@@ -1233,10 +1233,52 @@ impl SurfaceView {
                 }
             }
         };
-        // A host's text links (and #VAPP-258 its attachments and image
-        // sizes) read live, like a `hostLinks` Text's; the measurer asks the same.
-        let blocks = markdown::hosted(self.host.as_ref(), &blocks, cx).map_or(blocks, Rc::new);
-        // #VAPP-258 (markdown-host.json `loaded`): a block image the host
+        let ts = lcx.text_style;
+        let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
+        // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
+        let options = self.host.markdown_options(cx);
+        let viewport = f32::from(window.viewport_size().height);
+        // #VAPP-258: an unchanged paint reuses the laid-out blocks
+        // ([`crate::paint::markdown_memo`]) when the host versions its answers.
+        let mode = if matches!(lcx.mode, eui_core::theme::Mode::Dark) { "dark" } else { "light" };
+        let layout_key = crate::paint::markdown_memo::LayoutKey {
+            text: &text,
+            width: w,
+            theme: lcx.theme.map_or(0, |t| t as *const _ as usize),
+            mode,
+            text_style: (ts.font_size, ts.line_height, ts.font_weight, ts.font_family.as_deref()),
+            props: &lcx.node.props,
+            options: &options,
+            viewport,
+            hooks: 0,
+        };
+        let memo = self.host.markdown_hooks_version(&text, cx).map(|hooks| crate::paint::markdown_memo::key(&crate::paint::markdown_memo::LayoutKey { hooks, ..layout_key }));
+        let props = markdown::density_props(&lcx.node.props, options.chat);
+        // The theme-resolved look, once per theme / props / options / host.
+        let look_key = crate::paint::markdown_memo::look_key(&layout_key, lcx.ink, Rc::as_ptr(&self.host) as *const () as usize);
+        let look = crate::paint::markdown_memo::look(look_key, || crate::paint::markdown_memo::MdLook {
+            styles: MdStyles::resolve(lcx.theme, lcx.mode, body, &props).imaged(&options, viewport),
+            colors: MdPaint::colors(lcx.theme, lcx.mode, lcx.ink, &props),
+            selection_bg: lcx.theme_color("ring").or_else(|| lcx.theme_color("primary")).unwrap_or(gpui::blue()).opacity(0.3),
+            task_box: natives::task_box_painter(lcx, self.host.clone()),
+            chip_box: crate::paint::PaintStyle::from_visual(&crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "root", &serde_json::Map::new(), &[])),
+            chip_label: crate::paint::color::color_of(crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "label", &serde_json::Map::new(), &[]).color.as_deref()),
+            chip_looks: markdown::ChipLook::of_kinds(lcx.theme, lcx.mode, &props),
+            code_block_border: crate::paint::color::color_of(crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Markdown", "codeBlock", &props, &[]).border_color.as_deref()),
+            header_bg: crate::paint::color::color_of(crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Markdown", "headerCell", &props, &[]).background_color.as_deref()),
+        });
+        let styles = look.styles.clone();
+        let window_selection = !self.ghosting.get() && options.selectable != Some(false) && self.host.markdown_window_selection(cx);
+        let mut shaper = Shaper::new(window, &self.fonts);
+        let (blocks, lay) = crate::paint::markdown_memo::layout(memo, || {
+            // A host's text links (and #VAPP-258 its attachments and image
+            // sizes) read live, like a `hostLinks` Text's; the measurer asks the same.
+            let blocks = markdown::hosted(self.host.as_ref(), &blocks, cx).map_or(blocks, Rc::new);
+            let blocks = markdown::size_chips(&blocks, &styles, Some(w), &mut shaper).map_or(blocks, Rc::new);
+            let lay = markdown::layout(&blocks, &styles, w, &mut shaper);
+            (blocks, lay)
+        });
+        drop(shaper);
         // cannot size keeps the placeholder box until it decodes; then its
         // size goes to the media cache and the leaf measures again (one
         // relayout to the picture's real aspect, measure = paint).
@@ -1250,20 +1292,13 @@ impl SurfaceView {
             }
         }
         if decoded {
+            crate::paint::markdown_memo::forget(memo);
             self.md_remeasure.borrow_mut().push(index);
             cx.notify();
         }
-        let ts = lcx.text_style;
-        let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
-        // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
-        let options = self.host.markdown_options(cx);
-        let props = markdown::density_props(&lcx.node.props, options.chat);
-        let styles = MdStyles::resolve(lcx.theme, lcx.mode, body, &props).imaged(&options, f32::from(window.viewport_size().height));
         let mut shaper = Shaper::new(window, &self.fonts);
-        let blocks = markdown::size_chips(&blocks, &styles, Some(w), &mut shaper).map_or(blocks, Rc::new);
-        let lay = markdown::layout(&blocks, &styles, w, &mut shaper);
         let attachments = self.markdown_attachments(lcx, &blocks, &lay, &styles, w);
-        let (colors, muted, border, code_block_bg) = MdPaint::colors(lcx.theme, lcx.mode, lcx.ink, &props);
+        let (colors, muted, border, code_block_bg) = look.colors;
         let host = self.host.clone();
         let paint = MdPaint {
             family: self.fonts.family(styles.body.family.as_deref()),
@@ -1283,23 +1318,39 @@ impl SurfaceView {
             node: index,
             units: (!self.ghosting.get()).then(|| self.md_pending.clone()),
             selection: self.md_selection,
-            selection_bg: lcx.theme_color("ring").or_else(|| lcx.theme_color("primary")).unwrap_or(gpui::blue()).opacity(0.3),
-            task_box: natives::task_box_painter(lcx, self.host.clone()),
+            selection_bg: look.selection_bg,
+            task_box: look.task_box.clone(),
             code_token: {
                 // #VAPP-258: CodeBlock's token colours, by kind.
                 let (theme, mode) = (self.surface.theme().cloned(), self.surface.mode());
                 Rc::new(move |kind| crate::paint::parts::code_token_look(theme.as_deref(), mode, &serde_json::Map::new(), kind).0)
             },
             text_system: Some(self.fonts.text_system.clone()),
-            chip_box: crate::paint::PaintStyle::from_visual(&crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "root", &serde_json::Map::new(), &[])),
-            chip_label: crate::paint::color::color_of(crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "label", &serde_json::Map::new(), &[]).color.as_deref()),
+            chip_box: look.chip_box.clone(),
+            chip_label: look.chip_label,
+            chip_looks: look.chip_looks.clone(),
+            code_block_border: look.code_block_border,
+            header_bg: look.header_bg,
             icon: {
                 let host = self.host.clone();
-                Rc::new(move |name, size, color| crate::paint::icons::concept(host.as_ref(), name, size, color))
+                Rc::new(move |name, size, color| host.chip_icon(name, size, color).unwrap_or_else(|| crate::paint::icons::concept(host.as_ref(), name, size, color)))
             },
             image_press: self.host.image_pressable(cx).then(|| {
                 let host = self.host.clone();
                 Rc::new(move |src: &str, window: &mut Window, cx: &mut gpui::App| host.on_image_press(src, window, cx)) as markdown::LinkHandler
+            }),
+            task_press: self.host.tasks_pressable(cx).then(|| {
+                let host = self.host.clone();
+                Rc::new(move |ordinal: usize, checked: bool, window: &mut Window, cx: &mut gpui::App| host.on_task_toggle(ordinal, checked, window, cx)) as markdown::TaskPress
+            }),
+            window_selection: window_selection.then(|| lcx.theme_color("ring").or_else(|| lcx.theme_color("primary")).unwrap_or(gpui::blue()).opacity(0.3)),
+            // #VAPP-258: a host that windows its Markdown against its own
+            // viewport (the app's transcripts) builds only the blocks near it.
+            visible: (self.host.markdown_visible_only(cx) && self.visible.height > 0.0).then(|| {
+                let abs = self.frames.get(index as usize).map_or(0.0, |f| f.y) + y;
+                // This frame's clip (the band moves with every frame's build).
+                let margin = 64.0;
+                (self.visible.top - abs - margin, self.visible.top + self.visible.height - abs + margin)
             }),
             attachments: std::cell::RefCell::new(attachments),
             live: std::cell::RefCell::new(None),
@@ -1314,7 +1365,7 @@ impl SurfaceView {
         .absolute()
         .size_0();
         let mut el = div().id(SharedString::from(format!("{}.md", lcx.node.id))).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).overflow_hidden().child(markdown::paint(&lcx.node.id, &blocks, &lay, w, &paint, &mut shaper)).child(commit);
-        if !self.ghosting.get() && options.selectable != Some(false) {
+        if !self.ghosting.get() && options.selectable != Some(false) && !window_selection {
             // Selectable text: press-drag selects (the drag follows the
             // pointer anywhere in the window), Shift extends, the platform
             // copy shortcut copies (`copy_selection`).

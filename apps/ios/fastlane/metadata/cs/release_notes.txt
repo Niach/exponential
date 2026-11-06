@@ -1,9 +1,3 @@
-- Přihlášení ke Claude opět používají přihlášení v prohlížeči
-- Trvalé přihlášení udrží běhy účtu Claude přihlášené rok, bez psaní čehokoli
-- Živé chaty se při práci agenta překreslují méně, takže posouvání zůstává plynulé
-- Záznamy aplikací patří svému autorovi; vlastníci týmu mohou zadávat záznamy za ostatní
-- Agenti mohou ve svých kartách zobrazovat malé animace
-- Přihlášení spuštěná z telefonu opět zobrazují odkaz a kód a odmítnutý kód to oznámí
 - Karta účtu ukazuje, které přihlášení je aktivní
 - Zavření přihlášení ho na počítači ukončí
 - Přidejte přístupový klíč v Nastavení › Účet › Přístupové klíče
@@ -46,3 +40,7 @@
 - Relace na offline zařízení to řekne a nabídne přesun
 - Když se označení všeho jako přečteného nepovede, zobrazí se zpráva s možností Zkusit znovu
 - Číselné pole s výchozí hodnotou ji při klepnutí označí, takže první Uložit funguje
+- iPad má postranní panel, seznam a detail vedle sebe
+- Běžící relace jako živá aktivita na zamčené obrazovce a v Dynamic Island
+- Úlohy a chaty ve Spotlightu; Siri a Zkratky vytvoří úlohu nebo chat
+- Pull requesty ukazují stav sloučení s možnostmi Sloučit hned a Pozdržet

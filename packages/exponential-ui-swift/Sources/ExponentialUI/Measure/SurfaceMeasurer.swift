@@ -170,9 +170,12 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     let markdownOptions: MarkdownOptions
     /// #VAPP-258: the viewport height an uncapped Markdown image stops at (nil = unknown).
     let viewportHeight: CGFloat?
+    /// #VAPP-258: the surface's type scale (the Markdown parts the recipes size scale by it).
+    let fontScale: CGFloat
 
-    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil, markdownOptions: MarkdownOptions = MarkdownOptions(), viewportHeight: CGFloat? = nil) {
+    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil, markdownOptions: MarkdownOptions = MarkdownOptions(), viewportHeight: CGFloat? = nil, fontScale: CGFloat = 1) {
         self.markdownOptions = markdownOptions
+        self.fontScale = fontScale
         self.viewportHeight = viewportHeight
         self.mediaAllowed = mediaAllowed
         self.markdownBlocks = markdownBlocks
@@ -507,7 +510,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let o = markdownOptions
         let blocks = markdownBlocks?(text) ?? Markdown.resolveImages(Markdown.parse(text, hardBreaks: o.hardBreaks, streaming: o.streaming), allowed: mediaAllowed)
         let ts = leaf.textStyle
-        let styles = MarkdownPainter.imaged(MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: MarkdownPainter.props(leaf.props, chat: o.chat)), options: o, viewport: viewportHeight ?? 0)
+        let styles = MarkdownPainter.imaged(MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: MarkdownPainter.props(leaf.props, chat: o.chat), fontScale: fontScale), options: o, viewport: viewportHeight ?? 0)
         let shaper = MarkdownShaper(mono: theme?.monoFamily, chip: styles.chip)
         let width: CGFloat
         switch wrap {

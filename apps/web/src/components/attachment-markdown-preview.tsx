@@ -11,7 +11,7 @@ import {
   DialogTitle,
   SkeletonRows,
 } from "@exp/ui"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { ReadMarkdown } from "@/components/read-markdown"
 import {
   MARKDOWN_PREVIEW_MAX_BYTES,
   buildAttachmentDownloadUrl,
@@ -139,12 +139,7 @@ export function AttachmentMarkdownPreviewDialog({
             </p>
           )}
           {state.status === `ready` && (
-            <MarkdownEditor
-              editable={false}
-              markdown={state.markdown}
-              onChange={() => {}}
-              ariaLabel={attachment?.filename}
-            />
+            <ReadMarkdown text={state.markdown} surface="document" ariaLabel={attachment?.filename} />
           )}
         </DialogBody>
         <DialogFooter>

@@ -903,6 +903,28 @@
             "dark": "#a3e635"
           }
         }
+      },
+      {
+        "name": "link",
+        "ref": "$color.link",
+        "values": {
+          "neutral": {
+            "light": "#171717",
+            "dark": "#e5e5e5"
+          },
+          "exponential": {
+            "light": "#2b59c8",
+            "dark": "#5f8bea"
+          },
+          "playful": {
+            "light": "#7c3aed",
+            "dark": "#c4b5fd"
+          },
+          "orange": {
+            "light": "#2b59c8",
+            "dark": "#5f8bea"
+          }
+        }
       }
     ],
     "spacing": [
@@ -2361,7 +2383,9 @@
     "transform",
     "backdropBlur",
     "animation",
-    "native"
+    "native",
+    "marginTop",
+    "marginBottom"
   ],
   "components": [
     {
@@ -2569,10 +2593,17 @@
         "quote",
         "table",
         "listItem",
-        "image"
+        "image",
+        "headerCell",
+        "chip",
+        "chipLabel",
+        "cell",
+        "chipIdent"
       ],
       "props": [
-        "density"
+        "density",
+        "level",
+        "chip"
       ]
     },
     {
@@ -3470,7 +3501,10 @@
         "thumb",
         "label",
         "value",
-        "header"
+        "header",
+        "row",
+        "icon",
+        "end"
       ],
       "props": []
     },

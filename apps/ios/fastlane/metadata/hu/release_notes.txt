@@ -1,9 +1,3 @@
-- A Claude-bejelentkezések ismét a böngészős bejelentkezést használják
-- A Bejelentkezés megőrzése egy évig bejelentkezve tartja egy Claude-fiók futásait, gépelés nélkül
-- Az élő csevegések ritkábban rajzolódnak újra, amíg egy ügynök dolgozik, így a görgetés gördülékeny marad
-- Az alkalmazások rekordjai a szerzőjükhöz tartoznak; a csapat tulajdonosai másoknak is felvehetnek rekordokat
-- Az ügynökök kis animációkat mutathatnak a kártyáikon
-- A telefonról indított bejelentkezések újra mutatják a linket és a kódot, az elutasított kódot pedig jelzik
 - A fiók kártyája mutatja, melyik bejelentkezés aktív
 - A bejelentkezés bezárása leállítja azt a gépen
 - Jelkulcs hozzáadása: Beállítások › Fiók › Jelkulcsok
@@ -46,3 +40,7 @@
 - Az offline eszközön futó munkamenet jelzi ezt, és felajánlja az áthelyezést
 - Ha az Összes olvasottnak jelölése nem sikerül, üzenet jelenik meg Újra gombbal
 - A kezdőértékkel rendelkező számmező koppintáskor kijelöli azt, így az első Mentés működik
+- Az iPaden oldalsáv, lista és részletek egymás mellett
+- A futó munkamenetek élő tevékenységként a zárolási képernyőn és a Dynamic Islandben
+- Feladatok és csevegések a Spotlightban; a Siri és a Parancsok feladatot vagy csevegést hoznak létre
+- A pull requestek mutatják az egyesítési állapotot, Egyesítés most és Visszatartás gombbal

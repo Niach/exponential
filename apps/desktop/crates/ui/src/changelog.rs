@@ -21,10 +21,10 @@
 //! opening the dialog store it.
 
 use gpui::{
-    div, px, size, App, AppContext as _, IntoElement, ParentElement as _, Render, SharedString,
+    div, px, size, App, AppContext as _, IntoElement, ParentElement as _, Render,
     Styled as _, Window,
 };
-use gpui_component::{text::TextView, v_flex, ActiveTheme as _};
+use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::coding_flow;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -54,6 +54,37 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Seven systems tested**: Ubuntu 24.04 and 26.04, Linux Mint 22, Debian 13, Fedora 44 and 45, and Arch install it on every release.
 - **System check in Settings**: About lists what the machine needs (GPU, displays, Xwayland, NVIDIA) with the fix for anything missing.
 - **New name**: Exponential Desktop replaces eDE; an installed `ede` package upgrades in place and keeps your documents and history."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_218: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-06-merge-status-ipad-and-siri",
+    date: "2026-11-06",
+    title: "Merge status, a real iPad layout, Siri and Spotlight",
+    summary: "Pull requests show where they stand with Merge now and Hold, the iPad gets sidebar, list and detail, and iPhone gets Live Activities, Spotlight and Siri.",
+    body: r#"- **Merge status**: every pull request shows a status pill (checks running, failing, conflict, needs approval, ready) with Merge now, Hold and Resume, a stuck pull request shows up in Needs you, and Settings has a Merge row for the team's merge mode.
+- **iPad**: the iPad gets the desktop's shape, with a sidebar, a list and the detail side by side.
+- **iPhone**: running sessions show as a Live Activity on the Lock Screen and in the Dynamic Island, issues and chats appear in Spotlight, and Siri and Shortcuts can create an issue or start a chat.
+- **Android**: Google Assistant can create an issue or a message, and issues and chats show up in the phone's search.
+- **Markdown**: code blocks are highlighted, and long answers render smoothly while they stream in.
+- **Desktop**: right-click a message in any chat to copy it.
+- **Same look**: dialogs keep their bottom edge, and the last differences between the apps are gone."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_217: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-06-lock-screen-and-notification-answers",
+    date: "2026-11-06",
+    title: "Lock screen sessions and answers from notifications",
+    summary: "On Android, running sessions show on the lock screen and you can answer a plan or question straight from its notification; Mark all read works on desktop again.",
+    body: r#"- **Lock screen (Android)**: a session that is running shows on the lock screen as a live update.
+- **Answer from the notification (Android)**: approve a plan or ask for changes, pick a question's option, or reply to a mention without opening the app.
+- **App icon shortcuts (Android)**: long-press the app icon for New issue, New chat, Search and your newest chat.
+- **Mark all read**: works on desktop again, and if it fails on any app you get a message with Retry instead of nothing.
+- **App forms**: a number field that starts with a value selects it when you tap in, so the first Save works; date-times in record tables read as dates.
+- **Markdown in apps**: app text renders the same on the web, desktop, iPhone and Android."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
@@ -2952,11 +2983,8 @@ impl Render for WhatsNewView {
             )
             .child(
                 div().pt_2().text_sm().child(
-                    // Same glass code-block treatment as every other markdown
-                    // surface in the app.
-                    TextView::markdown("whats-new-body", SharedString::from(LATEST.body))
-                        .style(crate::surface::markdown_style())
-                        .selectable(true),
+                    // #VAPP-258: the app's one read-only Markdown.
+                    crate::markdown::MarkdownView::new("whats-new-body", LATEST.body).selectable(true),
                 ),
             )
     }

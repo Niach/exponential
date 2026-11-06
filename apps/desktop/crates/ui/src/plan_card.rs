@@ -382,6 +382,12 @@ impl CardSurfaceHost {
         }
     }
 
+    /// #VAPP-258: the host of a text in `team_id` (`None` = the active team).
+    pub(crate) fn for_team(team_id: Option<String>, cx: &App) -> Self {
+        let link_base = crate::links::team_link_base(team_id.as_deref(), cx);
+        Self { team_id, link_base, ..Self::new(cx) }
+    }
+
     /// The host of a card in `session_id`: that session's team.
     pub(crate) fn for_session(session_id: &str, cx: &App) -> Self {
         let team_id = crate::session_data::session(session_id, cx).and_then(|row| row.team_id.clone());

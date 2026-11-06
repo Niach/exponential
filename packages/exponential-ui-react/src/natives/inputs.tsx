@@ -436,12 +436,12 @@ export function SliderNative({ node, props, rootProps, emit, scope }: NativeProp
   const max = num(props.max, 100)
   const step = num(props.step, 1)
   const [value, setValue] = useBoundState(node, scope, `value`, num(props.value, min))
-  return (
-    <div {...(rootProps as Record<string, unknown>)}>
-      <div {...(part(`header`) as Record<string, string>)} className={`${(part(`header`) as { className: string }).className} xui-slider-head`}>
-        <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
-        <span {...(part(`value`) as Record<string, string>)}>{ctx.formatter.number(value)}</span>
-      </div>
+  // #VAPP-286: `showValue: false` prints no value; a leading `icon` and/or an
+  // `endLabel` put the track in the `row` part (the core's volume row).
+  const showValue = props.showValue !== false
+  const icon = str(props.icon)
+  const endLabel = props.endLabel == null ? `` : String(props.endLabel)
+  const root = (
       <SliderPrimitive.Root
         className="xui-slider-root"
         value={[value]}
@@ -458,6 +458,28 @@ export function SliderNative({ node, props, rootProps, emit, scope }: NativeProp
         </SliderPrimitive.Track>
         <SliderPrimitive.Thumb id={id} {...(part(`thumb`) as Record<string, string>)} aria-label={str(props.label) || undefined} />
       </SliderPrimitive.Root>
+  )
+  return (
+    <div {...(rootProps as Record<string, unknown>)}>
+      {str(props.label) || showValue ? (
+        <div {...(part(`header`) as Record<string, string>)} className={`${(part(`header`) as { className: string }).className} xui-slider-head`}>
+          <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
+          {showValue ? <span {...(part(`value`) as Record<string, string>)}>{ctx.formatter.number(value)}</span> : null}
+        </div>
+      ) : null}
+      {icon || endLabel ? (
+        <div {...(part(`row`) as Record<string, string>)} className={`${(part(`row`) as { className: string }).className} xui-slider-row`}>
+          {icon ? (
+            <span {...(part(`icon`) as Record<string, string>)} aria-hidden="true">
+              <IconGlyph icons={ctx.host.icons} name={icon} />
+            </span>
+          ) : null}
+          {root}
+          {endLabel ? <span {...(part(`end`) as Record<string, string>)}>{endLabel}</span> : null}
+        </div>
+      ) : (
+        root
+      )}
     </div>
   )
 }

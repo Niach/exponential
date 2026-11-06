@@ -210,6 +210,51 @@ pub trait HostPlugin: 'static {
         None
     }
 
+    /// #VAPP-258 (gpui host extra): a version of this host's Markdown answers
+    /// for `text` (text links, chips, image sizes, attachments, options): the
+    /// same version = the same answers, so an unchanged paint reuses the
+    /// laid-out document. `None` (the default) = ask again every paint.
+    fn markdown_hooks_version(&self, _text: &str, _cx: &gpui::App) -> Option<u64> {
+        None
+    }
+
+    /// #VAPP-258 (gpui host extra): whether a long Markdown builds only the
+    /// blocks near the host's visible region (the surface's whole box scrolls
+    /// in the host, no scroller inside it). Default `false`: every block is
+    /// built each frame (only those crossing the clip lay out and paint).
+    fn markdown_visible_only(&self, _cx: &gpui::App) -> bool {
+        false
+    }
+
+    /// #VAPP-258 (gpui host extra): the host's WINDOW-level text selection
+    /// selects Markdown text (gpui-base's `TextSelectionLayer`, mounted by
+    /// the host's root): a press-drag sweeps across every Markdown leaf of
+    /// every surface in the window in document order, the host's copy gives
+    /// the whole range. The leaf's own selection is off then. Default `false`.
+    fn markdown_window_selection(&self, _cx: &gpui::App) -> bool {
+        false
+    }
+
+    /// #VAPP-258 (gpui host extra): a Markdown inline chip's icon `name`
+    /// (the [`eui_core::host::TextLinkChip`] icon) at `size` in the chip's
+    /// label `color`, painted by the host (an issue's status glyph in its own
+    /// tint). `None` = the icon registry ([`Self::icon`]). The box is the
+    /// chip's icon slot whatever this returns (measure = paint).
+    fn chip_icon(&self, _name: &str, _size: f32, _color: gpui::Hsla) -> Option<gpui::AnyElement> {
+        None
+    }
+
+    /// #VAPP-258 (gpui host extra): does a press on a Markdown task box call
+    /// [`Self::on_task_toggle`]? Default `false`: the box is inert.
+    fn tasks_pressable(&self, _cx: &gpui::App) -> bool {
+        false
+    }
+
+    /// #VAPP-258: the `ordinal`-th task item of the Markdown (document order,
+    /// 0-based) was pressed; `checked` = its state BEFORE the press. Only
+    /// asked when [`Self::tasks_pressable`]; the host rewrites its text.
+    fn on_task_toggle(&self, _ordinal: usize, _checked: bool, _window: &mut gpui::Window, _cx: &mut gpui::App) {}
+
     /// #VAPP-258 step 5: the Markdown render options (`catalog/host.json`
     /// markdown.options), read by the measurer and the painter alike.
     fn markdown_options(&self, _cx: &gpui::App) -> MarkdownOptions {

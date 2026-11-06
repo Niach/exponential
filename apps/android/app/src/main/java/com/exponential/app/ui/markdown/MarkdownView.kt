@@ -1,1031 +1,521 @@
 package com.exponential.app.ui.markdown
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalDensity
-import com.exponential.app.ui.components.ExpCheckbox
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import at.exponential.ui.json.JsonValue
+import at.exponential.ui.paint.MarkdownPainter
+import at.exponential.ui.primitives.MarkdownAttachment
+import at.exponential.ui.primitives.MarkdownBlockKind
+import at.exponential.ui.primitives.MarkdownChip
+import at.exponential.ui.primitives.MarkdownCodeHighlighter
+import at.exponential.ui.primitives.MarkdownColors
+import at.exponential.ui.primitives.MarkdownImageSizes
+import at.exponential.ui.primitives.MarkdownLaidOut
+import at.exponential.ui.primitives.MarkdownOptions
+import at.exponential.ui.primitives.MarkdownSize
+import at.exponential.ui.primitives.MarkdownStyles
+import at.exponential.ui.primitives.MarkdownTextLink
+import at.exponential.ui.primitives.MarkdownTextSpec
+import at.exponential.ui.theme.Mode
+import at.exponential.ui.theme.ResolvedTextStyle
+import at.exponential.ui.theme.ThemeHandle
 import coil3.compose.AsyncImage
-import com.exponential.app.domain.PlanCard
-import com.exponential.app.ui.theme.DesignTokens
-import com.exponential.app.ui.theme.GlassTokens
 import coil3.compose.AsyncImagePainter
-import com.exponential.app.ui.markdown.model.BlockKind
-import com.exponential.app.ui.markdown.model.ContentBlock
-import com.exponential.app.ui.markdown.model.InlineKind
-import com.exponential.app.ui.markdown.model.InlineMark
-import com.exponential.app.ui.markdown.model.ListType
-import com.exponential.app.ui.markdown.model.ParagraphAttrs
+import com.exponential.app.domain.AppLink
+import com.exponential.app.domain.ProseLinks
+import com.exponential.app.domain.classifyAppLink
+import com.exponential.app.ui.apps.APP_THEME_ID
+import com.exponential.app.ui.components.entityConceptIcon
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.media.AudioBlockView
 import com.exponential.app.ui.markdown.media.VideoBlockView
-import com.exponential.app.domain.ProseLinks
-import com.exponential.app.ui.markdown.model.RichText
+import com.exponential.app.ui.theme.AppPrimitiveTokens
 import com.exponential.app.ui.theme.resolvedStatusColor
+import at.exponential.ui.primitives.MarkdownView as GenUiMarkdownView
 
 /**
- * Read-only markdown renderer — the shared display path for issue descriptions
- * and comment bodies. Parses GFM into blocks once (memoized on the source) and
- * renders the same per-block visuals the editor uses, minus editing affordances.
- * Replaces the `compose-rich-editor` `RichText` read path so all three clients
- * render the same contract. When a [LocalIssueRefs] handler is provided,
- * inline `#IDENTIFIER` tokens that resolve to a visible issue render as
- * tappable pills, and with a [LocalMentions] resolver a known member's
- * `@email` renders as their name pill (both render-only — the stored markdown
- * keeps the plain tokens).
+ * Read-only markdown: the shared display path for issue descriptions,
+ * comments, the agent transcript, plans and results. #VAPP-258: ONE
+ * implementation with genUI's catalog `Markdown` (the Exponential UI
+ * primitives' `MarkdownView` on the `Markdown` recipes of the app's theme,
+ * [MarkdownPainter.styles]); this file only supplies the host hooks
+ * (catalog/host.json `markdown`): `#IDENT` refs ([LocalIssueRefs]) and
+ * `@email` mentions ([LocalMentions]) as chip segments, the transcript's
+ * rewritten in-app links (prose-links.json) as entity chips, links through
+ * the app-link rule ([LocalAppLinks], app-link.json), `/api/attachments/{id}`
+ * images sized from the synced rows ([LocalAttachmentDims]) and pressable
+ * through [LocalMarkdownImageClick], attachment links as players or a file
+ * row. Editors keep their own renderer ([MarkdownEditor]).
  */
 @Composable
 fun MarkdownView(
     markdown: String,
     modifier: Modifier = Modifier,
-    /** Render every soft line break as its own line instead of a space —
-     *  agent output (EXP-440) is written for a terminal, where a wrapped
-     *  paragraph is really a list of lines. */
+    /** `breaks: hard`: every newline inside a paragraph breaks the line —
+     *  agent output (EXP-440) is written for a terminal. */
     softBreaksAsNewlines: Boolean = false,
+    /** `density: chat` (the transcript rhythm); default = an agent surface
+     *  (hard breaks or a transcript body style in force), else `document`. */
+    chat: Boolean = softBreaksAsNewlines || LocalMarkdownBodyStyle.current != MdStyle.body,
+    /** `streaming: true`: [markdown] is a growing prefix (a reply being written). */
+    streaming: Boolean = false,
+    /** `imageMaxHeight`: a document's screenshots keep their width (none, at
+     *  most the screen's height); a chat caps them at [CHAT_IMAGE_MAX_HEIGHT]. */
+    imageMaxHeight: Float? = if (chat) CHAT_IMAGE_MAX_HEIGHT else null,
+    /** The laid-out document (a fold at whole lines, [MarkdownLaidOut.foldHeight]). */
+    onLayout: ((MarkdownLaidOut) -> Unit)? = null,
 ) {
     if (markdown.isBlank()) return
-    val shown = rememberChippedProse(markdown)
-    val blocks = remember(shown, softBreaksAsNewlines) {
-        MarkdownParser.parseCached(shown, softBreaksAsNewlines)
-    }
     val issueRefs = LocalIssueRefs.current
-    // The whole rendered document is one selection scope (EXP-534): long-press
-    // selection spans blocks AND images (the text on both sides selects; the
-    // image itself is not selectable content). Links/chips stay tappable —
-    // SelectionContainer only adds the long-press gesture. The caller's
-    // modifier goes on the container so parent-data modifiers (weight) land on
-    // the layout parent's direct child.
-    SelectionContainer(modifier = modifier) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            blocks.forEach { block ->
-                when (block) {
-                    is ContentBlock.TextBlock -> TextBlockView(block.content, issueRefs)
-                    is ContentBlock.ImageBlock -> ImageBlockView(block.url, block.alt)
-                    is ContentBlock.AttachmentLinkBlock ->
-                        AttachmentLinkBlockView(block.url, block.label, issueRefs)
-                    is ContentBlock.TableBlock -> TableBlockView(block.table, issueRefs)
-                }
-            }
-        }
+    val mentions = LocalMentions.current
+    val appLinks = LocalAppLinks.current
+    val bare = LocalIssueRefBare.current
+    val autolink = LocalMarkdownAutolink.current
+    val dims = LocalAttachmentDims.current
+    val opener by rememberUpdatedState(LocalAttachmentLinkOpener.current)
+    val onImageClick = LocalMarkdownImageClick.current
+    val uri = LocalUriHandler.current
+    val shown = rememberChippedProse(markdown)
+    val source = remember(shown, autolink) { AppMarkdown.prepare(shown, autolink) }
+    val look = AppMarkdown.look(chat, LocalDensity.current.fontScale)
+    val policy = remember(appLinks) { { href: String -> AppMarkdown.police(href, appLinks) } }
+    val segments = remember(source, issueRefs, mentions, bare) {
+        { piece: String -> AppMarkdown.segments(piece, source, issueRefs, mentions, bare) }
     }
+    val imageSize = remember(dims) { { src: String -> AppMarkdown.imageSize(src, dims) } }
+    val attachments = remember(dims, source) { { href: String -> AppMarkdown.attachment(href, dims, source) } }
+    val onLink = remember(issueRefs, appLinks, uri) {
+        { href: String -> AppMarkdown.open(href, issueRefs, appLinks, opener) { runCatching { uri.openUri(it) } } }
+    }
+    GenUiMarkdownView(
+        text = source.text,
+        modifier = modifier,
+        styles = look.styles,
+        colors = look.colors,
+        codeBlockRadius = look.codeRadius.dp,
+        monoFamily = null,
+        onLink = onLink,
+        linkPolicy = policy,
+        linkSegments = segments,
+        imageSize = imageSize,
+        attachments = attachments,
+        onImagePress = onImageClick,
+        codeHighlighter = look.highlighter,
+        chipIcon = { name, size, color -> ChipIcon(name, size, color) },
+        attachmentView = { a, w, h -> AttachmentBlock(a, w, h, dims, look, onLink) },
+        image = { src, alt ->
+            // #VAPP-258: the box's corners are the theme's (`Markdown/image`);
+            // a picture the synced rows cannot size reports its decoded size
+            // (genUI's media cache), so its box takes the real aspect.
+            AsyncImage(
+                model = src,
+                contentDescription = alt,
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.TopStart,
+                onState = { state ->
+                    val size = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
+                    if (size != null && size.isSpecified) MarkdownImageSizes.remember(src, size.width, size.height)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        },
+        options = MarkdownOptions(hardBreaks = softBreaksAsNewlines, chat = chat, selectable = true, streaming = streaming, imageMaxHeight = imageMaxHeight),
+        onLayout = onLayout,
+    )
 }
+
+/** A chat's block image height cap (dp); documents have none. */
+const val CHAT_IMAGE_MAX_HEIGHT = 240f
 
 /** #EXP-1493: a host that opens a picture on a press (the plan page's
  *  lightbox) provides it; null = the picture is inert. */
-val LocalMarkdownImageClick = androidx.compose.runtime.compositionLocalOf<((url: String) -> Unit)?> { null }
-
-@Composable
-private fun ImageBlockView(url: String, alt: String) {
-    val onImageClick = LocalMarkdownImageClick.current
-    // Pre-size from the synced attachment probe (REV2-79) so the row reserves
-    // its real height instead of measuring 0 and jumping when the bitmap
-    // lands. Our own attachments whose probe hasn't synced yet reserve the
-    // editor's 4:3 tile; EXTERNAL image URLs (never probed) keep their natural
-    // sizing rather than being letterboxed forever. Once the bitmap decodes,
-    // ITS ratio wins (iOS `ImageBlockView.aspectRatio` parity) — the agent
-    // feed renders attachments of OTHER issues (a batch prompt's embeds,
-    // EXP-605) whose probes never sync here, and holding the 4:3 tile past
-    // decode letterboxes those forever.
-    val dims = LocalAttachmentDims.current
-    var decodedAspect by remember(url) { mutableStateOf<Float?>(null) }
-    val aspect = decodedAspect
-        ?: dims.aspectRatioOf(url)
-        ?: if (attachmentIdFromUrl(url) != null) DEFAULT_IMAGE_ASPECT_RATIO else null
-    // A chat body (the plan / question card, the transcript) draws the
-    // card's picture (plan-card.json `card`): the probed aspect at full
-    // width, no max height, its own radius + a stroke-card hairline. A
-    // document keeps the editor's 8dp tile.
-    val chat = LocalMarkdownBodyStyle.current != MdStyle.body
-    val shape = RoundedCornerShape(if (chat) PlanCard.Look.PICTURE_RADIUS.dp else 8.dp)
-    AsyncImage(
-        model = url,
-        contentDescription = alt,
-        contentScale = ContentScale.Fit,
-        onState = { state ->
-            val size = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
-            if (size != null && size.isSpecified && size.width > 0f && size.height > 0f) {
-                decodedAspect = size.width / size.height
-            }
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .then(if (aspect != null) Modifier.aspectRatio(aspect) else Modifier)
-            .clip(shape)
-            .then(if (chat) Modifier.border(PlanCard.Look.PICTURE_STROKE.dp, GlassTokens.StrokeCard, shape) else Modifier)
-            .then(if (onImageClick != null) Modifier.clickable { onImageClick(url) } else Modifier),
-    )
-}
+val LocalMarkdownImageClick = compositionLocalOf<((url: String) -> Unit)?> { null }
 
 /**
- * EXP-824: a paragraph that is solely one attachment link. The synced row
- * decides the treatment — a `video/` type plays inline (poster + play glyph
- * + duration, fullscreen on demand), `audio/` gets the compact player row,
- * and any other type, or a row that hasn't synced yet, renders the plain
- * link it was written as. The plain fallback opens through
- * [LocalAttachmentLinkOpener] when a screen provides one: a relative
- * `/api/attachments/…` URL is nothing the system URI handler could open.
- */
-@Composable
-private fun AttachmentLinkBlockView(url: String, label: String, issueRefs: IssueRefHandler?) {
-    val info = LocalAttachmentDims.current.infoOf(url)
-    when {
-        info?.isVideo == true -> VideoBlockView(url = url, label = label, info = info)
-        info?.isAudio == true -> AudioBlockView(url = url, label = label, info = info)
-        else -> {
-            val opener = LocalAttachmentLinkOpener.current
-            val body = LocalMarkdownBodyStyle.current
-            val text = buildAnnotatedString {
-                append(label)
-                val styles = TextLinkStyles(style = SpanStyle(color = MdStyle.Link))
-                if (opener != null) {
-                    addLink(
-                        LinkAnnotation.Clickable(
-                            tag = url,
-                            styles = styles,
-                            linkInteractionListener = { opener(url) },
-                        ),
-                        0,
-                        label.length,
-                    )
-                } else {
-                    addLink(LinkAnnotation.Url(url = url, styles = styles), 0, label.length)
-                }
-            }
-            Text(
-                text = text,
-                style = body,
-                modifier = Modifier.fillMaxWidth().padding(vertical = MdStyle.blockSpacing / 2),
-            )
-        }
-    }
-}
-
-/**
- * How a screen opens an attachment link the renderer could not upgrade to a
- * player (EXP-824) — typically download-to-cache + hand to the system. Null
- * (the default) leaves the link to the platform URI handler.
+ * How a screen opens an attachment link the renderer shows as a file row
+ * (EXP-824), typically download-to-cache + hand to the system. Null (the
+ * default) leaves the link to the platform URI handler.
  */
 val LocalAttachmentLinkOpener = compositionLocalOf<((String) -> Unit)?> { null }
 
+/** A chip's icon: a concept / registry name, or a `status|<glyph>|<argb>` issue status. */
 @Composable
-private fun TextBlockView(rich: RichText, issueRefs: IssueRefHandler?) {
-    if (rich.isEmpty) return
-    // EXP-1521: split + per-line marks once per text, not per recomposition.
-    val lines = remember(rich) { rich.lines }
-    val attrs = remember(rich) { (lines.indices).map { rich.paragraphs.getOrElse(it) { ParagraphAttrs.PLAIN } } }
-    val lineMarks = remember(rich) { lineLocalMarks(rich) }
+private fun ChipIcon(name: String, size: Float, color: Color) {
+    val status = AppMarkdown.statusIcon(name)
+    val vector = if (status != null) ExpIcons.byName(status.first) else entityConceptIcon(name) ?: ExpIcons.byName(name)
+    if (vector == null) return
+    Icon(vector, contentDescription = null, tint = status?.second ?: color, modifier = Modifier.size(size.dp))
+}
 
-    // Group consecutive code-block lines so they render in one rounded box,
-    // and consecutive quote lines behind one continuous left bar (EXP-246).
-    var i = 0
-    Column(modifier = Modifier.fillMaxWidth()) {
-        while (i < lines.size) {
-            val a = attrs[i]
-            if (a.kind == BlockKind.CodeBlock) {
-                var j = i
-                while (j + 1 < lines.size && attrs[j + 1].kind == BlockKind.CodeBlock) j++
-                CodeBlockView((i..j).map { lines[it] })
-                i = j + 1
-            } else if (a.kind == BlockKind.Blockquote) {
-                var j = i
-                while (j + 1 < lines.size && attrs[j + 1].kind == BlockKind.Blockquote) j++
-                QuoteBlockView(
-                    (i..j).map { lines[it] },
-                    (i..j).map { lineMarks[it] },
-                    (i..j).map { attrs[it].lineBreak },
-                    issueRefs,
+/** catalog/host.json `attachment`: the app's players for video / audio, a file row otherwise. */
+@Composable
+private fun AttachmentBlock(
+    a: MarkdownBlockKind.Attachment,
+    w: Float,
+    h: Float,
+    dims: AttachmentDims,
+    look: AppMarkdown.Look,
+    onLink: (String) -> Unit,
+) {
+    Box(Modifier.size(w.dp, h.dp)) {
+        when (a.type) {
+            "video" -> VideoBlockView(url = a.href, label = a.name, info = dims.infoOf(a.href))
+            "audio" -> AudioBlockView(url = a.href, label = a.name, info = dims.infoOf(a.href))
+            else -> Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(look.codeRadius.dp))
+                    .clickable { onLink(a.href) }
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(ExpIcons.uiFile, contentDescription = null, tint = look.colors.muted, modifier = Modifier.size(16.dp))
+                Text(
+                    a.name,
+                    style = TextStyle(color = look.colors.link, fontSize = look.styles.body.size.sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                i = j + 1
+            }
+        }
+    }
+}
+
+/** The pure half of [MarkdownView]: the look and the host hooks. */
+object AppMarkdown {
+    /** The resolved look of one density. */
+    class Look(
+        val styles: MarkdownStyles,
+        val colors: MarkdownColors,
+        val codeRadius: Float,
+        val highlighter: MarkdownCodeHighlighter?,
+    )
+
+    private val MODE = Mode.Dark
+
+    /** The app's theme (the catalog's `exponential`); null where the core cannot load (JVM tests). */
+    private val theme: ThemeHandle? by lazy { ThemeHandle.builtin(APP_THEME_ID) }
+
+    private val looks = HashMap<Pair<Boolean, Float>, Look>()
+
+    /** The look of `density: chat` or `document` at the system [fontScale] (the type scales, the painter stays at fontScale 1). */
+    fun look(chat: Boolean, fontScale: Float = 1f): Look = synchronized(looks) {
+        looks.getOrPut(chat to fontScale) { resolve(chat, fontScale) }
+    }
+
+    private fun resolve(chat: Boolean, fontScale: Float): Look {
+        val t = theme
+        val fallback = MarkdownColors.from(AppPrimitiveTokens)
+        if (t == null) {
+            val body = MarkdownTextSpec(size = 14f * fontScale, lineHeight = (if (chat) 22f else 20f) * fontScale, weight = 400, family = null)
+            return Look(MarkdownStyles(body), fallback, AppPrimitiveTokens.radiusMd.value, null)
+        }
+        val props = MarkdownPainter.props(emptyMap(), chat)
+        val root = t.part("Markdown", "root", emptyMap(), mode = MODE)
+        val body = ResolvedTextStyle(
+            fontSize = (root.px("fontSize") ?: 14f) * fontScale,
+            fontWeight = root.props["fontWeight"]?.number?.toInt() ?: 400,
+            lineHeight = (root.px("lineHeight") ?: 20f) * fontScale,
+            fontFamily = root.fontFamily,
+        )
+        val styles = MarkdownPainter.styles(t, MODE, body, props, fontScale)
+        fun part(owner: String, name: String, p: Map<String, JsonValue> = props, states: List<String> = emptyList()) =
+            t.part(owner, name, p, states, MODE)
+        val ink = part("Markdown", "root").color ?: t.color("foreground", MODE) ?: fallback.ink
+        val muted = t.color("mutedForeground", MODE) ?: fallback.muted
+        val border = t.color("border", MODE) ?: fallback.border
+        val taskOff = part("Checkbox", "box", mapOf("checked" to JsonValue.Bool(false)))
+        val taskOn = part("Checkbox", "box", mapOf("checked" to JsonValue.Bool(true)), listOf("checked"))
+        val chipRoot = part("Chip", "root", MarkdownPainter.CHIP_PROPS)
+        val colors = MarkdownColors(
+            ink = ink,
+            muted = muted,
+            link = part("Markdown", "link").color ?: t.color("primary", MODE) ?: fallback.link,
+            border = border,
+            codeBackground = part("Markdown", "code").style.background,
+            codeBlockBackground = part("Markdown", "codeBlock").style.background ?: t.color("muted", MODE) ?: fallback.codeBlockBackground,
+            quoteBorder = part("Markdown", "quote").style.borderColor ?: border,
+            taskFill = taskOff.style.background ?: Color.Transparent,
+            taskBorder = taskOff.style.borderColor ?: border,
+            taskChecked = taskOn.style.background ?: t.color("primary", MODE) ?: ink,
+            taskCheck = part("Checkbox", "check", mapOf("checked" to JsonValue.Bool(true)), listOf("checked")).color
+                ?: t.color("primaryForeground", MODE) ?: Color.White,
+            chipBackground = chipRoot.style.background ?: Color.Transparent,
+            chipBorder = chipRoot.style.borderColor ?: border,
+            chipBorderWidth = chipRoot.style.borderWidth,
+            chipInk = part("Chip", "label", MarkdownPainter.CHIP_PROPS).color ?: ink,
+            imageBorder = part("Markdown", "image").style.borderColor ?: Color.Unspecified,
+            imageBorderWidth = part("Markdown", "image").style.borderWidth,
+        )
+        val highlighter = MarkdownPainter.codeHighlighter(t, MODE)
+        return Look(styles, colors, t.radius("md").takeIf { it > 0f } ?: 6f, highlighter)
+    }
+
+    /** An entity chip spliced out of the source (prose-links.json). */
+    data class Entity(val label: String, val href: String, val kind: ProseLinks.ChipKind)
+
+    /**
+     * The text handed to the painter: every rewritten in-app link
+     * (`[title](url#exp-chip-kind)`) replaced by a private-use token the text
+     * links answer as its entity chip (a markdown link's label never asks the
+     * host), and with [autolink] every bare `http(s)://` url outside code
+     * written as a link. [labels] = each link's label by destination (an
+     * attachment's name).
+     */
+    class Source(val text: String, val entities: List<Entity>, val labels: Map<String, String>)
+
+    private const val TOKEN_OPEN = ''
+    private const val TOKEN_CLOSE = ''
+    private val LINK = Regex("""(?<!!)\[((?:\\.|[^\\\]])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)""")
+    private val TOKEN = Regex("$TOKEN_OPEN(\\d+)$TOKEN_CLOSE")
+    private const val URL_STOPS = " \t<>()[]`\"'"
+    private const val URL_TRAILING = ".,;:!?*_~"
+
+    fun prepare(markdown: String, autolink: Boolean): Source {
+        val labels = HashMap<String, String>()
+        val entities = ArrayList<Entity>()
+        val hasChips = markdown.contains("#exp-chip-")
+        val bareUrls = autolink && (markdown.contains("http://", true) || markdown.contains("https://", true))
+        for (m in LINK.findAll(markdown)) labels.putIfAbsent(m.groupValues[2], unescape(m.groupValues[1]))
+        if (!hasChips && !bareUrls) return Source(markdown, entities, labels)
+        var fence: String? = null
+        val text = markdown.split("\n").joinToString("\n") { line ->
+            val mark = fenceMark(line)
+            when {
+                mark != null -> {
+                    if (fence == null) fence = mark else if (fence == mark) fence = null
+                    line
+                }
+                fence != null -> line
+                else -> rewriteLine(line, hasChips, bareUrls, entities)
+            }
+        }
+        return Source(text, entities, labels)
+    }
+
+    private fun fenceMark(line: String): String? {
+        val rest = line.trimStart(' ')
+        if (line.length - rest.length > 3) return null
+        return if (rest.startsWith("```") || rest.startsWith("~~~")) rest.substring(0, 3) else null
+    }
+
+    /** One line outside a fence: its code spans kept, chip links tokenized, bare urls linked. */
+    private fun rewriteLine(line: String, chips: Boolean, urls: Boolean, entities: MutableList<Entity>): String {
+        val out = StringBuilder(line.length)
+        var at = 0
+        while (at < line.length) {
+            val ch = line[at]
+            if (ch == '`') {
+                var run = at
+                while (run < line.length && line[run] == '`') run++
+                val close = line.indexOf(line.substring(at, run), run)
+                val end = if (close == -1) run else close + (run - at)
+                out.append(line, at, end)
+                at = end
+                continue
+            }
+            if (ch == '[' && (at == 0 || line[at - 1] != '!')) {
+                val m = LINK.matchAt(line, at)
+                if (m != null) {
+                    val kind = if (chips) ProseLinks.chipKind(m.groupValues[2]) else null
+                    if (kind != null) {
+                        out.append(TOKEN_OPEN).append(entities.size).append(TOKEN_CLOSE)
+                        entities.add(Entity(unescape(m.groupValues[1]), m.groupValues[2], kind))
+                    } else {
+                        out.append(m.value)
+                    }
+                    at = m.range.last + 1
+                    continue
+                }
+            }
+            if (urls && (line.startsWith("http://", at, true) || line.startsWith("https://", at, true))) {
+                val prev = line.getOrNull(at - 1)
+                val glued = prev != null && (prev.isLetterOrDigit() || prev == '_' || prev == '[' || prev == '<' || prev == '(')
+                if (!glued) {
+                    var end = at
+                    while (end < line.length && line[end] !in URL_STOPS) end++
+                    while (end > at && line[end - 1] in URL_TRAILING) end--
+                    val url = line.substring(at, end)
+                    if (url.length > "https://".length) {
+                        out.append('[').append(url.replace("[", "\\[").replace("]", "\\]")).append("](").append(url).append(')')
+                        at = end
+                        continue
+                    }
+                }
+            }
+            out.append(ch)
+            at++
+        }
+        return out.toString()
+    }
+
+    private fun unescape(label: String): String {
+        if (!label.contains('\\')) return label
+        val out = StringBuilder(label.length)
+        var i = 0
+        while (i < label.length) {
+            val c = label[i]
+            if (c == '\\' && i + 1 < label.length) {
+                out.append(label[i + 1])
+                i += 2
             } else {
-                // EXP-1676: half a gap above and below every paragraph (web's
-                // collapsing 0.5rem margins), none across a soft line break.
-                val half = MdStyle.blockSpacing / 2
-                val top = if (a.lineBreak) 0.dp else half
-                val bottom = if (attrs.getOrNull(i + 1)?.lineBreak == true) 0.dp else half
-                LineView(lines[i], a, lineMarks[i], issueRefs, Modifier.padding(top = top, bottom = bottom))
+                out.append(c)
                 i++
             }
         }
-    }
-}
-
-// A run of consecutive quote lines: one continuous vertical bar with the muted
-// quoted text indented beside it (Linear-style, EXP-246) — matches the editor's
-// Blockquote ParagraphDecoration.
-@Composable
-private fun QuoteBlockView(
-    texts: List<String>,
-    marks: List<List<InlineMark>>,
-    lineBreaks: List<Boolean>,
-    issueRefs: IssueRefHandler?,
-) {
-    val mentions = LocalMentions.current
-    val autolink = LocalMarkdownAutolink.current
-    val inlineCode = LocalInlineCodeStyle.current
-    val bare = LocalIssueRefBare.current
-    val appLinks = LocalAppLinks.current
-    val body = LocalMarkdownBodyStyle.current
-    // EXP-1676: web's `blockquote > p` keep the 0.5rem paragraph rhythm and
-    // the bar spans the text only (the margins collapse out of the quote).
-    Box(Modifier.fillMaxWidth().padding(vertical = MdStyle.blockSpacing / 2)) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min),
-    ) {
-        Box(
-            Modifier
-                .width(MdStyle.quoteBarWidth)
-                .fillMaxHeight()
-                .background(MdStyle.QuoteBar),
-        )
-        Spacer(Modifier.width(MdStyle.quoteIndent))
-        Column(Modifier.weight(1f)) {
-            texts.forEachIndexed { index, text ->
-                key(index) {
-                    ChipText(
-                        line = remember(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare, appLinks) {
-                            annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare, appLinks)
-                        },
-                        style = body.copy(color = MdStyle.Blockquote),
-                        modifier = Modifier.fillMaxWidth().padding(
-                            top = if (index == 0 || lineBreaks.getOrElse(index) { false }) 0.dp else MdStyle.blockSpacing,
-                        ),
-                    )
-                }
-            }
-        }
-    }
-    }
-}
-
-@Composable
-private fun CodeBlockView(codeLines: List<String>) {
-    val body = LocalMarkdownBodyStyle.current
-    Text(
-        text = codeLines.joinToString("\n"),
-        // The mono step rides whatever body is in force (EXP-787), so a
-        // transcript's fences shrink with its prose instead of towering over it.
-        style = body.copy(fontFamily = FontFamily.Monospace, fontSize = body.fontSize * 0.9f),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(MdStyle.CodeBlockBg)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-    )
-}
-
-@Composable
-private fun LineView(
-    text: String,
-    a: ParagraphAttrs,
-    marks: List<InlineMark>,
-    issueRefs: IssueRefHandler?,
-    gap: Modifier,
-) {
-    val mentions = LocalMentions.current
-    val autolink = LocalMarkdownAutolink.current
-    val inlineCode = LocalInlineCodeStyle.current
-    val bare = LocalIssueRefBare.current
-    val appLinks = LocalAppLinks.current
-    val body = LocalMarkdownBodyStyle.current
-    when (a.kind) {
-        BlockKind.Heading -> ChipText(
-            line = rememberAnnotatedLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
-            // A chat body derives its headings from the body (h1 =
-            // `card.headingScale` × it); a document keeps the editor's scale.
-            style = if (body == MdStyle.body) MdStyle.heading(a.headingLevel) else MdStyle.chatHeading(a.headingLevel, body),
-            modifier = Modifier.fillMaxWidth().then(gap),
-        )
-
-        // Blockquote never reaches here — TextBlockView groups quote runs into
-        // QuoteBlockView (runs of length ≥ 1), like CodeBlock.
-        BlockKind.Blockquote -> Unit
-
-        BlockKind.ThematicBreak -> Text(
-            text = MarkdownParser.THEMATIC_BREAK_GLYPH,
-            style = body.copy(color = MdStyle.Dim),
-            modifier = Modifier.fillMaxWidth().then(gap),
-        )
-
-        BlockKind.ListItem -> ListItemView(text, a, marks, issueRefs, gap)
-
-        BlockKind.Paragraph, BlockKind.CodeBlock -> {
-            if (text.isEmpty()) {
-                Spacer(Modifier.padding(vertical = 2.dp))
-            } else {
-                ChipText(
-                    line = rememberAnnotatedLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
-                    style = body,
-                    // EXP-1676: web's `.tiptap-content p` 0.5rem rhythm (the
-                    // margins collapse: half above + half below = one gap).
-                    modifier = Modifier.fillMaxWidth().then(gap),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ListItemView(
-    text: String,
-    a: ParagraphAttrs,
-    marks: List<InlineMark>,
-    issueRefs: IssueRefHandler?,
-    gap: Modifier,
-) {
-    val mentions = LocalMentions.current
-    val autolink = LocalMarkdownAutolink.current
-    val inlineCode = LocalInlineCodeStyle.current
-    val bare = LocalIssueRefBare.current
-    val appLinks = LocalAppLinks.current
-    val body = LocalMarkdownBodyStyle.current
-    // A chat body puts the list TEXT at `card.listIndent` (the glyph column
-    // from the margin); a document keeps the editor's base indent before it.
-    val base = if (body == MdStyle.body) MdStyle.listIndentBase else 0.dp
-    val indent = base + MdStyle.listIndentPerDepth * a.listDepth
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(gap)
-            .padding(start = indent),
-        verticalAlignment = Alignment.Top,
-    ) {
-        val glyph = if (body == MdStyle.body) 22.dp else PlanCard.Look.LIST_INDENT.dp
-        when (a.listType) {
-            // THE square checkbox, centred on the item's first line.
-            ListType.Checklist -> Box(
-                modifier = Modifier
-                    .width(glyph)
-                    .height(
-                        with(LocalDensity.current) {
-                            body.lineHeight.takeIf { it.isSp }?.toDp() ?: 20.dp
-                        },
-                    ),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                ExpCheckbox(a.checked)
-            }
-            ListType.Ordered -> Text(
-                "${a.orderedIndex}.",
-                style = body,
-                modifier = Modifier.width(glyph),
-            )
-            ListType.Bullet, null -> Text(
-                "•",
-                style = body,
-                modifier = Modifier.width(glyph),
-            )
-        }
-        ChipText(
-            line = rememberAnnotatedLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
-            style = body,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
-/**
- * A markdown line that can host `#IDENTIFIER` chips: it keeps its own
- * [TextLayoutResult] so [drawIssueRefChips] can paint each chip's rounded fill,
- * hairline and status glyph behind the text (EXP-423).
- */
-@Composable
-internal fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier = Modifier) {
-    // EXP-1676: the chat's tinted code span is boxed ×4; a span can paint its
-    // fill but not the hairline (web `.agent-feed code`).
-    val codeSpans = remember(line.text) {
-        line.text.spanStyles.filter { it.item.background == DesignTokens.Semantic.CodeFill }
-    }
-    if (line.chips.isEmpty() && codeSpans.isEmpty()) {
-        // EXP-1521: no chip to paint, no layout to keep (most lines).
-        Text(text = line.text, style = style, modifier = modifier)
-        return
-    }
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    Text(
-        text = line.text,
-        style = style,
-        onTextLayout = { layout = it },
-        modifier = modifier
-            .drawIssueRefChips(line.chips) { layout }
-            .drawBehind {
-                val result = layout ?: return@drawBehind
-                for (span in codeSpans) {
-                    runCatching {
-                        drawPath(
-                            result.getPathForRange(span.start, span.end),
-                            DesignTokens.Semantic.CodeStroke,
-                            style = Stroke(
-                                width = 1.dp.toPx(),
-                                pathEffect = PathEffect.cornerPathEffect(4.dp.toPx()),
-                            ),
-                        )
-                    }
-                }
-            },
-    )
-}
-
-/** EXP-1521: [annotateLine] (regex passes + the annotated string) once per input. */
-@Composable
-private fun rememberAnnotatedLine(
-    text: String,
-    marks: List<InlineMark>,
-    issueRefs: IssueRefHandler?,
-    mentions: MentionResolver?,
-    autolink: Boolean,
-    inlineCode: MdStyle.InlineCodeStyle,
-    bare: Boolean,
-    appLinks: AppLinkHandler?,
-): AnnotatedLine = remember(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks) {
-    annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks)
-}
-
-// --- Annotated-string builder with natively-tappable links (read-only). ---
-
-/**
- * Bare `http(s)://` URLs render as tappable links (EXP-440) — for RENDER-ONLY
- * surfaces such as the agent steering feed, whose text nobody edits back into
- * stored markdown. Default OFF: issue descriptions and comments round-trip
- * through the editor, and autolinking there would diverge the stored bytes
- * from web (see [MarkdownParser]'s note on the autolink extension).
- */
-val LocalMarkdownAutolink = compositionLocalOf { false }
-
-/**
- * The inline-`code` chrome this subtree renders with (EXP-698). Default is
- * [MdStyle.Default] — the flat white wash every DOCUMENT surface (issue
- * descriptions, comments, the editor) has always drawn. The agent steering
- * feed provides [MdStyle.Chat] so a `--flag` or a `Foo.kt` in a wall of
- * narration reads as code, exactly like web and the desktop tint theirs.
- */
-val LocalInlineCodeStyle = compositionLocalOf { MdStyle.Default }
-
-/**
- * The BODY style this subtree renders prose at (EXP-787). Default is
- * [MdStyle.body] — web's `.tiptap-content` document measure (14 sp on a
- * 1.625 line) issue descriptions and comments use. The agent transcript provides the shared
- * `DesignTokens.Transcript` step (14 sp on a 22 sp line, ×4 parity), which is
- * a reading measure for a wall of narration rather than a document body.
- * Headings keep their own scale; code derives from whatever is in force.
- */
-val LocalMarkdownBodyStyle = compositionLocalOf { MdStyle.body }
-
-/**
- * One rendered line: its styled text plus the chip geometry the painter needs
- * (EXP-423 — a rounded fill, a hairline and a status glyph are not expressible
- * as spans).
- */
-internal data class AnnotatedLine(
-    val text: AnnotatedString,
-    val chips: List<IssueRefChipSpec> = emptyList(),
-)
-
-/** [annotateLine]'s text half — the form the annotation tests assert on. */
-internal fun annotate(
-    text: String,
-    marks: List<InlineMark>,
-    issueRefs: IssueRefHandler?,
-    mentions: MentionResolver? = null,
-    autolink: Boolean = false,
-    inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
-    bare: Boolean = false,
-    appLinks: AppLinkHandler? = null,
-): AnnotatedString =
-    annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks).text
-
-internal fun annotateLine(
-    text: String,
-    marks: List<InlineMark>,
-    issueRefs: IssueRefHandler?,
-    mentions: MentionResolver? = null,
-    autolink: Boolean = false,
-    /** EXP-698: chat feeds tint inline `code`; documents keep the flat wash. */
-    inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
-    /** EXP-760: also chip BARE `EXP-758` tokens — steering feeds only. */
-    bare: Boolean = false,
-    /** EXP-1188: agent surfaces open links on this instance in the app. */
-    appLinks: AppLinkHandler? = null,
-): AnnotatedLine {
-    if (text.isEmpty()) return AnnotatedLine(AnnotatedString(""))
-    val refPills =
-        if (issueRefs != null) resolvedRefPills(text, marks, issueRefs, bare) else emptyList()
-    val mentionPills =
-        if (mentions != null) resolvedMentionPills(text, marks, mentions) else emptyList()
-    val bareUrls = if (autolink) bareUrlLinks(text, marks) else emptyList()
-    if (marks.isEmpty() && refPills.isEmpty() && mentionPills.isEmpty() && bareUrls.isEmpty()) {
-        return AnnotatedLine(AnnotatedString(text))
-    }
-    val chipSpecs = ArrayList<IssueRefChipSpec>(refPills.size)
-    // A resolved mention renders the member's NAME over the stored `@email`,
-    // and a resolved `#IDENTIFIER` chip appends the issue TITLE (EXP-307, web
-    // read-only parity), so the displayed string is no longer the source
-    // string — every other span offset is mapped through [display].
-    val display = MentionDisplay.build(text, mentionPills, refPills, proseChipMarks(text, marks))
-    val annotated = buildAnnotatedString {
-        append(display.text)
-        // Compose crashes if two `LinkAnnotation`s overlap (issue-detail crash,
-        // masterplan §9.3). Every `addLink` must be range-coerced into the
-        // appended text AND rejected if it overlaps an already-added link, so
-        // no combination of markdown links + `#IDENTIFIER` pills can throw.
-        val linkRanges = ArrayList<Pair<Int, Int>>() // half-open [start, end)
-        // Takes SOURCE offsets and maps them onto the displayed string.
-        // Returns whether the link was added (false = dropped by a guard).
-        fun addLinkGuarded(annotation: LinkAnnotation, rawStart: Int, rawEnd: Int): Boolean {
-            val start = display.map(rawStart.coerceIn(0, text.length))
-            val end = display.map(rawEnd.coerceIn(0, text.length)).coerceAtLeast(start)
-            if (end <= start) return false
-            if (linkRanges.any { it.first < end && start < it.second }) return false
-            when (annotation) {
-                is LinkAnnotation.Url -> addLink(annotation, start, end)
-                is LinkAnnotation.Clickable -> addLink(annotation, start, end)
-            }
-            linkRanges.add(start to end)
-            return true
-        }
-        for (m in marks) {
-            val rawStart = m.start.coerceIn(0, text.length)
-            val rawEnd = m.end.coerceIn(rawStart, text.length)
-            if (rawEnd <= rawStart) continue
-            val start = display.map(rawStart)
-            val end = display.map(rawEnd).coerceAtLeast(start)
-            if (end <= start) continue
-            when (m.kind) {
-                InlineKind.Bold -> addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, end)
-                InlineKind.Italic -> addStyle(SpanStyle(fontStyle = FontStyle.Italic), start, end)
-                InlineKind.Strikethrough ->
-                    addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, end)
-                InlineKind.InlineCode -> addStyle(
-                    SpanStyle(
-                        fontFamily = FontFamily.Monospace,
-                        color = inlineCode.inlineCodeColor ?: Color.Unspecified,
-                        background = inlineCode.inlineCodeBg,
-                    ),
-                    start, end,
-                )
-                InlineKind.Link -> {
-                    val href = m.href ?: continue
-                    val chipKind = ProseLinks.chipKind(href)
-                    // EXP-1188: an ignored link (a placeholder host, another
-                    // scheme) stays plain text — nothing to open.
-                    val link = appLinkAnnotation(
-                        href,
-                        appLinks,
-                        // A prose chip wears the chip's paint, not the link's.
-                        if (chipKind != null) TextLinkStyles() else TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
-                    ) ?: continue
-                    addLinkGuarded(link, rawStart, rawEnd)
-                    if (chipKind != null) {
-                        // #EXP-1674 (prose-links.json): THE entity chip: the
-                        // kind's glyph over the spliced, hidden cell, the name.
-                        addStyle(SpanStyle(color = MdStyle.Text), start, end)
-                        addStyle(
-                            SpanStyle(color = Color.Transparent, letterSpacing = MdStyle.chipHashLetterSpacing),
-                            start,
-                            start + 1,
-                        )
-                        chipSpecs.add(
-                            IssueRefChipSpec(
-                                start = start,
-                                end = end,
-                                tokenStart = start,
-                                iconName = proseChipGlyph(chipKind),
-                                color = MdStyle.ChipToken,
-                            ),
-                        )
-                    }
-                }
-            }
-        }
-        // Resolved `#IDENTIFIER` tokens become tappable pills (masterplan §5e),
-        // mirroring how the web renderer decorates them and how `@email`
-        // mentions pill: display-only, navigation on tap. Guarded so a pill
-        // that lands on an existing link span is dropped instead of crashing.
-        // The chip covers the token PLUS the appended title (EXP-307).
-        //
-        // The link carries NO styles (EXP-423): the Linear chip needs a
-        // per-character span (a transparent `#`) and a painted background, and
-        // `TextLinkStyles` applies one flat style to the whole range. So the
-        // annotation is reduced to its click behaviour and the visuals become
-        // plain spans + [drawIssueRefChips].
-        for ((match, target) in refPills) {
-            val added = addLinkGuarded(
-                LinkAnnotation.Clickable(
-                    tag = target.identifier,
-                    linkInteractionListener = { issueRefs?.onOpen?.invoke(target) },
-                ),
-                match.start, match.end,
-            )
-            if (!added) continue
-            val chipStart = display.map(match.start.coerceIn(0, text.length))
-            val chipEnd = display.map(match.end.coerceIn(0, text.length)).coerceAtLeast(chipStart)
-            // EXP-885: a bare token owns no `#`, so the display splices a
-            // GLYPH CELL in front of it (see [CHIP_GLYPH_CELL]) — the
-            // identifier then starts that one character in.
-            val cell = if (display.hasGlyphCell(match.start)) CHIP_GLYPH_CELL.length else 0
-            val tokenEnd = (chipStart + cell + (match.end - match.start)).coerceAtMost(chipEnd)
-            // Title in the normal text color, identifier muted + monospace
-            // (the glyph cell included: it wears the hidden `#`'s treatment).
-            addStyle(SpanStyle(color = MdStyle.Text), chipStart, chipEnd)
-            addStyle(
-                SpanStyle(fontFamily = FontFamily.Monospace, color = MdStyle.ChipToken),
-                chipStart,
-                tokenEnd,
-            )
-            // EXP-885: every resolved chip paints its status glyph, bare or
-            // not — the cell it paints in is the `#` for a `#MET-1` token and
-            // the spliced placeholder for a bare one. The ONE case left
-            // unpainted is a bare token whose splice was dropped (an
-            // overlapping candidate, below): there the chip starts on the
-            // identifier's first LETTER, which nothing may hide.
-            val status = if (match.bare && cell == 0) null else target.resolvedStatus
-            if (status != null && chipStart < chipEnd) {
-                // The status glyph is painted over that cell; hiding it costs
-                // one transparent character span and zero offset-map changes.
-                // The letter spacing widens it into the icon↔identifier gap
-                // (EXP-655, same as the editor's addChipStyles).
-                addStyle(
-                    SpanStyle(color = Color.Transparent, letterSpacing = MdStyle.chipHashLetterSpacing),
-                    chipStart,
-                    chipStart + 1,
-                )
-            }
-            chipSpecs.add(
-                IssueRefChipSpec(
-                    start = chipStart,
-                    end = chipEnd,
-                    tokenStart = chipStart,
-                    iconName = status?.iconName,
-                    color = status?.let { resolvedStatusColor(it) },
-                ),
-            )
-        }
-        // Bare URLs last (EXP-440): a markdown link or a `#IDENTIFIER` chip
-        // over the same characters always wins, and the guard drops the
-        // autolink instead of stacking a second annotation on the range.
-        for (range in bareUrls) {
-            val link = appLinkAnnotation(
-                range.url,
-                appLinks,
-                TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
-            ) ?: continue
-            addLinkGuarded(link, range.start, range.end)
-        }
-        // Resolved `@email` mentions render as the member's name pill
-        // (REV2-42) — display-only, not tappable (there is nothing to open),
-        // so they can never collide with a link annotation.
-        //
-        // Thread e4a04d22: the web `.mention-pill` look — `--accent-foreground`
-        // at 13 medium inside a painted round capsule ([drawIssueRefChips],
-        // `pill = true`). The splice wraps the name in two [MENTION_PAD]
-        // cells; letter-spaced to the web's `0.4rem`, they ARE the padding.
-        for (range in display.pills) {
-            addStyle(
-                SpanStyle(
-                    color = MdStyle.MentionText,
-                    fontSize = MdStyle.mentionFontSize,
-                    fontWeight = FontWeight.Medium,
-                ),
-                range.first,
-                range.second,
-            )
-            if (range.second - range.first >= 2) {
-                val pad = SpanStyle(letterSpacing = MdStyle.mentionPadLetterSpacing)
-                addStyle(pad, range.first, range.first + 1)
-                addStyle(pad, range.second - 1, range.second)
-            }
-            chipSpecs.add(
-                IssueRefChipSpec(start = range.first, end = range.second, tokenStart = range.first, pill = true),
-            )
-        }
-    }
-    return AnnotatedLine(annotated, chipSpecs)
-}
-
-/** Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60). */
-internal const val MAX_CHIP_TITLE_CHARS = 60
-
-/** What of a title fits web's 18rem inline chip beside a short identifier. */
-internal const val MAX_INLINE_CHIP_TITLE_CHARS = 34
-
-internal const val CHIP_NBSP = '\u00A0'
-
-/**
- * EXP-885: the cell a BARE `EXP-758` chip paints its status glyph in. A
- * `#IDENTIFIER` token brings its own — the `#` goes transparent and the art
- * lands on it — but a bare token starts on a LETTER, so before EXP-885 the
- * glyph was simply dropped and the steering feed's chips read status-less next
- * to the identical chips everywhere else. The display therefore splices this
- * one NON-BREAKING space in front of the token (the stored markdown is
- * untouched, like every other [MentionDisplay] splice) and [annotateLine]
- * gives it the hidden `#`'s exact treatment: transparent, letter-spaced to the
- * icon's width. Non-breaking so a wrap can never put the glyph on the line
- * above its identifier.
- */
-internal const val CHIP_GLYPH_CELL = "\u00A0"
-
-/** The registry glyph of a prose chip's kind: entity-chip.json `entityRefIcon`,
- *  locked against [com.exponential.app.ui.components.entityConceptIcon] by
- *  `MarkdownAnnotateTest`. */
-internal fun proseChipGlyph(kind: ProseLinks.ChipKind): String = when (kind) {
-    ProseLinks.ChipKind.Issue -> "file-text"
-    ProseLinks.ChipKind.Board -> "folder-kanban"
-    ProseLinks.ChipKind.Session -> "play"
-    ProseLinks.ChipKind.Agent -> "bot"
-}
-
-/** The link marks in a line that are prose chips (prose-links.json). */
-private fun proseChipMarks(text: String, marks: List<InlineMark>): List<InlineMark> =
-    marks.filter { m ->
-        m.kind == InlineKind.Link && m.href?.let(ProseLinks::chipKind) != null &&
-            m.start >= 0 && m.end <= text.length && m.end > m.start
+        return out.toString()
     }
 
-/**
- * Thread e4a04d22: the cell opening and closing a mention pill's display text.
- * Letter-spaced up to the web pill's `0.4rem` side padding, it is the room
- * the painted capsule draws its padding in (a span cannot pad). Non-breaking,
- * like the spaces inside the name: the pill never wraps (web `nowrap`).
- */
-internal const val MENTION_PAD = "\u00A0"
+    private const val ISSUE_SCHEME = "exp-issue:"
+    private const val MENTION_SCHEME = "exp-mention:"
+    private const val STATUS_ICON = "status|"
 
-/** The displayed text of a resolved mention: `@<name>`, unbreakable, padded. */
-internal fun mentionPillText(name: String): String {
-    val joined = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString("\u00A0")
-    return "$MENTION_PAD@$joined$MENTION_PAD"
-}
-
-/**
- * The title text a `#IDENTIFIER` chip appends, truncated web-identically
- * (`chipTitle` in `apps/web/src/lib/issue-ref-extension.ts`). Shared by the
- * read renderer and the editor's chip transform so both agree byte for byte.
- */
-internal fun chipTitle(title: String): String {
-    val trimmed = title.trim()
-    if (trimmed.length <= MAX_CHIP_TITLE_CHARS) return trimmed
-    return trimmed.take(MAX_CHIP_TITLE_CHARS - 1).trimEnd() + "…"
-}
-
-/**
- * EXP-1676: the title an INLINE chip splices: one chip stays on one line
- * (`.issue-chip` `nowrap`) with an ellipsis at web's `max-w-[18rem]`. The chip is
- * a painted run of the paragraph's own text, which has no box to clip, so the
- * width is a budget of [MAX_INLINE_CHIP_TITLE_CHARS] and non-breaking spaces.
- */
-internal fun inlineChipTitle(title: String): String {
-    val trimmed = title.trim()
-    val cut = if (trimmed.length <= MAX_INLINE_CHIP_TITLE_CHARS) {
-        trimmed
-    } else {
-        trimmed.take(MAX_INLINE_CHIP_TITLE_CHARS).trimEnd().trimEnd('…') + "…"
-    }
-    return cut.replace(' ', CHIP_NBSP)
-}
-
-/**
- * `#IDENTIFIER` tokens in this line that resolve to a visible issue. Tokens
- * inside inline code or links stay plain (mirrors the web decoration pass);
- * unresolved identifiers stay plain text.
- */
-internal fun resolvedRefPills(
-    text: String,
-    marks: List<InlineMark>,
-    issueRefs: IssueRefHandler,
-    /** EXP-760: bare `EXP-758` tokens chip too (steering feeds only). */
-    bare: Boolean = false,
-): List<Pair<IssueRefs.Match, IssueRefTarget>> =
-    IssueRefs.findAll(text, bare).mapNotNull { match ->
-        val covered = marks.any { m ->
-            (m.kind == InlineKind.InlineCode || m.kind == InlineKind.Link) &&
-                m.start < match.end && match.start < m.end
-        }
-        if (covered) return@mapNotNull null
-        issueRefs.resolve(match.identifier)?.let { match to it }
-    }
-
-/**
- * `@email` tokens in this line that resolve to a visible team member. Tokens
- * inside inline code or a markdown link stay plain (same rule as the
- * `#IDENTIFIER` pills), and unknown addresses stay plain text.
- */
-private fun resolvedMentionPills(
-    text: String,
-    marks: List<InlineMark>,
-    mentions: MentionResolver,
-): List<Pair<Mentions.Match, MentionMember>> =
-    Mentions.findAll(text).mapNotNull { match ->
-        val covered = marks.any { m ->
-            (m.kind == InlineKind.InlineCode || m.kind == InlineKind.Link) &&
-                m.start < match.end && match.start < m.end
-        }
-        if (covered) return@mapNotNull null
-        mentions.resolve(match.email)?.let { match to it }
-    }
-
-/**
- * Bare `http(s)://` URLs in this line that should autolink (EXP-440). A URL
- * inside inline code stays literal and one inside a markdown link is already
- * tappable — the same coverage rule the `#IDENTIFIER` and `@email` pills use.
- */
-private fun bareUrlLinks(text: String, marks: List<InlineMark>): List<UrlRange> =
-    urlRanges(text).filterNot { range ->
-        marks.any { m ->
-            (m.kind == InlineKind.InlineCode || m.kind == InlineKind.Link) &&
-                m.start < range.end && range.start < m.end
-        }
-    }
-
-/**
- * The rendered string when mention tokens are replaced by member names and
- * `#IDENTIFIER` chips gain their issue title (EXP-307), plus the
- * source→display offset mapping every other span is placed through.
- * Desktop parity (`markdown::editor`'s decoration pass): the STORED markdown
- * is untouched — only the display differs.
- */
-internal class MentionDisplay private constructor(
-    val text: String,
-    /** Half-open display ranges of the rendered name pills. */
-    val pills: List<Pair<Int, Int>>,
-    private val replacements: List<Replacement>,
     /**
-     * SOURCE starts of the ref tokens whose splice actually prepended a
-     * [CHIP_GLYPH_CELL] (EXP-885). Only the builder knows: a candidate that
-     * overlapped an earlier one was dropped, and that chip has no cell.
+     * catalog/host.json `textLinks` with chips over one text piece: the
+     * entity tokens, the `#IDENT` refs that resolve (an issue chip: the
+     * identifier + title, the status glyph) and the known `@email`
+     * mentions (the member's name); null = nothing to link.
      */
-    private val glyphCells: Set<Int> = emptySet(),
-) {
-    /** Whether the ref token at [sourceStart] carries a spliced glyph cell. */
-    fun hasGlyphCell(sourceStart: Int): Boolean = sourceStart in glyphCells
-
-    class Replacement(
-        val sourceStart: Int,
-        val sourceEnd: Int,
-        val displayStart: Int,
-        val displayEnd: Int,
-    )
-
-    /** Map a source offset onto the displayed string. */
-    fun map(offset: Int): Int {
-        if (replacements.isEmpty()) return offset
-        var delta = 0
-        for (r in replacements) {
-            if (offset <= r.sourceStart) break
-            if (offset < r.sourceEnd) {
-                // Inside a replaced token: snap to the nearer pill edge.
-                return if (offset - r.sourceStart <= r.sourceEnd - offset) {
-                    r.displayStart
-                } else {
-                    r.displayEnd
-                }
+    fun segments(
+        piece: String,
+        source: Source,
+        issueRefs: IssueRefHandler?,
+        mentions: MentionResolver?,
+        bare: Boolean,
+    ): List<MarkdownTextLink>? {
+        class Hit(val start: Int, val end: Int, val link: MarkdownTextLink)
+        val hits = ArrayList<Hit>()
+        if (source.entities.isNotEmpty() && piece.contains(TOKEN_OPEN)) {
+            for (m in TOKEN.findAll(piece)) {
+                val e = source.entities.getOrNull(m.groupValues[1].toInt()) ?: continue
+                hits.add(Hit(m.range.first, m.range.last + 1, MarkdownTextLink(e.label, e.href, MarkdownChip("entity", e.label, e.kind.icon))))
             }
-            delta += (r.displayEnd - r.displayStart) - (r.sourceEnd - r.sourceStart)
         }
-        return offset + delta
-    }
-
-    companion object {
-        private class Candidate(
-            val start: Int,
-            val end: Int,
-            val replacement: String,
-            /** Mention pills get their own display style range; ref chips are
-             *  styled through their link annotation instead. */
-            val isMention: Boolean,
-            /** EXP-885: this replacement leads with a [CHIP_GLYPH_CELL]. */
-            val glyphCell: Boolean = false,
-        )
-
-        /** Identity mapping when nothing is replaced. */
-        fun build(
-            text: String,
-            pills: List<Pair<Mentions.Match, MentionMember>>,
-            refPills: List<Pair<IssueRefs.Match, IssueRefTarget>> = emptyList(),
-            /** #EXP-1674: prose chips: the glyph cell, then the name. */
-            chipMarks: List<InlineMark> = emptyList(),
-        ): MentionDisplay {
-            val candidates = ArrayList<Candidate>(pills.size + refPills.size + chipMarks.size)
-            for (mark in chipMarks) {
-                candidates.add(
-                    Candidate(
-                        mark.start, mark.end,
-                        CHIP_GLYPH_CELL + text.substring(mark.start, mark.end),
-                        isMention = false,
-                        glyphCell = true,
+        if (issueRefs != null) {
+            for (match in IssueRefs.findAll(piece, bare)) {
+                val target = issueRefs.resolve(match.identifier) ?: continue
+                val title = chipTitle(target.title)
+                val label = if (title.isEmpty()) target.identifier else "${target.identifier} $title"
+                val icon = target.resolvedStatus?.let { "$STATUS_ICON${it.iconName}|${resolvedStatusColor(it).toArgb()}" }
+                hits.add(
+                    Hit(
+                        match.start,
+                        match.end,
+                        MarkdownTextLink(piece.substring(match.start, match.end), ISSUE_SCHEME + target.identifier, MarkdownChip("issue", label, icon)),
                     ),
                 )
             }
-            for ((match, member) in pills) {
-                candidates.add(Candidate(match.start, match.end, mentionPillText(member.name), true))
-            }
-            // EXP-307: the chip shows the whole title next to the short code
-            // (blank titles keep the bare token). EXP-885: a bare token that
-            // has a status to show also gains the glyph cell its `#`-prefixed
-            // twin gets for free — one leading placeholder character, the
-            // splice being the one place an offset shift is already handled.
-            for ((match, target) in refPills) {
-                if (match.start < 0 || match.end > text.length || match.end <= match.start) continue
-                val title = inlineChipTitle(target.title)
-                val glyphCell = match.bare && target.resolvedStatus != null
-                if (title.isEmpty() && !glyphCell) continue
-                val token = text.substring(match.start, match.end)
-                candidates.add(
-                    Candidate(
-                        match.start, match.end,
-                        buildString {
-                            if (glyphCell) append(CHIP_GLYPH_CELL)
-                            append(token)
-                            if (title.isNotEmpty()) append(CHIP_NBSP).append(title)
-                        },
-                        isMention = false,
-                        glyphCell = glyphCell,
+        }
+        if (mentions != null) {
+            for (match in Mentions.findAll(piece)) {
+                val member = mentions.resolve(match.email) ?: continue
+                hits.add(
+                    Hit(
+                        match.start,
+                        match.end,
+                        MarkdownTextLink(piece.substring(match.start, match.end), MENTION_SCHEME + match.email, MarkdownChip("mention", member.name.trim().ifEmpty { match.email })),
                     ),
                 )
             }
-            if (candidates.isEmpty()) return MentionDisplay(text, emptyList(), emptyList())
-            candidates.sortBy { it.start }
-            val out = StringBuilder(text.length)
-            val ranges = ArrayList<Pair<Int, Int>>(pills.size)
-            val replacements = ArrayList<Replacement>(candidates.size)
-            val glyphCells = HashSet<Int>(refPills.size)
-            var last = 0
-            for (candidate in candidates) {
-                if (candidate.start < last) continue // overlapping token: keep the first
-                out.append(text, last, candidate.start)
-                val displayStart = out.length
-                out.append(candidate.replacement)
-                if (candidate.isMention) ranges.add(displayStart to out.length)
-                if (candidate.glyphCell) glyphCells.add(candidate.start)
-                replacements.add(
-                    Replacement(candidate.start, candidate.end, displayStart, out.length),
-                )
-                last = candidate.end
-            }
-            out.append(text, last, text.length)
-            return MentionDisplay(out.toString(), ranges, replacements, glyphCells)
         }
+        if (hits.isEmpty()) return null
+        hits.sortBy { it.start }
+        val out = ArrayList<MarkdownTextLink>()
+        var at = 0
+        for (hit in hits) {
+            if (hit.start < at) continue
+            if (hit.start > at) out.add(MarkdownTextLink(piece.substring(at, hit.start)))
+            out.add(hit.link)
+            at = hit.end
+        }
+        if (at < piece.length) out.add(MarkdownTextLink(piece.substring(at)))
+        return out
     }
-}
 
-/** Offset each block's marks into per-line-local coordinates. */
-internal fun lineLocalMarks(rich: RichText): List<List<InlineMark>> {
-    val lines = rich.lines
-    val result = ArrayList<List<InlineMark>>(lines.size)
-    var charStart = 0
-    for (line in lines) {
-        val lineStart = charStart
-        val lineEnd = charStart + line.length
-        val local = rich.marks.mapNotNull { m ->
-            val s = maxOf(m.start, lineStart)
-            val e = minOf(m.end, lineEnd)
-            if (e > s) m.copy(start = s - lineStart, end = e - lineStart) else null
-        }
-        result.add(local)
-        charStart = lineEnd + 1 // + '\n'
+    /** `status|<glyph>|<argb>` → the glyph and its colour; null = another icon. */
+    fun statusIcon(name: String): Pair<String, Color>? {
+        if (!name.startsWith(STATUS_ICON)) return null
+        val parts = name.split('|')
+        if (parts.size != 3) return null
+        return parts[1] to Color(parts[2].toIntOrNull() ?: return null)
     }
-    return result
+
+    /**
+     * The URL policy: `~/` links mean nothing without an app-link handler,
+     * an ignored app link (app-link.json `ignore`) is text; attachments and
+     * everything else stay as written.
+     */
+    fun police(href: String, appLinks: AppLinkHandler?): String? {
+        if (attachmentIdFromUrl(href) != null) return href
+        if (appLinks == null) return if (href.trim().startsWith("~")) null else href
+        return if (classifyAppLink(href, appLinks.origin, appLinks.team) == AppLink.Ignore) null else href
+    }
+
+    /** A pressed link or chip: an issue chip opens the issue, a mention is inert, an attachment opens through [opener], the rest through the app-link rule. */
+    fun open(
+        href: String,
+        issueRefs: IssueRefHandler?,
+        appLinks: AppLinkHandler?,
+        opener: ((String) -> Unit)?,
+        system: (String) -> Unit,
+    ) {
+        when {
+            href.startsWith(ISSUE_SCHEME) -> {
+                val refs = issueRefs?.takeIf { it.canOpen } ?: return
+                refs.resolve(href.removePrefix(ISSUE_SCHEME))?.let(refs.onOpen)
+            }
+            href.startsWith(MENTION_SCHEME) -> Unit
+            attachmentIdFromUrl(href) != null && opener != null -> opener(href)
+            href.startsWith("mailto:", ignoreCase = true) -> system(href)
+            appLinks != null -> appLinks.openHref(href)
+            else -> system(href)
+        }
+    }
+
+    /** catalog/host.json `imageSize`: an attachment's probed size. */
+    fun imageSize(src: String, dims: AttachmentDims): MarkdownSize? {
+        val info = dims.infoOf(src) ?: return null
+        val w = info.width ?: return null
+        val h = info.height ?: return null
+        return MarkdownSize(w.toFloat(), h.toFloat()).takeIf { it.valid }
+    }
+
+    /** catalog/host.json `attachment`: a synced attachment row's kind, named by its link's label. */
+    fun attachment(href: String, dims: AttachmentDims, source: Source): MarkdownAttachment? {
+        val info = dims.infoOf(href) ?: return null
+        val type = when {
+            info.isVideo -> "video"
+            info.isAudio -> "audio"
+            else -> "file"
+        }
+        val name = source.labels[href]?.takeIf { it.isNotBlank() } ?: href.substringAfterLast('/')
+        return MarkdownAttachment(type, name)
+    }
 }

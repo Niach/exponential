@@ -99,6 +99,8 @@ import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalAttachmentLinkOpener
 import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.ui.markdown.LocalIssueRefs
+import com.exponential.app.ui.markdown.LocalMarkdownImageClick
+import com.exponential.app.ui.markdown.attachmentIdFromUrl
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.markdown.LocalMarkdownToolbarController
 import com.exponential.app.ui.markdown.LocalMentions
@@ -435,7 +437,16 @@ fun IssueFace(
 
     // #EXP-1674: THE opener for a body's links (`~/x`, in-app routes).
     val appLinkHandler = rememberAppLinkHandler()
+    // #VAPP-258: a press on a body's picture opens THE picture viewer.
+    var markdownPicture by remember { mutableStateOf<String?>(null) }
+    markdownPicture?.let { src ->
+        com.exponential.app.ui.work.PictureViewer(
+            items = listOf(com.exponential.app.ui.work.PictureViewerItem(id = attachmentIdFromUrl(src) ?: src, src = src, label = "")),
+            onClose = { markdownPicture = null },
+        )
+    }
     CompositionLocalProvider(
+        LocalMarkdownImageClick provides { src -> markdownPicture = src },
         LocalIssueRefs provides issueRefHandler,
         LocalAppLinks provides appLinkHandler,
         LocalMentions provides mentionResolver,

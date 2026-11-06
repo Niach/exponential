@@ -1,5 +1,5 @@
 {
-  "$comment": "#VAPP-258 (catalog/host.json `markdown`): the host hooks a Markdown asks, as a FAKE HOST's answers → the normal form of fixtures/markdown-render.json AFTER the hooks and the URL policy, replayed by React and Solid (web/markdown.ts `hostMarkdown` + markdown-normal.ts), Swift, Compose and gpui. THE NORMAL FORM ADDS: on a run, `link` = the href AS PAINTED (policed: a denied link is no link; the fixture's markdown destinations are canonical absolute urls, so policed = written) and `chip: {kind, label, icon?}` (a chip run never merges with a neighbour); `{kind: \"attachment\", type, name, href}` blocks; `width` / `height` on an `image` block the host sized. THE FAKE HOST, with the URL policy `policy` (otherwise the default): `textLinks(piece)` scans the piece left to right and, at each index, takes the FIRST key of `links` (in order) the piece continues with as a segment `{text: key, href, chip?}` from its value (everything between = plain segments; no key found = null); `imageSize(src)` = `images[src]` (else null); `attachment(href)` = `attachments[href]` (else null). `imageBoxes`: the block image box for `size` (null = the host does not know) in `available` px under `maxHeight` (absent = `imageMaxHeight` 160; a number = that cap; null = none, catalog/host.json `markdown.options.imageMaxHeight`) and the renderer's `viewport` height (absent = unknown), with `loaded` = the size the image DECODED at (absent = not loaded yet: an unknown size keeps the placeholder box): a size the host does not know (null or invalid) takes the loaded size, so the box relayouts once to the picture's real aspect (no gap under it; the measurer asks the same media cache, measure = paint), and a host size always wins: {width, height}, compared to 0.01.",
+  "$comment": "#VAPP-258 (catalog/host.json `markdown`): the host hooks a Markdown asks, as a FAKE HOST's answers → the normal form of fixtures/markdown-render.json AFTER the hooks and the URL policy, replayed by React and Solid (web/markdown.ts `hostMarkdown` + markdown-normal.ts), Swift, Compose and gpui. THE NORMAL FORM ADDS: on a run, `link` = the href AS PAINTED (policed: a denied link is no link; the fixture's markdown destinations are canonical absolute urls, so policed = written) and `chip: {kind, label, icon?, ident?}` (a chip run never merges with a neighbour); `{kind: \"attachment\", type, name, href}` blocks; `width` / `height` on an `image` block the host sized. THE FAKE HOST, with the URL policy `policy` (otherwise the default): `textLinks(piece)` scans the piece left to right and, at each index, takes the FIRST key of `links` (in order) the piece continues with as a segment `{text: key, href, chip?}` from its value (everything between = plain segments; no key found = null); `imageSize(src)` = `images[src]` (else null); `attachment(href)` = `attachments[href]` (else null). `imageBoxes`: the block image box for `size` (null = the host does not know) in `available` px under `maxHeight` (absent = `imageMaxHeight` 160; a number = that cap; null = none, catalog/host.json `markdown.options.imageMaxHeight`) and the renderer's `viewport` height (absent = unknown), with `loaded` = the size the image DECODED at (absent = not loaded yet: an unknown size keeps the placeholder box): a size the host does not know (null or invalid) takes the loaded size, so the box relayouts once to the picture's real aspect (no gap under it; the measurer asks the same media cache, measure = paint), and a host size always wins: {width, height}, compared to 0.01.",
   "policy": {
     "baseUrl": "https://app.example/",
     "linkBase": "/t/acme"
@@ -51,6 +51,23 @@
         "kind": "entity",
         "label": "Web",
         "icon": "nav-boards"
+      }
+    },
+    "#IDT-5": {
+      "href": "https://app.example/i/IDT-5",
+      "chip": {
+        "kind": "issue",
+        "label": "Fix login",
+        "icon": "ui-issue",
+        "ident": "IDT-5"
+      }
+    },
+    "#EMP-6": {
+      "href": "https://app.example/i/EMP-6",
+      "chip": {
+        "kind": "issue",
+        "label": "Empty ident",
+        "ident": ""
       }
     }
   },
@@ -108,6 +125,41 @@
             },
             {
               "text": " now"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "#VAPP-258: a chip's ident rides the normal form; an empty one is none",
+      "text": "see #IDT-5 and #EMP-6",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "see "
+            },
+            {
+              "text": "#IDT-5",
+              "link": "https://app.example/i/IDT-5",
+              "chip": {
+                "kind": "issue",
+                "label": "Fix login",
+                "icon": "ui-issue",
+                "ident": "IDT-5"
+              }
+            },
+            {
+              "text": " and "
+            },
+            {
+              "text": "#EMP-6",
+              "link": "https://app.example/i/EMP-6",
+              "chip": {
+                "kind": "issue",
+                "label": "Empty ident"
+              }
             }
           ]
         }

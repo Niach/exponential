@@ -566,7 +566,7 @@ class SurfaceModel(
 
     /** #VAPP-258: [textLinkSegments] for a Markdown, chips carried (validated by the primitives: kind, label, an allowed href). */
     fun markdownTextLinks(text: String): List<MarkdownTextLink>? =
-        textLinkSegments(text)?.map { s -> MarkdownTextLink(s.text, s.href, s.chip?.let { MarkdownChip(it.kind, it.label, it.icon) }) }
+        textLinkSegments(text)?.map { s -> MarkdownTextLink(s.text, s.href, s.chip?.let { MarkdownChip(it.kind, it.label, it.icon, it.ident) }) }
 
     /** #VAPP-258: the host's natural size of a Markdown block image (RAW src); null = unknown (invalid answers too). */
     fun markdownImageSize(src: String): MarkdownSize? =

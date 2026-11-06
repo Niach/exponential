@@ -3,6 +3,10 @@ package at.exponential.ui.paint
 import at.exponential.ui.catalog.CatalogConstants
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
+import androidx.compose.ui.graphics.Color
+import at.exponential.ui.primitives.MarkdownChip
+import at.exponential.ui.primitives.MarkdownChipKindStyle
+import at.exponential.ui.primitives.MarkdownChipLook
 import at.exponential.ui.primitives.MarkdownChipStyle
 import at.exponential.ui.primitives.MarkdownStyles
 import at.exponential.ui.primitives.MarkdownTextSpec
@@ -31,7 +35,7 @@ object MarkdownPainter {
         s.mediaMaxWidth = CatalogConstants.MEDIA_INTRINSIC_WIDTH
         s.mediaAspect = CatalogConstants.MEDIA_ASPECT_RATIO
         if (theme == null) return s
-        fun part(name: String): PartStyle = theme.part("Markdown", name, props, mode = mode)
+        fun part(name: String, extra: Props = emptyMap()): PartStyle = theme.part("Markdown", name, props + extra, mode = mode)
         fun spec(p: PartStyle, base: MarkdownTextSpec): MarkdownTextSpec = MarkdownTextSpec(
             size = p.px("fontSize")?.times(k) ?: base.size,
             lineHeight = p.px("lineHeight")?.times(k) ?: base.lineHeight,
@@ -43,21 +47,51 @@ object MarkdownPainter {
         // block gap. The document keeps the node's style and the `sm` gap.
         val root = if (props["density"]?.string == "chat") part("root") else null
         if (root != null) s.body = spec(root, s.body)
-        s.heading = spec(part("heading"), s.body.copy(weight = 600))
+        val headingBase = s.body.copy(weight = 600)
+        s.heading = spec(part("heading"), headingBase)
+        // #VAPP-258: each heading level's type and margins (the `level` the
+        // painter supplies; margins collapse like CSS block margins).
+        val headingPart = part("heading")
+        s.headingTop = headingPart.px("marginTop") ?: theme.spacing("md")
+        s.headingBottom = headingPart.px("marginBottom") ?: theme.spacing("xs")
+        s.headingLevels = (1..6).associateWith { spec(part("heading", mapOf("level" to JsonValue.Num(it.toDouble()))), headingBase) }
+        s.headingTops = (1..6).associateWith { part("heading", mapOf("level" to JsonValue.Num(it.toDouble()))).px("marginTop") ?: s.headingTop }
+        s.headingBottoms = (1..6).associateWith { part("heading", mapOf("level" to JsonValue.Num(it.toDouble()))).px("marginBottom") ?: s.headingBottom }
+        val item = part("listItem")
+        s.itemTop = item.px("marginTop") ?: 0f
+        s.itemBottom = item.px("marginBottom") ?: 0f
         val code = part("codeBlock")
         s.code = spec(code, s.code.copy(family = theme.monoFamily))
         s.codePad = code.px("padding") ?: code.px("paddingHorizontal") ?: s.codePad
+        s.codeBorder = code.style.borderWidth
         val quote = part("quote")
         s.quoteBorder = quote.px("borderWidth") ?: s.quoteBorder
         s.quotePad = quote.px("paddingHorizontal") ?: s.quotePad
         // #VAPP-258: a block image's corners (the `Markdown/image` recipe).
         s.imageRadius = part("image").style.radius
         s.blockGap = root?.px("gap") ?: theme.spacing("sm")
-        s.headingTop = theme.spacing("md")
-        s.headingBottom = theme.spacing("xs")
-        s.cellPadH = theme.spacing("sm")
-        s.cellPadV = theme.spacing("xs")
+        // #VAPP-258: every cell's paddings (`Markdown/cell`).
+        val cell = part("cell")
+        s.cellPadH = cell.px("paddingHorizontal") ?: cell.px("padding") ?: theme.spacing("sm")
+        s.cellPadV = cell.px("paddingVertical") ?: cell.px("padding") ?: theme.spacing("xs")
         hostParts(theme, mode, s, k)
+        // #VAPP-258: a theme's `Markdown/chip*` rules per chip kind (their
+        // metrics; the colours are [chipLooks]').
+        val kinds = HashMap<String, MarkdownChipKindStyle>()
+        for (kind in MarkdownChip.KINDS) {
+            val kp = mapOf("chip" to JsonValue.Str(kind))
+            val box = part("chip", kp)
+            fun over(p: PartStyle, base: MarkdownTextSpec): MarkdownTextSpec? =
+                if (p.px("fontSize") == null && p.px("lineHeight") == null && p.props["fontWeight"] == null && p.fontFamily == null) null else spec(p, base)
+            val look = MarkdownChipKindStyle(
+                label = over(part("chipLabel", kp), s.chip.label),
+                ident = over(part("chipIdent", kp), s.chip.identSpec.copy(family = theme.monoFamily)),
+                padH = box.px("paddingHorizontal") ?: box.px("padding"),
+                radius = box.px("borderRadius"),
+            )
+            if (look != MarkdownChipKindStyle()) kinds[kind] = look
+        }
+        s.chip = s.chip.copy(kinds = kinds)
         return s
     }
 
@@ -80,6 +114,29 @@ object MarkdownPainter {
                 theme.part("CodeBlock", "token", mapOf("kind" to JsonValue.Str(kind)), mode = mode).color
             }
         }
+
+    /**
+     * #VAPP-258: each chip kind's `Markdown/chip*` colours under [props]
+     * (the density), painted over the Chip look ([MarkdownChipLook]).
+     */
+    fun chipLooks(theme: ThemeHandle, mode: Mode, props: Props): Map<String, MarkdownChipLook> {
+        val out = HashMap<String, MarkdownChipLook>()
+        for (kind in MarkdownChip.KINDS) {
+            val p = props + ("chip" to JsonValue.Str(kind))
+            val box = theme.part("Markdown", "chip", p, mode = mode)
+            val label = theme.part("Markdown", "chipLabel", p, mode = mode)
+            val ident = theme.part("Markdown", "chipIdent", p, mode = mode)
+            val look = MarkdownChipLook(
+                background = box.style.background,
+                border = box.style.borderColor ?: Color.Unspecified,
+                borderWidth = box.style.borderWidth.takeIf { it > 0f },
+                ink = label.color ?: Color.Unspecified,
+                identInk = ident.color ?: Color.Unspecified,
+            )
+            if (look != MarkdownChipLook()) out[kind] = look
+        }
+        return out
+    }
 
     /** #VAPP-258: the Chip props a Markdown chip resolves its look with (the catalog defaults). */
     val CHIP_PROPS: Props = mapOf("shape" to JsonValue.Str("pill"), "tone" to JsonValue.Str("neutral"), "selected" to JsonValue.Bool(false))

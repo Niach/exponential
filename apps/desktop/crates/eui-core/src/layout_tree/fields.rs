@@ -826,14 +826,33 @@ impl Builder<'_, '_> {
             if let Some(label) = str_prop(&owner.props, "label") {
                 self.text_part(head, &owner, "label", label, "label", "");
             }
-            if let Some(v) = owner.props.get("value") {
+            // #VAPP-286: `showValue: false` prints no value above the track.
+            let show_value = owner.props.get("showValue").and_then(Value::as_bool).unwrap_or(true);
+            if let Some(v) = owner.props.get("value").filter(|_| show_value) {
                 let text = js(v);
                 self.text_part(head, &owner, "value", &text, "muted", "");
             }
         }
         let mut props = owner.props.clone();
         props.shift_remove("label");
-        let track = self.part_in(index, &owner, "track", "Slider", NodeKind::Leaf, json!({"alignSelf": "stretch"}), Value::Object(props), "");
+        // #VAPP-286: a leading `icon` and/or an `endLabel` put the track in a
+        // `row` (centred, gap sm): the icon (iconSm), the track (grows from a
+        // zero basis), the end label (end-aligned; its min width = the recipe).
+        let icon = str_prop(&owner.props, "icon").filter(|s| !s.is_empty()).map(str::to_string);
+        let end = owner.props.get("endLabel").filter(|v| !v.is_null()).map(js).filter(|s| !s.is_empty());
+        let track = if icon.is_some() || end.is_some() {
+            let row = self.part(&owner, "row", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "alignSelf": "stretch"}), json!({}));
+            if let Some(name) = icon {
+                self.part_in(row, &owner, "icon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": name, "size": "sm"}), "");
+            }
+            let track = self.part_in(row, &owner, "track", "Slider", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0}), Value::Object(props), "");
+            if let Some(text) = end {
+                self.part_in(row, &owner, "end", "Text", NodeKind::Leaf, json!({"flexShrink": 0, "textAlign": "end"}), json!({"text": text, "variant": "muted", "lines": 1}), "");
+            }
+            track
+        } else {
+            self.part_in(index, &owner, "track", "Slider", NodeKind::Leaf, json!({"alignSelf": "stretch"}), Value::Object(props), "")
+        };
         self.nodes[track as usize].pressable = !bool_prop(&owner.props, "disabled");
     }
 

@@ -768,6 +768,11 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     label: `orientation · vertical`,
     node: { id: `bar`, component: `Stack`, props: { direction: `horizontal`, gap: `md`, align: `center` }, children: [text(`a`, `Inbox`), { id: `separator`, component: `Separator`, props: { orientation: `vertical` }, style: { height: 20 } }, text(`b`, `Drafts`)] },
   }],
+  // #VAPP-286: the volume row (icon, track, end label, no value above).
+  Slider: [{
+    label: `icon · endLabel · showValue false`,
+    node: { id: `volume`, component: `Slider`, props: { min: 0, max: 100, value: 34, icon: `media-volume-up`, endLabel: `34%`, showValue: false }, style: { width: 320 } },
+  }],
   Heading: [{
     label: `style · on a band`,
     node: { id: `band`, component: `Box`, style: { backgroundColor: `$color.primary`, padding: `$spacing.lg`, borderRadius: `$radius.lg` }, children: [
@@ -776,7 +781,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }],
   Icon: [{
     label: `name · non-Lucide`,
-    node: { id: `marks`, component: `Stack`, props: { direction: `horizontal`, gap: `md` }, children: [`os-apple`, `os-windows`, `os-linux`, `progress-2-4`].map((name) => ({ id: name, component: `Icon`, props: { name, size: `lg` } })) },
+    node: { id: `marks`, component: `Stack`, props: { direction: `horizontal`, gap: `md` }, children: [`os-apple`, `os-windows`, `os-linux`, `progress-2-4`, `brand-exponential`].map((name) => ({ id: name, component: `Icon`, props: { name, size: `lg` } })) },
   }],
   // VAPP-162: the navigation rail (a vertical bar) with counts.
   Segmented: [{
@@ -1368,7 +1373,8 @@ function promptBudget() {
     // EXP-1586 (a named budget exception): ZoomableImage, +97 tokens after trimming every new description; the measured total (8,131), no slack.
     // EXP-1604/1605 (a named budget exception, approved in EXP-1584: ≤ +700): Motion with its dialect guide and state machine, +619 tokens; the measured total (8,750), no slack.
     // VAPP-232 + VAPP-217 (eApps U3 + U2): raised for the U2/U3 macros, awaiting Danny's review: Calendar + Timeline (+198 tokens), RecordForm + RecordTable (+239 tokens, host-filled props stay out of the prompt); the measured total (9216), no slack.
-    budgetTokens: 9216,
+    // VAPP-286 (a named budget exception, round 7): Slider icon + endLabel + showValue, +21 tokens after trimming the new descriptions and the Slider's own sentence; the measured total (9237), no slack.
+    budgetTokens: 9237,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

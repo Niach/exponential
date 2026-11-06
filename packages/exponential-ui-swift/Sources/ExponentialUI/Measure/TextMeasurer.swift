@@ -617,10 +617,29 @@ extension TextShaper {
         TextStyle(fontSize: style.label.size, fontWeight: style.label.weight, lineHeight: style.label.lineHeight, fontFamily: style.label.family)
     }
 
+    /// #VAPP-258: the chip ident's text style (`Markdown/chipIdent`, else mono).
+    static func chipIdentStyle(_ style: MarkdownChipStyle) -> TextStyle {
+        let s = style.identSpec
+        return TextStyle(fontSize: s.size, fontWeight: s.weight, lineHeight: s.lineHeight, fontFamily: s.family)
+    }
+
+    /// #VAPP-258: how far a line of `other` moves down so its baseline meets
+    /// `base`'s when both line boxes are centred on one row (the glyph box
+    /// centred in each line box, [`attributes`]' half-leading).
+    static func baselineShift(_ base: TextStyle, _ other: TextStyle) -> CGFloat {
+        func baseline(_ ts: TextStyle) -> CGFloat {
+            let font = TextFonts.platformFont(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: ts.italic, tabular: ts.tabular)
+            return -ts.lineHeight / 2 + max(0, (ts.lineHeight - (font.ascender - font.descender)) / 2) + font.ascender
+        }
+        return baseline(base) - baseline(other)
+    }
+
     /// The chip's width: 2 × padding + the label shaped in the caption
-    /// style (+ icon + gap), capped at `wrap`.
-    static func chipWidth(_ chip: MarkdownChip, style: MarkdownChipStyle, wrap: CGFloat?) -> CGFloat {
-        style.width(chip, labelWidth: width(chip.label, chipLabelStyle(style)), wrap: wrap)
+    /// style (+ icon + gap) (+ the ident + gap), capped at `wrap`; a theme's
+    /// rules for the chip's kind first.
+    static func chipWidth(_ chip: MarkdownChip, style base: MarkdownChipStyle, wrap: CGFloat?) -> CGFloat {
+        let style = base.resolved(chip.kind)
+        return style.width(chip, labelWidth: width(chip.label, chipLabelStyle(style)), identWidth: chip.ident.map { width($0, chipIdentStyle(style)) } ?? 0, wrap: wrap)
     }
 
     static func chipRun(_ chip: MarkdownChip, href: String, style: MarkdownChipStyle, lineHeight: CGFloat, wrap: CGFloat?, attrs base: [NSAttributedString.Key: Any]) -> NSAttributedString {
@@ -661,6 +680,65 @@ extension TextShaper {
         return NSImage(size: NSSize(width: 1, height: 1))
         #endif
     }()
+
+    /// #VAPP-258: the lines of `a` at `wrap` as CoreText's typesetter breaks
+    /// them (the measurer's lines, hard breaks honoured), each without its
+    /// newline: a text with inline chips paints one label per line, so
+    /// TextKit can never break it elsewhere than the measurer and
+    /// `chipRects` did.
+    static func lineRanges(_ a: NSAttributedString, wrap: CGFloat) -> [NSRange] {
+        let ns = a.string as NSString
+        guard ns.length > 0 else { return [] }
+        let typesetter = CTTypesetterCreateWithAttributedString(a)
+        var out: [NSRange] = []
+        var start = 0
+        while start <= ns.length {
+            let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
+            let end = nl.location == NSNotFound ? ns.length : nl.location
+            var pos = start
+            repeat {
+                let n = end > pos ? min(max(CTTypesetterSuggestLineBreak(typesetter, pos, Double(max(wrap, 1) + 0.5)), 1), end - pos) : 0
+                out.append(NSRange(location: pos, length: n))
+                pos += n
+            } while pos < end
+            if nl.location == NSNotFound { break }
+            start = end + 1
+        }
+        return out
+    }
+
+    /// `a` with a LINE SEPARATOR (U+2028) at each soft break of
+    /// `lineRanges` (hard breaks kept): one selectable text that TextKit
+    /// lays out on exactly the measurer's lines.
+    static func withLineSeparators(_ a: NSAttributedString, wrap: CGFloat) -> NSAttributedString {
+        let ranges = lineRanges(a, wrap: wrap)
+        guard ranges.count > 1 else { return a }
+        let out = NSMutableAttributedString()
+        for (i, r) in ranges.enumerated() {
+            out.append(a.attributedSubstring(from: r))
+            guard i + 1 < ranges.count else { continue }
+            let next = ranges[i + 1].location
+            if next > NSMaxRange(r) {
+                out.append(a.attributedSubstring(from: NSRange(location: NSMaxRange(r), length: next - NSMaxRange(r))))
+            } else {
+                let at = max(NSMaxRange(r) - 1, 0)
+                var attrs = a.attributes(at: at, effectiveRange: nil)
+                attrs[chipKey] = nil
+                attrs[.attachment] = nil
+                attrs[NSAttributedString.Key(kCTRunDelegateAttributeName as String)] = nil
+                out.append(NSAttributedString(string: "\u{2028}", attributes: attrs))
+            }
+        }
+        return out
+    }
+
+    static func hasChips(_ a: NSAttributedString) -> Bool {
+        var found = false
+        a.enumerateAttribute(chipKey, in: NSRange(location: 0, length: a.length)) { v, _, stop in
+            if v != nil { found = true; stop.pointee = true }
+        }
+        return found
+    }
 
     /// #VAPP-258: each inline chip of `a` laid out as the label lays it out
     /// (CoreText lines at `wrap`, each `lineHeight` tall, flushed right under

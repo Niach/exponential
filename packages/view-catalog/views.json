@@ -5110,7 +5110,7 @@
       "id": "exponential-ui-slider",
       "group": "exponential-ui-catalog",
       "title": "genUI · Slider",
-      "blurb": "A range slider between min and max; bind `value`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/slider/.",
+      "blurb": "A slider from min to max; bind `value`. #VAPP-286: the volume row (a leading `icon`, the track, an `endLabel`, `showValue: false`). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/slider/.",
       "order": 51,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-slider",
@@ -8030,6 +8030,75 @@
         "web": "No capture: the natives' specimen; web shows the mark in the team switcher and Settings › General.",
         "web-mobile": "See web.",
         "desktop": "No capture: see web."
+      }
+    },
+    {
+      "id": "os-live-activity",
+      "group": "coding",
+      "title": "Live Activity",
+      "blurb": "A running session on the Lock Screen (#EXP-1639, live-activity.json): one card per contentCases row (working, needs you, a sealed title, a PR, blocked, done). Android: the promoted ProgressStyle Live Update with its four segments. OS-drawn, not an Exponential UI primitive.",
+      "order": 84,
+      "ios": {
+        "shot": "sg_os-live-activity",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_os-live-activity",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "ios": "The widget extension's real views (SessionActivityViews) in Lock Screen frames, capture only: a test cannot drive ActivityKit.",
+        "android": "A mock of the shade over the real LiveActivity model: RemoteViews cannot be drawn in a test.",
+        "web": "No capture: an OS surface the phone draws; the web has none.",
+        "web-mobile": "No capture: an OS surface; a phone browser has none.",
+        "desktop": "No capture: an OS surface; the desktop has none.",
+        "ipad": "No capture: the iPhone specimen stands for the iPad."
+      }
+    },
+    {
+      "id": "os-live-activity-island",
+      "group": "coding",
+      "title": "Live Activity · Dynamic Island",
+      "blurb": "The same running session in the Dynamic Island (#EXP-1639, live-activity.json): compact, minimal and expanded. Android's counterpart: the Live Update's status-bar chip and its collapsed notification. OS-drawn.",
+      "order": 85,
+      "ios": {
+        "shot": "sg_os-live-activity-island",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_os-live-activity-island",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "ios": "The widget extension's real views in Dynamic Island frames, capture only.",
+        "android": "A mock of the status bar chip and the collapsed Live Update over the real LiveActivity model.",
+        "web": "No capture: an OS surface the phone draws; the web has none.",
+        "web-mobile": "No capture: an OS surface; a phone browser has none.",
+        "desktop": "No capture: an OS surface; the desktop has none.",
+        "ipad": "No capture: the iPhone specimen stands for the iPad."
+      }
+    },
+    {
+      "id": "os-notification-actions",
+      "group": "coding",
+      "title": "Notification actions",
+      "blurb": "Answer from the notification (#EXP-1641, notification-actions.json): a question, a plan and a chat push with their actions in the fixture's order and copy. Android adds the chat's Reply open as RemoteInput. OS-drawn, not an Exponential UI primitive.",
+      "order": 86,
+      "ios": {
+        "shot": "sg_os-notification-actions",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_os-notification-actions",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "ios": "A mock of the expanded notification, capture only: a test cannot expand one.",
+        "android": "A mock of the shade over the real NotificationActions model, its Reply open inline (RemoteInput).",
+        "web": "No capture: an OS surface the phone draws; the web has none.",
+        "web-mobile": "No capture: an OS surface; a phone browser has none.",
+        "desktop": "No capture: an OS surface; the desktop has none.",
+        "ipad": "No capture: the iPhone specimen stands for the iPad."
       }
     },
     {

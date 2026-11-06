@@ -1,10 +1,11 @@
-//! #EXP-1546 — the thread transcript scrolled over a VERY long plan card
-//! (headings, prose, lists, code, tables, many pictures, an inline eUI
-//! surface), timed frame by frame. The rows are the Conversation's own
+//! #EXP-1546 / #VAPP-258 — the read-only Markdown timed HEADLESS under the
+//! platform's real text system: the thread transcript scrolled over a VERY
+//! long plan card (headings, prose, lists, code, tables, many pictures, an
+//! inline eUI surface), a long description laid out cold, and an agent reply
+//! streamed in chunk by chunk. The rows are the Conversation's own
 //! ([`crate::thread_screen::card_row`], [`crate::thread_screen::agent_prose`])
-//! in the Conversation's `gpui::list`, drawn HEADLESS under the platform's
-//! real text system. Run with
-//! `cargo test -p ui --release -- --ignored bench_long_plan_transcript --nocapture`.
+//! in the Conversation's `gpui::list`. Run with
+//! `cargo test -p ui --release -- --ignored bench_ --nocapture`.
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -154,19 +155,7 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
     sorted[((sorted.len() as f64 - 1.) * p).round() as usize]
 }
 
-/// One mode's numbers: the scroll frames' median + p95 (ms), the plan
-/// card's height, the lazy children built per scroll frame and the picture
-/// of the viewport halfway down the plan.
-struct Run {
-    median: f64,
-    p95: f64,
-    plan_height: f32,
-    built_per_frame: f64,
-    shot: Option<image::RgbaImage>,
-}
-
-fn run(eager: bool) -> Run {
-    crate::markdown::lazy_block::FORCE_EAGER.with(|force| force.set(eager));
+fn headless() -> HeadlessAppContext {
     let platform = gpui_platform::current_platform(true);
     let mut cx = HeadlessAppContext::with_platform(
         platform.text_system(),
@@ -179,6 +168,28 @@ fn run(eager: bool) -> Run {
         let store = sync::Store::open(cx, None, None);
         cx.set_global(store);
     });
+    cx
+}
+
+fn draw(window: gpui::AnyWindowHandle, cx: &mut HeadlessAppContext) -> f64 {
+    let started = Instant::now();
+    cx.update_window(window, |_, window, cx| {
+        window.refresh();
+        window.draw(cx).clear(cx);
+    })
+    .expect("a frame draws");
+    started.elapsed().as_secs_f64() * 1000.
+}
+
+fn report(label: &str, mut times: Vec<f64>) {
+    times.sort_by(f64::total_cmp);
+    eprintln!("{label:<34} median {:>8.2} ms  p95 {:>8.2} ms  ({} frames)", percentile(&times, 0.5), percentile(&times, 0.95), times.len());
+}
+
+#[test]
+#[ignore]
+fn bench_long_plan_transcript() {
+    let mut cx = headless();
     let rows = rows();
     let count = rows.len();
     let list = ListState::new(count, ListAlignment::Top, crate::thread_screen::CONVERSATION_OVERDRAW);
@@ -189,64 +200,105 @@ fn run(eager: bool) -> Run {
             cx.new(|_| Transcript { rows, list: state, images, text: ThreadText::team(None) })
         })
         .expect("a headless window");
-    let frame = |cx: &mut HeadlessAppContext| {
-        let started = Instant::now();
-        cx.update_window(window.into(), |_, window, cx| {
-            window.refresh();
-            window.draw(cx).clear(cx);
-        })
-        .expect("a frame draws");
-        started.elapsed().as_secs_f64() * 1000.
-    };
-    // Warm: the plan card on screen, measured at its width.
     let plan_ix = 12;
     list.scroll_to(gpui::ListOffset { item_ix: plan_ix, offset_in_item: px(0.) });
     for _ in 0..4 {
-        frame(&mut cx);
+        draw(window.into(), &mut cx);
     }
     let plan_height = list.bounds_for_item(plan_ix).map(|b| f32::from(b.size.height)).unwrap_or(0.);
-    // Scroll down THROUGH the plan card, one trackpad step per frame.
     let steps = ((plan_height / SCROLL_STEP) as usize).clamp(50, 400);
-    crate::markdown::lazy_block::BUILT.with(|built| built.set(0));
-    let mut times: Vec<f64> = (0..steps)
+    let times: Vec<f64> = (0..steps)
         .map(|_| {
             list.scroll_by(px(SCROLL_STEP));
-            frame(&mut cx)
+            draw(window.into(), &mut cx)
         })
         .collect();
-    let built_per_frame = crate::markdown::lazy_block::BUILT.with(std::cell::Cell::get) as f64 / steps as f64;
-    times.sort_by(f64::total_cmp);
-    // The picture: halfway down the plan.
-    list.scroll_to(gpui::ListOffset { item_ix: plan_ix, offset_in_item: px((plan_height / 2.).round()) });
-    frame(&mut cx);
-    frame(&mut cx);
-    let shot = cx.capture_screenshot(window.into()).ok();
-    // The headless app's leak check would fail the views still alive.
+    eprintln!("plan card {plan_height:.0} px");
+    report("transcript scroll frame", times);
     std::mem::forget(cx);
-    crate::markdown::lazy_block::FORCE_EAGER.with(|force| force.set(false));
-    Run { median: percentile(&times, 0.5), p95: percentile(&times, 0.95), plan_height, built_per_frame, shot }
 }
 
-#[test]
-#[ignore]
-fn bench_long_plan_transcript() {
-    let before = run(true);
-    let after = run(false);
-    for (label, run) in [("before (eager)", &before), ("after (lazy)", &after)] {
-        eprintln!(
-            "{label:<15} plan {:.0} px  scroll frame median {:.2} ms  p95 {:.2} ms  ({:.1} children built / frame)",
-            run.plan_height, run.median, run.p95, run.built_per_frame
-        );
-    }
-    // No visual change: the same card height, the same pixels.
-    assert_eq!(before.plan_height, after.plan_height, "the lazy card keeps its height");
-    if let (Some(a), Some(b)) = (&before.shot, &after.shot) {
-        let same = a.dimensions() == b.dimensions() && a.as_raw() == b.as_raw();
-        eprintln!("pictures identical: {same}");
-        if let Ok(dir) = std::env::var("EXP_TRANSCRIPT_SHOTS") {
-            a.save(format!("{dir}/long-plan-before.png")).expect("before saved");
-            b.save(format!("{dir}/long-plan-after.png")).expect("after saved");
-        }
-        assert!(same, "the lazy transcript paints the same pixels");
+/// One document view at the reading column's width.
+struct Doc {
+    id: usize,
+    text: String,
+    chat: bool,
+    streaming: bool,
+    images: Entity<ImageCache>,
+}
+
+impl Render for Doc {
+    fn render(&mut self, _: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let view = crate::markdown::MarkdownView::new(format!("bench-doc-{}", self.id), self.text.clone())
+            .selectable(true)
+            .chat(self.chat)
+            .autolink(self.chat)
+            .images(self.images.clone())
+            .streaming(self.streaming); // BENCH-STREAMING
+        div().size_full().child(div().w(px(crate::thread_screen::CONVERSATION_W)).child(view))
     }
 }
+
+/// A long description (the plan's sections as a document), laid out and
+/// painted COLD (a fresh view id each frame: nothing memoized), then warm.
+#[test]
+#[ignore]
+fn bench_long_description() {
+    let mut cx = headless();
+    let text = long_plan(SECTIONS);
+    let window = cx
+        .open_window(size(px(VIEWPORT.0), px(VIEWPORT.1)), move |_, cx| {
+            let images = cx.new(|_| ImageCache::new(None));
+            cx.new(|_| Doc { id: 0, text, chat: false, streaming: false, images })
+        })
+        .expect("a headless window");
+    draw(window.into(), &mut cx);
+    let cold: Vec<f64> = (1..=20)
+        .map(|n| {
+            cx.update_window(window.into(), |root, _, cx| {
+                let doc = root.downcast::<Doc>().expect("the doc");
+                doc.update(cx, |doc, _| doc.id = n);
+            })
+            .expect("the doc updates");
+            draw(window.into(), &mut cx)
+        })
+        .collect();
+    let warm: Vec<f64> = (0..40).map(|_| draw(window.into(), &mut cx)).collect();
+    eprintln!("long description: {} bytes", long_plan(SECTIONS).len());
+    report("long description, cold frame", cold);
+    report("long description, warm frame", warm);
+    std::mem::forget(cx);
+}
+
+/// An agent reply streamed in: 40-byte chunks, one frame per chunk.
+#[test]
+#[ignore]
+fn bench_streamed_reply() {
+    let mut cx = headless();
+    let full = long_plan(6);
+    let window = cx
+        .open_window(size(px(VIEWPORT.0), px(VIEWPORT.1)), move |_, cx| {
+            let images = cx.new(|_| ImageCache::new(None));
+            cx.new(|_| Doc { id: 0, text: String::new(), chat: true, streaming: true, images })
+        })
+        .expect("a headless window");
+    let mut times = Vec::new();
+    let mut at = 0;
+    while at < full.len() {
+        at = (at + 40).min(full.len());
+        while !full.is_char_boundary(at) {
+            at += 1;
+        }
+        let prefix = full[..at].to_string();
+        cx.update_window(window.into(), |root, _, cx| {
+            let doc = root.downcast::<Doc>().expect("the doc");
+            doc.update(cx, |doc, _| doc.text = prefix);
+        })
+        .expect("the doc updates");
+        times.push(draw(window.into(), &mut cx));
+    }
+    eprintln!("streamed reply: {} bytes", full.len());
+    report("streamed reply, frame per chunk", times);
+    std::mem::forget(cx);
+}
+
