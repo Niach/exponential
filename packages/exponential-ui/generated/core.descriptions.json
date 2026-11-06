@@ -1120,6 +1120,12 @@
         "side": {
           "description": "Preferred side of the trigger."
         },
+        "align": {
+          "description": "Along the side."
+        },
+        "anchor": {
+          "description": "A node id to open at; it toggles it."
+        },
         "openOn": {
           "description": "Press, or hover over the trigger (press on touch)."
         }
@@ -1153,6 +1159,15 @@
         },
         "items": {
           "description": "The entries in order."
+        },
+        "side": {
+          "description": "Preferred side of the trigger."
+        },
+        "align": {
+          "description": "Along the side."
+        },
+        "anchor": {
+          "description": "A node id to open at; it toggles it."
         },
         "openOn": {
           "description": "A press on the child, or the context gesture over it."

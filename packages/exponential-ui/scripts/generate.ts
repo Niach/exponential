@@ -1654,7 +1654,8 @@ function promptBudget() {
     // VAPP-280 (a named budget exception, round 7 #VAPP-275): SettingsRow, +66 tokens after trimming its descriptions; the measured total with VAPP-279 (9381), no slack.
     // #VAPP-284 (a named budget exception, round 7): Row's foldable parent (`open`, children, `change`) + Box `toggle`: +19 tokens after trimming; the measured total with VAPP-280 (9400), no slack.
     // #VAPP-285 (a named budget exception, round 7): Tree (items, expanded, value, label; select/toggle/load): +91 tokens after trimming; the measured total with VAPP-284 (9491), no slack.
-    budgetTokens: 9491,
+    // VAPP-276 (a named budget exception, round 7): Popover align + anchor, Menu side + align + anchor: +62 tokens after trimming the new descriptions; the measured total with #VAPP-285 (9553), no slack.
+    budgetTokens: 9553,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
