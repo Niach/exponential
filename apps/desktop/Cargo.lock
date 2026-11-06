@@ -2801,6 +2801,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "eengine-runner"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "eengine",
+ "eengine-desktop",
+ "eui-core",
+ "eui-gpui",
+ "flume 0.11.1",
+ "gpui",
+ "gpui-component",
+ "gpui-component-assets",
+ "gpui_platform",
+ "log",
+ "rust-embed",
+ "security-framework",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.23",
+ "url",
+ "uuid",
+ "windows 0.61.3",
+ "zbus",
+]
+
+[[package]]
 name = "either"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
