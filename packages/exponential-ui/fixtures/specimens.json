@@ -11915,6 +11915,101 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-row-case-7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-row-case-7-label",
+                "component": "Text",
+                "props": {
+                  "text": "children · closed",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7-device",
+                "component": "Row",
+                "props": {
+                  "title": "This device",
+                  "icon": "ui-device",
+                  "density": "compact",
+                  "pressable": true,
+                  "open": false
+                },
+                "children": [
+                  {
+                    "id": "c7-tools",
+                    "component": "Row",
+                    "props": {
+                      "title": "Tools",
+                      "icon": "settings-tools",
+                      "density": "compact",
+                      "pressable": true
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-row-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-row-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "children · open",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-issues",
+                "component": "Row",
+                "props": {
+                  "title": "Issues",
+                  "icon": "settings-issues",
+                  "density": "compact",
+                  "pressable": true,
+                  "open": true
+                },
+                "children": [
+                  {
+                    "id": "c8-labels",
+                    "component": "Row",
+                    "props": {
+                      "title": "Labels",
+                      "icon": "settings-labels",
+                      "density": "compact",
+                      "pressable": true
+                    }
+                  },
+                  {
+                    "id": "c8-statuses",
+                    "component": "Row",
+                    "props": {
+                      "title": "Statuses",
+                      "icon": "settings-statuses",
+                      "density": "compact",
+                      "pressable": true,
+                      "selected": true
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

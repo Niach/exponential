@@ -22,7 +22,7 @@ use serde_json::{Map, Value};
 use crate::catalog::{CatalogView, TOKEN_GROUPS};
 use crate::expr::{eval_condition_value, eval_value, is_binding, Decided, ExprContext};
 use crate::json;
-use crate::types::{MacroDef, MacroTemplate, Props, Recipe, ReduceIssue, TemplateChild, UiNode};
+use crate::types::{MacroDef, MacroRoute, MacroTemplate, Props, Recipe, ReduceIssue, TemplateChild, UiNode};
 
 const MAX_DEPTH: usize = 16;
 
@@ -306,12 +306,18 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
     });
     if let Some(routes) = &tpl.on {
         let mut on = IndexMap::new();
-        for (part_event, macro_event) in routes {
+        for (part_event, route) in routes {
+            let macro_event = route.event();
             let Some(action) = exp.source.on.as_ref().and_then(|o| o.get(macro_event)).filter(|a| js_truthy(a)) else {
                 continue;
             };
-            exp.claimed.insert(macro_event.clone());
-            let context = tpl.context.as_ref().and_then(|c| eval_value(&Value::Object(c.clone()), ctx));
+            exp.claimed.insert(macro_event.to_string());
+            // #VAPP-284: `{event, context}` routes with its own context.
+            let raw = match route {
+                MacroRoute::Event(_) => tpl.context.as_ref(),
+                MacroRoute::Routed { context, .. } => context.as_ref(),
+            };
+            let context = raw.and_then(|c| eval_value(&Value::Object(c.clone()), ctx));
             on.insert(part_event.clone(), routed_action(action, context.as_ref()));
         }
         if !on.is_empty() {
@@ -326,7 +332,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                 // An Action carries ONE `functionCall`: the author's routed
                 // function call wins and the bound prop is not written back (reported,
                 // never lost silently). Route an `event` to keep the write.
-                let macro_event = tpl.on.as_ref().and_then(|o| o.get(part_event)).unwrap_or(part_event);
+                let macro_event = tpl.on.as_ref().and_then(|o| o.get(part_event)).map(MacroRoute::event).unwrap_or(part_event);
                 let message = format!(
                     "on.{macro_event}: a function action replaces the two-way set of props.{}; write it in that function's handler or use an event",
                     spec.prop
@@ -454,11 +460,18 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
     }
     let variants = responsive_variants(&node.props);
     let mut exp = Expansion { view, macro_, def, source: &node, base_props: base_props.clone(), variants, claimed: HashSet::new(), issues: Vec::new(), built: Vec::new() };
-    let ctx = ExprContext { id: &node.id, props: &base_props, vars: IndexMap::new() };
-    let mut root = expand_template(&def.root, &mut exp, &ctx, &node.id)
-        .into_iter()
-        .next()
-        .ok_or_else(|| format!("macro {macro_}: the root template produced no node"))?;
+    // #VAPP-284: `{childCount}` = the author's children (an alternative root's test).
+    let mut vars = IndexMap::new();
+    vars.insert("childCount".to_string(), crate::json::number(node.children.len() as f64));
+    let ctx = ExprContext { id: &node.id, props: &base_props, vars };
+    let alternative = def.alternatives.iter().find(|a| matches!(eval_condition_value(Some(&a.if_), &ctx), Decided::Bool(true)));
+    let mut root = match alternative {
+        Some(a) => build_node(&a.root, &mut exp, &ctx, node.id.clone(), None),
+        None => expand_template(&def.root, &mut exp, &ctx, &node.id)
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("macro {macro_}: the root template produced no node"))?,
+    };
     let claimed = exp.claimed;
     let built = exp.built;
     for issue in exp.issues {

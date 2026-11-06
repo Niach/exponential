@@ -38,6 +38,7 @@ export function macroParts(def: MacroDef): PartSpec {
   const parts = new Set<string>()
   const props = new Set<string>(def.recipeProps)
   walkTemplate(def.root, parts, props)
+  for (const alternative of def.alternatives ?? []) walkTemplate(alternative.root, parts, props)
   return { parts: [...parts], props: [...props] }
 }
 

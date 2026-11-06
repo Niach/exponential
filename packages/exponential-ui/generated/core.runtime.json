@@ -1200,7 +1200,8 @@
         }
       },
       "events": [
-        "press"
+        "press",
+        "toggle"
       ]
     },
     "Stack": {
@@ -4220,7 +4221,7 @@
       "kind": "macro",
       "group": "list",
       "lite": true,
-      "children": "none",
+      "children": "many",
       "slots": [
         "leading",
         "trailing"
@@ -4285,10 +4286,16 @@
         "depth": {
           "type": "number",
           "default": 0
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
         }
       },
       "events": [
-        "press"
+        "press",
+        "change"
       ]
     },
     "MessageBubble": {

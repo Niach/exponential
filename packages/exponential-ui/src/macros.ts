@@ -218,13 +218,14 @@ function buildNode(
   node.recipe = { macro: exp.macro, part: tpl.part, props: recipeProps(exp, ctx, tpl.$recipe) }
   if (tpl.$on) {
     const on: Record<string, Action> = {}
-    for (const [partEvent, macroEvent] of Object.entries(tpl.$on)) {
+    for (const [partEvent, route] of Object.entries(tpl.$on)) {
+      // #VAPP-284: `{event, context}` routes with its own context.
+      const macroEvent = typeof route === `string` ? route : route.event
       const action = exp.source.on?.[macroEvent]
       if (!action) continue
       exp.claimed.add(macroEvent)
-      const context = tpl.$context
-        ? (evalValue(tpl.$context, ctx) as Record<string, unknown>)
-        : undefined
+      const raw = typeof route === `string` ? tpl.$context : route.context
+      const context = raw ? (evalValue(raw, ctx) as Record<string, unknown>) : undefined
       on[partEvent] = routedAction(action, context)
     }
     if (Object.keys(on).length > 0) node.on = on
@@ -238,7 +239,8 @@ function buildNode(
         // An Action carries ONE `functionCall`: the author's routed function call
         // wins and the bound prop is not written back (reported, never lost
         // silently). Route an `event` to keep the two-way write.
-        const macroEvent = tpl.$on?.[partEvent] ?? partEvent
+        const route = tpl.$on?.[partEvent]
+        const macroEvent = route === undefined ? partEvent : typeof route === `string` ? route : route.event
         const message = `on.${macroEvent}: a function action replaces the two-way set of props.${spec.prop}; write it in that function's handler or use an event`
         if (!exp.issues?.some((i) => i.id === exp.source.id && i.message === message)) exp.issues?.push({ id: exp.source.id, message })
         continue
@@ -310,8 +312,10 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
   // #EXP-1674: so does an `href` (Row).
   if ((node.on?.press || baseProps.href) && baseProps.pressable === undefined && view.components[macro]?.props.pressable) baseProps.pressable = true
   const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues, built: [] }
-  const ctx: ExprContext = { id: node.id, props: baseProps, vars: {} }
-  const [root] = expandTemplate(def.root, exp, ctx, node.id)
+  // #VAPP-284: `{childCount}` = the author's children (an alternative root's test).
+  const ctx: ExprContext = { id: node.id, props: baseProps, vars: { childCount: node.children.length } }
+  const alternative = def.alternatives?.find((a) => evalConditionValue(a.$if, ctx) === true)
+  const [root] = alternative ? [buildNode(alternative.root, exp, ctx, node.id, undefined)] : expandTemplate(def.root, exp, ctx, node.id)
   root.style = mergeStyle(root.style, node.style)
   if (root.style && Object.keys(root.style).length === 0) delete root.style
   // VAPP-163: the style written ON the macro node wins over the macro's part

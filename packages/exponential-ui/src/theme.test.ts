@@ -61,7 +61,7 @@ describe(`recipe contract`, () => {
     expect(parts.Badge.parts).toEqual([`root`, `icon`, `label`])
     expect(parts.Badge.props).toEqual([`variant`])
     expect(parts.Meter.props).toEqual([`tone`])
-    expect(parts.Row.props).toEqual([`selected`, `density`, `surface`, `depth`])
+    expect(parts.Row.props).toEqual([`selected`, `density`, `surface`, `depth`, `open`]) // #VAPP-284: the foldIcon's `open`
     expect(parts.Section.props).toEqual([`tint`, `tree`, `open`, `collapsible`])
     expect(parts.Switch.parts).toContain(`track`)
     expect(parts.Button.props).toEqual([`variant`, `size`, `disabled`, `loading`])

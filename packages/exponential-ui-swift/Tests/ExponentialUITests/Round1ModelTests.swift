@@ -577,4 +577,50 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertEqual(m.rootIndex.flatMap { m.node($0) }?.id, "root")
         XCTAssertEqual(m.node(m.rootIndex!)?.children.compactMap { m.node($0)?.id }, ["b", "c"], "children in paint order")
     }
+
+    // MARK: - interactions-round1.json foldRow (#VAPP-284)
+
+    /// A foldable Row (children): a press on the head or its fold button, or
+    /// ArrowRight / ArrowLeft through the model's keyboard on the focused one
+    /// (swapped in rtl); the events the host sees and the head's `expanded`.
+    func testFoldRowCasesPressFoldAndTakeTheArrowsThroughTheModel() throws {
+        let fold = try Fixtures.json("interactions-round1.json")["foldRow"]
+        let cases = fold?["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 12)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            var row = fold?["surface"]?.object ?? [:]
+            if c["pressable"]?.bool == false, var on = row["on"]?.object {
+                on["press"] = nil
+                row["on"] = .object(on)
+            }
+            var tree: Props = ["id": .string("root"), "component": .string("Box"), "children": .array([.object(row)])]
+            if c["rtl"]?.bool == true { tree["style"] = .object(["direction": .string("rtl")]) }
+            let host = Round1Host()
+            var options = SurfaceOptions()
+            options.theme = ThemeHandle.builtin("neutral")
+            options.mode = .light
+            let m = try SurfaceModel(id: "fold", options: options, host: host)
+            m.setViewport(width: 400, height: 800)
+            try m.setNested(json: JSONValue.object(tree).json)
+            if let v = c["open"], !v.isNull { m.setData(path: "/open", value: v) }
+            let step = c["step"]?.object ?? [:]
+            let part = (step["press"] ?? step["on"])?.string ?? "head"
+            let target = part == "head" ? "issues.head" : "issues.head.fold"
+            XCTAssertNotNil(m.index(of: target), "\(name): no \(target)")
+            if step["press"] != nil {
+                m.press(id: target)
+            } else {
+                m.requestFocus(target, keyboard: true)
+                XCTAssertEqual(m.focusedId, target, "\(name): \(target) takes focus")
+                let key = step["key"]?.string == "ArrowLeft" ? "left" : "right"
+                XCTAssertTrue(m.handleKey(key: key), "\(name): the arrow is the fold's")
+            }
+            XCTAssertEqual(host.actions.map(\.name), c["events"]?.array?.compactMap(\.string), "\(name): events")
+            for a in host.actions where a.name == "fold" {
+                XCTAssertEqual(a.context["open"]?.bool, c["after"]?.bool, "\(name): fold context")
+            }
+            XCTAssertEqual(m.node(id: "issues.head")?.accessibility?["expanded"]?.bool, c["after"]?.bool, "\(name): expanded after")
+        }
+    }
 }

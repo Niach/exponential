@@ -3717,13 +3717,19 @@
         "tile",
         "tileIcon",
         "badge",
-        "count"
+        "count",
+        "group",
+        "head",
+        "fold",
+        "foldIcon",
+        "children"
       ],
       "props": [
         "selected",
         "density",
         "surface",
-        "depth"
+        "depth",
+        "open"
       ]
     },
     {

@@ -177,3 +177,5 @@ export type { OverlaySide, OverlayAlign, OverlayPlacement, Rect, Size } from "./
 export * from "./host"
 // VAPP-91: declarative apps in any host + the Exponential connector.
 export * from "./connector"
+// #VAPP-284: the fold keys (a foldable Row's head and fold button).
+export { foldKey } from "./fold"

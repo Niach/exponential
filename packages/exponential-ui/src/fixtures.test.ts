@@ -79,7 +79,8 @@ describe(`catalog-macros.json`, () => {
       expect(new Set(ids).size, c.name).toBe(ids.length)
       expect(expanded.id).toBe(c.input.id)
       expect(expanded.recipe?.macro, c.name).toBe(c.input.component)
-      expect(expanded.recipe?.part).toBe(`root`)
+      // #VAPP-284: a foldable Row (children) takes its `group` alternative root.
+      expect(expanded.recipe?.part).toBe(c.name.startsWith(`Row/fold:`) ? `group` : `root`)
     }
   })
 
