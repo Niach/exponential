@@ -271,6 +271,8 @@ object AppMarkdown {
             chipBorder = chipRoot.style.borderColor ?: border,
             chipBorderWidth = chipRoot.style.borderWidth,
             chipInk = part("Chip", "label", MarkdownPainter.CHIP_PROPS).color ?: ink,
+            imageBorder = part("Markdown", "image").style.borderColor ?: Color.Unspecified,
+            imageBorderWidth = part("Markdown", "image").style.borderWidth,
         )
         val highlighter = MarkdownPainter.codeHighlighter(t, MODE)
         return Look(styles, colors, t.radius("md").takeIf { it > 0f } ?: 6f, highlighter)

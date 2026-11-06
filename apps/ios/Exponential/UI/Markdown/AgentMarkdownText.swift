@@ -2,6 +2,9 @@ import ExpCore
 import ExpUI
 import GRDB
 import SwiftUI
+#if canImport(ExponentialUI)
+import ExponentialUI
+#endif
 
 /// What an agent-markdown render needs to fetch the images it embeds: the
 /// instance base URL the relative `/api/attachments/{id}` paths resolve
@@ -76,307 +79,123 @@ enum ChatMentionMembers {
     }
 }
 
-/// Read-only GFM render of agent-authored prose (plan bodies, question
-/// prompts, narration, steered messages) through the SAME block stack as
-/// comment bodies (EXP-249) — claude writes markdown, and a plan flattened
-/// into one Text was unreadable. EXP-686 moved it out of `AgentSessionView`
-/// (internal, not private) so the runs list can render a close-out summary
-/// as real markdown too.
+/// #VAPP-258: how a read-only text renders (`catalog/host.json` markdown
+/// options): `chat` = the transcript rhythm (`density: chat`), `hardBreaks`
+/// = every newline breaks the line (agent output is written for a terminal,
+/// EXP-440), `autolink` = bare `http(s)://` urls link, `imageMaxHeight` = a
+/// block picture's height cap (nil = none: the width at its aspect).
+struct AppMarkdownStyle: Equatable {
+    var chat: Bool
+    var hardBreaks: Bool
+    var autolink: Bool
+    var imageMaxHeight: CGFloat?
+    /// EXP-1280 (plan-card.json `card`): the plan card's inline picture
+    /// frame (`pictureRadius` + a `pictureStroke` hairline), painted by the
+    /// `Markdown/image` part of the plan-card theme (`AppMarkdownHost`).
+    var planCardPictures = false
+
+    /// A chat's block picture cap (pt); documents have none.
+    static let chatImageMaxHeight: CGFloat = 240
+
+    /// Agent narration, chat messages, steered prompts.
+    static let chat = AppMarkdownStyle(chat: true, hardBreaks: true, autolink: true, imageMaxHeight: chatImageMaxHeight)
+    /// A question / plan card's prompt in a chat: the chat rhythm, soft breaks.
+    static let prompt = AppMarkdownStyle(chat: true, hardBreaks: false, autolink: true, imageMaxHeight: chatImageMaxHeight)
+    /// Comments, plan pages, results, uploaded files.
+    static let document = AppMarkdownStyle(chat: false, hardBreaks: false, autolink: false, imageMaxHeight: nil)
+
+    /// Bare urls link (a plan page, an agent-written card).
+    var autolinked: AppMarkdownStyle {
+        var s = self
+        s.autolink = true
+        return s
+    }
+
+    /// A plan card's pictures (`planCardPictures`).
+    var planCard: AppMarkdownStyle {
+        var s = self
+        s.planCardPictures = true
+        return s
+    }
+
+    func imageCap(_ cap: CGFloat?) -> AppMarkdownStyle {
+        var s = self
+        s.imageMaxHeight = cap
+        return s
+    }
+}
+
+/// Read-only Markdown: issue comments, the agent transcript and chat,
+/// plan pages, results and file previews. #VAPP-258: ONE implementation
+/// with genUI's catalog `Markdown` (ExponentialUI's `MarkdownText`, the
+/// `Markdown/*` recipes of the app's theme); this view supplies the host
+/// hooks (`AppMarkdownHost`). Editors keep their own renderer
+/// (`MarkdownEditor`).
 struct AgentMarkdownText: View {
     let text: String
-    /// nil renders text-only: image blocks have nothing to fetch with.
+    /// nil renders without the account: no pictures, no chips.
     let context: AgentMarkdownContext?
-    /// Display-only parse deviations — safe here, nothing serializes back.
-    let options: MarkdownParseOptions
-    let imageMaxHeight: CGFloat?
-    /// EXP-1280: the image blocks' radius + hairline (the plan card's inline
-    /// picture); defaults = the transcript's.
-    let imageCornerRadius: CGFloat
-    let imageStroke: CGFloat?
+    let style: AppMarkdownStyle
+    /// `streaming: true`: `text` is a growing prefix (a reply being written).
+    let streaming: Bool
     /// Chat bubbles hug their text; full-width prose does not.
     let hugsWidth: Bool
-    /// EXP-698: display-only palette deviations. The chat feed is the ONE
-    /// surface that tints inline code (`Semantic.codeText` on `codeFill`) —
-    /// comment and issue renders keep the neutral interchange look.
-    let overrides: MarkdownStyle.Overrides
 
-    /// EXP-1358: the row's model is made on the FIRST body pass, not in
-    /// `init` — a parent re-render re-inits every visible row, and SwiftUI
-    /// discards every `State(initialValue:)` but the first, so each re-init
-    /// used to build (and throw away) a whole decorated model.
-    @State private var displayBox: LazyBox<IssueEditorModel>
-    private var displayModel: IssueEditorModel { displayBox.value }
-    @State private var displayedText: String?
-    /// EXP-787: the metrics are baked into the attributed string at parse time,
-    /// so a text-size change has to re-parse — the `@State` model outlives the
-    /// `init` that built it. The render cache keys on the RESOLVED metrics, so
-    /// stepping back to a previous size is a cache hit.
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    /// EXP-1188: optional so a render outside the app shell (previews) just
-    /// keeps UIKit's default link open.
     @Environment(AppDependencies.self) private var deps: AppDependencies?
-
-    /// The steer feed's inline-code palette, generated straight off the shared
-    /// design tokens (web `--code-*`, desktop and Android mirror it) — plus
-    /// (EXP-787) the transcript's own measure: agent prose reads at
-    /// `Transcript.bodySize` on a `Transcript.bodyLineHeight` line, while every
-    /// editable surface keeps the interchange body font. Both numbers are the
-    /// DEFAULT-size values; `MarkdownStyle` scales them through `UIFontMetrics`
-    /// at render time, so the transcript keeps Dynamic Type.
-    static let chatCodePalette = MarkdownStyle.Overrides(
-        inlineCodeForeground: DesignTokens.Semantic.codeText,
-        inlineCodeBackground: DesignTokens.Semantic.codeFill,
-        bodySize: DesignTokens.Transcript.bodySize,
-        lineHeight: DesignTokens.Transcript.bodyLineHeight
-    )
-
-    /// The Guide's report sections: the transcript's measure, but NEUTRAL
-    /// code spans (the interchange style) — no chat palette (polish pin ×4).
-    static let guideReport = MarkdownStyle.Overrides(
-        bodySize: DesignTokens.Transcript.bodySize,
-        lineHeight: DesignTokens.Transcript.bodyLineHeight
-    )
+    /// EXP-1493: a host that opens a picture its own way (the plan lightbox).
+    @Environment(\.markdownImageTapHandler) private var onImageTap
+    @State private var picture: PictureViewerSet?
 
     init(
         text: String,
         context: AgentMarkdownContext? = nil,
-        options: MarkdownParseOptions = [],
-        imageMaxHeight: CGFloat? = 280,
-        imageCornerRadius: CGFloat = 8,
-        imageStroke: CGFloat? = nil,
-        hugsWidth: Bool = false,
-        overrides: MarkdownStyle.Overrides = AgentMarkdownText.chatCodePalette
+        style: AppMarkdownStyle = .chat,
+        streaming: Bool = false,
+        hugsWidth: Bool = false
     ) {
         self.text = text
         self.context = context
-        self.options = options
-        self.imageMaxHeight = imageMaxHeight
-        self.imageCornerRadius = imageCornerRadius
-        self.imageStroke = imageStroke
+        self.style = style
+        self.streaming = streaming
         self.hugsWidth = hugsWidth
-        self.overrides = overrides
-        // EXP-582: a LazyVStack drops a row's @State the moment it scrolls
-        // off, so every re-realized bubble used to start EMPTY, re-run cmark
-        // in `.task` and then grow to its real height — the layout churn
-        // behind the scroll lag on long histories (and a feed replay made
-        // it N times over). Parse SYNCHRONOUSLY on first creation (EXP-580,
-        // the EXP-70 failure mode again) and cache the result, so a
-        // re-realized row renders at full height on the first pass and a
-        // cache hit parses nothing.
-        // EXP-1238: the row OWNS its model and adopts the cached parse's
-        // blocks — a shared model cannot be reloaded in place (two rows
-        // showing one text would follow each other's updates), and in-place
-        // is the point: see `adoptDisplayBlocks`.
-        _displayBox = State(initialValue: LazyBox {
-            Self.rowModel(text, context: context, options: options, overrides: overrides)
-        })
-        _displayedText = State(initialValue: text)
-    }
-
-    /// The row's own display model, holding the cached prototype's blocks.
-    private static func rowModel(
-        _ text: String,
-        context: AgentMarkdownContext?,
-        options: MarkdownParseOptions,
-        overrides: MarkdownStyle.Overrides
-    ) -> IssueEditorModel {
-        let model = IssueEditorModel()
-        configureDisplay(model, context: context)
-        model.adoptDisplayBlocks(from: prototype(
-            text, context: context, options: options, overrides: overrides
-        ))
-        return model
-    }
-
-    /// Display-only wiring shared by the cached prototypes and the row models:
-    /// read-only chips resolved against the run's team through the same memo
-    /// the issue editors use (`bareIssueRefs` is what makes a narrated
-    /// `EXP-758` chip alongside `#EXP-758`, EXP-760), and EXP-824's attachment
-    /// resolver so a narrated `[clip.mp4](/api/attachments/{id})` gets the
-    /// same player. The raw text is untouched, nothing here ever serializes.
-    private static func configureDisplay(_ model: IssueEditorModel, context: AgentMarkdownContext?) {
-        guard let refs = context?.issueRefs else { return }
-        let accountId = context?.accountId ?? ""
-        model.attachmentResolver = AttachmentInfoCache.resolver(db: refs.db, accountId: accountId)
-        let scope = IssueRefLookup.Scope.team(id: refs.teamId)
-        let db = refs.db
-        model.isDisplayOnly = true
-        model.bareIssueRefs = refs.bareRefs
-        model.mentionMembers = refs.mentionMembers
-        model.issueRefResolver = { identifier in
-            IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
-                .issueId
-        }
-        model.issueRefTitleResolver = { identifier in
-            IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
-                .title
-        }
-        model.issueRefStatusResolver = { identifier in
-            IssueRefChipCache.statusInfo(
-                identifier, scope: scope, db: db, accountId: accountId)
-        }
-    }
-
-    /// Parsed display PROTOTYPES keyed by text + base URL + parse options:
-    /// read-only models whose blocks the rows adopt (EXP-1238), never
-    /// rendered themselves, so sharing one between two bubbles showing the
-    /// same text is harmless. Bounded by `countLimit`
-    /// below and by NSCache's own eviction under pressure — EXP-783 uncapped
-    /// the feed itself, so the count limit here is the only bound that
-    /// matters (and the session view renders a window of it anyway).
-    private static let cache: NSCache<NSString, IssueEditorModel> = {
-        let cache = NSCache<NSString, IssueEditorModel>()
-        cache.countLimit = 600
-        return cache
-    }()
-
-    private static func cacheKey(
-        text: String,
-        baseURL: URL?,
-        options: MarkdownParseOptions,
-        overrides: MarkdownStyle.Overrides,
-        // The chip pass bakes resolved ids/titles into the model, so two
-        // accounts or two teams must never share one (EXP-760).
-        refsKey: String
-    ) -> NSString {
-        "\(options.rawValue)|\(overrides.cacheKey)|\(baseURL?.absoluteString ?? "")|\(refsKey)|\(text)"
-            as NSString
-    }
-
-    /// #EXP-1674 (prose-links.json): agent prose with its bare in-app URLs
-    /// rewritten to their chips, in the run's team. Display text only.
-    private static func chipped(_ text: String, context: AgentMarkdownContext?) -> String {
-        guard let context, let refs = context.issueRefs, refs.bareRefs, text.contains("://"),
-              let origin = context.baseURL?.absoluteString,
-              let pool = try? refs.db.pool(forAccountId: context.accountId)
-        else { return text }
-        let teamId = refs.teamId
-        func cell(_ sql: String, _ first: String, _ second: String) -> String? {
-            (try? pool.read { db -> String? in
-                try String.fetchOne(db, sql: sql, arguments: [first, second])
-            }) ?? nil
-        }
-        let team = (try? pool.read { db -> String? in
-            try String.fetchOne(db, sql: #"SELECT "slug" FROM "teams" WHERE "id" = ? LIMIT 1"#, arguments: [teamId])
-        }) ?? nil
-        return ProseLinks.chipBareAppLinks(text, origin: origin, team: team) { kind, id in
-            switch kind {
-            case .issue:
-                return IssueRefChipCache.chip(
-                    id.uppercased(), scope: .team(id: teamId), db: refs.db, accountId: context.accountId
-                )?.title
-            case .board:
-                return cell(#"SELECT "name" FROM "boards" WHERE "team_id" = ? AND "slug" = ? LIMIT 1"#, teamId, id)
-            case .session:
-                let exists = cell(#"SELECT "id" FROM "sessions" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, id)
-                guard exists != nil else { return nil }
-                let title = cell(#"SELECT "title" FROM "sessions" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, id)
-                return title.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? "Session"
-            case .agent:
-                return cell(#"SELECT "name" FROM "agents" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, id)
-            }
-        }
-    }
-
-    /// Cache hit or a synchronous parse that populates the cache.
-    private static func prototype(
-        _ raw: String,
-        context: AgentMarkdownContext?,
-        options: MarkdownParseOptions,
-        overrides: MarkdownStyle.Overrides
-    ) -> IssueEditorModel {
-        let refs = context?.issueRefs
-        let accountId = context?.accountId ?? ""
-        let text = chipped(raw, context: context)
-        let key = cacheKey(
-            text: text, baseURL: context?.baseURL, options: options, overrides: overrides,
-            refsKey: refs.map { "\(accountId)/\($0.teamId)/\($0.bareRefs)/\($0.mentionKey)" } ?? ""
-        )
-        if let cached = cache.object(forKey: key) { return cached }
-        let model = IssueEditorModel()
-        configureDisplay(model, context: context)
-        model.load(
-            markdown: text, baseURL: context?.baseURL, options: options, overrides: overrides
-        )
-        cache.setObject(model, forKey: key)
-        return model
     }
 
     var body: some View {
-        MarkdownEditor(
-            model: displayModel,
-            placeholder: "",
-            baseURL: context?.baseURL,
-            accountId: context?.accountId ?? "",
-            httpClient: context?.httpClient,
-            onIssueRefTap: context?.issueRefs?.onOpen,
-            isReadOnly: true,
-            imageMaxHeight: imageMaxHeight,
-            imageCornerRadius: imageCornerRadius,
-            imageStroke: imageStroke,
-            hugsContentWidth: hugsWidth,
-            chatTables: overrides.bodySize != nil
-        )
-        .environment(\.markdownLinkHandler, linkHandler)
-        .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)
-        // EXP-1238: a streamed fragment or a text-size change reloads the
-        // row's model IN PLACE (block ids kept), so the text view SwiftUI
-        // already holds re-applies its content and re-measures — never a
-        // fresh UITextView per fragment.
-        .onChange(of: text) { _, newText in
-            guard displayedText != newText else { return }
-            displayedText = newText
-            displayModel.adoptDisplayBlocks(from: Self.prototype(
-                newText, context: context, options: options, overrides: overrides
-            ))
+        #if canImport(ExponentialUI)
+        if let host = AppMarkdownHost.host(context, deps: deps, planCard: style.planCardPictures) {
+            let source = host.prepare(text, autolink: style.autolink)
+            MarkdownText(
+                source,
+                context: host.model,
+                options: MarkdownOptions(
+                    hardBreaks: style.hardBreaks, chat: style.chat, selectable: true,
+                    streaming: streaming, imageMaxHeight: style.imageMaxHeight
+                ),
+                hugsWidth: hugsWidth,
+                revision: host.revision
+            )
+            .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)
+            .onAppear { register(host, source) }
+            .onChange(of: source) { _, next in register(host, next) }
+            .pictureViewer($picture)
         }
-        .onChange(of: dynamicTypeSize) { _, _ in
-            displayModel.adoptDisplayBlocks(from: Self.prototype(
-                text, context: context, options: options, overrides: overrides
-            ))
-        }
-        // Members syncing in after the row rendered: re-adopt the pilled parse.
-        .onChange(of: context?.issueRefs?.mentionKey ?? "") { _, _ in
-            displayModel.mentionMembers = context?.issueRefs?.mentionMembers ?? []
-            displayModel.adoptDisplayBlocks(from: Self.prototype(
-                text, context: context, options: options, overrides: overrides
-            ))
+        #endif
+    }
+
+    #if canImport(ExponentialUI)
+    /// A press on one of this text's pictures opens THE picture viewer (or
+    /// the screen's own handler).
+    private func register(_ host: AppMarkdownHost, _ source: String) {
+        guard source.contains("![") else { return }
+        let custom = onImageTap
+        host.registerPictures(in: source) { src in
+            if let custom {
+                custom(src)
+            } else {
+                let id = AttachmentLinks.attachmentId(fromUrl: src, baseURL: context?.baseURL) ?? src
+                picture = PictureViewerSet(items: [PictureViewerItem(id: id, src: src, label: "")])
+            }
         }
     }
-
-    // MARK: - Link taps (EXP-1188)
-
-    /// A tapped link goes to THE opener (#EXP-1674), with the surface's team
-    /// for the `~/` shorthand (none here = the active team).
-    private var linkHandler: MarkdownLinkHandler? {
-        guard let deps else { return nil }
-        return LinkOpener.surfaceHandler(
-            accountId: context?.accountId.nilIfEmpty,
-            baseURL: context?.baseURL,
-            teamId: context?.issueRefs?.teamId,
-            deps: deps
-        )
-    }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
-}
-
-
-/// A reference box whose value is built on first read (EXP-1358).
-final class LazyBox<Value> {
-    private let make: () -> Value
-    private var stored: Value?
-
-    init(_ make: @escaping () -> Value) {
-        self.make = make
-    }
-
-    var value: Value {
-        if let stored { return stored }
-        let built = make()
-        stored = built
-        return built
-    }
+    #endif
 }

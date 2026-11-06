@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `MarkdownText(_:context:options:hugsWidth:revision:)`: the catalog Markdown outside a surface (a host's own screens), on a context `SurfaceModel`'s theme and `HostPlugin` hooks, following Dynamic Type. Markdown's recipe-sized parts (chat body, headings, code, chip label and height) now scale with the surface's font scale, measurer included; multi-line code blocks paint every line (they painted only the first); text carrying inline chips paints at the measurer's line breaks. iOS `selectable: true` selects natively per text block (a selectable TextKit view on the measurer's lines; copy writes chips as their labels) instead of the whole-text Copy menu. Markdown block images paint the `Markdown/image` part's border (width, colour) inside their corners.
+
 ## 0.16.3 (2026-11-06)
 
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).

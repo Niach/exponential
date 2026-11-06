@@ -106,7 +106,7 @@ struct AttachmentMarkdownPreviewSheet: View {
             AgentMarkdownText(
                 text: markdown,
                 context: markdownContext,
-                overrides: MarkdownStyle.Overrides()
+                style: .document
             )
         case .tooLarge:
             Text("This file is too large to preview here. Download it to read it.")

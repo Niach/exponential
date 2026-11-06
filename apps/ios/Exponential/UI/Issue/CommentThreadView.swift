@@ -453,9 +453,7 @@ struct CommentThreadView: View {
                 accountId: accountId,
                 httpClient: deps.httpClient,
                 mentionMembers: users.values.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
-                resolveIssueRef: { identifier in resolveIssueRef(identifier) },
-                resolveIssueRefTitle: { identifier in resolveIssueRefTitle(identifier) },
-                resolveIssueRefStatus: { identifier in resolveIssueRefStatus(identifier) },
+                teamId: boards[issue.boardId]?.teamId,
                 onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
                 actions: { row in cardActions(for: row) },
                 onReply: {
@@ -793,9 +791,8 @@ private struct RegularCommentRow: View {
     let accountId: String
     let httpClient: HTTPClient?
     let mentionMembers: [MentionMember]
-    let resolveIssueRef: (String) -> String?
-    let resolveIssueRefTitle: (String) -> String?
-    let resolveIssueRefStatus: (String) -> IssueRefStatusInfo?
+    /// #VAPP-258: the issue's team (the body's `#IDENT` chips resolve in it).
+    let teamId: String?
     let onOpenIssue: (String) -> Void
     let actions: (CommentEntity) -> CommentCardActions
     let onReply: () -> Void
@@ -856,9 +853,7 @@ private struct RegularCommentRow: View {
             accountId: accountId,
             httpClient: httpClient,
             mentionMembers: mentionMembers,
-            resolveIssueRef: resolveIssueRef,
-            resolveIssueRefTitle: resolveIssueRefTitle,
-            resolveIssueRefStatus: resolveIssueRefStatus,
+            teamId: teamId,
             onOpenIssue: onOpenIssue,
             actions: actions(row)
         )
@@ -900,19 +895,13 @@ private struct CommentCardContent: View {
     let accountId: String
     let httpClient: HTTPClient?
     let mentionMembers: [MentionMember]
-    let resolveIssueRef: (String) -> String?
-    let resolveIssueRefTitle: (String) -> String?
-    let resolveIssueRefStatus: (String) -> IssueRefStatusInfo?
+    let teamId: String?
     let onOpenIssue: (String) -> Void
     let actions: CommentCardActions
 
     @Environment(AppDependencies.self) private var deps
 
     @State private var saving = false
-    // Read-only display model for the comment body (same block stack as the
-    // editors); rebuilt only when the body text actually changes.
-    @State private var displayModel = IssueEditorModel()
-    @State private var displayedBody: String?
 
     // EXP-554 edit state: which already-linked rows survive the save, plus
     // anything newly picked. Removals are permanent once saved (the server hard-
@@ -1094,50 +1083,27 @@ private struct CommentCardContent: View {
                         .disabled(saving)
                 }
             } else {
-                // Read-only render through the SAME block stack as the
-                // description and the composer (no MarkdownUI — its
-                // optimized opaque-Body metadata hard-crashed the iOS 27
-                // runtime, and one dependency for one read-only view isn't
-                // worth that class of bug). The model renders resolved
-                // @mentions as `@<name>` pills (EXP-713) and resolved
-                // `#IDENTIFIER` refs as tappable chips; the raw stored
-                // markdown stays untouched (the edit path reseeds from it).
-                //
-                // EXP-554: an attachment-only comment has a blank body — skip
-                // the body view entirely rather than rendering an empty block.
+                // #VAPP-258: the read-only body is genUI's Markdown (the
+                // document density): resolved @mentions and `#IDENTIFIER`
+                // refs as chips, the stored markdown untouched (the edit
+                // path reseeds from it). EXP-554: an attachment-only comment
+                // has a blank body — no body view at all.
                 if !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    MarkdownEditor(
-                        model: displayModel,
-                        placeholder: "",
-                        baseURL: baseURL,
-                        accountId: accountId,
-                        httpClient: httpClient,
-                        onIssueRefTap: { issueId in onOpenIssue(issueId) },
-                        isReadOnly: true
+                    AgentMarkdownText(
+                        text: bodyText,
+                        context: AgentMarkdownContext(
+                            baseURL: baseURL,
+                            accountId: accountId,
+                            httpClient: httpClient,
+                            issueRefs: teamId.map { team in
+                                AgentIssueRefContext(
+                                    teamId: team, db: deps.db, onOpen: onOpenIssue, bareRefs: false,
+                                    mentionMembers: mentionMembers
+                                )
+                            }
+                        ),
+                        style: .document
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .task(id: bodyText) {
-                        let text = bodyText
-                        guard displayedBody != text else { return }
-                        displayedBody = text
-                        let model = IssueEditorModel()
-                        // Display-only model: chips render as `#ID <title>` with
-                        // the title spliced in as real characters (EXP-307), which
-                        // is safe here because this model never serializes — the
-                        // edit path builds its own model from the raw stored
-                        // markdown. Editable models get the same chip via a
-                        // serialization-invisible attachment instead (EXP-322).
-                        model.isDisplayOnly = true
-                        model.mentionMembers = mentionMembers
-                        model.issueRefResolver = resolveIssueRef
-                        model.issueRefTitleResolver = resolveIssueRefTitle
-                        model.issueRefStatusResolver = resolveIssueRefStatus
-                        // EXP-824: `[clip.mp4](/api/attachments/{id})` in a
-                        // comment body renders as a player off the store.
-                        model.attachmentResolver = AttachmentInfoCache.resolver(db: deps.db, accountId: accountId)
-                        model.load(markdown: text, baseURL: baseURL)
-                        displayModel = model
-                    }
                 }
 
                 // EXP-554: linked attachments render BELOW the body as squared

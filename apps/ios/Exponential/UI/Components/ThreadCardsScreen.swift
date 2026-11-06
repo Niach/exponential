@@ -328,7 +328,8 @@ struct ThreadCardsScreen: View {
         } body: {
             AgentMarkdownText(
                 text: Self.commentBody,
-                context: AgentMarkdownContext(baseURL: nil, accountId: "", httpClient: deps.httpClient)
+                context: AgentMarkdownContext(baseURL: nil, accountId: "", httpClient: deps.httpClient),
+                style: .document
             )
         }
     }
@@ -753,10 +754,7 @@ private struct PlanSheetSpecimen: View {
             AgentMarkdownText(
                 text: PlanCard.renderableMarkdown(card.plan),
                 context: nil,
-                options: [.autolinkBareURLs],
-                imageMaxHeight: nil,
-                imageCornerRadius: PlanCard.Card.pictureRadius,
-                imageStroke: PlanCard.Card.pictureStroke
+                style: .document.autolinked.planCard
             )
         } footer: {
             PlanCardFooter(onNext: {})

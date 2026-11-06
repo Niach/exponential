@@ -126,16 +126,13 @@ struct PlanPageBody: View {
             AgentMarkdownText(
                 text: text,
                 context: markdownContext,
-                options: [.autolinkBareURLs],
-                imageMaxHeight: nil,
-                imageCornerRadius: PlanCard.Card.pictureRadius,
-                imageStroke: PlanCard.Card.pictureStroke
+                style: .document.autolinked.planCard
             )
             // A picture in the prose (alone on its line or mid-sentence) opens
             // THE plan lightbox too, never a plain image preview.
             .environment(\.markdownImageTapHandler) { src in openLightbox(src: src, plan: plan) }
         case let .section(id, title):
-            AgentMarkdownText(text: "## \(title)", context: markdownContext, options: [])
+            AgentMarkdownText(text: "## \(title)", context: markdownContext, style: .document)
                 .id(id)
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.space)).minY } action: { top in
                     sectionTops[id] = top

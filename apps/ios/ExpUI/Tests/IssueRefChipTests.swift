@@ -471,62 +471,6 @@ final class IssueRefChipTests: XCTestCase {
         XCTAssertNil(plain.attribute(.kern, at: hash, effectiveRange: nil))
     }
 
-    func testTheDisplayPathHidesTheHashToo() {
-        let blocks = MarkdownConversion.markdownToBlocks("Fixes #EXP-42 today")
-        guard case let .text(_, content) = blocks[0] else { return XCTFail("expected a text block") }
-        let decorated = IssueRefs.decorateForDisplay(
-            content, resolver: resolver, titleResolver: titles, statusResolver: statuses)
-        XCTAssertTrue(decorated.string.contains("#EXP-42\u{00A0}Fix\u{00A0}login\u{00A0}flow"))
-        let hash = (decorated.string as NSString).range(of: "#EXP-42").location
-        XCTAssertEqual(
-            decorated.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
-            PlatformColor.clear
-        )
-        XCTAssertEqual(
-            decorated.attribute(.kern, at: hash, effectiveRange: nil) as? CGFloat,
-            MarkdownStyle.chipStatusIconGap
-        )
-        XCTAssertNil(decorated.attribute(.kern, at: hash + 1, effectiveRange: nil))
-        XCTAssertNotNil(decorated.attribute(.markdownIssueRefStatus, at: hash, effectiveRange: nil))
-    }
-
-    /// EXP-885: the steering feed narrates identifiers WITHOUT a `#`
-    /// (`EXP-42 is done`), and a bare token brings no cell for the layout
-    /// manager to paint the status glyph over — so bare chips rendered
-    /// statusless, the reported Android symptom. The display splice (which
-    /// already rewrites characters) now writes the cell in, so a narrated chip
-    /// and a typed one are the same chip.
-    func testABareDisplayChipCarriesTheStatusAndItsIconCell() {
-        let blocks = MarkdownConversion.markdownToBlocks("Fixed EXP-42 today")
-        guard case let .text(_, content) = blocks[0] else { return XCTFail("expected a text block") }
-        let decorated = IssueRefs.decorateForDisplay(
-            content,
-            resolver: resolver,
-            titleResolver: titles,
-            statusResolver: statuses,
-            bare: true
-        )
-        XCTAssertTrue(decorated.string.contains("#EXP-42\u{00A0}Fix\u{00A0}login\u{00A0}flow"))
-        let hash = (decorated.string as NSString).range(of: "#EXP-42").location
-        // The status the glyph is painted from...
-        XCTAssertEqual(
-            decorated.attribute(.markdownIssueRefStatus, at: hash, effectiveRange: nil)
-                as? IssueRefStatusInfo,
-            statuses("EXP-42")
-        )
-        // ...and the cell it is painted INTO: hidden, and kerned wide enough to
-        // clear the identifier (EXP-655).
-        XCTAssertEqual(
-            decorated.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
-            PlatformColor.clear
-        )
-        XCTAssertEqual(
-            decorated.attribute(.kern, at: hash, effectiveRange: nil) as? CGFloat,
-            MarkdownStyle.chipStatusIconGap
-        )
-        XCTAssertNil(decorated.attribute(.kern, at: hash + 1, effectiveRange: nil))
-    }
-
     func testStatusChipsStillRoundTripByteIdentically() {
         let src = "Fixes #EXP-42 today\n\n- item with #EXP-42\n- plain item"
         let model = IssueEditorModel()

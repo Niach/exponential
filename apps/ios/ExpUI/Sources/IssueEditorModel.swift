@@ -147,10 +147,8 @@ public final class IssueEditorModel {
     ///
     /// Safe on EDITABLE models: the title rides a single `NSTextAttachment`
     /// character, and `MarkdownConversion`'s serializer skips `.attachment`
-    /// runs, so the derived markdown keeps the bare token. (Read-only DISPLAY
-    /// models take a different route — `IssueRefs.decorateForDisplay` splices
-    /// the title in as real characters, which is fine there because they never
-    /// serialize.)
+    /// runs, so the derived markdown keeps the bare token. (Read-only text is
+    /// genUI's Markdown, #VAPP-258.)
     public var issueRefTitleResolver: ((String) -> String?)?
 
     /// Identifier → the issue's resolved STATUS (glyph + tint), which the chip
@@ -174,17 +172,6 @@ public final class IssueEditorModel {
     public func attachmentsDidChange() {
         attachmentInfoRevision &+= 1
     }
-
-    /// Read-only comment cards set this so the chip title is spliced in as
-    /// text (`IssueRefs.decorateForDisplay`) instead of riding an attachment.
-    /// Never set it on a model whose markdown gets saved.
-    public var isDisplayOnly = false
-
-    /// EXP-760 — also chip BARE `EXP-758` identifiers (no `#`), which is how
-    /// agents narrate them. Display-only and steering-feed-only: it needs
-    /// `isDisplayOnly`, and no editable model may set it (the stored-text
-    /// contract stays the `#` form).
-    public var bareIssueRefs = false
 
     /// Issue search backing the #-autocomplete (set by the host; team-
     /// scoped, matching identifier + title substrings — empty query = most
@@ -416,53 +403,15 @@ public final class IssueEditorModel {
 
     // MARK: - Loading / reconciliation
 
-    /// `options` deviates from the interchange contract and is therefore only
-    /// ever passed by display-only models (EXP-440) — `applyRemote` and
-    /// `reloadPendingRemote` deliberately keep the default, since a model that
-    /// can serialize must parse exactly what it saves.
-    public func load(
-        markdown: String,
-        baseURL: URL?,
-        options: MarkdownParseOptions = [],
-        overrides: MarkdownStyle.Overrides = .none
-    ) {
-        blocks = MarkdownConversion.markdownToBlocks(
-            markdown, baseURL: baseURL, options: options, overrides: overrides
-        )
+    public func load(markdown: String, baseURL: URL?) {
+        blocks = MarkdownConversion.markdownToBlocks(markdown, baseURL: baseURL)
         decorateChips()
         bumpAllRevisions()
         // Baseline against the DERIVED markdown, not the raw input: the
         // markdown↔blocks round-trip is not byte-identical, so using the raw
         // input here would make the editor read as "dirty" immediately.
-        // EXP-1358: a display-only model never saves, so it never serialises
-        // — every streamed narration fragment used to re-serialise the whole
-        // growing message here for nothing.
-        lastSavedMarkdown = isDisplayOnly ? "" : currentMarkdown()
+        lastSavedMarkdown = currentMarkdown()
         pendingRemoteMarkdown = nil
-        focusedBlockId = nil
-        selection = nil
-    }
-
-    /// EXP-1238 — a DISPLAY-ONLY reload that keeps block identity: take the
-    /// blocks `prototype` parsed (a cached, fully decorated parse of the new
-    /// text) and give each one the id of the block that stood at its position
-    /// before, kind permitting. The host's `ForEach` then sees the SAME text
-    /// block with a bumped revision and re-applies its content to the text
-    /// view it already has, instead of tearing one UITextView down and
-    /// building, measuring and laying out a new one — which is what a
-    /// streamed narration did on every fragment, dozens of times a second. No
-    /// save baseline, no remote state: a model that only displays serializes
-    /// nothing.
-    public func adoptDisplayBlocks(from prototype: IssueEditorModel) {
-        let previous = blocks
-        var next = prototype.blocks
-        for index in next.indices where index < previous.count {
-            if let kept = next[index].adoptingId(of: previous[index]) {
-                next[index] = kept
-            }
-        }
-        blocks = next
-        bumpAllRevisions()
         focusedBlockId = nil
         selection = nil
     }
@@ -573,16 +522,6 @@ public final class IssueEditorModel {
 
     /// Like [decorateChips], but for a live document: bumps the revision of
     /// every block whose rendering actually changed so the text views re-apply.
-    ///
-    /// Safe to re-run on DISPLAY-ONLY models too, even though their route
-    /// (`IssueRefs.decorateForDisplay`) splices the title in as real
-    /// characters: that pass skips tokens that already carry
-    /// `.markdownIssueRef`, so a second run can no longer append the title
-    /// twice. Skipping display-only models entirely would be the other fix, but
-    /// it would also stop late-syncing team members from ever chipping their
-    /// `@email` mentions on a read-only comment card (EXP-322). The mention
-    /// route (`MentionRefs.decorateForDisplay`) carries the same
-    /// already-decorated guard.
     private func redecorateChips() {
         for (idx, block) in blocks.enumerated() {
             switch block {
@@ -614,32 +553,12 @@ public final class IssueEditorModel {
     }
 
     /// The one place that assembles the resolvers for a chip pass, so the
-    /// live editor pass and the `load()` pass can never drift. Read-only
-    /// display models splice the issue title in as text and substitute the
-    /// member name for a mention's address; editable models get the
-    /// serialization-invisible attachment and keep the `@email` characters.
+    /// live editor pass and the `load()` pass can never drift: the
+    /// serialization-invisible attachment, the `@email` characters kept.
     public func chipDecoration(
         for content: NSAttributedString,
         selection: NSRange
     ) -> MarkdownChipDecorator.Result {
-        if isDisplayOnly, let issueRefResolver, let issueRefTitleResolver {
-            let decorated = IssueRefs.decorateForDisplay(
-                IssueRefs.decorateProseChips(content),
-                resolver: issueRefResolver,
-                titleResolver: issueRefTitleResolver,
-                statusResolver: issueRefStatusResolver,
-                bare: bareIssueRefs)
-            // Read-only cards show `@<name>` over the stored `@email` (EXP-713,
-            // web/Android parity); editable models below keep the address.
-            let mentioned = mentionMembers.isEmpty
-                ? decorated
-                : MentionRefs.decorateForDisplay(decorated) { [weak self] in self?.mentionName(for: $0) }
-            return MarkdownChipDecorator.Result(
-                attributed: mentioned,
-                selection: selection,
-                changed: !mentioned.isEqual(content),
-            )
-        }
         return MarkdownChipDecorator.decorate(
             content,
             selection: selection,
