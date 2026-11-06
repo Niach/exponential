@@ -251,6 +251,10 @@ describe(`fixtures/interactions-round1.json tabsReorder`, () => {
   const labels = [`Inbox`, `Release notes`, `Calendar`, `Settings`, `Search`, `Drafts`]
   const icons: Record<number, string> = { 0: `message-circle`, 1: `pencil` }
   const frames = (stripFixture as unknown as { layout: { cases: Record<string, { expect: { frames: Record<string, number[]> } }> } }).layout.cases[`900`]!.expect.frames
+  // A drag arms a one-shot click swallow that a 0 ms timer removes (the
+  // release after a drag is no click): let it run, so the next describe's
+  // first click (foldRow) is not eaten.
+  afterEach(() => new Promise<void>((resolve) => setTimeout(resolve, 0)))
   for (const c of (fixture as unknown as { tabsReorder: { name: string; tab: number; direction?: string; steps: ReorderStep[]; expect: unknown[] }[] }).tabsReorder) {
     it(c.name, () => {
       const rtl = c.direction === `rtl`
