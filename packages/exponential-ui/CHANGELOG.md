@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Smaller bundles: the host contract reads `generated/host.runtime.json` (only the keys it uses) instead of all of `catalog/host.json`, so the package-format spec and the prose stay out of every entry that imports it (root, `./host`, `./conformance`: −14 KB gzip; the element standalone −7 KB). `HOST_CONTRACT` (the raw `catalog/host.json`, unused) is gone; import `@exponential_app/eui/catalog/host.json` for the full contract.
 ## 0.17.0 (2026-11-06)
 
 - Sidebar `rail` (#VAPP-277): with `rail`, `collapsed` narrows the column to a 48 px (`$spacing.xl3`) icon rail instead of hiding it; its nav Rows become `$control.buttonIcon` tiles (the icon, the `meta` count as a badge on the top-end corner, the title as a Tooltip pointing into the content and as the accessible name, one tab stop per row; slots drop) and its Sections draw a hairline rule instead of their header. Macro table: `$pass` (a macro hands props to its slot's nodes before they expand) and the conditional slot splice `{"$slot", "$if"}`; Row parts `tip`, `tile`, `tileIcon`, `badge`, `count`, Section part `rule`; neutral recipes `Row/badge` + `Row/count`; web helpers `tooltipFocusHost`, `tooltipPhysicalSide`. Prompt budget unchanged (Sidebar's descriptions trimmed).

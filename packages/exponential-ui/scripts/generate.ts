@@ -130,6 +130,24 @@ export function iconNames(): string[] {
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`
 
 /** VAPP-160: `value` without any `$comment` key, at every depth. */
+/** catalog/host.json reduced to what src/host/contract.ts and exposes.ts read at runtime. */
+function hostRuntime() {
+  const host = readJson<any>(`catalog/host.json`)
+  return {
+    version: host.version,
+    a2uiVersion: host.a2uiVersion,
+    messages: { a2ui: host.messages.a2ui, extensions: host.messages.extensions },
+    clientMessages: { errorCodes: host.clientMessages.errorCodes },
+    urls: { defaultSchemes: host.urls.defaultSchemes },
+    media: { defaultSchemes: host.media.defaultSchemes, limits: host.media.limits },
+    paint: { hook: host.paint.hook },
+    transport: { mcpMimeTypes: host.transport.mcpMimeTypes, mcpActionTool: host.transport.mcpActionTool, sseEvents: host.transport.sseEvents },
+    surface: { settings: host.surface.settings, formatter: host.surface.formatter, commands: host.surface.commands },
+    markdown: { hooks: host.markdown.hooks },
+    package: { exposes: host.package.exposes },
+  }
+}
+
 function stripComments(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripComments)
   if (value && typeof value === `object`) return Object.fromEntries(Object.entries(value).filter(([k]) => k !== `$comment`).map(([k, v]) => [k, stripComments(v)]))
@@ -1535,6 +1553,10 @@ function renderFiles(): Record<string, string> {
     // VAPP-160: catalog/style.json without its `$comment`s (the spec prose),
     // what src/ imports so no bundle ships the comments.
     "generated/style.runtime.json": json(stripComments(styleJson)),
+    // The host contract's runtime slice: only the keys src/host/contract.ts
+    // and src/host/exposes.ts read, so a renderer bundle never ships the package-format spec,
+    // the capability scopes or the prose of catalog/host.json.
+    "generated/host.runtime.json": json(hostRuntime()),
     "generated/catalog.descriptions.generated.rs": rustDescriptions,
     "../../apps/desktop/crates/eui-core/src/generated/descriptions.rs": rustDescriptions,
     "src/catalog.generated.ts": renderTs(icons),

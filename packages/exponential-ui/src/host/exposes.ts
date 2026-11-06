@@ -9,7 +9,7 @@
 // Rust core mirrors it (`host/exposes.rs`); fixtures/host-router.json
 // (validation) replays it.
 
-import host from "../../catalog/host.json" with { type: "json" }
+import host from "../../generated/host.runtime.json" with { type: "json" }
 import type { PackageIssue } from "./package"
 
 export const EXPOSES_LIMITS = host.package.exposes.limits
