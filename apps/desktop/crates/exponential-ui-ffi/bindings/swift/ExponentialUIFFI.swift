@@ -8011,6 +8011,26 @@ public func placeOverlay(anchorX: Double, anchorY: Double, anchorW: Double, anch
 })
 }
 /**
+ * VAPP-276: the overlay placement rule with an alignment along the side
+ * (`align` = `start|center|end`: top-start, top-end, bottom-start…).
+ */
+public func placeOverlayAligned(anchorX: Double, anchorY: Double, anchorW: Double, anchorH: Double, sizeW: Double, sizeH: Double, viewportW: Double, viewportH: Double, side: String, align: String)throws  -> FfiPlacement  {
+    return try  FfiConverterTypeFfiPlacement_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(
+        FfiConverterDouble.lower(anchorX),
+        FfiConverterDouble.lower(anchorY),
+        FfiConverterDouble.lower(anchorW),
+        FfiConverterDouble.lower(anchorH),
+        FfiConverterDouble.lower(sizeW),
+        FfiConverterDouble.lower(sizeH),
+        FfiConverterDouble.lower(viewportW),
+        FfiConverterDouble.lower(viewportH),
+        FfiConverterString.lower(side),
+        FfiConverterString.lower(align),$0
+    )
+})
+}
+/**
  * VAPP-162: the QrCode matrix (the core's port of Nayuki's generator,
  * `fixtures/qr-code.json`). `level` = `L`|`M`|`Q`|`H` (anything else is
  * `M`); the result is `{size, version, mask, rows}` (`rows` = `size`
@@ -8624,6 +8644,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_place_overlay() != 44395) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned() != 13167) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json() != 21220) {

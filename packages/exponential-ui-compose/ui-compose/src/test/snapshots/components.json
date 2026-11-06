@@ -14752,6 +14752,81 @@
       }
     ]
   },
+  "Menu\/align=center" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Menu",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu-child"
+      }
+    ]
+  },
+  "Menu\/align=end" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Menu",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu-child"
+      }
+    ]
+  },
+  "Menu\/align=start" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Menu",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu-child"
+      }
+    ]
+  },
   "Menu\/example" : {
     "height" : 20,
     "nodes" : [
@@ -14803,6 +14878,106 @@
     ]
   },
   "Menu\/openOn=press" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Menu",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu-child"
+      }
+    ]
+  },
+  "Menu\/side=bottom" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Menu",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu-child"
+      }
+    ]
+  },
+  "Menu\/side=left" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Menu",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu-child"
+      }
+    ]
+  },
+  "Menu\/side=right" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Menu",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "menu-child"
+      }
+    ]
+  },
+  "Menu\/side=top" : {
     "height" : 20,
     "nodes" : [
       {
@@ -17767,6 +17942,51 @@
         ],
         "id" : "plan.card.running.stop",
         "radius" : 10
+      }
+    ]
+  },
+  "Popover\/align=center" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/align=end" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/align=start" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
       }
     ]
   },

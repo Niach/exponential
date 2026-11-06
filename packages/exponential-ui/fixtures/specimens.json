@@ -5643,6 +5643,137 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-popover-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-popover-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "anchor · top-start + top-end (a bottom panel)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-desk",
+                "component": "Box",
+                "style": {
+                  "position": "relative",
+                  "width": "100%",
+                  "height": 300,
+                  "borderRadius": "$radius.lg",
+                  "backgroundColor": "$color.muted",
+                  "overflow": "hidden"
+                },
+                "children": [
+                  {
+                    "id": "c1-panel",
+                    "component": "Box",
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "bottom": 0,
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "justifyContent": "space-between",
+                      "alignItems": "center",
+                      "padding": "$spacing.xs",
+                      "backgroundColor": "$color.card"
+                    },
+                    "children": [
+                      {
+                        "id": "c1-start",
+                        "component": "Button",
+                        "props": {
+                          "label": "Start",
+                          "variant": "ghost"
+                        }
+                      },
+                      {
+                        "id": "c1-clock",
+                        "component": "Button",
+                        "props": {
+                          "label": "12:00",
+                          "variant": "ghost"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c1-start-menu",
+                    "component": "Popover",
+                    "props": {
+                      "anchor": "c1-start",
+                      "side": "top",
+                      "align": "start",
+                      "open": true
+                    },
+                    "children": [
+                      {
+                        "id": "c1-files",
+                        "component": "Text",
+                        "props": {
+                          "text": "Files",
+                          "variant": "body"
+                        }
+                      },
+                      {
+                        "id": "c1-terminal",
+                        "component": "Text",
+                        "props": {
+                          "text": "Terminal",
+                          "variant": "body"
+                        }
+                      },
+                      {
+                        "id": "c1-settings",
+                        "component": "Text",
+                        "props": {
+                          "text": "Settings",
+                          "variant": "body"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c1-calendar",
+                    "component": "Popover",
+                    "props": {
+                      "anchor": "c1-clock",
+                      "side": "top",
+                      "align": "end",
+                      "open": true
+                    },
+                    "children": [
+                      {
+                        "id": "c1-month",
+                        "component": "Heading",
+                        "props": {
+                          "text": "November 2026",
+                          "level": "h4"
+                        }
+                      },
+                      {
+                        "id": "c1-today",
+                        "component": "Text",
+                        "props": {
+                          "text": "Friday, 6",
+                          "variant": "body"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

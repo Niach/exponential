@@ -293,6 +293,21 @@ package with `vendor/`), and a `VENDORED` row in
 `packages/licenses/curated/supplement.ts` reproduces it in the NOTICES of
 every client the catalog reaches (`web`, `desktop`, `ios`, `android`).
 
+### The web runner: SQLite-WASM (VAPP-269, 2026-11-06)
+
+The web runner (`apps/runner/web`, the static PWA an exported app runs in)
+keeps an app's records in **SQLite compiled to WebAssembly**, the official
+`@sqlite.org/sqlite-wasm` (3.54.1-build1) on OPFS, in a worker. SQLite itself
+is dedicated to the **public domain** (no notice is required; the authors ask
+for none); the npm package's JavaScript glue is **Apache-2.0** (the SQLite
+project's), which asks for the License and its NOTICE in every copy. Both ship
+inside every web export (`assets/sqlite3-*.wasm`, `assets/sqlite3-*.js`), so the
+export must carry them: E7's `exponential bundle` writes the export's
+`NOTICES.txt` beside `index.html` from the runner's dependency graph (with
+`@noble/hashes`, MIT, the runner's synchronous SHA-256, and `lucide-react`'s
+ISC glyphs). The runner uses no other wasm but genUI's own Motion module.
+`fake-indexeddb` (Apache-2.0) is a test-only dependency and never ships.
+
 ### P2P push-only facade in the mobile apps (EXP-1435)
 
 The iOS app + its Notification Service Extension (`ExpPush`) and the Android

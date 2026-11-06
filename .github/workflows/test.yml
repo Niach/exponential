@@ -64,6 +64,7 @@ jobs:
       workflows: ${{ steps.f.outputs.workflows }}
       gaps: ${{ steps.f.outputs.gaps }}
       merge_train: ${{ steps.f.outputs.merge_train }}
+      engine_ts: ${{ steps.f.outputs.engine_ts }}
     steps:
       # The train's diff: two shallow commits are enough for a name-only tree diff.
       - uses: actions/checkout@v4
@@ -82,7 +83,7 @@ jobs:
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
             printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
           else
-            printf 'desktop=true\neui=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\n' >> "$GITHUB_OUTPUT"
+            printf 'desktop=true\neui=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           desktop='^(apps/desktop/|packages/(domain-contract|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
@@ -137,6 +138,9 @@ jobs:
           echo "gaps=$(grep -qE "$gaps" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           merge_train='^(scripts/merge-train/|packages/domain-contract/(src/merge-train|fixtures/merge-train)|\.exponential/|\.github/workflows/(test|train)\.yml$)'
           echo "merge_train=$(grep -qE "$merge_train" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #VAPP-269: the Engine's TS twin and the web runner, with what they import.
+          engine_ts='^(packages/(eengine|emcp|domain-contract|exponential-ui|exponential-ui-react|icons)/|apps/runner/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
+          echo "engine_ts=$(grep -qE "$engine_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
@@ -578,11 +582,27 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun run test:merge-train
 
+  # #VAPP-269: the Engine's TS twin (packages/eengine: the reducers, the
+  # AppInstance, the web stores with fakes) and the web runner (its
+  # controller's suite, its typecheck and its static export), ~1 min.
+  engine-ts:
+    needs: [pick, changes]
+    if: needs.changes.outputs.engine_ts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test ./src
+        working-directory: packages/eengine
+      - run: bun test ./src && bunx tsc --noEmit && bunx vite build
+        working-directory: apps/runner/web
+
   # EXP-1364: the ONE required status check on master (the "master: test
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts]
     if: always()
     runs-on: ubuntu-latest
     steps:

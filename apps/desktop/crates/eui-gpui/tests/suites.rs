@@ -25,7 +25,7 @@ use eui_core::host::{
 };
 use eui_core::json;
 use eui_core::measure::FixedMeasure;
-use eui_core::overlay::{place_overlay, OverlaySide, PlaceOptions, Rect, Size};
+use eui_core::overlay::{place_overlay, OverlayAlign, OverlaySide, PlaceOptions, Rect, Size};
 use eui_core::reducer::{reduce_nested, reduce_surface, ReduceOptions};
 use eui_core::theme::{load_theme, resolve_recipe, try_load_theme, Mode, RecipeQuery, ThemeOptions};
 use eui_core::themes::{builtin_refs, builtin_theme, BUILTIN_THEME_IDS};
@@ -348,15 +348,30 @@ fn overlay_suite(p: &mut Painter) -> Vec<Case> {
     for c in list(&fx, "cases") {
         let result = (|| {
             let (a, s, vp) = (&c["anchor"], &c["size"], &c["viewport"]);
+            // VAPP-276: `align` along the side; `byId` = no trigger, the
+            // Popover names a SIBLING in `anchor`.
+            let align = c["align"].as_str().unwrap_or("center");
+            let at = json!({"position": "absolute", "left": a["x"], "top": a["y"], "width": a["width"], "height": a["height"]});
+            let content = json!([{"id": "content", "component": "Box", "style": {"width": s["width"], "height": s["height"], "backgroundColor": "$color.success"}}]);
+            let children = if c["byId"].as_bool() == Some(true) {
+                let mut at = at.clone();
+                at["backgroundColor"] = json!("$color.primary");
+                json!([
+                    {"id": "anchor", "component": "Box", "style": at},
+                    {"id": "pop", "component": "Popover", "props": {"open": true, "side": c["side"], "align": align, "anchor": "anchor"}, "children": content}
+                ])
+            } else {
+                json!([{
+                    "id": "pop", "component": "Popover", "props": {"open": true, "side": c["side"], "align": align},
+                    "style": at,
+                    "slots": {"trigger": {"id": "anchor", "component": "Box", "style": {"width": a["width"], "height": a["height"], "backgroundColor": "$color.primary"}}},
+                    "children": content
+                }])
+            };
             let tree: NestedNode = serde_json::from_value(json!({
                 "id": "root", "component": "Box",
                 "style": {"position": "relative", "width": vp["width"], "height": vp["height"], "overflow": "hidden"},
-                "children": [{
-                    "id": "pop", "component": "Popover", "props": {"open": true, "side": c["side"]},
-                    "style": {"position": "absolute", "left": a["x"], "top": a["y"], "width": a["width"], "height": a["height"]},
-                    "slots": {"trigger": {"id": "anchor", "component": "Box", "style": {"width": a["width"], "height": a["height"], "backgroundColor": "$color.primary"}}},
-                    "children": [{"id": "content", "component": "Box", "style": {"width": s["width"], "height": s["height"], "backgroundColor": "$color.success"}}]
-                }]
+                "children": children
             }))
             .map_err(|e| e.to_string())?;
             let view = p.paint(SurfaceViewOptions { surface_id: "ov".into(), theme: builtin_theme("neutral"), mode: Mode::Light, ..Default::default() }, vp["width"].as_f64().unwrap() as f32, |v, cx| {
@@ -370,7 +385,7 @@ fn overlay_suite(p: &mut Painter) -> Vec<Case> {
                 let got = v.frame(layer.root).ok_or("no frame")?;
                 let side = layer.placement.as_ref().map(|pl| pl.side.as_str().to_string()).ok_or("no placement")?;
                 let rect = |v: &Value| Rect { x: v["x"].as_f64().unwrap(), y: v["y"].as_f64().unwrap(), width: v["width"].as_f64().unwrap(), height: v["height"].as_f64().unwrap() };
-                let want = place_overlay(&rect(a), &Size { width: got.w as f64, height: got.h as f64 }, &Size { width: vp["width"].as_f64().unwrap(), height: vp["height"].as_f64().unwrap() }, &PlaceOptions::side(OverlaySide::parse(c["side"].as_str().unwrap()).ok_or("bad side")?));
+                let want = place_overlay(&rect(a), &Size { width: got.w as f64, height: got.h as f64 }, &Size { width: vp["width"].as_f64().unwrap(), height: vp["height"].as_f64().unwrap() }, &PlaceOptions::placement(OverlaySide::parse(c["side"].as_str().unwrap()).ok_or("bad side")?, OverlayAlign::parse(align).ok_or("bad align")?));
                 let e = &c["expected"];
                 ensure(side == e["side"].as_str().unwrap() && want.side.as_str() == e["side"].as_str().unwrap(), || format!("side {side}"))?;
                 ensure((got.x as f64 - want.x).abs() <= tolerance && (got.y as f64 - want.y).abs() <= tolerance, || format!("at {},{} want {},{}", got.x, got.y, want.x, want.y))

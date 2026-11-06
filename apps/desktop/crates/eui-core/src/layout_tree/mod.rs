@@ -365,6 +365,9 @@ pub struct Built {
     pub forms: HashMap<String, (bool, bool)>,
     /// VAPP-103: what the build refused (template items past the limit).
     pub issues: Vec<crate::types::ReduceIssue>,
+    /// VAPP-276: the node ids overlays are anchored to (`anchor`): a subtree
+    /// rebuild over one of them rebuilds fully (the link is the full build's).
+    pub anchors: Vec<String>,
 }
 
 /// What a SUBTREE rebuild inherits from the full build: the enclosing
@@ -415,6 +418,23 @@ pub(crate) struct Builder<'a, 'b> {
     pub(crate) template_refused: bool,
     /// What the build refused (template items past the limit).
     pub(crate) issues: Vec<crate::types::ReduceIssue>,
+    /// VAPP-276: Popovers / Menus whose `anchor` names a node elsewhere,
+    /// linked once the whole tree is built.
+    pub(crate) anchor_links: Vec<AnchorLink>,
+}
+
+/// VAPP-276: an overlay opened against a node named by its `anchor` prop.
+#[derive(Debug, Clone)]
+pub(crate) struct AnchorLink {
+    /// The anchor node's id.
+    pub target: String,
+    /// The overlay's id.
+    pub owner: String,
+    /// The open layer's root (`None` = closed).
+    pub root: Option<u32>,
+    pub open: bool,
+    /// `openOn: hover`: the anchor opens it on hover, not press.
+    pub hover: bool,
 }
 
 /// The nodes of a template subtree (children and slots; iterative).
@@ -1123,6 +1143,32 @@ impl<'a, 'b> Builder<'a, 'b> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// VAPP-276: link every `anchor`ed overlay to its node: the node becomes
+    /// the overlay's TRIGGER (a press toggles it, focus returns to it, it
+    /// shows `open`) and an open layer is placed against its frame. An id
+    /// that names no built node leaves the overlay against its own wrapper.
+    fn link_anchors(&mut self) -> Vec<String> {
+        let links = std::mem::take(&mut self.anchor_links);
+        let mut out = Vec::with_capacity(links.len());
+        for l in links {
+            out.push(l.target.clone());
+            let Some(a) = self.nodes.iter().position(|n| n.id == l.target && n.trigger_for.is_none()).map(|i| i as u32) else { continue };
+            self.nodes[a as usize].pressable |= !l.hover;
+            self.nodes[a as usize].trigger_for = Some(l.owner.clone());
+            if l.open {
+                self.add_state(a, "open");
+            }
+            if let Some(root) = l.root {
+                for spec in self.layers.iter_mut().filter(|s| s.root == root) {
+                    if let LayerPlacement::Anchored { anchor, .. } = &mut spec.placement {
+                        *anchor = a;
+                    }
+                }
+            }
+        }
+        out
+    }
+
     pub(crate) fn push_layer(&mut self, layer: u32, root: u32, owner: &LNode, placement: LayerPlacement, modal: bool, dismissible: bool, match_anchor_width: bool, scroll_body: Option<u32>) {
         let class = if matches!(placement, LayerPlacement::Toast { .. }) { LayerClass::Toast } else { LayerClass::Overlay };
         self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, mirror: false });
@@ -1149,7 +1195,7 @@ pub fn builtin_icon(slot: &str) -> Option<&'static str> {
 /// Build the layout tree for a normalized root. `Unknown` nodes become
 /// leaves the painter renders as the placeholder.
 pub fn build(root: &UiNode, ctx: &mut BuildContext) -> Built {
-    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(root), template_refused: false, issues: Vec::new() };
+    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(root), template_refused: false, issues: Vec::new(), anchor_links: Vec::new() };
     if b.add(root, None, 0, "", false).is_none() {
         // An invisible root: an empty surface (one hidden Box).
         let mut n = b.blank(&root.id, "Box", None, 0, NodeKind::Container, "");
@@ -1157,10 +1203,11 @@ pub fn build(root: &UiNode, ctx: &mut BuildContext) -> Built {
         b.push(n);
     }
     b.flush_toasts();
+    let anchors = b.link_anchors();
     // Layers in paint order: a parent layer before the layers it opened
     // (layer numbers are handed out when a layer's root is created).
     b.layers.sort_by_key(|l| (l.class == LayerClass::Toast, l.layer));
-    Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues }
+    Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues, anchors }
 }
 
 /// Rebuild ONE subtree (a re-windowed List/Table) under an existing parent:
@@ -1174,10 +1221,11 @@ pub fn build_subtree(node: &UiNode, parent: &LNode, scope: &str, seed: BuildSeed
     stub.parent = None;
     stub.children.clear();
     let layer = stub.layer;
-    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(node), template_refused: false, issues: Vec::new() };
+    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(node), template_refused: false, issues: Vec::new(), anchor_links: Vec::new() };
     b.add(node, Some(0), layer, scope, false);
     b.flush_toasts();
-    Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues }
+    let anchors = b.link_anchors();
+    Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues, anchors }
 }
 
 /// EXP-1604: a Motion's composition size in px: the dialect's `size`, else

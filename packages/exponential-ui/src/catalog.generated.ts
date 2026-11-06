@@ -34,6 +34,7 @@ export const ENUMS = {
   imageFit: ["contain","cover","fill","none","scaleDown"],
   orientation: ["horizontal","vertical"],
   side: ["top","right","bottom","left"],
+  overlayAlign: ["start","center","end"],
   inputType: ["text","email","password","number","search","url","tel"],
   validateOn: ["change","blur","submit"],
   alertType: ["info","success","warning","error"],
@@ -92,6 +93,7 @@ export type HeadingLevelValue = (typeof ENUMS)["headingLevel"][number]
 export type ImageFitValue = (typeof ENUMS)["imageFit"][number]
 export type OrientationValue = (typeof ENUMS)["orientation"][number]
 export type SideValue = (typeof ENUMS)["side"][number]
+export type OverlayAlignValue = (typeof ENUMS)["overlayAlign"][number]
 export type InputTypeValue = (typeof ENUMS)["inputType"][number]
 export type ValidateOnValue = (typeof ENUMS)["validateOn"][number]
 export type AlertTypeValue = (typeof ENUMS)["alertType"][number]
@@ -243,9 +245,9 @@ export interface ComponentProps {
   Drawer: { title?: string; description?: string; open?: boolean | Dynamic; side?: SideValue | Responsive<SideValue>; dismissible?: boolean; dragToDismiss?: boolean }
   DockCard: { label: string | Dynamic; title: string | Dynamic; caption?: string | Dynamic; meta?: string | Dynamic; icon?: IconName; tone?: ToneValue; open?: boolean | Dynamic }
   AlertDialog: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; destructive?: boolean; open?: boolean | Dynamic }
-  Popover: { open?: boolean | Dynamic; side?: SideValue; openOn?: OpenOnValue }
+  Popover: { open?: boolean | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: OpenOnValue }
   Tooltip: { content: string; side?: SideValue }
-  Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; openOn?: MenuOpenOnValue }
+  Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
   Badge: { text: string | Dynamic; variant?: VariantValue | Dynamic; icon?: IconName }
   Alert: { title: string; message?: string | Dynamic; type?: AlertTypeValue }

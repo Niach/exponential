@@ -17,7 +17,7 @@ use eui_core::extension::define_extension;
 use eui_core::geometry::control_geometry;
 use eui_core::json;
 use eui_core::measure::FixedMeasure;
-use eui_core::overlay::{place_overlay, OverlaySide, PlaceOptions, Rect, Size};
+use eui_core::overlay::{place_overlay, OverlayAlign, OverlaySide, PlaceOptions, Rect, Size};
 use eui_core::reducer::{reduce_nested, reduce_surface, ReduceOptions};
 use eui_core::surface::{Surface, SurfaceOptions};
 use eui_core::theme::{load_theme, resolve_recipe, try_load_theme, Mode, RecipeQuery, ThemeOptions};
@@ -295,7 +295,7 @@ fn overlay_suite() -> Vec<Case> {
                 let rect = |v: &Value| Rect { x: v["x"].as_f64().unwrap(), y: v["y"].as_f64().unwrap(), width: v["width"].as_f64().unwrap(), height: v["height"].as_f64().unwrap() };
                 let size = |v: &Value| Size { width: v["width"].as_f64().unwrap(), height: v["height"].as_f64().unwrap() };
                 let side = OverlaySide::parse(c["side"].as_str().unwrap()).ok_or("bad side")?;
-                let got = place_overlay(&rect(&c["anchor"]), &size(&c["size"]), &size(&c["viewport"]), &PlaceOptions::side(side));
+                let got = place_overlay(&rect(&c["anchor"]), &size(&c["size"]), &size(&c["viewport"]), &PlaceOptions::placement(side, c["align"].as_str().and_then(OverlayAlign::parse).unwrap_or_default()));
                 let e = &c["expected"];
                 ensure((got.x - e["x"].as_f64().unwrap()).abs() <= tolerance, || format!("x {}", got.x))?;
                 ensure((got.y - e["y"].as_f64().unwrap()).abs() <= tolerance, || format!("y {}", got.y))?;

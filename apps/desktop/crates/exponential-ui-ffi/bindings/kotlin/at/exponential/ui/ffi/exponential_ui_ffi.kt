@@ -857,6 +857,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_parse_source_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json(
@@ -1603,6 +1605,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(`source
 external fun uniffi_exponential_ui_ffi_fn_func_parse_source_json(`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,`align`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(`value`: RustBuffer.ByValue,`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -11205,6 +11209,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_place_overlay(
     
         FfiConverterDouble.lower(`anchorX`),FfiConverterDouble.lower(`anchorY`),FfiConverterDouble.lower(`anchorW`),FfiConverterDouble.lower(`anchorH`),FfiConverterDouble.lower(`sizeW`),FfiConverterDouble.lower(`sizeH`),FfiConverterDouble.lower(`viewportW`),FfiConverterDouble.lower(`viewportH`),FfiConverterString.lower(`side`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-276: the overlay placement rule with an alignment along the side
+         * (`align` = `start|center|end`: top-start, top-end, bottom-start…).
+         */
+    @Throws(UiException::class) fun `placeOverlayAligned`(`anchorX`: kotlin.Double, `anchorY`: kotlin.Double, `anchorW`: kotlin.Double, `anchorH`: kotlin.Double, `sizeW`: kotlin.Double, `sizeH`: kotlin.Double, `viewportW`: kotlin.Double, `viewportH`: kotlin.Double, `side`: kotlin.String, `align`: kotlin.String): FfiPlacement {
+            return FfiConverterTypeFfiPlacement.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(
+    
+        FfiConverterDouble.lower(`anchorX`),FfiConverterDouble.lower(`anchorY`),FfiConverterDouble.lower(`anchorW`),FfiConverterDouble.lower(`anchorH`),FfiConverterDouble.lower(`sizeW`),FfiConverterDouble.lower(`sizeH`),FfiConverterDouble.lower(`viewportW`),FfiConverterDouble.lower(`viewportH`),FfiConverterString.lower(`side`),FfiConverterString.lower(`align`),_status)
 }
     )
     }
