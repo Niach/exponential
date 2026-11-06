@@ -187,22 +187,47 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 - Fallback focus cycling (Alt+Tab without a shell) is in [Hotkeys](#hotkeys-ede-12).
 - The consent shield and the takeover banner wait for the agent spaces (M2).
 
-## Settings (#EDE-14)
+## Settings (#EDE-14, #EDE-47)
 
 `settings.json`, a shell document like the rest (editable, in the
-history), not an eApps package: one on-demand surface in the middle of the
-screen (the menu's Settings row opens it with `ede.open_document`, its
-close button `ede.close_document`) with a page per domain: Displays
-(every output's modes and scale, `ede.output` applies live and writes
-`[[outputs]]`), Network (Wi-Fi switch, connections, networks in reach),
-Sound (volumes, mute, output devices), Bluetooth, Power (battery, profile,
-suspend/restart/shut down), Input (keyboard layout and repeat,
-`ede.config` writes `[keyboard]` and reloads), Theme (the bridge's switch
-and what it resolved, #EDE-19), Apps & updates (apt, Software), Users, Printers (CUPS),
-About. Pages bind `/services/<domain>` (#EDE-13), `/outputs`, `/config`
-and `/user`; a control is two-way bound and calls `ede.service {domain,
-action, args}` with the new value. Users and printers management open the
-native tools until there is more to show.
+history), not an eApps package: ONE on-demand top-layer window, 1080 × 680
+centred on the output (`exclusiveZone` -1), the IDE's settings look (the
+menu's Settings rows open it with `ede.open_document`, its close button
+`ede.close_document`): a 272 px sidebar nav on the left, the page on the
+right, no tile overview. The nav: **This device** (Display: every output's
+modes and scale, `ede.output` applies live and writes `[[outputs]]`; Sound:
+volumes, mute, the output and input devices, the playback streams; Network:
+Wi-Fi, wired, the networks in reach, VPN; Bluetooth; Power: battery,
+profile, suspend/restart/shut down; Themes: the bridge's switch and what it
+resolved, #EDE-19; Keyboard: the xkb layouts of `evdev.lst` to pick from,
+repeat; Mouse & Touchpad; Date & Time: NTP, the time zone, the clock, the
+inline calendar on `/date`; Users; Notifications: this desktop's, then the
+Exponential app's email/push rows; Workspaces; Windows: edge tiling, the
+snap distance, the panel margin; Startup apps: the XDG autostart entries
+with a switch; Default apps: the xdg-mime roles with the installed handlers;
+then the folded **Coding** group, the IDE's This device group: Tools, Coding
+CLIs, Worktrees, Sessions), **Personal** (Account, Devices, Security, What's
+new, About with the system check, updates and printers) and **Team**, headed
+by the shell's desktop/team switcher (its entries as a Popover; picking one
+here changes the window only, never the shell's desktop): a Local desktop
+shows General (the name, Share as a team…), Agents, Apps; a team entry the
+IDE's Team, Boards, Agents and Apps groups of `settings-nav.json` (eDE has
+none yet, #EDE-54). Pages bind `/services/<domain>` (#EDE-13), `/outputs`,
+`/config`, `/user`, `/shell`, `/date` and `/pages` (the shell's own:
+`crates/ede-shell/src/settings_pages.rs` reads the layouts, the time zone,
+the autostart entries, the mime defaults, `[windows]`); a control is two-way
+bound and calls `ede.service {domain, action, args}`, `ede.output`,
+`ede.config {theme}` or `ede.settings {page, key, value}` (the one host
+function for the shell's pages: `[keyboard]` and `[windows]` in
+`compositor.toml` + a reload, `timedatectl`, the user's autostart override
+with `Hidden`, `xdg-mime default`). A setting the machine cannot apply yet
+(the pointer options, the workspace count and wrap-around, the 24-hour
+clock) is a read-only value row, never a dead control; what needs the
+Exponential app (the Coding pages, Devices, Security, the notification
+preferences, a team's pages) is an honest empty state until it runs on this
+desktop. `EDE_SHELL_SETTINGS_PAGE=<page>[,switcher]` under `EDE_SHELL_DEMO`
+opens a golden on that page (the goldens `ede-settings`,
+`ede-settings-team`).
 
 ## The portal: `xdg-desktop-portal-exponential` (#EDE-15)
 

@@ -128,8 +128,8 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let (settings, mut settings_data) = document(SETTINGS);
     if let Some(d) = settings_data.as_object_mut() {
         d.insert("services".into(), json!({
-            "network": {"available": true, "wifiEnabled": true, "devices": [{"path": "/dev/1", "interface": "wlp3s0", "state": "connected", "connection": "Home"}], "accessPoints": [{"ssid": "Home", "strength": 82, "active": true}, {"ssid": "Cafe Nero", "strength": 47, "active": false}]},
-            "sound": {"available": true, "volume": 40, "muted": false, "micVolume": 100, "sinks": [{"id": 55, "name": "Built-in Audio Analog Stereo", "volume": 40, "default": true}]},
+            "network": {"available": true, "wifiEnabled": true, "devices": [{"path": "/dev/1", "interface": "wlp3s0", "state": "connected", "connection": "Home"}], "wired": [{"path": "/dev/2", "interface": "enp0s31f6", "state": "disconnected", "connection": ""}], "vpn": [], "accessPoints": [{"ssid": "Home", "strength": 82, "active": true}, {"ssid": "Cafe Nero", "strength": 47, "active": false}]},
+            "sound": {"available": true, "volume": 40, "muted": false, "micVolume": 100, "sinks": [{"id": 55, "name": "Built-in Audio Analog Stereo", "volume": 40, "default": true}, {"id": 57, "name": "HDMI Out", "volume": 100, "default": false}], "sources": [{"id": 56, "name": "Built-in Microphone", "volume": 100, "default": true}], "streams": []},
             "bluetooth": {"available": true, "powered": true, "devices": [{"path": "/bt/1", "name": "Keyboard K380", "address": "F4:73:35:12:AB:01", "connected": true}]},
             "power": {"available": true, "batteryText": "73% · discharging", "profile": "balanced"},
             "updates": {"available": true, "countText": "2", "packages": [{"name": "firefox", "from": "129.0", "version": "130.0"}]},
@@ -138,6 +138,19 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         }));
         d.insert("outputs".into(), json!([{"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1, "scaleText": "1"}]));
         d.insert("user".into(), json!({"name": "Danny", "login": "danny"}));
+        // #EDE-47: the pages the shell feeds itself (/pages), the switcher and the workspaces the nav and the pages bind.
+        d.insert("pages".into(), json!({
+            "keyboard": {"layouts": [{"label": "English (US)", "value": "us"}, {"label": "German", "value": "de"}]},
+            "datetime": {"timeZone": "Europe/Vienna", "zones": [{"label": "Europe/Vienna", "value": "Europe/Vienna"}, {"label": "America/New York", "value": "America/New_York"}], "ntp": true, "clock": "24-hour"},
+            "startup": {"entries": [{"id": "nm-applet.desktop", "name": "Network", "enabled": true, "user": false}, {"id": "xdg-user-dirs.desktop", "name": "User folders update", "enabled": false, "user": true}]},
+            "defaults": {"roles": [{"id": "browser", "label": "Web browser", "value": "firefox.desktop", "options": [{"label": "Firefox", "value": "firefox.desktop"}]}, {"id": "files", "label": "Files", "value": "nemo.desktop", "options": [{"label": "Files", "value": "nemo.desktop"}]}]},
+            "workspaces": {"listedText": "4", "maxText": "9", "wrapText": "On"},
+            "windows": {"edge_tiling": true, "snap_threshold": 12, "edge_tiling_px": 4, "corner_px": 120, "panel_margin": 10, "titleBar": "Maximize", "altTab": "Most recent first"},
+            "mouse": {"speedText": "Default", "naturalText": "Off", "tapText": "Off", "scrollText": "Two fingers"}
+        }));
+        d.insert("shell".into(), json!({"switcher": {"current": {"kind": "local", "id": "local", "name": "Local"}, "entries": [{"kind": "local", "id": "local", "name": "Local", "current": true}]}, "sidebar": {"workspaces": [{"index": 0, "label": "Workspace 1", "active": true, "countText": "4"}, {"index": 1, "label": "Workspace 2", "active": false, "countText": ""}]}}));
+        d.insert("notifications".into(), json!({"count": 2}));
+        d.insert("date".into(), json!("2026-11-06"));
     }
     let (applet_sound, _) = document(APPLET_SOUND);
     let (applet_network, _) = document(APPLET_NETWORK);
@@ -172,7 +185,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-notifications", notifications, None, Some(sample_notifications.clone()), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-notification-center", center, None, Some(sample_notifications), window, cx)))
         .child(div().w(px(280.0)).child(styleguide_surface_in("sg-ede-tray-menu", tray_menu, None, Some(sample_tray_menu), window, cx)))
-        .child(div().w(px(960.0)).child(styleguide_surface_in("sg-ede-settings", settings, None, Some(settings_data), window, cx)))
+        .child(div().w(px(1080.0)).child(styleguide_surface_in("sg-ede-settings", settings, None, Some(settings_data), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-sound", applet_sound, None, Some(json!({"services": services, "applets": {"sound": {"icon": "media-volume-up"}}})), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-network", applet_network, None, Some(json!({"services": services})), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-bluetooth", applet_bluetooth, None, Some(json!({"services": services})), window, cx)))

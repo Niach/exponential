@@ -42,7 +42,7 @@ pub fn config_path() -> PathBuf {
     base.join("exponential-desktop").join("compositor.toml")
 }
 
-fn read_table() -> toml::Table {
+pub(crate) fn read_table() -> toml::Table {
     std::fs::read_to_string(config_path()).ok().and_then(|t| t.parse::<toml::Table>().ok()).unwrap_or_default()
 }
 
@@ -82,10 +82,11 @@ fn theme_summary() -> String {
     ede_theme::Choice::resolve(&ede_theme::Overrides::read(&paths), &ede_theme::Installed::scan(&paths)).summary()
 }
 
-/// `ede.config {keyboard: {layout?, repeat_rate?, repeat_delay?}, theme: {bridge?}}`.
+/// `ede.config {keyboard: {layout?, repeat_rate?, repeat_delay?}, theme: {bridge?}}`;
+/// `ede.settings` (settings_pages) adds `windows`.
 pub fn persist_config(args: &Value) -> Result<(), String> {
     let mut t = read_table();
-    for section in ["keyboard", "theme"] {
+    for section in ["keyboard", "theme", "windows"] {
         let Some(changes) = args.get(section).and_then(Value::as_object) else { continue };
         let entry = t.entry(section).or_insert(toml::Value::Table(toml::Table::new()));
         let Some(table) = entry.as_table_mut() else { return Err(format!("[{section}] is not a table")) };

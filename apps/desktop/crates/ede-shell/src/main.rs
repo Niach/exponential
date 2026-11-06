@@ -35,7 +35,8 @@
 //! `ede.notify_close {id}`, `ede.notify_action {id, key}`, `ede.notify_clear`,
 //! `ede.tray {service}`, `ede.tray_menu {service, id}`, `ede.open_document
 //! {name}`, `ede.close_document {name}`, `ede.service {domain, action,
-//! args}`, `ede.output {name, mode?, scale?}`, `ede.config {…}`, and the
+//! args}`, `ede.output {name, mode?, scale?}`, `ede.config {…}`, `ede.settings
+//! {page, key, value}` (#EDE-47: the pages `/pages` feeds), and the
 //! shell model's: `ede.rail` (toggle), `ede.pin {app}` / `ede.unpin {app}`,
 //! `ede.taskbar {app}` (Mint's click), `ede.taskbar_scroll {app, direction}`,
 //! `ede.previews {app|null}` (the hover previews), `ede.start_menu {open?,
@@ -54,6 +55,7 @@
 mod assets;
 mod dbus;
 mod settings;
+mod settings_pages;
 mod system;
 mod thumbs;
 
@@ -473,6 +475,20 @@ impl HostPlugin for Host {
                     }
                 });
             }
+            // #EDE-47: the settings pages the shell feeds itself (/pages); a compositor.toml key reloads it.
+            "ede.settings" => match settings_pages::handle(args) {
+                Ok(reload) => {
+                    if reload {
+                        with_ede(&self.shell, |ede| ede.call(ede_protocol::Request::ReloadConfig));
+                    }
+                    cx.defer(move |cx| {
+                        shell.borrow_mut().feed.set("/pages", settings_pages::pages_json());
+                        shell.borrow_mut().feed.set("/config", settings::config_json());
+                        refresh(&shell, cx);
+                    });
+                }
+                Err(e) => tracing::warn!("ede.settings: {e}"),
+            },
             "ede.switcher" => {
                 let args = args.clone();
                 cx.defer(move |cx| match args.get("action").and_then(Value::as_str) {
@@ -1530,6 +1546,10 @@ fn main() {
         feed.set("/osd", json!({"icon": "media-volume-up", "level": 0, "label": ""}));
         feed.set("/traymenu", json!({"service": "", "title": "", "items": []}));
         feed.set("/config", settings::config_json());
+        feed.set("/pages", settings_pages::pages_json());
+        if let Some(state) = settings_pages::demo_state() {
+            feed.set("/settings", state);
+        }
         feed.set("/user", settings::user_json());
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));

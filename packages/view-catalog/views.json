@@ -8315,7 +8315,7 @@
       "id": "ede-settings",
       "group": "ede",
       "title": "Exponential Desktop · settings",
-      "blurb": "The factory settings (apps/ede/ui/settings.json): one on-demand surface with a page per domain (Displays, Network, Sound, Bluetooth, Power, Input, Theme, Apps & updates, Users, Printers, About) bound to ede-services' snapshots, the compositor's outputs and compositor.toml (sample data in the golden).",
+      "blurb": "The factory settings (apps/ede/ui/settings.json, #EDE-47): ONE 1080×680 window with the IDE's settings nav on the left (272 px: This device with Display, Sound, Network, Bluetooth, Power, Themes, Keyboard, Mouse & Touchpad, Date & Time, Users, Notifications, Workspaces, Windows, Startup apps, Default apps and the folded Coding group; Personal; Team headed by the shell's switcher) and the page on the right, bound to ede-services' snapshots, the compositor's outputs, compositor.toml and the shell's own /pages (sample data in the golden); the Display page open.",
       "order": 8,
       "ede": {
         "size": "1280x720",
@@ -8330,7 +8330,32 @@
         "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
         "ios": "Exponential Desktop only.",
         "android": "Exponential Desktop only."
-      }    },
+      }
+    },
+    {
+      "id": "ede-settings-team",
+      "group": "ede",
+      "title": "Exponential Desktop · settings, Team",
+      "blurb": "The settings window's Team group (apps/ede/ui/settings.json): the shell's desktop/team switcher heads it with its entries open as a Popover (a hosted xdg_popup of the window), the Local desktop's General page beside it (the name, Share as a team…); the IDE's Team, Boards, Agents and Apps groups appear only for a team entry, which eDE has none of yet (#EDE-54).",
+      "order": 19,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "settings"
+        ],
+        "env": {
+          "EDE_SHELL_SETTINGS_PAGE": "local-general,switcher"
+        },
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
     {
       "id": "ede-rail",
       "group": "ede",

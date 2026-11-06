@@ -1999,8 +1999,17 @@
         "file": "shots/ede-settings/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 19462,
-        "sha256": "09371f917bacc81b9dab573bec18047f2e514456fc04e52e625608130809a0d4"
+        "bytes": 24636,
+        "sha256": "e0020ae0962cb3a596671d918aa9221ab7303d40d6fa9908fb451c44d5088d91"
+      }
+    },
+    "ede-settings-team": {
+      "ede": {
+        "file": "shots/ede-settings-team/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 13960,
+        "sha256": "7856fcdc7cb2c20e40ad33d678d46d761f42e05931f642f954bed02126be4f38"
       }
     },
     "ede-switcher": {
