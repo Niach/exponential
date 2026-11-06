@@ -17,6 +17,13 @@ describe(`ratchet`, () => {
     expect(failing(v).map((x) => x.metric)).toEqual([`renderedItems`])
   })
 
+  it(`a count in countTolerance gates only outside ±that fraction; other counts stay exact`, () => {
+    const tol: Budgets = { ...budgets, countTolerance: { allocations: 0.01 }, machines: { m: { core: { "cold-start": { allocations: 1000 }, "list-100k": { renderedItems: 30 } } } } }
+    const status = (allocations: number) => check(fragment({ "cold-start": { allocations } }), tol)[0].status
+    expect([status(1010), status(990), status(1011), status(989)]).toEqual([`ok`, `ok`, `worse`, `better`])
+    expect(check(fragment({ "list-100k": { renderedItems: 29 } }), tol)[0].status).toBe(`better`)
+  })
+
   it(`within budget is ok; a timing a little better is ok`, () => {
     const v = check(fragment({ "list-100k": { firstPaintMs: 90, scrollStepMs: 4, renderedItems: 30 } }), budgets)
     expect(v.every((x) => x.status === `ok`)).toBe(true)
