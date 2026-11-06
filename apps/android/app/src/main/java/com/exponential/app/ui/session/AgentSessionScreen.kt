@@ -1961,7 +1961,8 @@ private fun ActivityFeed(
                         )
                         is AgentFeedRow.QuestionStepper -> AnswerCardRow(row, cards)
                         is AgentFeedRow.Single -> when (val item = row.item) {
-                            is AgentFeedItem.Narration -> NarrationBubble(item.text)
+                            // #VAPP-258: the live tail is the reply being written.
+                            is AgentFeedItem.Narration -> NarrationBubble(item.text, streaming = working && index == rows.lastIndex)
                             is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
                             // EXP-850 (S3): the `Workflow` call renders as its
                             // card — name, phases, agents, summary — and never
@@ -2319,6 +2320,8 @@ private fun NarrationBubble(
      *  compact rhythm — the feed's rows get theirs from the gap ladder
      *  (EXP-787), so a top-level bubble carries no outer padding. */
     nested: Boolean = false,
+    /** #VAPP-258: the reply still being written (`streaming: true`). */
+    streaming: Boolean = false,
 ) {
     // MarkdownView renders nothing for blank input.
     if (text.isBlank()) return
@@ -2338,7 +2341,7 @@ private fun NarrationBubble(
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        MarkdownView(text, softBreaksAsNewlines = true, modifier = Modifier.weight(1f))
+        MarkdownView(text, softBreaksAsNewlines = true, streaming = streaming, modifier = Modifier.weight(1f))
     }
 }
 
@@ -2944,7 +2947,7 @@ private fun FoldableMarkdown(
     onToggle: () -> Unit,
 ) {
     val folds = remember(text) { clampable(text) }
-    // MarkdownView brings its own SelectionContainer (EXP-534).
+    // MarkdownView brings its own SelectionContainer (EXP-534, `selectable`).
     MarkdownView(
         text,
         modifier = if (folds && !expanded) {

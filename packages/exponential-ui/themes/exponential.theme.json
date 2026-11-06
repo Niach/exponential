@@ -306,6 +306,15 @@
         }
       ]
     },
+    "Markdown": {
+      "root": [
+        {
+          "style": {
+            "gap": "$spacing.sm"
+          }
+        }
+      ]
+    },
     "Group": {
       "body": [
         {

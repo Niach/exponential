@@ -1847,7 +1847,7 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#0a0a0a",
-              "gap": 12
+              "gap": 8
             }
           },
           "dark": {
@@ -1856,7 +1856,7 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#fafafa",
-              "gap": 12
+              "gap": 8
             }
           }
         },
@@ -1887,7 +1887,7 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#0a0a0a",
-              "gap": 12
+              "gap": 8
             }
           },
           "dark": {
@@ -1896,7 +1896,7 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#fafafa",
-              "gap": 12
+              "gap": 8
             }
           }
         }
