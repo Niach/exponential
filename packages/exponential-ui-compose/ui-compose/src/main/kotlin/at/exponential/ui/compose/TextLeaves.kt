@@ -54,6 +54,8 @@ import at.exponential.ui.primitives.MarkdownColors
 import at.exponential.ui.primitives.MarkdownFontResolver
 import at.exponential.ui.primitives.MarkdownImageAlt
 import at.exponential.ui.primitives.MarkdownView
+import at.exponential.ui.primitives.MarkdownBlockKind
+import androidx.compose.foundation.clickable
 import at.exponential.ui.theme.ResolvedTextStyle
 import kotlin.math.max
 
@@ -450,6 +452,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
     val border = cx.themeColor("border") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.2f)
     val taskOff = cx.part("Checkbox", "box", TASK_OFF)
     val taskOn = cx.part("Checkbox", "box", TASK_ON, listOf("checked"))
+    val chipRoot = cx.part("Chip", "root", MarkdownPainter.CHIP_PROPS)
     val colors = MarkdownColors(
         ink = cx.ink,
         muted = muted,
@@ -463,6 +466,11 @@ internal fun MarkdownLeaf(cx: LeafContext) {
         taskBorder = taskOff.style.borderColor ?: border,
         taskChecked = taskOn.style.background ?: cx.themeColor("primary") ?: cx.ink,
         taskCheck = cx.part("Checkbox", "check", TASK_ON, listOf("checked")).color ?: cx.themeColor("primaryForeground") ?: Color.White,
+        // #VAPP-258: an inline chip = the Chip root + label recipes (the catalog's default chip).
+        chipBackground = chipRoot.style.background ?: Color.Transparent,
+        chipBorder = chipRoot.style.borderColor ?: border,
+        chipBorderWidth = chipRoot.style.borderWidth,
+        chipInk = cx.part("Chip", "label", MarkdownPainter.CHIP_PROPS).color ?: cx.ink,
     )
     val shaper = model.textShaper()
     val fonts = remember(shaper) { MarkdownFontResolver { name, mono -> if (mono) shaper.family(name ?: "ui-monospace") else shaper.family(name) } }
@@ -478,7 +486,13 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             onLink = { model.openHref(it) },
             linkPolicy = remember(model, model.host) { { href: String -> model.href(href) } },
             imagePolicy = remember(model, model.host) { { src: String -> model.mediaRequest(src) != null } },
-            textLinks = { piece -> model.textLinkSegments(piece)?.map { it.text to it.href } },
+            // #VAPP-258: the host hooks, the measurer's (`SurfaceModel.markdownHooks`).
+            linkSegments = { piece -> model.markdownTextLinks(piece) },
+            attachments = remember(model, model.host) { { href: String -> model.markdownAttachment(href) } },
+            imageSize = remember(model, model.host) { { src: String -> model.markdownImageSize(src) } },
+            onImagePress = model.host.onImagePress,
+            chipIcon = { name, size, color -> IconView(name, size, color, model, rtl = cx.rtl) },
+            attachmentView = { a, w, h -> MarkdownAttachmentView(cx, styles, a, w, h) },
             codeHighlighter = remember(model, model.effectiveTheme, model.mode) { markdownCodeHighlighter(model) },
             image = { src, alt ->
                 val picture = rememberPolicedImage(model, src)
@@ -495,6 +509,60 @@ internal fun MarkdownLeaf(cx: LeafContext) {
                 }
             },
         )
+    }
+}
+
+/**
+ * #VAPP-258: a Markdown attachment block [w] × [h]: `video` = the Video
+ * native (no poster), `audio` = the AudioPlayer native titled `name`,
+ * `file` = the FileUpload `file` row (fileIcon + fileName; a press opens
+ * the href through the URL policy and the host's opener).
+ */
+@Composable
+private fun MarkdownAttachmentView(cx: LeafContext, styles: at.exponential.ui.primitives.MarkdownStyles, a: MarkdownBlockKind.Attachment, w: Float, h: Float) {
+    val model = cx.model
+    when (a.type) {
+        "video" -> Box(Modifier.size(w.dp, h.dp)) {
+            VideoView(
+                model,
+                src = a.href,
+                poster = "",
+                autoplay = false,
+                durationMs = null,
+                durationStyle = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = Color.White),
+            )
+        }
+        "audio" -> Box(Modifier.size(w.dp, h.dp)) {
+            val ts = MarkdownPainter.audioTitle(model.effectiveTheme, model.mode, cx.textStyle)
+            val color = cx.part("AudioPlayer", "track", emptyMap()).color ?: cx.ink
+            AudioView(cx, src = a.href, title = a.name, durationMs = null, rowHeight = styles.audioRow) {
+                BasicText(it, style = cx.composeTextStyle(ts = ts, color = color), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        else -> {
+            val file = cx.part("FileUpload", "file", emptyMap())
+            val name = cx.part("FileUpload", "fileName", emptyMap())
+            val icon = cx.part("FileUpload", "fileIcon", emptyMap())
+            val padH = file.px("paddingHorizontal") ?: file.px("padding") ?: cx.spacing("sm")
+            val ts = cx.textStyle.copy(
+                fontSize = name.px("fontSize") ?: cx.textStyle.fontSize,
+                lineHeight = name.px("lineHeight") ?: cx.textStyle.lineHeight,
+                fontFamily = name.fontFamily ?: cx.textStyle.fontFamily,
+            )
+            Row(
+                Modifier
+                    .size(w.dp, h.dp)
+                    .leafPartBox(file.style)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { model.openHref(a.href) }
+                    .padding(horizontal = padH.dp),
+                horizontalArrangement = Arrangement.spacedBy((file.px("gap") ?: cx.spacing("sm")).dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val iconSize = cx.control("iconSm", 16f)
+                IconView("ui-file", iconSize, icon.color ?: cx.ink, model, rtl = cx.rtl)
+                BasicText(a.name, style = cx.composeTextStyle(ts = ts, color = name.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 

@@ -342,6 +342,12 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Markdown-image>img{display:block;width:100%;height:100%;object-fit:contain;object-position:0 0}
 .xui-Markdown-image>img:dir(rtl){object-position:100% 0}
 .xui-Markdown-imageAlt{color:var(--xui-color-mutedForeground)}
+.xui-Markdown-image[data-pressable]{cursor:pointer}
+.xui-md-chip{display:inline-flex;align-items:center;gap:var(--xui-spacing-xs);box-sizing:border-box;height:min(var(--xui-control-badge),1lh);max-width:100%;padding:0 var(--xui-spacing-sm);border-radius:var(--xui-radius-full);border-style:solid;border-width:0;vertical-align:middle;white-space:nowrap;text-decoration:none;color:inherit;cursor:pointer}
+.xui-md-chip>svg{flex-shrink:0;width:var(--xui-control-iconSm);height:var(--xui-control-iconSm)}
+.xui-md-chip>.xui-Chip-label{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.xui-Markdown-attachment{margin:0 0 var(--xui-spacing-sm)}
+.xui-Markdown-attachment[data-attachment="video"]{width:min(100%,320px)}
 [data-xui-c="Chart"].xui-el{flex-direction:column;gap:var(--xui-spacing-xs);min-width:0}
 .xui-Chart-legend,.xui-Chart-title{flex-shrink:0}
 [data-xui-c="Chart"].xui-el>svg{width:100%;display:block}

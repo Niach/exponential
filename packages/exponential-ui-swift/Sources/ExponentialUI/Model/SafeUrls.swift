@@ -17,7 +17,11 @@ extension SurfaceModel {
     /// href the URL policy denies stays text.
     public func textLinkSegments(_ text: String) -> [TextLinkSegment]? {
         guard let segments = host.textLinks(text), segments.map(\.text).joined() == text else { return nil }
-        let policed = segments.map { TextLinkSegment(text: $0.text, href: $0.href.flatMap(linkHref)) }
+        // #VAPP-258: a chip rides only on an allowed href.
+        let policed = segments.map { s -> TextLinkSegment in
+            let href = s.href.flatMap(linkHref)
+            return TextLinkSegment(text: s.text, href: href, chip: href == nil ? nil : s.chip)
+        }
         return policed.contains { $0.href != nil } ? policed : nil
     }
 

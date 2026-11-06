@@ -2052,6 +2052,7 @@ impl IdeHost {
                     allow_private,
                     ..Default::default()
                 }),
+                ..Default::default()
             },
             theme: theme_id
                 .and_then(eui_core::themes::builtin_theme)

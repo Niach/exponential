@@ -92,4 +92,22 @@ describe(`DOM parity with React`, () => {
       data: { sm: { level: 30 } },
     })
   })
+  it(`#VAPP-258 Markdown host hooks: chips, a sized pressable image, attachments`, async () => {
+    const A = `https://app.example/api/attachments/`
+    const kinds: Record<string, { kind: `video` | `audio` | `file`; name: string }> = { [`${A}clip.mp4`]: { kind: `video`, name: `clip.mp4` }, [`${A}voice.m4a`]: { kind: `audio`, name: `voice.m4a` }, [`${A}report.pdf`]: { kind: `file`, name: `report.pdf` } }
+    const hooks = {
+      textLinks: (text: string) => {
+        const at = text.indexOf(`#ABC-1`)
+        return at < 0 ? null : [{ text: text.slice(0, at) }, { text: `#ABC-1`, href: `https://app.example/i/ABC-1`, chip: { kind: `issue` as const, label: `ABC-1 Fix login`, icon: `ui-issue` } }, { text: text.slice(at + 6) }]
+      },
+      imageSize: (src: string) => (src.endsWith(`wide.png`) ? { width: 800, height: 200 } : null),
+      onImagePress: () => {},
+      attachment: (href: string) => kinds[href] ?? null,
+    }
+    await expectDomParity({
+      tree: { id: `md`, component: `Markdown`, props: { text: `see #ABC-1 now\n\n- **#ABC-1** first\n\n![wide](${A}wide.png)\n\n[clip](${A}clip.mp4)\n\n[voice](${A}voice.m4a)\n\n[the report](${A}report.pdf)` } },
+      reactHost: hooks,
+      solidHost: hooks,
+    })
+  })
 })

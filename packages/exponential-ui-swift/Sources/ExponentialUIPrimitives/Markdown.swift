@@ -17,15 +17,46 @@ public struct MarkdownInline: Equatable, Sendable {
     public var code = false
     public var strike = false
     public var link: String?
+    /// #VAPP-258 (`catalog/host.json` markdown): the host's inline chip for
+    /// this (linked) run; a chip run never merges with a neighbour.
+    public var chip: MarkdownChip?
 
-    public init(text: String, bold: Bool = false, italic: Bool = false, code: Bool = false, strike: Bool = false, link: String? = nil) {
+    public init(text: String, bold: Bool = false, italic: Bool = false, code: Bool = false, strike: Bool = false, link: String? = nil, chip: MarkdownChip? = nil) {
         self.text = text
         self.bold = bold
         self.italic = italic
         self.code = code
         self.strike = strike
         self.link = link
+        self.chip = chip
     }
+}
+
+/// #VAPP-258: a host's inline chip (a `textLinks` segment's `chip`): the
+/// catalog Chip's look inline in a text run, one unbreakable unit.
+public struct MarkdownChip: Equatable, Sendable, Hashable {
+    public var kind: String
+    public var label: String
+    /// An icon registry name.
+    public var icon: String?
+
+    /// `catalog/host.json` markdown `chipKinds`.
+    public static let kinds: Set<String> = ["issue", "mention", "entity"]
+
+    public init(kind: String, label: String, icon: String? = nil) {
+        self.kind = kind
+        self.label = label
+        self.icon = icon
+    }
+
+    /// A known kind and a non-empty label (else the chip is dropped, the
+    /// link stays).
+    public var isValid: Bool { Self.kinds.contains(kind) && !label.isEmpty }
+}
+
+/// #VAPP-258: `attachmentKinds`.
+public enum MarkdownAttachmentKind: String, Equatable, Sendable, CaseIterable {
+    case video, audio, file
 }
 
 public enum MarkdownBlockKind: Equatable, Sendable {
@@ -41,6 +72,9 @@ public enum MarkdownBlockKind: Equatable, Sendable {
     /// request (a denied src becomes a paragraph of its alt text, see
     /// `resolveImages`; a failed load paints the alt text in the box).
     case image(src: String, alt: String)
+    /// #VAPP-258: a top-level paragraph that is exactly one markdown link
+    /// the host classified (`attachment(href)`): `href` = the policed href.
+    case attachment(type: MarkdownAttachmentKind, name: String, href: String)
 }
 
 public struct MarkdownBlock: Equatable, Sendable {
@@ -53,13 +87,17 @@ public struct MarkdownBlock: Equatable, Sendable {
     public var depth: Int
     /// #VAPP-258: a code block's fence info string (` ```ts ` = `ts`).
     public var lang: String?
+    /// #VAPP-258: an image block's natural size as the host's `imageSize`
+    /// answered it (positive and finite; nil = the fixed box).
+    public var imageSize: CGSize?
 
-    public init(kind: MarkdownBlockKind, inlines: [MarkdownInline], listGroup: Int? = nil, depth: Int = 0, lang: String? = nil) {
+    public init(kind: MarkdownBlockKind, inlines: [MarkdownInline], listGroup: Int? = nil, depth: Int = 0, lang: String? = nil, imageSize: CGSize? = nil) {
         self.kind = kind
         self.inlines = inlines
         self.listGroup = listGroup
         self.depth = depth
         self.lang = lang
+        self.imageSize = imageSize
     }
 }
 
@@ -523,6 +561,47 @@ public enum Markdown {
         }
     }
 
+    /// #VAPP-258: every top-level paragraph that is exactly ONE markdown
+    /// link (all its runs carry that link) whose href passes `href` (the URL
+    /// policy) and that `classify` (the host's `attachment`, asked with the
+    /// raw destination) answers with a known kind and a non-empty name
+    /// becomes an attachment block.
+    public static func resolveAttachments(_ blocks: [MarkdownBlock], href: (String) -> String?, classify: (String) -> (kind: String, name: String)?) -> [MarkdownBlock] {
+        blocks.map { b in
+            guard b.kind == .paragraph else { return b }
+            let runs = b.inlines.filter { !$0.text.isEmpty }
+            guard let raw = runs.first?.link, runs.allSatisfy({ $0.link == raw }),
+                  let policed = href(raw), let answer = classify(raw),
+                  let kind = MarkdownAttachmentKind(rawValue: answer.kind), !answer.name.isEmpty else { return b }
+            return MarkdownBlock(kind: .attachment(type: kind, name: answer.name, href: policed), inlines: [])
+        }
+    }
+
+    /// #VAPP-258: each block image's natural size from `size` (the host's
+    /// `imageSize`, asked with the raw src); a non-positive or non-finite
+    /// answer is none.
+    public static func sizeImages(_ blocks: [MarkdownBlock], size: (String) -> CGSize?) -> [MarkdownBlock] {
+        blocks.map { b in
+            guard case let .image(src, _) = b.kind else { return b }
+            var out = b
+            out.imageSize = size(src).flatMap(validImageSize)
+            return out
+        }
+    }
+
+    static func validImageSize(_ s: CGSize) -> CGSize? {
+        s.width.isFinite && s.height.isFinite && s.width > 0 && s.height > 0 ? s : nil
+    }
+
+    /// #VAPP-258 (`imageBoxes`): a block image's box `available` wide: the
+    /// natural size scaled by min(1, available / width, maxHeight /
+    /// height), start-aligned; no (valid) size = available × maxHeight.
+    public static func imageBox(size: CGSize?, available: CGFloat, maxHeight: CGFloat) -> CGSize {
+        guard let s = size.flatMap(validImageSize) else { return CGSize(width: max(available, 0), height: maxHeight) }
+        let scale = min(1, max(available, 0) / s.width, maxHeight / s.height)
+        return CGSize(width: s.width * scale, height: s.height * scale)
+    }
+
     /// Every link through `href` (nil = the policy denied it: the span
     /// stays, as plain text).
     public static func mapLinks(_ blocks: [MarkdownBlock], _ href: (String) -> String?) -> [MarkdownBlock] {
@@ -548,6 +627,12 @@ public enum Markdown {
     /// link labels, block images and bare urls never ask; only the marks
     /// change, so the layout is the same.
     public static func linkText(_ blocks: [MarkdownBlock], _ segments: (String) -> [(text: String, href: String?)]?) -> [MarkdownBlock] {
+        linkText(blocks, chips: { piece in segments(piece)?.map { (text: $0.text, href: $0.href, chip: nil) } })
+    }
+
+    /// #VAPP-258: `linkText` whose segments may carry a chip: kept only on a
+    /// segment with an (allowed) href and when valid (`MarkdownChip.isValid`).
+    public static func linkText(_ blocks: [MarkdownBlock], chips segments: (String) -> [(text: String, href: String?, chip: MarkdownChip?)]?) -> [MarkdownBlock] {
         func map(_ spans: [MarkdownInline]) -> [MarkdownInline] {
             spans.flatMap { span -> [MarkdownInline] in
                 guard !span.code, span.link == nil else { return [span] }
@@ -559,6 +644,7 @@ public enum Markdown {
                         var out = span
                         out.text = segment.text
                         out.link = segment.href
+                        out.chip = segment.href != nil && segment.chip?.isValid == true ? segment.chip : nil
                         return out
                     }
                 }
@@ -571,7 +657,7 @@ public enum Markdown {
                 out.inlines = map(b.inlines)
             case let .table(header, rows):
                 out.kind = .table(header: header.map(map), rows: rows.map { $0.map(map) })
-            case .codeBlock, .rule, .image:
+            case .codeBlock, .rule, .image, .attachment:
                 break
             }
             return out
@@ -660,8 +746,23 @@ public struct MarkdownStyles: Equatable, Sendable {
     public var listIndent: CGFloat
     public var cellPadH: CGFloat
     public var cellPadV: CGFloat
-    /// An image block's box height (the picture fits inside it).
+    /// An image block's box height (the picture fits inside it); #VAPP-258:
+    /// `imageMaxHeight`, the cap of a host-sized image.
     public var imageHeight: CGFloat
+    /// #VAPP-258: the inline chip's metrics.
+    public var chip: MarkdownChipStyle
+    /// #VAPP-258: a video attachment's box: min(available, `mediaWidth`)
+    /// wide, `mediaAspectRatio` (layout.json).
+    public var mediaWidth: CGFloat = 320
+    public var mediaAspectRatio: CGFloat = 1.7777778
+    /// An audio attachment: the title line (body), `audioTitleGap`, the
+    /// controls row (`$control.row`).
+    public var audioTitleGap: CGFloat = 4
+    public var audioControls: CGFloat = 32
+    /// A file attachment's row: the file icon (`$control.iconSm`), `fileGap`
+    /// ($spacing.sm), the name (body, one line).
+    public var fileIcon: CGFloat = 16
+    public var fileGap: CGFloat = 8
 
     public init(body: MarkdownTextSpec) {
         self.body = body
@@ -677,6 +778,20 @@ public struct MarkdownStyles: Equatable, Sendable {
         cellPadH = 8
         cellPadV = 4
         imageHeight = 160
+        chip = MarkdownChipStyle()
+    }
+
+    /// An attachment block's box `available` wide.
+    public func attachmentBox(_ type: MarkdownAttachmentKind, available: CGFloat) -> CGSize {
+        switch type {
+        case .video:
+            let w = max(min(available, mediaWidth), 0)
+            return CGSize(width: w, height: w / mediaAspectRatio)
+        case .audio:
+            return CGSize(width: available, height: body.lineHeight + audioTitleGap + audioControls)
+        case .file:
+            return CGSize(width: available, height: max(fileIcon, body.lineHeight))
+        }
     }
 
     /// A list item's indent before its body: one `listIndent` per level
@@ -707,6 +822,35 @@ public struct MarkdownStyles: Equatable, Sendable {
     }
 }
 
+/// #VAPP-258: the inline chip (`catalog/host.json` markdown): a box of
+/// height min(`height` = `$control.badge`, the line height), `paddingH`
+/// ($spacing.sm) each side, the optional icon (`icon` = `$control.iconSm`)
+/// then `gap` ($spacing.xs), the label in `label` (the Text caption).
+public struct MarkdownChipStyle: Equatable, Sendable {
+    public var label: MarkdownTextSpec
+    public var paddingH: CGFloat
+    public var gap: CGFloat
+    public var icon: CGFloat
+    public var height: CGFloat
+
+    public init(label: MarkdownTextSpec = MarkdownTextSpec(size: 12, lineHeight: 16, weight: 400, family: nil), paddingH: CGFloat = 8, gap: CGFloat = 4, icon: CGFloat = 16, height: CGFloat = 20) {
+        self.label = label
+        self.paddingH = paddingH
+        self.gap = gap
+        self.icon = icon
+        self.height = height
+    }
+
+    /// The chip's width around a label `labelWidth` wide, capped at `wrap`.
+    public func width(_ chip: MarkdownChip, labelWidth: CGFloat, wrap: CGFloat?) -> CGFloat {
+        let w = 2 * paddingH + labelWidth + (chip.icon == nil ? 0 : icon + gap)
+        return wrap.map { min(w, max($0, 1)) } ?? w
+    }
+
+    /// Its height in a line `lineHeight` tall.
+    public func height(lineHeight: CGFloat) -> CGFloat { min(height, lineHeight) }
+}
+
 /// What the layout asks the text system: heights of spans wrapped at a
 /// width (nil = one line per paragraph), widths, widest words.
 public protocol MarkdownTextMeasure {
@@ -720,6 +864,8 @@ public struct MarkdownBlockBox: Equatable, Sendable {
     public var height: CGFloat
     /// Tables: each row's height (header first).
     public var rows: [CGFloat]
+    /// #VAPP-258: an image / video box's width (nil = the full width).
+    public var width: CGFloat? = nil
 }
 
 public struct MarkdownLayout: Equatable, Sendable {
@@ -737,6 +883,7 @@ public extension Markdown {
             y += s.gapBefore(blocks, i)
             let spec = s.spec(of: b.kind)
             var rows: [CGFloat] = []
+            var boxWidth: CGFloat? = nil
             let height: CGFloat
             switch b.kind {
             case .paragraph, .heading:
@@ -750,7 +897,13 @@ public extension Markdown {
             case .rule:
                 height = 1
             case .image:
-                height = s.imageHeight
+                let box = imageBox(size: b.imageSize, available: width, maxHeight: s.imageHeight)
+                if b.imageSize != nil { boxWidth = box.width }
+                height = box.height
+            case let .attachment(type, _, _):
+                let box = s.attachmentBox(type, available: width)
+                if type == .video { boxWidth = box.width }
+                height = box.height
             case let .table(header, trs):
                 let cols = max(header.count, trs.map(\.count).max() ?? 0, 1)
                 let cellW = max(width / CGFloat(cols) - 2 * s.cellPadH, 1)
@@ -760,7 +913,7 @@ public extension Markdown {
                 }
                 height = rows.reduce(0, +) + 1
             }
-            out.append(MarkdownBlockBox(y: y, height: height, rows: rows))
+            out.append(MarkdownBlockBox(y: y, height: height, rows: rows, width: boxWidth))
             y += height
         }
         return MarkdownLayout(blocks: out, height: y)
@@ -774,7 +927,15 @@ public extension Markdown {
             case .paragraph, .heading: return text.width(b.inlines, spec)
             case .listItem: return text.width(b.inlines, spec) + s.listInset(b)
             case .quote: return text.width(b.inlines, spec) + s.quoteBorder + s.quotePad
-            case .image: return (s.imageHeight * 1.5).rounded()
+            case .image:
+                if let size = b.imageSize { return imageBox(size: size, available: size.width, maxHeight: s.imageHeight).width }
+                return (s.imageHeight * 1.5).rounded()
+            case let .attachment(type, name, _):
+                switch type {
+                case .video: return s.mediaWidth
+                case .audio: return 300
+                case .file: return s.fileIcon + s.fileGap + text.width([MarkdownInline(text: name)], s.body)
+                }
             case .codeBlock:
                 let first = b.inlines.first ?? MarkdownInline(text: "", code: true)
                 return (first.text.components(separatedBy: "\n").map { text.width([MarkdownInline(text: $0, code: true)], spec) }.max() ?? 0) + 2 * s.codePad
@@ -796,6 +957,7 @@ public extension Markdown {
             case let .table(header, _): return CGFloat(max(header.count, 1)) * (2 * s.cellPadH + 16)
             case .listItem: return text.widestWord(b.inlines, spec) + s.listInset(b)
             case .image: return 1
+            case let .attachment(type, _, _): return type == .file ? s.fileIcon : (type == .audio ? 160 : 1)
             case .quote: return text.widestWord(b.inlines, spec) + s.quoteBorder + s.quotePad
             default: return text.widestWord(b.inlines, spec)
             }

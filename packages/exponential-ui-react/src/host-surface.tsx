@@ -30,6 +30,10 @@ export function hostPlugin(host: ExponentialHost, base: HostPlugin = {}): HostPl
       host.openUrl(url)
     },
     textLinks: (text) => host.textLinks(text),
+    // #VAPP-258: the policy's Markdown hooks, else the base's (unset = off).
+    imageSize: host.markdownHooks().imageSize ?? base.imageSize,
+    onImagePress: host.markdownHooks().onImagePress ?? base.onImagePress,
+    attachment: host.markdownHooks().attachment ?? base.attachment,
     urls: host.urlPolicy(),
     media: host.mediaOptions(),
     mediaRequest: base.mediaRequest ?? ((src) => host.mediaRequest(src)),

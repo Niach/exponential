@@ -61,6 +61,14 @@ pub const SURFACE_SETTINGS: &[&str] = &["locale", "timeZone", "strings", "mode",
 pub const SURFACE_FORMATTER: &[&str] = &["number", "currency", "percent", "date", "relativeTime", "plural"];
 pub const SURFACE_COMMANDS: &[&str] = &["focus", "announce", "scrollIntoView", "scrollToIndex"];
 
+/// #VAPP-258: the Markdown host hooks (`markdown`): what a `textLinks`
+/// segment's `chip` and an `attachment` answer may be, and the block image
+/// box's max height.
+pub const MARKDOWN_HOOKS: &[&str] = &["textLinks", "imageSize", "onImagePress", "attachment"];
+pub const MARKDOWN_CHIP_KINDS: &[&str] = &["issue", "mention", "entity"];
+pub const MARKDOWN_ATTACHMENT_KINDS: &[&str] = &["video", "audio", "file"];
+pub const MARKDOWN_IMAGE_MAX_HEIGHT: f64 = 160.0;
+
 /// VAPP-122: how the `bind` action appends its params (`sources.paramsEncoding`).
 pub const SOURCE_PARAMS_ENCODING: &str = "sourceWithParams: keys sorted; key and value percent-encoded (everything but A-Z a-z 0-9 - _ . ! ~ * ' ( )); null skipped; an object or array as JSON; after ? or &";
 /// VAPP-122: a record kind's name (`package.records.kindPattern`).
@@ -83,6 +91,7 @@ pub fn host_contract() -> Value {
             "defaultSchemes": DEFAULT_MEDIA_SCHEMES,
             "limits": {"maxBytes": MEDIA_MAX_BYTES, "timeoutMs": MEDIA_TIMEOUT_MS, "maxPixels": MEDIA_MAX_PIXELS},
         },
+        "markdown": {"hooks": MARKDOWN_HOOKS, "chipKinds": MARKDOWN_CHIP_KINDS, "attachmentKinds": MARKDOWN_ATTACHMENT_KINDS, "imageMaxHeight": MARKDOWN_IMAGE_MAX_HEIGHT as u64},
         "sources": {"pattern": SOURCE_PATTERN, "paramsEncoding": SOURCE_PARAMS_ENCODING},
         "transport": {"mcpMimeTypes": MCP_MIME_TYPES, "mcpActionTool": MCP_ACTION_TOOL, "sseEvents": SSE_EVENTS},
         "negotiation": {},

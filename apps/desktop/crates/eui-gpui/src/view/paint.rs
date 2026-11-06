@@ -1233,17 +1233,16 @@ impl SurfaceView {
                 }
             }
         };
-        // A host's text links read live, like a `hostLinks` Text's.
-        let linked = {
-            let urls = self.host.url_policy();
-            markdown::link_text(&blocks, |piece| self.host.text_links(piece, cx).and_then(|links| eui_core::host::police_text_links(urls.as_ref(), piece, links)))
-        };
-        let blocks = linked.map_or(blocks, Rc::new);
+        // A host's text links (and #VAPP-258 its attachments and image
+        // sizes) read live, like a `hostLinks` Text's; the measurer asks the same.
+        let blocks = markdown::hosted(self.host.as_ref(), &blocks, cx).map_or(blocks, Rc::new);
         let ts = lcx.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
         let styles = MdStyles::resolve(lcx.theme, lcx.mode, body, &lcx.node.props);
         let mut shaper = Shaper::new(window, &self.fonts);
+        let blocks = markdown::size_chips(&blocks, &styles, Some(w), &mut shaper).map_or(blocks, Rc::new);
         let lay = markdown::layout(&blocks, &styles, w, &mut shaper);
+        let attachments = self.markdown_attachments(lcx, &blocks, &lay, &styles, w);
         let (colors, muted, border, code_block_bg) = MdPaint::colors(lcx.theme, lcx.mode, lcx.ink, &lcx.node.props);
         let host = self.host.clone();
         let paint = MdPaint {
@@ -1272,6 +1271,17 @@ impl SurfaceView {
                 Rc::new(move |kind| crate::paint::parts::code_token_look(theme.as_deref(), mode, &serde_json::Map::new(), kind).0)
             },
             text_system: Some(self.fonts.text_system.clone()),
+            chip_box: crate::paint::PaintStyle::from_visual(&crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "root", &serde_json::Map::new(), &[])),
+            chip_label: crate::paint::color::color_of(crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "label", &serde_json::Map::new(), &[]).color.as_deref()),
+            icon: {
+                let host = self.host.clone();
+                Rc::new(move |name, size, color| crate::paint::icons::concept(host.as_ref(), name, size, color))
+            },
+            image_press: self.host.image_pressable(cx).then(|| {
+                let host = self.host.clone();
+                Rc::new(move |src: &str, window: &mut Window, cx: &mut gpui::App| host.on_image_press(src, window, cx)) as markdown::LinkHandler
+            }),
+            attachments: std::cell::RefCell::new(attachments),
         };
         // Units commit once painted (their text layouts can hit-test then).
         let (pending, committed) = (self.md_pending.clone(), self.md_units.clone());
@@ -1282,7 +1292,7 @@ impl SurfaceView {
         })
         .absolute()
         .size_0();
-        let mut el = div().id(SharedString::from(format!("{}.md", lcx.node.id))).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).overflow_hidden().child(markdown::paint(&lcx.node.id, &blocks, &lay, w, &paint)).child(commit);
+        let mut el = div().id(SharedString::from(format!("{}.md", lcx.node.id))).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).overflow_hidden().child(markdown::paint(&lcx.node.id, &blocks, &lay, w, &paint, &mut shaper)).child(commit);
         if !self.ghosting.get() {
             // Selectable text: press-drag selects (the drag follows the
             // pointer anywhere in the window), Shift extends, the platform
@@ -1292,6 +1302,42 @@ impl SurfaceView {
                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| this.md_press(index, ev.position, ev.modifiers.shift, window, cx)));
         }
         el.into_any_element()
+    }
+
+    /// #VAPP-258: a Markdown's attachment blocks as the EXISTING natives
+    /// paint them (`catalog/host.json` markdown): `video` = the Video look
+    /// (no poster, its play button) min(width, mediaIntrinsicWidth) wide,
+    /// `audio` = the AudioPlayer look with the name as its title, `file` =
+    /// the FileUpload `file` row (fileIcon + fileName; a press opens the
+    /// href). Each sized to its laid-out block, start-aligned.
+    fn markdown_attachments(&self, lcx: &LeafCx, blocks: &[markdown::Block], lay: &markdown::MdLayout, styles: &MdStyles, width: f32) -> std::collections::HashMap<usize, AnyElement> {
+        let mut out = std::collections::HashMap::new();
+        for (i, (b, bx)) in blocks.iter().zip(&lay.blocks).enumerate() {
+            let markdown::BlockKind::Attachment { kind, name, href } = &b.kind else { continue };
+            let mut node = lcx.node.clone();
+            node.id = format!("{}.md{i}.attachment", lcx.node.id);
+            node.part = None;
+            node.owner_component = None;
+            node.children.clear();
+            let (component, w, fallback) = match kind {
+                markdown::AttachmentKind::Video => ("Video", width.min(eui_core::layout::MEDIA_INTRINSIC_WIDTH as f32), "mp4"),
+                markdown::AttachmentKind::Audio => ("AudioPlayer", width, "m4a"),
+                markdown::AttachmentKind::File => ("FileUpload", width, ""),
+            };
+            node.component = component.to_string();
+            node.props = serde_json::Map::from_iter([("src".to_string(), Value::from(href.clone())), ("title".to_string(), Value::from(name.clone()))]);
+            let own = lcx.part(component, "root", &[]);
+            let style = crate::paint::PaintStyle { radii: own.radii, ..Default::default() };
+            let leaf = LeafCx { node: &node, w, h: bx.height, style: &style, owner_props: &node.props, shimmer: None, font: lcx.font.clone(), radii: own.radii, ..*lcx };
+            let el = match kind {
+                markdown::AttachmentKind::Video => natives::video(&leaf, self.media_play(&node, fallback)),
+                markdown::AttachmentKind::Audio => natives::audio(&leaf, self.media_play(&node, fallback)),
+                markdown::AttachmentKind::File => natives::file_row(&leaf, name, &styles.attach, Some(href.clone()), self.host.clone()),
+            };
+            let x = if lcx.rtl { (width - w).max(0.0) } else { 0.0 };
+            out.insert(i, div().absolute().top_0().left(px(x)).w(px(w)).h(px(bx.height)).child(el).into_any_element());
+        }
+        out
     }
 
     fn paint_composer(&self, lcx: &LeafCx, cx: &mut Context<Self>) -> AnyElement {

@@ -22,6 +22,54 @@ data class MarkdownInline(
     val code: Boolean = false,
     val strike: Boolean = false,
     val link: String? = null,
+    /** #VAPP-258: a host chip (a text link painted as the Chip look, inline); never merged with a neighbour. */
+    val chip: MarkdownChip? = null,
+)
+
+/** #VAPP-258 (catalog/host.json `markdown`): a text link's chip: [kind] in [KINDS], a non-empty [label], an optional icon registry name. */
+data class MarkdownChip(val kind: String, val label: String, val icon: String? = null) {
+    /** A known kind and a non-empty label (else the chip is dropped, the link stays). */
+    val valid: Boolean get() = kind in KINDS && label.isNotEmpty()
+
+    /** The kinds. */
+    companion object {
+        /** `chipKinds`. */
+        val KINDS: Set<String> = setOf("issue", "mention", "entity")
+    }
+}
+
+/** #VAPP-258: one piece of a host's text links: [text], its POLICED [href] (null = text) and an optional [chip]. */
+data class MarkdownTextLink(val text: String, val href: String? = null, val chip: MarkdownChip? = null)
+
+/** #VAPP-258: a host's `attachment(href)` answer: [type] in [KINDS] and a non-empty [name]. */
+data class MarkdownAttachment(val type: String, val name: String) {
+    /** The kinds. */
+    companion object {
+        /** `attachmentKinds`. */
+        val KINDS: Set<String> = setOf("video", "audio", "file")
+    }
+}
+
+/** #VAPP-258: a host's `imageSize(src)` answer (natural size; non-positive or non-finite = unknown). */
+data class MarkdownSize(val width: Float, val height: Float) {
+    /** Positive and finite. */
+    val valid: Boolean get() = width.isFinite() && height.isFinite() && width > 0f && height > 0f
+}
+
+/**
+ * #VAPP-258: the host hooks a document is resolved through (all optional):
+ * the URL policy ([linkPolicy], null result = text), the media policy
+ * ([imagePolicy]), [attachment] (asked with the RAW destination), the
+ * natural [imageSize] of a block image (the RAW src) and the [textLinks]
+ * (policed segments, chips on them). The measurer and the painter resolve
+ * through the same hooks, so the measured blocks are the painted ones.
+ */
+class MarkdownHooks(
+    val linkPolicy: ((String) -> String?)? = null,
+    val imagePolicy: ((String) -> Boolean)? = null,
+    val attachment: ((String) -> MarkdownAttachment?)? = null,
+    val imageSize: ((String) -> MarkdownSize?)? = null,
+    val textLinks: ((String) -> List<MarkdownTextLink>?)? = null,
 )
 
 /** What a block is. */
@@ -44,7 +92,14 @@ sealed class MarkdownBlockKind {
      * loads or when it fails; a DENIED src is a paragraph of its alt text
      * ([Markdown.resolveImages]). `inlines` = the alt text.
      */
-    data class Image(val src: String, val alt: String) : MarkdownBlockKind()
+    data class Image(val src: String, val alt: String, val width: Float? = null, val height: Float? = null) : MarkdownBlockKind()
+
+    /**
+     * #VAPP-258: a top-level paragraph that is one markdown link the host
+     * classified ([Markdown.resolveAttachments]): `video` / `audio` / `file`,
+     * its [name] and the POLICED [href]. `inlines` = the link's label.
+     */
+    data class Attachment(val type: String, val name: String, val href: String) : MarkdownBlockKind()
 
     /** A block quote (its lines joined). */
     data object Quote : MarkdownBlockKind()
@@ -68,6 +123,30 @@ data class MarkdownBlock(
     /** #VAPP-258: a code block's fence info string (` ```ts ` = `ts`). */
     val lang: String? = null,
 )
+
+/**
+ * #VAPP-258: the inline chip's geometry: [label] = the Text `caption`
+ * style, [padH] = `$spacing.sm` each side, [gap] = `$spacing.xs` after the
+ * [iconSize] (`$control.iconSm`) icon, [height] = `$control.badge` (capped
+ * at the line's height).
+ */
+data class MarkdownChipStyle(
+    val label: MarkdownTextSpec = MarkdownTextSpec(12f, 16f, 400, null),
+    val padH: Float = 8f,
+    val gap: Float = 4f,
+    val iconSize: Float = 16f,
+    val height: Float = 20f,
+) {
+    /** The chip box's height in a line [lineHeight] tall. */
+    fun height(lineHeight: Float): Float = minOf(height, lineHeight)
+
+    /** The chip's width around a label [labelWidth] wide (uncapped). */
+    fun width(chip: MarkdownChip, labelWidth: Float): Float =
+        2 * padH + labelWidth + if (chip.icon.isNullOrEmpty()) 0f else iconSize + gap
+
+    /** The label's width for a shaped [px] extent at [density] (whole px + 1 slack: what measure and paint both use). */
+    fun labelWidth(px: Float, density: Float): Float = (ceil(px - 0.01f) + 1f) / density
+}
 
 /** Typography of one block kind (dp sizes, CSS weight, family NAME). */
 data class MarkdownTextSpec(
@@ -99,7 +178,29 @@ data class MarkdownStyles(
     var cellPadV: Float = 4f,
     /** The height of a block image (loaded or not, so measure = paint). */
     var imageHeight: Float = 160f,
+    /** #VAPP-258: the inline chip. */
+    var chip: MarkdownChipStyle = MarkdownChipStyle(),
+    /** #VAPP-258: a video attachment's max width (`mediaIntrinsicWidth`) and aspect (`mediaAspectRatio`). */
+    var mediaMaxWidth: Float = 320f,
+    var mediaAspect: Float = 16f / 9f,
+    /** #VAPP-258: an audio attachment = its title line + [audioGap] + the controls row. */
+    var audioTitle: Float = body.lineHeight,
+    var audioGap: Float = 4f,
+    var audioRow: Float = 32f,
+    /** #VAPP-258: a file attachment's row height (the FileUpload `file` row). */
+    var fileHeight: Float = 40f,
 ) {
+    /** #VAPP-258: an attachment block's height at [width]. */
+    fun attachmentHeight(kind: MarkdownBlockKind.Attachment, width: Float): Float = when (kind.type) {
+        "video" -> attachmentWidth(kind, width) / mediaAspect
+        "audio" -> audioTitle + audioGap + audioRow
+        else -> fileHeight
+    }
+
+    /** #VAPP-258: an attachment block's width at [width] (a video caps at [mediaMaxWidth]). */
+    fun attachmentWidth(kind: MarkdownBlockKind.Attachment, width: Float): Float =
+        if (kind.type == "video") max(0f, minOf(width, mediaMaxWidth)) else max(0f, width)
+
     /** The leading indent of a list item at [depth] (its marker column + the body inset). */
     fun listInset(depth: Int): Float = listIndent * (depth + 1)
 
@@ -136,6 +237,15 @@ interface MarkdownTextMeasure {
 
     /** The widest whitespace-separated word of `inlines`. */
     fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec): Float
+
+    /** #VAPP-258: [height] with chip runs as [chips] boxes (each capped at the wrap width). Default: chips ignored. */
+    fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?, chips: MarkdownChipStyle): Float = height(inlines, spec, width)
+
+    /** #VAPP-258: [width] with chip runs as [chips] boxes. */
+    fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float = width(inlines, spec)
+
+    /** #VAPP-258: [widestWord] where a chip is one unbreakable word. */
+    fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float = widestWord(inlines, spec)
 }
 
 /** A placed block: its top, height and (tables) each row's height, header first. */
@@ -167,7 +277,7 @@ object Markdown {
         if (raw.isEmpty()) return
         val text = decodeEntities(raw)
         val last = out.lastOrNull()
-        if (last != null && !last.code && last.bold == f.bold && last.italic == f.italic && last.strike == f.strike && last.link == link) {
+        if (last != null && !last.code && last.chip == null && last.bold == f.bold && last.italic == f.italic && last.strike == f.strike && last.link == link) {
             out[out.size - 1] = last.copy(text = last.text + text)
             return
         }
@@ -605,22 +715,87 @@ object Markdown {
      * text. Code, link labels, block images and bare urls never ask; only the
      * marks change, so the layout is the same.
      */
-    fun linkText(blocks: List<MarkdownBlock>, segments: (String) -> List<Pair<String, String?>>?): List<MarkdownBlock> {
+    fun linkText(blocks: List<MarkdownBlock>, segments: (String) -> List<Pair<String, String?>>?): List<MarkdownBlock> =
+        linkSegments(blocks) { piece -> segments(piece)?.map { (text, href) -> MarkdownTextLink(text, href) } }
+
+    /**
+     * #VAPP-258 [linkText] with chips (fixtures/markdown-host.json): a
+     * segment's chip stays on its run only when the run is a link (an
+     * allowed href) and the chip is [MarkdownChip.valid].
+     */
+    fun linkSegments(blocks: List<MarkdownBlock>, segments: (String) -> List<MarkdownTextLink>?): List<MarkdownBlock> {
         fun spans(list: List<MarkdownInline>): List<MarkdownInline> = list.flatMap { span ->
             if (span.code || span.link != null) return@flatMap listOf(span)
             bareUrlPieces(span.text).flatMap { (piece, isUrl) ->
                 val linked = if (isUrl) null else segments(piece)
-                linked?.map { (text, href) -> span.copy(text = text, link = href) } ?: listOf(span.copy(text = piece))
+                linked?.filter { it.text.isNotEmpty() }?.map { seg ->
+                    span.copy(text = seg.text, link = seg.href, chip = seg.chip?.takeIf { seg.href != null && it.valid })
+                } ?: listOf(span.copy(text = piece))
             }
         }
         return blocks.map { b ->
             when (val kind = b.kind) {
                 is MarkdownBlockKind.Table -> b.copy(kind = kind.copy(header = kind.header.map(::spans), rows = kind.rows.map { r -> r.map(::spans) }))
-                is MarkdownBlockKind.Image, MarkdownBlockKind.CodeBlock, MarkdownBlockKind.Rule -> b
+                is MarkdownBlockKind.Image, is MarkdownBlockKind.Attachment, MarkdownBlockKind.CodeBlock, MarkdownBlockKind.Rule -> b
                 else -> b.copy(inlines = spans(b.inlines))
             }
         }
     }
+
+    /**
+     * #VAPP-258: a TOP-LEVEL paragraph that is exactly one markdown link
+     * (every run carries that one link) whose RAW destination [classify]
+     * answers validly and whose href [policy] allows (null policy = as
+     * written) becomes an [MarkdownBlockKind.Attachment] block. Run BEFORE
+     * [policeLinks] and the text links (it reads the raw destination).
+     */
+    fun resolveAttachments(blocks: List<MarkdownBlock>, policy: ((String) -> String?)?, classify: (String) -> MarkdownAttachment?): List<MarkdownBlock> = blocks.map { b ->
+        if (b.kind != MarkdownBlockKind.Paragraph) return@map b
+        val runs = b.inlines.filter { it.text.isNotEmpty() }
+        val raw = runs.firstOrNull()?.link ?: return@map b
+        if (runs.any { it.link != raw }) return@map b
+        val href = (if (policy == null) raw else policy(raw)) ?: return@map b
+        val a = classify(raw) ?: return@map b
+        if (a.type !in MarkdownAttachment.KINDS || a.name.isEmpty()) return@map b
+        b.copy(kind = MarkdownBlockKind.Attachment(a.type, a.name, href))
+    }
+
+    /** #VAPP-258: every block image's natural size from [size] (asked with the raw src; an invalid answer = none). */
+    fun sizeImages(blocks: List<MarkdownBlock>, size: (String) -> MarkdownSize?): List<MarkdownBlock> = blocks.map { b ->
+        val kind = b.kind
+        if (kind !is MarkdownBlockKind.Image) return@map b
+        val s = size(kind.src)?.takeIf { it.valid } ?: return@map b
+        b.copy(kind = kind.copy(width = s.width, height = s.height))
+    }
+
+    /**
+     * #VAPP-258 (markdown-host.json `imageBoxes`): a block image's box: its
+     * natural size scaled by min(1, available / width, maxHeight / height),
+     * start-aligned; unknown = available × maxHeight.
+     */
+    fun imageBox(width: Float?, height: Float?, available: Float, maxHeight: Float): MarkdownSize {
+        val avail = max(available, 0f)
+        if (width == null || height == null || !MarkdownSize(width, height).valid) return MarkdownSize(avail, maxHeight)
+        val scale = minOf(1f, avail / width, maxHeight / height)
+        return MarkdownSize(width * scale, height * scale)
+    }
+
+    /** #VAPP-258: [text] parsed and resolved through [hooks] up to (not including) the text links. */
+    fun prepare(text: String, hooks: MarkdownHooks): List<MarkdownBlock> {
+        var blocks = parse(text)
+        hooks.attachment?.let { blocks = resolveAttachments(blocks, hooks.linkPolicy, it) }
+        hooks.imagePolicy?.let { blocks = resolveImages(blocks, it) }
+        hooks.imageSize?.let { blocks = sizeImages(blocks, it) }
+        hooks.linkPolicy?.let { blocks = policeLinks(blocks, it) }
+        return blocks
+    }
+
+    /** #VAPP-258: [prepare]d blocks through the text links. */
+    fun linked(blocks: List<MarkdownBlock>, hooks: MarkdownHooks): List<MarkdownBlock> =
+        hooks.textLinks?.let { linkSegments(blocks, it) } ?: blocks
+
+    /** #VAPP-258: THE pipeline the measurer and the painter share: [prepare] then [linked]. */
+    fun resolve(text: String, hooks: MarkdownHooks): List<MarkdownBlock> = linked(prepare(text, hooks), hooks)
 
     /** A run cut around its bare urls (`http://` or `https://`, any case, not glued to an ASCII word character, up to the next ASCII space, tab or newline); no empty piece. */
     internal fun bareUrlPieces(text: String): List<Pair<String, Boolean>> {
@@ -670,17 +845,18 @@ object Markdown {
             val spec = s.spec(b.kind)
             val rows = ArrayList<Float>()
             val height: Float = when (val k = b.kind) {
-                MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.height(b.inlines, spec, max(width, 1f))
-                is MarkdownBlockKind.ListItem -> text.height(b.inlines, spec, max(width - s.listInset(k.depth), 1f))
-                is MarkdownBlockKind.Image -> s.imageHeight
-                MarkdownBlockKind.Quote -> text.height(b.inlines, spec, max(width - s.quoteBorder - s.quotePad, 1f))
+                MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.height(b.inlines, spec, max(width, 1f), s.chip)
+                is MarkdownBlockKind.ListItem -> text.height(b.inlines, spec, max(width - s.listInset(k.depth), 1f), s.chip)
+                is MarkdownBlockKind.Image -> imageBox(k.width, k.height, width, s.imageHeight).height
+                is MarkdownBlockKind.Attachment -> s.attachmentHeight(k, width)
+                MarkdownBlockKind.Quote -> text.height(b.inlines, spec, max(width - s.quoteBorder - s.quotePad, 1f), s.chip)
                 MarkdownBlockKind.CodeBlock -> text.height(b.inlines, spec, null) + 2 * s.codePad
                 MarkdownBlockKind.Rule -> 1f
                 is MarkdownBlockKind.Table -> {
                     val cols = maxOf(k.header.size, k.rows.maxOfOrNull { it.size } ?: 0, 1)
                     val cellW = max(width / cols - 2 * s.cellPadH, 1f)
                     for (row in listOf(k.header) + k.rows) {
-                        val h = row.map { text.height(it, s.body, cellW) }.fold(s.body.lineHeight) { a, x -> max(a, x) }
+                        val h = row.map { text.height(it, s.body, cellW, s.chip) }.fold(s.body.lineHeight) { a, x -> max(a, x) }
                         rows.add(h + 2 * s.cellPadV + 1)
                     }
                     rows.sum() + 1
@@ -692,15 +868,26 @@ object Markdown {
         return MarkdownLayout(out, y)
     }
 
+    /** An audio attachment's max-content width (the AudioPlayer's). */
+    const val AUDIO_INTRINSIC_WIDTH = 300f
+
+    /** A file attachment's max-content width (the FileUpload's). */
+    const val FILE_INTRINSIC_WIDTH = 240f
+
     /** Max-content width: the widest block on one line. */
     fun maxContentWidth(blocks: List<MarkdownBlock>, s: MarkdownStyles, text: MarkdownTextMeasure): Float {
         val widths = blocks.map { b ->
             val spec = s.spec(b.kind)
             when (val k = b.kind) {
-                MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.width(b.inlines, spec)
-                is MarkdownBlockKind.ListItem -> text.width(b.inlines, spec) + s.listInset(k.depth)
-                is MarkdownBlockKind.Image -> s.imageHeight
-                MarkdownBlockKind.Quote -> text.width(b.inlines, spec) + s.quoteBorder + s.quotePad
+                MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.width(b.inlines, spec, s.chip)
+                is MarkdownBlockKind.ListItem -> text.width(b.inlines, spec, s.chip) + s.listInset(k.depth)
+                is MarkdownBlockKind.Image -> if (k.width != null && k.height != null) imageBox(k.width, k.height, k.width, s.imageHeight).width else s.imageHeight
+                is MarkdownBlockKind.Attachment -> when (k.type) {
+                    "video" -> s.mediaMaxWidth
+                    "audio" -> AUDIO_INTRINSIC_WIDTH
+                    else -> FILE_INTRINSIC_WIDTH
+                }
+                MarkdownBlockKind.Quote -> text.width(b.inlines, spec, s.chip) + s.quoteBorder + s.quotePad
                 MarkdownBlockKind.CodeBlock -> {
                     val first = b.inlines.firstOrNull() ?: MarkdownInline(text = "", code = true)
                     (first.text.split("\n").maxOfOrNull { text.width(listOf(MarkdownInline(text = it, code = true)), spec) } ?: 0f) + 2 * s.codePad
@@ -708,7 +895,7 @@ object Markdown {
                 MarkdownBlockKind.Rule -> 0f
                 is MarkdownBlockKind.Table -> {
                     val cols = max(k.header.size, 1).toFloat()
-                    val widest = (listOf(k.header) + k.rows).flatten().maxOfOrNull { text.width(it, s.body) } ?: 0f
+                    val widest = (listOf(k.header) + k.rows).flatten().maxOfOrNull { text.width(it, s.body, s.chip) } ?: 0f
                     cols * (widest + 2 * s.cellPadH)
                 }
             }
@@ -723,10 +910,10 @@ object Markdown {
             when (val k = b.kind) {
                 MarkdownBlockKind.CodeBlock -> maxContentWidth(listOf(b), s, text)
                 is MarkdownBlockKind.Table -> max(k.header.size, 1) * (2 * s.cellPadH + 16)
-                is MarkdownBlockKind.ListItem -> text.widestWord(b.inlines, spec) + s.listInset(k.depth)
-                is MarkdownBlockKind.Image -> 0f
-                MarkdownBlockKind.Quote -> text.widestWord(b.inlines, spec) + s.quoteBorder + s.quotePad
-                else -> text.widestWord(b.inlines, spec)
+                is MarkdownBlockKind.ListItem -> text.widestWord(b.inlines, spec, s.chip) + s.listInset(k.depth)
+                is MarkdownBlockKind.Image, is MarkdownBlockKind.Attachment -> 0f
+                MarkdownBlockKind.Quote -> text.widestWord(b.inlines, spec, s.chip) + s.quoteBorder + s.quotePad
+                else -> text.widestWord(b.inlines, spec, s.chip)
             }
         }
         return widths.maxOrNull()?.let { ceil(it) } ?: 0f

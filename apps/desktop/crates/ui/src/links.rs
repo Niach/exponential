@@ -176,16 +176,16 @@ pub(crate) fn issue_text_links(text: &str, team_id: Option<&str>, cx: &App) -> O
         }
         let Some(href) = expand_team_link(&format!("~/issues/{identifier}"), Some(&team)) else { continue };
         if token.start > at {
-            segments.push(TextLink { text: text[at..token.start].to_string(), href: None });
+            segments.push(TextLink { text: text[at..token.start].to_string(), href: None, chip: None });
         }
-        segments.push(TextLink { text: text[token.clone()].to_string(), href: Some(href) });
+        segments.push(TextLink { text: text[token.clone()].to_string(), href: Some(href), chip: None });
         at = token.end;
     }
     if segments.is_empty() {
         return None;
     }
     if at < text.len() {
-        segments.push(TextLink { text: text[at..].to_string(), href: None });
+        segments.push(TextLink { text: text[at..].to_string(), href: None, chip: None });
     }
     Some(segments)
 }

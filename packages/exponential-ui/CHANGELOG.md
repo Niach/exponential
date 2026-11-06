@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Markdown host hooks (`catalog/host.json` `markdown`, `fixtures/markdown-host.json` on every renderer): a `textLinks` segment's `chip` paints an inline Chip, `imageSize` keeps a block image's aspect before it loads, `onImagePress` makes block images pressable, `attachment` paints a one-link paragraph as a video, audio or file block. All optional; web: `hostMarkdown`, `markdownImageBox`, `TextLinkChip`, `MarkdownAttachmentInfo`, `HostPolicy` gains the hooks.
+
 ## 0.16.3 (2026-11-06)
 
 - Markdown parses the same on all five renderers (`markdown-render.json`, every golden case passes; VAPP-258), and a number field seeded with a value selects it on focus so Save runs once (VAPP-208).

@@ -450,12 +450,10 @@ internal fun ImageLeaf(cx: LeafContext) {
  * DENIED: nothing loads, the controls stay inert).
  */
 @Composable
-private fun rememberPlayback(cx: LeafContext): Pair<MediaPlayback, MediaRequest?> {
+private fun rememberPlayback(model: at.exponential.ui.model.SurfaceModel, src: String): Pair<MediaPlayback, MediaRequest?> {
     val context = LocalContext.current
     val playback = remember { MediaPlayback(context.applicationContext ?: context) }
     DisposableEffect(playback) { onDispose { playback.stop() } }
-    val src = cx.props.str("src")
-    val model = cx.model
     val request = remember(src, model.host) { if (src.isEmpty()) null else model.mediaRequest(src) }
     return playback to request
 }
@@ -469,9 +467,30 @@ private fun rememberPlayback(cx: LeafContext): Pair<MediaPlayback, MediaRequest?
  */
 @Composable
 internal fun VideoLeaf(cx: LeafContext) {
-    val (playback, request) = rememberPlayback(cx)
-    val model = cx.model
-    val autoplay = cx.props["autoplay"]?.bool == true
+    VideoView(
+        cx.model,
+        src = cx.props.str("src"),
+        poster = cx.props.str("poster"),
+        autoplay = cx.props["autoplay"]?.bool == true,
+        durationMs = cx.props.num("durationMs"),
+        durationStyle = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = Color.White),
+    )
+}
+
+/**
+ * The Video native's look and playback, shared by [VideoLeaf] and a
+ * Markdown video attachment (#VAPP-258: no poster, its play button).
+ */
+@Composable
+internal fun VideoView(
+    model: at.exponential.ui.model.SurfaceModel,
+    src: String,
+    poster: String,
+    autoplay: Boolean,
+    durationMs: Double?,
+    durationStyle: androidx.compose.ui.text.TextStyle,
+) {
+    val (playback, request) = rememberPlayback(model, src)
     val scope = rememberCoroutineScope()
     LaunchedEffect(request, autoplay) {
         if (autoplay && request != null) {
@@ -491,8 +510,8 @@ internal fun VideoLeaf(cx: LeafContext) {
             )
             return@Box
         }
-        val poster = rememberLeafImage(cx, cx.props.str("poster"))
-        if (poster != null) Image(poster, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        val picture = rememberPolicedImage(model, poster)
+        if (picture != null) Image(picture, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(
             Modifier
                 .align(Alignment.Center)
@@ -505,7 +524,7 @@ internal fun VideoLeaf(cx: LeafContext) {
         ) {
             if (playback.loading) SpinnerView(20f, Color.White) else GlyphView(Glyph.Play, 20f, Color.White)
         }
-        cx.props.num("durationMs")?.let { ms ->
+        durationMs?.let { ms ->
             BasicText(
                 DateModel.formatDuration(ms),
                 modifier = Modifier
@@ -513,7 +532,7 @@ internal fun VideoLeaf(cx: LeafContext) {
                     .padding(end = 8.dp, bottom = 6.dp)
                     .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
-                style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = Color.White),
+                style = durationStyle,
                 maxLines = 1,
             )
         }
@@ -529,8 +548,34 @@ internal fun VideoLeaf(cx: LeafContext) {
  */
 @Composable
 internal fun AudioLeaf(cx: LeafContext) {
-    val (playback, request) = rememberPlayback(cx)
+    val title = cx.props.str("title")
+    InnerBox(cx) {
+        AudioView(
+            cx,
+            src = cx.props.str("src"),
+            title = title,
+            durationMs = cx.props.num("durationMs")?.toLong(),
+            titleLine = { LeafLine(cx, it, color = cx.part("AudioPlayer", "track").color ?: cx.ink) },
+        )
+    }
+}
+
+/**
+ * The AudioPlayer native's look and playback (the title line over the
+ * controls capsule), shared by [AudioLeaf] and a Markdown audio
+ * attachment (#VAPP-258: `name` as the title, [rowHeight] = its measured row).
+ */
+@Composable
+internal fun AudioView(
+    cx: LeafContext,
+    src: String,
+    title: String,
+    durationMs: Long?,
+    rowHeight: Float = 40f,
+    titleLine: @Composable (String) -> Unit,
+) {
     val model = cx.model
+    val (playback, request) = rememberPlayback(model, src)
     val scope = rememberCoroutineScope()
     LaunchedEffect(request) { if (playback.opened != request) playback.stop() }
     // The position while it plays (4 Hz, Swift's periodic observer).
@@ -541,19 +586,17 @@ internal fun AudioLeaf(cx: LeafContext) {
         }
         playback.tick()
     }
-    val title = cx.props.str("title")
     val muted = cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.1f)
     val mutedFg = cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = 0.6f)
-    val track = cx.part("AudioPlayer", "track")
-    val known = cx.props.num("durationMs")?.toLong()
+    val known = durationMs
     val length = playback.durationMs ?: known
     val progress = length?.takeIf { it > 0 }?.let { (playback.positionMs.toFloat() / it).coerceIn(0f, 1f) } ?: 0f
     val elapsed = DateModel.formatDuration(playback.positionMs.toDouble())
-    InnerBox(cx) {
+    run {
         Column(verticalArrangement = Arrangement.spacedBy(cx.spacing("xs").dp)) {
-            if (title.isNotEmpty()) LeafLine(cx, title, color = track.color ?: cx.ink)
+            if (title.isNotEmpty()) titleLine(title)
             Row(
-                Modifier.fillMaxWidth().height(40.dp).background(muted, CircleShape).padding(horizontal = 8.dp),
+                Modifier.fillMaxWidth().height(rowHeight.dp).background(muted, CircleShape).padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

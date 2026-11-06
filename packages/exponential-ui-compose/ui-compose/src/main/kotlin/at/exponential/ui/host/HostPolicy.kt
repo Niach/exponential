@@ -193,6 +193,12 @@ data class HostPolicy(
     val media: MediaOptions? = null,
     /** #EXP-1674: a `hostLinks` Text's segments (default: none). */
     val textLinks: ((String) -> List<TextLinkSegment>?)? = null,
+    /** #VAPP-258: a Markdown block image's natural size by RAW src (default: none). */
+    val imageSize: ((String) -> ImageSize?)? = null,
+    /** #VAPP-258: a press on a Markdown block image (default: not pressable). */
+    val onImagePress: ((String) -> Unit)? = null,
+    /** #VAPP-258: a one-link Markdown paragraph's attachment kind + name by RAW href (default: none). */
+    val attachment: ((String) -> HostAttachment?)? = null,
 )
 
 /** A binding source URI, parsed (`exp:issues?board=b1` → scheme `exp`, name `issues`, params). */

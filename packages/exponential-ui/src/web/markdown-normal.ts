@@ -3,7 +3,7 @@
 // parse into it directly (flat blocks, flag runs); the web tree flattens to
 // it here. Adjacent runs with the same flags merge; false flags are omitted.
 
-import type { MarkdownBlock, MarkdownInline, MarkdownList } from "./markdown"
+import type { MarkdownBlock, MarkdownChip, MarkdownInline, MarkdownList } from "./markdown"
 
 export interface NormalRun {
   text: string
@@ -12,6 +12,8 @@ export interface NormalRun {
   code?: true
   strike?: true
   link?: string
+  /** #VAPP-258 (fixtures/markdown-host.json): a host's chip; never merges. */
+  chip?: MarkdownChip
 }
 
 export type NormalBlock =
@@ -21,7 +23,8 @@ export type NormalBlock =
   | { kind: `codeBlock`; lang?: string; text: string }
   | { kind: `table`; header: NormalRun[][]; rows: NormalRun[][][] }
   | { kind: `rule` }
-  | { kind: `image`; src: string; alt: string }
+  | { kind: `image`; src: string; alt: string; width?: number; height?: number }
+  | { kind: `attachment`; type: `video` | `audio` | `file`; name: string; href: string }
 
 type Flags = Omit<NormalRun, `text`>
 
@@ -32,7 +35,7 @@ export function mergeRuns(runs: readonly NormalRun[]): NormalRun[] {
   for (const run of runs) {
     if (!run.text) continue
     const last = out[out.length - 1]
-    if (last && key(last) === key(run)) last.text += run.text
+    if (last && !last.chip && !run.chip && key(last) === key(run)) last.text += run.text
     else out.push({ ...run })
   }
   return out
@@ -46,7 +49,7 @@ function runs(nodes: readonly MarkdownInline[], flags: Flags = {}): NormalRun[] 
     else if (node.type === `strong`) out.push(...runs(node.children, { ...flags, bold: true }))
     else if (node.type === `em`) out.push(...runs(node.children, { ...flags, italic: true }))
     else if (node.type === `del`) out.push(...runs(node.children ?? [node.text], { ...flags, strike: true }))
-    else out.push(...runs(node.children, { ...flags, link: node.dest }))
+    else out.push(...runs(node.children, { ...flags, link: node.dest, ...(node.chip ? { chip: node.chip } : {}) }))
   }
   return out
 }
@@ -96,7 +99,10 @@ export function normalMarkdown(tree: readonly MarkdownBlock[]): NormalBlock[] {
         out.push({ kind: `rule` })
         break
       case `image`:
-        out.push({ kind: `image`, src: block.src, alt: block.alt })
+        out.push(block.width !== undefined && block.height !== undefined ? { kind: `image`, src: block.src, alt: block.alt, width: block.width, height: block.height } : { kind: `image`, src: block.src, alt: block.alt })
+        break
+      case `attachment`:
+        out.push({ kind: `attachment`, type: block.kind, name: block.name, href: block.href })
         break
     }
   }

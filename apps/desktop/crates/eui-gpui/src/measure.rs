@@ -397,6 +397,47 @@ impl MdText for Shaper<'_> {
         self.spans_height(inlines, spec, width)
     }
 
+    fn run_width(&mut self, text: &str, spec: &TextSpec, bold: bool, italic: bool) -> f32 {
+        if text.is_empty() {
+            return 0.0;
+        }
+        let (text, runs) = self.md_runs(&[Inline { text: text.to_string(), bold, italic, ..Inline::default() }], spec);
+        self.calls += 1;
+        f32::from(self.window.text_system().shape_line(text, px(spec.size), &runs, None).width)
+    }
+
+    /// The text system's own wrapped lines (what `StyledText` paints): a
+    /// byte at a wrap boundary starts the NEXT line.
+    fn spots(&mut self, inlines: &[Inline], spec: &TextSpec, width: f32, at: &[usize]) -> Vec<(f32, f32, f32)> {
+        let mut out = vec![(0.0, 0.0, 0.0); at.len()];
+        let (text, runs) = self.md_runs(inlines, spec);
+        if text.is_empty() {
+            return out;
+        }
+        self.calls += 1;
+        let Ok(lines) = self.window.text_system().shape_text(text, px(spec.size), &runs, Some(px(width.max(1.0))), None) else { return out };
+        let (mut start, mut row) = (0usize, 0usize);
+        for line in lines.iter() {
+            let layout = &line.unwrapped_layout;
+            let len = layout.len;
+            let breaks: Vec<usize> = line.wrap_boundaries.iter().map(|b| layout.runs[b.run_ix].glyphs[b.glyph_ix].index).collect();
+            let x_at = |i: usize| if i >= len { f32::from(layout.width) } else { f32::from(layout.x_for_index(i)) };
+            for (slot, &byte) in out.iter_mut().zip(at) {
+                if byte < start || byte > start + len {
+                    continue;
+                }
+                let local = byte - start;
+                let k = breaks.iter().filter(|&&b| b <= local).count();
+                let line_start = if k == 0 { 0 } else { breaks[k - 1] };
+                let line_end = breaks.get(k).copied().unwrap_or(len);
+                *slot = (x_at(local) - x_at(line_start), (row + k) as f32 * spec.line_height, x_at(line_end) - x_at(line_start));
+            }
+            row += breaks.len() + 1;
+            start += len + 1;
+        }
+        out
+    }
+
     /// Max-content of styled spans: the widest hard line shaped with its
     /// runs (a bold or code run is wider than the body font says).
     fn width(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32 {
@@ -723,22 +764,34 @@ impl<'a> GpuiMeasure<'a> {
 
     fn markdown(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Content {
         let text = str_prop(leaf.props, "text");
-        let blocks = markdown::parse_for(self.fonts.host.as_ref(), text);
+        let parsed = markdown::parse_for(self.fonts.host.as_ref(), text);
+        // #VAPP-258: the host's hooks, asked as the painter asks them (chips
+        // change widths, attachments and sized images change heights).
+        let blocks = markdown::hosted(self.fonts.host.as_ref(), &parsed, self.cx).unwrap_or(parsed);
         let ts = leaf.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
         let styles = MdStyles::resolve(self.theme, self.mode, body, leaf.props);
         let clamp = num_prop(leaf.props, "lines").filter(|n| *n > 0.0).map(|n| n as usize);
         let mut s = self.shaper();
+        // The chips sized for the width laid out at (the painter does the same).
+        let at = |w: Option<f32>, s: &mut Shaper| markdown::size_chips(&blocks, &styles, w, s);
         let out = match wrap {
             None => {
-                let w = markdown::max_content_width(&blocks, &styles, &mut s);
-                (w, markdown::layout(&blocks, &styles, w, &mut s).clamped_height(clamp, ts.line_height))
+                let free = at(None, &mut s);
+                let w = markdown::max_content_width(free.as_deref().unwrap_or(&blocks), &styles, &mut s);
+                let sized = at(Some(w), &mut s);
+                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, ts.line_height))
             }
             Some(w) if w <= 0.0 => {
-                let w = markdown::min_content_width(&blocks, &styles, &mut s);
-                (w, markdown::layout(&blocks, &styles, w, &mut s).clamped_height(clamp, ts.line_height))
+                let free = at(None, &mut s);
+                let w = markdown::min_content_width(free.as_deref().unwrap_or(&blocks), &styles, &mut s);
+                let sized = at(Some(w), &mut s);
+                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, ts.line_height))
             }
-            Some(w) => (w, markdown::layout(&blocks, &styles, w, &mut s).clamped_height(clamp, ts.line_height)),
+            Some(w) => {
+                let sized = at(Some(w), &mut s);
+                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, ts.line_height))
+            }
         };
         self.shaped += s.calls;
         let baseline = Some(self.line_baseline(ts));

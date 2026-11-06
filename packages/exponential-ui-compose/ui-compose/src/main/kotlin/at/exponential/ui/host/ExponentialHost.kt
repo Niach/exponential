@@ -115,6 +115,9 @@ class ExponentialHost(
     private val paintErrors = HashMap<String, MutableSet<String>>()
     private val bridge = Bridge()
 
+    /** The plugin every surface of this host sees (the policy's hooks over [HostOptions.plugin]; tests). */
+    internal val surfaceHost: HostPlugin get() = bridge
+
     /** The core's router (one per connection). */
     val router: HostRouter
 
@@ -602,6 +605,12 @@ class ExponentialHost(
 
         override fun textLinks(text: String): List<TextLinkSegment>? =
             options.policy.textLinks?.invoke(text) ?: base.textLinks(text)
+
+        override fun imageSize(src: String): ImageSize? = options.policy.imageSize?.invoke(src) ?: base.imageSize(src)
+
+        override val onImagePress: ((String) -> Unit)? get() = options.policy.onImagePress ?: base.onImagePress
+
+        override fun attachment(href: String): HostAttachment? = options.policy.attachment?.invoke(href) ?: base.attachment(href)
 
         override fun resolveUrl(src: String): String = base.resolveUrl(src)
 

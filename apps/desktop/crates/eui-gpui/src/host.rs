@@ -15,6 +15,15 @@ pub struct PaintError {
     pub message: String,
 }
 
+/// #VAPP-258 (`catalog/host.json` markdown): a host's `attachment(href)`
+/// answer: `kind` in `MARKDOWN_ATTACHMENT_KINDS` (`video`, `audio`, `file`;
+/// anything else, or an empty `name`, keeps the paragraph).
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct MarkdownAttachment {
+    pub kind: String,
+    pub name: String,
+}
+
 /// A server event (A2UI `action`) the surface fired.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActionEvent {
@@ -131,6 +140,33 @@ pub trait HostPlugin: 'static {
     /// segments that concatenate back to it; `None` = no links. eUI knows
     /// nothing of what they mean; [`eui_core::host::police_text_links`] applies.
     fn text_links(&self, _text: &str, _cx: &gpui::App) -> Option<Vec<eui_core::host::TextLink>> {
+        None
+    }
+
+    /// #VAPP-258 (`catalog/host.json` markdown): a Markdown block image's
+    /// natural `(width, height)`, asked with the RAW src by the measurer and
+    /// the painter alike (answer purely): the box keeps that aspect ratio,
+    /// capped by the available width and `imageMaxHeight`. `None` (or a
+    /// non-positive or non-finite size) = the fixed box.
+    fn image_size(&self, _src: &str, _cx: &gpui::App) -> Option<(f32, f32)> {
+        None
+    }
+
+    /// #VAPP-258: does a press on a Markdown block image call
+    /// [`Self::on_image_press`]? Default `false`: not pressable.
+    fn image_pressable(&self, _cx: &gpui::App) -> bool {
+        false
+    }
+
+    /// #VAPP-258: a Markdown block image was pressed (the RAW src): a
+    /// lightbox. Only asked when [`Self::image_pressable`].
+    fn on_image_press(&self, _src: &str, _window: &mut gpui::Window, _cx: &mut gpui::App) {}
+
+    /// #VAPP-258: a top-level Markdown paragraph that is exactly ONE link
+    /// (asked with its RAW destination, before the text links) becomes a
+    /// video / audio / file block when the href passes the URL policy and
+    /// this classifies it. `None` = the paragraph stays.
+    fn attachment(&self, _href: &str, _cx: &gpui::App) -> Option<MarkdownAttachment> {
         None
     }
 

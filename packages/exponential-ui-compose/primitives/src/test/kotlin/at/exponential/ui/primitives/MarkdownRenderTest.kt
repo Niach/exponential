@@ -64,6 +64,7 @@ class MarkdownRenderTest {
             is MarkdownBlockKind.Table -> mapOf("kind" to "table", "header" to k.header.map(::runs), "rows" to k.rows.map { row -> row.map(::runs) })
             MarkdownBlockKind.Rule -> mapOf("kind" to "rule")
             is MarkdownBlockKind.Image -> mapOf("kind" to "image", "src" to k.src, "alt" to k.alt)
+            is MarkdownBlockKind.Attachment -> mapOf("kind" to "attachment", "type" to k.type, "name" to k.name, "href" to k.href)
         }
     }
 

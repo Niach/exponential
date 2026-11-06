@@ -10,12 +10,21 @@
 // names a catalog language paints CodeBlock's tokens (`markdownCodeLines`)
 // in the `CodeBlock/token {kind}` recipe's colours (the surface's scope on
 // each span; base-css keeps it to the colour), the box as before.
+// #VAPP-258 (catalog/host.json `markdown`): a host text link with a `chip`
+// paints the catalog Chip's look inline (`.xui-md-chip`, the Chip/root and
+// Chip/label recipes); a block image takes the host's `imageSize` aspect
+// and calls `onImagePress`; a one-link paragraph the host's `attachment`
+// classifies is the Video / AudioPlayer native or the FileUpload file row.
 
-import { Fragment, createElement, useContext, useMemo, type MouseEvent, type ReactNode } from "react"
-import { linkedMarkdown, linkHref, markdownCodeLines, mediaRequestOf, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { Fragment, createElement, useContext, useMemo, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
+import { linkedMarkdown, linkHref, markdownCodeLines, mediaRequestOf, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import type { UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
+import { IconGlyph } from "./icons"
 import { useMediaSource } from "./media"
+import { NodeView } from "./node-view"
+import { BuiltinIcon } from "./natives/shared"
 
 export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage, parseList } from "@exponential_app/eui/web"
 
@@ -23,12 +32,79 @@ export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage,
  *  (160px, ×4) box (loading or loaded, so the box never jumps;
  *  the alt text there while it loads or when it fails). A src the policy
  *  DENIES is a paragraph of its alt text (nothing without one). */
-function MarkdownImage({ host, src, alt }: { host: HostPlugin; src: string; alt: string }) {
+function MarkdownImage({ host, src, alt, width, height }: { host: HostPlugin; src: string; alt: string; width?: number; height?: number }) {
   const media = useMediaSource(host, src)
   if (mediaRequestOf(host, src) === null) return alt ? <p className="xui-Markdown-paragraph">{alt}</p> : null
+  // #VAPP-258: a host-sized image keeps its aspect at its natural size,
+  // capped by the width and the 160px max height (markdownImageBox: the
+  // height cap is a width cap at that aspect).
+  const sized = width !== undefined && height !== undefined ? { width: `${Math.min(width, (160 * width) / height)}px`, maxWidth: `100%`, height: `auto`, aspectRatio: `${width} / ${height}` } : undefined
+  const press = host.onImagePress
+  const pressable = press
+    ? {
+        role: `button`,
+        tabIndex: 0,
+        "data-pressable": ``,
+        onClick: () => press(src),
+        onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+          if (e.key !== `Enter` && e.key !== ` `) return
+          e.preventDefault()
+          press(src)
+        },
+      }
+    : { role: `img` }
   return (
-    <div className="xui-Markdown-image" role="img" aria-label={alt}>
+    <div className="xui-Markdown-image" data-sized={sized ? `` : undefined} style={sized} aria-label={alt} {...pressable}>
       {media.url && !media.error ? <img alt="" src={media.url} /> : <span className="xui-Markdown-imageAlt">{alt}</span>}
+    </div>
+  )
+}
+
+/** #VAPP-258: a host's chip, the catalog Chip's look inline (Chip/root +
+ *  Chip/label under the theme scope, the default recipe props). */
+function MarkdownChipLink({ host, href, chip, scope }: { host: HostPlugin; href: string; chip: MarkdownChip; scope: string }) {
+  const onClick = host.openUrl
+    ? (e: MouseEvent<HTMLAnchorElement>) => {
+        e.preventDefault()
+        e.stopPropagation()
+        host.openUrl!(href)
+      }
+    : (e: MouseEvent<HTMLAnchorElement>) => e.stopPropagation()
+  const recipe = { [propAttribute(true, `shape`)]: `pill`, [propAttribute(true, `selected`)]: `false`, [propAttribute(true, `tone`)]: `neutral` }
+  return (
+    <a className={`xui-md-chip ${scope} ${partClass(`Chip`, `root`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/root" data-chip={chip.kind} {...recipe} href={href} target="_blank" rel="noreferrer" onClick={onClick}>
+      {chip.icon ? <IconGlyph icons={host.icons} name={chip.icon} aria-hidden="true" /> : null}
+      <span className={`${scope} xui-Text-root ${partClass(`Chip`, `label`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/label" {...recipe} data-r-variant="caption">{chip.label}</span>
+    </a>
+  )
+}
+
+/** #VAPP-258: a one-link paragraph the host classified: the Video /
+ *  AudioPlayer native (inside a surface) or the FileUpload file row; outside
+ *  a surface a video or audio is that row too. */
+function MarkdownAttachment({ host, b, scope, id }: { host: HostPlugin; b: Extract<MarkdownBlock, { type: `attachment` }>; scope: string; id: string }) {
+  const inSurface = useContext(SurfaceContext) !== null
+  if (inSurface && b.kind !== `file`) {
+    const node: UiNode = b.kind === `video` ? { id, component: `Video`, props: { src: b.href }, children: [] } : { id, component: `AudioPlayer`, props: { src: b.href, title: b.name }, children: [] }
+    return <div className="xui-Markdown-attachment" data-attachment={b.kind}><NodeView node={node} /></div>
+  }
+  const part = (name: string) => ({ className: `${scope} ${partClass(`FileUpload`, name)}`.trim(), "data-xui-part": `FileUpload/${name}` })
+  const onClick = host.openUrl
+    ? (e: MouseEvent<HTMLAnchorElement>) => {
+        e.preventDefault()
+        host.openUrl!(b.href)
+      }
+    : undefined
+  return (
+    <div className="xui-Markdown-attachment" data-attachment={b.kind}>
+      <div {...part(`file`)}>
+        <span {...part(`fileIcon`)}>
+          <BuiltinIcon slot="FileUpload.file" />
+        </span>
+        <span {...part(`fileName`)}>
+          <a href={b.href} target="_blank" rel="noreferrer" onClick={onClick}>{b.name}</a>
+        </span>
+      </div>
     </div>
   )
 }
@@ -45,7 +121,7 @@ function MarkdownLink({ host, href, children }: { host: HostPlugin; href: string
   return <a className="xui-Markdown-link" href={href} target="_blank" rel="noreferrer" onClick={onClick}>{children}</a>
 }
 
-function inline(nodes: readonly MarkdownInline[], host: HostPlugin): ReactNode[] {
+function inline(nodes: readonly MarkdownInline[], host: HostPlugin, scope = ``): ReactNode[] {
   return nodes.map((n, k) => {
     // #VAPP-258: a hard line break is a newline in the run.
     if (typeof n === `string`) return n.includes(`\n`) ? <Fragment key={k}>{n.split(`\n`).flatMap((line, i) => (i ? [<br key={i} />, line] : [line]))}</Fragment> : n
@@ -53,27 +129,28 @@ function inline(nodes: readonly MarkdownInline[], host: HostPlugin): ReactNode[]
       case `code`:
         return <code key={k} className="xui-Markdown-code">{n.text}</code>
       case `strong`:
-        return <strong key={k}>{inline(n.children, host)}</strong>
+        return <strong key={k}>{inline(n.children, host, scope)}</strong>
       case `em`:
-        return <em key={k}>{inline(n.children, host)}</em>
+        return <em key={k}>{inline(n.children, host, scope)}</em>
       case `del`:
-        return <del key={k}>{n.children ? inline(n.children, host) : n.text}</del>
+        return <del key={k}>{n.children ? inline(n.children, host, scope) : n.text}</del>
       case `link`: {
         const href = linkHref(host, n.dest)
-        const label = inline(n.children, host)
+        if (href && n.chip) return <MarkdownChipLink key={k} host={host} href={href} chip={n.chip} scope={scope} />
+        const label = inline(n.children, host, scope)
         return href ? <MarkdownLink key={k} host={host} href={href}>{label}</MarkdownLink> : <span key={k} className="xui-Markdown-link" data-denied="">{label}</span>
       }
     }
   })
 }
 
-function renderList(list: MarkdownList, host: HostPlugin, key: number): ReactNode {
+function renderList(list: MarkdownList, host: HostPlugin, key: number, scope: string): ReactNode {
   const items = list.items.map((item, n) => (
     <li key={n} className="xui-Markdown-listItem" data-task={item.task === undefined ? undefined : item.task ? `done` : `todo`}>
       {item.task === undefined ? null : <input type="checkbox" checked={item.task} readOnly />}
       {item.task === undefined ? null : ` `}
-      {inline(item.content, host)}
-      {item.children.map((c, ci) => <Fragment key={`c${ci}`}>{renderList(c, host, ci)}</Fragment>)}
+      {inline(item.content, host, scope)}
+      {item.children.map((c, ci) => <Fragment key={`c${ci}`}>{renderList(c, host, ci, scope)}</Fragment>)}
     </li>
   ))
   return list.ordered ? <ol key={key} start={list.start === 1 ? undefined : list.start}>{items}</ol> : <ul key={key}>{items}</ul>
@@ -93,25 +170,27 @@ function codeRuns(b: { lang?: string; text: string }, scope: string): ReactNode 
   ])
 }
 
-function block(b: MarkdownBlock, host: HostPlugin, key: number, scope: string): ReactNode {
+function block(b: MarkdownBlock, host: HostPlugin, key: number, scope: string, id: string): ReactNode {
   switch (b.type) {
     case `paragraph`:
-      return <p key={key} className="xui-Markdown-paragraph">{inline(b.children, host)}</p>
+      return <p key={key} className="xui-Markdown-paragraph">{inline(b.children, host, scope)}</p>
     case `image`:
-      return <MarkdownImage key={key} host={host} src={b.src} alt={b.alt} />
+      return <MarkdownImage key={key} host={host} src={b.src} alt={b.alt} width={b.width} height={b.height} />
+    case `attachment`:
+      return <MarkdownAttachment key={key} host={host} b={b} scope={scope} id={`${id}.attachment.${key}`} />
     case `codeBlock`:
       return <pre key={key} className="xui-Markdown-codeBlock" data-lang={b.lang}><code>{codeRuns(b, scope)}</code></pre>
     case `heading`:
-      return createElement(`h${Math.min(b.level, 6)}`, { key, className: `xui-Markdown-heading`, "data-level": b.level }, ...inline(b.children, host))
+      return createElement(`h${Math.min(b.level, 6)}`, { key, className: `xui-Markdown-heading`, "data-level": b.level }, ...inline(b.children, host, scope))
     case `quote`:
-      return <blockquote key={key} className="xui-Markdown-quote">{blocks(b.children, host, scope)}</blockquote>
+      return <blockquote key={key} className="xui-Markdown-quote">{blocks(b.children, host, scope, id)}</blockquote>
     case `list`:
-      return renderList(b.list, host, key)
+      return renderList(b.list, host, key, scope)
     case `table`:
       return (
         <table key={key} className="xui-Markdown-table">
-          <thead><tr>{b.head.map((h, c) => <th key={c} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(h, host)}</th>)}</tr></thead>
-          <tbody>{b.rows.map((r, ri) => <tr key={ri}>{r.map((cell, c) => <td key={c} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(cell, host)}</td>)}</tr>)}</tbody>
+          <thead><tr>{b.head.map((h, c) => <th key={c} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(h, host, scope)}</th>)}</tr></thead>
+          <tbody>{b.rows.map((r, ri) => <tr key={ri}>{r.map((cell, c) => <td key={c} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(cell, host, scope)}</td>)}</tr>)}</tbody>
         </table>
       )
     case `rule`:
@@ -119,21 +198,23 @@ function block(b: MarkdownBlock, host: HostPlugin, key: number, scope: string): 
   }
 }
 
-function blocks(tree: readonly MarkdownBlock[], host: HostPlugin, scope: string): ReactNode[] {
-  return tree.map((b, k) => <Fragment key={k}>{block(b, host, k, scope)}</Fragment>)
+function blocks(tree: readonly MarkdownBlock[], host: HostPlugin, scope: string, id: string): ReactNode[] {
+  return tree.map((b, k) => <Fragment key={k}>{block(b, host, k, scope, id)}</Fragment>)
 }
 
-/** `scope` = the compiled theme's scope class (the code token colours). */
-export function renderMarkdown(text: string, host: HostPlugin = {}, scope = ``): ReactNode[] {
-  return blocks(linkedMarkdown(host, parseMarkdown(text)), host, scope)
+/** `scope` = the compiled theme's scope class (the code token colours, the
+ *  chip and file row recipes); `id` = the Markdown node's (its attachments'
+ *  node ids). */
+export function renderMarkdown(text: string, host: HostPlugin = {}, scope = ``, id = `md`): ReactNode[] {
+  return blocks(linkedMarkdown(host, parseMarkdown(text)), host, scope, id)
 }
 
 const NO_HOST: HostPlugin = {}
 
-export function BuiltinMarkdown({ text, className, host = NO_HOST }: { text: string; className?: string; host?: HostPlugin }) {
+export function BuiltinMarkdown({ text, className, host = NO_HOST, id = `md` }: { text: string; className?: string; host?: HostPlugin; id?: string }) {
   // Parsed once per text, not on every parent render; the host's text links
   // read live, like a `hostLinks` Text's.
   const tree = useMemo(() => parseMarkdown(text), [text])
   const scope = useContext(SurfaceContext)?.compiled.scope ?? ``
-  return <div className={className ? `xui-md ${className}` : `xui-md`}>{blocks(linkedMarkdown(host, tree), host, scope)}</div>
+  return <div className={className ? `xui-md ${className}` : `xui-md`}>{blocks(linkedMarkdown(host, tree), host, scope, id)}</div>
 }

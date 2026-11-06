@@ -6,6 +6,22 @@ import XCTest
 /// this parser's blocks in the shared normal form. A pending case must still
 /// differ (the list only shrinks).
 final class MarkdownRenderTests: XCTestCase {
+    /// #VAPP-258 (`fixtures/markdown-host.json` `imageBoxes`): the block image box.
+    func testImageBoxes() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("exponential-ui/fixtures/markdown-host.json")
+        let f = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
+        let boxes = try XCTUnwrap(f["imageBoxes"] as? [[String: Any]])
+        XCTAssertFalse(boxes.isEmpty)
+        for b in boxes {
+            let name = b["name"] as! String
+            let size = (b["size"] as? [String: Double]).map { CGSize(width: $0["width"]!, height: $0["height"]!) }
+            let box = Markdown.imageBox(size: size, available: CGFloat(b["available"] as! Double), maxHeight: 160)
+            let expected = b["box"] as! [String: Double]
+            XCTAssertEqual(box.width, expected["width"]!, accuracy: 0.01, name)
+            XCTAssertEqual(box.height, expected["height"]!, accuracy: 0.01, name)
+        }
+    }
+
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()  // Tests/ExponentialUIPrimitivesTests/
@@ -21,7 +37,8 @@ final class MarkdownRenderTests: XCTestCase {
         var lastKey: String?
         for run in inlines where !run.text.isEmpty {
             let key = "\(run.bold)\(run.italic)\(run.code)\(run.strike)\(run.link ?? "\u{0}")"
-            if key == lastKey, var last = out.popLast() {
+            // #VAPP-258: a chip run never merges with a neighbour.
+            if run.chip == nil, key == lastKey, var last = out.popLast() {
                 last["text"] = (last["text"] as! String) + run.text
                 out.append(last)
                 continue
@@ -32,8 +49,13 @@ final class MarkdownRenderTests: XCTestCase {
             if run.code { r["code"] = true }
             if run.strike { r["strike"] = true }
             if let link = run.link { r["link"] = link }
+            if let chip = run.chip {
+                var c: [String: Any] = ["kind": chip.kind, "label": chip.label]
+                if let icon = chip.icon { c["icon"] = icon }
+                r["chip"] = c
+            }
             out.append(r)
-            lastKey = key
+            lastKey = run.chip == nil ? key : nil
         }
         return out
     }
@@ -55,7 +77,14 @@ final class MarkdownRenderTests: XCTestCase {
             case let .table(header, rows):
                 return ["kind": "table", "header": header.map(runs), "rows": rows.map { $0.map(runs) }]
             case .rule: return ["kind": "rule"]
-            case let .image(src, alt): return ["kind": "image", "src": src, "alt": alt]
+            case let .image(src, alt):
+                var o: [String: Any] = ["kind": "image", "src": src, "alt": alt]
+                if let size = b.imageSize {
+                    o["width"] = Double(size.width)
+                    o["height"] = Double(size.height)
+                }
+                return o
+            case let .attachment(type, name, href): return ["kind": "attachment", "type": type.rawValue, "name": name, "href": href]
             }
         }
     }

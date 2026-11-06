@@ -60,6 +60,13 @@ pub type ConsentHook = Rc<dyn Fn(&FunctionCallInfo, &mut App) -> Task<bool>>;
 pub type OpenUrlHandler = Rc<dyn Fn(&str, &mut App)>;
 /// #EXP-1674: [`HostPlugin::text_links`] of a policy-built host.
 pub type TextLinksHandler = Rc<dyn Fn(&str, &App) -> Option<Vec<eui_core::host::TextLink>>>;
+/// #VAPP-258: [`HostPlugin::image_size`] of a policy-built host.
+pub type ImageSizeHandler = Rc<dyn Fn(&str, &App) -> Option<(f32, f32)>>;
+/// #VAPP-258: [`HostPlugin::on_image_press`] of a policy-built host (its
+/// presence makes a Markdown block image pressable).
+pub type ImagePressHandler = Rc<dyn Fn(&str, &mut gpui::Window, &mut App)>;
+/// #VAPP-258: [`HostPlugin::attachment`] of a policy-built host.
+pub type AttachmentHandler = Rc<dyn Fn(&str, &App) -> Option<crate::host::MarkdownAttachment>>;
 /// VAPP-194: the team zone, minutes east of UTC at an instant (epoch ms).
 pub type ZoneFn = Arc<dyn Fn(f64) -> i32 + Send + Sync>;
 /// VAPP-194: a package action that landed nothing (the host's toast).
@@ -156,6 +163,12 @@ pub struct HostPolicy {
     pub open_url: Option<OpenUrlHandler>,
     /// A `hostLinks` Text's segments (default: none).
     pub text_links: Option<TextLinksHandler>,
+    /// #VAPP-258: a Markdown block image's natural size (default: none).
+    pub image_size: Option<ImageSizeHandler>,
+    /// #VAPP-258: a press on a Markdown block image (default: not pressable).
+    pub on_image_press: Option<ImagePressHandler>,
+    /// #VAPP-258: a one-link Markdown paragraph's attachment (default: none).
+    pub attachment: Option<AttachmentHandler>,
     pub media: Option<MediaOptions>,
 }
 
@@ -1209,6 +1222,31 @@ impl HostPlugin for HostAdapter {
         match own {
             Some(links) => links(text, cx),
             None => self.base.text_links(text, cx),
+        }
+    }
+
+    fn image_size(&self, src: &str, cx: &App) -> Option<(f32, f32)> {
+        match self.host.upgrade().and_then(|host| host.read(cx).policy.image_size.clone()) {
+            Some(size) => size(src, cx),
+            None => self.base.image_size(src, cx),
+        }
+    }
+
+    fn image_pressable(&self, cx: &App) -> bool {
+        self.host.upgrade().is_some_and(|host| host.read(cx).policy.on_image_press.is_some()) || self.base.image_pressable(cx)
+    }
+
+    fn on_image_press(&self, src: &str, window: &mut gpui::Window, cx: &mut App) {
+        match self.host.upgrade().and_then(|host| host.read(cx).policy.on_image_press.clone()) {
+            Some(press) => press(src, window, cx),
+            None => self.base.on_image_press(src, window, cx),
+        }
+    }
+
+    fn attachment(&self, href: &str, cx: &App) -> Option<crate::host::MarkdownAttachment> {
+        match self.host.upgrade().and_then(|host| host.read(cx).policy.attachment.clone()) {
+            Some(attachment) => attachment(href, cx),
+            None => self.base.attachment(href, cx),
         }
     }
 

@@ -154,6 +154,24 @@ interface HostPlugin {
     fun textLinks(text: String): List<TextLinkSegment>? = null
 
     /**
+     * #VAPP-258 (`catalog/host.json` `markdown`): a Markdown block image's
+     * natural size, asked with the RAW src (null = unknown: the fixed box).
+     * The box keeps its aspect, capped by the width and `imageMaxHeight`.
+     * Must be pure: the measurer and the painter both ask.
+     */
+    fun imageSize(src: String): ImageSize? = null
+
+    /** #VAPP-258: a press on a Markdown block image (a lightbox), with the RAW src; null = not pressable. */
+    val onImagePress: ((src: String) -> Unit)? get() = null
+
+    /**
+     * #VAPP-258: a top-level Markdown paragraph that is one link, asked with
+     * the RAW destination: `video` / `audio` / `file` + a name paints the
+     * Video / AudioPlayer / FileUpload file row look (null = the paragraph).
+     */
+    fun attachment(href: String): HostAttachment? = null
+
+    /**
      * Rewrites a media src BEFORE the media policy (relative attachment
      * paths, signed URLs); its result still passes [mediaOptions], never
      * around it.
@@ -190,8 +208,21 @@ interface HostPlugin {
     fun pickFiles(request: FilePickRequest) {}
 }
 
-/** One piece of a host's [HostPlugin.textLinks] answer (`catalog/host.json` urls). */
-data class TextLinkSegment(val text: String, val href: String? = null)
+/**
+ * One piece of a host's [HostPlugin.textLinks] answer (`catalog/host.json`
+ * urls). #VAPP-258: a Markdown paints a segment with an allowed href and a
+ * valid [chip] as the Chip look, inline (a `hostLinks` Text paints its link).
+ */
+data class TextLinkSegment(val text: String, val href: String? = null, val chip: TextLinkChip? = null)
+
+/** #VAPP-258: a text link's chip: [kind] = `issue` | `mention` | `entity`, a non-empty [label], an optional [icon] registry name. */
+data class TextLinkChip(val kind: String, val label: String, val icon: String? = null)
+
+/** #VAPP-258: a host's [HostPlugin.imageSize] answer (natural px; non-positive or non-finite = unknown). */
+data class ImageSize(val width: Double, val height: Double)
+
+/** #VAPP-258: a host's [HostPlugin.attachment] answer: [kind] = `video` | `audio` | `file`, a non-empty [name]. */
+data class HostAttachment(val kind: String, val name: String)
 
 /** The host that does nothing (previews, tests). */
 object NoHost : HostPlugin

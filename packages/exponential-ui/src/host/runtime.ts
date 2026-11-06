@@ -53,9 +53,23 @@ export interface HostPolicy {
   urls?: UrlPolicy
   /** Opens an allowed url (default: `window.open(url, "_blank")`). */
   openUrl?: (url: string) => void
-  /** #EXP-1674: a `hostLinks` Text's segments (catalog/host.json urls); null = none. */
-  textLinks?: (text: string) => { text: string; href?: string }[] | null
+  /** #EXP-1674: a `hostLinks` Text's segments (catalog/host.json urls); null = none.
+   *  #VAPP-258: a segment's `chip` paints it as an inline Chip in a Markdown. */
+  textLinks?: (text: string) => HostTextLink[] | null
+  /** #VAPP-258 (catalog/host.json `markdown`): a Markdown block image's size. */
+  imageSize?: (src: string) => { width: number; height: number } | null
+  /** #VAPP-258: a press on a Markdown block image. */
+  onImagePress?: (src: string) => void
+  /** #VAPP-258: a Markdown one-link paragraph as a video, audio or file block. */
+  attachment?: (href: string) => { kind: `video` | `audio` | `file`; name: string } | null
   media?: MediaOptions
+}
+
+/** One piece of a host's `textLinks` answer (catalog/host.json urls + `markdown`). */
+export interface HostTextLink {
+  text: string
+  href?: string
+  chip?: { kind: `issue` | `mention` | `entity`; label: string; icon?: string }
 }
 
 export interface HostOptions {
@@ -642,8 +656,15 @@ export class ExponentialHost {
   }
 
   /** #EXP-1674: the policy's `textLinks` (the renderer polices each href). */
-  textLinks(text: string): { text: string; href?: string }[] | null {
+  textLinks(text: string): HostTextLink[] | null {
     return this.options.policy?.textLinks?.(text) ?? null
+  }
+
+  /** #VAPP-258: the policy's Markdown hooks (catalog/host.json `markdown`);
+   *  undefined = the host set none. */
+  markdownHooks(): Pick<HostPolicy, `imageSize` | `onImagePress` | `attachment`> {
+    const p = this.options.policy
+    return { imageSize: p?.imageSize, onImagePress: p?.onImagePress, attachment: p?.attachment }
   }
 
   /** A renderer's painter for `componentId` failed. Reported ONCE per

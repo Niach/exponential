@@ -3,6 +3,7 @@ package at.exponential.ui.measure
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -21,7 +22,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import at.exponential.ui.primitives.Markdown
+import at.exponential.ui.primitives.MarkdownChipStyle
 import at.exponential.ui.primitives.MarkdownInline
+import at.exponential.ui.primitives.markdownChipPlaceholders
 import at.exponential.ui.primitives.MarkdownTextMeasure
 import at.exponential.ui.primitives.MarkdownTextSpec
 import at.exponential.ui.theme.ResolvedTextStyle
@@ -117,10 +120,17 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
         r.firstBaseline / density
     }
 
-    private fun layout(text: AnnotatedString, style: TextStyle, wrapPx: Int?, maxLines: Int = Int.MAX_VALUE): TextLayoutResult =
+    private fun layout(
+        text: AnnotatedString,
+        style: TextStyle,
+        wrapPx: Int?,
+        maxLines: Int = Int.MAX_VALUE,
+        placeholders: List<AnnotatedString.Range<Placeholder>> = emptyList(),
+    ): TextLayoutResult =
         measurer.measure(
             text,
             style,
+            placeholders = placeholders,
             overflow = TextOverflow.Clip,
             softWrap = wrapPx != null,
             maxLines = maxLines,
@@ -145,6 +155,29 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
         val w = px / density
         widthCache[key] = w
         return w
+    }
+
+    /**
+     * #VAPP-258: [wrappedHeight] / [lineWidth] with inline [placeholders]
+     * (a Markdown's chips), shaped as the painter's inline content is.
+     */
+    fun wrappedHeight(text: AnnotatedString, style: TextStyle, lineHeight: Float, wrap: Float?, placeholders: List<AnnotatedString.Range<Placeholder>>): Float {
+        if (placeholders.isEmpty()) return wrappedHeight(text, style, lineHeight, wrap)
+        if (text.isEmpty()) return lineHeight
+        val px = wrap?.let { ceil(max(it, 1f) * density).toInt() }
+        val key = Triple<Any, TextStyle, Int?>(text to placeholders, style, px)
+        val lines = linesCache[key] ?: layout(text, style, px, placeholders = placeholders).lineCount.also { linesCache[key] = it }
+        return max(max(lines, 1) * lineHeight, lineHeight)
+    }
+
+    /** [lineWidth] with inline [placeholders]. */
+    fun lineWidth(text: AnnotatedString, style: TextStyle, placeholders: List<AnnotatedString.Range<Placeholder>>): Float {
+        if (placeholders.isEmpty()) return lineWidth(text, style)
+        if (text.isEmpty()) return 0f
+        val r = layout(text, style, null, placeholders = placeholders)
+        var px = 0f
+        for (i in 0 until r.lineCount) px = max(px, r.getLineRight(i) - r.getLineLeft(i))
+        return px / density
     }
 
     /** The width (dp) of a plain string on one line. */
@@ -206,6 +239,12 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
         for (span in inlines) {
             if (span.text.isEmpty()) continue
             val start = b.length
+            // #VAPP-258: a chip run is its label under a placeholder (the painter's alternate text).
+            val chip = span.chip
+            if (chip != null) {
+                b.append(chip.label)
+                continue
+            }
             b.append(span.text)
             val decorations = listOfNotNull(
                 if (span.strike) TextDecoration.LineThrough else null,
@@ -260,6 +299,31 @@ class MarkdownShaper(val shaper: TextShaper, val mono: String?) : MarkdownTextMe
         val a = annotated(inlines, spec)
         val style = shaper.markdownStyle(spec)
         return WORD.findAll(a.text).maxOfOrNull { shaper.lineWidth(a.subSequence(it.range.first, it.range.last + 1), style) } ?: 0f
+    }
+
+    /** #VAPP-258: a chip label's width in the painted caption font (the painter's `MarkdownComposeText.labelWidth`). */
+    fun labelWidth(label: String, chips: MarkdownChipStyle): Float =
+        chips.labelWidth(shaper.lineWidth(label, shaper.markdownStyle(chips.label)) * shaper.density, shaper.density)
+
+    private fun placeholders(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle, cap: Float?) =
+        markdownChipPlaceholders(inlines, spec, chips, cap) { labelWidth(it, chips) }
+
+    override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?, chips: MarkdownChipStyle): Float {
+        if (inlines.none { it.chip != null }) return height(inlines, spec, width)
+        val a = annotated(inlines, spec)
+        return shaper.wrappedHeight(a, shaper.markdownStyle(spec), spec.lineHeight, width, placeholders(inlines, spec, chips, width))
+    }
+
+    override fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
+        if (inlines.none { it.chip != null }) return width(inlines, spec)
+        return shaper.lineWidth(annotated(inlines, spec), shaper.markdownStyle(spec), placeholders(inlines, spec, chips, null))
+    }
+
+    override fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
+        if (inlines.none { it.chip != null }) return widestWord(inlines, spec)
+        val text = inlines.map { if (it.chip != null) it.copy(text = " ", chip = null) else it }
+        val widestChip = inlines.mapNotNull { it.chip }.maxOf { chips.width(it, labelWidth(it.label, chips)) }
+        return max(widestWord(text, spec), widestChip)
     }
 
     private companion object {
