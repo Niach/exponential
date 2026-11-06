@@ -1,0 +1,126 @@
+name: train
+run-name: exp-train ${{ inputs.train_id }}
+
+# EXP-1708: THE MERGE TRAIN'S PIPELINE (packages/domain-contract/fixtures/
+# merge-train.json `pipeline` is the spec; the server's worker, #EXP-1709,
+# dispatches it). It composes `exp-train/<train_id>` = base_sha + each unit's
+# squash in queue order (scripts/merge-train, run from THIS checkout = the
+# base branch, never a unit's code), resolves generated files by the repo's
+# `.exponential/merge-train.json`, starts the repo's CI on the composed ref
+# with `base_sha` (each workflow picks its jobs by the batch diff) and reports
+# ONE `exp-train` check run whose output.text is the outcome JSON. It never
+# waits for CI and never builds: the worker reads the checks at the head.
+#
+# Pushing a batch that touches .github/workflows needs a token with the
+# `workflows` permission, which GITHUB_TOKEN never has: MERGE_TRAIN_TOKEN (the
+# App's token or a fine-grained PAT: contents + workflows + actions write).
+# Without it, such a batch fails to push and the worker reads it as an error.
+
+on:
+  workflow_dispatch:
+    inputs:
+      train_id:
+        description: The train id (names exp-train/<train_id>)
+        required: true
+        type: string
+      base:
+        description: The base branch
+        required: true
+        type: string
+      base_sha:
+        description: The base commit the batch composes on
+        required: true
+        type: string
+      mode:
+        description: test | untested (Merge now)
+        required: false
+        type: string
+        default: test
+      units:
+        description: 'JSON: [{prs: [{number, head_sha, title, author?}], tested_sha?}] in queue order'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  checks: write
+  actions: write
+
+concurrency:
+  group: train-${{ inputs.train_id }}
+  cancel-in-progress: false
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TRAIN_ID: ${{ inputs.train_id }}
+      BASE_SHA: ${{ inputs.base_sha }}
+      MODE: ${{ inputs.mode }}
+      UNITS: ${{ inputs.units }}
+      TRAIN_DIR: ${{ github.workspace }}/train
+      OUTCOME: ${{ github.workspace }}/outcome.json
+    steps:
+      - name: The engine (the base branch's)
+        uses: actions/checkout@v4
+        with:
+          path: engine
+          persist-credentials: false
+      - name: The train clone (full history, blobs on demand)
+        uses: actions/checkout@v4
+        with:
+          path: train
+          ref: ${{ inputs.base_sha }}
+          fetch-depth: 0
+          filter: blob:none
+          token: ${{ secrets.MERGE_TRAIN_TOKEN || github.token }}
+      - uses: oven-sh/setup-bun@v2
+      - name: Fetch the units
+        working-directory: train
+        run: |
+          set -euo pipefail
+          [[ "$TRAIN_ID" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::train_id: [A-Za-z0-9._-] only"; exit 1; }
+          git config user.name 'exp-train'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # shellcheck disable=SC2046
+          git fetch --no-tags --quiet origin $(jq -r '.[].prs[].head_sha' <<<"$UNITS" | sort -u)
+          # A tested sha that is gone only costs the proof (CI runs instead).
+          for sha in $(jq -r '.[].tested_sha // empty' <<<"$UNITS"); do git fetch --no-tags --quiet origin "$sha" || true; done
+      - name: Compose
+        id: compose
+        run: bun engine/scripts/merge-train/cli.ts | tee -a "$GITHUB_OUTPUT"
+      - name: Push exp-train/<train_id>
+        working-directory: train
+        env:
+          REF_SHA: ${{ steps.compose.outputs.ref_sha }}
+        run: git push --force --quiet origin "$REF_SHA:refs/heads/exp-train/$TRAIN_ID"
+      - name: Start CI on the train
+        id: ci
+        if: steps.compose.outputs.dispatch != ''
+        env:
+          GH_TOKEN: ${{ secrets.MERGE_TRAIN_TOKEN || github.token }}
+          DISPATCH: ${{ steps.compose.outputs.dispatch }}
+        run: |
+          set -euo pipefail
+          IFS=, read -ra workflows <<<"$DISPATCH"
+          for wf in "${workflows[@]}"; do
+            gh workflow run "$wf" --repo "$GITHUB_REPOSITORY" --ref "exp-train/$TRAIN_ID" -f base_sha="$BASE_SHA"
+          done
+      - name: Report exp-train
+        if: always() && steps.compose.outputs.ref_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_SHA: ${{ steps.compose.outputs.ref_sha }}
+          CI: ${{ steps.ci.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$CI" = failure ]; then
+            jq -c '.error = "starting CI on the train failed" | .head = null' "$OUTCOME" > "$OUTCOME.tmp" && mv "$OUTCOME.tmp" "$OUTCOME"
+          fi
+          conclusion=$(jq -r 'if .error == null and any(.units[]; .outcome == "composed") then "success" else "failure" end' "$OUTCOME")
+          summary=$(jq -r '[.units[] | "\(.prs | map("#\(.)") | join(", ")): \(.outcome)\(if .files == [] then "" else " (\(.files | join(", ")))" end)"] + (if .error then ["error: \(.error)"] else [] end) + ["checks: \(.checks)"] | join("\n")' "$OUTCOME")
+          jq -n --arg sha "$REF_SHA" --arg c "$conclusion" --arg id "$TRAIN_ID" --arg summary "$summary" --rawfile text "$OUTCOME" \
+            '{name: "exp-train", head_sha: $sha, status: "completed", conclusion: $c, external_id: $id,
+              output: {title: "exp-train \($id)", summary: $summary, text: $text}}' \
+            | gh api "repos/$GITHUB_REPOSITORY/check-runs" --input - > /dev/null
