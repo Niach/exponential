@@ -481,13 +481,19 @@ mod tests {
                 .collect())
         }
         fn pending(&self, install_id: &str) -> Result<Vec<PendingWrap>, ApiError> {
-            let wraps = self.wraps.lock().unwrap();
+            // Snapshots, one lock at a time: `create` holds `roots` while it
+            // takes `wraps`, and `create_key` runs this `pending` on its own
+            // thread, so nesting `wraps` → `roots` here deadlocked a test
+            // (release suite 42214218335 hung 2 h on seal_keys).
+            let wraps = self.wraps.lock().unwrap().clone();
+            let roots = self.roots.lock().unwrap().clone();
+            let readers = self.readers.lock().unwrap().clone();
             let mut out = Vec::new();
-            for (root, (epoch, public)) in self.roots.lock().unwrap().iter() {
+            for (root, (epoch, public)) in roots.iter() {
                 if !wraps.iter().any(|(r, e, i, _)| r == root && e == epoch && i == install_id) {
                     continue;
                 }
-                for (reader, x) in self.readers.lock().unwrap().iter() {
+                for (reader, x) in readers.iter() {
                     if !wraps.iter().any(|(r, e, i, _)| r == root && e == epoch && i == reader) {
                         out.push(PendingWrap {
                             root_id: root.clone(),
@@ -503,7 +509,7 @@ mod tests {
         }
         fn wrap(&self, _install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError> {
             // Like the server: current readers only, one wrap per pair.
-            let readers = self.readers.lock().unwrap();
+            let readers = self.readers.lock().unwrap().clone();
             let mut held = self.wraps.lock().unwrap();
             for wrap in wraps {
                 let reader = readers.iter().any(|(install, _)| *install == wrap.target_install_id);
