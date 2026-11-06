@@ -7,6 +7,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 - Tree (#VAPP-285): the arrows, Home and End on a treeitem go to the core (`nodeKey`), which moves the focus or folds.
 - A foldable Row (#VAPP-284): ArrowRight / ArrowLeft on a node with `expanded` go to the core (`nodeKey`, its fold keys).
+- Hosted popups (VAPP-281): `SurfaceSettings.hostedPopups`, `LocalPopupHost`, `HostedPopup`, `LayerInfo.hosted` / `align`.
 - Popover `align` + `anchor`, Menu `side` + `align` + `anchor` (VAPP-276): painted from the core's layers; `placeOverlayAligned` in the bindings.
 
 ## 0.17.0 (2026-11-06)

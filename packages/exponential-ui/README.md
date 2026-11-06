@@ -404,3 +404,12 @@ The Exponential app's extension (IssueRow, SessionRow, IssueChip, …) lives wit
 the app at `packages/ui/exponential-ui/extension.json` and is validated by
 `@exp/ui`'s tests through `defineExtension`; it is the first user of the
 mechanism and not part of this package.
+
+## Anchored and hosted popups (round 7)
+
+`Popover` and `Menu` take `side` + `align` (`start | center | end`: top-start,
+top-end, bottom-start…) and `anchor` (a node id: the overlay opens against that
+node, which becomes its trigger). A host may show them OUTSIDE the surface
+(VAPP-281): the core's `hostedPopups` setting places them unclipped against the
+anchor with no flip and no shift (`anchorPosition`, `overlay-geometry.json`
+`hosted`), web hosts set `HostPlugin.popupHost`. See `docs/round-7-contract.md`.

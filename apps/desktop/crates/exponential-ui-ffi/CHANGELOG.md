@@ -7,6 +7,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 - Tree (#VAPP-285): `event(index, "key", {key})` on a treeitem moves the focus (no new API).
 - A foldable Row (#VAPP-284): `event(index, "key", {key})` takes the fold keys on a node with `expanded` (no new API).
+- `FfiSettings.hosted_popups`, `FfiLayer.hosted` / `align` (VAPP-281, defaulted).
 - `place_overlay_aligned(..., side, align)` (VAPP-276): the placement rule with `start | center | end` along the side.
 
 ## 0.17.0 (2026-11-06)

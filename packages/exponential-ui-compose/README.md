@@ -397,3 +397,11 @@ The TalkBack walk (real TalkBack, swipes on the emulator's virtual touchscreen) 
 - TalkBack has no heading levels and no role descriptions in Compose: a heading is a heading, a Carousel page a group.
 - A FileUpload takes files only through `HostPlugin.pickFiles` (no drag and drop).
 - The real-font conformance dump runs on Robolectric's text stack, not a device's (`src/test/conformance-known.json` counts every divergence; most origins are shared with gpui and decided in `fixtures/conformance-known.json`).
+
+## Hosted popups (VAPP-281)
+
+`SurfaceSettings(hostedPopups = true)` + `CompositionLocalProvider(LocalPopupHost provides host)`:
+anchored Popover / Menu layers leave the surface (unclipped, no flip / shift,
+`LayerInfo.hosted`); `PopupHost.Popups(popups, dismiss)` composes inside the
+surface's composition and places each `HostedPopup` (`anchor`, `side`, `align`,
+`size`, `content`) where it wants. Without a host they paint as the default popups.

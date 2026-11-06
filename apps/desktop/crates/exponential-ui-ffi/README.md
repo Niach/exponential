@@ -134,3 +134,8 @@ Kotlin needs JNA ≥ 5.12 (the generated code uses `com.sun.jna.internal.Cleaner
 `run-binding-tests.sh` takes `JNA_JAR=…` and compiles with the
 `kotlin-compiler-embeddable` jar from the gradle cache when no `kotlinc` is
 installed (`KOTLINC=…` overrides).
+
+## Hosted popups (VAPP-281)
+
+`FfiSettings.hosted_popups` (default false) and `FfiLayer.hosted` / `align`;
+`place_overlay_aligned` (VAPP-276) places with an alignment along the side.

@@ -302,3 +302,10 @@ Release build, x86-64 Linux desktop, `FixedMeasure` (`cargo run --release -p eui
 
 The Android emulator and iPhone figures are recorded by the painter runs
 (VAPP-88/89) that build the device libraries.
+
+## Hosted popups (VAPP-281)
+
+`SurfaceSettings::hosted_popups`: anchored Popover / Menu layers lay out
+unclipped and sit against their anchor with no flip and no shift
+(`overlay::anchor_position`), `Layer.hosted` + `Layer.align`; their frames may
+lie outside the surface. Events are unchanged (node indices).
