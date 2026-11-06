@@ -3,9 +3,10 @@
 //! spawned agents (loopback + bearer token) and in-process providers alike.
 //! Each capability mounts under its catalog name, so an agent sees
 //! `<capability>__<tool>`; every call goes through the instance's ONE
-//! [`Broker`], exactly like the app's UI. The hub lists only the tools the
-//! manifest declares; nothing it serves writes the package, the grants or
-//! the host config.
+//! [`Broker`], exactly like the app's UI. The hub lists the catalog's
+//! app-facing tool objects (capabilities.json `tools`: description and
+//! schemas) of the tools the manifest declares; nothing it serves writes the
+//! package, the grants or the host config.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -17,6 +18,7 @@ use serde_json::{json, Value};
 
 use crate::broker::{agent_tool_list, CallFrom};
 use crate::capability::{Broker, BrokerAnswer, Capability};
+use crate::tools::tool_def;
 
 /// One capability behind the hub, gated by the broker.
 pub struct HubCapability {
@@ -40,9 +42,7 @@ fn text_error(text: &str) -> Value {
 
 impl ToolProvider for HubCapability {
     fn tools(&self) -> Result<Vec<Value>, String> {
-        let provided: Vec<String> = self.broker.capabilities().iter().map(|c| c.name().to_string()).collect();
-        let listed = agent_tool_list(self.broker.manifest(), &provided);
-        Ok(self.capability.tools().into_iter().filter(|t| t.get("name").and_then(Value::as_str).is_some_and(|n| listed.contains(&self.qualified(n)))).collect())
+        Ok(listed_tools(&self.broker).into_iter().filter_map(|(capability, object)| (capability == self.capability.name()).then_some(object)).collect())
     }
 
     fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value {
@@ -59,6 +59,20 @@ impl ToolProvider for HubCapability {
             BrokerAnswer::Ask(..) => Ok(text_error("consentNeeded")),
         }
     }
+}
+
+/// What an agent's tools/list shows for `broker`: `(capability, tool object)`
+/// for each tool `agent_tool_list` allows that the v1 catalog defines, the
+/// object named by its bare tool (the hub qualifies it as `<capability>__<tool>`).
+pub fn listed_tools(broker: &Broker) -> Vec<(String, Value)> {
+    let provided: Vec<String> = broker.capabilities().iter().map(|c| c.name().to_string()).collect();
+    agent_tool_list(broker.manifest(), &provided)
+        .into_iter()
+        .filter_map(|qualified| {
+            let (capability, tool) = qualified.split_once("__")?;
+            Some((capability.to_string(), tool_def(capability, tool)?.tool_object(tool)))
+        })
+        .collect()
 }
 
 /// Mount every capability of `broker` on `hub` under its catalog name.

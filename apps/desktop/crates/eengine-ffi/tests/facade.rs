@@ -52,11 +52,13 @@ impl Capability for Photos {
     }
 
     fn tools_json(&self) -> String {
-        json!([{"name": "pick", "inputSchema": {"type": "object"}}]).to_string()
+        "[]".into()
     }
 
-    fn call(&self, tool: String, _arguments_json: String) -> Result<String, EngineError> {
-        Ok(json!({"content": [{"type": "text", "text": format!("{tool}: p1")}]}).to_string())
+    /// A native result per capabilities.json's `nativeOutputSchema` (the bridge hands it the native arguments).
+    fn call(&self, tool: String, arguments_json: String) -> Result<String, EngineError> {
+        assert_eq!((tool.as_str(), arguments_json.as_str()), ("pick", r#"{"limit":1}"#));
+        Ok(json!({"structuredContent": {"photos": []}}).to_string())
     }
 }
 
@@ -225,7 +227,7 @@ fn the_consent_round_trip_crosses_the_facade() {
     let components: Value = serde_json::from_str(&sheet.components_json).unwrap();
     assert_eq!(components[0]["title"], json!("Allow Album to access your photos?"));
     let picked = value(app.answer_consent("photos.pick".into(), "{}".into(), verdict, ConsentAnswer::Allow).unwrap());
-    assert_eq!(picked["content"][0]["text"], json!("pick: p1"));
+    assert_eq!(picked, json!({"content": [{"type": "text", "text": r#"{"photos":[]}"#}], "structuredContent": {"photos": []}}));
     assert_eq!(app.grants_json(), r#"{"photos.read":"granted"}"#);
     assert!(vault.read("eengine/grants/acme.album".into()).unwrap().contains("granted"));
     assert_eq!(audit.0.lock().unwrap().last().unwrap().tool, "photos__pick");
@@ -255,7 +257,7 @@ fn an_inline_consent_ui_answers_the_sheet() {
     p.consent = Some(Arc::new(AlwaysAllow));
     let app = Engine::new(host(None), local(), p).unwrap().load(package()).unwrap();
     app.event(r#"{"type":"launch"}"#.into()).unwrap();
-    assert_eq!(value(app.call("photos.pick".into(), "{}".into(), vec![]).unwrap())["content"][0]["text"], json!("pick: p1"));
+    assert_eq!(value(app.call("photos.pick".into(), "{}".into(), vec![]).unwrap())["structuredContent"], json!({"photos": []}));
     assert_eq!(app.grants_json(), "{}", "once stores nothing");
 }
 
@@ -335,7 +337,7 @@ fn an_agent_reaches_the_capabilities_through_the_hub() {
     let access = app.agent_access("run-1".into()).unwrap();
     assert!(access.url.starts_with("http://127.0.0.1:"), "{}", access.url);
     assert!(!access.token.is_empty());
-    assert_eq!(access.tools, vec!["photos__pick".to_string()]);
+    assert_eq!(access.tools, vec!["photos__get".to_string(), "photos__list".to_string(), "photos__pick".to_string()], "the catalog's tools of photos.read");
     let again = app.agent_access("run-1".into()).unwrap();
     assert_eq!(again.url, access.url, "one hub per Engine");
     assert_ne!(again.token, access.token, "a new token replaces the last");

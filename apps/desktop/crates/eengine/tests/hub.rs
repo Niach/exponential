@@ -7,7 +7,8 @@ use eengine::broker::{GrantValue, Grants, ManifestEntry};
 use eengine::capability::{Broker, BrokerSetup, Capability};
 use eengine::hub::{agent_grant, HubCapability};
 use eengine::providers::Failure;
-use eengine::stores::MemoryVault;
+use eengine::stores::{FsBlobStore, MemoryVault};
+use eengine::tools::TOOLS;
 use emcp::{Caller, Refusal, SessionId, ToolProvider};
 use serde_json::{json, Value};
 
@@ -19,11 +20,15 @@ impl Capability for Photos {
     }
 
     fn tools(&self) -> Vec<Value> {
-        vec![json!({"name": "pick"}), json!({"name": "list"}), json!({"name": "delete"})]
+        vec![]
     }
 
+    /// Native results per capabilities.json's `nativeOutputSchema`.
     fn call(&self, tool: &str, _arguments: &Value) -> Result<Value, Failure> {
-        Ok(json!({"content": [{"type": "text", "text": tool}]}))
+        Ok(match tool {
+            "list" => json!({"structuredContent": {"photos": [{"id": "ph-1", "name": "a.jpg", "mimeType": "image/jpeg", "takenAt": null}], "cursor": null}}),
+            _ => json!({"structuredContent": {"photos": []}}),
+        })
     }
 }
 
@@ -36,6 +41,8 @@ fn broker(grants: Grants, foreground: bool) -> Arc<Broker> {
         grants,
         capabilities: vec![Arc::new(Photos)],
         vault: Arc::new(MemoryVault::default()),
+        blobs: Arc::new(FsBlobStore::new(std::env::temp_dir().join("eengine-hub-test-blobs"))),
+        screens: vec!["albums".into()],
         consent: None,
         audit: None,
     }));
@@ -50,8 +57,11 @@ fn caller() -> Caller {
 #[test]
 fn the_hub_lists_only_declared_catalog_tools() {
     let hub = HubCapability::new(broker(Grants::new(), true), Arc::new(Photos));
-    let names: Vec<String> = hub.tools().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
-    assert_eq!(names, vec!["pick".to_string(), "list".to_string()], "`delete` is no catalog tool");
+    let tools = hub.tools().unwrap();
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["get", "list", "pick"], "the catalog's photos tools, not the native's own list");
+    let pick = TOOLS.iter().find(|t| t.name == "photos.pick").unwrap();
+    assert_eq!(tools[2], json!({"name": "pick", "description": pick.description, "inputSchema": pick.input_schema, "outputSchema": pick.output_schema}));
     assert_eq!(agent_grant(&broker(Grants::new(), true)).servers.len(), 1);
 }
 
@@ -66,5 +76,9 @@ fn agent_calls_meet_the_same_consent() {
     let mut grants = Grants::new();
     grants.insert("photos.read".into(), GrantValue::Granted);
     let granted = HubCapability::new(broker(grants, false), Arc::new(Photos));
-    assert_eq!(granted.try_call(&caller(), "list", json!({})).unwrap()["content"][0]["text"], json!("list"));
+    let listed = granted.try_call(&caller(), "list", json!({})).unwrap();
+    assert_eq!(listed["structuredContent"]["photos"][0]["id"], json!("ph-1"));
+    assert_eq!(listed["content"][0]["text"], json!(listed["structuredContent"].to_string()));
+    let invalid = granted.try_call(&caller(), "pick", json!({"limit": 99})).unwrap();
+    assert_eq!((invalid["isError"].clone(), invalid["content"][0]["text"].clone()), (json!(true), json!("invalidParams: /limit maximum")));
 }

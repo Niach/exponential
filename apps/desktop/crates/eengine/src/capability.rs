@@ -12,20 +12,26 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::broker::{broker_audit_row, broker_decide, BrokerAuditRow, BrokerCall, CallFrom, CallOutcome, GrantValue, Grants, ManifestEntry, Verdict, VerdictKind};
 use crate::consent::{consent_answer, consent_sheet, grant_write, grants_record, manage_sheet, ConsentAnswer, GrantVia};
-use crate::providers::{Failure, Vault};
+use crate::providers::{BlobStore, Failure, Vault};
+use crate::tools::{bridge_call, BridgeContext};
 
 /// A native tool provider with the catalog's scopes (capabilities.json):
-/// MCP tool objects in, MCP call results out.
+/// it implements EVERY native tool of its capability (one it cannot serve
+/// answers isError `unavailable`). The Engine's bridge ([`crate::tools`])
+/// validates the app's arguments, maps them to the native ones and checks
+/// the native's result against the tool's `nativeOutputSchema`.
 pub trait Capability: Send + Sync {
     /// The catalog name it is mounted under (`photos`).
     fn name(&self) -> &str;
-    /// Its tools as MCP tool objects (`name` = the catalog's tool, `inputSchema`, …).
+    /// Its own tool objects. Informational only: the hub lists the
+    /// catalog's app-facing tools (capabilities.json `tools`).
     fn tools(&self) -> Vec<Value>;
-    /// One call; `Ok` = an MCP call result (`content`, `isError?`).
+    /// One call with the NATIVE arguments; `Ok` = an MCP call result
+    /// (`structuredContent` per `nativeOutputSchema`, or `isError`).
     fn call(&self, tool: &str, arguments: &Value) -> Result<Value, Failure>;
 }
 
@@ -70,6 +76,8 @@ pub struct Broker {
     foreground: AtomicBool,
     capabilities: Vec<Arc<dyn Capability>>,
     vault: Arc<dyn Vault>,
+    blobs: Arc<dyn BlobStore>,
+    screens: Vec<String>,
     consent: Option<Arc<dyn ConsentUi>>,
     audit: Option<Arc<dyn CallAudit>>,
 }
@@ -83,6 +91,10 @@ pub struct BrokerSetup {
     pub grants: Grants,
     pub capabilities: Vec<Arc<dyn Capability>>,
     pub vault: Arc<dyn Vault>,
+    /// The app's files: what capabilities read (`fileId`) and store (VAPP-265).
+    pub blobs: Arc<dyn BlobStore>,
+    /// The package's screen names (a notification's tap opens one).
+    pub screens: Vec<String>,
     pub consent: Option<Arc<dyn ConsentUi>>,
     pub audit: Option<Arc<dyn CallAudit>>,
 }
@@ -98,6 +110,8 @@ impl Broker {
             foreground: AtomicBool::new(false),
             capabilities: setup.capabilities,
             vault: setup.vault,
+            blobs: setup.blobs,
+            screens: setup.screens,
             consent: setup.consent,
             audit: setup.audit,
         }
@@ -142,13 +156,11 @@ impl Broker {
     fn run(&self, client: Option<&str>, call: &BrokerCall, verdict: &Verdict) -> BrokerAnswer {
         let capability = self.capabilities.iter().find(|c| Some(c.name()) == verdict.capability.as_deref());
         let (answer, outcome) = match (capability, verdict.tool.as_deref()) {
-            (Some(capability), Some(tool)) => match capability.call(tool, &call.arguments) {
-                Ok(result) => {
-                    let outcome = if result.get("isError").and_then(Value::as_bool) == Some(true) { CallOutcome::IsError } else { CallOutcome::Ok };
-                    (BrokerAnswer::Result(result), outcome)
-                }
-                Err(failure) => (BrokerAnswer::Result(json!({"content": [{"type": "text", "text": failure.message}], "isError": true})), CallOutcome::RpcError),
-            },
+            (Some(capability), Some(tool)) => {
+                let cx = BridgeContext { app: &self.app_id, screens: &self.screens, blobs: self.blobs.as_ref() };
+                let (result, outcome) = bridge_call(&cx, capability.as_ref(), tool, &call.arguments);
+                (BrokerAnswer::Result(result), outcome)
+            }
             _ => (BrokerAnswer::Refused(Failure::new("FORBIDDEN", "unavailable")), CallOutcome::Unreachable),
         };
         self.record(client, call, verdict, Some(outcome));
