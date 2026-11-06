@@ -43,7 +43,11 @@ the clock), `menu.json` (the panel's popup: search, apps, the power row),
 hotkey and closes again), `notifications.json` (the toasts, top-right, on
 demand), `notification-center.json` (the bell's popup) and `tray-menu.json`
 (a tray item's menu as the tray's popup). A click outside an open popup, or
-Escape in it, closes it.
+Escape in it, closes it. A layer document's root is opaque (`$color.popover`
+for the panel, Settings, the OSD and the switcher): `$color.card` is a white
+glaze at 6% in the dark theme, right inside a window, see-through for a
+surface floating over other windows (#EDE-60; `crates/ede-ui/tests/factory.rs`
+checks every layer document).
 
 ### Notifications and the tray (#EDE-12)
 

@@ -1909,8 +1909,8 @@
         "file": "shots/ede-settings/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 13016,
-        "sha256": "b2873da0456b5bf539f4be1e49315b6c8e4ff0b32eb436d7b869a61481a2c9bf"
+        "bytes": 12872,
+        "sha256": "d8370f011519cd1736a8a66ffb166efd392839e6dca19936694cfa6c0a1e9ae6"
       }
     },
     "ede-switcher": {

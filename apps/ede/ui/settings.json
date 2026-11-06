@@ -4,7 +4,7 @@
   "root": {
     "id": "settings",
     "component": "Box",
-    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.md", "width": 960, "height": 640, "backgroundColor": "$color.card", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.md", "width": 960, "height": 640, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
     "children": [
       {"id": "head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "between"}, "children": [
         {"id": "title", "component": "Heading", "props": {"text": "Settings", "level": "h3"}},
