@@ -44,8 +44,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The doctor's table stands alone: smithay's renderer chatter (and its
     // warning that a render node has no DRM master) stays behind RUST_LOG.
     let default_log = if doctor { "error" } else { "info" };
+    // Logs go to stderr: the doctor's stdout is its table or its JSON (a
+    // RUST_LOG inherited from a unit must not end up in front of it).
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| default_log.into()))
+        .with_writer(std::io::stderr)
         .init();
 
     if doctor {

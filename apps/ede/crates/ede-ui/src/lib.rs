@@ -247,7 +247,8 @@ impl Runtime {
     /// Open with the factory documents in `factory` (#EDE-9): every
     /// `<name>.json` there that the ui directory never had is copied in and
     /// committed as `Factory <name>`, so a fresh account starts with the
-    /// shell and a revert always has somewhere to go.
+    /// shell and a revert always has somewhere to go. One the person never
+    /// changed follows a newer factory copy (a package update) the same way.
     pub fn open_with_factory(dir: impl Into<PathBuf>, factory: impl Into<PathBuf>) -> io::Result<(Runtime, Vec<Change>)> {
         Self::open_with(dir.into(), Some(factory.into()), true)
     }
@@ -276,8 +277,18 @@ impl Runtime {
         let mut changes = Vec::new();
         for name in ui.factory_names()? {
             let file = file_of(&name);
-            if !ui.dir.join(&file).exists() && ui.repo.show_head(&file)?.is_none() {
+            let on_disk = fs::read(ui.dir.join(&file)).ok();
+            if on_disk.is_none() && ui.repo.show_head(&file)?.is_none() {
                 changes.extend(ui.restore_factory(&name)?);
+            } else if let Some(current) = on_disk {
+                // An update (#EDE-34): a document the person never changed
+                // (it is what its newest `Factory <name>` commit left)
+                // follows the new factory copy, as another such commit. An
+                // edited one stays theirs.
+                let shipped = ui.factory.as_ref().and_then(|f| fs::read(f.join(&file)).ok());
+                if shipped.as_ref().is_some_and(|s| *s != current) && ui.repo.show_at_newest(&file, &format!("Factory {name}"))?.as_deref() == Some(current.as_slice()) {
+                    changes.extend(ui.restore_factory(&name)?);
+                }
             }
         }
         changes.extend(ui.reload()?);
