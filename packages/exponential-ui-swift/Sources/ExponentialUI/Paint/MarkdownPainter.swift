@@ -561,7 +561,9 @@ struct MarkdownChipView: View {
                 ConceptIcon(name: icon, size: style.icon, color: color, model: model)
             }
             if let ident = run.chip.ident {
+                // On the title's baseline (the two fonts centre differently).
                 MeasuredLabel(text: ident, ts: TextShaper.chipIdentStyle(style), color: ownIdent.color ?? color).fixedSize()
+                    .offset(y: TextShaper.baselineShift(TextShaper.chipLabelStyle(style), TextShaper.chipIdentStyle(style)))
             }
             MeasuredLabel(text: run.chip.label, ts: TextShaper.chipLabelStyle(style), color: color)
         }

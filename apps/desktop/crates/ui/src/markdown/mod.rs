@@ -32,8 +32,8 @@ pub mod autocomplete;
 pub mod blocks;
 mod editor;
 pub mod image_paste;
-pub(crate) mod lazy_block;
 pub(crate) mod image_url;
+mod view;
 pub mod parse;
 pub mod serialize;
 mod toolbar;
@@ -49,11 +49,12 @@ pub use autocomplete::{
 pub use blocks::{ContentBlock, RichText};
 pub(crate) use editor::{
     attachment_natural_size, byte_offset_to_position, download_image, placeholder_box,
-    scan_issue_refs, scan_mentions, sniff_format, truncate_chip_title, ImageSlot,
+    scan_issue_refs, scan_issue_refs_with, scan_mentions, sniff_format, truncate_chip_title, ImageSlot,
     RETRY_AFTER as IMAGE_RETRY_AFTER,
 };
-pub use editor::{ImageCache, IssueChipCache, MarkdownEditor, MarkdownView, RefResolver};
-pub(crate) use editor::open_link_href;
+pub use editor::{ImageCache, IssueChipCache, IssueChipData, MarkdownEditor, RefResolver};
+pub use view::MarkdownView;
+pub(crate) use view::open_link_href;
 pub use image_paste::{
     read_any_file, AttachmentFetchStatus, AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,
     MAX_FILE_UPLOAD_BYTES,

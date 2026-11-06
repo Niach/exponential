@@ -623,6 +623,17 @@ extension TextShaper {
         return TextStyle(fontSize: s.size, fontWeight: s.weight, lineHeight: s.lineHeight, fontFamily: s.family)
     }
 
+    /// #VAPP-258: how far a line of `other` moves down so its baseline meets
+    /// `base`'s when both line boxes are centred on one row (the glyph box
+    /// centred in each line box, [`attributes`]' half-leading).
+    static func baselineShift(_ base: TextStyle, _ other: TextStyle) -> CGFloat {
+        func baseline(_ ts: TextStyle) -> CGFloat {
+            let font = TextFonts.platformFont(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: ts.italic, tabular: ts.tabular)
+            return -ts.lineHeight / 2 + max(0, (ts.lineHeight - (font.ascender - font.descender)) / 2) + font.ascender
+        }
+        return baseline(base) - baseline(other)
+    }
+
     /// The chip's width: 2 × padding + the label shaped in the caption
     /// style (+ icon + gap) (+ the ident + gap), capped at `wrap`; a theme's
     /// rules for the chip's kind first.

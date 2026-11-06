@@ -22,7 +22,7 @@ use gpui::{
     div, prelude::FluentBuilder as _, px, App, Div, ElementId, Hsla, InteractiveElement as _,
     ParentElement as _, SharedString, Stateful, Styled,
 };
-use gpui_component::{text::TextViewStyle, ActiveTheme as _};
+use gpui_component::ActiveTheme as _;
 use theme::tokens as t;
 
 #[allow(unused_imports)] // the shared API; not every recipe has an IDE caller today
@@ -81,12 +81,6 @@ pub(crate) fn glass_row_divider<T: Styled>(row: T) -> T {
 /// [`glass_group_rows`], keep their dividers).
 pub(crate) fn list_row(row: impl gpui::IntoElement) -> Div {
     gpui::div().w_full().min_w_0().child(row)
-}
-
-/// Shared markdown `TextView` style (EXP-282; SDK `controls::markdown_style`):
-/// glass code blocks instead of the component's opaque `muted` panel.
-pub(crate) fn markdown_style() -> TextViewStyle {
-    sdk::markdown_style(ide_chrome())
 }
 
 /// EXP-1162 — where on the window ramp each edge strip samples the panel:

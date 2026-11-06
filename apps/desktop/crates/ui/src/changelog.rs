@@ -21,10 +21,10 @@
 //! opening the dialog store it.
 
 use gpui::{
-    div, px, size, App, AppContext as _, IntoElement, ParentElement as _, Render, SharedString,
+    div, px, size, App, AppContext as _, IntoElement, ParentElement as _, Render,
     Styled as _, Window,
 };
-use gpui_component::{text::TextView, v_flex, ActiveTheme as _};
+use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::coding_flow;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -2970,11 +2970,8 @@ impl Render for WhatsNewView {
             )
             .child(
                 div().pt_2().text_sm().child(
-                    // Same glass code-block treatment as every other markdown
-                    // surface in the app.
-                    TextView::markdown("whats-new-body", SharedString::from(LATEST.body))
-                        .style(crate::surface::markdown_style())
-                        .selectable(true),
+                    // #VAPP-258: the app's one read-only Markdown.
+                    crate::markdown::MarkdownView::new("whats-new-body", LATEST.body).selectable(true),
                 ),
             )
     }
