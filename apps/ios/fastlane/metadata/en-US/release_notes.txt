@@ -44,3 +44,5 @@
 - An approved plan gets a check, and decided plans leave the tabs
 - Needs you shows every waiting card
 - A session on an offline device says so and offers Move
+- If Mark all read fails, you get a message with Retry
+- A number field that starts with a value selects it when you tap in, so the first Save works

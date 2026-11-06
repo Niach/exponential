@@ -44,3 +44,5 @@
 - En godkjent plan får en hake, og avgjorte planer forlater fanene
 - Trenger deg viser alle ventende kort
 - En økt på en frakoblet enhet sier fra og tilbyr flytting
+- Hvis Merk alle som lest feiler, får du en melding med Prøv igjen
+- Et tallfelt med en startverdi markerer den når du trykker, så første Lagre virker

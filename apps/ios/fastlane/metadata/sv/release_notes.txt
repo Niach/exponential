@@ -44,3 +44,5 @@
 - En godkänd plan får en bock, och avgjorda planer lämnar flikarna
 - Behöver dig visar alla väntande kort
 - En session på en offline-enhet säger det och erbjuder Flytta
+- Om Markera alla som lästa misslyckas får du ett meddelande med Försök igen
+- Ett nummerfält med ett startvärde markerar det när du trycker, så första Spara fungerar

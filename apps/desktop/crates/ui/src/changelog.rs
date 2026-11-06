@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-06-lock-screen-and-notification-answers",
+    date: "2026-11-06",
+    title: "Lock screen sessions and answers from notifications",
+    summary: "On Android, running sessions show on the lock screen and you can answer a plan or question straight from its notification; Mark all read works on desktop again.",
+    body: r#"- **Lock screen (Android)**: a session that is running shows on the lock screen as a live update.
+- **Answer from the notification (Android)**: approve a plan or ask for changes, pick a question's option, or reply to a mention without opening the app.
+- **App icon shortcuts (Android)**: long-press the app icon for New issue, New chat, Search and your newest chat.
+- **Mark all read**: works on desktop again, and if it fails on any app you get a message with Retry instead of nothing.
+- **App forms**: a number field that starts with a value selects it when you tap in, so the first Save works; date-times in record tables read as dates.
+- **Markdown in apps**: app text renders the same on the web, desktop, iPhone and Android."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_216: ChangelogEntry = ChangelogEntry {
     id: "2026-11-06-issues-reach-done",
     date: "2026-11-06",
     title: "Issues reach Done reliably",

@@ -44,3 +44,5 @@
 - A jóváhagyott terv pipát kap, az eldöntött tervek eltűnnek a fülekről
 - A Rád vár minden várakozó kártyát mutat
 - Az offline eszközön futó munkamenet jelzi ezt, és felajánlja az áthelyezést
+- Ha az Összes olvasottnak jelölése nem sikerül, üzenet jelenik meg Újra gombbal
+- A kezdőértékkel rendelkező számmező koppintáskor kijelöli azt, így az első Mentés működik

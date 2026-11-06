@@ -44,3 +44,5 @@
 - Ein genehmigter Plan bekommt ein Häkchen, entschiedene Pläne verlassen die Tabs
 - Braucht dich zeigt jede wartende Karte
 - Eine Sitzung auf einem Offline-Gerät sagt es und bietet Verschieben an
+- Schlägt Alle als gelesen markieren fehl, erscheint eine Meldung mit Erneut versuchen
+- Ein Zahlenfeld mit Startwert markiert ihn beim Antippen, damit das erste Speichern klappt

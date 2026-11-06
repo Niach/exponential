@@ -44,3 +44,5 @@
 - En godkendt plan får et flueben, og afgjorte planer forlader fanerne
 - Har brug for dig viser alle ventende kort
 - En session på en offline enhed siger det og tilbyder at flytte den
+- Hvis Markér alle som læst fejler, vises en besked med Prøv igen
+- Et talfelt med en startværdi markerer den, når du trykker, så første Gem virker

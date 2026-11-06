@@ -44,3 +44,5 @@
 - Un piano approvato riceve una spunta e i piani decisi lasciano le schede
 - Ti aspetta mostra tutte le schede in attesa
 - Una sessione su un dispositivo offline lo dice e offre Sposta
+- Se Segna tutto come letto non riesce, compare un messaggio con Riprova
+- Un campo numerico con un valore iniziale lo seleziona al tocco, così il primo Salva funziona

@@ -44,3 +44,5 @@
 - Schválený plán dostane fajku a rozhodnuté plány zmiznú zo záložiek
 - Potrebuje vás ukazuje všetky čakajúce karty
 - Relácia na offline zariadení to povie a ponúkne presun
+- Ak Označiť všetko ako prečítané zlyhá, zobrazí sa správa s Skúsiť znova
+- Číselné pole s počiatočnou hodnotou ju pri ťuknutí označí, takže prvé Uložiť funguje

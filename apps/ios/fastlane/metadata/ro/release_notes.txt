@@ -44,3 +44,5 @@
 - Un plan aprobat primește o bifă, iar planurile decise ies din file
 - Are nevoie de tine arată toate cardurile în așteptare
 - O sesiune pe un dispozitiv offline spune asta și oferă mutarea
+- Dacă Marchează tot ca citit eșuează, apare un mesaj cu Reîncearcă
+- Un câmp numeric cu valoare inițială o selectează la atingere, așa că primul Salvează funcționează

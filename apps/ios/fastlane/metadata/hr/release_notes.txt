@@ -44,3 +44,5 @@
 - Odobreni plan dobiva kvačicu, a odlučeni planovi napuštaju kartice
 - Treba te prikazuje sve kartice na čekanju
 - Sesija na izvanmrežnom uređaju to kaže i nudi premještanje
+- Ako Označi sve kao pročitano ne uspije, dobiješ poruku s Pokušaj ponovno
+- Brojčano polje s početnom vrijednošću označi je pri dodiru pa prvo Spremi radi
