@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `HostPlugin.markdownOptions` / `HostPolicy.markdownOptions` (`MarkdownOptions`): hard breaks, the chat rhythm, selection (macOS label selection, an iOS Copy menu) and streamed text, measured as painted; `Markdown.parse(_:hardBreaks:streaming:)`.
 - #VAPP-258: Markdown host hooks (`fixtures/markdown-host.json`): `TextLinkSegment.chip` paints an inline Chip (measured, tappable), `imageSize(src)` sizes block images, `onImagePress` presses them, `attachment(href)` turns a one-link paragraph into a Video / AudioPlayer / file block. All optional on `HostPlugin` and `HostPolicy`.
 
 ## 0.16.3 (2026-11-06)

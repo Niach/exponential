@@ -764,13 +764,15 @@ impl<'a> GpuiMeasure<'a> {
 
     fn markdown(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Content {
         let text = str_prop(leaf.props, "text");
-        let parsed = markdown::parse_for(self.fonts.host.as_ref(), text);
+        let parsed = markdown::parse_for(self.fonts.host.as_ref(), text, self.cx);
+        let options = self.fonts.host.markdown_options(self.cx);
         // #VAPP-258: the host's hooks, asked as the painter asks them (chips
         // change widths, attachments and sized images change heights).
         let blocks = markdown::hosted(self.fonts.host.as_ref(), &parsed, self.cx).unwrap_or(parsed);
         let ts = leaf.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
-        let styles = MdStyles::resolve(self.theme, self.mode, body, leaf.props);
+        let styles = MdStyles::resolve(self.theme, self.mode, body, &markdown::density_props(leaf.props, options.chat));
+        let line_height = styles.body.line_height;
         let clamp = num_prop(leaf.props, "lines").filter(|n| *n > 0.0).map(|n| n as usize);
         let mut s = self.shaper();
         // The chips sized for the width laid out at (the painter does the same).
@@ -780,22 +782,22 @@ impl<'a> GpuiMeasure<'a> {
                 let free = at(None, &mut s);
                 let w = markdown::max_content_width(free.as_deref().unwrap_or(&blocks), &styles, &mut s);
                 let sized = at(Some(w), &mut s);
-                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, ts.line_height))
+                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, line_height))
             }
             Some(w) if w <= 0.0 => {
                 let free = at(None, &mut s);
                 let w = markdown::min_content_width(free.as_deref().unwrap_or(&blocks), &styles, &mut s);
                 let sized = at(Some(w), &mut s);
-                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, ts.line_height))
+                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, line_height))
             }
             Some(w) => {
                 let sized = at(Some(w), &mut s);
-                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, ts.line_height))
+                (w, markdown::layout(sized.as_deref().unwrap_or(&blocks), &styles, w, &mut s).clamped_height(clamp, line_height))
             }
         };
         self.shaped += s.calls;
         let baseline = Some(self.line_baseline(ts));
-        (out.0, out.1.max(if blocks.is_empty() { 0.0 } else { ts.line_height }), baseline)
+        (out.0, out.1.max(if blocks.is_empty() { 0.0 } else { line_height }), baseline)
     }
 
     fn button(&mut self, leaf: &LeafRequest, component: &str) -> Content {

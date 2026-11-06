@@ -472,6 +472,16 @@ impl HostPlugin for CardSurfaceHost {
         crate::links::issue_text_links(text, self.team_id.as_deref(), cx)
     }
 
+    /// #VAPP-258: the Markdown host hooks, as the text links: a synced
+    /// attachment's probed size and its video / audio / file block.
+    fn image_size(&self, src: &str, cx: &App) -> Option<(f32, f32)> {
+        crate::links::markdown_image_size(src, cx)
+    }
+
+    fn attachment(&self, href: &str, cx: &App) -> Option<eui_gpui::host::MarkdownAttachment> {
+        crate::links::markdown_attachment(href, cx)
+    }
+
     /// Sandbox: a `Video` / `AudioPlayer` press plays nothing — web's host
     /// is inert too. The default would hand an agent-authored attachment
     /// (fetched with the bearer token) to the system opener.

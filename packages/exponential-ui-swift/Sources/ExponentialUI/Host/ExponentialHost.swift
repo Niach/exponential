@@ -588,6 +588,8 @@ final class HostBridge: HostPlugin {
 
     var onImagePress: (@MainActor (String) -> Void)? { host?.options.policy.onImagePress ?? base?.onImagePress }
 
+    var markdownOptions: MarkdownOptions { host?.options.policy.markdownOptions ?? base?.markdownOptions ?? MarkdownOptions() }
+
     func attachment(_ href: String) -> MarkdownAttachmentInfo? {
         host?.options.policy.attachment?(href) ?? base?.attachment(href)
     }

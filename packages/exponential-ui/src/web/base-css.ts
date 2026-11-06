@@ -318,6 +318,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-menu-search .xui-Menu-item{flex-shrink:0}
 [data-xui-c="Markdown"].xui-el{display:block;min-width:0;overflow-wrap:anywhere}
 [data-xui-c="Markdown"][data-lines].xui-el{display:-webkit-box;-webkit-box-orient:vertical;overflow:clip}
+.xui-md[data-selectable="false"]{-webkit-user-select:none;user-select:none}
 .xui-md>:first-child{margin-top:0}
 .xui-md>:last-child{margin-bottom:0}
 .xui-Markdown-paragraph{margin:0 0 var(--xui-spacing-sm)}

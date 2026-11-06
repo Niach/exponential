@@ -612,6 +612,8 @@ class ExponentialHost(
 
         override fun attachment(href: String): HostAttachment? = options.policy.attachment?.invoke(href) ?: base.attachment(href)
 
+        override val markdownOptions: at.exponential.ui.primitives.MarkdownOptions get() = options.policy.markdownOptions ?: base.markdownOptions
+
         override fun resolveUrl(src: String): String = base.resolveUrl(src)
 
         override fun onPaintError(error: PaintError) {

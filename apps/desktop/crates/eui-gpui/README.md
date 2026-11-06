@@ -228,6 +228,13 @@ view.update(cx, |v, cx| {
     `on_image_press(src)` make it pressable; `attachment(href)` turns a
     one-link paragraph into the Video / AudioPlayer natives or the
     FileUpload `file` row. `HostPolicy` carries the same as closures.
+    `markdown_options()` (`MarkdownOptions`, `catalog/host.json`
+    `markdown.options`): hard breaks, the chat rhythm (`density: chat`
+    recipes), `selectable: Some(false)` = no press-drag selection, and
+    `streaming` (a growing prefix: the stable blocks memoized per text, the
+    unfinished tail held back). From 24 blocks on (`lazyBlocks`) a Markdown
+    lays out and paints only the blocks that cross the clip; the measured
+    height is the full layout's. A copy across a chip gives its label.
   - `on_paint_error` hears a painter that panicked (it paints an empty
     box); the host runtime forwards it as an A2UI `RENDER_FAILED` error.
   - `announce(text, live)` speaks live regions, Form errors, `copied`. The

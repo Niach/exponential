@@ -2570,7 +2570,9 @@
         "table",
         "listItem"
       ],
-      "props": []
+      "props": [
+        "density"
+      ]
     },
     {
       "name": "CodeBlock",

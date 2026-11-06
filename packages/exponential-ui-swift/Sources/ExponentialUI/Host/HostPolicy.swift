@@ -200,8 +200,11 @@ public struct HostPolicy {
     public var onImagePress: (@MainActor (String) -> Void)?
     /// #VAPP-258: a one-link Markdown paragraph as a media / file attachment.
     public var attachment: (@MainActor (String) -> MarkdownAttachmentInfo?)?
+    /// #VAPP-258 step 5: the Markdown render options (nil = the plugin's).
+    public var markdownOptions: MarkdownOptions?
 
-    public init(functions: FunctionPolicy? = nil, onFunctionCall: (@MainActor (FunctionCallInfo) async -> Bool)? = nil, urls: UrlPolicy? = nil, openUrl: (@MainActor (URL) -> Void)? = nil, media: MediaOptions? = nil, textLinks: (@MainActor (String) -> [TextLinkSegment]?)? = nil, imageSize: (@MainActor (String) -> CGSize?)? = nil, onImagePress: (@MainActor (String) -> Void)? = nil, attachment: (@MainActor (String) -> MarkdownAttachmentInfo?)? = nil) {
+    public init(functions: FunctionPolicy? = nil, onFunctionCall: (@MainActor (FunctionCallInfo) async -> Bool)? = nil, urls: UrlPolicy? = nil, openUrl: (@MainActor (URL) -> Void)? = nil, media: MediaOptions? = nil, textLinks: (@MainActor (String) -> [TextLinkSegment]?)? = nil, imageSize: (@MainActor (String) -> CGSize?)? = nil, onImagePress: (@MainActor (String) -> Void)? = nil, attachment: (@MainActor (String) -> MarkdownAttachmentInfo?)? = nil, markdownOptions: MarkdownOptions? = nil) {
+        self.markdownOptions = markdownOptions
         self.imageSize = imageSize
         self.onImagePress = onImagePress
         self.attachment = attachment

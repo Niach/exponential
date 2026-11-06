@@ -141,6 +141,29 @@ public struct MarkdownAttachmentInfo: Equatable, Sendable {
     }
 }
 
+/// #VAPP-258 step 5 (`catalog/host.json` markdown.options): how this host's
+/// Markdowns render; the default = what a Markdown painted before them.
+/// `hardBreaks` = `breaks: hard` (every newline inside a paragraph, list
+/// item or quote paragraph breaks the line); `chat` = `density: chat` (the
+/// `Markdown/*` recipes resolved with `density: chat`, the theme's chat
+/// rhythm); `selectable` = whether the text selects and copies (nil = no,
+/// as before: a `userSelect: text` style still opts in on macOS);
+/// `streaming` = the text is a growing prefix (its stable blocks memoized,
+/// its unfinished tail held back). Read by the measurer and the painter.
+public struct MarkdownOptions: Equatable, Sendable {
+    public var hardBreaks: Bool
+    public var chat: Bool
+    public var selectable: Bool?
+    public var streaming: Bool
+
+    public init(hardBreaks: Bool = false, chat: Bool = false, selectable: Bool? = nil, streaming: Bool = false) {
+        self.hardBreaks = hardBreaks
+        self.chat = chat
+        self.selectable = selectable
+        self.streaming = streaming
+    }
+}
+
 @MainActor
 public protocol HostPlugin: AnyObject {
     /// The icon registry: a catalog icon NAME (a registry concept such as
@@ -170,6 +193,8 @@ public protocol HostPlugin: AnyObject {
     /// (asked with the raw destination): a video / audio / file attachment
     /// paints the media natives' look instead. nil = a paragraph.
     func attachment(_ href: String) -> MarkdownAttachmentInfo?
+    /// #VAPP-258 step 5: the Markdown render options (`MarkdownOptions`).
+    var markdownOptions: MarkdownOptions { get }
     /// The URL policy every href passes (Link, markdown links, openUrl).
     /// nil = the contract defaults (https, http, mailto, tel; relative urls
     /// resolve against `mediaOptions.baseUrl`, else are denied).
@@ -224,6 +249,7 @@ public extension HostPlugin {
     func imageSize(_ src: String) -> CGSize? { nil }
     var onImagePress: (@MainActor (String) -> Void)? { nil }
     func attachment(_ href: String) -> MarkdownAttachmentInfo? { nil }
+    var markdownOptions: MarkdownOptions { MarkdownOptions() }
     var urlPolicy: UrlPolicy? { nil }
     var mediaOptions: MediaOptions? { nil }
     func resolveUrl(_ src: String) -> String { src }

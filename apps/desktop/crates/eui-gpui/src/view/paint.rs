@@ -1227,7 +1227,7 @@ impl SurfaceView {
             match cache.get(&index) {
                 Some((t, b)) if *t == text => b.clone(),
                 _ => {
-                    let b = Rc::new(markdown::parse_for(self.host.as_ref(), &text));
+                    let b = Rc::new(markdown::parse_for(self.host.as_ref(), &text, cx));
                     cache.insert(index, (text.clone(), b.clone()));
                     b
                 }
@@ -1238,12 +1238,15 @@ impl SurfaceView {
         let blocks = markdown::hosted(self.host.as_ref(), &blocks, cx).map_or(blocks, Rc::new);
         let ts = lcx.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
-        let styles = MdStyles::resolve(lcx.theme, lcx.mode, body, &lcx.node.props);
+        // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
+        let options = self.host.markdown_options(cx);
+        let props = markdown::density_props(&lcx.node.props, options.chat);
+        let styles = MdStyles::resolve(lcx.theme, lcx.mode, body, &props);
         let mut shaper = Shaper::new(window, &self.fonts);
         let blocks = markdown::size_chips(&blocks, &styles, Some(w), &mut shaper).map_or(blocks, Rc::new);
         let lay = markdown::layout(&blocks, &styles, w, &mut shaper);
         let attachments = self.markdown_attachments(lcx, &blocks, &lay, &styles, w);
-        let (colors, muted, border, code_block_bg) = MdPaint::colors(lcx.theme, lcx.mode, lcx.ink, &lcx.node.props);
+        let (colors, muted, border, code_block_bg) = MdPaint::colors(lcx.theme, lcx.mode, lcx.ink, &props);
         let host = self.host.clone();
         let paint = MdPaint {
             family: self.fonts.family(styles.body.family.as_deref()),
@@ -1282,6 +1285,7 @@ impl SurfaceView {
                 Rc::new(move |src: &str, window: &mut Window, cx: &mut gpui::App| host.on_image_press(src, window, cx)) as markdown::LinkHandler
             }),
             attachments: std::cell::RefCell::new(attachments),
+            live: std::cell::RefCell::new(None),
         };
         // Units commit once painted (their text layouts can hit-test then).
         let (pending, committed) = (self.md_pending.clone(), self.md_units.clone());
@@ -1293,7 +1297,7 @@ impl SurfaceView {
         .absolute()
         .size_0();
         let mut el = div().id(SharedString::from(format!("{}.md", lcx.node.id))).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).overflow_hidden().child(markdown::paint(&lcx.node.id, &blocks, &lay, w, &paint, &mut shaper)).child(commit);
-        if !self.ghosting.get() {
+        if !self.ghosting.get() && options.selectable != Some(false) {
             // Selectable text: press-drag selects (the drag follows the
             // pointer anywhere in the window), Shift extends, the platform
             // copy shortcut copies (`copy_selection`).

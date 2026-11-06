@@ -43,6 +43,8 @@ import benchDeepNesting from "@exponential_app/eui-bench/scenarios/deep-nesting.
 import benchTemplate10k from "@exponential_app/eui-bench/scenarios/template-10k.json" with { type: "json" }
 import benchOverlay from "@exponential_app/eui-bench/scenarios/overlay.json" with { type: "json" }
 import benchTable1k from "@exponential_app/eui-bench/scenarios/table-1k.json" with { type: "json" }
+import benchMarkdownLong from "@exponential_app/eui-bench/scenarios/markdown-long.json" with { type: "json" }
+import benchMarkdownStream from "@exponential_app/eui-bench/scenarios/markdown-stream.json" with { type: "json" }
 import { BASE_CSS, ExponentialSurface, WindowedList, createSurface } from "../src/index"
 import type { HostPlugin, SurfaceHandle, SurfaceInputEvent, WindowedListHandle } from "../src/index"
 import { harnessIcons } from "./icons"
@@ -485,7 +487,7 @@ type BenchScenario = {
   steps: Record<string, unknown>
 }
 const BENCH_SCENARIOS: Record<string, BenchScenario> = Object.fromEntries(
-  [benchColdStart, benchCardGrid, benchList100k, benchStreaming, benchThemeSwitch, benchResize, benchDeepNesting, benchTemplate10k, benchOverlay, benchTable1k].map((s) => [s.id, s as unknown as BenchScenario])
+  [benchColdStart, benchCardGrid, benchList100k, benchStreaming, benchThemeSwitch, benchResize, benchDeepNesting, benchTemplate10k, benchOverlay, benchTable1k, benchMarkdownLong, benchMarkdownStream].map((s) => [s.id, s as unknown as BenchScenario])
 )
 /** src/scenarios.ts generateItems, ported: every field a string. */
 function benchItems(spec: { count: number; item: Record<string, string> }): Record<string, string>[] {
@@ -526,7 +528,7 @@ function BenchSuiteSurface(props: { scenario: BenchScenario; initialData: Record
   // the updateComponents it would be streamed in, applied before the mount
   // (the React harness's layout effect re-renders before its first paint).
   if (`components` in scenario.surface) surface.apply({ updateComponents: { surfaceId: `bench`, components: scenario.surface.components } })
-  const plugin: HostPlugin = { icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, componentId: e.componentId }) }
+  const plugin: HostPlugin = { icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, componentId: e.componentId }), ...(scenario.steps.markdownOptions ? { markdownOptions: scenario.steps.markdownOptions as HostPlugin[`markdownOptions`] } : {}) }
   onMount(() => {
     const surfaceEl = () => rootEl ?? null
     const nodeEl = (id: string) => surfaceEl()?.querySelector<HTMLElement>(`[data-xui-id="${CSS.escape(id)}"]`) ?? null

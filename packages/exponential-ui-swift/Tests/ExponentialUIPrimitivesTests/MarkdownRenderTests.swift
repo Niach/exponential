@@ -105,4 +105,44 @@ final class MarkdownRenderTests: XCTestCase {
             }
         }
     }
+
+    /// #VAPP-258 step 5: host options (`breaks`) and documents streamed in
+    /// prefix by prefix, in order (the memo) and cold.
+    func testOptionCases() throws {
+        let f = try fixture()
+        for c in try XCTUnwrap(f["optionCases"] as? [[String: Any]]) {
+            let hard = (c["options"] as? [String: Any])?["breaks"] as? String == "hard"
+            XCTAssertEqual(Self.normal(Markdown.parse(c["text"] as! String, hardBreaks: hard)) as NSArray, c["blocks"] as! NSArray, c["name"] as! String)
+        }
+    }
+
+    func testStreamingCases() throws {
+        let f = try fixture()
+        let cases = try XCTUnwrap(f["streamingCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let text = c["text"] as! String
+            let hard = (c["options"] as? [String: Any])?["breaks"] as? String == "hard"
+            let steps = c["steps"] as! [NSArray]
+            for cold in [false, true] {
+                Markdown.resetStreamMemo()
+                for (i, expected) in steps.enumerated() {
+                    if cold { Markdown.resetStreamMemo() }
+                    let prefix = String(text.prefix(i + 1))
+                    let actual = Self.normal(Markdown.parse(prefix, hardBreaks: hard, streaming: true)) as NSArray
+                    XCTAssertEqual(actual, expected, "\(c["name"] as! String) \(prefix.debugDescription) cold \(cold)")
+                    if actual != expected { break }
+                }
+            }
+        }
+    }
+
+    /// A streamed text's later list is its own group (a gap between lists).
+    func testStreamedListsKeepTheirGroups() {
+        Markdown.resetStreamMemo()
+        _ = Markdown.parse("- a\n- b\n\n", hardBreaks: false, streaming: true)
+        let blocks = Markdown.parse("- a\n- b\n\n- c", hardBreaks: false, streaming: true)
+        XCTAssertEqual(blocks[0].listGroup, blocks[1].listGroup)
+        XCTAssertNotEqual(blocks[1].listGroup, blocks[2].listGroup)
+    }
 }

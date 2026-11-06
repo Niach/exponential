@@ -24,6 +24,22 @@ pub struct MarkdownAttachment {
     pub name: String,
 }
 
+/// #VAPP-258 step 5 (`catalog/host.json` markdown.options): how this host's
+/// Markdowns render. The default = what a Markdown painted before them.
+/// `hard_breaks` = `breaks: hard` (every newline inside a paragraph, list
+/// item or quote paragraph breaks the line); `chat` = `density: chat` (the
+/// `Markdown/*` recipes resolved with `density: chat`: the theme's chat
+/// rhythm); `selectable` = whether press-drag selects and copies (`None` =
+/// gpui's default, it does); `streaming` = the text is a growing prefix (its
+/// stable blocks memoized, its unfinished tail held back).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MarkdownOptions {
+    pub hard_breaks: bool,
+    pub chat: bool,
+    pub selectable: Option<bool>,
+    pub streaming: bool,
+}
+
 /// A server event (A2UI `action`) the surface fired.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActionEvent {
@@ -168,6 +184,12 @@ pub trait HostPlugin: 'static {
     /// this classifies it. `None` = the paragraph stays.
     fn attachment(&self, _href: &str, _cx: &gpui::App) -> Option<MarkdownAttachment> {
         None
+    }
+
+    /// #VAPP-258 step 5: the Markdown render options (`catalog/host.json`
+    /// markdown.options), read by the measurer and the painter alike.
+    fn markdown_options(&self, _cx: &gpui::App) -> MarkdownOptions {
+        MarkdownOptions::default()
     }
 
     /// A `Video` / `AudioPlayer` press hands its policed source to the

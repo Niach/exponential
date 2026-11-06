@@ -564,6 +564,15 @@
                 "color": "$color.foreground",
                 "gap": "$spacing.md"
               }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "lineHeight": 22,
+                "gap": "$spacing.sm"
+              }
             }
           ],
           "heading": [
@@ -572,6 +581,15 @@
                 "fontWeight": "$type.weight.semibold",
                 "fontSize": "$type.size.lg",
                 "lineHeight": "$type.lineHeight.lg"
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "fontSize": "$type.size.base",
+                "lineHeight": "$type.lineHeight.base"
               }
             }
           ],
@@ -7717,6 +7735,15 @@
                 "color": "$color.foreground",
                 "gap": "$spacing.md"
               }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "lineHeight": 22,
+                "gap": "$spacing.sm"
+              }
             }
           ],
           "heading": [
@@ -7725,6 +7752,15 @@
                 "fontWeight": "$type.weight.semibold",
                 "fontSize": "$type.size.lg",
                 "lineHeight": "$type.lineHeight.lg"
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "fontSize": "$type.size.base",
+                "lineHeight": "$type.lineHeight.base"
               }
             }
           ],
@@ -15227,6 +15263,15 @@
                 "color": "$color.foreground",
                 "gap": "$spacing.md"
               }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "lineHeight": 22,
+                "gap": "$spacing.sm"
+              }
             }
           ],
           "heading": [
@@ -15235,6 +15280,15 @@
                 "fontWeight": "$type.weight.semibold",
                 "fontSize": "$type.size.lg",
                 "lineHeight": "$type.lineHeight.lg"
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "fontSize": "$type.size.base",
+                "lineHeight": "$type.lineHeight.base"
               }
             }
           ],
@@ -23027,6 +23081,15 @@
                 "color": "$color.foreground",
                 "gap": "$spacing.md"
               }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "lineHeight": 22,
+                "gap": "$spacing.sm"
+              }
             }
           ],
           "heading": [
@@ -23035,6 +23098,15 @@
                 "fontWeight": "$type.weight.semibold",
                 "fontSize": "$type.size.lg",
                 "lineHeight": "$type.lineHeight.lg"
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "fontSize": "$type.size.base",
+                "lineHeight": "$type.lineHeight.base"
               }
             }
           ],

@@ -325,10 +325,12 @@ pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, ima
         .collect()
 }
 
-/// The blocks of `text` under the host's URL and media policies.
-pub fn parse_for(host: &dyn crate::host::HostPlugin, text: &str) -> Vec<Block> {
+/// The blocks of `text` under the host's URL and media policies and its
+/// Markdown options (#VAPP-258 step 5: hard breaks, a streamed prefix).
+pub fn parse_for(host: &dyn crate::host::HostPlugin, text: &str, cx: &App) -> Vec<Block> {
     let urls = host.url_policy();
-    resolve_urls(parse(text), |h| eui_core::host::safe_href(urls.as_ref(), h).is_some(), |src| crate::media::allowed_request(host, src).is_some())
+    let options = host.markdown_options(cx);
+    resolve_urls(parse_with(text, options.hard_breaks, options.streaming), |h| eui_core::host::safe_href(urls.as_ref(), h).is_some(), |src| crate::media::allowed_request(host, src).is_some())
 }
 
 /// `fixtures/markdown-text-links.json`: every text run through a host's text
@@ -710,8 +712,9 @@ fn starts_block(line: &str) -> bool {
 }
 
 /// Paragraph lines joined: a line ending in a backslash or two spaces breaks
-/// hard (a newline in the run), any other line break is a space.
-fn join_paragraph(para: &[&str]) -> String {
+/// hard (a newline in the run), any other line break is a space (#VAPP-258
+/// step 5: a newline too under `hard`).
+fn join_paragraph(para: &[&str], hard: bool) -> String {
     let mut text = String::new();
     for (k, line) in para.iter().enumerate() {
         if k > 0 {
@@ -723,7 +726,7 @@ fn join_paragraph(para: &[&str]) -> String {
                 text.truncate(kept);
                 text.push('\n');
             } else {
-                text.push(' ');
+                text.push(if hard { '\n' } else { ' ' });
             }
         }
         text.push_str(line);
@@ -740,6 +743,255 @@ fn is_rule(line: &str) -> bool {
 
 /// Parse the block structure of a markdown document.
 pub fn parse(text: &str) -> Vec<Block> {
+    parse_hard(text, false)
+}
+
+/// #VAPP-258 step 5 (`catalog/host.json` markdown.options): `hard` = every
+/// newline inside a paragraph, list item or quote paragraph is a line break;
+/// `streaming` = the text is a growing prefix ([`parse_streaming`]).
+pub fn parse_with(text: &str, hard: bool, streaming: bool) -> Vec<Block> {
+    if streaming {
+        parse_streaming(text, hard)
+    } else {
+        parse_hard(text, hard)
+    }
+}
+
+/// A line that opens a fence (` ``` ` / `~~~`): the 3-char fence its close starts with.
+fn fence_open(line: &str) -> Option<&'static str> {
+    let t = line.trim();
+    if t.starts_with("```") {
+        Some("```")
+    } else if t.starts_with("~~~") {
+        Some("~~~")
+    } else {
+        None
+    }
+}
+
+/// `text`'s lines from `from` (a line start outside a fence) on: the index
+/// after its last COMPLETE blank line outside a fence (else `from`), whether
+/// a fence is still open at the end, and whether the last line is that open
+/// fence's opener.
+fn scan_fences(text: &str, from: usize) -> (usize, bool, bool) {
+    let mut fence: Option<&str> = None;
+    let mut boundary = from;
+    let mut at = from;
+    let mut opener_last;
+    loop {
+        let nl = text[at..].find('\n').map(|n| at + n);
+        let line = &text[at..nl.unwrap_or(text.len())];
+        opener_last = false;
+        match fence {
+            Some(f) => {
+                if line.trim().starts_with(f) {
+                    fence = None;
+                }
+            }
+            None => match (fence_open(line), nl) {
+                (Some(f), _) => {
+                    fence = Some(f);
+                    opener_last = true;
+                }
+                (None, Some(n)) if line.trim().is_empty() => boundary = n + 1,
+                _ => {}
+            },
+        }
+        match nl {
+            Some(n) => at = n + 1,
+            None => break,
+        }
+    }
+    (boundary, fence.is_some(), opener_last)
+}
+
+/// A streamed parse remembered: the stable blocks before `boundary`.
+struct StreamMemo {
+    text: String,
+    hard: bool,
+    boundary: usize,
+    stable: Rc<Vec<Block>>,
+}
+
+const STREAM_MEMO_CAP: usize = 16;
+
+thread_local! {
+    static STREAM_MEMOS: RefCell<Vec<StreamMemo>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Forget every streamed parse (tests: a cold parse of a prefix).
+pub fn reset_stream_memo() {
+    STREAM_MEMOS.with(|m| m.borrow_mut().clear());
+}
+
+/// The largest list group of `blocks` (groups of a later chunk start past it).
+fn max_group(blocks: &[Block]) -> usize {
+    blocks.iter().filter_map(|b| b.list_group).max().unwrap_or(0)
+}
+
+fn offset_groups(blocks: &mut [Block], by: usize) {
+    for b in blocks {
+        if let Some(g) = b.list_group.as_mut() {
+            *g += by;
+        }
+    }
+}
+
+/// #VAPP-258 step 5 (`fixtures/markdown-render.json` streamingCases): a
+/// growing prefix = the stable blocks before its last complete blank line
+/// outside a fence (memoized per text: only what extends the old text
+/// reparses) + the tail, whose unfinished end is held back.
+pub fn parse_streaming(raw: &str, hard: bool) -> Vec<Block> {
+    let text = raw.replace("\r\n", "\n").replace('\r', "\n");
+    let (from, prior) = STREAM_MEMOS.with(|memos| {
+        let memos = memos.borrow();
+        memos
+            .iter()
+            .filter(|m| m.hard == hard && text.starts_with(&m.text))
+            .max_by_key(|m| m.text.len())
+            .map_or((0, Rc::new(Vec::new())), |m| (m.boundary, m.stable.clone()))
+    });
+    let (boundary, _, _) = scan_fences(&text, from);
+    let stable = if boundary > from {
+        let mut more = parse_hard(&text[from..boundary], hard);
+        offset_groups(&mut more, max_group(&prior));
+        let mut all = (*prior).clone();
+        all.extend(more);
+        Rc::new(all)
+    } else {
+        prior
+    };
+    STREAM_MEMOS.with(|memos| {
+        let mut memos = memos.borrow_mut();
+        memos.retain(|m| !(m.hard == hard && text.starts_with(&m.text)));
+        memos.insert(0, StreamMemo { text: text.clone(), hard, boundary, stable: stable.clone() });
+        memos.truncate(STREAM_MEMO_CAP);
+    });
+    let mut tail = text[boundary..].to_string();
+    let mut out = (*stable).clone();
+    if tail.is_empty() {
+        return out;
+    }
+    let (_, open, opener_last) = scan_fences(&tail, 0);
+    if open {
+        // The open fence's last line waits while it is empty or only fence
+        // characters (a closing fence on its way).
+        if !opener_last {
+            if let Some(nl) = tail.rfind('\n') {
+                if tail[nl + 1..].trim().chars().all(|c| c == '`' || c == '~') {
+                    tail.truncate(nl);
+                }
+            }
+        }
+    } else {
+        while let Some(held) = hold_trailing(&tail) {
+            tail.truncate(held);
+        }
+    }
+    let mut blocks = parse_hard(&tail, hard);
+    offset_groups(&mut blocks, max_group(&out));
+    if let Some(last) = blocks.last_mut() {
+        if matches!(last.kind, BlockKind::Paragraph | BlockKind::Heading(_) | BlockKind::Quote | BlockKind::ListItem { .. }) {
+            hold_back(&mut last.inlines);
+        }
+        if last.kind == BlockKind::Paragraph && last.inlines.iter().all(|i| i.text.is_empty()) {
+            blocks.pop();
+        }
+    }
+    out.extend(blocks);
+    out
+}
+
+/// Where the tail's unfinished end starts, outside a fence (`None` = it
+/// ends finished): a last line that is only a list marker or heading hashes
+/// so far, a trailing run of `*` / `_`, or of backticks / tildes unless they
+/// are the line's only text (a fence opening or closing).
+fn hold_trailing(tail: &str) -> Option<usize> {
+    if tail.is_empty() {
+        return None;
+    }
+    let line_start = tail.rfind('\n').map_or(0, |n| n + 1);
+    let line = tail[line_start..].trim_start_matches([' ', '\t']);
+    let hashes = line.trim_end_matches([' ', '\t']);
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    let marker = matches!(line, "-" | "+" | "*")
+        || ((1..=6).contains(&hashes.len()) && hashes.bytes().all(|b| b == b'#'))
+        || ((1..=9).contains(&digits) && (line.len() == digits || (line.len() == digits + 1 && matches!(line.as_bytes()[digits], b'.' | b')'))));
+    if marker {
+        return Some(line_start.saturating_sub(1));
+    }
+    let run = |set: &[u8]| tail.len() - tail.trim_end_matches(|c: char| c.is_ascii() && set.contains(&(c as u8))).len();
+    let stars = run(b"*_");
+    if stars > 0 {
+        return Some(tail.len() - stars);
+    }
+    let ticks = run(b"`~");
+    if ticks > 0 {
+        let start = tail.len() - ticks;
+        let before = &tail[line_start.min(start)..start];
+        if !before.chars().all(|c| c == ' ' || c == '\t') {
+            return Some(start);
+        }
+    }
+    None
+}
+
+/// The streaming tail's last block: its plain runs (no flags, no link, no
+/// chip) hold back what would flicker: an unfinished link at the end paints
+/// as its label, and every opening delimiter run is dropped (a maximal run of
+/// `*` / `_` / backticks, or of 2+ `~`, not after an ASCII letter, digit or
+/// delimiter, followed by a non-space or ending the run).
+fn hold_back(inlines: &mut Vec<Inline>) {
+    let plain = |i: &Inline| !i.bold && !i.italic && !i.code && !i.strike && i.link.is_none() && i.chip.is_none();
+    if let Some(last) = inlines.last_mut().filter(|i| plain(i)) {
+        if let Some(open) = last.text.rfind('[') {
+            let rest = &last.text[open + 1..];
+            let label_end = rest.find(']').unwrap_or(rest.len());
+            let after = &rest[label_end..];
+            let unfinished = after.is_empty() || after == "]" || after.strip_prefix("](").is_some_and(|d| d.chars().all(|c| c != '(' && c != ')' && !c.is_whitespace()));
+            if unfinished {
+                let start = if open > 0 && last.text.as_bytes()[open - 1] == b'!' { open - 1 } else { open };
+                let label = rest[..label_end].to_string();
+                last.text.truncate(start);
+                last.text.push_str(&label);
+            }
+        }
+    }
+    for span in inlines.iter_mut().filter(|i| plain(i)) {
+        span.text = drop_delimiters(&span.text);
+    }
+    inlines.retain(|i| !i.text.is_empty() || i.chip.is_some());
+}
+
+fn drop_delimiters(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let delim = |c: u8| matches!(c, b'*' | b'_' | b'`');
+    while i < b.len() {
+        let c = b[i];
+        let tilde = c == b'~';
+        if delim(c) || tilde {
+            let mut j = i;
+            while j < b.len() && (if tilde { b[j] == b'~' } else { delim(b[j]) }) {
+                j += 1;
+            }
+            let before_ok = i == 0 || !(b[i - 1].is_ascii_alphanumeric() || delim(b[i - 1]) || b[i - 1] == b'~');
+            let after_ok = j == b.len() || !s[j..].starts_with(char::is_whitespace);
+            if !(before_ok && after_ok && (!tilde || j - i >= 2)) {
+                out.push_str(&s[i..j]);
+            }
+            i = j;
+            continue;
+        }
+        let ch = s[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn parse_hard(text: &str, hard: bool) -> Vec<Block> {
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let lines: Vec<&str> = normalized.split('\n').collect();
     let mut blocks = Vec::new();
@@ -747,7 +999,7 @@ pub fn parse(text: &str) -> Vec<Block> {
     let mut group = 0usize;
     let flush = |para: &mut Vec<&str>, blocks: &mut Vec<Block>| {
         if !para.is_empty() {
-            let joined = join_paragraph(para);
+            let joined = join_paragraph(para, hard);
             match whole_image(joined.trim()) {
                 Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone(), size: None }, inlines: parse_inline(&alt), list_group: None, lang: None }),
                 None => blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&joined), list_group: None, lang: None }),
@@ -788,8 +1040,22 @@ pub fn parse(text: &str) -> Vec<Block> {
                 body.push(l.strip_prefix(' ').unwrap_or(l).trim());
                 i += 1;
             }
-            let joined: Vec<&str> = body.into_iter().filter(|l| !l.is_empty()).collect();
-            blocks.push(Block { kind: BlockKind::Quote, inlines: parse_inline(&joined.join(" ")), list_group: None, lang: None });
+            // Paragraphs join with a space; under `hard` a paragraph's lines
+            // with a newline.
+            let mut joined = String::new();
+            let mut gap = false;
+            for l in body {
+                if l.is_empty() {
+                    gap = true;
+                    continue;
+                }
+                if !joined.is_empty() {
+                    joined.push(if hard && !gap { '\n' } else { ' ' });
+                }
+                joined.push_str(l);
+                gap = false;
+            }
+            blocks.push(Block { kind: BlockKind::Quote, inlines: parse_inline(&joined), list_group: None, lang: None });
             continue;
         }
         if is_rule(trimmed) && para.is_empty() {
@@ -811,7 +1077,7 @@ pub fn parse(text: &str) -> Vec<Block> {
                     if next.is_empty() || starts_block(lines[i]) {
                         break;
                     }
-                    last_body.push(' ');
+                    last_body.push(if hard { '\n' } else { ' ' });
                     last_body.push_str(next);
                     if let Some(last) = blocks.last_mut() {
                         last.inlines = parse_inline(&last_body);
@@ -998,6 +1264,14 @@ impl MdStyles {
             weight: p.get("fontWeight").and_then(|v| v.as_u64()).map(|w| w as u16).unwrap_or(base.weight),
             family: p.get("fontFamily").and_then(|v| v.as_str()).map(str::to_string).or_else(|| base.family.clone()),
         };
+        // #VAPP-258 step 5: the chat rhythm re-resolves the root (the node's
+        // text style knows no density): its type is the body, its gap the
+        // block gap. The document keeps the node's style and the `sm` gap.
+        let chat = owner_props.get("density").and_then(|v| v.as_str()) == Some("chat");
+        let root = chat.then(|| part("root"));
+        if let Some(root) = &root {
+            s.body = spec(root, &s.body);
+        }
         let heading = part("heading");
         s.heading = spec(&heading, &TextSpec { weight: 600, ..s.body.clone() });
         let code = part("codeBlock");
@@ -1006,7 +1280,7 @@ impl MdStyles {
         let quote = part("quote");
         s.quote_border = px_prop(&quote, "borderWidth").unwrap_or(s.quote_border);
         s.quote_pad = px_prop(&quote, "paddingHorizontal").unwrap_or(s.quote_pad);
-        s.block_gap = spacing(theme, "sm");
+        s.block_gap = root.as_ref().and_then(|r| px_prop(r, "gap")).unwrap_or_else(|| spacing(theme, "sm"));
         s.heading_top = spacing(theme, "md");
         s.heading_bottom = spacing(theme, "xs");
         s.cell_pad_h = spacing(theme, "sm");
@@ -1039,6 +1313,18 @@ impl MdStyles {
             _ => &self.body,
         }
     }
+}
+
+/// #VAPP-258 step 5: the node props a Markdown's recipes resolve with:
+/// `density: chat` added when the host's options ask for the chat rhythm
+/// (a painter-supplied recipe prop, `catalog/recipes.json`).
+pub fn density_props(props: &Map<String, serde_json::Value>, chat: bool) -> std::borrow::Cow<'_, Map<String, serde_json::Value>> {
+    if !chat {
+        return std::borrow::Cow::Borrowed(props);
+    }
+    let mut p = props.clone();
+    p.insert("density".into(), serde_json::Value::from("chat"));
+    std::borrow::Cow::Owned(p)
 }
 
 /// Where one block sits (relative to the content box).
@@ -1089,7 +1375,7 @@ const CHIP_FILL: [char; 2] = ['\u{a0}', '\u{202f}'];
 
 /// The placeholder that reserves `target` px (never more than `cap`): the
 /// fewest non-breaking spaces at least `target` wide, from the two widths.
-fn chip_fill(target: f32, cap: f32, wide: f32, narrow: f32) -> String {
+fn chip_fill(target: f32, cap: f32, wide: f32, narrow: f32) -> (String, f32) {
     let wide = wide.max(0.01);
     let mut best: Option<(f32, usize, usize)> = None;
     let narrows = if narrow > 0.01 && (narrow - wide).abs() > 0.01 { 8 } else { 0 };
@@ -1109,7 +1395,7 @@ fn chip_fill(target: f32, cap: f32, wide: f32, narrow: f32) -> String {
     let mut out = String::new();
     out.extend(std::iter::repeat_n(CHIP_FILL[0], a));
     out.extend(std::iter::repeat_n(CHIP_FILL[1], b));
-    out
+    (out, a as f32 * wide + b as f32 * narrow)
 }
 
 /// The text width each block's runs wrap at `width` wide (`None` = no
@@ -1147,7 +1433,13 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
             chip.width = want.min(cap);
             let wide = text.run_width(&CHIP_FILL[0].to_string(), spec, bold, italic);
             let narrow = text.run_width(&CHIP_FILL[1].to_string(), spec, bold, italic);
-            span.text = chip_fill(chip.width, cap, wide, narrow);
+            let (fill, total) = chip_fill(chip.width, cap, wide, narrow);
+            span.text = fill;
+            // #VAPP-258 step 5: the box spans its whole placeholder (the
+            // fill rounds up to whole spaces): no stray gap after the chip.
+            if total > chip.width && total <= cap + 0.01 {
+                chip.width = total.min(cap);
+            }
         }
     };
     Some(
@@ -1367,7 +1659,20 @@ pub fn code_block_runs(text: &str, lang: Option<&str>, font: &Font, ink: Hsla, t
 /// The painted text units of every Markdown leaf (by node index), in
 /// document order: each unit's gpui text layout (hit-testing once painted)
 /// and its text. Selection and copy read it.
-pub type MdUnits = Rc<RefCell<HashMap<u32, Vec<(TextLayout, SharedString)>>>>;
+pub type MdUnits = Rc<RefCell<HashMap<u32, Vec<MdUnit>>>>;
+
+/// One selectable text run of a Markdown leaf: its layout (hit-tested once
+/// painted), its text, the inline chips' byte ranges with their labels (a
+/// copy gives the label, not the placeholder), and whether it was laid out
+/// THIS frame (#VAPP-258 step 5: a long document lays out only the blocks
+/// that show; an off-screen unit is never hit-tested).
+#[derive(Clone)]
+pub struct MdUnit {
+    pub layout: TextLayout,
+    pub text: SharedString,
+    pub chips: Vec<(Range<usize>, String)>,
+    pub live: Rc<std::cell::Cell<bool>>,
+}
 
 /// A text selection inside one Markdown leaf: `(unit, byte)` ends, in
 /// either order.
@@ -1403,17 +1708,39 @@ impl MdSelection {
         (start < end).then_some(start..end)
     }
 
-    /// The selected text (units joined by line feeds).
-    pub fn text(&self, units: &[(TextLayout, SharedString)]) -> String {
-        let mut out: Vec<&str> = Vec::new();
-        for (u, (_, text)) in units.iter().enumerate() {
+    /// The selected text (units joined by line feeds; #VAPP-258 step 5: a
+    /// chip the selection touches copies as its label).
+    pub fn text(&self, units: &[MdUnit]) -> String {
+        let mut out: Vec<String> = Vec::new();
+        for (u, unit) in units.iter().enumerate() {
+            let text = &unit.text;
             if let Some(r) = self.range_in(u, text.len()) {
                 let (a, b) = (floor_char(text, r.start), floor_char(text, r.end));
-                out.push(&text[a..b]);
+                out.push(copy_text(text, a..b, &unit.chips));
             }
         }
         out.join("\n")
     }
+}
+
+/// `text[range]` with every chip it touches as its label (once).
+pub fn copy_text(text: &str, range: Range<usize>, chips: &[(Range<usize>, String)]) -> String {
+    let mut out = String::new();
+    let mut at = range.start;
+    for (chip, label) in chips {
+        if chip.end <= range.start || chip.start >= range.end {
+            continue;
+        }
+        if chip.start > at {
+            out.push_str(&text[at..chip.start]);
+        }
+        out.push_str(label);
+        at = at.max(chip.end);
+    }
+    if at < range.end {
+        out.push_str(&text[at..range.end]);
+    }
+    out
 }
 
 /// The nearest char boundary at or before `i`.
@@ -1486,6 +1813,9 @@ pub struct MdPaint {
     /// Video / AudioPlayer natives and the FileUpload file row, built by
     /// the view that owns them), sized to its laid-out box.
     pub attachments: RefCell<HashMap<usize, AnyElement>>,
+    /// #VAPP-258 step 5: the laid-out flag of the block being built (a
+    /// lazy block's units are live only once it shows; `None` = live).
+    pub live: RefCell<Option<Rc<std::cell::Cell<bool>>>>,
 }
 
 /// An icon name, size and colour → its element.
@@ -1526,12 +1856,13 @@ impl MdPaint {
 
 /// A selectable text unit: registered in [`MdUnits`], the selection
 /// highlighted in its runs, link ranges pressable.
-fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Vec<(Range<usize>, String)>, p: &MdPaint) -> AnyElement {
+fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Vec<(Range<usize>, String)>, chips: Vec<(Range<usize>, String)>, p: &MdPaint) -> AnyElement {
     let unit = p.units.as_ref().map(|u| u.borrow().get(&p.node).map_or(0, Vec::len)).unwrap_or(0);
     let range = p.selection.filter(|s| s.node == p.node).and_then(|s| s.range_in(unit, text.len()));
     let styled = StyledText::new(text.clone()).with_runs(highlight(runs, range, p.selection_bg));
     if let Some(units) = &p.units {
-        units.borrow_mut().entry(p.node).or_default().push((styled.layout().clone(), text));
+        let live = p.live.borrow().clone().unwrap_or_else(|| Rc::new(std::cell::Cell::new(true)));
+        units.borrow_mut().entry(p.node).or_default().push(MdUnit { layout: styled.layout().clone(), text, chips, live });
     }
     if links.is_empty() {
         styled.into_any_element()
@@ -1554,16 +1885,20 @@ fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &Sh
     // Link ranges (a chip opens its own href) and the chips' byte offsets.
     let mut links: Vec<(std::ops::Range<usize>, String)> = Vec::new();
     let mut chips: Vec<(usize, &InlineChip, Option<&String>)> = Vec::new();
+    let mut labels: Vec<(std::ops::Range<usize>, String)> = Vec::new();
     let mut at = 0;
     for span in inlines {
         match (&span.chip, &span.link) {
-            (Some(chip), href) => chips.push((at, chip, href.as_ref())),
+            (Some(chip), href) => {
+                chips.push((at, chip, href.as_ref()));
+                labels.push((at..at + span.text.len(), chip.label.clone()));
+            }
             (None, Some(href)) => links.push((at..at + span.text.len(), href.clone())),
             _ => {}
         }
         at += span.text.len();
     }
-    let body = unit_text(id.clone(), shown, runs, links, p);
+    let body = unit_text(id.clone(), shown, runs, links, labels, p);
     let mut el = div().relative().w_full().text_size(px(spec.size)).line_height(px(spec.line_height)).child(body);
     if !chips.is_empty() {
         let starts: Vec<usize> = chips.iter().map(|(at, _, _)| *at).collect();
@@ -1635,9 +1970,14 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
         units.borrow_mut().insert(p.node, Vec::new());
     }
     let mut root = div().relative().w(px(width)).h(px(lay.height));
+    // #VAPP-258 step 5: a long document lays out and paints only the blocks
+    // that cross the clip ([`LazyMdBlock`]); every block keeps its box.
+    let lazy = blocks.len() >= eui_core::host::MARKDOWN_LAZY_BLOCKS && !forced_eager();
     for (i, (b, bx)) in blocks.iter().zip(&lay.blocks).enumerate() {
         let bid: SharedString = format!("{id}.md{i}").into();
-        let placed = div().absolute().left_0().top(px(bx.y)).w(px(width)).h(px(bx.height));
+        let live = lazy.then(|| Rc::new(std::cell::Cell::new(false)));
+        *p.live.borrow_mut() = live.clone();
+        let placed = if lazy { div().relative() } else { div().absolute().left_0().top(px(bx.y)) }.w(px(width)).h(px(bx.height));
         let el: AnyElement = match &b.kind {
             BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, width.max(1.0), text)).into_any_element(),
             BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors, width.max(1.0), text)).into_any_element(),
@@ -1725,7 +2065,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                             .text_size(px(s.code.size))
                             .line_height(px(s.code.line_height))
                             .whitespace_nowrap()
-                            .child(unit_text(bid, text, runs, Vec::new(), p)),
+                            .child(unit_text(bid, text, runs, Vec::new(), Vec::new(), p)),
                     )
                     .into_any_element()
             }
@@ -1769,9 +2109,91 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                 table.into_any_element()
             }
         };
-        root = root.child(el);
+        root = match live {
+            Some(live) => root.child(LazyMdBlock { y: bx.y, width, height: bx.height, live, child: Some(el), painted: false }),
+            None => root.child(el),
+        };
     }
+    *p.live.borrow_mut() = None;
     root.into_any_element()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: lay out every block of a long document (the before picture).
+    pub static FORCE_EAGER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn forced_eager() -> bool {
+    #[cfg(test)]
+    return FORCE_EAGER.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    false
+}
+
+/// #VAPP-258 step 5 (`catalog/host.json` markdown `lazyBlocks`, the app's
+/// `lazy_block.rs`): one block of a long Markdown at its laid-out box. Layout
+/// reserves the box and builds nothing; in prepaint, where the box is final
+/// for this frame, the block is laid out and painted only when it crosses
+/// the clip (the scroll viewport), and its text units go live (hit-testable)
+/// then. The measured height never depends on what shows.
+pub struct LazyMdBlock {
+    y: f32,
+    width: f32,
+    height: f32,
+    live: Rc<std::cell::Cell<bool>>,
+    child: Option<AnyElement>,
+    painted: bool,
+}
+
+impl IntoElement for LazyMdBlock {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl gpui::Element for LazyMdBlock {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, window: &mut Window, cx: &mut App) -> (gpui::LayoutId, ()) {
+        let mut style = gpui::Style { position: gpui::Position::Absolute, flex_shrink: 0., ..Default::default() };
+        style.inset.top = px(self.y).into();
+        style.inset.left = px(0.).into();
+        style.size.width = px(self.width).into();
+        style.size.height = px(self.height).into();
+        (window.request_layout(style, [], cx), ())
+    }
+
+    fn prepaint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: gpui::Bounds<gpui::Pixels>, _: &mut (), window: &mut Window, cx: &mut App) {
+        self.painted = false;
+        if !window.content_mask().bounds.intersects(&bounds) {
+            return;
+        }
+        let Some(child) = self.child.as_mut() else { return };
+        child.layout_as_root(gpui::size(gpui::AvailableSpace::Definite(bounds.size.width), gpui::AvailableSpace::Definite(bounds.size.height)), window, cx);
+        child.prepaint_at(bounds.origin, window, cx);
+        self.painted = true;
+        self.live.set(true);
+    }
+
+    fn paint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, _: gpui::Bounds<gpui::Pixels>, _: &mut (), _: &mut (), window: &mut Window, cx: &mut App) {
+        if self.painted {
+            if let Some(child) = self.child.as_mut() {
+                child.paint(window, cx);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2019,12 +2441,12 @@ mod tests {
     #[test]
     fn a_chip_placeholder_reserves_at_least_its_width() {
         // 3.9 / 2.4 px spaces: the fewest that cover 50 px.
-        let fill = chip_fill(50.0, 400.0, 3.9, 2.4);
+        let fill = chip_fill(50.0, 400.0, 3.9, 2.4).0;
         let w = |f: &str| f.chars().map(|c| if c == CHIP_FILL[0] { 3.9 } else { 2.4 }).sum::<f32>();
         assert!(w(&fill) >= 50.0 && w(&fill) < 50.0 + 1.0, "{}", w(&fill));
-        assert!(w(&chip_fill(50.0, 40.0, 3.9, 2.4)) <= 40.0, "never past the cap");
-        assert_eq!(chip_fill(16.0, 400.0, 8.0, 8.0).chars().count(), 2, "one width: whole spaces");
-        assert!(chip_fill(1.0, 0.5, 8.0, 8.0).chars().count() == 1, "never empty");
+        assert!(w(&chip_fill(50.0, 40.0, 3.9, 2.4).0) <= 40.0, "never past the cap");
+        assert_eq!(chip_fill(16.0, 400.0, 8.0, 8.0).0.chars().count(), 2, "one width: whole spaces");
+        assert!(chip_fill(1.0, 0.5, 8.0, 8.0).0.chars().count() == 1, "never empty");
     }
 
     /// #VAPP-258: a host-sized chip through gpui's text system: a chip that
@@ -2045,10 +2467,13 @@ mod tests {
                 let sized = size_chips(&chipped, &s, Some(400.0), &mut sh).expect("a chip");
                 let chip = sized[0].inlines.iter().find_map(|i| i.chip.clone()).expect("chip");
                 let label = MdText::run_width(&mut sh, "ABC-1 Fix login", &s.chip.caption, false, false);
-                assert_eq!(chip.width, s.chip.width(label, true));
+                let want = s.chip.width(label, true);
                 let ph = sized[0].inlines.iter().find(|i| i.chip.is_some()).unwrap().text.clone();
                 assert!(ph.chars().all(|c| CHIP_FILL.contains(&c)));
-                assert!(MdText::run_width(&mut sh, &ph, &s.body, false, false) >= chip.width - 0.01, "the placeholder covers the chip");
+                let wide = MdText::run_width(&mut sh, &CHIP_FILL[0].to_string(), &s.body, false, false);
+                assert!(chip.width >= want - 0.01 && chip.width < want + wide, "the chip box {} covers its look {want}", chip.width);
+                // #VAPP-258 step 5: the box spans its placeholder exactly (no stray gap after it).
+                assert!((MdText::run_width(&mut sh, &ph, &s.body, false, false) - chip.width).abs() < 0.05, "the placeholder is the chip box");
                 let h = layout(&sized, &s, 400.0, &mut sh).height;
                 assert_eq!(h, layout(&plain_text, &s, 400.0, &mut sh).height, "a chip never grows a line");
                 assert_eq!(h, s.body.line_height);
@@ -2403,7 +2828,112 @@ mod tests {
                 failures.push(format!("{name}\n  expected {}\n  actual   {actual}", case["blocks"]));
             }
         }
+        // #VAPP-258 step 5: host options (`breaks`), and documents streamed in
+        // prefix by prefix, in order (the memo) and cold.
+        let hard = |o: &Value| o["breaks"].as_str() == Some("hard");
+        for case in f["optionCases"].as_array().expect("optionCases") {
+            let actual = normal(parse_with(case["text"].as_str().unwrap(), hard(&case["options"]), false));
+            if actual != case["blocks"] {
+                failures.push(format!("{}\n  expected {}\n  actual   {actual}", case["name"], case["blocks"]));
+            }
+        }
+        for case in f["streamingCases"].as_array().expect("streamingCases") {
+            let text = case["text"].as_str().unwrap();
+            let h = hard(&case["options"]);
+            for cold in [false, true] {
+                reset_stream_memo();
+                for (i, blocks) in case["steps"].as_array().unwrap().iter().enumerate() {
+                    if cold {
+                        reset_stream_memo();
+                    }
+                    let actual = normal(parse_with(&text[..=i], h, true));
+                    if actual != *blocks {
+                        failures.push(format!("{} {:?} (cold {cold})\n  expected {blocks}\n  actual   {actual}", case["name"], &text[..=i]));
+                        break;
+                    }
+                }
+            }
+        }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// #VAPP-258 step 5: a streamed parse's stable blocks keep their list
+    /// groups apart (a gap between two lists), and the memo answers a text
+    /// that extends a remembered one from its boundary on.
+    #[test]
+    fn streamed_lists_keep_their_groups() {
+        reset_stream_memo();
+        let _ = parse_streaming("- a\n- b\n\n", false);
+        let blocks = parse_streaming("- a\n- b\n\n- c", false);
+        let groups: Vec<Option<usize>> = blocks.iter().map(|b| b.list_group).collect();
+        assert_eq!(groups[0], groups[1]);
+        assert_ne!(groups[1], groups[2], "a later list is its own group");
+        assert_eq!(blocks, parse_with("- a\n- b\n\n- c", false, false));
+    }
+
+    /// #VAPP-258 step 5: `density: chat` resolves the Markdown recipes with
+    /// the chat rule (the neutral theme: a 22 px body line, base headings,
+    /// the `sm` gap); the document keeps the node's text style.
+    #[test]
+    fn chat_density_resolves_the_chat_recipes() {
+        let theme = eui_core::themes::builtin_theme("neutral").expect("neutral");
+        let body = TextSpec { size: 14.0, line_height: 20.0, weight: 400, family: None };
+        let doc = MdStyles::resolve(Some(&theme), Mode::Light, body.clone(), &Map::new());
+        let chat = MdStyles::resolve(Some(&theme), Mode::Light, body, &density_props(&Map::new(), true));
+        assert_eq!(doc.body.line_height, 20.0);
+        assert_eq!(chat.body.line_height, 22.0);
+        assert_eq!(chat.block_gap, spacing(Some(&theme), "sm"));
+        assert!(chat.heading.size < doc.heading.size, "chat headings sit one step down");
+        let blocks = parse("one\n\ntwo");
+        assert!(layout(&blocks, &chat, 300.0, &mut Fixed).height > layout(&blocks, &doc, 300.0, &mut Fixed).height);
+    }
+
+    /// #VAPP-258 step 5 (`lazyBlocks`): a 60-block Markdown in a 200 px
+    /// ScrollArea lays out only the blocks that show (their units go live),
+    /// at the same measured height as the eager layout; scrolling brings the
+    /// next blocks in.
+    #[gpui::test]
+    fn a_long_markdown_lays_out_only_visible_blocks(cx: &mut gpui::TestAppContext) {
+        use crate::view::{SurfaceView, SurfaceViewOptions};
+        cx.update(gpui_component::init);
+        let text = (0..60).map(|i| format!("Paragraph {i} of a long description.")).collect::<Vec<_>>().join("\n\n");
+        let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: Mode::Light, host: Rc::new(crate::host::NoHost), width: Some(400.0), ..Default::default() };
+        let (view, cx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
+        let tree = serde_json::json!({"id": "root", "component": "ScrollArea", "style": {"width": 400, "height": 200}, "children": [
+            {"id": "md", "component": "Markdown", "props": {"text": text}}
+        ]});
+        let mut run = |eager: bool| {
+            FORCE_EAGER.with(|f| f.set(eager));
+            view.update(cx, |v, cx| {
+                v.set_nested(serde_json::from_value(tree.clone()).unwrap(), cx);
+                v.record_bounds(true);
+                cx.notify();
+            });
+            for _ in 0..2 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+            let h = view.read_with(cx, |v, _| v.painted_bounds("md")).expect("painted").size.height;
+            (f32::from(h), view.read_with(cx, |v, _| v.md_unit_counts("md")))
+        };
+        let (eager_h, (eager_live, total)) = run(true);
+        let (lazy_h, (lazy_live, lazy_total)) = run(false);
+        FORCE_EAGER.with(|f| f.set(false));
+        assert_eq!(total, 60);
+        assert_eq!(eager_live, 60);
+        assert_eq!(lazy_total, 60);
+        assert!(lazy_live > 0 && lazy_live < 20, "{lazy_live} of 60 blocks laid out");
+        assert!((eager_h - lazy_h).abs() < 0.01, "the measured height is exact either way ({eager_h} vs {lazy_h})");
+    }
+
+    /// #VAPP-258 step 5: a selection across a chip copies its label.
+    #[test]
+    fn a_copy_across_a_chip_gives_its_label() {
+        let text = "see \u{a0}\u{a0}\u{a0} now";
+        let chip = "see ".len().."see \u{a0}\u{a0}\u{a0}".len();
+        assert_eq!(copy_text(text, 0..text.len(), &[(chip.clone(), "ABC-1".into())]), "see ABC-1 now");
+        assert_eq!(copy_text(text, 0..3, &[(chip.clone(), "ABC-1".into())]), "see");
+        assert_eq!(copy_text(text, chip.start + 2..text.len(), &[(chip, "ABC-1".into())]), "ABC-1 now");
     }
 
     /// #VAPP-258: a `ts` fence paints CodeBlock's token kinds in the

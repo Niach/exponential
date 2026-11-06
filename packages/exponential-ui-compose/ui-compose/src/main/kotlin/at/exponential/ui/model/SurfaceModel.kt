@@ -585,6 +585,7 @@ class SurfaceModel(
             attachment = ::markdownAttachment,
             imageSize = ::markdownImageSize,
             textLinks = ::markdownTextLinks,
+            options = host.markdownOptions,
         )
 
     /** #VAPP-258: a Markdown's blocks as measured and painted ([Markdown.resolve] through [markdownHooks]). */
@@ -865,7 +866,7 @@ class SurfaceModel(
             val used: Map<String, String> = if (kinds.isEmpty()) emptyMap() else HashMap(kinds)
             var measurer: SurfaceMeasurer? = null
             out = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks) { mediaRequest(it) != null }.let {
+                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks, markdownOptions = host.markdownOptions) { mediaRequest(it) != null }.let {
                     measurer = it
                     surface.layout(it)
                 }

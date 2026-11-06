@@ -32,6 +32,7 @@ export function hostPlugin(host: ExponentialHost, base: HostPlugin = {}): HostPl
     imageSize: host.markdownHooks().imageSize ?? base.imageSize,
     onImagePress: host.markdownHooks().onImagePress ?? base.onImagePress,
     attachment: host.markdownHooks().attachment ?? base.attachment,
+    markdownOptions: host.markdownHooks().markdownOptions ?? base.markdownOptions,
     urls: host.urlPolicy(),
     media: host.mediaOptions(),
     mediaRequest: base.mediaRequest ?? ((src) => host.mediaRequest(src)),

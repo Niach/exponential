@@ -32,6 +32,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -343,7 +352,12 @@ fun markdownChipWidth(chip: MarkdownChip, chips: MarkdownChipStyle, cap: Float?,
  * the Chip look through [chipIcon]); [imageSize] boxes a block image at
  * its aspect; [onImagePress] makes block images pressable; [attachments]
  * classifies a one-link paragraph (raw href), painted by [attachmentView]
- * (null = a link row).
+ * (null = a link row). #VAPP-258 step 5 ([options], `markdown.options`):
+ * hard breaks and a streamed prefix parse as the measurer parses them;
+ * `selectable` true = a SelectionContainer, false = selection disabled; a
+ * document of [MarkdownOptions.LAZY_BLOCKS]+ blocks composes only the
+ * blocks that cross the visible window (the clipped bounds, one viewport of
+ * overscan), each still at its laid-out box (the height is the layout's).
  */
 @Composable
 fun MarkdownView(
@@ -366,9 +380,10 @@ fun MarkdownView(
     onImagePress: ((String) -> Unit)? = null,
     chipIcon: (@Composable (name: String, size: Float, color: Color) -> Unit)? = null,
     attachmentView: (@Composable (attachment: MarkdownBlockKind.Attachment, width: Float, height: Float) -> Unit)? = null,
+    options: MarkdownOptions = MarkdownOptions(),
 ) {
-    val parsed = remember(text, linkPolicy, imagePolicy, attachments, imageSize) {
-        Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize))
+    val parsed = remember(text, linkPolicy, imagePolicy, attachments, imageSize, options.hardBreaks, options.streaming) {
+        Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options))
     }
     // A host's text links read live, like a `hostLinks` Text's.
     val blocks = when {
@@ -387,22 +402,58 @@ fun MarkdownView(
         BoxWithConstraints(modifier.fillMaxWidth()) {
             val width = if (constraints.hasBoundedWidth) constraints.maxWidth / pinned.density else 10_000f
             val layout = remember(blocks, styles, width, shaper) { Markdown.layout(blocks, styles, width, shaper) }
-            Box(Modifier.width(width.dp).height(layout.height.dp)) {
-                blocks.forEachIndexed { i, block ->
-                    val box = layout.blocks[i]
-                    Box(
-                        Modifier
-                            .offset(y = box.y.dp)
-                            .width(width.dp)
-                            .height(box.height.dp),
-                    ) {
-                        MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, hooks)
+            val lazy = blocks.size >= MarkdownOptions.LAZY_BLOCKS
+            // The visible window in dp (clipped by every parent); before the
+            // first placement, the first screenfuls.
+            var window by remember(lazy) { mutableStateOf(0f..LAZY_FIRST_WINDOW) }
+            val content: @Composable () -> Unit = {
+                Box(
+                    Modifier
+                        .width(width.dp)
+                        .height(layout.height.dp)
+                        .then(
+                            if (!lazy) Modifier else Modifier.onGloballyPositioned { c ->
+                                val clipped = c.boundsInWindow()
+                                val top = c.positionInWindow().y
+                                val d = pinned.density
+                                val next = if (clipped.height <= 0f) 0f..0f else ((clipped.top - top) / d)..((clipped.bottom - top) / d)
+                                if (next != window) window = next
+                            },
+                        ),
+                ) {
+                    val span = window.endInclusive - window.start
+                    val from = window.start - span
+                    val to = window.endInclusive + span
+                    blocks.forEachIndexed { i, block ->
+                        val box = layout.blocks[i]
+                        if (!lazy || (box.y + box.height >= from && box.y <= to)) {
+                            Box(
+                                Modifier
+                                    .offset(y = box.y.dp)
+                                    .width(width.dp)
+                                    .height(box.height.dp)
+                                    .then(if (lazy) Modifier.testTag(MARKDOWN_BLOCK_TAG) else Modifier),
+                            ) {
+                                MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, hooks)
+                            }
+                        }
                     }
                 }
+            }
+            when (options.selectable) {
+                true -> SelectionContainer { content() }
+                false -> DisableSelection { content() }
+                null -> content()
             }
         }
     }
 }
+
+/** #VAPP-258 step 5: a lazy document's block boxes carry this test tag. */
+const val MARKDOWN_BLOCK_TAG = "xui-markdown-block"
+
+/** What a lazy document composes before it knows its visible window (dp). */
+private const val LAZY_FIRST_WINDOW = 1600f
 
 /** The painter-only hooks a [MarkdownView] passes down to its blocks. */
 private class MarkdownPaintHooks(

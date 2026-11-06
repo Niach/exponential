@@ -44,6 +44,8 @@ import benchDeepNesting from "@exponential_app/eui-bench/scenarios/deep-nesting.
 import benchTemplate10k from "@exponential_app/eui-bench/scenarios/template-10k.json"
 import benchOverlay from "@exponential_app/eui-bench/scenarios/overlay.json"
 import benchTable1k from "@exponential_app/eui-bench/scenarios/table-1k.json"
+import benchMarkdownLong from "@exponential_app/eui-bench/scenarios/markdown-long.json"
+import benchMarkdownStream from "@exponential_app/eui-bench/scenarios/markdown-stream.json"
 import { BASE_CSS, ExponentialSurface, WindowedList, useSurface } from "../src/index"
 import type { HostPlugin, SurfaceHandle, SurfaceInputEvent, WindowedListHandle } from "../src/index"
 import { harnessIcons } from "./icons"
@@ -500,7 +502,7 @@ type BenchScenario = {
   steps: Record<string, unknown>
 }
 const BENCH_SCENARIOS: Record<string, BenchScenario> = Object.fromEntries(
-  [benchColdStart, benchCardGrid, benchList100k, benchStreaming, benchThemeSwitch, benchResize, benchDeepNesting, benchTemplate10k, benchOverlay, benchTable1k].map((s) => [s.id, s as unknown as BenchScenario])
+  [benchColdStart, benchCardGrid, benchList100k, benchStreaming, benchThemeSwitch, benchResize, benchDeepNesting, benchTemplate10k, benchOverlay, benchTable1k, benchMarkdownLong, benchMarkdownStream].map((s) => [s.id, s as unknown as BenchScenario])
 )
 /** src/scenarios.ts generateItems, ported: every field a string. */
 function benchItems(spec: { count: number; item: Record<string, string> }): Record<string, string>[] {
@@ -540,7 +542,7 @@ function BenchSuiteSurface({ scenario, initialData }: { scenario: BenchScenario;
     if (`components` in scenario.surface) surface.apply({ updateComponents: { surfaceId: `bench`, components: scenario.surface.components } })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const plugin = useMemo<HostPlugin>(() => ({ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, componentId: e.componentId }) }), [])
+  const plugin = useMemo<HostPlugin>(() => ({ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, componentId: e.componentId }), ...(scenario.steps.markdownOptions ? { markdownOptions: scenario.steps.markdownOptions as HostPlugin[`markdownOptions`] } : {}) }), [])
   useEffect(() => {
     const surfaceEl = () => rootEl.current
     const nodeEl = (id: string) => surfaceEl()?.querySelector<HTMLElement>(`[data-xui-id="${CSS.escape(id)}"]`) ?? null

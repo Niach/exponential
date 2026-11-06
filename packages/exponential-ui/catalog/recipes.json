@@ -13,7 +13,7 @@
     "List": { "parts": ["root", "divider", "section"], "props": ["direction", "divided", "stickyHeaders"] },
     "Resizable": { "parts": ["root", "panel", "handle", "grip"], "props": ["direction", "handle"] },
     "Text": { "parts": ["root"], "props": ["variant", "tone"] },
-    "Markdown": { "parts": ["root", "paragraph", "heading", "link", "code", "codeBlock", "quote", "table", "listItem"], "props": [] },
+    "Markdown": { "parts": ["root", "paragraph", "heading", "link", "code", "codeBlock", "quote", "table", "listItem"], "props": ["density"] },
     "Image": { "parts": ["root", "fallback"], "props": ["fit"] },
     "Motion": { "parts": ["root"], "props": ["fit"] },
     "Icon": { "parts": ["root"], "props": ["size", "tone"] },

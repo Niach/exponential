@@ -33,6 +33,11 @@ object MarkdownPainter {
             weight = p.props["fontWeight"]?.number?.toInt() ?: base.weight,
             family = p.fontFamily ?: base.family,
         )
+        // #VAPP-258 step 5: the chat rhythm re-resolves the root (the node's
+        // text style knows no density): its type is the body, its gap the
+        // block gap. The document keeps the node's style and the `sm` gap.
+        val root = if (props["density"]?.string == "chat") part("root") else null
+        if (root != null) s.body = spec(root, s.body)
         s.heading = spec(part("heading"), s.body.copy(weight = 600))
         val code = part("codeBlock")
         s.code = spec(code, s.code.copy(family = theme.monoFamily))
@@ -40,7 +45,7 @@ object MarkdownPainter {
         val quote = part("quote")
         s.quoteBorder = quote.px("borderWidth") ?: s.quoteBorder
         s.quotePad = quote.px("paddingHorizontal") ?: s.quotePad
-        s.blockGap = theme.spacing("sm")
+        s.blockGap = root?.px("gap") ?: theme.spacing("sm")
         s.headingTop = theme.spacing("md")
         s.headingBottom = theme.spacing("xs")
         s.cellPadH = theme.spacing("sm")
@@ -48,6 +53,13 @@ object MarkdownPainter {
         hostParts(theme, mode, s)
         return s
     }
+
+    /**
+     * #VAPP-258 step 5: the props a Markdown's recipes resolve with:
+     * `density: chat` added under the host's chat rhythm (a painter-supplied
+     * recipe prop, `catalog/recipes.json`).
+     */
+    fun props(props: Props, chat: Boolean): Props = if (chat) props + ("density" to JsonValue.Str("chat")) else props
 
     /** #VAPP-258: the Chip props a Markdown chip resolves its look with (the catalog defaults). */
     val CHIP_PROPS: Props = mapOf("shape" to JsonValue.Str("pill"), "tone" to JsonValue.Str("neutral"), "selected" to JsonValue.Bool(false))

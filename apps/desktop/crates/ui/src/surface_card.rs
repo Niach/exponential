@@ -130,6 +130,27 @@ impl HostPlugin for ReplyHost {
         self.inner.text_links(text, cx)
     }
 
+    // #VAPP-258: the Markdown host hooks pass through like the text links.
+    fn image_size(&self, src: &str, cx: &App) -> Option<(f32, f32)> {
+        self.inner.image_size(src, cx)
+    }
+
+    fn image_pressable(&self, cx: &App) -> bool {
+        self.inner.image_pressable(cx)
+    }
+
+    fn on_image_press(&self, src: &str, window: &mut gpui::Window, cx: &mut App) {
+        self.inner.on_image_press(src, window, cx)
+    }
+
+    fn attachment(&self, href: &str, cx: &App) -> Option<eui_gpui::host::MarkdownAttachment> {
+        self.inner.attachment(href, cx)
+    }
+
+    fn markdown_options(&self, cx: &App) -> eui_gpui::host::MarkdownOptions {
+        self.inner.markdown_options(cx)
+    }
+
     fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {
         self.inner.open_media_file(path, cx)
     }

@@ -169,6 +169,8 @@ pub struct HostPolicy {
     pub on_image_press: Option<ImagePressHandler>,
     /// #VAPP-258: a one-link Markdown paragraph's attachment (default: none).
     pub attachment: Option<AttachmentHandler>,
+    /// #VAPP-258 step 5: the Markdown render options (default: the host's).
+    pub markdown_options: Option<crate::host::MarkdownOptions>,
     pub media: Option<MediaOptions>,
 }
 
@@ -1247,6 +1249,13 @@ impl HostPlugin for HostAdapter {
         match self.host.upgrade().and_then(|host| host.read(cx).policy.attachment.clone()) {
             Some(attachment) => attachment(href, cx),
             None => self.base.attachment(href, cx),
+        }
+    }
+
+    fn markdown_options(&self, cx: &App) -> crate::host::MarkdownOptions {
+        match self.host.upgrade().and_then(|host| host.read(cx).policy.markdown_options) {
+            Some(options) => options,
+            None => self.base.markdown_options(cx),
         }
     }
 

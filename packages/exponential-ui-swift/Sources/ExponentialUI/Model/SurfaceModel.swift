@@ -390,7 +390,7 @@ public final class SurfaceModel {
                     MainActor.assumeIsolated { self.mediaRequest(src) != nil }
                 }, markdownBlocks: { [unowned self] text in
                     MainActor.assumeIsolated { MarkdownPainter.painted(text, model: self) }
-                })
+                }, markdownOptions: host.markdownOptions)
                 out = surface.layout(measurer: measurer)
                 calls += measurer.calls
             }

@@ -16,7 +16,7 @@
 // and calls `onImagePress`; a one-link paragraph the host's `attachment`
 // classifies is the Video / AudioPlayer native or the FileUpload file row.
 
-import { Fragment, createElement, useContext, useMemo, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
+import { Fragment, createElement, memo, useContext, useMemo, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { linkedMarkdown, linkHref, markdownCodeLines, mediaRequestOf, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
@@ -202,19 +202,36 @@ function blocks(tree: readonly MarkdownBlock[], host: HostPlugin, scope: string,
   return tree.map((b, k) => <Fragment key={k}>{block(b, host, k, scope, id)}</Fragment>)
 }
 
+/** #VAPP-258 step 5: one top-level block, re-rendered only when its block
+ *  object changes: a streamed text's finished blocks keep their objects
+ *  (the parser's memo), so an append renders the tail alone. */
+const TopBlock = memo(function TopBlock({ b, host, k, scope, id }: { b: MarkdownBlock; host: HostPlugin; k: number; scope: string; id: string }) {
+  return <>{block(b, host, k, scope, id)}</>
+})
+
 /** `scope` = the compiled theme's scope class (the code token colours, the
  *  chip and file row recipes); `id` = the Markdown node's (its attachments'
  *  node ids). */
 export function renderMarkdown(text: string, host: HostPlugin = {}, scope = ``, id = `md`): ReactNode[] {
-  return blocks(linkedMarkdown(host, parseMarkdown(text)), host, scope, id)
+  return blocks(linkedMarkdown(host, parseMarkdown(text, host.markdownOptions)), host, scope, id)
 }
 
 const NO_HOST: HostPlugin = {}
 
 export function BuiltinMarkdown({ text, className, host = NO_HOST, id = `md` }: { text: string; className?: string; host?: HostPlugin; id?: string }) {
   // Parsed once per text, not on every parent render; the host's text links
-  // read live, like a `hostLinks` Text's.
-  const tree = useMemo(() => parseMarkdown(text), [text])
+  // read live, like a `hostLinks` Text's. #VAPP-258 step 5: the host's
+  // options (catalog/host.json `markdown.options`): hard breaks and a
+  // streamed prefix parse here, `selectable: false` turns selection off.
+  const options = host.markdownOptions
+  const breaks = options?.breaks
+  const streaming = options?.streaming === true
+  const tree = useMemo(() => parseMarkdown(text, { breaks, streaming }), [text, breaks, streaming])
   const scope = useContext(SurfaceContext)?.compiled.scope ?? ``
-  return <div className={className ? `xui-md ${className}` : `xui-md`}>{blocks(linkedMarkdown(host, tree), host, scope, id)}</div>
+  const linked = linkedMarkdown(host, tree)
+  return (
+    <div className={className ? `xui-md ${className}` : `xui-md`} data-selectable={options?.selectable === false ? `false` : undefined}>
+      {linked.map((b, k) => <TopBlock key={k} b={b} host={host} k={k} scope={scope} id={id} />)}
+    </div>
+  )
 }

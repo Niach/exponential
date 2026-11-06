@@ -62,6 +62,9 @@ export interface HostPolicy {
   onImagePress?: (src: string) => void
   /** #VAPP-258: a Markdown one-link paragraph as a video, audio or file block. */
   attachment?: (href: string) => { kind: `video` | `audio` | `file`; name: string } | null
+  /** #VAPP-258 step 5 (catalog/host.json `markdown.options`): how this
+   *  host's Markdowns render (unset = the defaults). */
+  markdownOptions?: { breaks?: `soft` | `hard`; density?: `document` | `chat`; selectable?: boolean; streaming?: boolean }
   media?: MediaOptions
 }
 
@@ -662,9 +665,9 @@ export class ExponentialHost {
 
   /** #VAPP-258: the policy's Markdown hooks (catalog/host.json `markdown`);
    *  undefined = the host set none. */
-  markdownHooks(): Pick<HostPolicy, `imageSize` | `onImagePress` | `attachment`> {
+  markdownHooks(): Pick<HostPolicy, `imageSize` | `onImagePress` | `attachment` | `markdownOptions`> {
     const p = this.options.policy
-    return { imageSize: p?.imageSize, onImagePress: p?.onImagePress, attachment: p?.attachment }
+    return { imageSize: p?.imageSize, onImagePress: p?.onImagePress, attachment: p?.attachment, markdownOptions: p?.markdownOptions }
   }
 
   /** A renderer's painter for `componentId` failed. Reported ONCE per

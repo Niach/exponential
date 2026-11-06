@@ -99,4 +99,55 @@ class MarkdownRenderTest {
         assertEquals("", failures.joinToString("\n"))
         assertNotEquals(0, cases.size)
     }
+
+    /** #VAPP-258 step 5: host options (`breaks`). */
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun optionCases() {
+        val f = fixture()
+        val failures = mutableListOf<String>()
+        for (c in f["optionCases"] as List<Map<String, Any?>>) {
+            val hard = (c["options"] as Map<String, Any?>?)?.get("breaks") == "hard"
+            val actual = canon(normal(Markdown.parse(c["text"] as String, hard)))
+            if (actual != canon(c["blocks"])) failures += "${c["name"]}\n  expected ${canon(c["blocks"])}\n  actual   $actual"
+        }
+        assertEquals("", failures.joinToString("\n"))
+    }
+
+    /** #VAPP-258 step 5: documents streamed in prefix by prefix, in order (the memo) and cold. */
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun streamingCases() {
+        val f = fixture()
+        val cases = f["streamingCases"] as List<Map<String, Any?>>
+        assertTrue(cases.isNotEmpty())
+        val failures = mutableListOf<String>()
+        for (c in cases) {
+            val text = c["text"] as String
+            val hard = (c["options"] as Map<String, Any?>?)?.get("breaks") == "hard"
+            for (cold in listOf(false, true)) {
+                Markdown.resetStreamMemo()
+                for ((i, expected) in (c["steps"] as List<Any?>).withIndex()) {
+                    if (cold) Markdown.resetStreamMemo()
+                    val prefix = text.substring(0, i + 1)
+                    val actual = canon(normal(Markdown.parse(prefix, hard, streaming = true)))
+                    if (actual != canon(expected)) {
+                        failures += "${c["name"]} \"$prefix\" cold=$cold\n  expected ${canon(expected)}\n  actual   $actual"
+                        break
+                    }
+                }
+            }
+        }
+        assertEquals("", failures.joinToString("\n"))
+    }
+
+    /** A streamed text's later list is its own group (a gap between lists). */
+    @Test
+    fun streamedListsKeepTheirGroups() {
+        Markdown.resetStreamMemo()
+        Markdown.parse("- a\n- b\n\n", false, streaming = true)
+        val blocks = Markdown.parse("- a\n- b\n\n- c", false, streaming = true)
+        assertEquals(blocks[0].listGroup, blocks[1].listGroup)
+        assertNotEquals(blocks[1].listGroup, blocks[2].listGroup)
+    }
 }

@@ -1510,15 +1510,20 @@ impl SurfaceView {
         let units = self.md_units.borrow();
         let list = units.get(&node)?;
         let mut best: Option<(f32, usize)> = None;
-        for (u, (layout, _)) in list.iter().enumerate() {
-            let b = layout.bounds();
+        for (u, unit) in list.iter().enumerate() {
+            // #VAPP-258 step 5: an off-screen block of a long document was
+            // never laid out this frame.
+            if !unit.live.get() {
+                continue;
+            }
+            let b = unit.layout.bounds();
             let d = if at.y < b.top() { f32::from(b.top() - at.y) } else if at.y > b.bottom() { f32::from(at.y - b.bottom()) } else { 0.0 };
             if best.is_none_or(|(bd, _)| d < bd) {
                 best = Some((d, u));
             }
         }
         let (_, u) = best?;
-        let (layout, text) = &list[u];
+        let (layout, text) = (&list[u].layout, &list[u].text);
         let b = layout.bounds();
         let ix = if at.y > b.bottom() {
             text.len()
@@ -1555,6 +1560,13 @@ impl SurfaceView {
         }
     }
 
+    /// #VAPP-258 step 5 (tests): a Markdown leaf's (live, all) text units.
+    #[cfg(test)]
+    pub(crate) fn md_unit_counts(&self, id: &str) -> (usize, usize) {
+        let Some(node) = self.cache.index_of(id) else { return (0, 0) };
+        self.md_units.borrow().get(&node).map_or((0, 0), |u| (u.iter().filter(|u| u.live.get()).count(), u.len()))
+    }
+
     /// The selected Markdown text (empty = none).
     pub fn selected_text(&self) -> String {
         let Some(sel) = self.md_selection.filter(|s| !s.is_empty()) else { return String::new() };
@@ -1565,7 +1577,7 @@ impl SurfaceView {
     /// select-all inside it).
     pub fn select_all_markdown(&mut self, id: &str, cx: &mut Context<Self>) -> bool {
         let Some(node) = self.cache.index_of(id) else { return false };
-        let end = self.md_units.borrow().get(&node).and_then(|u| u.last().map(|(_, t)| (u.len() - 1, t.len())));
+        let end = self.md_units.borrow().get(&node).and_then(|u| u.last().map(|unit| (u.len() - 1, unit.text.len())));
         let Some(end) = end else { return false };
         self.md_selection = Some(crate::paint::markdown::MdSelection { node, anchor: (0, 0), head: end });
         self.md_selection_key = self.md_text_key(node);

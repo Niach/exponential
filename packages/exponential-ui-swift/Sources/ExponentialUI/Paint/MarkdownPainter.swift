@@ -10,7 +10,19 @@ enum MarkdownPainter {
     /// policy: ONE rule for the measurer and the painter.
     @MainActor
     static func blocks(_ text: String, model: SurfaceModel) -> [MarkdownBlock] {
-        Markdown.resolveImages(Markdown.parse(text)) { model.mediaRequest($0) != nil }
+        // #VAPP-258 step 5: the host's options (hard breaks, a streamed prefix).
+        let o = model.host.markdownOptions
+        return Markdown.resolveImages(Markdown.parse(text, hardBreaks: o.hardBreaks, streaming: o.streaming)) { model.mediaRequest($0) != nil }
+    }
+
+    /// #VAPP-258 step 5: the props a Markdown's recipes resolve with:
+    /// `density: chat` added under the host's chat rhythm (a
+    /// painter-supplied recipe prop, `catalog/recipes.json`).
+    static func props(_ props: Props, chat: Bool) -> Props {
+        guard chat else { return props }
+        var p = props
+        p["density"] = .string("chat")
+        return p
     }
 
     /// `blocks` after the host's Markdown hooks (#VAPP-258, the measurer
@@ -43,6 +55,12 @@ enum MarkdownPainter {
         func spec(_ p: PartStyle, _ base: MarkdownTextSpec) -> MarkdownTextSpec {
             MarkdownTextSpec(size: p.px("fontSize") ?? base.size, lineHeight: p.px("lineHeight") ?? base.lineHeight, weight: Int(p.props.num("fontWeight") ?? Double(base.weight)), family: p.fontFamily ?? base.family)
         }
+        // #VAPP-258 step 5: the chat rhythm re-resolves the root (the node's
+        // text style knows no density): its type is the body, its gap the
+        // block gap. The document keeps the node's style and the `sm` gap.
+        let chat = props["density"]?.string == "chat"
+        let root = chat ? part("root") : nil
+        if let root { s.body = spec(root, s.body) }
         var headingBase = s.body
         headingBase.weight = 600
         s.heading = spec(part("heading"), headingBase)
@@ -54,7 +72,7 @@ enum MarkdownPainter {
         let quote = part("quote")
         s.quoteBorder = quote.px("borderWidth") ?? s.quoteBorder
         s.quotePad = quote.px("paddingHorizontal") ?? s.quotePad
-        s.blockGap = theme.spacing("sm")
+        s.blockGap = root?.px("gap") ?? theme.spacing("sm")
         s.headingTop = theme.spacing("md")
         s.headingBottom = theme.spacing("xs")
         s.cellPadH = theme.spacing("sm")
