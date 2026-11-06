@@ -118,7 +118,7 @@ final class RunnerModel: RunnerPainter {
     nonisolated func paint(surface: String, componentsJson: String, dataJson: String?) {
         MainActor.assumeIsolated {
             let v = ExponentialHost.a2uiVersion
-            host.receive(RunnerJSON.text(["version": v, "createSurface": ["surfaceId": surface, "catalogId": coreCatalogId()]]))
+            host.receive(RunnerJSON.text(["version": v, "createSurface": ["surfaceId": surface, "catalogId": SurfaceOptions().catalogId]]))
             host.receive(RunnerJSON.text(["version": v, "updateComponents": ["surfaceId": surface, "components": RunnerJSON.value(componentsJson) ?? []]]))
             if let dataJson, let data = RunnerJSON.value(dataJson) {
                 host.receive(RunnerJSON.text(["version": v, "updateDataModel": ["surfaceId": surface, "path": "/", "value": data]]))

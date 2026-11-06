@@ -43,6 +43,13 @@ final class RunnerAppDelegate: NSObject, UIApplicationDelegate {
     }
 }
 
+struct Viewport: Hashable {
+    let model: ObjectIdentifier
+    let width: CGFloat
+    let height: CGFloat
+    init(model: ObjectIdentifier, size: CGSize) { self.model = model; width = size.width; height = size.height }
+}
+
 /// The window: surface `app` fills it; the sheets and the toast paint above
 /// it (their own Drawer / Toast layers), hit-testable only while a modal
 /// layer is open.
@@ -51,15 +58,21 @@ struct RunnerView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        GeometryReader { geometry in
-            let size = geometry.size
-            ZStack(alignment: .topLeading) {
-                surface(RunnerSurface.app, size)
-                surface(RunnerSurface.permissions, size)
-                surface(RunnerSurface.consent, size)
-                surface(RunnerSurface.toast, size).allowsHitTesting(false)
+        ZStack(alignment: .topLeading) {
+            GeometryReader { geometry in
+                surface(RunnerSurface.app, geometry.size)
+                    .onChange(of: geometry.size.width, initial: true) { _, width in model.width(width) }
             }
-            .onChange(of: size.width, initial: true) { _, width in model.width(width) }
+            // The layers reach the screen's edges (their scrim too); the
+            // surface takes the safe area as insets.
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    surface(RunnerSurface.permissions, geometry.size)
+                    surface(RunnerSurface.consent, geometry.size)
+                    surface(RunnerSurface.toast, geometry.size).allowsHitTesting(false)
+                }
+            }
+            .ignoresSafeArea()
         }
         .background((model.host.theme?.color("background", mode: scheme == .dark ? .dark : .light) ?? Color(.systemBackground)).ignoresSafeArea())
     }
@@ -70,8 +83,12 @@ struct RunnerView: View {
             HostSurface(host: model.host, surfaceId: id)
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
                 .allowsHitTesting(id == RunnerSurface.app || surface.layers.contains { $0.modal })
-                .onAppear { surface.setViewport(width: size.width, height: size.height) }
-                .onChange(of: size) { _, size in surface.setViewport(width: size.width, height: size.height) }
+                // At the window's height (the page scrolls inside the shell, never
+                // the window), again for every new model: a template apply
+                // recreates the surface.
+                .task(id: Viewport(model: ObjectIdentifier(surface), size: size)) {
+                    surface.setViewport(width: size.width, height: size.height)
+                }
         }
     }
 }

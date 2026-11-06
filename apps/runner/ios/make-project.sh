@@ -211,8 +211,6 @@ targets:
       - path: Runner/app
         type: folder
         buildPhase: resources
-    info:
-      path: Runner/Info.plist
     settings:
       base:
         PRODUCT_NAME: {target}
@@ -235,10 +233,11 @@ print(f"{target} {bundle_id} capabilities={','.join(caps) or 'none'} purposes={'
 PY
 
 # The sources: the app template + the icon registry web draws, and the bundle at <name>.app/app.
-rm -rf "$OUT/Runner/app" "$OUT/Runner/App"
-mkdir -p "$OUT/Runner/App"
-cp "$HERE"/App/*.swift "$OUT/Runner/App/"
-cp "$EUI/Example/KitchenSink/LucideIcons.swift" "$OUT/Runner/App/"
+# (Runner/Sources, never Runner/App: APFS is case-insensitive, `App` IS `app`.)
+rm -rf "$OUT/Runner/app" "$OUT/Runner/Sources"
+mkdir -p "$OUT/Runner/Sources"
+cp "$HERE"/App/*.swift "$OUT/Runner/Sources/"
+cp "$EUI/Example/KitchenSink/LucideIcons.swift" "$OUT/Runner/Sources/"
 cp -R "$BUNDLE" "$OUT/Runner/app"
 (cd "$OUT" && xcodegen generate --quiet --spec project.yml)
 PROJECT="$(ls -d "$OUT"/*.xcodeproj | head -1)"
@@ -249,7 +248,7 @@ echo "project $PROJECT"
 DD="$OUT/DerivedData"
 if [ "$BUILD" = simulator ]; then
   xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-    -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO build -quiet
+    -derivedDataPath "$DD" ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build -quiet
   APP="$DD/Build/Products/Release-iphonesimulator/$SCHEME.app"
 else
   SIGN=(CODE_SIGNING_ALLOWED=NO)
