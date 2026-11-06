@@ -263,10 +263,8 @@ object NeedsYou {
         /**
          * #EXP-1710: the team's contract teamMergeMode. `auto` = no PR waits
          * for a person (the EXP-1699 ready rows go), `approval` = they stay.
-         * The default `approval` keeps the pre-train fixture cases (needs-you.json
-         * `prCases` carry no `mergeMode` yet).
          */
-        mergeMode: String = MergeTrain.MODE_APPROVAL,
+        mergeMode: String?,
         /** #EXP-1710: the viewer owns the team (a stuck row's Merge now). */
         owner: Boolean = false,
     ): List<Row> {

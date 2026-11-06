@@ -10,6 +10,7 @@ import { planRowLabel } from "./plan-page"
 import { resultAge } from "./results-tab"
 import type { TreeMessage } from "./session-tree"
 import { cardState } from "./waiting-cards"
+import type { TeamMergeMode } from "./merge-train"
 
 export const NEEDS_YOU_COPY = fixture.copy
 export const NEEDS_YOU_TEST_IDS = fixture.testIds
@@ -170,6 +171,9 @@ export function needsYou(input: {
   sessions: readonly NeedsYouSessionInput[]
   messages: readonly NeedsYouMessageInput[]
   pullRequests?: readonly NeedsYouPullRequestInput[]
+  /** #EXP-1710: the team's contract teamMergeMode; `auto` = no PR waits for
+   *  a person (merge-train.json NEEDS YOU), so no ready rows. */
+  mergeMode?: TeamMergeMode | null
 }): NeedsYouRow[] {
   // Another member's agent conversation is theirs (chats.json `listAgents`).
   const readable = new Map(
@@ -199,12 +203,14 @@ export function needsYou(input: {
   }
   return [
     ...rows.values(),
-    ...pullRequestRows({
-      now: input.now,
-      me: input.me,
-      sessions: input.sessions,
-      pullRequests: input.pullRequests ?? [],
-    }),
+    ...(input.mergeMode === `auto`
+      ? []
+      : pullRequestRows({
+          now: input.now,
+          me: input.me,
+          sessions: input.sessions,
+          pullRequests: input.pullRequests ?? [],
+        })),
   ].sort(
     (a, b) =>
       Number(a.kind === `pr`) - Number(b.kind === `pr`) ||

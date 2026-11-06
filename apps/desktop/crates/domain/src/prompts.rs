@@ -230,20 +230,6 @@ pub const MERGE_RUN_PR: Spec = Spec {
     focus: "merge",
 };
 
-/// #EXP-1611 (pr-checks.json MERGE PILL): INSTEAD OF the plain / stack
-/// merge confirm while the PR's `checks_state` is failure.
-pub const MERGE_FAILING_PR: Spec = Spec {
-    id: "merge-failing-pr",
-    copy: &[
-        ("title", "Merge PR #{number} with failing checks?"),
-        ("titleStack", "Merge the stack with failing checks?"),
-        ("body", "Failing: {names}."),
-    ],
-    params: &["number", "names"],
-    actions: confirm!(destructive "merge", "Merge"),
-    focus: "cancel",
-};
-
 /// #EXP-1707 (merge-train.json `mergeNowPrompt`): an owner's Merge now
 /// (the `…` menu, the Needs you stuck row); untested, next, alone.
 pub const MERGE_NOW_PR: Spec = Spec {
@@ -532,7 +518,6 @@ pub const ALL: &[Spec] = &[
     MOVE_ISSUE,
     MERGE_ISSUE_PR,
     MERGE_RUN_PR,
-    MERGE_FAILING_PR,
     MERGE_NOW_PR,
     STOP_RUN,
     RESUME_RUN,
@@ -603,17 +588,6 @@ pub fn merge_run_pr(number: Option<u64>) -> Prompt {
         if number.is_some() { "title" } else { "titleNoNumber" },
         Some("body"),
         &[("number", number.as_deref().unwrap_or(""))],
-    )
-}
-
-/// #EXP-1611: `names` = [`crate::pr_checks::failing_check_names`]; `stack`
-/// = the PR sits in an open stack (Merge lands it through its top).
-pub fn merge_failing_pr(number: Option<u64>, names: &str, stack: bool) -> Prompt {
-    let number = number.map(|n| n.to_string());
-    MERGE_FAILING_PR.render(
-        if stack { "titleStack" } else { "title" },
-        Some("body"),
-        &[("number", number.as_deref().unwrap_or("")), ("names", names)],
     )
 }
 
@@ -877,8 +851,6 @@ mod tests {
             merge_issue_pr(None, 3),
             merge_run_pr(Some(7)),
             merge_run_pr(None),
-            merge_failing_pr(Some(7), "gate", false),
-            merge_failing_pr(Some(7), "gate", true),
             stop_run(),
             resume_run(Some("Mac")),
             resume_run(None),

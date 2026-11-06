@@ -7,7 +7,6 @@ import mergeTrain from "../fixtures/merge-train.json" with { type: "json" }
 import {
   buildSessionThread,
   composerReplies,
-  guideMenuEntries,
   guidePullRequest,
   listAgents,
   threadChatMode,
@@ -79,11 +78,6 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of thread.guidePullRequestCases) {
     test(`guide pull request: ${entry.name}`, () => {
       expect(guidePullRequest(entry.pullRequests)?.id ?? null).toBe(entry.expected)
-    })
-  }
-  for (const entry of thread.guideMenuCases) {
-    test(`guide menu: ${entry.name}`, () => {
-      expect(guideMenuEntries(entry.input)).toEqual(entry.expected)
     })
   }
   for (const entry of thread.stripModeCases) {

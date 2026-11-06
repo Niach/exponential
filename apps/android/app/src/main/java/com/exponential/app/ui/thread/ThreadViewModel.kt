@@ -838,8 +838,8 @@ class ThreadViewModel @Inject constructor(
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** EXP-1307: the viewer is a member of the thread's team (the Guide
-     *  `…`'s Close PR, `SessionTree.guideMenuEntries`). */
+    /** EXP-1307: the viewer is a member of the thread's team (the header
+     *  `…`'s Close PR, `MergeTrain.mergeMenuEntries`). */
     val isMember: StateFlow<Boolean> = combine(teamId, auth.userId) { team, user -> team to user }
         .flatMapLatest { (team, user) ->
             if (team == null || user == null) flowOf(false)

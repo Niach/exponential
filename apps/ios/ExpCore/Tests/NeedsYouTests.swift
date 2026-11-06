@@ -93,7 +93,8 @@ final class NeedsYouTests: XCTestCase {
                 me: input["me"] as? String,
                 sessions: sessions,
                 messages: messages,
-                pullRequests: pullRequests
+                pullRequests: pullRequests,
+                mergeMode: input["mergeMode"] as? String
             ).map(json)
             let expected = try XCTUnwrap(entry["expected"] as? [Any], name)
             XCTAssertTrue(
@@ -130,7 +131,8 @@ final class NeedsYouTests: XCTestCase {
                     id: mirror.id, sessionId: mirror.sessionId, authorSessionId: mirror.authorSessionId,
                     body: mirror.body, createdAt: mirror.createdAt, answeredAt: mirror.answeredAt, card: mirror.card
                 ),
-            ]
+            ],
+            mergeMode: nil
         )
         XCTAssertEqual(rows.map(\.messageId), ["q2"])
         XCTAssertEqual(rows.map(\.sessionId), ["c1"])

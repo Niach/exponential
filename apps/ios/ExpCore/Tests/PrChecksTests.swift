@@ -4,9 +4,8 @@ import XCTest
 
 // #EXP-1611: the CI UI ×4, replayed against
 // packages/domain-contract/fixtures/pr-checks.json (TS `pr-checks.test.ts`,
-// desktop `domain::pr_checks`, Android `PrChecksTest`): `mergePill`,
-// `formatDuration`, `checksList`, `checksSummary`, `failingBody`, plus the
-// copy and test ids.
+// desktop `domain::pr_checks`, Android `PrChecksTest`): `formatDuration`,
+// `checksList`, `checksSummary`, plus the copy and test ids.
 final class PrChecksTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -51,7 +50,6 @@ final class PrChecksTests: XCTestCase {
         let fixture = try fixture()
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
         XCTAssertEqual(copy["checks"] as? String, PrChecks.Copy.checks)
-        XCTAssertEqual(copy["mergeFailing"] as? String, PrChecks.Copy.mergeFailing)
         let summary = try XCTUnwrap(copy["summary"] as? [String: String])
         XCTAssertEqual(summary["failing"], PrChecks.Copy.summaryFailing)
         XCTAssertEqual(summary["running"], PrChecks.Copy.summaryRunning)
@@ -59,18 +57,6 @@ final class PrChecksTests: XCTestCase {
         let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
         XCTAssertEqual(testIds["checksMenu"], PrChecks.TestIds.checksMenu)
         XCTAssertEqual(testIds["checkRow"], PrChecks.TestIds.checkRow)
-    }
-
-    func testMergePillReplaysEveryCase() throws {
-        for item in try cases("mergePill") {
-            let input = try XCTUnwrap(item["input"] as? [String: Any])
-            let pill = PrChecks.mergePill(state: string(input["state"]), stack: try XCTUnwrap(input["stack"] as? Bool))
-            let actual: [String: Any] = [
-                "label": pill.label, "glyph": pill.glyph.rawValue,
-                "primary": pill.primary, "confirm": pill.confirm.rawValue,
-            ]
-            XCTAssertEqual(actual as NSDictionary, try XCTUnwrap(item["expected"] as? NSDictionary), "\(input)")
-        }
     }
 
     func testFormatDurationReplaysEveryCase() throws {
@@ -109,27 +95,10 @@ final class PrChecksTests: XCTestCase {
         }
     }
 
-    func testFailingBodyReplaysEveryCase() throws {
-        for item in try cases("failingBody") {
-            XCTAssertEqual(PrChecks.failingBody(try checks(item["checks"])), item["expected"] as? String)
-        }
-    }
-
     func testSpecimenListsEveryRow() throws {
         let specimen = try XCTUnwrap(try fixture()["specimen"] as? [String: Any])
         let rows = PrChecks.checksList(try checks(specimen["checks"]), now: try date(specimen["now"]))
         XCTAssertEqual(rows.map(\.name), ["gate", "e2e", "android", "lint", "docs"])
-    }
-
-    func testFailingPromptFillsTheTitle() {
-        let plain = Prompts.MergeFailingPr.copy(number: 42, stack: false, body: "Failing: gate.")
-        XCTAssertEqual(plain.title, "Merge PR #42 with failing checks?")
-        XCTAssertEqual(plain.body, "Failing: gate.")
-        XCTAssertEqual(plain.focus, "cancel")
-        XCTAssertEqual(
-            Prompts.MergeFailingPr.copy(number: 42, stack: true, body: "Failing: gate.").title,
-            "Merge the stack with failing checks?"
-        )
     }
 
     func testEntityDecodesTheWire() throws {

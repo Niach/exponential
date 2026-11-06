@@ -1,7 +1,7 @@
 import Foundation
 
 /// #EXP-1611: CI on a pull request, the UI ×4 (packages/domain-contract
-/// fixtures/pr-checks.json MERGE PILL / CHECKS LIST is the spec; TS reference
+/// fixtures/pr-checks.json CHECKS LIST is the spec; TS reference
 /// `src/pr-checks.ts`, desktop `domain::pr_checks`, Android `PrChecks`). Pure:
 /// reads the synced `pull_request_checks` rows + `pull_requests.checks_state`,
 /// replayed by `PrChecksTests`.
@@ -10,7 +10,6 @@ public enum PrChecks {
 
     public enum Copy {
         public static let checks = "Checks"
-        public static let mergeFailing = "Checks failing"
         public static let summaryFailing = "{count} failing"
         public static let summaryRunning = "{count} running"
         public static let summaryPassed = "{count} passed"
@@ -191,44 +190,5 @@ public enum PrChecks {
         default:
             return nil
         }
-    }
-
-    // MARK: - Merge pill
-
-    public struct MergePill: Equatable, Sendable {
-        public enum Glyph: String, Sendable { case prMerged = "pr-merged", spinner, ciFailed = "ci-failed" }
-        public enum Confirm: String, Sendable { case merge, stack, failing }
-
-        public let label: String
-        /// `.spinner` = THE spinner in place of a glyph.
-        public let glyph: Glyph
-        public let primary: Bool
-        /// Which card a tap opens: the plain merge confirm, the stack
-        /// confirm, or prompts.json `merge-failing-pr`.
-        public let confirm: Confirm
-    }
-
-    /// THE header Merge pill over the PR's `checks_state`.
-    public static func mergePill(state: String?, stack: Bool) -> MergePill {
-        if state == DomainContract.prChecksStateFailure {
-            return MergePill(label: Copy.mergeFailing, glyph: .ciFailed, primary: false, confirm: .failing)
-        }
-        return MergePill(
-            label: stack ? DomainContract.diffUiMergeStack : DomainContract.diffUiMergePr,
-            glyph: state == DomainContract.prChecksStatePending ? .spinner : .prMerged,
-            primary: true,
-            confirm: stack ? .stack : .merge
-        )
-    }
-
-    /// prompts.json `merge-failing-pr` body: the failing rows' names in list
-    /// order (five, then +N).
-    public static func failingBody(_ checks: [Check]) -> String {
-        let names = checksList(checks, now: Date(timeIntervalSince1970: 0))
-            .filter { $0.glyph == .failed }
-            .map(\.name)
-        let shown = names.prefix(5).joined(separator: ", ")
-        let list = names.count > 5 ? "\(shown) +\(names.count - 5)" : shown
-        return Prompts.fill(Prompts.MergeFailingPr.entry.texts["body"] ?? "", ["names": list])
     }
 }

@@ -105,6 +105,7 @@ class NeedsYouTest {
                         createdAt = it.str("createdAt")!!,
                     )
                 },
+                mergeMode = input.str("mergeMode"),
             )
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(rows.map(::encode)))
         }
@@ -142,6 +143,7 @@ class NeedsYouTest {
                     card = mirror.card,
                 ),
             ),
+            mergeMode = null,
         )
         assertEquals(listOf("q2"), rows.map { it.messageId })
         assertEquals(listOf("c1"), rows.map { it.sessionId })

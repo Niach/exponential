@@ -99,7 +99,8 @@ fn input(team_id: &str, now: i64, cx: &App) -> NeedsYouInput {
             created_at: pull.created_at.clone().unwrap_or_default(),
         })
         .collect();
-    NeedsYouInput { now, me, sessions: team, messages, pull_requests }
+    let merge_mode = collections.teams.read(cx).get(team_id).map(|row| row.merge_mode().to_string());
+    NeedsYouInput { now, me, sessions: team, messages, pull_requests, merge_mode }
 }
 
 /// A stuck PR's row: its PR and its actions (merge-train.json `stuckRow`).
@@ -196,7 +197,7 @@ pub(crate) fn with_stuck_rows(base: Vec<NeedsYouRow>, stuck: Vec<(NeedsYouRow, S
 #[derive(Clone, PartialEq, Eq)]
 struct RowsKey {
     team_id: String,
-    revisions: [u64; 5],
+    revisions: [u64; 6],
     owner: bool,
     /// The ages move with the minute.
     minute: i64,
@@ -224,6 +225,7 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
             collections.pull_requests.read(cx).revision(),
             collections.agents.read(cx).revision(),
             collections.devices.read(cx).revision(),
+            collections.teams.read(cx).revision(),
         ],
         owner,
         minute: now / 60_000,

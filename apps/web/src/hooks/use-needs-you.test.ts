@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 vi.mock(`@/lib/collections`, () => ({ sessionCollection: { get: () => undefined }, deviceCollection: {} }))
 vi.mock(`@/hooks/use-session-tree`, () => ({}))
+vi.mock(`@/hooks/use-team-data`, () => ({}))
 vi.mock(`@/components/thread/threads-list`, () => ({}))
 vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => vi.fn() }))
 

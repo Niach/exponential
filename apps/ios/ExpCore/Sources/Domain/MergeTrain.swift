@@ -263,7 +263,7 @@ public enum MergeTrain {
         case closePr = "close-pr"
     }
 
-    /// The header `…` (amends session-thread.json guideMenuEntries): checks
+    /// The header `…` (the thread menu): checks
     /// (any viewer, rows), Merge now (owners; a live PR not draft, merged or
     /// conflict), Hold | Resume auto-merge (members; a live PR not draft or
     /// merged), Close PR (members, live PR). `state` = contract prState of

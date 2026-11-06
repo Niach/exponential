@@ -109,6 +109,10 @@ pub struct NeedsYouInput {
     pub messages: Vec<NeedsYouMessageInput>,
     #[serde(default)]
     pub pull_requests: Vec<NeedsYouPullRequestInput>,
+    /// #EXP-1710: the team's contract teamMergeMode; `auto` = no PR waits for
+    /// a person (merge-train.json NEEDS YOU), so no ready rows.
+    #[serde(default)]
+    pub merge_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -310,7 +314,9 @@ pub fn needs_you(input: &NeedsYouInput) -> Vec<NeedsYouRow> {
         }
     }
     let mut out: Vec<NeedsYouRow> = rows.into_values().collect();
-    out.extend(pull_request_rows(input));
+    if input.merge_mode.as_deref() != Some(crate::contract::TEAM_MERGE_MODE_AUTO) {
+        out.extend(pull_request_rows(input));
+    }
     out.sort_by(|a, b| {
         (a.kind == NeedsYouKind::Pr)
             .cmp(&(b.kind == NeedsYouKind::Pr))
@@ -389,6 +395,7 @@ mod tests {
                 card: kept[0].card.clone(),
             }],
             pull_requests: Vec::new(),
+            merge_mode: None,
         });
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].message_id, "q2");

@@ -161,35 +161,6 @@
       ],
       "focus": "merge"
     },
-    "merge-failing-pr": {
-      "title": "Merge PR #{number} with failing checks?",
-      "titleStack": "Merge the stack with failing checks?",
-      "body": "Failing: {names}.",
-      "variants": "#EXP-1611 (pr-checks.json MERGE PILL): INSTEAD OF merge-issue-pr, merge-run-pr and the stack confirm while the PR's checks_state is failure. titleStack when the PR sits in an open stack (Merge lands it through its top).",
-      "params": [
-        {
-          "name": "number",
-          "meaning": "the GitHub pull request number"
-        },
-        {
-          "name": "names",
-          "meaning": "pr-checks.json failingBody: the failing checks' names, five then +N"
-        }
-      ],
-      "actions": [
-        {
-          "id": "cancel",
-          "label": "Cancel",
-          "role": "cancel"
-        },
-        {
-          "id": "merge",
-          "label": "Merge",
-          "role": "destructive"
-        }
-      ],
-      "focus": "cancel"
-    },
     "merge-now-pr": {
       "title": "Merge PR #{number} now?",
       "titleStack": "Merge the stack now?",

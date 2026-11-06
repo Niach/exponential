@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1610 (server half of #EXP-1608): CI on a pull request, provider-neutral. ROWS: `pull_request_checks` = one row per check NAME at the PR's head commit (`head_sha`, `name`, `status` contract prCheckStatus, `conclusion` contract prCheckConclusion or null while running, `required` = a required check of the base branch, `started_at`, `completed_at`, `details_url` = the logs link); a newer head replaces the older head's rows, a late delivery for an older head is dropped. `pull_requests.checks_state` = the aggregate (contract prChecksState, `aggregate` below: none = no rows, failure wins over pending). Both sync (shape `pull-request-checks`, team-scoped, member-only), so no client calls GitHub. WRITERS: GitHub's `check_run` webhook upserts a row; `check_suite`/`workflow_run` `completed` and the next `exponential_pr` read (throttled, one conditional GET of the head's check runs) repair a missed delivery (read at the head sha when known; a read cut at the page cap upserts without dropping rows); agents never poll; a `pull_request` `synchronize` (a push, a rebase) reads the new head at once. SWEEP (webhook-independent; the App's check events are a grant a person accepts, and without them a thread that ended its turn never heard CI): every watchdog tick re-reads (throttled per PR, skipped on a low installation budget or a known checks:read refusal) the live PRs whose checks are pending and that changed in the last 6 h, or that have none and changed in the last 30 min, at most 50 a tick; a GITHUB_POLLING instance (no webhooks reach it) also repairs its live PRs whose checks were read at an older head, inside the poller's budget back-off. Without the App's checks:read permission nothing is known: state none, never an error; the 403 is remembered per installation (~45 min), so a missing permission costs no calls. eCode's own CI writes the same rows later. WAKE: when `checks_state` turns success or failure (from pending or none), ONE `pr_checks` event line wakes the PR's session (its opener while live, else the thread's root): `CI on #N: success.` / `CI on #N: failure (name (logs url), …).` (`wakeText`), once per PR, head and state. A check still queued `queuedFlagMinutes` (contract prChecks) after it was created is flagged ONCE the same way (`queuedText`). MCP: every `exponential_pr` op returns `checks` = {state, total, failing[{name, url, required}], pending[names]} (`brief`). `pr merge` reports them; with MERGE_CHECK_GATE=true (default off) it refuses while a gated check is red or running (`gate`: the required checks when the base names any, else every check; red first) with `gateText`, and `force: true` merges anyway. Agents never poll api.github.com: they end their turn and the bus wakes them. #EXP-1611 adds the UI x4 (checks list, Merge pill) on this fixture. #EXP-1611 UI x4 (web, desktop, iOS, Android; every client syncs `pull-request-checks` + `pull_requests.checks_state` and replays the cases below; no client calls GitHub). THE PR SURFACE = the thread header (session-thread.json `guidePullRequest`: the Merge pill + the `…` menu, every tab, phones included); no other surface draws checks. MERGE PILL (`mergePill({state, stack})`, state = the PR row's `checks_state`): THE header Merge pill (Pill md, action mode) gains the check state: none and success = today's pill (primary, the pr-merged glyph, `Merge PR` | `Merge stack`, the plain or stack confirm); pending = the same primary pill with THE Spinner in place of the glyph, still enabled, the same confirms; failure = the PLAIN (non-primary) pill, the `ci-failed` glyph tinted red, label `copy.mergeFailing`; a tap opens THE shared alert card prompts.json `merge-failing-pr` (Cancel focused, Merge destructive; body = `failingBody(rows)`: the failing rows' names in list order, five then ` +N`), and Merge merges exactly as the pill would have (a stack member lands the stack through its top, `stack: true`; the failing confirm REPLACES the plain/stack confirm, never two cards). The merge in flight keeps its own spinner and disables the pill as before. The person's merge never sends `force` (MERGE_CHECK_GATE gates agents only). CHECKS LIST = the `…` menu's leading `checks` submenu (session-thread.json `guideMenuEntries({state, member, checks})`: `checks` first whenever the PR has at least one row, any PR state, any viewer; then `close-pr` as before), THE Menu x4 (md+/IDE a submenu flyout, phones a pushed sheet page): the entry = icon `checksSummary(rows).glyph` (tinted by its tone), label `copy.checks`, value `checksSummary(rows).value`; its rows = `checksList(rows, now)` in order, each THE menu item: icon `glyph` tinted `tone` (`ci-running` = THE Spinner), label = the check name, value = `duration` (none = no value), a pick opens `url` (details_url, the logs) in the browser; a row without a url is disabled. GLYPHS (icons.json concepts): queued ci-queued, in_progress ci-running, completed + a failing conclusion ci-failed (red), success ci-passed (green), any other conclusion (neutral, skipped, stale) ci-skipped (muted); tone muted otherwise. ORDER: failed, running, queued, passed, skipped; ties by name (code-point order). DURATION (`checkDuration`): completed = completedAt - startedAt, in_progress = now - startedAt, else null (queued, or a missing start); `formatDuration(ms)` = `42s`, `3m 5s`, `1h 2m` (floor, negative = 0s). SUMMARY: failure = ci-failed red `{count} failing` (count = failing rows), pending = ci-running `{count} running` (rows not completed), success = ci-passed green `{count} passed` (every row), none = null (no entry). EVENT LINE: `pr_checks` (session-thread.json copy.events, `CI on PR {pr}`) draws like every PR event line x4. STYLEGUIDE: entry `pr-checks` (the four pills + the open checks submenu as a static menu panel over `specimen`); view-catalog `pr-checks`. #EXP-1707 (merge-train.json, the merge train): MERGE PILL IS REPLACED by merge-train.json STATUS PILL (`statusPill`): the header pill is a STATUS (Checks running, Queued · 2nd, Testing with 3, Merged, Conflict, Checks failing, ...) whose tap opens THIS fixture's Checks submenu; the person's Merge is gone from it (Needs approval in `approval` mode, Merge now in the `…`). `mergePill`, `copy.mergeFailing` (= merge-train copy.pill.failing) and prompts.json `merge-failing-pr` stay ONLY until each platform's #EXP-1710 PR moves its header to `statusPill`; the last of them deletes them. The train tests every unit, so MERGE_CHECK_GATE, `gate`, `gateText` and `force` leave with #EXP-1709 (`pr merge` = queue now / report the position). `pr_checks` wakes stay as they are: a red own head is merge-train `failing` before the train, without a bounce.",
+  "$comment": "EXP-1610 (server half of #EXP-1608): CI on a pull request, provider-neutral. ROWS: `pull_request_checks` = one row per check NAME at the PR's head commit (`head_sha`, `name`, `status` contract prCheckStatus, `conclusion` contract prCheckConclusion or null while running, `required` = a required check of the base branch, `started_at`, `completed_at`, `details_url` = the logs link); a newer head replaces the older head's rows, a late delivery for an older head is dropped. `pull_requests.checks_state` = the aggregate (contract prChecksState, `aggregate` below: none = no rows, failure wins over pending). Both sync (shape `pull-request-checks`, team-scoped, member-only), so no client calls GitHub. WRITERS: GitHub's `check_run` webhook upserts a row; `check_suite`/`workflow_run` `completed` and the next `exponential_pr` read (throttled, one conditional GET of the head's check runs) repair a missed delivery (read at the head sha when known; a read cut at the page cap upserts without dropping rows); agents never poll; a `pull_request` `synchronize` (a push, a rebase) reads the new head at once. SWEEP (webhook-independent; the App's check events are a grant a person accepts, and without them a thread that ended its turn never heard CI): every watchdog tick re-reads (throttled per PR, skipped on a low installation budget or a known checks:read refusal) the live PRs whose checks are pending and that changed in the last 6 h, or that have none and changed in the last 30 min, at most 50 a tick; a GITHUB_POLLING instance (no webhooks reach it) also repairs its live PRs whose checks were read at an older head, inside the poller's budget back-off. Without the App's checks:read permission nothing is known: state none, never an error; the 403 is remembered per installation (~45 min), so a missing permission costs no calls. eCode's own CI writes the same rows later. WAKE: when `checks_state` turns success or failure (from pending or none), ONE `pr_checks` event line wakes the PR's session (its opener while live, else the thread's root): `CI on #N: success.` / `CI on #N: failure (name (logs url), …).` (`wakeText`), once per PR, head and state. A check still queued `queuedFlagMinutes` (contract prChecks) after it was created is flagged ONCE the same way (`queuedText`). MCP: every `exponential_pr` op returns `checks` = {state, total, failing[{name, url, required}], pending[names]} (`brief`). `pr merge` reports them; with MERGE_CHECK_GATE=true (default off) it refuses while a gated check is red or running (`gate`: the required checks when the base names any, else every check; red first) with `gateText`, and `force: true` merges anyway. Agents never poll api.github.com: they end their turn and the bus wakes them. #EXP-1611 adds the UI x4 (checks list) on this fixture. #EXP-1611 UI x4 (web, desktop, iOS, Android; every client syncs `pull-request-checks` + `pull_requests.checks_state` and replays the cases below; no client calls GitHub). THE PR SURFACE = the thread header (session-thread.json `guidePullRequest`: the status pill + the `…` menu, every tab, phones included); no other surface draws checks. HEADER PILL = merge-train.json `statusPill` (its tap opens the Checks submenu below). CHECKS LIST = the `…` menu's leading `checks` submenu (merge-train.json `mergeMenuEntries`: `checks` first whenever the PR has at least one row, any PR state, any viewer), THE Menu x4 (md+/IDE a submenu flyout, phones a pushed sheet page): the entry = icon `checksSummary(rows).glyph` (tinted by its tone), label `copy.checks`, value `checksSummary(rows).value`; its rows = `checksList(rows, now)` in order, each THE menu item: icon `glyph` tinted `tone` (`ci-running` = THE Spinner), label = the check name, value = `duration` (none = no value), a pick opens `url` (details_url, the logs) in the browser; a row without a url is disabled. GLYPHS (icons.json concepts): queued ci-queued, in_progress ci-running, completed + a failing conclusion ci-failed (red), success ci-passed (green), any other conclusion (neutral, skipped, stale) ci-skipped (muted); tone muted otherwise. ORDER: failed, running, queued, passed, skipped; ties by name (code-point order). DURATION (`checkDuration`): completed = completedAt - startedAt, in_progress = now - startedAt, else null (queued, or a missing start); `formatDuration(ms)` = `42s`, `3m 5s`, `1h 2m` (floor, negative = 0s). SUMMARY: failure = ci-failed red `{count} failing` (count = failing rows), pending = ci-running `{count} running` (rows not completed), success = ci-passed green `{count} passed` (every row), none = null (no entry). EVENT LINE: `pr_checks` (session-thread.json copy.events, `CI on PR {pr}`) draws like every PR event line x4. STYLEGUIDE: entry `pr-checks` (the status pills + the open checks submenu as a static menu panel over `specimen`); view-catalog `pr-checks`. #EXP-1707 (merge-train.json, the merge train): the header pill is a merge STATUS (`statusPill`: Checks running, Queued · 2nd, Testing with 3, Merged, Conflict, Checks failing, ...) whose tap opens this fixture's Checks submenu; the person's Merge is Needs approval (`approval` mode) or Merge now in the `…`. The train tests every unit, so MERGE_CHECK_GATE, `gate`, `gateText` and `force` leave with #EXP-1709 (`pr merge` = queue now / report the position). `pr_checks` wakes stay as they are: a red own head is merge-train `failing` before the train, without a bounce.",
   "aggregate": [
     {
       "name": "no checks",
@@ -293,7 +293,6 @@
   ],
   "copy": {
     "checks": "Checks",
-    "mergeFailing": "Checks failing",
     "summary": {
       "failing": "{count} failing",
       "running": "{count} running",
@@ -304,92 +303,6 @@
     "checksMenu": "pr-checks-menu",
     "checkRow": "pr-check-row"
   },
-  "mergePill": [
-    {
-      "input": {
-        "state": "none",
-        "stack": false
-      },
-      "expected": {
-        "label": "Merge PR",
-        "glyph": "pr-merged",
-        "primary": true,
-        "confirm": "merge"
-      }
-    },
-    {
-      "input": {
-        "state": "success",
-        "stack": false
-      },
-      "expected": {
-        "label": "Merge PR",
-        "glyph": "pr-merged",
-        "primary": true,
-        "confirm": "merge"
-      }
-    },
-    {
-      "input": {
-        "state": "pending",
-        "stack": false
-      },
-      "expected": {
-        "label": "Merge PR",
-        "glyph": "spinner",
-        "primary": true,
-        "confirm": "merge"
-      }
-    },
-    {
-      "input": {
-        "state": "failure",
-        "stack": false
-      },
-      "expected": {
-        "label": "Checks failing",
-        "glyph": "ci-failed",
-        "primary": false,
-        "confirm": "failing"
-      }
-    },
-    {
-      "input": {
-        "state": "success",
-        "stack": true
-      },
-      "expected": {
-        "label": "Merge stack",
-        "glyph": "pr-merged",
-        "primary": true,
-        "confirm": "stack"
-      }
-    },
-    {
-      "input": {
-        "state": "pending",
-        "stack": true
-      },
-      "expected": {
-        "label": "Merge stack",
-        "glyph": "spinner",
-        "primary": true,
-        "confirm": "stack"
-      }
-    },
-    {
-      "input": {
-        "state": "failure",
-        "stack": true
-      },
-      "expected": {
-        "label": "Checks failing",
-        "glyph": "ci-failed",
-        "primary": false,
-        "confirm": "failing"
-      }
-    }
-  ],
   "formatDuration": [
     {
       "ms": 0,
@@ -703,93 +616,6 @@
         "tone": "green",
         "value": "2 passed"
       }
-    }
-  ],
-  "failingBody": [
-    {
-      "checks": [
-        {
-          "name": "lint",
-          "status": "completed",
-          "conclusion": "success",
-          "startedAt": "2026-11-01T12:00:00.000Z",
-          "completedAt": "2026-11-01T12:00:38.000Z",
-          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/5"
-        },
-        {
-          "name": "e2e",
-          "status": "in_progress",
-          "conclusion": null,
-          "startedAt": "2026-11-01T12:07:57.000Z",
-          "completedAt": null,
-          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/2"
-        },
-        {
-          "name": "docs",
-          "status": "completed",
-          "conclusion": "skipped",
-          "startedAt": null,
-          "completedAt": null,
-          "detailsUrl": null
-        },
-        {
-          "name": "gate",
-          "status": "completed",
-          "conclusion": "failure",
-          "startedAt": "2026-11-01T12:00:00.000Z",
-          "completedAt": "2026-11-01T12:04:12.000Z",
-          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/1"
-        },
-        {
-          "name": "android",
-          "status": "queued",
-          "conclusion": null,
-          "startedAt": null,
-          "completedAt": null,
-          "detailsUrl": "https://github.com/o/r/actions/runs/1/job/3"
-        }
-      ],
-      "expected": "Failing: gate."
-    },
-    {
-      "checks": [
-        {
-          "name": "f",
-          "status": "completed",
-          "conclusion": "failure"
-        },
-        {
-          "name": "e",
-          "status": "completed",
-          "conclusion": "failure"
-        },
-        {
-          "name": "d",
-          "status": "completed",
-          "conclusion": "failure"
-        },
-        {
-          "name": "c",
-          "status": "completed",
-          "conclusion": "failure"
-        },
-        {
-          "name": "b",
-          "status": "completed",
-          "conclusion": "failure"
-        },
-        {
-          "name": "a",
-          "status": "completed",
-          "conclusion": "failure"
-        },
-        {
-          "name": "g",
-          "status": "completed",
-          "conclusion": "failure"
-        }
-      ],
-      "expected": "Failing: a, b, c, d, e +2."
     }
   ]
 }

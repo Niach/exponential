@@ -140,25 +140,6 @@ export const mergeRunPrPrompt = (number?: number | null) => {
   )
 }
 
-/** #EXP-1611 (pr-checks.json MERGE PILL): INSTEAD OF the plain / stack
- *  confirm while the PR's checks fail. `names` = pr-checks `failingBody`'s
- *  list (`failingChecksNames`); `stack` = the PR sits in an open stack. */
-export const mergeFailingPrPrompt = ({
-  number,
-  stack = false,
-  names,
-}: {
-  number?: number | null
-  stack?: boolean
-  names?: string
-}) => {
-  const entry = P[`merge-failing-pr`]
-  return copyOf(entry, stack ? entry.titleStack : entry.title, entry.body, {
-    ...(number == null ? {} : { number }),
-    ...(names === undefined ? {} : { names }),
-  })
-}
-
 /** #EXP-1707 (merge-train.json `mergeNowPrompt`): an owner's Merge now (the
  *  `…` menu, the Needs you stuck row); `stack` = the PR sits in an open
  *  stack (it lands the whole stack, bottom first). */

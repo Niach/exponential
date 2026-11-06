@@ -1,9 +1,8 @@
 //! #EXP-1611 — CI on the thread's PR, the UI ×4 (`packages/domain-contract/
-//! fixtures/pr-checks.json` MERGE PILL / CHECKS LIST, TS reference
-//! `packages/domain-contract/src/pr-checks.ts`): the header Merge pill over
-//! the PR's `checks_state` ([`merge_pill`]), the `…` menu's Checks submenu
-//! ([`checks_summary`] for its entry, [`checks_list`] for its rows) and the
-//! failing confirm's body ([`failing_checks_body`]). Pure: the IDE feeds it
+//! fixtures/pr-checks.json` CHECKS LIST, TS reference
+//! `packages/domain-contract/src/pr-checks.ts`): the `…` menu's Checks
+//! submenu ([`checks_summary`] for its entry, [`checks_list`] for its rows;
+//! the header pill = merge-train.json `statusPill`). Pure: the IDE feeds it
 //! the synced `pull_request_checks` rows.
 
 use crate::contract;
@@ -11,8 +10,6 @@ use crate::rows::PullRequestCheckRow;
 
 /// `copy.checks`: the `…` menu entry's label.
 pub const CHECKS_LABEL: &str = "Checks";
-/// `copy.mergeFailing`: the red Merge pill's label.
-pub const MERGE_FAILING_LABEL: &str = "Checks failing";
 /// `copy.summary.*`: the entry's value per aggregate.
 pub const SUMMARY_FAILING: &str = "{count} failing";
 pub const SUMMARY_RUNNING: &str = "{count} running";
@@ -199,106 +196,6 @@ pub fn checks_summary(rows: &[PullRequestCheckRow]) -> Option<ChecksSummary> {
     }
 }
 
-/// The Merge pill's lead: the merge glyph, THE spinner, or the red glyph.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MergePillGlyph {
-    PrMerged,
-    Spinner,
-    CiFailed,
-}
-
-impl MergePillGlyph {
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::PrMerged => "pr-merged",
-            Self::Spinner => "spinner",
-            Self::CiFailed => "ci-failed",
-        }
-    }
-}
-
-/// Which card a click opens.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MergeConfirm {
-    /// The plain merge confirm.
-    Merge,
-    /// The stack confirm.
-    Stack,
-    /// prompts.json `merge-failing-pr`.
-    Failing,
-}
-
-impl MergeConfirm {
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Merge => "merge",
-            Self::Stack => "stack",
-            Self::Failing => "failing",
-        }
-    }
-}
-
-/// `mergePill`'s view.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MergePillView {
-    pub label: &'static str,
-    pub glyph: MergePillGlyph,
-    pub primary: bool,
-    pub confirm: MergeConfirm,
-}
-
-/// `mergePill({state, stack})`: THE header Merge pill over the PR's
-/// `checks_state`.
-pub fn merge_pill(state: Option<&str>, stack: bool) -> MergePillView {
-    if state == Some(contract::PR_CHECKS_STATE_FAILURE) {
-        return MergePillView {
-            label: MERGE_FAILING_LABEL,
-            glyph: MergePillGlyph::CiFailed,
-            primary: false,
-            confirm: MergeConfirm::Failing,
-        };
-    }
-    MergePillView {
-        label: if stack {
-            contract::DIFF_UI_MERGE_STACK
-        } else {
-            contract::DIFF_UI_MERGE_PR
-        },
-        glyph: if state == Some(contract::PR_CHECKS_STATE_PENDING) {
-            MergePillGlyph::Spinner
-        } else {
-            MergePillGlyph::PrMerged
-        },
-        primary: true,
-        confirm: if stack {
-            MergeConfirm::Stack
-        } else {
-            MergeConfirm::Merge
-        },
-    }
-}
-
-/// The failing rows' names in list order: five, then ` +N` (prompts.json
-/// `merge-failing-pr` `{names}`).
-pub fn failing_check_names(rows: &[PullRequestCheckRow]) -> String {
-    let names: Vec<String> = checks_list(rows, 0)
-        .into_iter()
-        .filter(|row| row.glyph == CheckGlyph::Failed)
-        .map(|row| row.name)
-        .collect();
-    let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
-    if names.len() > 5 {
-        format!("{shown} +{}", names.len() - 5)
-    } else {
-        shown
-    }
-}
-
-/// `failingBody`: the confirm's body, `Failing: {names}.`.
-pub fn failing_checks_body(rows: &[PullRequestCheckRow]) -> String {
-    format!("Failing: {}.", failing_check_names(rows))
-}
-
 /// The fixture's camelCase checks (`specimen.checks`, the cases' `checks`)
 /// as synced rows: the styleguide specimens ×4 draw from them.
 pub fn fixture_checks(checks: &serde_json::Value) -> Vec<PullRequestCheckRow> {
@@ -354,28 +251,11 @@ mod tests {
     fn the_copy_and_test_ids_are_the_fixtures() {
         let fixture = fixture();
         assert_eq!(fixture["copy"]["checks"], CHECKS_LABEL);
-        assert_eq!(fixture["copy"]["mergeFailing"], MERGE_FAILING_LABEL);
         assert_eq!(fixture["copy"]["summary"]["failing"], SUMMARY_FAILING);
         assert_eq!(fixture["copy"]["summary"]["running"], SUMMARY_RUNNING);
         assert_eq!(fixture["copy"]["summary"]["passed"], SUMMARY_PASSED);
         assert_eq!(fixture["testIds"]["checksMenu"], TEST_ID_CHECKS_MENU);
         assert_eq!(fixture["testIds"]["checkRow"], TEST_ID_CHECK_ROW);
-    }
-
-    #[test]
-    fn merge_pill_matches_the_fixture() {
-        let cases = fixture()["mergePill"].as_array().unwrap().clone();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let input = &case["input"];
-            let view = merge_pill(input["state"].as_str(), input["stack"].as_bool().unwrap());
-            let expected = &case["expected"];
-            let name = input.to_string();
-            assert_eq!(view.label, expected["label"].as_str().unwrap(), "{name}");
-            assert_eq!(view.glyph.id(), expected["glyph"].as_str().unwrap(), "{name}");
-            assert_eq!(view.primary, expected["primary"].as_bool().unwrap(), "{name}");
-            assert_eq!(view.confirm.id(), expected["confirm"].as_str().unwrap(), "{name}");
-        }
     }
 
     #[test]
@@ -426,13 +306,6 @@ mod tests {
                 })
             });
             assert_eq!(got.unwrap_or(Value::Null), case["expected"], "{}", case["name"]);
-        }
-    }
-
-    #[test]
-    fn failing_body_matches_the_fixture() {
-        for case in fixture()["failingBody"].as_array().unwrap() {
-            assert_eq!(failing_checks_body(&rows(&case["checks"])), case["expected"].as_str().unwrap());
         }
     }
 

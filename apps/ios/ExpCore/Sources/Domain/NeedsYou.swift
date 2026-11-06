@@ -239,8 +239,8 @@ public enum NeedsYou {
 
     /// #EXP-1699: the PRs ready to merge (`prCases`), and (#EXP-1710,
     /// merge-train.json NEEDS YOU) the STUCK PRs: `auto` mode lists no ready
-    /// PR (nobody waits on a person), `approval` mode (or no mode: a
-    /// pre-train caller) keeps them, their tap being Needs approval.
+    /// PR (nobody waits on a person), `approval` mode keeps them, their tap
+    /// being Needs approval.
     private static func pullRequestRows(
         now: Double, me: String?, sessions: [SessionInput], pullRequests: [PullRequestInput],
         mergeMode: String?, owner: Bool
@@ -297,12 +297,11 @@ public enum NeedsYou {
 
     /// THE fold: one row per waiting card, once, plus (#EXP-1699) the PRs ready
     /// to merge, newest first.
-    /// `mergeMode` = the team's (contract teamMergeMode; nil = a pre-train
-    /// caller: the EXP-1699 rows stay); `owner` = the viewer owns the team
-    /// (a stuck row's Merge now).
+    /// `mergeMode` = the team's (contract teamMergeMode; `auto` lists no
+    /// ready PR); `owner` = the viewer owns the team (a stuck row's Merge now).
     public static func rows(
         now: Double, me: String?, sessions: [SessionInput], messages: [MessageInput],
-        pullRequests: [PullRequestInput] = [], mergeMode: String? = nil, owner: Bool = false
+        pullRequests: [PullRequestInput] = [], mergeMode: String?, owner: Bool = false
     ) -> [Row] {
         // Another member's agent conversation is theirs (chats.json `listAgents`).
         let mayRead = sessions.filter { $0.agentId == nil || $0.userId == me }

@@ -6,8 +6,7 @@
 //! * `fixtures/session-card.json`   → [`session_card`] (THE session card);
 //! * `fixtures/session-thread.json` → [`build_session_thread`] (the thread
 //!   screen: tabs, conversation rows, composer target) + [`guide_pull_request`]
-//!   (the Guide's ONE PR) + [`guide_menu_entries`] (its header `…`,
-//!   EXP-1307) + [`thread_strip_mode`] (the strip, #EXP-1433);
+//!   (the Guide's ONE PR) + [`thread_strip_mode`] (the strip, #EXP-1433);
 //! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
 //!   Needs you · Running · Recent, live trees nested, EXP-1323) +
 //!   [`threads_unread`] (the nav dot) + [`list_agents`] (the rail's Agents).
@@ -1438,43 +1437,6 @@ pub fn guide_pull_request<'a>(
         }
     }
     open.or(merged)
-}
-
-/// EXP-1307: one entry of the thread header's Guide `…`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GuideMenuEntry {
-    /// #EXP-1611: the PR's checks submenu (pr-checks.json CHECKS LIST).
-    Checks,
-    ClosePr,
-}
-
-impl GuideMenuEntry {
-    /// The fixture's entry id.
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Checks => "checks",
-            Self::ClosePr => "close-pr",
-        }
-    }
-}
-
-/// EXP-1307: the Guide `…` entries for the Guide PR's `state` (None = no
-/// PR): #EXP-1611 `checks` first whenever the PR has at least one synced
-/// check row (any PR state, any viewer), then Close PR while the PR is open
-/// and the viewer is a member (EXP-1338: no GitHub entry, only the agent
-/// opens PRs).
-pub fn guide_menu_entries(state: Option<&str>, member: bool, checks: usize) -> Vec<GuideMenuEntry> {
-    let Some(state) = state else {
-        return Vec::new();
-    };
-    let mut entries = Vec::new();
-    if checks > 0 {
-        entries.push(GuideMenuEntry::Checks);
-    }
-    if state == "open" && member {
-        entries.push(GuideMenuEntry::ClosePr);
-    }
-    entries
 }
 
 /// EXP-1211: one open quick reply (`sessions.sendReply({messageId, itemId})`).
@@ -3079,26 +3041,6 @@ mod tests {
         }
     }
 
-    /// EXP-1307: `session-thread.json` `guideMenuCases`.
-    #[test]
-    fn guide_menu_entries_match_the_fixture() {
-        let fixture = fixture(SESSION_THREAD_JSON);
-        let cases = fixture["guideMenuCases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let input = &case["input"];
-            let checks = input["checks"].as_u64().unwrap_or(0) as usize;
-            let ids: Vec<&str> = guide_menu_entries(input["state"].as_str(), input["member"].as_bool().unwrap(), checks)
-                .into_iter()
-                .map(GuideMenuEntry::id)
-                .collect();
-            let expected: Vec<&str> =
-                case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
-            assert_eq!(ids, expected, "{}", case["name"]);
-        }
-    }
-
-    /// `session-thread.json` `guidePullRequestCases`.
     #[test]
     fn guide_pull_request_and_composer_match_the_fixture() {
         let fixture = fixture(SESSION_THREAD_JSON);

@@ -334,7 +334,7 @@ impl MergeMenuEntry {
     }
 }
 
-/// `mergeMenuEntries` (amends session-thread.json `guideMenuEntries`): the
+/// `mergeMenuEntries` (the thread header's `…`): the
 /// Checks submenu (any viewer, the PR has rows), Merge now (owners; a live
 /// PR not draft, merged or conflict), Hold | Resume auto-merge (members; a
 /// live PR not draft or merged: Resume while held), Close PR (members, live
