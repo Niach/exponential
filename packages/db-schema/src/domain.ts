@@ -1493,6 +1493,9 @@ export const SKILL_DESCRIPTION_MAX = 1024
 export const SKILL_BODY_MAX = 64 * 1024
 export const SKILLS_PER_SESSION_MAX = 20
 
+/** #EXP-1720: at most this many teams in one Assistant turn's pick. */
+export const SESSIONS_SEND_MAX_SCOPE_TEAMS = 100
+
 export const sessionsSendInputSchema = z
   .object({
     teamId: sendUuid.optional(),
@@ -1580,10 +1583,17 @@ export const sessionsSendInputSchema = z
     // caller exactly as to their parent, until they end. Needs a caller
     // session (MCP); idempotent.
     wakeOn: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_WAKE_ON).optional(),
+    // #EXP-1720 (composer-menu.json `teams`): the teams this turn of the
+    // member's Assistant may touch; null = every team they belong to. Only
+    // into the Assistant's conversation (agentId / its root's sessionId).
+    // tRPC only, never on the MCP tool.
+    scopeTeamIds: z.array(sendUuid).max(SESSIONS_SEND_MAX_SCOPE_TEAMS).nullable().optional(),
   })
   .superRefine((input, ctx) => {
     const issue = (message: string) =>
       ctx.addIssue({ code: z.ZodIssueCode.custom, message })
+    if (input.scopeTeamIds !== undefined && !input.agentId && !input.sessionId)
+      issue(`a Teams pick is a message to your Assistant`)
     const rootFacets = input.promptId !== undefined || input.repositoryId !== undefined
     if (input.appId) {
       if (input.sessionId || input.parentId || input.agentId) issue(`appId is a message to that app's editor session alone`)

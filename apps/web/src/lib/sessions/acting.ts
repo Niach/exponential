@@ -3,7 +3,8 @@ import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import { sessions } from "@/db/schema"
 import { isSessionPrincipal } from "@/lib/sessions/host"
-import { resolveMcpAccessClampedToTeam, type McpAccess } from "@/lib/emcp/scope"
+import { resolveMcpAccessClampedToTeams, type McpAccess } from "@/lib/emcp/scope"
+import { treeTeams } from "@/lib/sessions/tree-teams"
 
 // #EXP-1383: the session a request SPEAKS FOR (the launcher's
 // X-Exp-Session-Id), verified to be the caller's own (its starter, or the
@@ -85,8 +86,9 @@ export function actingSessionForRequest(
 
 /** /api/mcp (defense in depth behind the team agent's scoped key): a
  *  request speaking for an AGENT-tree session of the caller's is confined to
- *  that session's team, whatever credential carried it; any other request
- *  keeps its access. */
+ *  its tree's teams (#EXP-1720: a team agent's = its team; the Assistant's =
+ *  its scope, lib/sessions/tree-teams.ts), whatever credential carried it;
+ *  any other request keeps its access. */
 export async function confineMcpAccessToActingSession(
   access: McpAccess,
   request: Request,
@@ -94,5 +96,6 @@ export async function confineMcpAccessToActingSession(
   sessionId: string | null
 ): Promise<McpAccess> {
   const acting = await actingSessionForRequest(request, userId, sessionId)
-  return acting?.rootAgentId ? resolveMcpAccessClampedToTeam(access, acting.teamId) : access
+  if (!acting?.rootAgentId) return access
+  return resolveMcpAccessClampedToTeams(access, await treeTeams(acting.rootId))
 }

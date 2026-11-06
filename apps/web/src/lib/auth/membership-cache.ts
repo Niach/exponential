@@ -42,6 +42,12 @@ export const userTeamIdsCache = new TtlPromiseCache<string[]>({
   maxEntries: MAX_ENTRIES,
 })
 
+// #EXP-1720: the joined teams alone (getMemberTeamIds), cleared with the rest.
+export const memberTeamIdsCache = new TtlPromiseCache<string[]>({
+  ttlMs: TTL_MS,
+  maxEntries: MAX_ENTRIES,
+})
+
 export const readableUserIdsCache = new TtlPromiseCache<string[]>({
   ttlMs: TTL_MS,
   maxEntries: MAX_ENTRIES,
@@ -49,5 +55,6 @@ export const readableUserIdsCache = new TtlPromiseCache<string[]>({
 
 export function invalidateMembershipCaches(): void {
   userTeamIdsCache.clear()
+  memberTeamIdsCache.clear()
   readableUserIdsCache.clear()
 }
