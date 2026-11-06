@@ -12186,7 +12186,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-data"
-version = "0.14.135"
+version = "0.14.136"
 dependencies = [
  "ede-protocol",
  "libc",
@@ -12198,7 +12198,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-docs"
-version = "0.14.135"
+version = "0.14.136"
 dependencies = [
  "eui-core",
  "serde_json",
@@ -12206,7 +12206,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-gpui"
-version = "0.14.135"
+version = "0.14.136"
 dependencies = [
  "ede-ui",
  "eui-core",
@@ -12219,7 +12219,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-model"
-version = "0.14.135"
+version = "0.14.136"
 dependencies = [
  "serde",
  "serde_json",
