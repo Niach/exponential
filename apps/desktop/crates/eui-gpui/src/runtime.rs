@@ -992,7 +992,7 @@ impl ExponentialHost {
             let _ = this.update(cx, |host, cx| {
                 for s in &sets {
                     let path = s["path"].as_str().unwrap_or("").to_string();
-                    if let Err(error) = view.update(cx, |v, cx| v.set_data(&path, Some(s["value"].clone()), cx)) {
+                    if let Err(error) = view.update(cx, |v, cx| v.assign_data(&path, Some(s["value"].clone()), cx)) {
                         let at = if path.is_empty() { "/" } else { path.as_str() };
                         host.send(error_message(VALIDATION_FAILED, &call.surface_id, &error, Some(at)));
                     }

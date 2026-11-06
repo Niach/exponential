@@ -1161,6 +1161,21 @@ fn the_facade_refuses_oversized_messages_and_bad_writes() {
     assert_eq!(surface.data_json(), r#"{"a":[]}"#);
 }
 
+/// #VAPP-288: `assign_data` is a programmatic write (it bumps `write_epoch`),
+/// `set_data` is not; a refused `assign_data` bumps nothing.
+#[test]
+fn assign_data_moves_the_write_epoch_and_set_data_does_not() {
+    let surface = Surface::new("s".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface.set_data("/draft".into(), Some("\"abc\"".into())).unwrap();
+    assert_eq!(surface.write_epoch(), 0);
+    surface.assign_data("/draft".into(), Some("\"\"".into())).unwrap();
+    assert_eq!(surface.write_epoch(), 1);
+    assert_eq!(surface.data_json(), r#"{"draft":""}"#);
+    surface.set_data("/a".into(), Some("[]".into())).unwrap();
+    assert!(surface.assign_data("/a/9".into(), Some("1".into())).is_err());
+    assert_eq!(surface.write_epoch(), 1);
+}
+
 /// R8 F53: a Swift/Kotlin measurer answering NaN or infinity is sanitised
 /// at the facade (and again in the core): the layout finishes with finite
 /// frames instead of a panic across the FFI.

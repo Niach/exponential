@@ -1380,6 +1380,26 @@ impl Surface {
         })
     }
 
+    /// #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+    /// `set_data`, and it bumps `write_epoch`, so a focused field bound to
+    /// `path` adopts the value. A refused write bumps nothing.
+    pub fn assign_data(&self, path: String, value_json: Option<String>) -> Result<(), UiError> {
+        self.guarded("assign_data", || {
+            let value = match value_json {
+                Some(v) => Some(parse::<Value>(&v)?),
+                None => None,
+            };
+            self.core().assign_data(&path, value).map_err(invalid)
+        })
+    }
+
+    /// #VAPP-288: the programmatic-write epoch (an action's `set`,
+    /// `assign_data`); a painter's field adopts a changed bound value while
+    /// focused only when this moved since it last looked.
+    pub fn write_epoch(&self) -> u64 {
+        self.shield("write_epoch", || 0, || self.core().write_epoch())
+    }
+
     pub fn data_json(&self) -> String {
         self.shield("data_json", || "{}".to_string(), || {
             self.core().data().to_string()
