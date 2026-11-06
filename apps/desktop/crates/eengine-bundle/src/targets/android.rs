@@ -67,11 +67,14 @@ pub fn bundle(job: &Job) -> Result<Output> {
     tools.run(Command::new(&tools.aapt2).arg("compile").arg("--dir").arg(&res).arg("-o").arg(&overlay), "aapt2 compile")?;
 
     // aapt2 link, binary (the .apk) and proto (the .aab).
+    // The kit's ids are on the template's resource package; the table is on the config id now.
+    let ids = job.work.join("resource-ids.txt");
+    std::fs::write(&ids, rename_ids(&std::fs::read_to_string(job.kit.join("resource-ids.txt"))?, template_id, &config.id))?;
     let version_code = version_code(&config.version)?;
     let link = |out: &Path, proto: bool| -> Result<()> {
         let mut cmd = Command::new(&tools.aapt2);
         cmd.arg("link").arg("-o").arg(out).arg("-I").arg(&tools.android_jar).arg("--manifest").arg(&manifest_path);
-        cmd.arg("--stable-ids").arg(job.kit.join("resource-ids.txt")).arg("--auto-add-overlay");
+        cmd.arg("--stable-ids").arg(&ids).arg("--auto-add-overlay");
         cmd.args(["--version-code", &version_code.to_string(), "--version-name", &config.version, "--replace-version"]);
         if proto {
             cmd.arg("--proto-format");
@@ -189,6 +192,12 @@ pub fn patch_manifest(template: &str, template_id: &str, id: &str, permissions: 
         bail!("the kit's manifest is not on its template id `{template_id}`");
     }
     Ok(patched.replace(template_id, id))
+}
+
+/// The kit's `--stable-ids` lines (`<package>:<type>/<name> = 0x…`) moved onto the app's package.
+pub fn rename_ids(ids: &str, template_id: &str, id: &str) -> String {
+    let prefix = format!("{template_id}:");
+    ids.lines().map(|l| l.strip_prefix(&prefix).map(|rest| format!("{id}:{rest}")).unwrap_or_else(|| l.to_string()) + "\n").collect()
 }
 
 /// `res/values/strings.xml`: `runner_label` = the app name, escaped for aapt2.
@@ -469,6 +478,12 @@ mod tests {
     fn a_manifest_without_markers_or_on_another_id_is_refused() {
         assert!(patch_manifest("<manifest package=\"a.b\"/>", "a.b", "c.d", &[]).is_err());
         assert!(patch_manifest(TEMPLATE, "x.y", "c.d", &[]).is_err());
+    }
+
+    #[test]
+    fn the_stable_ids_move_to_the_apps_package() {
+        let ids = "at.exponential.runner.template:mipmap/ic_launcher = 0x7f0a0000\nat.exponential.runner.template:string/runner_label = 0x7f0b0001\n";
+        assert_eq!(rename_ids(ids, "at.exponential.runner.template", "at.acme.album"), "at.acme.album:mipmap/ic_launcher = 0x7f0a0000\nat.acme.album:string/runner_label = 0x7f0b0001\n");
     }
 
     #[test]

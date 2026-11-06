@@ -76,7 +76,8 @@ fn the_album_sample_bundles_to_a_signed_apk_and_aab() {
     };
     let tmp = tempfile::tempdir().unwrap();
     let runners = tmp.path().join("kits");
-    make_kit(&sdk, &runners.join("android"));
+    let runners_android = runners.join("android");
+    make_kit(&sdk, &runners_android);
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
     std::fs::write(tmp.path().join("icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"14\" fill=\"#2563eb\"/><circle cx=\"32\" cy=\"32\" r=\"14\" fill=\"#fff\"/></svg>").unwrap();
     std::fs::write(tmp.path().join("bundle.toml"), "id = \"at.acme.album\"\nname = \"Album\"\nversion = \"1.2.3\"\n").unwrap();
@@ -108,6 +109,14 @@ fn the_album_sample_bundles_to_a_signed_apk_and_aab() {
     assert!(!badging.contains("android.permission.INTERNET"), "{badging}");
     let xml = sh(Command::new(sdk.build_tools.join("aapt2")).args(["dump", "xmltree", "--file", "AndroidManifest.xml"]).arg(&apk), &sdk.java_bin);
     assert!(xml.contains("\"at.acme.album.share\"") && xml.contains("\"at.acme.album\" (Raw: \"at.acme.album\")") && !xml.contains("template"), "{xml}");
+    // Every resource keeps the id the template's dex was built against.
+    let ids = |apk: &Path| -> Vec<String> {
+        let dump = sh(Command::new(sdk.build_tools.join("aapt2")).args(["dump", "resources"]).arg(apk), &sdk.java_bin);
+        dump.lines().filter_map(|l| l.trim().strip_prefix("resource ")).map(String::from).collect()
+    };
+    let template_ids = ids(&runners_android.join("src/template.apk"));
+    assert!(!template_ids.is_empty());
+    assert_eq!(ids(&apk), template_ids);
     let verify = sh(Command::new(sdk.build_tools.join("apksigner")).args(["verify", "--verbose"]).arg(&apk), &sdk.java_bin);
     assert!(verify.contains("Verified using v2 scheme (APK Signature Scheme v2): true"), "{verify}");
 

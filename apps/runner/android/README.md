@@ -50,8 +50,8 @@ APK's assets.
 | `AndroidManifest.xml` between `E7:PERMISSIONS` and `/E7:PERMISSIONS` | the permissions below, for the package's declared capabilities only |
 
 E7 compiles nothing: `scripts/runner-kits/android.sh` keeps this build's
-merged manifest, compiled resources, their ids (`--emit-ids`, so the relink
-keeps the ids R8 inlined into the dex), dex and native libs, and
+merged manifest, compiled resources, the ids of its resource table (so the
+relink keeps the ids R8 inlined into the dex), dex and native libs, and
 `exponential bundle` relinks them per app (`apps/desktop/crates/eengine-bundle`
 README, "Android").
 

@@ -90,14 +90,6 @@ android {
         }
     }
 
-    androidResources {
-        // E7 relinks the compiled resources with this app's own ids (aapt2
-        // --stable-ids), so the dex keeps pointing at the right ones
-        // (scripts/runner-kits/android.sh).
-        val ids = layout.buildDirectory.file("runner-kit/resource-ids.txt").get().asFile.also { it.parentFile.mkdirs() }
-        additionalParameters += listOf("--emit-ids", ids.absolutePath)
-    }
-
     packaging {
         // No diagnostics in the runner: nothing ships that only a debugger reads.
         resources.excludes += setOf("META-INF/*.version", "DebugProbesKt.bin", "kotlin-tooling-metadata.json")
