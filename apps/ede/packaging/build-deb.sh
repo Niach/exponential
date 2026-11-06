@@ -10,7 +10,8 @@
 # distro's xwayland instead (quick local builds). --dev packages the dev
 # profile's binaries (a VM check in minutes; never a release).
 # Contents (#EDE-2): ede-compositor, ede-session, ede-ui, ede-shell and
-# ede-sealed (#EDE-17: lock, polkit, consent) in /usr/bin, the factory
+# ede-sealed (#EDE-17: lock, polkit, consent), ede-services (#EDE-13),
+# xdg-desktop-portal-ede (#EDE-15) and ede-theme (#EDE-19) in /usr/bin, the factory
 # documents in /usr/share/ede/ui, the session's systemd units
 # (ede-session.target starts ede-shell.service = `ede-ui supervise --
 # ede-shell` and ede-polkit-agent.service = `ede-sealed polkit`), the login
@@ -41,14 +42,21 @@ chmod 755 "$stage"
 trap 'rm -rf "$stage"' EXIT
 
 release=(--release); [ "$profile" = debug ] && release=()
-cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services --features ede-compositor/udev
+cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services -p ede-portal -p ede-theme --features ede-compositor/udev
 # The shell is its own workspace (gpui never enters the compositor's).
 (cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell --bins)
 
-for bin in ede-compositor ede-session ede-ui ede-services; do
+for bin in ede-compositor ede-session ede-ui ede-services ede-theme; do
   install -Dm755 "$target/$profile/$bin" "$stage/usr/bin/$bin"
 done
 install -Dm755 "$shell_target/$profile/ede-shell" "$stage/usr/bin/ede-shell"
+# The portal backend (#EDE-15): ScreenCast, Screenshot, RemoteDesktop,
+# GlobalShortcuts, Settings; the frontend routes them here (ede-portals.conf).
+install -Dm755 "$target/$profile/xdg-desktop-portal-ede" "$stage/usr/libexec/xdg-desktop-portal-ede"
+install -Dm644 "$here/portal/ede.portal" "$stage/usr/share/xdg-desktop-portal/portals/ede.portal"
+install -Dm644 "$here/portal/ede-portals.conf" "$stage/usr/share/xdg-desktop-portal/ede-portals.conf"
+install -Dm644 "$here/portal/org.freedesktop.impl.portal.desktop.ede.service" "$stage/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ede.service"
+install -Dm644 "$here/portal/xdg-desktop-portal-ede.service" "$stage/usr/lib/systemd/user/xdg-desktop-portal-ede.service"
 # Tier B (#EDE-17): the lock screen, the polkit agent and consent.
 install -Dm755 "$shell_target/$profile/ede-sealed" "$stage/usr/bin/ede-sealed"
 for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/ede/ui/$(basename "$f")"; done
@@ -58,7 +66,7 @@ install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/doc/ede/copyright"
 
 # The compositor's, then the shell's (gpui on Wayland: Vulkan through the
 # loader + a driver, fontconfig/freetype) and ede-ui's history (git).
-depends="libc6, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, git"
+depends="libc6, libpipewire-0.3-0, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, git"
 if [ "$bundle_xwayland" = 1 ]; then
   xwl="${EDE_XWAYLAND:-$target/ede-xwayland}"
   if [ -z "${EDE_XWAYLAND:-}" ]; then
@@ -83,8 +91,8 @@ Maintainer: Exponential <hello@exponential.at>
 Section: x11
 Priority: optional
 Homepage: https://exponential.at
-Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin
-Recommends: gnome-keyring
+Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin, xdg-desktop-portal (>= 1.18), xdg-desktop-portal-gtk, pipewire
+Recommends: gnome-keyring, fonts-inter, papirus-icon-theme
 Description: eDE, the Exponential desktop
  A Wayland desktop session: the ede-compositor (floating windows with edge
  snapping, Xwayland 24.1+ with explicit sync) started by ede-session from the login

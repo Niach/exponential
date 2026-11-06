@@ -6,5 +6,5 @@
 Description=eDE session
 Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
 BindsTo=graphical-session.target
-Wants=graphical-session-pre.target xdg-desktop-autostart.target ede-services.service ede-shell.service ede-polkit-agent.service ede-keyring.service
+Wants=graphical-session-pre.target xdg-desktop-autostart.target ede-theme.service ede-services.service ede-shell.service ede-polkit-agent.service ede-keyring.service
 After=graphical-session-pre.target

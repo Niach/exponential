@@ -137,12 +137,32 @@ close button `ede.close_document`) with a page per domain: Displays
 `[[outputs]]`), Network (Wi-Fi switch, connections, networks in reach),
 Sound (volumes, mute, output devices), Bluetooth, Power (battery, profile,
 suspend/restart/shut down), Input (keyboard layout and repeat,
-`ede.config` writes `[keyboard]` and reloads), Theme (the GTK/Qt bridge
-switch, #EDE-19), Apps & updates (apt, Software), Users, Printers (CUPS),
+`ede.config` writes `[keyboard]` and reloads), Theme (the bridge's switch
+and what it resolved, #EDE-19), Apps & updates (apt, Software), Users, Printers (CUPS),
 About. Pages bind `/services/<domain>` (#EDE-13), `/outputs`, `/config`
 and `/user`; a control is two-way bound and calls `ede.service {domain,
 action, args}` with the new value. Users and printers management open the
 native tools until there is more to show.
+
+## The portal: `xdg-desktop-portal-ede` (#EDE-15)
+
+`crates/ede-portal`, the xdg-desktop-portal backend the frontend routes
+ScreenCast, Screenshot, RemoteDesktop, GlobalShortcuts and Settings to
+(`ede-portals.conf`; the GTK backend keeps the file chooser and the rest),
+D-Bus activated in the session (`xdg-desktop-portal-ede.service`). Every
+call is an ede-protocol call under a grant minted for the portal
+(`capture`, `input:person`, `ui`), never the root token. A ScreenCast is
+a PipeWire node fed by captures polled at the stream's rate with `since`:
+when nothing was presented the compositor answers `unchanged` and draws
+nothing; the GPU (dmabuf) path for udev is still to come. What to share
+is the sealed chooser `ede-sealed share` (`[screencast] chooser` in
+`~/.config/ede/portal.toml` replaces it): screens and windows to pick,
+the remote-control switch, Share or Cancel; remote control is never
+granted silently (the switch, or `[remote_desktop] allow`). Global
+shortcuts follow the XDG spec (`CTRL+SHIFT+a`), never take a plain key or
+a compositor binding, never fire on the lock or a protected surface.
+Settings serves `org.freedesktop.appearance` (dark, the accent). Tests
+run a private dbus-daemon, a private PipeWire and a headless compositor.
 
 ## Services: `ede-services` (#EDE-13)
 
@@ -347,6 +367,36 @@ let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the 
 for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
 ```
 
+## The theme bridge: `ede-theme` (#EDE-19)
+
+Foreign apps look like the shell: `crates/ede-theme` generates, from the
+same `packages/design-tokens/tokens.json` the web, the natives, the IDE and
+the compositor's own text use, GTK 3 and 4 settings (`settings.ini` and a
+`gtk.css` of `@define-color` over the Adwaita and libadwaita names, so
+Adwaita-dark and every libadwaita app take the palette: backgrounds,
+cards, the white selection, the destructive red), a Qt palette for
+qt5ct/qt6ct (`colors/ede.conf`, Fusion; without them Qt's own `gtk3`
+platform theme reads the GTK settings), `environment.d/90-ede-theme.conf`
+(`XCURSOR_THEME`, `XCURSOR_SIZE`, `EDE_ICON_THEME` for the launcher,
+`QT_QPA_PLATFORMTHEME`) and `~/.icons/default/index.theme` for X11
+clients, and sets `org.gnome.desktop.interface` to match (libadwaita and
+the GTK portal read it). The GTK theme, icon theme, cursor theme and
+fonts are the first installed of a short preference list (Adwaita-dark;
+Papirus-Dark, Yaru, Adwaita; Bibata, Adwaita; Inter, Ubuntu Sans,
+Cantarell), each overridable in `[theme]` (below).
+
+Every file it writes starts with a marker line; `ede-theme remove` deletes
+only those, puts a person's own file back from `*.before-ede` (moved
+aside once on the first apply) and restores the previous gsettings
+(`$XDG_STATE_HOME/ede/theme-before.json`). `ede-theme sync` applies or
+removes as `[theme] bridge` says: ede-theme.service runs it at login
+before the shell, the Theme page's switch runs it after `ede.config`
+wrote the key, and ede-session exports the environment file before the
+compositor starts so its cursor matches. `ede-theme print` shows the
+choice and the files; `--files-only` skips the live environment and
+gsettings (CI, tests). Nemo stays the file manager and file dialogs stay
+GTK through the portal delegate (#EDE-15), both themed through this.
+
 ## Config
 
 `$XDG_CONFIG_HOME/ede/compositor.toml`, every key optional; a broken file is
@@ -374,6 +424,10 @@ lock_after = 600      # seconds without input; 0 = never
 
 [protected]
 app_ids = ["org.example.Bank"]   # on top of the built-in list
+
+[theme]              # the bridge (#EDE-19), read by ede-theme, not the compositor
+bridge = true        # false: ede-theme sync removes what it wrote
+icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size likewise; unset = the first installed preference
 ```
 
 ## Lock, idle, input methods, protected surfaces

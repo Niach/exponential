@@ -118,6 +118,9 @@ pub struct Ede {
     pub title_click: Option<(Window, Instant)>,
     /// `--debug-captures` (headless and nested only): captures are not redacted.
     pub debug_captures: bool,
+    /// Counts presented frames ([`crate::backend::frame_done`]); a capture
+    /// with `since` equal to it carries no pixels.
+    pub frame_serial: u64,
     /// Where `reload_config` reads from; `None` in safe mode.
     pub config_path: Option<std::path::PathBuf>,
 }
@@ -232,6 +235,7 @@ impl Ede {
             recovery: crate::recovery::Recovery::default(),
             title_click: None,
             debug_captures: false,
+            frame_serial: 0,
             config_path: None,
         }
     }

@@ -45,6 +45,9 @@ pub mod events {
     pub const WORKSPACE_SWITCHED: &str = "workspace.switched";
     /// `{"output": name}`: an output appeared, moved, or changed mode or scale.
     pub const OUTPUT_CHANGED: &str = "output.changed";
+    /// A bound global shortcut went down / up (data: [`super::ShortcutEvent`], #EDE-15).
+    pub const SHORTCUT_ACTIVATED: &str = "shortcut.activated";
+    pub const SHORTCUT_DEACTIVATED: &str = "shortcut.deactivated";
 }
 
 /// The socket and token file of the compositor serving `wayland_display`.
@@ -76,8 +79,14 @@ pub enum Request {
     MoveWindow { window: WindowId, x: i32, y: i32 },
     /// Pixels of an output or a window; protected windows are black in an
     /// output capture and refused as a window capture, a locked session is
-    /// black.
-    Capture { target: CaptureTarget },
+    /// black. `since` = the `serial` of the last capture: when nothing was
+    /// drawn since, the reply says `unchanged` and carries no pixels (a
+    /// stream polls without a re-render per frame, #EDE-15).
+    Capture {
+        target: CaptureTarget,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<u64>,
+    },
     /// Drive the person's seat. Protected surfaces and the lock refuse it.
     /// `bindings` = the key goes through the compositor's bindings and
     /// hotkeys as a person's would (the root grant only: ede-ctl in a test
@@ -121,6 +130,38 @@ pub enum Request {
         expires_at: Option<i64>,
     },
     RevokeGrant { token: Token },
+    /// Global shortcuts for `owner` (the portal's session), replacing what
+    /// it held (#EDE-15). Triggers follow the XDG shortcuts spec
+    /// (`CTRL+SHIFT+a`, `LOGO+F5`); one that does not parse, takes a plain
+    /// key (no CTRL, ALT or LOGO on a character key) or clashes with a
+    /// compositor binding or another owner's shortcut comes back unbound.
+    /// They never fire while the session is locked or a protected surface
+    /// has the keyboard, and they go when the connection does.
+    BindShortcuts { owner: String, shortcuts: Vec<ShortcutSpec> },
+    UnbindShortcuts { owner: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShortcutSpec {
+    pub id: String,
+    pub trigger: String,
+}
+
+/// A [`Request::BindShortcuts`] reply entry: `trigger` is the normalized
+/// trigger, `None` = not bound.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BoundShortcut {
+    pub id: String,
+    pub trigger: Option<String>,
+}
+
+/// `data` of the shortcut events.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShortcutEvent {
+    pub owner: String,
+    pub id: String,
+    /// Milliseconds (the input event's clock).
+    pub time: u32,
 }
 
 impl Request {
@@ -128,7 +169,7 @@ impl Request {
     pub fn capability(&self) -> Option<Capability> {
         match self {
             Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe => None,
-            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => Some(Capability::Ui),
+            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
             Request::Input { .. } => Some(Capability::InputPerson),
@@ -151,6 +192,12 @@ pub enum InputEvent {
     Key { key: u32, pressed: bool },
     PointerMotion { x: f64, y: f64 },
     PointerButton { button: u32, pressed: bool },
+    /// A move by `dx`, `dy` logical px from where the pointer is.
+    PointerMotionRelative { dx: f64, dy: f64 },
+    /// Smooth scrolling in logical px.
+    PointerAxis { dx: f64, dy: f64 },
+    /// Wheel clicks (`v120` = 120 per click).
+    PointerAxisDiscrete { dx: i32, dy: i32 },
 }
 
 /// What the compositor sends.
@@ -227,7 +274,7 @@ pub struct OutputInfo {
     pub physical_mm: [i32; 2],
 }
 
-/// A capture reply; the pixels follow as the next frame.
+/// A capture reply; the pixels follow as the next frame unless `unchanged`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CaptureInfo {
     pub width: i32,
@@ -236,6 +283,12 @@ pub struct CaptureInfo {
     pub stride: i32,
     /// `"argb8888"`: little-endian `0xAARRGGBB` words.
     pub format: String,
+    /// Counts the compositor's presented frames; pass it back as `since`.
+    #[serde(default)]
+    pub serial: u64,
+    /// Nothing was drawn since `since`: no pixel frame follows.
+    #[serde(default)]
+    pub unchanged: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -340,6 +393,13 @@ impl Client {
         Ok(client)
     }
 
+    /// The compositor of `$WAYLAND_DISPLAY` with `token` (a minted grant).
+    pub fn connect_with_token(token: Token) -> Result<Self, Error> {
+        let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| Error::Protocol("XDG_RUNTIME_DIR unset".into()))?;
+        let display = std::env::var("WAYLAND_DISPLAY").map_err(|_| Error::Protocol("WAYLAND_DISPLAY unset".into()))?;
+        Self::connect(&socket_path(Path::new(&runtime), &display), token)
+    }
+
     /// The compositor of `$WAYLAND_DISPLAY`, with the root token file.
     pub fn connect_env() -> Result<Self, Error> {
         let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| Error::Protocol("XDG_RUNTIME_DIR unset".into()))?;
@@ -386,12 +446,24 @@ impl Client {
     }
 
     pub fn capture(&mut self, target: CaptureTarget) -> Result<Capture, Error> {
-        let info: CaptureInfo = self.call_as(Request::Capture { target })?;
+        self.capture_since(target, None).map(|c| c.expect("a capture without `since` always carries pixels"))
+    }
+
+    /// `None` = nothing was drawn since `since` (no pixels came).
+    pub fn capture_since(&mut self, target: CaptureTarget, since: Option<u64>) -> Result<Option<Capture>, Error> {
+        let info: CaptureInfo = self.call_as(Request::Capture { target, since })?;
+        if info.unchanged {
+            return Ok(None);
+        }
         let pixels = read_frame(&mut self.stream)?;
         if pixels.len() != (info.stride * info.height) as usize {
             return Err(Error::Protocol("capture size mismatch".into()));
         }
-        Ok(Capture { info, pixels })
+        Ok(Some(Capture { info, pixels }))
+    }
+
+    pub fn bind_shortcuts(&mut self, owner: &str, shortcuts: Vec<ShortcutSpec>) -> Result<Vec<BoundShortcut>, Error> {
+        self.call_as(Request::BindShortcuts { owner: owner.into(), shortcuts })
     }
 
     pub fn input(&mut self, event: InputEvent) -> Result<(), Error> {
@@ -480,7 +552,8 @@ mod tests {
 
     #[test]
     fn every_op_names_its_capability() {
-        assert_eq!(Request::Capture { target: CaptureTarget::Output { name: "x".into() } }.capability(), Some(Capability::Capture));
+        assert_eq!(Request::Capture { target: CaptureTarget::Output { name: "x".into() }, since: None }.capability(), Some(Capability::Capture));
+        assert_eq!(Request::BindShortcuts { owner: "p".into(), shortcuts: vec![] }.capability(), Some(Capability::Ui));
         assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
         assert_eq!(Request::ListWindows.capability(), None);

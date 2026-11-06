@@ -399,7 +399,8 @@ impl HostPlugin for Host {
                     Ok(()) => {
                         with_ede(&self.shell, |ede| ede.call(ede_protocol::Request::ReloadConfig));
                         if args.get("theme").is_some() {
-                            system::launch("ede-theme apply");
+                            // #EDE-19: apply or remove, as the switch says.
+                            system::launch("ede-theme sync");
                         }
                     }
                     Err(e) => tracing::warn!("compositor.toml: {e}"),

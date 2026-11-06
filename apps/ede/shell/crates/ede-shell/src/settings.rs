@@ -37,8 +37,21 @@ pub fn config_json() -> Value {
             "repeat_rate": kb.get("repeat_rate").and_then(|v| v.as_integer()).unwrap_or(30),
             "repeat_delay": kb.get("repeat_delay").and_then(|v| v.as_integer()).unwrap_or(400),
         },
-        "theme": { "bridge": theme.get("bridge").and_then(|v| v.as_bool()).unwrap_or(true) },
+        "theme": {
+            "bridge": theme.get("bridge").and_then(|v| v.as_bool()).unwrap_or(true),
+            // What the bridge resolved (#EDE-19): the installed themes and fonts it picked.
+            "summary": theme_summary(),
+        },
     })
+}
+
+/// The bridge's choice as one line; the demo never reads the machine.
+fn theme_summary() -> String {
+    if std::env::var_os("EDE_SHELL_DEMO").is_some() {
+        return "GTK Adwaita-dark · icons Papirus-Dark · cursor Adwaita 24 px · Inter 10 · Qt via qt6ct".into();
+    }
+    let paths = ede_theme::Paths::from_env();
+    ede_theme::Choice::resolve(&ede_theme::Overrides::read(&paths), &ede_theme::Installed::scan(&paths)).summary()
 }
 
 /// `ede.config {keyboard: {layout?, repeat_rate?, repeat_delay?}, theme: {bridge?}}`.

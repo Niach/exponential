@@ -35,6 +35,8 @@ pub struct Ipc {
     next_event: u64,
     /// The socket and token file, removed on exit.
     pub paths: Vec<PathBuf>,
+    /// The portal's global shortcuts (#EDE-15).
+    pub shortcuts: crate::shortcuts::Shortcuts,
 }
 
 #[derive(Debug)]
@@ -168,6 +170,7 @@ impl Ede {
     fn ipc_dropped(&mut self, id: u64) {
         let was_shell = self.ipc.shell_subscribed();
         self.ipc.clients.retain(|c| c.id != id);
+        self.ipc.shortcuts.drop_client(id);
         if was_shell && !self.ipc.shell_subscribed() {
             self.shell_left();
         }
@@ -300,7 +303,11 @@ impl Ede {
                 }
                 json(serde_json::Value::Null)
             }
-            Request::Capture { target } => {
+            Request::Capture { target, since } => {
+                if since == Some(self.frame_serial) {
+                    let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial: self.frame_serial, unchanged: true };
+                    return Ok((serde_json::to_value(info).unwrap(), None));
+                }
                 let frame = match target {
                     CaptureTarget::Output { name } => {
                         let output = self.space.outputs().find(|o| o.name() == name).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such output"))?;
@@ -315,7 +322,7 @@ impl Ede {
                     }
                 }
                 .map_err(|e| fail(ErrorCode::Internal, &e))?;
-                let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into() };
+                let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial: self.frame_serial, unchanged: false };
                 let bytes = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
                 Ok((serde_json::to_value(info).unwrap(), Some(bytes)))
             }
@@ -342,6 +349,17 @@ impl Ede {
                     (InputEvent::Key { key, pressed }, false) => {
                         self.drive_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, false)
                     }
+                    (InputEvent::PointerMotionRelative { dx, dy }, bindings) => {
+                        let pos = self.seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
+                        if bindings {
+                            self.pointer_motion_to(pos, now as u32);
+                            Ok(())
+                        } else {
+                            self.drive_pointer_motion(pos, now as u32)
+                        }
+                    }
+                    (InputEvent::PointerAxis { dx, dy }, _) => self.drive_pointer_axis((dx, dy), None, now as u32),
+                    (InputEvent::PointerAxisDiscrete { dx, dy }, _) => self.drive_pointer_axis((dx as f64 * 15.0, dy as f64 * 15.0), Some((dx * 120, dy * 120)), now as u32),
                     (InputEvent::PointerMotion { x, y }, false) => self.drive_pointer_motion((x, y).into(), now as u32),
                     (InputEvent::PointerButton { button, pressed }, false) => {
                         self.drive_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32)
@@ -376,6 +394,15 @@ impl Ede {
                     None => None,
                 };
                 self.set_output(&name, &crate::outputs::OutputChange { mode, scale, position }).map_err(|e| fail(ErrorCode::Invalid, &e))?;
+                json(serde_json::Value::Null)
+            }
+            Request::BindShortcuts { owner, shortcuts } => {
+                let taken = |t: &crate::shortcuts::Trigger| t.syms().iter().any(|&sym| crate::input::binding(&t.mods(), sym).is_some());
+                let bound = self.ipc.shortcuts.bind(id, &owner, shortcuts, taken);
+                json(serde_json::to_value(bound).unwrap())
+            }
+            Request::UnbindShortcuts { owner } => {
+                self.ipc.shortcuts.unbind(&owner);
                 json(serde_json::Value::Null)
             }
             Request::Unlock => {

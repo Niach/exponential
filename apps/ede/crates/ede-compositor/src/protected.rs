@@ -16,9 +16,9 @@
 //! capture; it never unprotects one.
 
 use smithay::{
-    backend::input::{ButtonState, KeyState},
+    backend::input::{Axis, AxisSource, ButtonState, KeyState},
     desktop::{find_popup_root_surface, Window},
-    input::keyboard::Keycode,
+    input::{keyboard::Keycode, pointer::AxisFrame},
     reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource},
     utils::{Logical, Point},
     wayland::compositor::get_parent,
@@ -163,6 +163,26 @@ impl Ede {
         let pos = self.seat.get_pointer().unwrap().current_location();
         self.may_drive_at(pos)?;
         self.pointer_button(button, state, time);
+        Ok(())
+    }
+
+    /// Scrolls where the pointer is: smooth (`v120` = None) or wheel clicks.
+    pub fn drive_pointer_axis(&mut self, (dx, dy): (f64, f64), v120: Option<(i32, i32)>, time: u32) -> Result<(), Refused> {
+        let pos = self.seat.get_pointer().unwrap().current_location();
+        self.may_drive_at(pos)?;
+        let source = if v120.is_some() { AxisSource::Wheel } else { AxisSource::Continuous };
+        let mut frame = AxisFrame::new(time).source(source);
+        for (axis, value, discrete) in [(Axis::Horizontal, dx, v120.map(|v| v.0)), (Axis::Vertical, dy, v120.map(|v| v.1))] {
+            if value != 0.0 {
+                frame = frame.value(axis, value);
+                if let Some(d) = discrete {
+                    frame = frame.v120(axis, d);
+                }
+            }
+        }
+        let pointer = self.seat.get_pointer().unwrap();
+        pointer.axis(self, frame);
+        pointer.frame(self);
         Ok(())
     }
 

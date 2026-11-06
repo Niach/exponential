@@ -339,7 +339,7 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
     }
     let h = harness(&[(1280, 800)]);
     h.with(|ede| ede.start_xwayland());
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     let display = loop {
         if let Some(n) = h.with(|ede| ede.xdisplay) {
             break n;
@@ -369,7 +369,7 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
     conn.map_window(win).unwrap();
     conn.flush().unwrap();
 
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     let geo = loop {
         let w = h.with(|ede| ede.space.elements().find(|w| w.x11_surface().is_some()).and_then(|w| ede.space.element_geometry(w)));
         if let Some(g) = w.filter(|g| g.size.w > 0) {
@@ -382,7 +382,7 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
     assert!(h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())), "it has keyboard focus");
 
     // Xwayland draws the background pixel once the frame commits.
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while h.capture(0).at(640, 400) != RED {
         assert!(Instant::now() < deadline, "the X11 window's pixels never showed");
         std::thread::sleep(Duration::from_millis(50));

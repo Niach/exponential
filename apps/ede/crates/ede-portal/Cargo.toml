@@ -1,0 +1,40 @@
+[package]
+name = "ede-portal"
+description = "eDE's xdg-desktop-portal backend: ScreenCast, Screenshot, RemoteDesktop, GlobalShortcuts and Settings over ede-protocol"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "xdg-desktop-portal-ede"
+path = "src/main.rs"
+
+# zbus 5 and pipewire 0.9 = the versions apps/desktop's epilot-screen (the
+# portal's first consumer) already pins. pipewire links libpipewire-0.3
+# (libpipewire-0.3-dev + libclang to build).
+[dependencies]
+ede-protocol = { path = "../ede-protocol" }
+pipewire = { version = "0.9", features = ["v0_3_34"] }
+blocking = "1"
+png = "0.18"
+serde.workspace = true
+serde_json = "1"
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zbus = { version = "5", default-features = false, features = ["async-io"] }
+
+[dev-dependencies]
+ede-compositor = { path = "../ede-compositor" }
+tempfile = "3"
+# The compositor's own Wayland test client (tests/common, shared by path).
+wayland-client = "0.31.10"
+wayland-protocols = { version = "0.32.8", features = ["client", "staging", "unstable"] }
+wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
+wayland-protocols-misc = { version = "0.3.8", features = ["client"] }
+smithay = { workspace = true }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+pipewire = "0.9"
+blocking = "1"
+serde = { workspace = true }
