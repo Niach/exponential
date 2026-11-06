@@ -834,8 +834,23 @@ extension View {
     /// came straight back. Off = a zero inset with zero spacing, which lays
     /// out exactly like no inset at all.
     func tabBarBottomInset(_ enabled: Bool = true) -> some View {
-        safeAreaInset(edge: .bottom, spacing: enabled ? nil : 0) {
-            Color.clear.frame(height: enabled ? tabBarBottomClearance : 0)
+        modifier(TabBarBottomInset(enabled: enabled))
+    }
+}
+
+extension EnvironmentValues {
+    /// #NEW-12: false in the iPad's split layout (no floating tab bar).
+    @Entry var tabBarShown = true
+}
+
+private struct TabBarBottomInset: ViewModifier {
+    let enabled: Bool
+    @Environment(\.tabBarShown) private var tabBarShown
+
+    func body(content: Content) -> some View {
+        let reserves = enabled && tabBarShown
+        content.safeAreaInset(edge: .bottom, spacing: reserves ? nil : 0) {
+            Color.clear.frame(height: reserves ? tabBarBottomClearance : 0)
         }
     }
 }

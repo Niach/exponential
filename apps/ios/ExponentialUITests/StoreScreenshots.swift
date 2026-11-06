@@ -71,9 +71,10 @@ final class StoreScreenshots: XCTestCase {
         // EXP-1267: a reused session, no login UI; false = the UI fallback ran.
         let injected = launchSignedIn(app)
 
-        // The app lands on the Agent tab — switch to the Board tab.
-        let issuesTab = app.buttons["tab-board"]
-        expect(issuesTab, within: Wait.sync, "Tab bar never appeared — did the sign-in land?")
+        // The app lands on the Agent tab — switch to the Board tab (#NEW-12:
+        // the iPad's sidebar row).
+        let issuesTab = shellEntry(app, "tab-board", within: Wait.sync)
+        expect(issuesTab, within: 1, "Tab bar never appeared — did the sign-in land?")
         issuesTab.tap()
 
         // Wait for the board: the FIRST sync after sign-in is the one long
@@ -177,8 +178,9 @@ final class StoreScreenshots: XCTestCase {
         // thread → issue → board. The session page is a page OF the thread
         // (its strip stays on screen), so one Back pops both; a third Back
         // would land on the board header's switcher sheet.
+        // #NEW-12: the iPad's issue is the detail's root, the board beside it.
         goBack(app)
-        goBack(app)
+        if !isSplitLayout { goBack(app) }
         expect(showcaseRowTitle, within: Wait.nav, "Did not return to the board")
         openIssue(app, title: Self.startCodingTitle)
         let startButton = app.buttons["Start coding"]
@@ -196,7 +198,7 @@ final class StoreScreenshots: XCTestCase {
         snapshot("03_start-coding", settle: 2, popRects: app)
         // Agent page → issue → board.
         goBack(app)
-        goBack(app)
+        if !isSplitLayout { goBack(app) }
 
         // ── 05: retired (S-3) — the Guide tab and its diff page entry are
         // gone; results land on the Results tab.
@@ -208,8 +210,8 @@ final class StoreScreenshots: XCTestCase {
         // pushes). Wait for a real notification group — capturing the
         // "You're all caught up" empty state would silently ship an empty
         // store shot.
-        let chatsTab = app.buttons["tab-threads"]
-        expect(chatsTab, within: Wait.nav, "Chats tab missing")
+        let chatsTab = shellEntry(app, "tab-threads", within: Wait.nav)
+        expect(chatsTab, within: 1, "Chats tab missing")
         chatsTab.tap()
         let inboxButton = app.buttons["chats-inbox"]
         expect(inboxButton, within: Wait.nav, "The Chats header has no inbox button")
@@ -220,14 +222,24 @@ final class StoreScreenshots: XCTestCase {
             "Inbox never showed the seeded notifications"
         )
         snapshot("07_inbox", settle: 2, popRects: app)
-        goBack(app)
+        if !isSplitLayout { goBack(app) }
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         showBoard(app)
         expect(showcaseRowTitle, within: Wait.nav, "Board did not come back for the final capture")
         // Opening an issue earlier may have scrolled the list; the board shot
         // has to start at the top of the first group.
-        for _ in 0..<3 { app.swipeDown() }
+        if isSplitLayout {
+            // #NEW-12: the board beside an open issue, the desktop's shape.
+            let list = app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4))
+            for _ in 0..<3 {
+                list.press(forDuration: 0.05, thenDragTo: list.withOffset(CGVector(dx: 0, dy: 500)))
+            }
+            openIssue(app, title: Self.startCodingTitle)
+            expect(app.buttons["Start coding"], within: Wait.sync, "The board's issue never opened beside it")
+        } else {
+            for _ in 0..<3 { app.swipeDown() }
+        }
         if !injected { dismissSavePasswordSheet(timeout: 2) }
         snapshot("01_board", settle: 2, popRects: app)
 

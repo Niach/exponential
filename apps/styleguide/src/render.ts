@@ -46,6 +46,7 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   [`web-mobile`]: `Web mobile`,
   desktop: `Desktop`,
   ios: `iOS`,
+  ipad: `iPad`,
   android: `Android`,
   ede: `eDE`,
 }

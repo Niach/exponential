@@ -126,7 +126,7 @@ const groupIds = [
   `ede`,
 ] as const
 
-const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `android`, `ede`])
+const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `ipad`, `android`, `ede`])
 
 const anchorSchema = z
   .strictObject({
@@ -186,6 +186,7 @@ const viewSchema = z.strictObject({
   web: webCaptureSchema.optional(),
   webMobile: z.union([z.literal(`inherit`), webCaptureSchema]).optional(),
   ios: nativeCaptureSchema.optional(),
+  ipad: nativeCaptureSchema.optional(),
   android: nativeCaptureSchema.optional(),
   desktop: desktopCaptureSchema.optional(),
   ede: edeCaptureSchema.optional(),
@@ -288,6 +289,8 @@ describe(`catalog shape`, () => {
         if (captureFor(view, platform) !== undefined) continue
         if (view.notes?.[platform]) continue
         if (platform === `ede` && view.group !== `ede`) continue
+        // #NEW-12: the iPad column holds the store set only.
+        if (platform === `ipad`) continue
         gaps.push(`${view.id} · ${platform}`)
       }
     }
@@ -451,15 +454,21 @@ describe(`native suites match the manifest`, () => {
     expect(bad).toEqual([])
   })
 
-  test(`no view declares a tablet capture`, () => {
-    // EXP-657: the iPad frames exist for the App Store only. The iOS Snapfile
-    // still runs the store set on both simulators, but the compositor reads
-    // those `iPad…-<shot>.png` files straight out of fastlane's output dir; the
-    // catalog, the store and the styleguide never hold a tablet lane.
+  test(`ipad mirrors an ios store shot, never a lane of its own`, () => {
+    // #NEW-12: the Snapfile runs the store set on both simulators in one pass
+    // and the importer separates the frames by filename prefix, so an `ipad`
+    // entry naming anything but its `ios` store shot would photograph nothing.
+    const wrong: string[] = []
     for (const view of VIEWS) {
-      expect((view as unknown as Record<string, unknown>)[`ipad`]).toBeUndefined()
+      if (!view.ipad) continue
+      if (view.ipad.lane !== `store`) wrong.push(`${view.id}: ipad lane is not \`store\``)
+      else if (view.ios?.lane !== `store`) wrong.push(`${view.id}: ipad without an ios store shot`)
+      else if (view.ipad.shot !== view.ios.shot) {
+        wrong.push(`${view.id}: ipad shot ${view.ipad.shot} ≠ ios shot ${view.ios.shot}`)
+      }
     }
-    expect(PLATFORMS).not.toContain(`ipad`)
+    expect(wrong).toEqual([])
+    expect(PLATFORMS).toContain(`ipad`)
   })
 })
 
@@ -646,6 +655,7 @@ describe(`store geometry`, () => {
     [`web-mobile`]: { w: 440, h: 956 },
     desktop: { w: 1440, h: 900 },
     ios: { w: 1320, h: 2868 },
+    ipad: { w: 2064, h: 2752 },
     android: { w: 1080, h: 2400 },
     ede: { w: 1280, h: 720 },
   }
@@ -674,7 +684,7 @@ describe(`store geometry`, () => {
   })
 
   test(`phones and tablets are portrait, browsers and the IDE landscape`, () => {
-    for (const platform of [`ios`, `android`, `web-mobile`] as const) {
+    for (const platform of [`ios`, `ipad`, `android`, `web-mobile`] as const) {
       expect(PLATFORM_FRAME[platform].h).toBeGreaterThan(
         PLATFORM_FRAME[platform].w
       )

@@ -42,15 +42,14 @@ import catalogJson from "../views.json"
 /**
  * Every surface the store holds an image for.
  *
- * There is deliberately NO tablet platform (EXP-657): the iPad layout is the
- * iPhone one widened, so a styleguide column for it would document nothing new
- * at twice the native runtime. The eight iPad frames Apple demands in a 13"
- * slot are an App Store concern only — the iOS Snapfile still runs the store
- * set on both simulators, and the ASO compositor
- * (`packages/store-shots/scripts/store/raw-store.ts`) reads the `iPad…-<shot>.png`
- * files straight out of fastlane's output. They never enter this store.
+ * `ipad` (#NEW-12) is the iPad's own split layout (sidebar, list, detail at
+ * regular width), so it documents something the phone shots do not. It has no
+ * lane of its own: the iOS Snapfile runs the store set on the iPhone AND the
+ * 13" iPad in one pass, and the importer picks the `iPad…-<shot>.png` files out
+ * of the same fastlane output. Only store-lane views declare it (same `shot`
+ * id as `ios`); a view without one needs no note.
  */
-export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `android` | `ede`
+export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `ipad` | `android` | `ede`
 
 /** Group ids, kept in sync with `views.json`'s `groups`. */
 export type GroupId =
@@ -226,6 +225,8 @@ export interface View {
   /** `inherit` = the same capture as `web`, shot at the phone viewport. */
   webMobile?: `inherit` | WebCapture
   ios?: NativeCapture
+  /** #NEW-12: the 13" iPad's store-lane frame of the same `shot` as `ios`. */
+  ipad?: NativeCapture
   android?: NativeCapture
   desktop?: DesktopCapture
   ede?: EdeCapture
@@ -253,6 +254,7 @@ export const PLATFORMS: readonly Platform[] = [
   `web-mobile`,
   `desktop`,
   `ios`,
+  `ipad`,
   `android`,
   `ede`,
 ]
@@ -276,6 +278,7 @@ export const STORE_DEFAULT_TOLERANCE = 0.005
  *   web-mobile   440×956  @3x  → 1320×2868 →  828×1800 (the iOS device: EXP-1549)
  *   desktop     1440×900  @2x  → 2880×1800 → 1800×1125
  *   ios         iPhone 17 Pro Max 1320×2868 → 828×1800
+ *   ipad        iPad Pro 13" (M5) 2064×2752 → 1350×1800
  *   android     1080×2400                   → 810×1800
  *   ede         1280×720 (the headless output) → 1800×1013
  */
@@ -284,6 +287,7 @@ export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
   [`web-mobile`]: { w: 828, h: 1800 },
   desktop: { w: 1800, h: 1125 },
   ios: { w: 828, h: 1800 },
+  ipad: { w: 1350, h: 1800 },
   android: { w: 810, h: 1800 },
   ede: { w: 1800, h: 1013 },
 }
@@ -329,6 +333,8 @@ export function captureFor(
       return view.desktop
     case `ios`:
       return view.ios
+    case `ipad`:
+      return view.ipad
     case `android`:
       return view.android
     case `ede`:

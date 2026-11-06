@@ -168,7 +168,9 @@ function findUndeclared(dir: string): string[] {
 
 function buildShots(view: View, dir: string, index: ShotIndex | undefined): Shot[] {
   const indexed = index?.[view.id]
-  return PLATFORMS.map((platform): Shot => {
+  // #NEW-12: the iPad column holds the store set only; elsewhere it is no gap.
+  const platforms = PLATFORMS.filter((platform) => platform !== `ipad` || view.ipad !== undefined)
+  return platforms.map((platform): Shot => {
     const url = shotPath(view.id, platform)
     const note = view.notes?.[platform]
     const frame = PLATFORM_FRAME[platform]

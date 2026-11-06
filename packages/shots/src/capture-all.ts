@@ -598,7 +598,8 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     if (binaryDetail) checks.push({ label: `desktop app binary`, ok: true, detail: binaryDetail })
   }
 
-  if (laneViews(scope, `ios`).length > 0) {
+  // One simulator lane serves both frames (`servedBy`).
+  if (laneViews(scope, `ios`, `ipad`).length > 0) {
     const ok = await hasCommand(`xcrun`)
     checks.push({
       label: `xcrun simctl`,
@@ -821,17 +822,28 @@ function readCaptureViewsResults():
   }
 }
 
-/** The shot ids one fastlane lane still owes. */
+/**
+ * The catalog platforms one fastlane directory photographs. `ipad` (#NEW-12)
+ * has no lane of its own: the iOS Snapfile runs the store set on both
+ * simulators in one pass and writes both into the same output dir.
+ */
+function servedBy(platform: `ios` | `android`): Platform[] {
+  return platform === `ios` ? [`ios`, `ipad`] : [`android`]
+}
+
+/** The shot ids one fastlane lane still owes, deduped across served frames. */
 function laneShotIds(
   scope: Scope,
   platform: `ios` | `android`,
   lane: NativeCapture[`lane`]
 ): string[] {
   const ids = new Set<string>()
-  for (const view of viewsFor(platform)) {
-    if (!scope.get(platform)?.has(view.id)) continue
-    const capture = captureFor(view, platform) as NativeCapture | undefined
-    if (capture?.lane === lane) ids.add(capture.shot)
+  for (const served of servedBy(platform)) {
+    for (const view of viewsFor(served)) {
+      if (!scope.get(served)?.has(view.id)) continue
+      const capture = captureFor(view, served) as NativeCapture | undefined
+      if (capture?.lane === lane) ids.add(capture.shot)
+    }
   }
   return [...ids]
 }
@@ -1493,10 +1505,14 @@ function laneViewIds(
   platform: `ios` | `android`,
   lane: NativeCapture[`lane`]
 ): string[] {
-  return viewsFor(platform)
-    .filter((view) => scope.get(platform)?.has(view.id))
-    .filter((view) => (captureFor(view, platform) as NativeCapture | undefined)?.lane === lane)
-    .map((view) => view.id)
+  const ids = new Set<string>()
+  for (const served of servedBy(platform)) {
+    for (const view of viewsFor(served)) {
+      if (!scope.get(served)?.has(view.id)) continue
+      if ((captureFor(view, served) as NativeCapture | undefined)?.lane === lane) ids.add(view.id)
+    }
+  }
+  return [...ids]
 }
 
 /**
@@ -2203,13 +2219,16 @@ function buildLanes(
   }
 
   for (const platform of [`ios`, `android`] as const) {
-    if (!options.platforms.includes(platform)) continue
+    if (!servedBy(platform).some((served) => options.platforms.includes(served))) continue
     for (const lane of [`store`, `styleguide`] as const) {
       const views = laneViewIds(scope, platform, lane)
       if (views.length === 0) continue
       const device: ResourceClaim =
         platform === `ios` ? { key: `ios-${lane}-simulator`, mode: `exclusive` } : { key: `adb-device`, mode: `exclusive` }
-      add(`${platform}:${lane}`, count(views, `${platform} fastlane ${FASTLANE_LANES[lane]}`), new Map([[platform, views]]),
+      add(`${platform}:${lane}`, count(views, `${platform} fastlane ${FASTLANE_LANES[lane]}`), new Map(servedBy(platform).map((served) => [
+          served,
+          views.filter((id) => scope.get(served)?.has(id) && captureFor(viewById(id)!, served) !== undefined),
+        ])),
         [device, ...fleetClaim(views)], true,
         async (outcomes) => {
           if (platform === `ios`) {
