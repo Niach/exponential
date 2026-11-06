@@ -59,11 +59,15 @@ consumes them as dependencies.
 ```
 
 **Exponential Desktop** (#NEW-10, `apps/ede`, internally eDE) is not an SDK module: its own Cargo
-workspaces in `apps/ede` (`exponential-compositor`, `exponential-session`, `ede-protocol` = the
-control plane every client links, `exponential-ui` = the genUI-on-disk runtime and its
-supervisor, `exponential-ctl`; `apps/ede/shell` = `exponential-shell`, the gpui shell) and the
+workspace in `apps/ede` (`exponential-compositor`, `exponential-session`, `exponential-ui` = the
+genUI-on-disk runtime and its supervisor, `exponential-ctl`), two crates of the desktop
+workspace (`apps/desktop/crates/ede-protocol` = the control plane every client links,
+`apps/desktop/crates/ede-shell` = `exponential-shell`, the gpui shell; #EDE-51) and the
 contract `@exp/ede` (`packages/ede`: the surface header, the Tier C rules and
-the apply machine as fixtures + a TS reference, replayed by `exponential-ui`), in
+the apply machine as fixtures + a TS reference, replayed by `exponential-ui`) and
+`@exp/uicore` (`packages/uicore`, #EDE-46: the shell reducer the IDE and eDE both
+host, its selectors and the shared geometry as fixtures + a TS reference, replayed
+by the `uicore-model` crate; `parity.md` = the IDE-to-eDE region inventory), in
 progress, no release.
 
 Voice, Computer Use, MCP Proxy, Agents and the Engine are git dependencies (`publish = false`: the

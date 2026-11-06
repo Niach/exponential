@@ -24,6 +24,7 @@ pub mod ipc;
 pub mod layout;
 pub mod lock;
 pub mod logind;
+pub mod minimize;
 pub mod outputs;
 pub mod protected;
 pub mod recovery;

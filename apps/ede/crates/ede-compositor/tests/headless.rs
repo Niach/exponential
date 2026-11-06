@@ -25,12 +25,17 @@ const KEY_LEFTMETA: u32 = 125 + 8;
 const KEY_F4: u32 = 62 + 8;
 const KEY_UP: u32 = 103 + 8;
 const KEY_DOWN: u32 = 108 + 8;
+const KEY_LEFT: u32 = 105 + 8;
 const BTN_LEFT: u32 = 0x110;
 
 fn harness(outputs: &[(i32, i32)]) -> Harness {
     // Compositor warnings (an Xwayland that won't start) show in failures.
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
-    Harness::start(Config::default(), outputs)
+    // Flush with the screen: the IDE look's panel margin (#EDE-48) has its
+    // own test below; every other geometry here reads off the output.
+    let mut config = Config::default();
+    config.windows.panel_margin = 0;
+    Harness::start(config, outputs)
 }
 
 /// Window geometries in the space, back to front, with their titles.
@@ -273,6 +278,39 @@ fn a_top_layer_stays_above_the_windows_under_it() {
     eprintln!("after mapping files: centre {:#x}, corner {:#x}, (300,250) {:#x}", frame.at(640, 400), frame.at(939, 599), frame.at(300, 250));
     assert_eq!(frame.at(640, 400), GREEN, "a window opened under the layer stays under it");
     assert_eq!(frame.at(939, 599), GREEN);
+}
+
+/// #EDE-48: the IDE look. With the default `[windows] panel_margin` (10)
+/// the work area is the output minus the panel's zone, inset on every
+/// side: maximize, Super+Left and a new window all keep off the frame.
+#[test]
+fn the_panel_margin_keeps_windows_off_the_frame() {
+    let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
+    let h = Harness::start(Config::default(), &[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let panel = c.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    c.draw_layer(&panel, GREEN);
+    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.space.outputs().next().unwrap()).unwrap()) == Rectangle::new((10, 10).into(), (1260, 740).into()));
+
+    let t = c.toplevel("w");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| !windows(&h).is_empty());
+    assert_eq!(windows(&h)[0].1.loc, (440, 230).into(), "centred in the inset area");
+
+    chord(&h, KEY_LEFTMETA, KEY_UP);
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (1260, 740));
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| windows(&h)[0].1 == Rectangle::new((10, 10).into(), (1260, 740).into()));
+    let frame = h.capture(0);
+    assert_eq!(frame.at(640, 400), RED);
+    assert_eq!(frame.at(5, 400), BACKGROUND, "the frame's left margin shows the background");
+    assert_eq!(frame.at(640, 755), BACKGROUND, "and the margin above the panel");
+    assert_eq!(frame.at(640, 770), GREEN, "the panel itself is untouched");
+
+    chord(&h, KEY_LEFTMETA, KEY_LEFT);
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (630, 740));
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| windows(&h)[0].1 == Rectangle::new((10, 10).into(), (630, 740).into()));
 }
 
 #[test]

@@ -43,6 +43,18 @@ impl Tile {
     }
 }
 
+/// The work area inset by `margin` px on every side (the IDE look's panel
+/// margin, #EDE-48). A margin that would leave nothing keeps a 1 px area
+/// at the centre, so a window is never asked for a negative size.
+pub fn inset(area: Rect, margin: i32) -> Rect {
+    let margin = margin.max(0);
+    let w = (area.size.w - 2 * margin).max(1);
+    let h = (area.size.h - 2 * margin).max(1);
+    let x = if area.size.w - 2 * margin >= 1 { area.loc.x + margin } else { area.loc.x + area.size.w / 2 };
+    let y = if area.size.h - 2 * margin >= 1 { area.loc.y + margin } else { area.loc.y + area.size.h / 2 };
+    Rectangle::new((x, y).into(), (w, h).into())
+}
+
 /// The tile a pointer at `pointer` asks for when a move ends there: within
 /// `edge` px of a side of `area` (the corners take `corner` px along the
 /// edge). `None` = an ordinary floating drop.
@@ -159,6 +171,22 @@ mod tests {
         assert_eq!(Tile::TopLeft.rect(a), r(0, 40, 960, 520));
         assert_eq!(Tile::BottomRight.rect(a), r(960, 560, 961, 521));
         assert_eq!(Tile::Maximized.rect(a), a);
+    }
+
+    #[test]
+    fn the_panel_margin_insets_the_work_area_on_every_side() {
+        // A bottom panel of 40 px already left the zone; the margin goes inside it.
+        let zone = r(0, 0, 1920, 1040);
+        assert_eq!(inset(zone, 10), r(10, 10, 1900, 1020));
+        assert_eq!(inset(zone, 0), zone);
+        assert_eq!(inset(r(1920, 0, 1280, 800), 10), r(1930, 10, 1260, 780), "a second output keeps its origin");
+        assert_eq!(inset(zone, -5), zone, "never a negative margin");
+        // Tiles and placement take the inset area as the work area.
+        assert_eq!(Tile::Maximized.rect(inset(zone, 10)), r(10, 10, 1900, 1020));
+        assert_eq!(Tile::Left.rect(inset(zone, 10)), r(10, 10, 950, 1020));
+        assert_eq!(place_new((800, 600).into(), inset(zone, 10), &[], 32), (560, 220).into());
+        // An absurd margin leaves a 1 px area at the centre instead of nothing.
+        assert_eq!(inset(r(0, 0, 100, 100), 60), r(50, 50, 1, 1));
     }
 
     #[test]

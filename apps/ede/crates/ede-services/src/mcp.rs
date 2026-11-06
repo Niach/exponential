@@ -143,7 +143,7 @@ impl Mcp {
     pub fn serve_at(registry: Arc<Registry>, audit_path: PathBuf) -> Result<Self, String> {
         let inner = Arc::new(Inner { grants: Mutex::new(HashMap::new()), audit: Mutex::new(None), audit_path });
         let provider = Provider { registry: registry.clone(), inner: inner.clone() };
-        let info = emcp::ServerInfo { name: SERVER_NAME.into(), version: env!("CARGO_PKG_VERSION").into(), instructions: Some("This desktop's services: network, sound, bluetooth, power, disks, updates, firmware, about. `<domain>_get` reads; an action needs the capability its description names, which your grant holds or not.".into()) };
+        let info = emcp::ServerInfo { name: SERVER_NAME.into(), version: env!("CARGO_PKG_VERSION").into(), instructions: Some("This desktop's services: network, sound, media, bluetooth, power, disks, updates, firmware, about. `<domain>_get` reads; an action needs the capability its description names, which your grant holds or not.".into()) };
         let server = emcp::Server::serve(info, Arc::new(provider)).map_err(|e| format!("MCP server: {e}"))?;
         Ok(Self { server, registry, inner })
     }
