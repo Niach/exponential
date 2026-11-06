@@ -99,7 +99,7 @@
         "fixtures/overlay-geometry.json"
       ],
       "unit": "case",
-      "cases": 11,
+      "cases": 22,
       "check": "Place the overlay: side, flip and frame equal the fixture within `tolerancePx`."
     },
     {
