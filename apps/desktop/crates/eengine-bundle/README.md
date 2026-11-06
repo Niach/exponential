@@ -106,3 +106,17 @@ Output `{name}-{version}.ipa` = `Payload/<name>.app` zipped, built for the devic
   ```
 
   The password reaches osslsigncode through a file (`-readpass`), never argv. The uninstaller stays unsigned. The alternative is Azure Trusted Signing: bundle unsigned, then sign the setup.exe with the Trusted Signing GitHub action or `signtool` + its dlib (endpoint, account, certificate profile).
+
+## Android (`--target android`)
+
+Nothing is compiled per app: the kit is the template's release build taken apart, and the bundler relinks it with the Android SDK's build-tools.
+
+**The kit** (`scripts/runner-kits/android.sh`, `apps/runner/android` `:app:assembleRelease`): `kit.json` (`templateId`, `compileSdk`), the merged `AndroidManifest.xml` as text (still on the template id, with the `E7:PERMISSIONS` markers), `resources.zip` (the merged aapt2 `.flat` files, app + libraries), `resource-ids.txt` (every entry of the release APK's resource table, `aapt2 dump resources`, in `--stable-ids` form: R8 inlined these ids into the dex; the bundler moves them onto the config id's package), `payload.zip` (the rest of the release APK: `classes*.dex`, `lib/<abi>/*.so`, the Java resources, `assets/dexopt`), `NOTICES.txt`.
+
+**Per app:** the manifest gets the config id in place of the template id (applicationId, the deep-link scheme `<id>://`, the FileProvider authority, the receiver permission) and `manifest::android_permissions` between the markers; an overlay compiles `runner_label` (= `name`) and `mipmap{,-mdpi…-xxxhdpi}/ic_launcher.png` (`icons.android`); `aapt2 link --stable-ids` (`versionName` = `version`, `versionCode` = major × 1 000 000 + minor × 1 000 + patch). The .apk = the linked resources + the payload + `assets/app/` + `assets/NOTICES.txt`, `zipalign -P 16` (16 KiB pages for the .so; `-p` before build-tools 35), `apksigner sign` (v1–v3). The .aab = the same base module in proto format (`aapt2 link --proto-format`), `bundletool build-bundle`, `jarsigner`.
+
+**The author's prerequisites:** `ANDROID_HOME` with `build-tools` (35+) and `platforms;android-<compileSdk>` (36), a JDK (`JAVA_HOME`: keytool, jarsigner, and java for apksigner/bundletool), `BUNDLETOOL` = `bundletool-all-<version>.jar` (or `bundletool` on PATH). Building the kit also needs the NDK (`cargo-ndk`) for the two native libraries.
+
+**Signing** (`[signing.android]` of bundle.toml): `keystore` (.jks/.p12; relative = to the working directory), `alias`, `store-password`, `key-password` (default = the store password); `EXPONENTIAL_ANDROID_STORE_PASSWORD` / `EXPONENTIAL_ANDROID_KEY_PASSWORD` override the file, so passwords need not live in it. They reach apksigner and jarsigner through the environment, never argv. Without a keystore the run generates a throwaway debug key (PKCS12, `androiddebugkey`) and says the outputs are for testing only; a new key each run, so a rebundle installs over the previous one only after an uninstall.
+
+`tests/android.rs` runs the whole target on a small synthetic kit (aapt2 dump badging, apksigner verify, jarsigner -verify, bundletool dump manifest); it skips, saying why, without ANDROID_HOME, JAVA_HOME and BUNDLETOOL.

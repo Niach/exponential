@@ -26,5 +26,8 @@ image = { workspace = true, features = ["png"] }
 tar = { workspace = true }
 flate2 = { workspace = true }
 
+# --target android: the .apk / .aab module zips (entries raw-copied, the .so stay stored).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+
 [dev-dependencies]
 tempfile = "3"
