@@ -780,14 +780,19 @@ impl SurfaceView {
                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| this.motion_pointer(&down, true, false, cx)))
                 .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, _, cx| this.motion_pointer(&up, false, true, cx)));
         }
+        // VAPP-279: a strip tab's press may become a reorder drag.
+        let strip_tab = n.pressable && self.is_strip_tab(index);
         if n.pressable && !is_text_field(n) {
             let (down, up, out) = (id.clone(), id.clone(), id);
             el = el
                 .when(style.cursor.is_none(), |d| d.cursor_pointer())
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, _, window, cx| {
+                    cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
                         cx.stop_propagation();
+                        if strip_tab {
+                            this.tab_drag_down(&down, f32::from(ev.position.x));
+                        }
                         this.press_down(&down, window, cx)
                     }),
                 )

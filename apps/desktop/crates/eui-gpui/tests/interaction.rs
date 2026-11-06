@@ -1098,3 +1098,37 @@ fn choice_tiles_rove_pick_and_toggle(cx: &mut TestAppContext) {
     assert!(states(&view, cx, "many.tile.1").contains(&"selected".to_string()), "Space toggles");
     assert!(states(&view, cx, "many.tile.0").contains(&"selected".to_string()), "the other pick stays");
 }
+
+/// VAPP-279: a strip tab drags past its neighbour's centre (the press is
+/// spent, `reorder` fires on the release), a click without movement
+/// presses, and the strip folds into `+N` on a narrow surface.
+#[gpui::test]
+fn a_strip_tab_drags_into_place_and_the_strip_folds(cx: &mut TestAppContext) {
+    let tabs: Vec<Value> = ["Inbox", "Release notes", "Calendar", "Settings", "Search", "Drafts"].iter().enumerate().map(|(i, l)| json!({"label": l, "value": format!("t{i}")})).collect();
+    let tree = json!({"id": "root", "component": "Box", "style": {"width": 900}, "children": [
+        {"id": "tabs", "component": "Tabs", "props": {"variant": "strip", "tabs": tabs, "value": "t0"}, "on": {"reorder": {"event": {"name": "reorder"}}, "change": {"event": {"name": "change"}}}}
+    ]});
+    let (view, log, cx) = surface(cx, tree, false);
+    view.update(cx, |v, _| v.record_bounds(true));
+    draw(cx);
+    let a = view.read_with(cx, |v, _| v.painted_bounds("tabs.tab.0")).expect("painted");
+    let b = view.read_with(cx, |v, _| v.painted_bounds("tabs.item.1")).expect("painted");
+    let start = a.center();
+    cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+    let past = b.center().x - start.x + px(4.0);
+    for step in [px(2.0), px(10.0), past] {
+        cx.simulate_mouse_move(gpui::point(start.x + step, start.y), Some(MouseButton::Left), Modifiers::default());
+        draw(cx);
+    }
+    cx.simulate_mouse_up(gpui::point(start.x + past, start.y), MouseButton::Left, Modifiers::default());
+    draw(cx);
+    let fired: Vec<Value> = log.0.borrow().actions.iter().filter(|e| e.name == "reorder").map(|e| json!({"from": e.context["from"], "to": e.context["to"]})).collect();
+    assert_eq!(fired, vec![json!({"from": 0, "to": 1})], "one reorder on the release");
+    // A click without movement presses (`change` to t2).
+    let c = view.read_with(cx, |v, _| v.painted_bounds("tabs.tab.2")).expect("painted");
+    cx.simulate_mouse_down(c.center(), MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(c.center(), MouseButton::Left, Modifiers::default());
+    draw(cx);
+    assert!(log.0.borrow().actions.iter().any(|e| e.name == "change"), "a click presses");
+    assert_eq!(log.0.borrow().actions.iter().filter(|e| e.name == "reorder").count(), 1, "no reorder from a click");
+}

@@ -3462,6 +3462,66 @@
       }
     },
     {
+      "name": "Tabs/variant=pill",
+      "node": {
+        "id": "tabs",
+        "component": "Tabs",
+        "props": {
+          "tabs": [
+            {
+              "label": "Issue",
+              "value": "issue"
+            },
+            {
+              "label": "Session",
+              "value": "session"
+            }
+          ],
+          "value": "issue",
+          "variant": "pill"
+        },
+        "children": [
+          {
+            "id": "tabs-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tabs/variant=strip",
+      "node": {
+        "id": "tabs",
+        "component": "Tabs",
+        "props": {
+          "tabs": [
+            {
+              "label": "Issue",
+              "value": "issue"
+            },
+            {
+              "label": "Session",
+              "value": "session"
+            }
+          ],
+          "value": "issue",
+          "variant": "strip"
+        },
+        "children": [
+          {
+            "id": "tabs-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Tabs/fill=true",
       "node": {
         "id": "tabs",

@@ -1,0 +1,490 @@
+{
+  "$comment": "VAPP-279 (docs/round-7-contract.md): the rules of a `variant: strip` Tabs, HAND-AUTHORED and replayed by packages/exponential-ui/src/tabs-strip.test.ts (the TS reference the web renderers use) and apps/desktop/crates/eui-core/tests/tabs_strip.rs (the core, so gpui and the natives through the FFI). partition = which tabs keep an item (`widths` = each item's width, `available` = the strip's room, `gap` = the list gap, `overflowW` = the `+N` button's width, `active` = the active index or null) → `visible` (indexes in order; the rest fold into `+N`): the IDE's work-tab vectors (packages/domain-contract partitionTabs, EXP-1334), tabs pack in order until the next would not fit, the `+N` width + gap is reserved only once something overflows, the active tab always shows, one tab always survives. dropSlot = where a dragged tab lands: `centers` = each VISIBLE item's centre x (screen px, strip order), `from` = the dragged slot, `delta` = px moved since the drag started (screen direction), `rtl` → `slot` = how many other centres the dragged centre passed in reading order. keySlot = Ctrl/Cmd+Shift+`key` on slot `from` of `count` → `slot` (one place in screen direction; null past an end or for another key). reorder = a slot move over the `visible` array indexes → the `reorder {from, to}` payload (array indexes; null = no event).",
+  "partition": [
+    {
+      "name": "every tab on an exact fit",
+      "widths": [
+        100,
+        100,
+        100
+      ],
+      "available": 307,
+      "gap": 3.5,
+      "overflowW": 22,
+      "active": 0,
+      "visible": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "keeps the last fitting tab",
+      "widths": [
+        100,
+        100,
+        100
+      ],
+      "available": 229,
+      "gap": 3.5,
+      "overflowW": 22,
+      "active": 0,
+      "visible": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "one px less drops it",
+      "widths": [
+        100,
+        100,
+        100
+      ],
+      "available": 228,
+      "gap": 3.5,
+      "overflowW": 22,
+      "active": 0,
+      "visible": [
+        0
+      ]
+    },
+    {
+      "name": "the active tab displaces the last visible one",
+      "widths": [
+        100,
+        100,
+        100
+      ],
+      "available": 229,
+      "gap": 3.5,
+      "overflowW": 22,
+      "active": 2,
+      "visible": [
+        0,
+        2
+      ]
+    },
+    {
+      "name": "a wide active tab shrinks the prefix",
+      "widths": [
+        100,
+        100,
+        250
+      ],
+      "available": 229,
+      "gap": 3.5,
+      "overflowW": 22,
+      "active": 2,
+      "visible": [
+        2
+      ]
+    },
+    {
+      "name": "a wide active tab with room keeps one more",
+      "widths": [
+        100,
+        100,
+        250
+      ],
+      "available": 379,
+      "gap": 3.5,
+      "overflowW": 22,
+      "active": 2,
+      "visible": [
+        0,
+        2
+      ]
+    },
+    {
+      "name": "one tab always survives",
+      "widths": [
+        500
+      ],
+      "available": 40,
+      "gap": 4,
+      "overflowW": 32,
+      "active": 0,
+      "visible": [
+        0
+      ]
+    },
+    {
+      "name": "no active tab still keeps the first",
+      "widths": [
+        500,
+        500
+      ],
+      "available": 0,
+      "gap": 4,
+      "overflowW": 32,
+      "active": null,
+      "visible": [
+        0
+      ]
+    },
+    {
+      "name": "no tabs",
+      "widths": [],
+      "available": 400,
+      "gap": 4,
+      "overflowW": 32,
+      "active": null,
+      "visible": []
+    },
+    {
+      "name": "an active tab out of range counts as none",
+      "widths": [
+        80,
+        80,
+        80
+      ],
+      "available": 200,
+      "gap": 4,
+      "overflowW": 32,
+      "active": 7,
+      "visible": [
+        0,
+        1
+      ]
+    }
+  ],
+  "dropSlot": [
+    {
+      "name": "a small move stays",
+      "centers": [
+        50,
+        150,
+        250
+      ],
+      "from": 0,
+      "delta": 30,
+      "rtl": false,
+      "slot": 0
+    },
+    {
+      "name": "past the next centre moves one",
+      "centers": [
+        50,
+        150,
+        250
+      ],
+      "from": 0,
+      "delta": 101,
+      "rtl": false,
+      "slot": 1
+    },
+    {
+      "name": "exactly on a centre does not pass it",
+      "centers": [
+        50,
+        150,
+        250
+      ],
+      "from": 0,
+      "delta": 100,
+      "rtl": false,
+      "slot": 0
+    },
+    {
+      "name": "to the end",
+      "centers": [
+        50,
+        150,
+        250
+      ],
+      "from": 0,
+      "delta": 400,
+      "rtl": false,
+      "slot": 2
+    },
+    {
+      "name": "back to the start",
+      "centers": [
+        50,
+        150,
+        250
+      ],
+      "from": 2,
+      "delta": -260,
+      "rtl": false,
+      "slot": 0
+    },
+    {
+      "name": "rtl: moving left goes later",
+      "centers": [
+        250,
+        150,
+        50
+      ],
+      "from": 0,
+      "delta": -101,
+      "rtl": true,
+      "slot": 1
+    },
+    {
+      "name": "rtl: moving right goes earlier",
+      "centers": [
+        250,
+        150,
+        50
+      ],
+      "from": 2,
+      "delta": 120,
+      "rtl": true,
+      "slot": 1
+    }
+  ],
+  "keySlot": [
+    {
+      "name": "ArrowRight moves later",
+      "count": 3,
+      "from": 0,
+      "key": "ArrowRight",
+      "rtl": false,
+      "slot": 1
+    },
+    {
+      "name": "ArrowLeft moves earlier",
+      "count": 3,
+      "from": 2,
+      "key": "ArrowLeft",
+      "rtl": false,
+      "slot": 1
+    },
+    {
+      "name": "none past the start",
+      "count": 3,
+      "from": 0,
+      "key": "ArrowLeft",
+      "rtl": false,
+      "slot": null
+    },
+    {
+      "name": "none past the end",
+      "count": 3,
+      "from": 2,
+      "key": "ArrowRight",
+      "rtl": false,
+      "slot": null
+    },
+    {
+      "name": "rtl: ArrowLeft moves later",
+      "count": 3,
+      "from": 0,
+      "key": "ArrowLeft",
+      "rtl": true,
+      "slot": 1
+    },
+    {
+      "name": "another key moves nothing",
+      "count": 3,
+      "from": 1,
+      "key": "ArrowUp",
+      "rtl": false,
+      "slot": null
+    }
+  ],
+  "reorder": [
+    {
+      "name": "all visible",
+      "visible": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fromSlot": 0,
+      "toSlot": 2,
+      "expect": {
+        "from": 0,
+        "to": 2
+      }
+    },
+    {
+      "name": "the active tab past the fold",
+      "visible": [
+        0,
+        1,
+        2,
+        5
+      ],
+      "fromSlot": 3,
+      "toSlot": 1,
+      "expect": {
+        "from": 5,
+        "to": 1
+      }
+    },
+    {
+      "name": "onto the active tab past the fold",
+      "visible": [
+        0,
+        1,
+        2,
+        5
+      ],
+      "fromSlot": 0,
+      "toSlot": 3,
+      "expect": {
+        "from": 0,
+        "to": 5
+      }
+    },
+    {
+      "name": "the same slot is no move",
+      "visible": [
+        0,
+        1,
+        2
+      ],
+      "fromSlot": 1,
+      "toSlot": 1,
+      "expect": null
+    }
+  ],
+  "layout": {
+    "$comment": "Written by apps/desktop/crates/eui-core/tests/tabs_strip.rs (EXP_UI_WRITE_FIXTURES=1): six strip tabs (`Inbox` + `Release notes` with icons, the fifth `Search` active, closable on hover, addable) in a full-width root at each case's width and direction, the default theme (exponential, light), the fixed measure (8 px per character on one 20 px line). `visible` = the tab values that keep an item, `more` = the `+N` text (null = folded), `frames` = each drawn item's and the `+N` button's [x, y, w, h] relative to the surface.",
+    "cases": {
+      "900": {
+        "width": 900.0,
+        "direction": "ltr",
+        "expect": {
+          "visible": [
+            "t0",
+            "t1",
+            "t2",
+            "t3",
+            "t4",
+            "t5"
+          ],
+          "more": null,
+          "frames": {
+            "tabs.item.0": [
+              0.0,
+              0.0,
+              70.0,
+              32.0
+            ],
+            "tabs.item.1": [
+              74.0,
+              0.0,
+              134.0,
+              32.0
+            ],
+            "tabs.item.2": [
+              212.0,
+              0.0,
+              94.0,
+              32.0
+            ],
+            "tabs.item.3": [
+              310.0,
+              0.0,
+              94.0,
+              32.0
+            ],
+            "tabs.item.4": [
+              408.0,
+              0.0,
+              78.0,
+              32.0
+            ],
+            "tabs.item.5": [
+              490.0,
+              0.0,
+              78.0,
+              32.0
+            ]
+          }
+        }
+      },
+      "320": {
+        "width": 320.0,
+        "direction": "ltr",
+        "expect": {
+          "visible": [
+            "t0",
+            "t4"
+          ],
+          "more": "+4",
+          "frames": {
+            "tabs.item.0": [
+              0.0,
+              0.0,
+              70.0,
+              32.0
+            ],
+            "tabs.item.4": [
+              74.0,
+              0.0,
+              78.0,
+              32.0
+            ],
+            "tabs.more": [
+              156.0,
+              0.0,
+              40.0,
+              32.0
+            ]
+          }
+        }
+      },
+      "320-rtl": {
+        "width": 320.0,
+        "direction": "rtl",
+        "expect": {
+          "visible": [
+            "t0",
+            "t4"
+          ],
+          "more": "+4",
+          "frames": {
+            "tabs.item.0": [
+              250.0,
+              0.0,
+              70.0,
+              32.0
+            ],
+            "tabs.item.4": [
+              168.0,
+              0.0,
+              78.0,
+              32.0
+            ],
+            "tabs.more": [
+              124.0,
+              0.0,
+              40.0,
+              32.0
+            ]
+          }
+        }
+      },
+      "160": {
+        "width": 160.0,
+        "direction": "ltr",
+        "expect": {
+          "visible": [
+            "t4"
+          ],
+          "more": "+5",
+          "frames": {
+            "tabs.item.4": [
+              0.0,
+              0.0,
+              78.0,
+              32.0
+            ],
+            "tabs.more": [
+              82.0,
+              0.0,
+              40.0,
+              32.0
+            ]
+          }
+        }
+      }
+    }
+  }
+}

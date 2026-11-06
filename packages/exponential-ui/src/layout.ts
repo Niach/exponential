@@ -26,3 +26,7 @@ export const SKELETON_REDUCED_OPACITY: number = layoutJson.skeletonReducedOpacit
 export const SEARCH_LIST_FADE: number = layoutJson.searchListFade
 /** EXP-1548: the narrowest a Table column without a `width` gets; a wider table scrolls. */
 export const TABLE_COLUMN_MIN: number = layoutJson.tableColumnMin
+/** VAPP-279: the widest a `strip` Tabs item gets (its title truncates) and how far a pointer travels on a strip tab before the press becomes a reorder drag. */
+export const TAB_STRIP_MAX_WIDTH: number = layoutJson.tabStripMaxWidth
+export const TAB_DRAG_THRESHOLD: number = layoutJson.tabDragThreshold
+export const TAB_LONG_PRESS_MS: number = layoutJson.tabLongPressMs

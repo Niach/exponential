@@ -1515,6 +1515,17 @@
             "padding": "$spacing.xxs",
             "gap": "$spacing.xxs"
           }
+        },
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "backgroundColor": "#00000000",
+            "borderRadius": "$radius.none",
+            "padding": "$spacing.none",
+            "gap": "$spacing.xs"
+          }
         }
       ],
       "tab": [
@@ -1561,10 +1572,42 @@
           "style": {
             "opacity": "$opacity.disabled"
           }
+        },
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "height": "$control.chip",
+            "paddingHorizontal": "$spacing.sm",
+            "gap": "$spacing.xs",
+            "fontWeight": "$type.weight.regular",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "variant": "strip",
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
         }
       ],
       "indicator": [
         {
+          "style": {
+            "height": "$border.none",
+            "backgroundColor": "#00000000"
+          }
+        },
+        {
+          "when": {
+            "variant": "strip"
+          },
           "style": {
             "height": "$border.none",
             "backgroundColor": "#00000000"
@@ -1624,6 +1667,16 @@
           "style": {
             "opacity": 1
           }
+        },
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "width": "$control.iconLg",
+            "height": "$control.iconLg",
+            "borderRadius": "$radius.full"
+          }
         }
       ],
       "new": [
@@ -1645,6 +1698,73 @@
           "style": {
             "backgroundColor": "$color.accent",
             "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "width": "$control.iconLg",
+            "height": "$control.iconLg",
+            "borderRadius": "$radius.full"
+          }
+        }
+      ],
+      "item": [
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "height": "$control.buttonSm",
+            "paddingHorizontal": "$spacing.xxs",
+            "gap": "$spacing.none",
+            "borderRadius": "$radius.sm",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "variant": "strip",
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "borderColor": "$color.input"
+          }
+        }
+      ],
+      "more": [
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "height": "$control.buttonSm",
+            "paddingHorizontal": "$spacing.sm",
+            "borderRadius": "$radius.sm",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "backgroundColor": "#00000000",
+            "fontSize": "$type.size.sm",
+            "fontFamily": "$type.family.sans",
+            "color": "$color.mutedForeground",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "variant": "strip",
+            "state": "hover"
+          },
+          "style": {
+            "color": "$color.foreground"
           }
         }
       ]

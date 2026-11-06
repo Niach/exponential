@@ -16,7 +16,7 @@
 // `focusFirst` in a timeout, `createRovingGroup` in ../behaviors; Accordion:
 // the root's arrow handler here, the content = `createCollapsibleContent`).
 
-import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
 import type { UiNode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
@@ -25,7 +25,7 @@ import { NodeView } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, objects, parts, str, type PartFn } from "./shared"
 import { createCollapsibleContent, createRovingGroup } from "../behaviors"
-import { segmentedBadge } from "@exponential_app/eui/web"
+import { isReorderKey, segmentedBadge, startStripDrag, stripFit, stripKeyMove } from "@exponential_app/eui/web"
 
 interface Tab {
   label: string
@@ -48,6 +48,212 @@ const childAt = (node: () => UiNode, index: Accessor<number>) => createMemo(() =
 // ── Tabs ────────────────────────────────────────────────────────────────
 
 export function TabsNative(props: NativeProps): JSX.Element {
+  return (
+    <Show when={props.props.variant === `strip`} fallback={<TabsPills {...props} />}>
+      <TabsStrip {...props} />
+    </Show>
+  )
+}
+
+/** VAPP-279 (React's `useTabStrip` + strip branch): the `strip` header row
+ *  — per tab an `item` (the chip) holding the trigger and its close, the
+ *  folded tabs laid out out of flow (`data-folded`), the `+N` `more`
+ *  button, the + — with the fit (`stripFit` after every change and resize),
+ *  the reorder drag (`startStripDrag`) and the Ctrl/Cmd+Shift+Arrow move. */
+function TabsStrip(props: NativeProps): JSX.Element {
+  const ctx = useSurfaceContext()
+  const part = parts(props)
+  const tabs = createMemo(() => objects<Tab>(props.props.tabs))
+  const external = () => str(props.props.value) || tabs()[0]?.value || ``
+  const [value, setValue] = createBoundState(() => props.node, () => props.scope, `value`, external)
+  const closable = () => props.props.closable === `hover` || props.props.closable === `always`
+  const [lent, setLent] = createSignal<{ index: number; state: `hover` | `focus` } | null>(null)
+  const lend = (index: number, state: `hover` | `focus` | null) => setLent((cur) => (state ? { index, state } : cur?.index === index ? null : cur))
+  const lending = () => closable() && props.props.closable === `hover`
+  const rtl = () => ctx.direction === `rtl`
+  const baseId = createUniqueId()
+  const triggerId = (v: string) => `${baseId}-trigger-${v}`
+  const contentId = (v: string) => `${baseId}-content-${v}`
+  const [preview, setPreview] = createSignal<number[] | null>(null)
+  const [fit, setFit] = createSignal<number[] | null>(null)
+  const order = createMemo(() => {
+    const p = preview()
+    return p && p.length === tabs().length ? p : tabs().map((_, i) => i)
+  }, undefined, { equals: (a, b) => a.length === b.length && a.every((x, k) => x === b[k]) })
+  const shown = (i: number) => {
+    const f = fit()
+    return f === null || f.includes(i)
+  }
+  const slots = () => order().filter(shown)
+  const hidden = () => tabs().map((_, i) => i).filter((i) => !shown(i))
+  const items = new Map<number, HTMLElement>()
+  let list: HTMLDivElement | undefined
+  let more: HTMLButtonElement | undefined
+  let add: HTMLButtonElement | undefined
+  const triggers = () => (list ? Array.from(list.querySelectorAll<HTMLElement>(`[role="tab"]`)) : [])
+  const roving = createRovingGroup({ orientation: `horizontal`, dir: () => ctx.direction, loop: true, items: triggers, focusable: (el) => !(el as HTMLButtonElement).disabled, active: (el) => el.getAttribute(`aria-selected`) === `true` })
+  const select = (next: string) => {
+    if (next === untrack(value)) return
+    setValue(next)
+    void props.emit(`change`, { value: next }, { value: next })
+  }
+  const refit = () => {
+    if (!list || untrack(preview)) return
+    const o = untrack(order)
+    const els = o.map((i) => items.get(i)).filter((x): x is HTMLElement => Boolean(x))
+    if (els.length !== o.length) return
+    const active = o.findIndex((i) => untrack(tabs)[i]?.value === untrack(value))
+    const visible = stripFit(list, els, more ?? null, add ?? null, active < 0 ? null : active).map((k) => o[k]!).sort((a, b) => a - b)
+    const next = visible.length === o.length ? null : visible
+    const cur = untrack(fit)
+    if (cur === next || (cur && next && cur.length === next.length && cur.every((x, k) => x === next[k]))) return
+    setFit(next)
+  }
+  createEffect(() => {
+    tabs()
+    value()
+    order()
+    fit()
+    refit()
+  })
+  onMount(() => {
+    if (!list || typeof ResizeObserver === `undefined`) return
+    const observer = new ResizeObserver(() => refit())
+    observer.observe(list)
+    onCleanup(() => observer.disconnect())
+  })
+  const fire = (move: { from: number; to: number } | null) => {
+    if (move) void props.emit(`reorder`, { from: move.from, to: move.to, value: untrack(tabs)[move.from]?.value ?? null })
+  }
+  const keys = keysOf(tabs, (t) => t.value)
+  const initial = untrack(value)
+  let mountPrevented = true
+  onMount(() => {
+    const raf = requestAnimationFrame(() => (mountPrevented = false))
+    onCleanup(() => cancelAnimationFrame(raf))
+  })
+  return (
+    <div {...props.rootProps} dir={ctx.direction} data-orientation="horizontal">
+      <div ref={list} role="tablist" aria-orientation="horizontal" {...part(`list`)} {...roving.group()} style={{ outline: `none` }} {...roving.groupHandlers}>
+        <For each={order()}>
+          {(i) => {
+            const tab = createMemo(() => tabs()[i]!)
+            const key = () => tab().value
+            const selected = () => key() === value()
+            const folded = () => !shown(i)
+            let el: HTMLButtonElement | undefined
+            const item = roving.item(() => el, () => !folded())
+            return (
+              <div ref={(node) => items.set(i, node)} {...part.at(`item`, i, selected() && `selected`)} data-folded={folded() ? `` : undefined}>
+                <button
+                  ref={el}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected()}
+                  aria-controls={contentId(key())}
+                  data-state={selected() ? `active` : `inactive`}
+                  data-disabled={folded() ? `` : undefined}
+                  disabled={folded()}
+                  id={triggerId(key())}
+                  {...part.at(`tab`, i, selected() && `selected`)}
+                  tabindex={item.tabindex()}
+                  data-orientation="horizontal"
+                  data-radix-collection-item=""
+                  onPointerEnter={() => lending() && lend(i, `hover`)}
+                  onPointerLeave={() => lending() && lend(i, null)}
+                  onBlur={() => lending() && lend(i, null)}
+                  onPointerDown={(e) => startStripDrag(e, e.currentTarget, i, () => ({ order: untrack(order), slots: untrack(slots), item: (k) => items.get(k) ?? null, rtl: untrack(rtl) }), { preview: setPreview, drop: fire })}
+                  onMouseDown={(e) => {
+                    item.onMouseDown(e)
+                    if (folded()) return
+                    if (e.button === 0 && !e.ctrlKey) select(key())
+                    else e.preventDefault()
+                  }}
+                  onKeyDown={(e) => {
+                    if (isReorderKey(e)) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      fire(stripKeyMove(untrack(slots), i, e.key, untrack(rtl)))
+                      return
+                    }
+                    item.onKeyDown(e)
+                    if (e.key === ` ` || e.key === `Enter`) select(key())
+                  }}
+                  onFocus={(e) => {
+                    item.onFocus()
+                    if (lending() && e.currentTarget.matches(`:focus-visible`)) lend(i, `focus`)
+                    if (!selected()) select(key())
+                  }}
+                >
+                  <span class="xui-Tabs-tab-body">
+                    {tab().icon ? <IconGlyph icons={ctx.host.icons} name={tab().icon!} class="xui-icon" width={16} height={16} /> : null}
+                    <span>{str(tab().label)}</span>
+                    {tab().count !== undefined ? <span data-count="">{ctx.formatter.number(num(tab().count))}</span> : null}
+                  </span>
+                  <span {...part(`indicator`, selected() && `selected`)} aria-hidden="true" />
+                </button>
+                <Show when={closable()}>
+                  <button
+                    type="button"
+                    {...part.at(`close`, i, lent()?.index === i && lent()!.state)}
+                    aria-label={ctx.t(`closeTab`, { name: str(tab().label) })}
+                    tabindex={folded() ? -1 : undefined}
+                    onPointerEnter={() => lending() && lend(i, `hover`)}
+                    onPointerLeave={() => lending() && lend(i, null)}
+                    onClick={() => void props.emit(`close`, { value: key() })}
+                  >
+                    <BuiltinIcon slot="Tabs.close" />
+                  </button>
+                </Show>
+              </div>
+            )
+          }}
+        </For>
+        <button
+          type="button"
+          ref={more}
+          {...part(`more`)}
+          data-folded={hidden().length === 0 ? `` : undefined}
+          tabindex={hidden().length === 0 ? -1 : undefined}
+          aria-label={ctx.t(`moreTabs`, { count: String(hidden().length) })}
+          onClick={() => void props.emit(`more`, { values: hidden().map((i) => tabs()[i]!.value) })}
+        >
+          {ctx.t(`morePictures`, { count: String(hidden().length) })}
+        </button>
+        <Show when={bool(props.props.addable)}>
+          <button type="button" ref={add} {...part(`new`)} aria-label={ctx.t(`newTab`)} onClick={() => void props.emit(`new`)}>
+            <BuiltinIcon slot="Tabs.new" />
+          </button>
+        </Show>
+      </div>
+      <For each={keys()}>
+        {(key, index) => {
+          const child = childAt(() => props.node, index)
+          const present = () => key === value()
+          const attrs = () => {
+            const a = part(`content`)
+            if (!present()) delete a[`data-xui-id`]
+            return a
+          }
+          const styled = key === initial
+          const style = () => {
+            value()
+            return styled ? (mountPrevented ? { "animation-duration": `0s` } : {}) : undefined
+          }
+          return (
+            <div data-state={present() ? `active` : `inactive`} data-orientation="horizontal" role="tabpanel" aria-labelledby={triggerId(key)} hidden={!present()} id={contentId(key)} tabindex={0} {...attrs()} style={style()}>
+              <Show when={present() && child()}>
+                <NodeView node={child()!} />
+              </Show>
+            </div>
+          )
+        }}
+      </For>
+    </div>
+  )
+}
+
+function TabsPills(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
   const tabs = createMemo(() => objects<Tab>(props.props.tabs))

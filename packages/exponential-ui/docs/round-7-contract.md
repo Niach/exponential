@@ -110,3 +110,79 @@ Renderers:
   (`dates.parity.test.tsx`, inline + a step).
 - [x] gpui, SwiftUI, Compose: paint the core's frames; a `DatePicker/day`
   with a `mark` draws the dot over its text.
+## Tabs variant strip (#VAPP-279)
+
+The IDE's work tabs as a Tabs look: flat chips, icon + title, the close
+glyph on hover, the tabs that do not fit folded into `+N`, drag reorder.
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| `Tabs` | `variant` (`tabsVariant`: `pill` default = the segmented pill, `strip`); events `reorder {from, to, value}` + `more {values}`; parts `item` (the chip, state `selected`) + `more` (the `+N`); recipe prop `variant` | `core.catalog.json`, `recipes.json`, theme recipes (neutral, exponential, playful) | `catalog-components.json`, `control-geometry.json`, `theme-recipes.json` |
+| strings | `moreTabs` (`{count} more tabs`, the `+N` label; its text is `morePictures` = `+{count}`) | `strings.json` | generated STRING tables |
+| layout | `tabStripMaxWidth` 240 (an item's cap; the title truncates), `tabDragThreshold` 4 (px a pointer travels before a press becomes a drag), `tabLongPressMs` 500 (a touch rests this long before it drags) | `layout.json` | `layout.rs` / `layout.ts` |
+| rules | `partitionTabs` (the IDE's work-tab fit, EXP-1334), `tabDropSlot`, `tabKeySlot`, `tabReorder` | `src/tabs-strip.ts`, `eui-core/src/tabs_strip.rs` | `fixtures/tabs-strip.json` |
+| layout cases | six tabs at 900 / 320 / 320 rtl / 160 px: visible tabs, the `+N` text, item frames | written by `eui-core/tests/tabs_strip.rs` | `fixtures/tabs-strip.json` `layout` |
+| reorder | drag + keyboard sequences | hand-authored | `interactions-round1.json` `tabsReorder` |
+
+Prompt budget 9,216 → 9,238 tokens (a named exception: the measured
+total, no slack).
+
+### Structure
+
+`list` (row, full width, centred; strip recipe: no fill, gap xs) → per tab,
+in strip order, an `item` (row, centred, no shrink, max `tabStripMaxWidth`;
+recipe: `buttonSm` tall (exponential: `buttonMd` = 32, the IDE chip), radius
+sm, hairline `border`, padding-x xxs; `selected` = `accent` fill + `input`
+border) holding the `tab` (icon + title, shrinks, truncates; recipe: `chip`
+tall, padding-x sm, regular weight, transparent at every state, muted →
+foreground on hover/selected) and its `close` (the EXP-1259 glyph, 24 × 24
+round in the strip, `closable: hover` = only while its tab or itself is
+hovered or focused) → `more` (the `+N` button: the chip box at rest,
+padding-x sm, tabular figures) → `new` (24 × 24 round). No indicator.
+
+### Fit
+
+After every layout the renderer measures each item (folded ones TOO: they
+stay laid out out of flow, `position: absolute` + `visibility: hidden` +
+`pointer-events: none`, so their widths keep feeding the fit), the `+N`
+button and the `+`, and runs `partitionTabs(widths, list width − (+ width +
+gap), gap, +N width, active slot)`: tabs pack in strip order until the next
+does not fit, the `+N` width is reserved only once something overflows, the
+active tab always shows, one tab always survives. The `+N` shows the folded
+count; a press fires `more {values}` (the folded tabs' values in array
+order; the host opens its own menu). The Rust core refits after each pass
+(`Surface::fit_tab_strips`, at most two extra rounds a pass, never during a
+drag); the web renderers refit on every render and on a resize.
+
+### Reorder
+
+The host owns `tabs`: a move fires `reorder {from, to, value}` (array
+indexes; `to` = the array position of the tab whose slot the dragged one
+took) and nothing is written. A drag: a pointer (mouse/pen) press that
+travels `tabDragThreshold`, a touch that rests `tabLongPressMs` (moving
+first = a scroll or a press). Painters send the core `drag {phase:
+start|move|end, delta}` on the `tab` (delta = px since the start, screen
+direction, like a Resizable handle); the core snapshots the visible item
+centres at the start, `tabDropSlot` = how many other centres the dragged
+centre passed in reading order (rtl mirrored), previews the order
+(`local.tab_order`) while it moves and fires on the end (none when the tab
+ends where it started). The release after a drag is no press. Keyboard:
+Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on a focused strip tab → `key {key}`:
+one place in screen direction, nothing past an end.
+
+### Per-renderer checklist
+
+- **Rust core / FFI**: strip build (`layout_tree/containers.rs`), fit +
+  drag + key (`surface/tabs.rs`), pure rules (`tabs_strip.rs`); no new FFI
+  API (events go through `event`).
+- **React / Solid / element**: the strip DOM (items wrapping the Radix
+  trigger + close, `data-folded`, the `+N` button), the shared controller
+  `@exponential_app/eui/web` `tabs-strip.ts` (`stripFit`, `startStripDrag`,
+  `stripKeyMove`, `isReorderKey`), base CSS; Solid is DOM-parity-gated
+  (`nav.parity.test.tsx`), both replay `tabsReorder`.
+- **gpui**: a strip tab's press becomes a drag past `tabDragThreshold`
+  (the press is spent), Ctrl/Cmd+Shift+Arrow → `key`
+  (`tests/interaction.rs`).
+- **SwiftUI / Compose**: a long-press drag on a strip tab feeds `drag`
+  (`TabStripDragModifier`, `tabStripDrag`); the rest is the core's frames.
+  No hardware-keyboard chord on the phones yet.

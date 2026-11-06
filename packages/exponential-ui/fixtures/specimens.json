@@ -3452,6 +3452,260 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen-tabs-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tabs-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · pill",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-tabs",
+                "component": "Tabs",
+                "props": {
+                  "tabs": [
+                    {
+                      "label": "Issue",
+                      "value": "issue"
+                    },
+                    {
+                      "label": "Session",
+                      "value": "session"
+                    }
+                  ],
+                  "value": "issue",
+                  "variant": "pill"
+                },
+                "children": [
+                  {
+                    "id": "c1-p1",
+                    "component": "Text",
+                    "props": {
+                      "text": "The issue panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c1-p2",
+                    "component": "Text",
+                    "props": {
+                      "text": "The session panel.",
+                      "variant": "body"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-tabs-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tabs-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · strip",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-tabs",
+                "component": "Tabs",
+                "props": {
+                  "tabs": [
+                    {
+                      "label": "Issue",
+                      "value": "issue"
+                    },
+                    {
+                      "label": "Session",
+                      "value": "session"
+                    }
+                  ],
+                  "value": "issue",
+                  "variant": "strip"
+                },
+                "children": [
+                  {
+                    "id": "c2-p1",
+                    "component": "Text",
+                    "props": {
+                      "text": "The issue panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c2-p2",
+                    "component": "Text",
+                    "props": {
+                      "text": "The session panel.",
+                      "variant": "body"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-tabs-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tabs-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · strip · icons · closable hover · addable",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-strip",
+                "component": "Tabs",
+                "props": {
+                  "variant": "strip",
+                  "value": "notes",
+                  "closable": "hover",
+                  "addable": true,
+                  "tabs": [
+                    {
+                      "label": "Inbox",
+                      "value": "inbox",
+                      "icon": "nav-inbox"
+                    },
+                    {
+                      "label": "Release notes",
+                      "value": "notes",
+                      "icon": "nav-changelog"
+                    },
+                    {
+                      "label": "Board",
+                      "value": "board",
+                      "icon": "nav-boards"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-tabs-case-4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tabs-case-4-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · strip · closable always",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4-strip-close",
+                "component": "Tabs",
+                "props": {
+                  "variant": "strip",
+                  "value": "a",
+                  "closable": "always",
+                  "tabs": [
+                    {
+                      "label": "ExponentialOS",
+                      "value": "a",
+                      "icon": "status-in-progress"
+                    },
+                    {
+                      "label": "google keywords",
+                      "value": "b",
+                      "icon": "action-chat"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-tabs-case-5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tabs-case-5-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · strip · overflow (+N)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5-strip-narrow",
+                "component": "Tabs",
+                "props": {
+                  "variant": "strip",
+                  "value": "t4",
+                  "closable": "hover",
+                  "addable": true,
+                  "tabs": [
+                    {
+                      "label": "Inbox",
+                      "value": "t0"
+                    },
+                    {
+                      "label": "Release notes",
+                      "value": "t1"
+                    },
+                    {
+                      "label": "Calendar",
+                      "value": "t2"
+                    },
+                    {
+                      "label": "Settings",
+                      "value": "t3"
+                    },
+                    {
+                      "label": "Search",
+                      "value": "t4"
+                    },
+                    {
+                      "label": "Drafts",
+                      "value": "t5"
+                    }
+                  ]
+                },
+                "style": {
+                  "width": 320
+                }
+              }
+            ]
           }
         ]
       }

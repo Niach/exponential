@@ -179,6 +179,15 @@ pub(crate) struct Drag {
     pub value: f64,
 }
 
+/// VAPP-279: a press on a strip Tabs tab that may become a reorder drag
+/// (past `tabDragThreshold`): the core previews from the start.
+#[derive(Debug, Clone)]
+pub(crate) struct TabDrag {
+    pub tab: String,
+    pub start: f32,
+    pub started: bool,
+}
+
 /// An in-flight Resizable handle drag (round 2 §1): the core resizes from
 /// the sizes at the START, so only the pointer's start is kept.
 #[derive(Debug, Clone)]
@@ -356,6 +365,7 @@ pub struct SurfaceView {
     scroll_drag: Option<ScrollDrag>,
     sheet_drag: Option<SheetDrag>,
     resize_drag: Option<ResizeDrag>,
+    tab_drag: Option<TabDrag>,
     /// Round 2: the core's sticky offsets of the last pass (node → dx, dy).
     sticky: HashMap<u32, (f32, f32)>,
     /// Round 2: when each animated node entered the tree (by painted id).
@@ -592,6 +602,7 @@ impl SurfaceView {
             scroll_drag: None,
             sheet_drag: None,
             resize_drag: None,
+            tab_drag: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
             shimmer_armed_until: Cell::new(None),

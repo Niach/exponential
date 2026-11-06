@@ -117,6 +117,10 @@
       "hover",
       "always"
     ],
+    "tabsVariant": [
+      "pill",
+      "strip"
+    ],
     "groupType": [
       "single",
       "multiple"
@@ -2055,6 +2059,11 @@
           "type": "string",
           "bindable": true
         },
+        "variant": {
+          "type": "enum",
+          "enum": "tabsVariant",
+          "default": "pill"
+        },
         "fill": {
           "type": "boolean",
           "default": false
@@ -2072,7 +2081,9 @@
       "events": [
         "change",
         "close",
-        "new"
+        "new",
+        "reorder",
+        "more"
       ]
     },
     "Segmented": {

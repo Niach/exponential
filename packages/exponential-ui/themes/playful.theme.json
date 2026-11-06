@@ -164,12 +164,19 @@
       ]
     },
     "Tabs": {
-      "list": [ { "style": { "backgroundColor": "#00000000", "borderRadius": "$radius.none", "padding": "$spacing.none", "gap": "$spacing.lg" } } ],
+      "list": [
+        { "style": { "backgroundColor": "#00000000", "borderRadius": "$radius.none", "padding": "$spacing.none", "gap": "$spacing.lg" } },
+        { "when": { "variant": "strip" }, "style": { "gap": "$spacing.xs" } }
+      ],
       "tab": [
         { "style": { "borderRadius": "$radius.none", "paddingHorizontal": "$spacing.none", "fontWeight": "$type.weight.bold" } },
-        { "when": { "state": "selected" }, "style": { "backgroundColor": "#00000000", "color": "$color.primary", "boxShadow": "$shadow.none" } }
+        { "when": { "state": "selected" }, "style": { "backgroundColor": "#00000000", "color": "$color.primary", "boxShadow": "$shadow.none" } },
+        { "when": { "variant": "strip" }, "style": { "paddingHorizontal": "$spacing.sm" } }
       ],
-      "indicator": [ { "style": { "height": "$border.thick", "backgroundColor": "$color.primary", "borderRadius": "$radius.full" } } ]
+      "indicator": [
+        { "style": { "height": "$border.thick", "backgroundColor": "$color.primary", "borderRadius": "$radius.full" } },
+        { "when": { "variant": "strip" }, "style": { "height": "$border.none", "backgroundColor": "#00000000" } }
+      ]
     },
     "Segmented": {
       "root": [ { "when": { "variant": "segmented" }, "style": { "borderRadius": "$radius.full", "backgroundColor": "$color.secondary" } } ],

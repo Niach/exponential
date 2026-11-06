@@ -2780,13 +2780,16 @@
       "parts": [
         "root",
         "list",
+        "item",
         "tab",
         "indicator",
         "content",
         "close",
-        "new"
+        "new",
+        "more"
       ],
       "props": [
+        "variant",
         "fill",
         "closable",
         "addable"

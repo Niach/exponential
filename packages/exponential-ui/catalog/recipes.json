@@ -23,7 +23,7 @@
     "QrCode": { "parts": ["root", "plate", "module", "label"], "props": ["level"] },
     "ZoomableImage": { "parts": ["root", "image", "pill", "zoomOut", "percent", "zoomIn", "divider", "fit"], "props": ["controls"] },
     "Carousel": { "parts": ["root", "page", "indicator", "controls", "previous", "next", "counter", "thumbnails", "thumbnail"], "props": ["loop", "indicators", "counter"] },
-    "Tabs": { "parts": ["root", "list", "tab", "indicator", "content", "close", "new"], "props": ["fill", "closable", "addable"] },
+    "Tabs": { "parts": ["root", "list", "item", "tab", "indicator", "content", "close", "new", "more"], "props": ["variant", "fill", "closable", "addable"] },
     "Segmented": { "parts": ["root", "item", "icon", "label", "badge"], "props": ["type", "variant", "size", "fill", "orientation"] },
     "Accordion": { "parts": ["root", "item", "trigger", "content", "count"], "props": ["type"] },
     "Dialog": { "parts": ["overlay", "content", "title", "description", "footer", "close"], "props": ["dismissible"] },

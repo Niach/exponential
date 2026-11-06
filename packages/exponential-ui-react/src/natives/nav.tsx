@@ -3,7 +3,7 @@
 // `value` written through (multiple = comma-joined when it came as a
 // string, an array when it came as one).
 
-import { Fragment, useRef, useState, type ReactNode } from "react"
+import { Fragment, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
 import { useBoundState } from "./bound"
 import { Accordion as AccordionPrimitive, Tabs as TabsPrimitive, ToggleGroup as ToggleGroupPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
@@ -11,13 +11,78 @@ import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"
 import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
-import { segmentedBadge } from "@exponential_app/eui/web"
+import { isReorderKey, segmentedBadge, startStripDrag, stripFit, stripKeyMove } from "@exponential_app/eui/web"
 
 interface Tab {
   label: string
   value: string
   icon?: string
   count?: number
+}
+
+/** VAPP-279: a `strip` Tabs' state: the strip order (the live drag
+ *  preview), the fit (`stripFit` after every layout change: the folded
+ *  tabs stay laid out, out of flow, so their widths keep feeding it), the
+ *  reorder drag and the keyboard move (`@exponential_app/eui/web`
+ *  tabs-strip, the core's `surface/tabs.rs` twin). */
+function useTabStrip(tabs: Tab[], value: string, rtl: boolean, on: boolean, emit: NativeProps[`emit`]) {
+  const n = tabs.length
+  const [preview, setPreview] = useState<number[] | null>(null)
+  const [fit, setFit] = useState<number[] | null>(null)
+  const list = useRef<HTMLDivElement | null>(null)
+  const more = useRef<HTMLButtonElement | null>(null)
+  const add = useRef<HTMLButtonElement | null>(null)
+  const items = useRef(new Map<number, HTMLElement>())
+  const order = preview && preview.length === n ? preview : tabs.map((_, i) => i)
+  const shown = (i: number) => fit === null || fit.includes(i)
+  const slots = order.filter(shown)
+  const hidden = tabs.map((_, i) => i).filter((i) => !shown(i))
+  const active = order.findIndex((i) => tabs[i]?.value === value)
+  const refit = () => {
+    const el = list.current
+    if (!el || preview) return
+    const els = order.map((i) => items.current.get(i)).filter((x): x is HTMLElement => Boolean(x))
+    if (els.length !== order.length) return
+    const visible = stripFit(el, els, more.current, add.current, active < 0 ? null : active).map((k) => order[k]!).sort((a, b) => a - b)
+    const next = visible.length === n ? null : visible
+    setFit((cur) => (cur === next || (cur && next && cur.length === next.length && cur.every((x, k) => x === next[k])) ? cur : next))
+  }
+  const refitRef = useRef(refit)
+  refitRef.current = refit
+  useLayoutEffect(() => {
+    if (on) refitRef.current()
+  })
+  useLayoutEffect(() => {
+    const el = list.current
+    if (!on || !el || typeof ResizeObserver === `undefined`) return
+    const observer = new ResizeObserver(() => refitRef.current())
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [on])
+  const fire = (move: { from: number; to: number } | null) => {
+    if (move) void emit(`reorder`, { from: move.from, to: move.to, value: tabs[move.from]?.value ?? null })
+  }
+  return {
+    on,
+    order,
+    hidden,
+    shown,
+    list,
+    more,
+    add,
+    item: (i: number) => (el: HTMLElement | null) => {
+      if (el) items.current.set(i, el)
+      else items.current.delete(i)
+    },
+    pointerDown: (e: PointerEvent, el: HTMLElement, i: number) =>
+      startStripDrag(e, el, i, () => ({ order, slots, item: (k) => items.current.get(k) ?? null, rtl }), { preview: setPreview, drop: fire }),
+    keyDown: (e: ReactKeyboardEvent, i: number) => {
+      if (!isReorderKey(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      fire(stripKeyMove(slots, i, e.key, rtl))
+    },
+  }
 }
 
 export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps) {
@@ -34,6 +99,91 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
   const [lent, setLent] = useState<{ index: number; state: `hover` | `focus` } | null>(null)
   const lend = (index: number, state: `hover` | `focus` | null) => setLent((cur) => (state ? { index, state } : cur?.index === index ? null : cur))
   const lending = closable && props.closable === `hover`
+  const strip = useTabStrip(tabs, value, ctx.direction === `rtl`, props.variant === `strip`, emit)
+  if (strip.on) {
+    const tabOf = (i: number) => tabs[i]!
+    return (
+      <TabsPrimitive.Root
+        {...(rootProps as Record<string, unknown>)}
+        value={value}
+        onValueChange={(next) => {
+          setValue(next)
+          void emit(`change`, { value: next }, { value: next })
+        }}
+        orientation="horizontal"
+        activationMode="automatic"
+        dir={ctx.direction}
+      >
+        <TabsPrimitive.List ref={strip.list} {...(part(`list`) as Record<string, string>)} loop>
+          {strip.order.map((i) => {
+            const tab = tabOf(i)
+            const selected = tab.value === value
+            const folded = !strip.shown(i)
+            return (
+              <div key={tab.value} ref={strip.item(i)} {...(part.at(`item`, i, selected && `selected`) as Record<string, string>)} data-folded={folded ? `` : undefined}>
+                <TabsPrimitive.Trigger
+                  value={tab.value}
+                  disabled={folded}
+                  {...(part.at(`tab`, i, selected && `selected`) as Record<string, string>)}
+                  onPointerEnter={lending ? () => lend(i, `hover`) : undefined}
+                  onPointerLeave={lending ? () => lend(i, null) : undefined}
+                  onFocus={lending ? (e) => (e.currentTarget.matches(`:focus-visible`) ? lend(i, `focus`) : undefined) : undefined}
+                  onBlur={lending ? () => lend(i, null) : undefined}
+                  onPointerDown={(e) => strip.pointerDown(e.nativeEvent, e.currentTarget, i)}
+                  onKeyDown={(e) => strip.keyDown(e, i)}
+                >
+                  <span className="xui-Tabs-tab-body">
+                    {tab.icon ? <IconGlyph icons={ctx.host.icons} name={tab.icon} className="xui-icon" width={16} height={16} /> : null}
+                    <span>{str(tab.label)}</span>
+                    {tab.count !== undefined ? <span data-count="">{ctx.formatter.number(num(tab.count))}</span> : null}
+                  </span>
+                  <span {...(part(`indicator`, selected && `selected`) as Record<string, string>)} aria-hidden="true" />
+                </TabsPrimitive.Trigger>
+                {closable ? (
+                  <button
+                    type="button"
+                    {...(part.at(`close`, i, lent?.index === i && lent.state) as Record<string, string>)}
+                    aria-label={ctx.t(`closeTab`, { name: str(tab.label) })}
+                    tabIndex={folded ? -1 : undefined}
+                    onPointerEnter={lending ? () => lend(i, `hover`) : undefined}
+                    onPointerLeave={lending ? () => lend(i, null) : undefined}
+                    onClick={() => void emit(`close`, { value: tab.value })}
+                  >
+                    <BuiltinIcon slot="Tabs.close" />
+                  </button>
+                ) : null}
+              </div>
+            )
+          })}
+          <button
+            type="button"
+            ref={strip.more}
+            {...(part(`more`) as Record<string, string>)}
+            data-folded={strip.hidden.length === 0 ? `` : undefined}
+            tabIndex={strip.hidden.length === 0 ? -1 : undefined}
+            aria-label={ctx.t(`moreTabs`, { count: String(strip.hidden.length) })}
+            onClick={() => void emit(`more`, { values: strip.hidden.map((i) => tabOf(i).value) })}
+          >
+            {ctx.t(`morePictures`, { count: String(strip.hidden.length) })}
+          </button>
+          {bool(props.addable) ? (
+            <button type="button" ref={strip.add} {...(part(`new`) as Record<string, string>)} aria-label={ctx.t(`newTab`)} onClick={() => void emit(`new`)}>
+              <BuiltinIcon slot="Tabs.new" />
+            </button>
+          ) : null}
+        </TabsPrimitive.List>
+        {tabs.map((tab, i) => {
+          const attrs = part(`content`) as Record<string, string>
+          if (tab.value !== value) delete attrs[`data-xui-id`]
+          return (
+            <TabsPrimitive.Content key={tab.value} value={tab.value} {...attrs}>
+              {node.children[i] ? <NodeView node={node.children[i]} /> : null}
+            </TabsPrimitive.Content>
+          )
+        })}
+      </TabsPrimitive.Root>
+    )
+  }
   return (
     <TabsPrimitive.Root
       {...(rootProps as Record<string, unknown>)}
