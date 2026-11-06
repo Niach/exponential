@@ -8,6 +8,7 @@ import runnerFixture from "@exp/eengine/fixtures/runner.json" with { type: "json
 
 import album from "../samples/album.app.json" with { type: "json" }
 import { deepLinkOf, Runner, type RunnerOptions } from "./runner"
+import { holdLock, LOCK } from "./lock"
 import { serviceWorkerSource } from "./sw"
 
 const CONFIG = JSON.stringify({ id: `at.acme.album`, name: `Album`, version: `1.0.0` })
@@ -173,4 +174,68 @@ test(`the service worker precaches what it is given under its cache`, () => {
   expect(src).toContain(`const CACHE = "exp-runner-abc"`)
   expect(src).toContain(`["./","./app/runner.json"]`)
   expect(src).toContain(`ignoreVary: true`)
+})
+
+describe(`one tab per origin`, () => {
+  test(`a second tab paints busy and opens the app when the lock frees`, async () => {
+    let free!: () => void
+    let opened = 0
+    const { runner } = setup({}, { hold: (waiting) => (waiting(), new Promise<void>((r) => (free = r))), openStorage: async () => (opened++, { records: new MemoryRecordStore(), vault: new MemoryVault(), blobs: new MemoryBlobStore() }) })
+    const started = runner.start()
+    await tick()
+    expect(runner.failure).toBe(`busy`)
+    expect(components(runner, `app`)).toEqual(runnerFailure(`busy`) as never)
+    expect(opened).toBe(0) // never a second store while the other tab holds it
+    free()
+    await started
+    expect(runner.failure).toBeNull()
+    expect(opened).toBe(1)
+    expect(ids(runner, `app`)).toContain(`runner-nav`)
+  })
+})
+
+describe(`holdLock`, () => {
+  /** A LockManager of one origin: exclusive locks, granted in request order. */
+  const fakeLocks = () => {
+    const held = new Set<string>()
+    const queue: { name: string; grant: () => void }[] = []
+    const release = (name: string) => {
+      held.delete(name)
+      const next = queue.findIndex((q) => q.name === name)
+      if (next >= 0) queue.splice(next, 1)[0]!.grant()
+    }
+    return {
+      release,
+      request(name: string, a: unknown, b?: unknown): Promise<unknown> {
+        const options = (typeof a === `function` ? {} : a) as { ifAvailable?: boolean }
+        const cb = (typeof a === `function` ? a : b) as (lock: { name: string } | null) => unknown
+        if (held.has(name) && options.ifAvailable) return Promise.resolve(cb(null))
+        return new Promise((resolve) => {
+          const grant = () => (held.add(name), resolve(cb({ name })))
+          if (held.has(name)) queue.push({ name, grant })
+          else grant()
+        })
+      },
+    }
+  }
+
+  test(`the first tab holds it; the second waits until the first lets go`, async () => {
+    const locks = fakeLocks()
+    const waits: string[] = []
+    await holdLock(locks as unknown as LockManager, () => waits.push(`first`))
+    let second = false
+    void holdLock(locks as unknown as LockManager, () => waits.push(`second`)).then(() => (second = true))
+    await tick()
+    expect(waits).toEqual([`second`])
+    expect(second).toBe(false)
+    locks.release(LOCK) // the first tab closed
+    await tick()
+    expect(second).toBe(true)
+  })
+
+  test(`without Web Locks the page runs`, async () => {
+    await holdLock(undefined, () => {
+      throw new Error(`never waits`)
+    })
+  })
 })

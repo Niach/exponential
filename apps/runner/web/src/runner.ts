@@ -53,6 +53,10 @@ export interface RunnerOptions {
   /** The stores of one app id (runner.json `storage`). */
   openStorage(appId: string): Promise<RunnerStorage>
   capabilities: readonly NativeCapability[]
+  /** One tab per origin holds the instance and its stores (the web's Web Lock):
+   *  resolves once this page holds it; `waiting` = another tab holds it now
+   *  (the runner paints `busy` until it frees). Unset = no other page can run it. */
+  hold?: (waiting: () => void) => Promise<void>
   formFactor: FormFactor
   locale?: string
   newId?: () => string
@@ -140,6 +144,9 @@ export class Runner {
     }
     const pkg = packageOf(file)
     const appId = isObject(pkg) && typeof pkg.id === `string` ? pkg.id : config.id
+    // Never a second store: a second tab waits for the first to let go.
+    await this.options.hold?.(() => this.fail(`busy`))
+    this.failure = null
     const storage = await this.options.openStorage(appId)
     const deviceId = await localDeviceId(storage.vault, runnerFixture.storage.deviceKey)
     try {

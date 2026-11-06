@@ -9,12 +9,13 @@ import type { LifecycleEvent } from "@exp/eengine"
 import { browserPlatform, openWebStorage, sqlClient, webCapabilities, type OpfsDirectory, type SqlDatabase } from "@exp/eengine/web"
 import runnerFixture from "@exp/eengine/fixtures/runner.json" with { type: "json" }
 
+import { holdLock } from "./lock"
 import { deepLinkOf, Runner } from "./runner"
 
 /** genUI's `md` breakpoint: wide from it up, else compact. */
 export const MD = (builtinTheme(`exponential`).tokens as { breakpoint?: { md?: number } }).breakpoint?.md ?? 768
 
-/** Open the worker's SQLite on OPFS; rejects when it cannot (no sync access handles, another tab holds it). */
+/** Open the worker's SQLite on OPFS; rejects when it cannot (no OPFS sync access handles). */
 function openSqlite(appId: string): Promise<SqlDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof Worker === `undefined`) return reject(new Error(`no workers`))
@@ -62,6 +63,7 @@ export function startRunner(): Runner {
       return storage
     },
     capabilities,
+    hold: (waiting) => holdLock(navigator.locks, waiting),
     formFactor: wide.matches ? `wide` : `compact`,
     locale: navigator.language,
   })
