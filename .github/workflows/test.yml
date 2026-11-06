@@ -105,7 +105,7 @@ jobs:
           ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
           echo "ios_app=$(grep -qE "$ios_app" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-268: the iOS runner, the Engine's Swift facade + capabilities, what it paints with.
-          ios_runner='^(apps/runner/ios/|apps/desktop/crates/(eengine|eengine-ffi|exponential-ui-ffi)/|packages/eengine/|packages/exponential-ui-swift/|scripts/lanes/runner-ios\.sh$|\.github/workflows/ios-runner\.yml$)'
+          ios_runner='^(apps/runner/ios/|apps/desktop/crates/(eengine|eengine-ffi|eengine-bundle|exponential-ui-ffi)/|packages/eengine/|packages/exponential-ui-swift/|scripts/lanes/runner-ios\.sh$|scripts/runner-kits/ios\.sh$|\.github/workflows/ios-runner\.yml$)'
           echo "ios_runner=$(grep -qE "$ios_runner" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EXP-1544: the app, the Compose eUI modules it includes, every
           # generator that writes Kotlin into it, the fixtures and vectors its

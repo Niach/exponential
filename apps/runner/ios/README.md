@@ -19,6 +19,7 @@ see `apps/desktop/crates/eengine-ffi/Package.swift`), then `xcodebuild`.
 | `App/` | the SwiftUI app (not a SwiftPM target): `RunnerModel` = the painter on one `ExponentialHost`; `RunnerApp` = scene events, `onOpenURL`, the window at its full height (the page scrolls inside the shell) |
 | `make-project.sh` | bundle + capabilities → `project.yml` (XcodeGen), `Info.plist` (bundle id/name/version + URL scheme from `runner.json`, purpose strings from the package's `capabilities[].why`), `RunnerCapabilities.swift` (only the declared modules), the bundle at `<name>.app/app`; `--build simulator|device` |
 | `sample/app` | a small bundle with an `ask` scope (`photos.read`): the build check and the screenshots |
+| `check-bundle.sh` | E7's `exponential bundle --target ios` end to end: the kit (`scripts/runner-kits/ios.sh`), the album sample to `Album-<v>.ipa` + a simulator build, both checked (`otool -L`, the purpose strings, NOTICES.txt, AppIcon); `--launch shot.png` installs it on a simulator of its own |
 | `check-build.sh` | builds the sample twice for the simulator and checks what is linked (`otool -L`) and declared (`Info.plist`) |
 | `../../../scripts/lanes/runner-ios.sh` | THE MAC BUILD LANE: the xcframeworks (when missing) + `make-project.sh` under the `ios` lane lock |
 
@@ -32,7 +33,9 @@ bash apps/runner/ios/check-build.sh                 # the generated project buil
 scripts/lanes/runner-ios.sh <owner> --bundle <app dir> --out <dir> --capabilities photos,share --build device
 ```
 
-- **Capabilities → modules:** `photos.read` → photos (Photos, PhotosUI;
+- **Capabilities → modules:** ONE mapping, `packages/eengine/fixtures/bundle.json`
+  `permissions.ios` (E7 passes `--modules`/`--purposes` from it; the script's
+  defaults read it too): `photos.read` → photos (Photos, PhotosUI;
   `NSPhotoLibraryUsageDescription` = its `why`), `files.read`/`files.write`
   → files, `share.send` → share (LinkPresentation;
   `NSPhotoLibraryAddUsageDescription`, the sheet's Save Image), `print.pdf`

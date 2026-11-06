@@ -56,3 +56,18 @@ Outputs:
 ```bash
 cargo test -p eengine-bundle   # on a Mac this bundles /usr/bin/true end to end: layout, codesign --verify, entitlements, the .dmg
 ```
+
+## `--target ios`
+
+The one target compiled per app, on a Mac (Xcode 26+, `brew install xcodegen`). The kit (`scripts/runner-kits/ios.sh`) is the runner TEMPLATE at its workspace paths: `apps/runner/ios` (App/, RunnerKit, `make-project.sh`), `eengine-ffi`'s Swift package + `ExponentialEngineFFI.xcframework`, `exponential-ui-swift` + `ExponentialUIFFI.xcframework` (device + simulator slices, built by `build-ios.sh` when missing), `bundle.json` and `NOTICES.txt`. `targets/ios.rs` hands `make-project.sh` the modules (`manifest::ios_modules`) and purpose strings (`manifest::ios_purposes`, ITMS-90683): ONE mapping, bundle.json `permissions.ios`, which the script also reads for its own defaults and checks both ways (a linked privacy module has its purpose string, an unlinked one none). Plus the AppIcon (1024 px, opaque: the SVG over the runner background), `NOTICES.txt` (at `<name>.app/NOTICES.txt`) and `app/`.
+
+Output `{name}-{version}.ipa` = `Payload/<name>.app` zipped, built for the device (`aarch64-apple-ios`):
+
+| `[signing.ios]` | result |
+|---|---|
+| none (and no `DEVELOPMENT_TEAM` in the environment) | unsigned `.ipa`: re-sign it with your distribution identity |
+| `team = "ABCDE12345"` | automatic signing: `xcodebuild archive -allowProvisioningUpdates` + `-exportArchive` (method `app-store-connect`, TestFlight-ready); needs the team's account in Xcode, or the API key below |
+| `+ profile = "<name or UUID>"`, `identity = "Apple Distribution"` (default) | manual signing with an installed App Store provisioning profile and the distribution certificate in the keychain |
+| `+ api_key_path`, `api_key_id`, `api_issuer_id` | automatic signing with an App Store Connect API key (`-authenticationKey*`), no Xcode account |
+
+`EENGINE_BUNDLE_IOS_SIMULATOR=1` also writes `{name}-{version}-simulator.app` (a development check, never shipped). `apps/runner/ios/check-bundle.sh [workdir] [--launch shot.png]` runs it all end to end: the kit, the album sample to an ipa, the device + simulator products checked (`otool -L` links Photos/PhotosUI and nothing undeclared, Info.plist has exactly the photo-library purpose string, NOTICES.txt, AppIcon), and with `--launch` a simulator of its own (install, launch, screenshot, shut down, delete; under the `ios` lane).
