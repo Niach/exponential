@@ -1,0 +1,22 @@
+{
+  "name": "@exp/uicore",
+  "version": "0.0.0",
+  "description": "The shell contract (#EDE-46): the pure shell reducer the IDE and eDE both host (rail, sidebar sections, the desktop/team switcher, windows + MRU, workspaces, Mint's grouped taskbar, the start menu, chat, Alt-Tab) and its selectors as fixtures plus a TypeScript reference; the uicore-model crate replays them in Rust",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "bun test ./src",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./shell": "./src/shell.ts",
+    "./layout": "./src/layout.ts",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}

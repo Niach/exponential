@@ -899,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.2.2"
+version = "0.14.135"
 dependencies = [
  "ecore",
  "serde",
