@@ -30,10 +30,10 @@ import SwiftUI
 /// * An issue tab = the issue page EMBEDDED (EXP-1316): no own header, no
 ///   Threads row, no Start; the bottom bar keeps properties + Comment.
 /// * S-3 (session-thread.json): the Guide tab is gone. The thread PR
-///   (`guidePullRequest`) keeps its Merge pill in the header's action slot
-///   while it is open, left of ONE `…` (EXP-1307: THE Menu's sheet,
-///   `guideMenuEntries` — Close PR (EXP-1338) behind the close-pr.json
-///   confirm).
+///   (`guidePullRequest`) keeps (#EXP-1710) the merge train's STATUS pill
+///   in the header's action slot, left of ONE `…` (EXP-1307: THE Menu's
+///   sheet, `mergeMenuEntries` — Checks, Merge now, Hold | Resume
+///   auto-merge, Close PR (EXP-1338) behind the close-pr.json confirm).
 ///
 /// The "+" (left of Conversation, EXP-1334) opens THE Menu's sheet: Link an
 /// issue (THE search list → `sessions.linkIssues`) · New issue (the New
@@ -125,6 +125,10 @@ struct ThreadScreen: View {
     @State private var mergeState = WorkMergeState()
     /// EXP-1307: the thread PR awaiting the Close PR confirm.
     @State private var closePrTarget: PullRequestEntity?
+    /// #EXP-1710: the thread PR awaiting THE `merge-now-pr` alert.
+    @State private var mergeNowTarget: MergeNowTarget?
+    /// #EXP-1710: the status pill's tap opens the menu sheet ON its Checks.
+    @State private var chatMenuChecks = false
     // EXP-1323: suggested tasks
     /// In-flight suggestion actions (`ThreadSuggestionActions.key`).
     @State private var suggestionPending: Set<String> = []
@@ -355,7 +359,8 @@ struct ThreadScreen: View {
                         title: chatMenuTitle,
                         entries: chatMenuEntries,
                         checksSummary: rows.flatMap { PrChecks.checksSummary($0.guideChecks) },
-                        checkRows: rows.map { PrChecks.checksList($0.guideChecks, now: Date()) } ?? []
+                        checkRows: rows.map { PrChecks.checksList($0.guideChecks, now: Date()) } ?? [],
+                        startOnChecks: chatMenuChecks
                     ) { entry in
                         pendingChatPick = entry
                         chatMenuOpen = false
@@ -388,6 +393,10 @@ struct ThreadScreen: View {
             }
         }
         .task(id: rows?.root.teamId) { await resolveOwner() }
+        // #EXP-1710: THE shared Merge now alert (Merge destructive, Cancel focused).
+        .mergeNowConfirm(target: $mergeNowTarget) { target in
+            mergeTrainActions.mergeNow(pullRequestId: target.pullRequestId)
+        }
         // EXP-1307: close-pr.json's confirm (the app's own card, EXP-240).
         .background {
             Color.clear
@@ -1031,26 +1040,54 @@ struct ThreadScreen: View {
         }
     }
 
-    // MARK: - The thread PR's Merge pill
+    // MARK: - The thread PR's status pill
 
-    /// S-3 (session-thread.json): the header's Merge pill over the thread PR
-    /// (`guidePullRequest`) while it is open (EXP-1307 `testIds.guideMerge`);
-    /// on a member of an open stack it merges the stack (`guideStackConfirm`).
+    /// #EXP-1710 (merge-train.json STATUS PILL): THE status pill over the
+    /// thread PR for ANY viewer (a closed PR = none); its tap opens the
+    /// check rows directly as the menu; `Needs approval` (members) is the
+    /// only action.
     @ViewBuilder
     private var headerMergePill: some View {
-        if editor == nil, canEdit, let rows,
-           let pullRequest = rows.guidePullRequest, pullRequest.isOpen {
+        if editor == nil, let rows, let pullRequest = rows.guidePullRequest,
+           MergeTrain.pillState(prState: pullRequest.state, mergeState: pullRequest.mergeState) != nil {
             WorkMergePill(
                 pullRequest: pullRequest,
                 issueCount: rows.pullRequestIssueIds[pullRequest.id]?.count ?? 0,
                 stackConfirm: rows.guideStackConfirm,
                 checks: rows.guideChecks,
+                batchSize: rows.guideBatchSize,
+                canApprove: canEdit,
+                onChecks: { openChecks() },
                 state: $mergeState,
-                identifier: SessionTree.ThreadCopy.guideMergeTestId,
+                identifier: MergeTrain.TestIds.statusPill,
                 style: .toolbar
             )
             .id(pullRequest.id)
         }
+    }
+
+    private func openChecks() {
+        UIApplication.endEditing()
+        chatMenuChecks = true
+        chatMenuOpen = true
+    }
+
+    private var mergeTrainActions: MergeTrainActions {
+        MergeTrainActions(deps: deps, accountId: accountId, toaster: toaster)
+    }
+
+    /// #EXP-1710: Merge now's alert over the thread PR (`titleStack` on an
+    /// open-stack member).
+    private func askMergeNow() {
+        guard let rows, let pullRequest = rows.guidePullRequest, pullRequest.isOpen else { return }
+        mergeNowTarget = MergeNowTarget(
+            pullRequestId: pullRequest.id, number: pullRequest.number, stack: rows.guideStackConfirm != nil
+        )
+    }
+
+    private func holdGuide(_ hold: Bool) {
+        guard let pullRequest = rows?.guidePullRequest, pullRequest.isOpen else { return }
+        mergeTrainActions.hold(pullRequestId: pullRequest.id, hold: hold)
     }
 
     // MARK: - Cards (answered in place)
@@ -1353,6 +1390,9 @@ struct ThreadScreen: View {
         return own + guideMenuEntries.map { entry -> ChatMenuSheet.Entry in
             switch entry {
             case .checks: .checks
+            case .mergeNow: .mergeNow
+            case .hold: .hold
+            case .resume: .resume
             case .closePr: .closePr
             }
         }
@@ -1364,6 +1404,7 @@ struct ThreadScreen: View {
     }
 
     private func runPendingChatPick() {
+        chatMenuChecks = false
         guard let pick = pendingChatPick, let rows else { return }
         pendingChatPick = nil
         switch pick {
@@ -1379,6 +1420,9 @@ struct ThreadScreen: View {
         case .checks:
             // The sheet pushes its own Checks page.
             break
+        case .mergeNow: askMergeNow()
+        case .hold: holdGuide(true)
+        case .resume: holdGuide(false)
         case .closePr:
             closePrTarget = rows.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
         }
@@ -1419,11 +1463,16 @@ struct ThreadScreen: View {
         menuTarget = ThreadMenuTarget(issueId: issueId)
     }
 
-    /// EXP-1307: the Guide header's `…` entries (`guideMenuEntries`, fixture
-    /// `guideMenuCases` ×4) over the Guide's PR; empty = no trigger.
-    private var guideMenuEntries: [SessionTree.GuideMenuEntry] {
-        SessionTree.guideMenuEntries(
-            state: rows?.guidePullRequest?.state, member: canEdit, checks: rows?.guideChecks.count ?? 0
+    /// #EXP-1710: the Guide header's `…` entries (merge-train.json `menu`,
+    /// `mergeMenuEntries` ×4) over the Guide's PR; empty = no trigger.
+    private var guideMenuEntries: [MergeTrain.MenuEntry] {
+        let pullRequest = rows?.guidePullRequest
+        return MergeTrain.mergeMenuEntries(
+            state: pullRequest?.state,
+            member: canEdit,
+            owner: isOwner,
+            checks: rows?.guideChecks.count ?? 0,
+            mergeState: pullRequest?.mergeState
         )
     }
 
@@ -1440,6 +1489,9 @@ struct ThreadScreen: View {
         case .newIssue: newIssue()
         case .unlink:
             if let issueId = pending.issueId { unlink(issueId) }
+        case .mergeNow: askMergeNow()
+        case .hold: holdGuide(true)
+        case .resume: holdGuide(false)
         case .closePr:
             closePrTarget = rows?.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
         }

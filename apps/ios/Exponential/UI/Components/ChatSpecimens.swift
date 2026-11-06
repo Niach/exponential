@@ -888,10 +888,10 @@ struct SealedLockedSpecimens: View {
     }
 }
 
-/// #EXP-1611 (styleguide `pr-checks`, pr-checks.json): THE header Merge pill
-/// in its four check states (none, pending, success, failure), then the
-/// header `…`'s Checks entry and its pushed page as static menu panels over
-/// the fixture's `specimen` (checks + now).
+/// #EXP-1611 (styleguide `pr-checks`, pr-checks.json): THE header pill —
+/// since #EXP-1710 the merge train's STATUS pill (merge-train.json
+/// `statusPill`), every case in fixture order — then the Checks panel the
+/// pill's tap opens, over the fixture's `specimen` (checks + now).
 struct PrChecksSpecimens: View {
     /// pr-checks.json `specimen.checks`.
     static let checks: [PrChecks.Check] = [
@@ -919,41 +919,21 @@ struct PrChecksSpecimens: View {
     /// pr-checks.json `specimen.now`.
     static let now = WireTimestamps.parse("2026-11-01T12:10:00.000Z") ?? Date()
 
-    private static let states = [
-        DomainContract.prChecksStateNone, DomainContract.prChecksStatePending,
-        DomainContract.prChecksStateSuccess, DomainContract.prChecksStateFailure,
-    ]
-
-    private static func pullRequest(_ state: String) -> PullRequestEntity {
-        PullRequestEntity(
-            id: "pr-\(state)", teamId: "t", repositoryId: "r", number: 1611,
-            url: "https://github.com/o/r/pull/1611", head: "exp-1611", base: "master",
-            checksState: state, createdAt: "2026-11-01T12:00:00.000Z", updatedAt: "2026-11-01T12:00:00.000Z"
-        )
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            // #EXP-1710: EVERY merge-train.json `statusPill` case, fixture
+            // order, in one wrapping row (`MergeTrain.specimen`).
             FlowLayout(spacing: 8, centersLines: true) {
-                ForEach(Self.states, id: \.self) { state in
-                    WorkMergePill(
-                        pullRequest: Self.pullRequest(state),
-                        issueCount: 0,
-                        checks: Self.checks,
-                        state: .constant(WorkMergeState()),
-                        identifier: "pr-checks-pill-\(state)",
-                        style: .toolbar
+                ForEach(Array(MergeTrain.specimen.enumerated()), id: \.offset) { index, input in
+                    let pill = input.pill
+                    MergeStatusPill(
+                        view: pill, action: pill.tap == nil ? nil : Optional({}), identifier: "pr-checks-pill-\(index)"
                     )
                 }
             }
-            if let summary = PrChecks.checksSummary(Self.checks) {
-                panel {
-                    PrChecksMenuEntryLabel(summary: summary)
-                }
-                panel {
-                    PrChecksMenuBackRow {}
-                    PrChecksMenuRows(rows: PrChecks.checksList(Self.checks, now: Self.now))
-                }
+            // The pill's tap: the check rows ARE the menu (no back row).
+            panel {
+                PrChecksMenuRows(rows: PrChecks.checksList(Self.checks, now: Self.now))
             }
         }
         .accessibilityElement(children: .contain)

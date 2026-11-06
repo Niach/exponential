@@ -16,8 +16,21 @@ struct ChatMenuSheet: View {
         /// #EXP-1611: the Guide PR's Checks submenu (pr-checks.json CHECKS
         /// LIST), a page pushed in this sheet.
         case checks
+        /// #EXP-1710 (merge-train.json MENU): an owner's Merge now.
+        case mergeNow
+        /// #EXP-1710: a member's Hold auto-merge / Resume auto-merge.
+        case hold
+        case resume
         /// EXP-1307: the Guide's Close PR (the thread header's `…` keeps it).
         case closePr
+
+        /// The thread PR's entries (`mergeMenuEntries`), apart from the chat's.
+        var isPullRequest: Bool {
+            switch self {
+            case .thread, .agent: false
+            case .checks, .mergeNow, .hold, .resume, .closePr: true
+            }
+        }
     }
 
     let title: String?
@@ -28,15 +41,39 @@ struct ChatMenuSheet: View {
     let onPick: (Entry) -> Void
 
     /// The pushed Checks page.
-    @State private var checksOpen = false
+    @State private var checksOpen: Bool
+    /// #EXP-1710: opened by the status pill: the check rows ARE the menu
+    /// (no back row to the `…` entries).
+    private let checksOnly: Bool
     @Environment(\.motion) private var motion
+
+    /// `startOnChecks` (#EXP-1710): the status pill's tap opens the sheet as
+    /// the check rows alone.
+    init(
+        title: String?,
+        entries: [Entry],
+        checksSummary: PrChecks.Summary? = nil,
+        checkRows: [PrChecks.ListRow] = [],
+        startOnChecks: Bool = false,
+        onPick: @escaping (Entry) -> Void
+    ) {
+        self.title = title
+        self.entries = entries
+        self.checksSummary = checksSummary
+        self.checkRows = checkRows
+        self.onPick = onPick
+        _checksOpen = State(initialValue: startOnChecks)
+        checksOnly = startOnChecks
+    }
 
     var body: some View {
         Group {
             if checksOpen {
                 GlassSheetChrome(title: nil) {
                     VStack(spacing: 0) {
-                        PrChecksMenuBackRow { checksOpen = false }
+                        if !checksOnly {
+                            PrChecksMenuBackRow { checksOpen = false }
+                        }
                         PrChecksMenuRows(rows: checkRows)
                     }
                     .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
@@ -73,9 +110,7 @@ struct ChatMenuSheet: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier(
-                        entry == .checks ? PrChecks.TestIds.checksMenu : "chat-menu-\(Self.testId(entry))"
-                    )
+                    .accessibilityIdentifier(Self.accessibilityId(entry))
                 }
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
@@ -91,11 +126,9 @@ struct ChatMenuSheet: View {
     static func separates(_ previous: Entry, _ next: Entry) -> Bool {
         switch (previous, next) {
         case (.agent(.newConversation), .agent): true
-        case (.thread, .closePr), (.closePr, .thread): true
-        // #EXP-1611: the Guide's entries (Checks, Close PR) sit apart from
-        // the chat's own.
-        case (.thread, .checks), (.checks, .thread): true
-        default: false
+        // #EXP-1611/#EXP-1710: the thread PR's entries (Checks, Merge now,
+        // Hold | Resume, Close PR) sit apart from the chat's own.
+        default: previous.isPullRequest != next.isPullRequest
         }
     }
 
@@ -104,6 +137,9 @@ struct ChatMenuSheet: View {
         case let .thread(e): e.label
         case let .agent(e): e.label
         case .checks: PrChecks.Copy.checks
+        case .mergeNow: MergeTrain.Copy.Menu.mergeNow
+        case .hold: MergeTrain.Copy.Menu.hold
+        case .resume: MergeTrain.Copy.Menu.resume
         case .closePr: ClosePrCopy.menuItem
         }
     }
@@ -113,6 +149,9 @@ struct ChatMenuSheet: View {
         case let .thread(e): AppIcons.conceptOrName(e.icon) ?? e.icon
         case let .agent(e): AppIcons.conceptOrName(e.icon) ?? e.icon
         case .checks: AppIcons.ciPassed
+        case .mergeNow: AppIcons.prMerged
+        case .hold: AppIcons.prHold
+        case .resume: AppIcons.prResume
         case .closePr: AppIcons.prClosed
         }
     }
@@ -120,7 +159,7 @@ struct ChatMenuSheet: View {
     static func destructive(_ entry: Entry) -> Bool {
         switch entry {
         case let .thread(e): e.destructive
-        case .agent, .checks: false
+        case .agent, .checks, .mergeNow, .hold, .resume: false
         case .closePr: true
         }
     }
@@ -130,7 +169,22 @@ struct ChatMenuSheet: View {
         case let .thread(e): e.rawValue
         case let .agent(e): e.rawValue
         case .checks: "checks"
+        case .mergeNow: "merge-now"
+        case .hold: "hold"
+        case .resume: "resume"
         case .closePr: "close-pr"
+        }
+    }
+
+    /// The fixtures' test ids (pr-checks.json, merge-train.json), else
+    /// `chat-menu-<entry>`.
+    static func accessibilityId(_ entry: Entry) -> String {
+        switch entry {
+        case .checks: PrChecks.TestIds.checksMenu
+        case .mergeNow: MergeTrain.TestIds.mergeNow
+        case .hold: MergeTrain.TestIds.hold
+        case .resume: MergeTrain.TestIds.resume
+        default: "chat-menu-\(testId(entry))"
         }
     }
 }

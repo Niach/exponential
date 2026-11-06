@@ -3147,6 +3147,45 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v101 (#EXP-1709/#EXP-1710): the merge train — `pull_requests`
+        // gains the train's state columns (merge-train.json STATE) and
+        // `teams.merge_mode` (auto | approval) replaces the yolo switch. The
+        // pull-requests and teams cursors reset only for the table that
+        // gained columns, so synced rows re-arrive carrying them.
+        migrator.registerMigration("v101_merge_train") { db in
+            var reset: [String] = []
+            if try db.tableExists("pull_requests"),
+               try db.columns(in: "pull_requests").contains(where: { $0.name == "merge_state" }) == false {
+                try db.alter(table: "pull_requests") { t in
+                    t.add(column: "merge_state", .text).notNull().defaults(to: "checks")
+                    t.add(column: "merge_wait", .text)
+                    t.add(column: "merge_attempts", .integer).notNull().defaults(to: 0)
+                    t.add(column: "merge_hold", .text)
+                    t.add(column: "merge_queued_since", .text)
+                    t.add(column: "merge_now", .boolean).notNull().defaults(to: false)
+                    t.add(column: "merge_position", .integer)
+                    t.add(column: "merge_train_id", .text)
+                }
+                reset.append("pull-requests")
+            }
+            if try db.tableExists("teams"),
+               try db.columns(in: "teams").contains(where: { $0.name == "merge_mode" }) == false {
+                try db.alter(table: "teams") { t in
+                    t.add(column: "merge_mode", .text).notNull().defaults(to: "auto")
+                }
+                reset.append("teams")
+            }
+            if try db.tableExists("electric_offsets") {
+                for shape in reset {
+                    try db.execute(sql: """
+                        UPDATE "electric_offsets"
+                        SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                        WHERE "shape" = ?
+                        """, arguments: [shape])
+                }
+            }
+        }
+
         return migrator
     }
 

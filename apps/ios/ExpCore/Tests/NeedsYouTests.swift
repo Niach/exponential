@@ -135,4 +135,47 @@ final class NeedsYouTests: XCTestCase {
         XCTAssertEqual(rows.map(\.messageId), ["q2"])
         XCTAssertEqual(rows.map(\.sessionId), ["c1"])
     }
+
+    /// #EXP-1710 (merge-train.json NEEDS YOU): `auto` mode drops the ready
+    /// rows, `approval` keeps them; a stuck PR is ONE pr row with its
+    /// actions in either mode; a person's Hold is none.
+    func testMergeTrainRows() throws {
+        let now = try XCTUnwrap(WireTimestamps.parse("2027-01-15T10:00:00.000Z")).timeIntervalSince1970 * 1000
+        let sessions = [
+            NeedsYou.SessionInput(id: "r1", rootId: "r1", name: "Palette", status: "idle", agentId: nil, userId: "me"),
+        ]
+        func pr(_ id: String, _ number: Int, mergeState: String?, hold: String? = nil, offline: String? = nil) -> NeedsYou.PullRequestInput {
+            NeedsYou.PullRequestInput(
+                id: id, rootSessionId: "r1", number: number, title: "PR \(number)", state: "open",
+                checksState: "success", basePullRequestId: nil, createdAt: "2027-01-15T07:00:00.000Z",
+                mergeState: mergeState, mergeWait: mergeState == "checks" ? "approval" : nil, mergeHold: hold,
+                deviceOfflineSince: offline
+            )
+        }
+        let prs = [
+            pr("ready", 10, mergeState: "checks"),
+            pr("stuck", 12, mergeState: "held", hold: "bounces"),
+            pr("person", 13, mergeState: "held", hold: "person"),
+            pr("offline", 14, mergeState: "conflict", offline: "2027-01-15T07:30:00.000Z"),
+            pr("queued", 15, mergeState: "queued"),
+        ]
+        let auto = NeedsYou.rows(
+            now: now, me: "me", sessions: sessions, messages: [], pullRequests: prs, mergeMode: "auto", owner: true
+        )
+        XCTAssertEqual(auto.map(\.messageId).sorted(), ["offline", "stuck"])
+        let stuck = try XCTUnwrap(auto.first { $0.messageId == "stuck" })
+        XCTAssertEqual(stuck.title, "Auto-merge stuck on #12")
+        XCTAssertEqual(stuck.meta, "3 bounces")
+        XCTAssertEqual(stuck.kind, .pr)
+        XCTAssertEqual(stuck.opens, .results)
+        XCTAssertEqual(stuck.actions, [.retry, .mergeNow, .closePr])
+        XCTAssertEqual(auto.first { $0.messageId == "offline" }?.meta, "Device offline")
+        let approval = NeedsYou.rows(
+            now: now, me: "me", sessions: sessions, messages: [], pullRequests: prs, mergeMode: "approval", owner: false
+        )
+        XCTAssertEqual(approval.map(\.messageId).sorted(), ["offline", "ready", "stuck"])
+        XCTAssertEqual(approval.first { $0.messageId == "stuck" }?.actions, [.retry, .closePr])
+        XCTAssertEqual(approval.first { $0.messageId == "ready" }?.actions, [])
+    }
+
 }

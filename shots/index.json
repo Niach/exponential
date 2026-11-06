@@ -5710,8 +5710,8 @@
         "file": "shots/pr-checks/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 18514,
-        "sha256": "2e3a493707f331fd4592f330b810e1d605f378ce839be1fdf41c2537484c41e5"
+        "bytes": 37600,
+        "sha256": "328fc9c2d8e4312014f3c5e540805a73eb1e63cb13e39e32bb0fc0008073c830"
       },
       "web": {
         "file": "shots/pr-checks/web.webp",
@@ -6359,8 +6359,8 @@
         "file": "shots/settings-general/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 26026,
-        "sha256": "cffed136475f7aed129e36bb0874f0b3cc09b529c5a3996f7441808e1bb9f615"
+        "bytes": 28584,
+        "sha256": "c0207ff07fb28048d6de2e62d2dcd7d857aac91fcc30e12c7cd46b1b26df1e28"
       },
       "web": {
         "file": "shots/settings-general/web.webp",

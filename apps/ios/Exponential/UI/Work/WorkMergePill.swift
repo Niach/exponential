@@ -2,34 +2,37 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-1150/1154: the ONE Merge PR control — the SOLID WHITE capsule
-/// (`FloatingBarSolidPill`, hugging its label, 52pt) or (EXP-1191) the
-/// icon-only 52pt glass bar circle. EXP-1295: it merges a `pull_requests` row
-/// through `pullRequests.merge`. EXP-1303: on a member of an open stack
-/// (`stackConfirm`, Android `PullRequestStack`) it reads "Merge stack", asks
-/// THE stack confirm and merges THROUGH the stack's top (`stack: true`). Every refusal toasts the server's words
-/// (EXP-1391: the server also posts it into the thread's root, which takes it
-/// over); every refusal, a conflict included, offers Retry.
-/// The host mounts it only while the PR is open. S-3: `.toolbar` = the same
-/// control as a header button (the thread header's action slot, left of `…`).
-/// #EXP-1611 (pr-checks.json MERGE PILL, `PrChecks.mergePill` over the PR's
-/// `checks_state`): pending = THE spinner in the glyph's place, still
-/// enabled; failure = the PLAIN pill, the red `ci-failed` glyph, `Checks
-/// failing`, and its tap asks prompts.json `merge-failing-pr` INSTEAD OF the
-/// plain / stack confirm (Merge merges exactly as the pill would; the
-/// person's merge never sends `force`).
+/// #EXP-1710 (merge-train.json STATUS PILL, `MergeTrain.statusPill` over
+/// the PR's train columns): THE header pill is a STATUS, no longer the
+/// person's Merge. THE Pill md, mode action, NOT primary; its glyph by icon
+/// concept (`spinner` = THE spinner), tone red tinting only the glyph; its
+/// tap opens the existing Checks submenu (pr-checks.json CHECKS LIST; no
+/// rows = readonly, no tap). THE ONLY ACTION: in `approval` mode a ready PR
+/// reads `Needs approval` (PRIMARY, pr-merged), whose tap asks the plain
+/// merge confirm (prompts.json merge-issue-pr / merge-run-pr) or (EXP-1303)
+/// THE stack confirm, and Merge QUEUES it through `pullRequests.merge` (the
+/// train lands it). Every refusal toasts the server's words with Retry.
+/// `.capsule` / `.circle` = the phone's bottom Merge capsule, the same
+/// status; `.toolbar` = the thread header's action slot, left of `…`.
 struct WorkMergePill: View {
     let pullRequest: PullRequestEntity
     /// The issues the PR links (`pull_request_issues`): the confirm names a
     /// batch's count, and an issue-less PR says so.
     let issueCount: Int
-    /// Non-nil = `pullRequest` sits in an open stack: Merge lands it all.
+    /// Non-nil = `pullRequest` sits in an open stack: approving queues it all.
     var stackConfirm: PullRequestStack.Confirm?
-    /// #EXP-1611: the PR's synced CI rows (the failing confirm names them).
+    /// #EXP-1611: the PR's synced CI rows (none = a readonly pill).
     var checks: [PrChecks.Check] = []
+    /// `Testing with N`: the synced PRs sharing this PR's `merge_train_id`,
+    /// this one included.
+    var batchSize: Int?
+    /// A member may approve; a viewer sees the status only.
+    var canApprove = true
+    /// The tap of a status pill: the host opens its Checks submenu.
+    var onChecks: (() -> Void)?
     /// The merge in flight is the HOST's: every mounted capsule spins together.
     @Binding var state: WorkMergeState
-    var identifier = "work-merge-pr"
+    var identifier = MergeTrain.TestIds.statusPill
     var style: Style = .capsule
     enum Style { case capsule, circle, toolbar }
 
@@ -40,46 +43,52 @@ struct WorkMergePill: View {
 
     private var merging: Bool { state.merging }
 
-    /// #EXP-1611: the pill over the PR's check state.
-    private var view: PrChecks.MergePill {
-        PrChecks.mergePill(state: pullRequest.checksState, stack: stackConfirm != nil)
+    /// THE view model, shared by every style.
+    private var view: MergeTrain.StatusPill {
+        Self.statusPill(
+            pullRequest, stack: stackConfirm != nil, checks: checks.count, batchSize: batchSize, canApprove: canApprove
+        )
     }
 
-    private var label: String {
-        view.confirm == .failing ? view.label : stackConfirm?.title ?? DomainContract.diffUiMergePr
+    /// The PR's own state wins (merged, draft), else its train state; a
+    /// viewer who may not approve sees Needs approval as a plain status.
+    /// The host mounts no pill on a closed PR (`MergeTrain.pillState` nil).
+    static func statusPill(
+        _ pullRequest: PullRequestEntity, stack: Bool, checks: Int, batchSize: Int?, canApprove: Bool
+    ) -> MergeTrain.StatusPill {
+        let pill = MergeTrain.statusPill(
+            state: MergeTrain.pillState(prState: pullRequest.state, mergeState: pullRequest.mergeState),
+            wait: pullRequest.mergeWait,
+            position: pullRequest.mergePosition,
+            batchSize: batchSize,
+            holdReason: pullRequest.mergeHold,
+            stack: stack,
+            checks: checks
+        )
+        return MergeTrain.viewerPill(pill, canApprove: canApprove, checks: checks)
     }
 
-    /// The glyph slot: the merge in flight's spinner, THE spinner while CI
-    /// runs, the red `ci-failed` while it fails, else the merge glyph.
-    @ViewBuilder
-    private func glyph(size: CGFloat, weight: Font.Weight? = .medium, spinnerTint: Color?, glyphColor: Color?) -> some View {
-        if merging || view.glyph == .spinner {
-            // THE spinner, dark on the white primary paint (a default-tinted
-            // one vanished into it).
-            InlineSpinner(size: size, color: spinnerTint ?? .white.opacity(TextOpacity.tertiary))
-        } else if view.glyph == .ciFailed {
-            AppIcon(AppIcons.ciFailed, size: size, weight: weight)
-                .foregroundStyle(DesignTokens.Semantic.red)
-        } else if let glyphColor {
-            AppIcon(AppIcons.prMerged, size: size, weight: weight)
-                .foregroundStyle(glyphColor)
-        } else {
-            AppIcon(AppIcons.prMerged, size: size, weight: weight)
+    private var action: (() -> Void)? {
+        switch view.tap {
+        case .approve:
+            guard canApprove, !merging else { return nil }
+            return { showMergeConfirm = true }
+        case .checks:
+            return onChecks
+        case nil:
+            return nil
         }
+    }
+
+    private func glyph(size: CGFloat, weight: Font.Weight? = .medium, spinnerTint: Color?, glyphColor: Color?) -> some View {
+        MergeStatusGlyph(
+            view: view, merging: merging, size: size, weight: weight, spinnerTint: spinnerTint, glyphColor: glyphColor
+        )
     }
 
     /// The plain merge confirm, or (EXP-1248) THE stack confirm, its copy
-    /// byte-locked by `stack-merge-choice.json` `confirm`; (#EXP-1611) while
-    /// checks fail, `merge-failing-pr` replaces both.
+    /// byte-locked by `stack-merge-choice.json` `confirm`.
     private var confirmCard: GlassAlert<EmptyView> {
-        if view.confirm == .failing {
-            return GlassAlert(
-                prompt: Prompts.MergeFailingPr.copy(
-                    number: pullRequest.number, stack: stackConfirm != nil, body: PrChecks.failingBody(checks)
-                ),
-                handlers: ["merge": { merge() }]
-            )
-        }
         guard let stackConfirm else {
             return GlassAlert(prompt: mergePrompt, handlers: ["merge": { merge() }])
         }
@@ -102,7 +111,7 @@ struct WorkMergePill: View {
     var body: some View {
         Group {
             switch style {
-            // The failing pill is THE plain pill, never the solid one.
+            // A status is THE plain pill, never the solid one.
             case .capsule: if view.primary { pill } else { toolbarButton }
             case .circle: circle
             case .toolbar: toolbarButton
@@ -120,12 +129,12 @@ struct WorkMergePill: View {
 
     private var pill: some View {
         FloatingBarSolidPill(
-            accessibilityLabel: label,
-            enabled: !merging,
-            action: { showMergeConfirm = true }
+            accessibilityLabel: view.label,
+            enabled: action != nil,
+            action: { action?() }
         ) {
             glyph(size: FloatingBarTokens.glyph, spinnerTint: .black.opacity(0.6), glyphColor: nil)
-            Text(label)
+            Text(view.label)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(1)
         }
@@ -135,40 +144,24 @@ struct WorkMergePill: View {
 
     private var circle: some View {
         FloatingBarCircle(
-            accessibilityLabel: label,
-            enabled: !merging,
-            action: { showMergeConfirm = true }
+            accessibilityLabel: view.label,
+            enabled: action != nil,
+            action: { action?() }
         ) {
             glyph(size: FloatingBarTokens.glyph, spinnerTint: .white, glyphColor: .white.opacity(TextOpacity.primary))
         }
         .accessibilityIdentifier(identifier)
     }
 
-    /// S-3: the header's action slot (the header Stop's shape: a plain
-    /// toolbar button, the merge glyph before its label).
-    /// EXP-1552: the thread header's Merge = THE md primary `GlassPill` ×4
-    /// (web `PullRequestMergePill`, desktop `.primary()`, Android
-    /// `MergePill(header = true)`).
+    /// S-3: the header's action slot. EXP-1552: THE md `GlassPill` ×4 (web
+    /// `PullRequestMergePill`, desktop, Android `MergePill(header = true)`),
+    /// primary only for `Needs approval`.
     private var toolbarButton: some View {
-        GlassPill(
-            label,
-            size: .md,
-            mode: .action { showMergeConfirm = true },
-            primary: view.primary,
-            enabled: !merging
-        ) {
-            glyph(
-                size: GlassPillSize.md.glyphSize, weight: nil,
-                spinnerTint: view.primary && !merging ? .black.opacity(0.6) : nil, glyphColor: nil
-            )
-        }
-        .fixedSize()
-        .accessibilityLabel(label)
-        .accessibilityIdentifier(identifier)
+        MergeStatusPill(view: view, merging: merging, action: action, identifier: identifier)
     }
 
-    /// No local surgery on success: the `state` flip syncs back and the host
-    /// unmounts the capsule.
+    /// Needs approval: `pullRequests.merge` QUEUES it (the train is on). No
+    /// local surgery on success: the train columns sync back.
     private func merge() {
         state.merging = true
         let pullRequestId = stackConfirm?.throughId ?? pullRequest.id
@@ -198,8 +191,156 @@ struct WorkMergePill: View {
     }
 }
 
+/// #EXP-1710: THE status pill's paint (the header's md `GlassPill`), over a
+/// `MergeTrain.StatusPill`: the thread header and the styleguide specimen.
+struct MergeStatusPill: View {
+    let view: MergeTrain.StatusPill
+    var merging = false
+    /// nil = readonly (no tap).
+    let action: (() -> Void)?
+    var identifier = MergeTrain.TestIds.statusPill
+
+    var body: some View {
+        GlassPill(
+            view.label,
+            size: .md,
+            mode: action.map { tap in GlassPillMode.action { tap() } } ?? GlassPillMode.readonly,
+            primary: view.primary,
+            enabled: view.tap != .approve || !merging
+        ) {
+            MergeStatusGlyph(
+                view: view, merging: merging, size: GlassPillSize.md.glyphSize, weight: nil,
+                spinnerTint: view.primary && !merging ? .black.opacity(0.6) : nil, glyphColor: nil
+            )
+        }
+        .fixedSize()
+        .accessibilityLabel(view.label)
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+/// The glyph slot: the merge in flight's spinner, THE spinner, else the
+/// state's concept glyph (red tone = the glyph alone).
+struct MergeStatusGlyph: View {
+    let view: MergeTrain.StatusPill
+    let merging: Bool
+    let size: CGFloat
+    var weight: Font.Weight? = .medium
+    var spinnerTint: Color?
+    var glyphColor: Color?
+
+    var body: some View {
+        if merging || view.glyph == .spinner {
+            // THE spinner, dark on the white primary paint (a default-tinted
+            // one vanished into it).
+            InlineSpinner(size: size, color: spinnerTint ?? .white.opacity(TextOpacity.tertiary))
+        } else {
+            let icon = AppIcons.conceptOrName(view.glyph.rawValue) ?? AppIcons.prMerged
+            if view.tone == .red {
+                AppIcon(icon, size: size, weight: weight)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            } else if let glyphColor {
+                AppIcon(icon, size: size, weight: weight)
+                    .foregroundStyle(glyphColor)
+            } else {
+                AppIcon(icon, size: size, weight: weight)
+            }
+        }
+    }
+}
+
 /// EXP-1154: what every mounted Merge capsule shares — the merge in flight.
 /// The host resets it when the PR changes.
 struct WorkMergeState: Equatable {
     var merging = false
+}
+
+/// #EXP-1710 (merge-train.json MENU / NEEDS YOU): the train's person
+/// actions, shared by the thread's `…` and the Needs you stuck row. Merge
+/// now = `pullRequests.mergeNow` (owners, after THE `merge-now-pr` alert);
+/// Hold / Resume auto-merge and Retry = `pullRequests.hold`. A failure = a
+/// toast; the state flips land over the shapes.
+@MainActor
+struct MergeTrainActions {
+    let deps: AppDependencies
+    let accountId: String
+    let toaster: Toaster
+
+    func mergeNow(pullRequestId: String) {
+        let api = deps.pullRequestsApi
+        let accountId = accountId
+        let toaster = toaster
+        Task {
+            do {
+                try await api.mergeNow(accountId: accountId, pullRequestId: pullRequestId)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "merge", thing: "the PR"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
+    }
+
+    /// `hold` = Hold auto-merge; false = Resume auto-merge / Retry.
+    func hold(pullRequestId: String, hold: Bool) {
+        let api = deps.pullRequestsApi
+        let accountId = accountId
+        let toaster = toaster
+        Task {
+            do {
+                try await api.hold(accountId: accountId, pullRequestId: pullRequestId, hold: hold)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: hold ? "hold" : "resume", thing: "auto-merge"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
+    }
+
+    func close(pullRequestId: String) {
+        let api = deps.pullRequestsApi
+        let accountId = accountId
+        let toaster = toaster
+        Task {
+            do {
+                try await api.close(accountId: accountId, pullRequestId: pullRequestId)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "close", thing: "the PR"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
+    }
+}
+
+extension View {
+    /// #EXP-1710: THE shared `merge-now-pr` alert card (Merge destructive,
+    /// Cancel focused; `titleStack` on an open-stack member).
+    func mergeNowConfirm(
+        target: Binding<MergeNowTarget?>, onConfirm: @escaping (MergeNowTarget) -> Void
+    ) -> some View {
+        background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: target) { item in
+                    GlassAlert(
+                        prompt: Prompts.MergeNowPr.copy(number: item.number, stack: item.stack),
+                        handlers: ["merge": { onConfirm(item) }]
+                    )
+                }
+        }
+    }
+}
+
+/// #EXP-1710: the PR a Merge now alert asks about.
+struct MergeNowTarget: Identifiable, Equatable {
+    let pullRequestId: String
+    let number: Int
+    /// The PR sits in an open stack (the alert's `titleStack`).
+    let stack: Bool
+    var id: String { pullRequestId }
 }
