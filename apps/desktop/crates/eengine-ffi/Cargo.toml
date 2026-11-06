@@ -33,7 +33,7 @@ hub = ["eengine/hub", "dep:emcp"]
 # The same lib (tag `eengine-v*`), so a path dependency.
 eengine = { path = "../eengine", default-features = false }
 # genUI's record row and delta (the store's JSON), at the tag eengine names.
-eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.16.2", default-features = false }
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.18.0", default-features = false }
 emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.2.0", optional = true }
 # The version already in apps/desktop/Cargo.lock (genUI's, P2P's and Voice's facades): ONE uniffi in the tree.
 uniffi = { version = "0.31" }
