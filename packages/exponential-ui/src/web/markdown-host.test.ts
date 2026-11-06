@@ -5,7 +5,8 @@ import host from "../../catalog/host.json" with { type: "json" }
 import type { AnyHostPlugin, TextLinkSegment } from "./host-types"
 import { MARKDOWN_IMAGE_MAX_HEIGHT, markdownImageBox, parseMarkdown } from "./markdown"
 import { normalMarkdown, type NormalBlock, type NormalRun } from "./markdown-normal"
-import { linkHref, linkedMarkdown } from "./urls"
+import { linkHref } from "./urls"
+import { linkedMarkdown } from "./markdown-linked"
 
 // #VAPP-258 (catalog/host.json `markdown`): the host hooks a Markdown asks,
 // the web side (React and Solid share `linkedMarkdown`). The fake host is

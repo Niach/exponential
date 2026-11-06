@@ -12,7 +12,7 @@
 
 import { DEFAULT_MEDIA_SCHEMES, decideUrl, isPrivateHost, mediaRequest, safeHref, type MediaRequest, type UrlPolicy } from "@exponential_app/eui"
 import type { AnyHostPlugin as HostPlugin, TextLinkSegment } from "./host-types"
-import { hostMarkdown, validChip, type MarkdownBlock } from "./markdown"
+import { validChip } from "./markdown-chip"
 
 const documentBase = (): string | undefined => (typeof document !== `undefined` && document.baseURI ? document.baseURI : undefined)
 
@@ -64,19 +64,6 @@ export function textLinkSegments(host: HostPlugin, text: string): TextLinkSegmen
   return policed.some((segment) => segment.href) ? policed : null
 }
 
-/** A Markdown's tree through the host's hooks (catalog/host.json
- *  `markdown`): attachments, image sizes, the text links and their chips
- *  (`fixtures/markdown-text-links.json`, `fixtures/markdown-host.json`).
- *  No hooks = the tree as parsed. */
-export function linkedMarkdown(host: HostPlugin, tree: readonly MarkdownBlock[]): readonly MarkdownBlock[] {
-  if (!host.textLinks && !host.imageSize && !host.attachment) return tree
-  return hostMarkdown(tree, {
-    link: (href) => linkHref(host, href),
-    textLinks: host.textLinks ? (text) => textLinkSegments(host, text) : undefined,
-    imageSize: host.imageSize,
-    attachment: host.attachment,
-  })
-}
 
 /** The media request for a src (`resolveUrl` rewrites first; the host's
  *  `mediaRequest` or the plugin's `media` options build it), re-checked

@@ -10,8 +10,12 @@
 // that is one image is a BLOCK image; an image inside running text is its
 // alt text, as on every renderer. Every pass is linear in its input.
 
-import { markdownCodeLanguage, tokenizeCode, type CodeToken } from "../code"
-import { HOST_CONTRACT } from "../host/contract"
+// From the root package (external to this entry, which `urls.ts` imports
+// anyway): the tokenizer is never bundled twice.
+import { markdownCodeLanguage, tokenizeCode, type CodeToken } from "@exponential_app/eui"
+import { CHIP_KINDS, validChip, type MarkdownChip } from "./markdown-chip"
+
+export { CHIP_KINDS, validChip, type MarkdownChip }
 
 /** Link labels nest at most this deep (×4): a link inside 32 enclosing link
  *  labels is its text. */
@@ -143,11 +147,6 @@ export type MarkdownInline =
   | { type: `link`; dest: string; children: MarkdownInline[]; chip?: MarkdownChip }
 
 /** #VAPP-258: a host text link painted as the catalog Chip's look, inline. */
-export interface MarkdownChip {
-  kind: `issue` | `mention` | `entity`
-  label: string
-  icon?: string
-}
 
 /** #VAPP-258: what a host's `attachment(href)` classifies a link as. */
 export interface MarkdownAttachment {
@@ -352,7 +351,10 @@ export interface MarkdownOptions {
 }
 
 /** From this many blocks on, gpui and Compose lay out only visible blocks. */
-export const MARKDOWN_LAZY_BLOCKS: number = HOST_CONTRACT.markdown.lazyBlocks
+// The four `catalog/host.json` `markdown` constants the parser needs, inlined
+// so a renderer bundle never carries the whole host contract (37 KB of
+// prose); markdown-host-constants.test.ts locks them to the JSON.
+export const MARKDOWN_LAZY_BLOCKS: number = 24
 
 const FENCE = /^(`{3,}|~{3,})([\w+#.-]*)\s*$/
 const fenceClose = (open: string) => new RegExp(`^${open[0] === `~` ? `~` : `\``}{${open.length},}\\s*$`)
@@ -645,18 +647,11 @@ export function linkMarkdownText(tree: readonly MarkdownBlock[], ask: TextLinkAs
 
 /** catalog/host.json `markdown`: the chip and attachment kinds a host may
  *  answer, and a block image box's max height. */
-export const CHIP_KINDS: readonly string[] = HOST_CONTRACT.markdown.chipKinds
-export const ATTACHMENT_KINDS: readonly string[] = HOST_CONTRACT.markdown.attachmentKinds
-export const MARKDOWN_IMAGE_MAX_HEIGHT: number = HOST_CONTRACT.markdown.imageMaxHeight
+export const ATTACHMENT_KINDS: readonly string[] = [`video`, `audio`, `file`]
+export const MARKDOWN_IMAGE_MAX_HEIGHT: number = 160
 
 /** #VAPP-258: a host's chip as painted: a known kind and a non-empty label
  *  (an icon only when non-empty), else none. */
-export function validChip(chip: unknown): MarkdownChip | undefined {
-  if (!chip || typeof chip !== `object`) return undefined
-  const c = chip as Record<string, unknown>
-  if (typeof c.kind !== `string` || !CHIP_KINDS.includes(c.kind) || typeof c.label !== `string` || !c.label) return undefined
-  return { kind: c.kind as MarkdownChip[`kind`], label: c.label, ...(typeof c.icon === `string` && c.icon ? { icon: c.icon } : {}) }
-}
 
 const validSize = (size: unknown): { width: number; height: number } | null => {
   if (!size || typeof size !== `object`) return null

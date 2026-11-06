@@ -1129,15 +1129,12 @@
         "shot": "04_steering",
         "lane": "store"
       },
-      "ipad": {
-        "shot": "04_steering",
-        "lane": "store"
-      },
       "android": {
         "shot": "4_steering",
         "lane": "store"
       },
       "notes": {
+        "ipad": "No tablet capture yet: the iPad steering feed needs the eNet full-node xcframework and a live relay-fed transcript (`bun run screenshots:desktop` + steer-relay), which the iPad store walk does not set up; the 13-inch store slide keeps its earlier raw.",
         "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child session \"Profile the launch path\". Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION. Same route as `session`, which anchors on the header instead of the feed's tail.",
         "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase session in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs — which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
       },
