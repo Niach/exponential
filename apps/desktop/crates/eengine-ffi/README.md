@@ -68,11 +68,19 @@ Errors: `EngineError` = `invalid {reason}` | `load {kind, issuesJson}` |
 
 ## Capabilities (Swift)
 
-`swift/ExponentialEngineCapabilities` (#VAPP-265, SwiftPM product
-`ExponentialEngineCapabilities`, depends on `ExponentialEngine`) = the native
-half of capabilities v1 (`packages/eengine/fixtures/capabilities.json`):
+`swift/` (#VAPP-265) = the native half of capabilities v1
+(`packages/eengine/fixtures/capabilities.json`), ONE SwiftPM module per
+capability (#VAPP-268) so an App Store app links a privacy framework only
+when it declares the capability (ITMS-90683: a linked API needs its purpose
+string): `ExponentialEnginePhotos` (Photos, PhotosUI), `ExponentialEngineFiles`,
+`ExponentialEngineShare` (LinkPresentation), `ExponentialEnginePrint`,
+`ExponentialEngineNotifications` (UserNotifications), each on
+`ExponentialEngineCapabilityCore` (arguments, results, threading, the
+presenter), and the umbrella `ExponentialEngineCapabilities`:
 `EngineCapabilities.ios(CapabilityConfig(presenter:))` → the five
-`Capability`s for `EngineProviders(capabilities:)`. The Engine validates,
+`Capability`s for `EngineProviders(capabilities:)`. `Package.swift` here is
+the same layout over the workspace's `out/` xcframework (the iOS runner,
+`apps/runner/ios`, links it by path). The Engine validates,
 stores files and shapes app results; these only see native arguments
 (bytes = base64 `data`) and answer `nativeOutputSchema`.
 

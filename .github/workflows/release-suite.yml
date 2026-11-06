@@ -113,6 +113,13 @@ jobs:
     uses: ./.github/workflows/ios-core.yml
     secrets: inherit
 
+  # #VAPP-268: the iOS runner + the Swift capabilities (informational on PRs).
+  ios-runner:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ios-runner')
+    uses: ./.github/workflows/ios-runner.yml
+    secrets: inherit
+
   exponential-ui:
     needs: dedupe
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'exponential-ui')

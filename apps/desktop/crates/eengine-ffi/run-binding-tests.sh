@@ -32,28 +32,43 @@ if [ "$WHICH" = swift ] || [ "$WHICH" = all ]; then
     "$HERE/bindings/swift/ExponentialEngineFFI.swift" "$HERE/tests/swift/main.swift" -o "$OUT/swift-suite"
   DYLD_LIBRARY_PATH="$TARGET/release" "$OUT/swift-suite" "$FIXTURE"
 
-  # #VAPP-265: the capabilities (swift/ExponentialEngineCapabilities) as the
-  # SwiftPM products lay them out: the binding = module ExponentialEngine, the
-  # capabilities = their own module on top, the suite against fakes + capabilities.json.
+  # #VAPP-265: the capabilities as the SwiftPM products lay them out (Package.swift):
+  # the binding = module ExponentialEngine; #VAPP-268: the shared core, then one
+  # module per capability, then the umbrella; the suite against fakes + capabilities.json.
   echo "== swift capabilities"
-  CAPS="$HERE/swift/ExponentialEngineCapabilities"
+  SWIFT="$HERE/swift"
+  CAPS=(ExponentialEnginePhotos ExponentialEngineFiles ExponentialEngineShare ExponentialEnginePrint ExponentialEngineNotifications)
   MODS="$OUT/swift-modules"
   FFI=(-Xcc -fmodule-map-file="$HERE/bindings/swift/module.modulemap" -I "$HERE/bindings/swift")
-  mkdir -p "$MODS"
-  swiftc -module-name ExponentialEngine -emit-library -emit-module -emit-module-path "$MODS/ExponentialEngine.swiftmodule" "${FFI[@]}" \
-    -L "$TARGET/release" -leengine_ffi "$HERE/bindings/swift/ExponentialEngineFFI.swift" -o "$MODS/libExponentialEngine.dylib"
-  swiftc -module-name ExponentialEngineCapabilities -enable-testing -emit-library -emit-module -emit-module-path "$MODS/ExponentialEngineCapabilities.swiftmodule" \
-    "${FFI[@]}" -I "$MODS" -L "$MODS" -lExponentialEngine "$CAPS"/*.swift -o "$MODS/libExponentialEngineCapabilities.dylib"
-  swiftc -module-name CapabilitiesSuite "${FFI[@]}" -I "$MODS" -L "$MODS" -lExponentialEngine -lExponentialEngineCapabilities \
+  PKG=(-package-name ExponentialEngine)
+  rm -rf "$MODS"; mkdir -p "$MODS"
+  module() { # name sources... (links every module built before it)
+    local name="$1"; shift
+    local links=(); for m in "$MODS"/lib*.dylib; do [ -e "$m" ] && links+=("-l$(basename "$m" .dylib | sed 's/^lib//')"); done
+    swiftc -module-name "$name" -enable-testing -emit-library -emit-module -emit-module-path "$MODS/$name.swiftmodule" "${PKG[@]}" \
+      "${FFI[@]}" -I "$MODS" -L "$MODS" -L "$TARGET/release" ${links[@]+"${links[@]}"} "$@" -o "$MODS/lib$name.dylib"
+  }
+  module ExponentialEngine -leengine_ffi "$HERE/bindings/swift/ExponentialEngineFFI.swift"
+  module ExponentialEngineCapabilityCore "$SWIFT/ExponentialEngineCapabilityCore"/*.swift
+  for c in "${CAPS[@]}"; do module "$c" "$SWIFT/$c"/*.swift; done
+  module ExponentialEngineCapabilities "$SWIFT/ExponentialEngineCapabilities"/*.swift
+  LINKS=(); for m in ExponentialEngine ExponentialEngineCapabilityCore "${CAPS[@]}" ExponentialEngineCapabilities; do LINKS+=("-l$m"); done
+  swiftc -module-name CapabilitiesSuite "${FFI[@]}" -I "$MODS" -L "$MODS" "${LINKS[@]}" \
     "$HERE/tests/swift-capabilities/main.swift" -o "$OUT/swift-capabilities-suite"
   DYLD_LIBRARY_PATH="$MODS:$TARGET/release" "$OUT/swift-capabilities-suite" "$(dirname "$FIXTURE")/capabilities.json"
-  # The UIKit/PhotoKit half only compiles for iOS: typecheck it against the iPhone SDK when Xcode has one.
+  # The UIKit/PhotoKit half only compiles for iOS: typecheck each module against the iPhone SDK when Xcode has one.
   if IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)" && [ -n "$IOS_SDK" ]; then
-    IOS="$OUT/swift-ios"; mkdir -p "$IOS"
-    xcrun swiftc -sdk "$IOS_SDK" -target arm64-apple-ios15.0 -module-name ExponentialEngine -emit-module -emit-module-path "$IOS/ExponentialEngine.swiftmodule" \
-      "${FFI[@]}" "$HERE/bindings/swift/ExponentialEngineFFI.swift"
-    xcrun swiftc -sdk "$IOS_SDK" -target arm64-apple-ios15.0 -module-name ExponentialEngineCapabilities -typecheck "${FFI[@]}" -I "$IOS" "$CAPS"/*.swift
-    echo "iOS 15 (arm64, $(basename "$IOS_SDK")): capabilities typecheck"
+    IOS="$OUT/swift-ios"; rm -rf "$IOS"; mkdir -p "$IOS"
+    ios() { # name sources...
+      local name="$1"; shift
+      xcrun swiftc -sdk "$IOS_SDK" -target arm64-apple-ios15.0 -module-name "$name" -emit-module -emit-module-path "$IOS/$name.swiftmodule" \
+        "${PKG[@]}" "${FFI[@]}" -I "$IOS" "$@"
+    }
+    ios ExponentialEngine "$HERE/bindings/swift/ExponentialEngineFFI.swift"
+    ios ExponentialEngineCapabilityCore "$SWIFT/ExponentialEngineCapabilityCore"/*.swift
+    for c in "${CAPS[@]}"; do ios "$c" "$SWIFT/$c"/*.swift; done
+    ios ExponentialEngineCapabilities "$SWIFT/ExponentialEngineCapabilities"/*.swift
+    echo "iOS 15 (arm64, $(basename "$IOS_SDK")): the capability modules typecheck"
   fi
 fi
 

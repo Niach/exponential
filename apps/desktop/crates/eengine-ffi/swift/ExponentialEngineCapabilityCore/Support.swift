@@ -1,4 +1,5 @@
-// #VAPP-265 (Engine E5): the pure half of the Swift capabilities. Arguments
+// #VAPP-265 (Engine E5), #VAPP-268 (one module per capability): the shared
+// pure half of the Swift capabilities. Arguments
 // in, MCP call results out (packages/eengine/fixtures/capabilities.json,
 // `tools[].nativeOutputSchema`), base64, RFC 3339, names and MIME types, and
 // the one threading rule: a call blocks its caller and REFUSES the main thread.
@@ -21,34 +22,34 @@ public struct CapabilityFailure: Error, Equatable {
 }
 
 /// MCP call results: `structuredContent` + the same JSON as its text, or an error.
-enum MCP {
-    static func ok(_ structured: [String: Any]) -> String {
+package enum MCP {
+    package static func ok(_ structured: [String: Any]) -> String {
         let body = JSON.text(structured)
         return JSON.text(["content": [["type": "text", "text": body]], "structuredContent": structured])
     }
 
-    static func error(_ reason: String) -> String {
+    package static func error(_ reason: String) -> String {
         JSON.text(["content": [["type": "text", "text": reason]], "isError": true])
     }
 }
 
-enum JSON {
-    static func text(_ value: Any) -> String {
+package enum JSON {
+    package static func text(_ value: Any) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed, .withoutEscapingSlashes]) else { return "null" }
         return String(decoding: data, as: UTF8.self)
     }
 
-    static func value(_ text: String) -> Any? {
+    package static func value(_ text: String) -> Any? {
         try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
     }
 }
 
 /// The bridge's native arguments (already validated by the Engine); a
 /// mismatch here is a host bug and answers `failed: arguments …`.
-struct Arguments {
-    let values: [String: Any]
+package struct Arguments {
+    package let values: [String: Any]
 
-    init(json: String) throws {
+    package init(json: String) throws {
         guard let object = JSON.value(json) as? [String: Any] else { throw CapabilityFailure.failed("arguments are not a JSON object") }
         values = object
     }
@@ -60,50 +61,50 @@ struct Arguments {
 
     private func wrong(_ key: String, _ type: String) -> CapabilityFailure { .failed("arguments: \(key) is not \(type)") }
 
-    func string(_ key: String) throws -> String {
+    package func string(_ key: String) throws -> String {
         guard let value = try optionalString(key) else { throw CapabilityFailure.failed("arguments: \(key) is missing") }
         return value
     }
 
-    func optionalString(_ key: String) throws -> String? {
+    package func optionalString(_ key: String) throws -> String? {
         guard let value = present(key) else { return nil }
         guard let text = value as? String else { throw wrong(key, "a string") }
         return text
     }
 
-    func int(_ key: String, default fallback: Int, in range: ClosedRange<Int>) throws -> Int {
+    package func int(_ key: String, default fallback: Int, in range: ClosedRange<Int>) throws -> Int {
         guard let value = present(key) else { return fallback }
         guard let number = value as? NSNumber, !number.isBool, number.doubleValue == number.doubleValue.rounded(),
               range.contains(number.intValue) else { throw wrong(key, "an integer in \(range)") }
         return number.intValue
     }
 
-    func bool(_ key: String, default fallback: Bool) throws -> Bool {
+    package func bool(_ key: String, default fallback: Bool) throws -> Bool {
         guard let value = present(key) else { return fallback }
         guard let number = value as? NSNumber, number.isBool else { throw wrong(key, "a boolean") }
         return number.boolValue
     }
 
-    func strings(_ key: String) throws -> [String]? {
+    package func strings(_ key: String) throws -> [String]? {
         guard let value = present(key) else { return nil }
         guard let list = value as? [String] else { throw wrong(key, "a list of strings") }
         return list
     }
 
-    func object(_ key: String) throws -> [String: Any]? {
+    package func object(_ key: String) throws -> [String: Any]? {
         guard let value = present(key) else { return nil }
         guard let object = value as? [String: Any] else { throw wrong(key, "an object") }
         return object
     }
 
     /// `{name, mimeType, data}` (bytes as standard padded base64).
-    func file(_ key: String) throws -> PickedFile? {
+    package func file(_ key: String) throws -> PickedFile? {
         guard let object = try object(key) else { return nil }
         let inner = Arguments(values: object)
         return PickedFile(name: try inner.string("name"), mimeType: try inner.string("mimeType"), data: try inner.bytes("data"))
     }
 
-    func bytes(_ key: String) throws -> Data {
+    package func bytes(_ key: String) throws -> Data {
         guard let data = Base64.decode(try string(key)) else { throw wrong(key, "base64") }
         return data
     }
@@ -112,7 +113,7 @@ struct Arguments {
 }
 
 extension NSNumber {
-    var isBool: Bool { CFGetTypeID(self) == CFBooleanGetTypeID() }
+    package var isBool: Bool { CFGetTypeID(self) == CFBooleanGetTypeID() }
 }
 
 public enum Base64 {
@@ -166,7 +167,7 @@ public enum FileNames {
 }
 
 public enum MimeTypes {
-    static let octetStream = "application/octet-stream"
+    package static let octetStream = "application/octet-stream"
 
     /// A type identifier's MIME type (`public.heic` → `image/heic`).
     public static func forTypeIdentifier(_ identifier: String?) -> String? {
@@ -266,11 +267,16 @@ public enum Blocking {
 
 /// What every capability shares: the main-thread refusal, argument decoding
 /// and the mapping of thrown failures to error results.
-struct Runner {
-    let capability: String
-    let isMainThread: () -> Bool
+package struct Runner {
+    package let capability: String
+    package let isMainThread: () -> Bool
 
-    func run(_ tool: String, _ argumentsJson: String, _ body: (String, Arguments) throws -> [String: Any]) -> String {
+    package init(capability: String, isMainThread: @escaping () -> Bool) {
+        self.capability = capability
+        self.isMainThread = isMainThread
+    }
+
+    package func run(_ tool: String, _ argumentsJson: String, _ body: (String, Arguments) throws -> [String: Any]) -> String {
         if isMainThread() { return MCP.error(CapabilityFailure.mainThread.reason) }
         do {
             return MCP.ok(try body(tool, try Arguments(json: argumentsJson)))
@@ -281,12 +287,12 @@ struct Runner {
         }
     }
 
-    func unknown(_ tool: String) -> CapabilityFailure { .failed("unknown tool \(capability).\(tool)") }
+    package func unknown(_ tool: String) -> CapabilityFailure { .failed("unknown tool \(capability).\(tool)") }
 }
 
 /// The native tools each capability serves (bare names; the Engine's catalog
 /// owns the app-facing schemas, these describe the NATIVE arguments).
-enum ToolCatalog {
+package enum ToolCatalog {
     private static let string: [String: Any] = ["type": "string"]
     private static let base64: [String: Any] = ["type": "string", "format": "base64"]
     private static let nullableString: [String: Any] = ["type": ["string", "null"]]
@@ -302,7 +308,7 @@ enum ToolCatalog {
          "inputSchema": ["type": "object", "properties": properties, "required": required, "additionalProperties": false]]
     }
 
-    static func json(_ capability: String) -> String {
+    package static func json(_ capability: String) -> String {
         let tools: [[String: Any]]
         switch capability {
         case "photos":
@@ -338,4 +344,12 @@ enum ToolCatalog {
         }
         return JSON.text(tools)
     }
+}
+
+/// A file the person opened, or one handed to save/share/print.
+public struct PickedFile: Equatable {
+    public var name: String
+    public var mimeType: String?
+    public var data: Data
+    public init(name: String, mimeType: String?, data: Data) { self.name = name; self.mimeType = mimeType; self.data = data }
 }

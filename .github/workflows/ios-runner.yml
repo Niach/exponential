@@ -1,0 +1,63 @@
+name: ios-runner
+
+# #VAPP-268 (E6c): the iOS runner and the Swift capabilities on the Mac.
+# 1. the E5 Swift suites (`run-binding-tests.sh swift`: the facade, the
+#    capabilities split into one module each, their iOS typecheck);
+# 2. RunnerKit's `swift test` against the real Engine (the workspace
+#    xcframework's macOS slice) and packages/eengine/fixtures;
+# 3. the build check of the generated project for the simulator
+#    (apps/runner/ios/check-build.sh: links only the declared capability
+#    modules, purpose strings, the bundle at <name>.app/app).
+# test.yml calls it on PRs as an INFORMATIONAL check (outside `gate`);
+# release-suite.yml calls it as a release blocker.
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
+  runner:
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disk guard (self-hosted Mac, EXP-1396)
+        if: runner.environment == 'self-hosted'
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/disk-guard.sh"
+      - name: Select Xcode 27
+        run: bash .github/scripts/select-xcode.sh
+      - name: xcodegen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim,aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
+      - name: The Swift suites (facade + capabilities)
+        run: bash apps/desktop/crates/eengine-ffi/run-binding-tests.sh swift
+      - name: The xcframeworks (macOS + simulator slices)
+        run: |
+          EENGINE_APPLE_TARGETS="aarch64-apple-darwin aarch64-apple-ios-sim" bash apps/desktop/crates/eengine-ffi/build-ios.sh
+          EXPONENTIAL_UI_APPLE_TARGETS="aarch64-apple-ios-sim" bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+          git diff --exit-code -- apps/desktop/crates/eengine-ffi/bindings \
+            || { echo "::error::eengine-ffi bindings drifted from the Rust facade: regenerate and commit"; exit 1; }
+      - name: RunnerKit (swift test)
+        run: swift test --package-path apps/runner/ios ${EXP_SWIFTPM_CACHE:+--cache-path "$EXP_SWIFTPM_CACHE"}
+      - name: The generated project builds (simulator)
+        run: bash apps/runner/ios/check-build.sh "$RUNNER_TEMP/ios-runner"
+      - name: Free the MacBook's disk
+        if: always() && runner.environment == 'self-hosted'
+        run: |
+          rm -rf "$RUNNER_TEMP/ios-runner" apps/runner/ios/.build apps/desktop/crates/eengine-ffi/.build \
+            apps/desktop/crates/eengine-ffi/out packages/exponential-ui-swift/Binaries

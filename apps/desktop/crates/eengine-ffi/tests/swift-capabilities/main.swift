@@ -8,7 +8,13 @@
 import Foundation
 import UniformTypeIdentifiers
 import ExponentialEngine
-@testable import ExponentialEngineCapabilities
+@testable import ExponentialEngineCapabilityCore
+@testable import ExponentialEnginePhotos
+@testable import ExponentialEngineFiles
+@testable import ExponentialEngineShare
+@testable import ExponentialEnginePrint
+@testable import ExponentialEngineNotifications
+import ExponentialEngineCapabilities
 
 setvbuf(stdout, nil, _IONBF, 0)
 var failures = 0

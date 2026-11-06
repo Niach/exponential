@@ -4,3 +4,7 @@ android/.gradle/
 android/build/
 android/.kotlin/
 android/local.properties
+# The workspace SwiftPM package (Package.swift).
+.build/
+.swiftpm/
+Package.resolved
