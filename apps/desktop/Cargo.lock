@@ -2762,6 +2762,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "eengine-ffi"
+version = "0.1.0"
+dependencies = [
+ "eengine",
+ "emcp",
+ "eui-core",
+ "serde",
+ "serde_json",
+ "uniffi",
+ "uuid",
+]
+
+[[package]]
 name = "either"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

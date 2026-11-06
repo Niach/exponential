@@ -10,12 +10,12 @@
 # both does, and the lock must hold ONE copy of every crate of this repo
 # (`cargo tree -d`).
 #
-#   scripts/libs/git-consumer-smoke.sh <etalk|epilot|emcp|eagent> [rev]
+#   scripts/libs/git-consumer-smoke.sh <etalk|epilot|emcp|eagent|eengine> [rev]
 #   (rev defaults to HEAD, which must be committed; the release workflows
 #   pass the tagged commit)
 set -euo pipefail
 
-lib="${1:?usage: git-consumer-smoke.sh <etalk|epilot|emcp|eagent> [rev]}"
+lib="${1:?usage: git-consumer-smoke.sh <etalk|epilot|emcp|eagent|eengine> [rev]}"
 repo="$(git rev-parse --show-toplevel)"
 rev="${2:-$(git -C "$repo" rev-parse HEAD)}"
 case "$lib" in
@@ -23,6 +23,7 @@ case "$lib" in
   epilot) crates="epilot epilot-screen" ;;
   emcp) crates="emcp" ;;
   eagent) crates="eagent exponential-agent-runtime" ;;
+  eengine) crates="eengine" ;;
   *) echo "unknown library: $lib" >&2; exit 2 ;;
 esac
 
@@ -31,6 +32,7 @@ esac
 case "$lib" in
   etalk) peers="eui:eui-core,eui-gpui epilot:epilot,epilot-screen" ;;
   epilot) peers="emcp:emcp" ;;
+  eengine) peers="eui:eui-core emcp:emcp" ;;
   *) peers="" ;;
 esac
 manifests="$(for c in $crates; do git -C "$repo" show "$rev:apps/desktop/crates/$c/Cargo.toml"; done)"
@@ -45,11 +47,13 @@ for p in $peers; do
   done
 done
 
-# EXP-1507: the optional parts a consumer turns on (emcp's code mode), so
+# EXP-1507: the optional parts a consumer turns on (emcp's code mode, the
+# Engine's SQLite store and hub, VAPP-263), so
 # the smoke builds them from the checkout too.
 features_of() {
   case "$1" in
     emcp) printf ', features = ["codemode"]' ;;
+    eengine) printf ', features = ["sqlite", "hub"]' ;;
   esac
 }
 

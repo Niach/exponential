@@ -1,0 +1,7 @@
+module ExponentialEngineFFIFFI {
+    header "ExponentialEngineFFIFFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}

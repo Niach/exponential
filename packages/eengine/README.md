@@ -1,11 +1,13 @@
-# @exp/eengine
+# @exponential_app/engine
 
 The Engine's contract (#VAPP-259, `docs/spec/apps.md` §13.1). The Engine is the stateful runtime around genUI that runs Apps in every host: Exponential, the softcoded app, eDE, Spezl and exported apps. The Apps format and its pure logic stay in genUI's host (`@exponential_app/eui/host`, `eui-core/src/host`). Each `fixtures/*.json` is the spec (its `$comment`) plus the cases. `src/` holds the pure TypeScript reference that replays them. It is the web's twin of the Rust crate `eengine`, which replays the same fixtures.
 
 ```ts
-import { brokerDecide, consentSheet, lifecycleStep } from "@exp/eengine"
-import fixture from "@exp/eengine/fixtures/capabilities.json" with { type: "json" }
+import { brokerDecide, consentSheet, lifecycleStep } from "@exponential_app/engine"
+import fixture from "@exponential_app/engine/fixtures/capabilities.json" with { type: "json" }
 ```
+
+Inside this monorepo the workspace package is `@exp/eengine` (private, the same entries); every `eengine-v*` tag publishes it to npm (`release/prepare-npm.ts`; Node 18+, Bun, Deno). Swift and Kotlin reach the Rust crate through `eengine-ffi`: SwiftPM `ExponentialEngine`, Maven `at.exponential:engine`.
 
 | fixture | covers |
 |---|---|
