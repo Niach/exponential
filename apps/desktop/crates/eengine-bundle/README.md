@@ -21,3 +21,17 @@ Nothing is compiled per app except iOS (the Mac lane links only the declared cap
 ## Signing
 
 With the author's own keys from `bundle.toml` `[signing.<target>]` (we never hold them). Without them a target signs ad-hoc or not at all and says so (`signing` in the fixture lists each target's inputs).
+
+## Android (`--target android`)
+
+Nothing is compiled per app: the kit is the template's release build taken apart, and the bundler relinks it with the Android SDK's build-tools.
+
+**The kit** (`scripts/runner-kits/android.sh`, `apps/runner/android` `:app:assembleRelease`): `kit.json` (`templateId`, `compileSdk`), the merged `AndroidManifest.xml` as text (still on the template id, with the `E7:PERMISSIONS` markers), `resources.zip` (the merged aapt2 `.flat` files, app + libraries), `resource-ids.txt` (the ids the release link gave them, `--emit-ids`: the R8-built dex points at these), `payload.zip` (the rest of the release APK: `classes*.dex`, `lib/<abi>/*.so`, the Java resources, `assets/dexopt`), `NOTICES.txt`.
+
+**Per app:** the manifest gets the config id in place of the template id (applicationId, the deep-link scheme `<id>://`, the FileProvider authority, the receiver permission) and `manifest::android_permissions` between the markers; an overlay compiles `runner_label` (= `name`) and `mipmap{,-mdpi…-xxxhdpi}/ic_launcher.png` (`icons.android`); `aapt2 link --stable-ids` (`versionName` = `version`, `versionCode` = major × 1 000 000 + minor × 1 000 + patch). The .apk = the linked resources + the payload + `assets/app/` + `assets/NOTICES.txt`, `zipalign -P 16` (16 KiB pages for the .so; `-p` before build-tools 35), `apksigner sign` (v1–v3). The .aab = the same base module in proto format (`aapt2 link --proto-format`), `bundletool build-bundle`, `jarsigner`.
+
+**The author's prerequisites:** `ANDROID_HOME` with `build-tools` (35+) and `platforms;android-<compileSdk>` (36), a JDK (`JAVA_HOME`: keytool, jarsigner, and java for apksigner/bundletool), `BUNDLETOOL` = `bundletool-all-<version>.jar` (or `bundletool` on PATH). Building the kit also needs the NDK (`cargo-ndk`) for the two native libraries.
+
+**Signing** (`[signing.android]` of bundle.toml): `keystore` (.jks/.p12; relative = to the working directory), `alias`, `store-password`, `key-password` (default = the store password); `EXPONENTIAL_ANDROID_STORE_PASSWORD` / `EXPONENTIAL_ANDROID_KEY_PASSWORD` override the file, so passwords need not live in it. They reach apksigner and jarsigner through the environment, never argv. Without a keystore the run generates a throwaway debug key (PKCS12, `androiddebugkey`) and says the outputs are for testing only; a new key each run, so a rebundle installs over the previous one only after an uninstall.
+
+`tests/android.rs` runs the whole target on a small synthetic kit (aapt2 dump badging, apksigner verify, jarsigner -verify, bundletool dump manifest); it skips, saying why, without ANDROID_HOME, JAVA_HOME and BUNDLETOOL.
