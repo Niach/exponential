@@ -28,6 +28,11 @@ data class TeamEntity(
     // Reviews tab hides unless an open PR (= a failed auto-merge) is waiting.
     // Toggled on web + desktop only; an absent column = off.
     @ColumnInfo(name = "yolo_mode") @SerialName("yolo_mode") @JsonNames("yoloMode") val yoloMode: PgBool = false,
+    // #EXP-1710 (merge-train.json MODE, [MIGRATION_118_119]): contract
+    // teamMergeMode, `auto` (the train merges every ready PR) or `approval`
+    // (a ready PR waits for a person's Needs approval). Replaces yolo_mode.
+    @ColumnInfo(name = "merge_mode", defaultValue = "'auto'") @SerialName("merge_mode") @JsonNames("mergeMode")
+    val mergeMode: String = "auto",
     // EXP-630: the team's estimate scale (contract `issueEstimation`:
     // none | exponential | fibonacci | linear | tshirt). `none` (and a row
     // without the column) = estimates OFF, so the
@@ -1079,6 +1084,24 @@ data class PullRequestEntity(
     // failure), the aggregate over its `pull_request_checks` rows.
     @ColumnInfo(name = "checks_state", defaultValue = "'none'") @SerialName("checks_state") @JsonNames("checksState")
     val checksState: String = com.exponential.app.domain.DomainContract.prChecksStateNone,
+    // #EXP-1710 (merge-train.json STATE, [MIGRATION_118_119]): the merge
+    // train's state of the PR (contract prMergeState), what a `checks` PR
+    // still waits for, bounces, the hold reason (person | bounces |
+    // timeout), the 24 h clock, an owner's Merge now, the queue place
+    // (`Queued · 2nd`) and the testing run (`Testing with N` = the other
+    // synced PRs sharing it).
+    @ColumnInfo(name = "merge_state", defaultValue = "'checks'") @SerialName("merge_state") @JsonNames("mergeState")
+    val mergeState: String = "checks",
+    @ColumnInfo(name = "merge_wait") @SerialName("merge_wait") @JsonNames("mergeWait") val mergeWait: String? = null,
+    @ColumnInfo(name = "merge_attempts") @SerialName("merge_attempts") @JsonNames("mergeAttempts")
+    @Serializable(with = PgIntSerializer::class) val mergeAttempts: Int? = null,
+    @ColumnInfo(name = "merge_hold") @SerialName("merge_hold") @JsonNames("mergeHold") val mergeHold: String? = null,
+    @ColumnInfo(name = "merge_queued_since") @SerialName("merge_queued_since") @JsonNames("mergeQueuedSince")
+    val mergeQueuedSince: String? = null,
+    @ColumnInfo(name = "merge_now", defaultValue = "0") @SerialName("merge_now") @JsonNames("mergeNow") val mergeNow: PgBool = false,
+    @ColumnInfo(name = "merge_position") @SerialName("merge_position") @JsonNames("mergePosition")
+    @Serializable(with = PgIntSerializer::class) val mergePosition: Int? = null,
+    @ColumnInfo(name = "merge_train_id") @SerialName("merge_train_id") @JsonNames("mergeTrainId") val mergeTrainId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

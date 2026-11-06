@@ -193,10 +193,51 @@ class NeedsYouResultsUiTest {
             team = "t1",
             me = "me",
             now = 1_800_000_000_000L,
+            // #EXP-1710: ready PR rows hold only in `approval` mode.
+            mergeMode = "approval",
         )
         assertEquals(listOf("q3", "q1", "pr1"), rows.map { it.messageId })
         assertEquals(NeedsYou.Kind.Pr, rows[2].kind)
         assertEquals("#7", rows[2].meta)
         assertEquals("Triage", rows[0].chat)
+    }
+
+    // #EXP-1710 (merge-train.json NEEDS YOU): `auto` mode drops the ready
+    // rows; a PR held by the limits, or a conflict whose opener's device has
+    // been offline 2 h+, is the stuck row with its actions (owners: Merge now).
+    @Test
+    fun `auto mode keeps only the stuck PRs, off the opener's device presence`() {
+        val now = com.exponential.app.domain.WireTimestamps.parseEpochMs("2027-01-15T10:00:00.000Z")!!
+        val opener = session("s1").copy(deviceId = "dev-1")
+        val child = session("c1").copy(rootId = "s1", parentId = "s1", deviceId = "dev-1")
+        val ready = PullRequestEntity(
+            id = "ready", teamId = "t1", rootSessionId = "s1", sessionId = "c1", number = 6, title = "Ready",
+            checksState = "success", createdAt = "2027-01-15T07:30:00.000Z",
+        )
+        val held = ready.copy(id = "held", number = 7, mergeState = "held", mergeHold = "bounces")
+        val conflict = ready.copy(id = "conflict", number = 8, mergeState = "conflict", checksState = "failure")
+        val devices = listOf(
+            com.exponential.app.data.db.DeviceEntity(
+                id = "d1", userId = "me", deviceId = "dev-1", lastSeenAt = "2027-01-15T07:59:00.000Z",
+            ),
+        )
+        fun fold(mode: String, owner: Boolean, devs: List<com.exponential.app.data.db.DeviceEntity>) = needsYouFold(
+            sessions = listOf(opener, child), links = emptyList(), issues = emptyList(), messages = emptyList(),
+            definitions = emptyList(), pullRequests = listOf(ready, held, conflict), team = "t1", me = "me", now = now,
+            mergeMode = mode, owner = owner, devices = devs,
+        )
+        val auto = fold("auto", owner = true, devs = devices)
+        assertEquals(setOf("held", "conflict"), auto.map { it.messageId }.toSet())
+        val stuck = auto.first { it.messageId == "held" }
+        assertEquals("Auto-merge stuck on #7", stuck.title)
+        assertEquals("3 bounces", stuck.meta)
+        assertEquals(listOf("retry", "merge-now", "close-pr"), stuck.actions.map { it.wire })
+        assertEquals("Device offline", auto.first { it.messageId == "conflict" }.meta)
+        // No device row = online: the agent fixes it; a member gets no Merge now.
+        val noDevice = fold("auto", owner = false, devs = emptyList())
+        assertEquals(listOf("held"), noDevice.map { it.messageId })
+        assertEquals(listOf("retry", "close-pr"), noDevice.single().actions.map { it.wire })
+        // `approval` keeps the ready row beside the stuck ones.
+        assertEquals(setOf("ready", "held", "conflict"), fold("approval", owner = true, devs = devices).map { it.messageId }.toSet())
     }
 }

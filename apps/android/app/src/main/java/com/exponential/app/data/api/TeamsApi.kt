@@ -49,6 +49,8 @@ data class UpdateTeamInput(
     val teamId: String,
     val name: String? = null,
     val yoloMode: Boolean? = null,
+    /** #EXP-1710: contract teamMergeMode (`auto` | `approval`). */
+    val mergeMode: String? = null,
     val agentPrompt: String? = null,
 )
 
@@ -117,7 +119,7 @@ class TeamsApi @Inject constructor(
             outputSerializer = InviteCapacityResult.serializer(),
         ).remaining
 
-    /** Owner-only: name, yolo mode, the team prompt (`teams.update`). */
+    /** Owner-only: name, the merge mode, the team prompt (`teams.update`). */
     suspend fun update(accountId: String, input: UpdateTeamInput) {
         trpc.mutationUnit(
             accountId,

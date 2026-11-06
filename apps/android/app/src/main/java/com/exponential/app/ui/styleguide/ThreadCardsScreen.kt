@@ -142,37 +142,43 @@ private fun SessionXrefSpecimens() {
     }
 }
 
-/** #EXP-1611 (styleguide entry `pr-checks`): THE header Merge pill in its
- *  four check states (none, pending = the spinner, success, failure = the
- *  plain pill with the red ci-failed glyph), then THE header `…`'s Checks
- *  submenu pushed open as a static menu panel over pr-checks.json `specimen`. */
+/** #EXP-1611 (styleguide entry `pr-checks`), #EXP-1710: THE header merge
+ *  STATUS pill (merge-train.json `statusPill`) in its states — Checks
+ *  running (the spinner), Queued · 2nd, Testing with 3, Merged, Conflict and
+ *  Checks failing (the red glyph), Auto-merge stuck, and Needs approval (the
+ *  ONE primary action) — then THE header `…`'s Checks submenu pushed open as
+ *  a static menu panel over pr-checks.json `specimen`. */
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun PrChecksSpecimens() {
-    val states = listOf(
-        DomainContract.prChecksStateNone,
-        DomainContract.prChecksStatePending,
-        DomainContract.prChecksStateSuccess,
-        DomainContract.prChecksStateFailure,
+    fun pill(state: String, wait: String? = null, position: Int? = null, batchSize: Int? = null, holdReason: String? = null) =
+        com.exponential.app.domain.MergeTrain.statusPill(
+            com.exponential.app.domain.MergeTrain.StatusPillInput(
+                state = state,
+                wait = wait,
+                position = position,
+                batchSize = batchSize,
+                holdReason = holdReason,
+                stack = false,
+                checks = 5,
+            ),
+        )
+    val pills = listOf(
+        pill("checks", wait = "checks"),
+        pill("queued", position = 2),
+        pill("testing", batchSize = 4),
+        pill("merged"),
+        pill("conflict"),
+        pill("failing", wait = "failing"),
+        pill("held", holdReason = "bounces"),
+        pill("checks", wait = "approval"),
     )
-    // Web's specimen: the four pills on ONE wrapping row.
+    // Web's specimen: the pills on ONE wrapping row.
     androidx.compose.foundation.layout.FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        states.forEach { state ->
-            com.exponential.app.ui.work.MergePill(
-                merge = com.exponential.app.ui.work.ChangesMergeControl(
-                    label = DomainContract.diffUiMergePr,
-                    loading = false,
-                    error = null,
-                    confirmPrompt = com.exponential.app.domain.Prompts.MergeRunPr.prompt(12),
-                    onConfirm = {},
-                    checksState = state,
-                ),
-                header = true,
-            )
-        }
+        pills.forEach { view -> com.exponential.app.ui.work.MergeStatusPill(view = view, onClick = {}) }
     }
     val now = com.exponential.app.domain.WireTimestamps.parseEpochMs(com.exponential.app.domain.PrChecks.SPECIMEN_NOW) ?: 0L
     val entry = com.exponential.app.ui.thread.prChecksMenuItem(com.exponential.app.domain.PrChecks.SPECIMEN, now) {} ?: return

@@ -34,7 +34,7 @@ export const entry: StyleguideEntry = {
     },
     android: {
       state: `ok`,
-      symbol: `MergePill`,
+      symbol: `MergeStatusPill`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/work/MergeControl.kt`,
     },
   },

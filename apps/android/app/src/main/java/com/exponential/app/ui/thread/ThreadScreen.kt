@@ -95,7 +95,8 @@ import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.work.ChangesMergeControl
 import com.exponential.app.ui.work.ChangesViewModel
-import com.exponential.app.ui.work.MergePill
+import com.exponential.app.ui.work.MergeConfirmDialog
+import com.exponential.app.ui.work.MergeStatusPill
 import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
 import com.exponential.app.ui.work.LocalTitleCollapse
 import com.exponential.app.ui.work.PullRequestStack
@@ -188,6 +189,8 @@ fun ThreadScreen(
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
+    // #EXP-1710: the `…`'s Merge now asks the shared `merge-now-pr` alert.
+    var mergeNowConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
     val tree by viewModel.tree.collectAsStateWithLifecycle()
 
     // THE session composer's state = the ROOT session's view model (the same
@@ -328,12 +331,39 @@ fun ThreadScreen(
         guideChecks.any { it.status == DomainContract.prCheckStatusInProgress },
     )
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    // #EXP-1710 (merge-train.json MENU, `mergeMenuEntries`): checks, Merge
+    // now (owners, the `merge-now-pr` alert), Hold | Resume auto-merge
+    // (members), Close PR.
+    val guideChecksItem = prChecksMenuItem(guideChecks, checksNow) { url -> runCatching { uriHandler.openUri(url) } }
     val guideMenuItems = guidePr?.let { pr ->
-        SessionTree.guideMenuEntries(state = pr.state, member = isMember, checks = guideChecks.size).mapNotNull { entry ->
+        com.exponential.app.domain.MergeTrain.mergeMenuEntries(
+            state = pr.state,
+            member = isMember,
+            owner = isOwner,
+            checks = guideChecks.size,
+            mergeState = pr.mergeState,
+        ).mapNotNull { entry ->
             when (entry) {
-                SessionTree.GuideMenuEntry.Checks ->
-                    prChecksMenuItem(guideChecks, checksNow) { url -> runCatching { uriHandler.openUri(url) } }
-                SessionTree.GuideMenuEntry.ClosePr -> com.exponential.app.ui.components.ChatMenuItem(
+                com.exponential.app.domain.MergeTrain.MenuEntry.Checks -> guideChecksItem
+                com.exponential.app.domain.MergeTrain.MenuEntry.MergeNow -> com.exponential.app.ui.components.ChatMenuItem(
+                    label = com.exponential.app.domain.MergeTrain.Copy.Menu.MERGE_NOW,
+                    icon = ExpIcons.prMerged,
+                    onClick = { mergeNowConfirm = pr },
+                    testTag = com.exponential.app.domain.MergeTrain.TestIds.MERGE_NOW,
+                )
+                com.exponential.app.domain.MergeTrain.MenuEntry.Hold -> com.exponential.app.ui.components.ChatMenuItem(
+                    label = com.exponential.app.domain.MergeTrain.Copy.Menu.HOLD,
+                    icon = ExpIcons.prHold,
+                    onClick = { viewModel.holdPullRequest(pr.id, hold = true) },
+                    testTag = com.exponential.app.domain.MergeTrain.TestIds.HOLD,
+                )
+                com.exponential.app.domain.MergeTrain.MenuEntry.Resume -> com.exponential.app.ui.components.ChatMenuItem(
+                    label = com.exponential.app.domain.MergeTrain.Copy.Menu.RESUME,
+                    icon = ExpIcons.prResume,
+                    onClick = { viewModel.holdPullRequest(pr.id, hold = false) },
+                    testTag = com.exponential.app.domain.MergeTrain.TestIds.RESUME,
+                )
+                com.exponential.app.domain.MergeTrain.MenuEntry.ClosePr -> com.exponential.app.ui.components.ChatMenuItem(
                     label = DomainContract.diffUiClosePr,
                     icon = ExpIcons.prClosed,
                     onClick = { closePrConfirm = pr },
@@ -579,7 +609,7 @@ fun ThreadScreen(
                 onSurfaceReply = { text -> viewModel.send(text) },
                 // S-3: the Merge rides the header, left of `…` (phones too).
                 headerAction = if (agent == null) {
-                    { ThreadHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests, checks = guideChecks) }
+                    { ThreadHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests, checksItem = guideChecksItem) }
                 } else {
                     null
                 },
@@ -664,6 +694,21 @@ fun ThreadScreen(
                 viewModel.deleteChat(onDeleted = onBack)
             },
             onDismiss = { deleteConfirm = false },
+        )
+    }
+    // #EXP-1710: Merge now asks first (merge-train.json `mergeNowPrompt`:
+    // Merge destructive, Cancel focused; `titleStack` inside an open stack).
+    mergeNowConfirm?.let { pr ->
+        val inStack = PullRequestStack.stackConfirm(pr, (teamPullRequests + pullRequests).distinctBy { it.id }) != null
+        com.exponential.app.ui.components.PromptAlert(
+            prompt = Prompts.MergeNowPr.prompt(pr.number, stack = inStack),
+            onDismiss = { mergeNowConfirm = null },
+            handlers = mapOf(
+                "merge" to {
+                    mergeNowConfirm = null
+                    viewModel.mergePullRequestNow(pr.id)
+                },
+            ),
         )
     }
     // EXP-1307: the Guide `…`'s Close PR asks first (close-pr.json, the
@@ -1214,63 +1259,94 @@ private fun ThreadIssuePage(
 // ── the header Merge ────────────────────────────────────────────────────────
 
 /**
- * S-3 (session-thread.json): the thread's Merge in the header's action slot,
- * left of `…` (the phones' bottom Merge capsule went with the Guide tab).
- * It merges [SessionTree.guidePullRequest] while that PR is open; inside an
- * open stack it is THE `Merge stack` control (the issue screen's
- * [PullRequestStack] rule): it targets the stack's top and lands the whole
- * chain with `stack = true`. A refused merge toasts (the server posts it into
- * the root, EXP-1391) and offers Retry. Nothing while no PR is open.
+ * #EXP-1710 (merge-train.json STATUS PILL): the thread's merge STATUS in the
+ * header's action slot, left of `…` (phones too: Android's Merge rides the
+ * header). It reads [SessionTree.guidePullRequest]'s synced `merge_*` columns
+ * (`MergeTrain.statusPill`); a tap opens the Checks submenu ([checksItem]'s
+ * rows; none = readonly). The ONE action is `Needs approval` (approval mode):
+ * the plain or stack confirm as the Merge pill asked, then
+ * `pullRequests.merge`, which QUEUES it. A refused call toasts with Retry.
+ * Nothing while there is no PR, or it was closed.
  */
 @Composable
 private fun ThreadHeaderMerge(
     pullRequests: List<PullRequestEntity>,
     teamPullRequests: List<PullRequestEntity>,
-    /** #EXP-1611: the Guide PR's CI checks (the failing confirm's names). */
-    checks: List<com.exponential.app.domain.PrChecks.Check> = emptyList(),
+    /** #EXP-1611: the `…`'s Checks entry (its submenu = the pill's rows). */
+    checksItem: com.exponential.app.ui.components.ChatMenuItem?,
 ) {
     val newest = SessionTree.guidePullRequest(pullRequests) ?: return
-    if (newest.state != DomainContract.prStateOpen) return
+    if (newest.state == DomainContract.prStateClosed) return
     val stackPool = remember(pullRequests, teamPullRequests) {
         (teamPullRequests + pullRequests).distinctBy { it.id }
     }
-    val stack = remember(newest, stackPool) { PullRequestStack.stackConfirm(newest, stackPool) }
-    val pr = stack?.throughId?.let { id -> stackPool.firstOrNull { it.id == id } } ?: newest
-    val changesVm = hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${pr.id}") { it.create(pr.id) }
-    val merging by changesVm.merging.collectAsStateWithLifecycle()
-    val actionError by changesVm.actionError.collectAsStateWithLifecycle()
-    val linkedCount by changesVm.linkedIssueCount.collectAsStateWithLifecycle()
-    val toaster = LocalToaster.current
-    LaunchedEffect(actionError) {
-        val message = actionError ?: return@LaunchedEffect
-        toaster.failedAction("merge", "the PR", message, retry = changesVm::retryMerge)
+    val stack = remember(newest, stackPool) {
+        if (newest.state == DomainContract.prStateOpen) PullRequestStack.stackConfirm(newest, stackPool) else null
     }
-    Spacer(Modifier.width(com.exponential.app.domain.Chats.Shell.ChatHeader.GAP.dp))
-    MergePill(
-        merge = ChangesMergeControl(
-            label = if (stack != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
-            loading = merging,
-            error = actionError,
-            confirmPrompt = if (linkedCount > 0) {
-                Prompts.MergeIssuePr.prompt(pr.number, linkedCount)
-            } else {
-                Prompts.MergeRunPr.prompt(pr.number)
-            },
-            onConfirm = { changesVm.mergePr() },
-            stackConfirm = stack,
-            onMergeStack = { changesVm.mergePr(stack = true) },
-            // #EXP-1611: the Guide PR's own checks (a stack lands through
-            // its top, but the pill reads the PR the thread shows).
-            checksState = newest.checksState,
-            failingPrompt = Prompts.MergeFailingPr.prompt(
-                newest.number,
-                com.exponential.app.domain.PrChecks.failingNames(checks),
+    val checkRows = checksItem?.submenu.orEmpty()
+    val view = remember(newest, stack, stackPool, checkRows.size) {
+        com.exponential.app.domain.MergeTrain.statusPill(
+            com.exponential.app.domain.MergeTrain.StatusPillInput(
+                state = if (newest.state == DomainContract.prStateMerged) "merged" else newest.mergeState,
+                wait = newest.mergeWait,
+                position = newest.mergePosition,
+                batchSize = com.exponential.app.domain.MergeTrain.batchSize(newest.mergeTrainId, stackPool.map { it.mergeTrainId }),
+                holdReason = newest.mergeHold,
                 stack = stack != null,
+                checks = checkRows.size,
             ),
-        ),
-        modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE),
-        header = true,
-    )
+        )
+    }
+    var approveOpen by remember { mutableStateOf(false) }
+    var checksOpen by remember { mutableStateOf(false) }
+    Spacer(Modifier.width(com.exponential.app.domain.Chats.Shell.ChatHeader.GAP.dp))
+    if (view.tap == "approve") {
+        val pr = stack?.throughId?.let { id -> stackPool.firstOrNull { it.id == id } } ?: newest
+        val changesVm = hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${pr.id}") { it.create(pr.id) }
+        val merging by changesVm.merging.collectAsStateWithLifecycle()
+        val actionError by changesVm.actionError.collectAsStateWithLifecycle()
+        val linkedCount by changesVm.linkedIssueCount.collectAsStateWithLifecycle()
+        val toaster = LocalToaster.current
+        LaunchedEffect(actionError) {
+            val message = actionError ?: return@LaunchedEffect
+            toaster.failedAction("merge", "the PR", message, retry = changesVm::retryMerge)
+        }
+        MergeStatusPill(view = view, onClick = { approveOpen = true }, loading = merging)
+        if (approveOpen) {
+            MergeConfirmDialog(
+                merge = ChangesMergeControl(
+                    label = if (stack != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
+                    loading = merging,
+                    error = actionError,
+                    confirmPrompt = if (linkedCount > 0) {
+                        Prompts.MergeIssuePr.prompt(pr.number, linkedCount)
+                    } else {
+                        Prompts.MergeRunPr.prompt(pr.number)
+                    },
+                    onConfirm = { changesVm.mergePr() },
+                    stackConfirm = stack,
+                    onMergeStack = { changesVm.mergePr(stack = true) },
+                ),
+                onDismiss = { approveOpen = false },
+            )
+        }
+        return
+    }
+    Box {
+        MergeStatusPill(view = view, onClick = if (view.tap == "checks") ({ checksOpen = true }) else null)
+        com.exponential.app.ui.components.GlassDropdownMenu(expanded = checksOpen, onDismissRequest = { checksOpen = false }) {
+            ChatMenuPanel(
+                groups = listOf(checkRows),
+                page = null,
+                onPush = {},
+                onBack = {},
+                onPick = { item ->
+                    checksOpen = false
+                    item.onClick()
+                },
+            )
+        }
+    }
 }
 
 /** EXP-1521: the chat's live tail, the ONE place that reads the relay state. */

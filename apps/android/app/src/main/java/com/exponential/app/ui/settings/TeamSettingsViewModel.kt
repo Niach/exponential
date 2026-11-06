@@ -583,7 +583,7 @@ class TeamSettingsViewModel @Inject constructor(
             .onFailure { fail("set", "the branch", it) { setBoardBranch(boardId, branch) } }
     }
 
-    // --- General (web `TeamGeneralSection`): name, yolo mode, the team prompt.
+    // --- General (web `TeamGeneralSection`): name, the merge mode, the team prompt.
 
     /** EXP-818: the name row saves itself on blur / Done; blank keeps the old name. */
     fun renameTeam(name: String): Job = viewModelScope.launch {
@@ -600,17 +600,18 @@ class TeamSettingsViewModel @Inject constructor(
     private val _teamNameSaving = MutableStateFlow(false)
     val teamNameSaving: StateFlow<Boolean> = _teamNameSaving
 
-    private val _yoloBusy = MutableStateFlow(false)
-    val yoloBusy: StateFlow<Boolean> = _yoloBusy
+    private val _mergeModeBusy = MutableStateFlow(false)
+    val mergeModeBusy: StateFlow<Boolean> = _mergeModeBusy
 
-    /** EXP-1105: yolo mode, a synced team flag (owner-only). */
-    fun setYoloMode(enabled: Boolean): Job = viewModelScope.launch {
+    /** #EXP-1710 (merge-train.json MODE): the team's contract teamMergeMode
+     *  (`auto` | `approval`), a synced team field (owner-only). */
+    fun setMergeMode(mode: String): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = state.value.team?.id ?: return@launch
-        _yoloBusy.value = true
-        runCatching { teamsApi.update(accountId, UpdateTeamInput(teamId = teamId, yoloMode = enabled)) }
-            .onFailure { fail("update", "yolo mode", it) { setYoloMode(enabled) } }
-        _yoloBusy.value = false
+        _mergeModeBusy.value = true
+        runCatching { teamsApi.update(accountId, UpdateTeamInput(teamId = teamId, mergeMode = mode)) }
+            .onFailure { fail("update", "the merge mode", it) { setMergeMode(mode) } }
+        _mergeModeBusy.value = false
     }
 
     private val _zoneBusy = MutableStateFlow(false)

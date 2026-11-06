@@ -5,6 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.TeamEntity
+import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.domain.DeviceLiveness
+import com.exponential.app.domain.MergeTrain
+import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.SessionTree
@@ -60,6 +64,8 @@ class ThreadsViewModel @Inject constructor(
     private val sessionsApi: SessionsApi,
     private val sender: SessionSender,
     private val agentsApi: com.exponential.app.data.api.AgentsApi,
+    /** #EXP-1710: the Needs you stuck row's Retry / Merge now / Close PR. */
+    private val pullRequestsApi: com.exponential.app.data.api.PullRequestsApi,
 ) : ViewModel() {
 
     /** S-3: the chats list makes sure the viewer has an Assistant (once per
@@ -254,14 +260,56 @@ class ThreadsViewModel @Inject constructor(
      *  session named by THE session title, an agent conversation by its agent;
      *  only the digests' waiting kinds; the team's pull requests. */
     val needsYouRows: StateFlow<List<NeedsYou.Row>> = combine(
-        combine(inputs, activeTeam) { input, team -> input to team },
+        combine(inputs, activeTeam, needsYouTeamFacts()) { input, team, facts -> Triple(input, team, facts) },
         agentDefinitions,
         pullRequestRows,
         auth.userId,
         minuteClock,
-    ) { (input, team), definitions, prs, me, now ->
-        needsYouFold(input.sessions, input.links, input.issues, input.messages, definitions, prs, team, me, now)
+    ) { (input, team, facts), definitions, prs, me, now ->
+        needsYouFold(
+            input.sessions, input.links, input.issues, input.messages, definitions, prs, team, me, now,
+            mergeMode = facts.mergeMode,
+            owner = facts.owner,
+            devices = facts.devices,
+        )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-1710: what the Needs you fold reads beyond the list's inputs. */
+    private data class NeedsYouTeamFacts(val mergeMode: String, val owner: Boolean, val devices: List<DeviceEntity>)
+
+    /** The ACTIVE team's merge mode (no active team = `auto`), whether the
+     *  viewer owns it, and the synced devices (a stuck row's offline clock). */
+    private fun needsYouTeamFacts(): Flow<NeedsYouTeamFacts> = combine(activeTeam, auth.userId) { team, me -> team to me }
+        .flatMapLatest { (team, me) ->
+            combine(
+                dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+                if (team == null) flowOf(emptyList()) else dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) },
+                dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+            ) { teams, members, devices ->
+                NeedsYouTeamFacts(
+                    mergeMode = teams.firstOrNull { it.id == team }?.mergeMode ?: MergeTrain.MODE_AUTO,
+                    owner = me != null && members.any { it.userId == me && it.role == "owner" },
+                    devices = devices,
+                )
+            }
+        }
+
+    /** #EXP-1710: the Needs you stuck row's Retry (= Resume auto-merge). */
+    fun retryPullRequest(pullRequestId: String) =
+        call("resume", thing = "auto-merge") { pullRequestsApi.hold(it, pullRequestId, false) }
+
+    /** #EXP-1710: the stuck row's Merge now (owners, after `merge-now-pr`). */
+    fun mergePullRequestNow(pullRequestId: String) =
+        call("merge", thing = "the PR") { pullRequestsApi.mergeNow(it, pullRequestId) }
+
+    /** #EXP-1710: how many issues each PR links (close-pr.json's batchLine
+     *  counts the OTHER ones). */
+    fun linkedIssueCount(pullRequestId: String): Flow<Int> =
+        dbFlow.scopedQuery(emptyList()) { it.pullRequestIssueDao().observeByPullRequest(pullRequestId) }.map { it.size }
+
+    /** #EXP-1710: the stuck row's Close PR (after close-pr.json's confirm). */
+    fun closePullRequest(pullRequestId: String) =
+        call("close", thing = "the PR") { pullRequestsApi.close(it, pullRequestId) }
 
     /** chats.json `chatList`: the phone list (roots by activity, the preview,
      *  the time, the unread count); #FEED-191: no chips, the screen groups it
@@ -444,11 +492,18 @@ internal fun needsYouFold(
     team: String?,
     me: String?,
     now: Long,
+    /** #EXP-1710: the team's contract teamMergeMode. */
+    mergeMode: String = MergeTrain.MODE_AUTO,
+    owner: Boolean = false,
+    /** #EXP-1710: the synced devices (a stuck row's `Device offline`). */
+    devices: List<DeviceEntity> = emptyList(),
 ): List<NeedsYou.Row> {
     val inTeam = sessions.filter { team == null || it.teamId == team }
     val ids = inTeam.mapTo(HashSet()) { it.id }
     val titles = SessionTree.sessionTitles(sessions, links, issues, messages)
     val agentNames = definitions.associate { it.id to it.name }
+    val sessionsById = sessions.associateBy { it.id }
+    val devicesById = devices.associateBy { it.deviceId }
     return NeedsYou.needsYou(
         now = now,
         me = me,
@@ -486,9 +541,33 @@ internal fun needsYouFold(
                 checksState = pr.checksState,
                 basePullRequestId = pr.basePullRequestId,
                 createdAt = pr.createdAt,
+                mergeState = if (pr.state == "merged") "merged" else pr.mergeState,
+                holdReason = pr.mergeHold,
+                deviceOfflineSince = openerOfflineSince(pr.sessionId, sessionsById, devicesById, now),
             )
         },
+        mergeMode = mergeMode,
+        owner = owner,
     )
+}
+
+/**
+ * #EXP-1710 (merge-train.json `stuckRow`): when the opener session's device
+ * went offline = its synced `last_seen_at` once that is past the online window
+ * (`DeviceLiveness`); null while online, and null when the client knows no
+ * such device (no session, no device id, no row, no heartbeat): an unknown
+ * device counts as ONLINE, so the agent is trusted to fix it.
+ */
+internal fun openerOfflineSince(
+    openerId: String?,
+    sessions: Map<String, SessionTree.Session>,
+    devices: Map<String, DeviceEntity>,
+    now: Long,
+): String? {
+    val deviceId = openerId?.let { sessions[it] }?.deviceId?.takeIf { it.isNotEmpty() } ?: return null
+    val seen = devices[deviceId]?.lastSeenAt?.takeIf { it.isNotBlank() } ?: return null
+    if (WireTimestamps.parseEpochMs(seen) == null) return null
+    return if (DeviceLiveness.isOnline(seen, now)) null else seen
 }
 
 /** The digests' card kinds a person acts on. */

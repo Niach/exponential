@@ -215,7 +215,8 @@ object SessionTree {
             // EXP-1391: a refused merge the server posted into the root.
             "pr_merge_refused" to "Merge of PR {pr} refused",
             "pr_checks" to "CI on PR {pr}",
-            // EXP-1709: the merge train's line (#EXP-1710 renders it by mergeOutcome).
+            // EXP-1709: the merge train's line; #EXP-1710 reads it by
+            // `mergeOutcome` (MergeTrain.eventTemplate), this = no outcome.
             "pr_merge" to "Auto-merge of PR {pr}",
         )
         const val TEST_ID_TABS = "thread-tabs"
@@ -936,7 +937,11 @@ object SessionTree {
         sessionName: (String) -> String? = { null },
     ): String? {
         val event = card.text("event")
-        var text = ThreadCopy.EVENTS[event] ?: return null
+        // #EXP-1710: the merge train's `pr_merge` line reads by its
+        // `mergeOutcome` (merge-train.json `copy.events`); a card without
+        // one keeps the generic copy.
+        var text = (if (event == DomainContract.messageEventKindPrMerge) MergeTrain.eventTemplate(card.str("mergeOutcome")) else null)
+            ?: ThreadCopy.EVENTS[event] ?: return null
         val issue = card.str("issueId")?.let { issues[it] }
         val pr = card.str("pullRequestId")?.let { prs[it] }
         if (text.contains("{issue}")) {

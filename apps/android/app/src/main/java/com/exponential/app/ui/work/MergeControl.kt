@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.MergeTrain
 import com.exponential.app.domain.PrChecks
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.SessionTree
@@ -193,6 +194,59 @@ fun MergePill(
 }
 
 /**
+ * #EXP-1710 (merge-train.json STATUS PILL, web `MergeStatusPill`): the thread
+ * header's merge pill is a STATUS — THE Pill md, mode action, never primary
+ * but for `Needs approval` (the ONLY action, approval mode). The glyph by its
+ * icons.json concept (`spinner` = THE Spinner); tone `red` tints only the
+ * glyph. [onClick] null = readonly (no check rows); the host maps the tap
+ * (`approve` = the merge confirm, `checks` = the Checks submenu). [loading]
+ * = an approval in flight.
+ */
+@Composable
+fun MergeStatusPill(
+    view: MergeTrain.StatusPillView,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+) {
+    val size = PillSize.Md
+    val glyph = view.glyph
+    GlassPill(
+        view.label,
+        icon = if (glyph == "spinner" || view.tone == "red") null else ExpIcons.byConcept(glyph),
+        leading = when {
+            loading -> null
+            glyph == "spinner" -> {
+                {
+                    Box(Modifier.size(GlassPillDefaults.glyphSize(size)), contentAlignment = Alignment.Center) {
+                        InlineSpinner(size = FeedbackStates.PENDING_SPINNER.dp, color = LocalContentColor.current)
+                    }
+                }
+            }
+            view.tone == "red" -> {
+                {
+                    ExpIcons.byConcept(glyph)?.let { icon ->
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(GlassPillDefaults.glyphSize(size)),
+                            tint = DesignTokens.Semantic.Red,
+                        )
+                    }
+                }
+            }
+            else -> null
+        },
+        size = size,
+        primary = view.primary,
+        loading = loading,
+        enabled = !loading,
+        onClick = onClick,
+        modifier = modifier.testTag(MergeTrain.TestIds.STATUS_PILL),
+    )
+}
+
+/**
  * The ONE tap behaviour both Merge shapes share: a merge asks first
  * ([MergeConfirmDialog], the stack choice included). A refusal toasts ONCE in the host (WorkScreen), never per
  * control: the pager keeps neighbouring faces composed.
@@ -219,7 +273,7 @@ const val MergeCapsuleTag = "work-merge-pr"
  * lands, what stays open).
  */
 @Composable
-private fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit) {
+internal fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit) {
     val stack = merge.stackConfirm
     // #EXP-1611: red checks ask `merge-failing-pr` INSTEAD (never two cards);
     // its Merge merges exactly as the pill would (a stack member through its top).
