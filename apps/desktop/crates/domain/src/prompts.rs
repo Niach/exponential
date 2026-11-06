@@ -244,6 +244,20 @@ pub const MERGE_FAILING_PR: Spec = Spec {
     focus: "cancel",
 };
 
+/// #EXP-1707 (merge-train.json `mergeNowPrompt`): an owner's Merge now
+/// (the `…` menu, the Needs you stuck row); untested, next, alone.
+pub const MERGE_NOW_PR: Spec = Spec {
+    id: "merge-now-pr",
+    copy: &[
+        ("title", "Merge PR #{number} now?"),
+        ("titleStack", "Merge the stack now?"),
+        ("body", "It skips the merge train's tests."),
+    ],
+    params: &["number"],
+    actions: confirm!(destructive "merge", "Merge"),
+    focus: "cancel",
+};
+
 pub const STOP_RUN: Spec = Spec {
     id: "stop-run",
     copy: &[("title", "Stop this session?")],
@@ -519,6 +533,7 @@ pub const ALL: &[Spec] = &[
     MERGE_ISSUE_PR,
     MERGE_RUN_PR,
     MERGE_FAILING_PR,
+    MERGE_NOW_PR,
     STOP_RUN,
     RESUME_RUN,
     DELETE_TRIGGER,
@@ -599,6 +614,16 @@ pub fn merge_failing_pr(number: Option<u64>, names: &str, stack: bool) -> Prompt
         if stack { "titleStack" } else { "title" },
         Some("body"),
         &[("number", number.as_deref().unwrap_or("")), ("names", names)],
+    )
+}
+
+/// `stack` = the PR sits in an open stack (it lands the whole stack).
+pub fn merge_now_pr(number: Option<u64>, stack: bool) -> Prompt {
+    let number = number.map(|n| n.to_string());
+    MERGE_NOW_PR.render(
+        if stack { "titleStack" } else { "title" },
+        Some("body"),
+        &[("number", number.as_deref().unwrap_or(""))],
     )
 }
 

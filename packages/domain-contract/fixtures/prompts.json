@@ -190,6 +190,31 @@
       ],
       "focus": "cancel"
     },
+    "merge-now-pr": {
+      "title": "Merge PR #{number} now?",
+      "titleStack": "Merge the stack now?",
+      "body": "It skips the merge train's tests.",
+      "variants": "#EXP-1707 (merge-train.json `mergeNowPrompt`, `menu` merge-now and the Needs you stuck row's Merge now; owners only): titleStack when the PR sits in an open stack (it lands the whole stack, bottom first).",
+      "params": [
+        {
+          "name": "number",
+          "meaning": "the GitHub pull request number"
+        }
+      ],
+      "actions": [
+        {
+          "id": "cancel",
+          "label": "Cancel",
+          "role": "cancel"
+        },
+        {
+          "id": "merge",
+          "label": "Merge",
+          "role": "destructive"
+        }
+      ],
+      "focus": "cancel"
+    },
     "stop-run": {
       "title": "Stop this session?",
       "params": [],

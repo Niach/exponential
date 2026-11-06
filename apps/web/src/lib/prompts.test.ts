@@ -17,6 +17,7 @@ import {
   makeOwnerPrompt,
   mergeIssuePrPrompt,
   mergeFailingPrPrompt,
+  mergeNowPrPrompt,
   mergeRunPrPrompt,
   moveIssuePrompt,
   PROMPT_FIXTURE,
@@ -70,6 +71,10 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
   "merge-failing-pr": {
     title: () => mergeFailingPrPrompt({ number: `{number}` as unknown as number }),
     titleStack: () => mergeFailingPrPrompt({ stack: true }),
+  },
+  "merge-now-pr": {
+    title: () => mergeNowPrPrompt({ number: `{number}` as unknown as number }),
+    titleStack: () => mergeNowPrPrompt({ stack: true }),
   },
   "stop-run": { title: () => stopRunPrompt() },
   "resume-run": {

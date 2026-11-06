@@ -253,6 +253,24 @@ public enum Prompts {
         }
     }
 
+    /// #EXP-1707 (merge-train.json `mergeNowPrompt`): an owner's Merge now
+    /// (the `…` menu, the Needs you stuck row); `titleStack` for an
+    /// open-stack member (it lands the whole stack, bottom first).
+    public enum MergeNowPr {
+        public static let entry = destructive(
+            "merge-now-pr",
+            texts: [
+                "title": "Merge PR #{number} now?",
+                "titleStack": "Merge the stack now?",
+                "body": "It skips the merge train's tests.",
+            ],
+            params: ["number"], answer: "merge", label: "Merge"
+        )
+        public static func copy(number: Int?, stack: Bool) -> PromptCopy {
+            entry.copy(title: stack ? "titleStack" : "title", body: "body", ["number": number.map { "\($0)" } ?? ""])
+        }
+    }
+
     public enum StopRun {
         public static let entry = destructive(
             "stop-run",
@@ -610,7 +628,7 @@ public enum Prompts {
     /// Every mirrored entry, locked against the fixture's `prompts` key set.
     public static let all: [PromptEntry] = [
         DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,
-        MergeIssuePr.entry, MergeRunPr.entry, MergeFailingPr.entry, StopRun.entry, ResumeRun.entry,
+        MergeIssuePr.entry, MergeRunPr.entry, MergeFailingPr.entry, MergeNowPr.entry, StopRun.entry, ResumeRun.entry,
         DeleteTrigger.entry, DeleteAction.entry, RemoveDevice.entry, RemoveDeviceShare.entry,
         DeleteTeam.entry, TrashBoard.entry,
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,

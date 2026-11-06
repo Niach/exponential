@@ -133,6 +133,10 @@ final class PromptsTests: XCTestCase {
 
     func testMergeVariants() {
         XCTAssertEqual(Prompts.MergeIssuePr.copy(number: 42, issueCount: 1).title, "Merge PR #42?")
+        XCTAssertEqual(Prompts.MergeNowPr.copy(number: 42, stack: false).title, "Merge PR #42 now?")
+        XCTAssertEqual(Prompts.MergeNowPr.copy(number: 42, stack: true).title, "Merge the stack now?")
+        XCTAssertEqual(Prompts.MergeNowPr.copy(number: 42, stack: false).body, "It skips the merge train's tests.")
+        XCTAssertEqual(Prompts.MergeNowPr.copy(number: 42, stack: false).focus, "cancel")
         XCTAssertEqual(Prompts.MergeIssuePr.copy(number: 42, issueCount: 1).body, "It is squash-merged.")
         XCTAssertEqual(
             Prompts.MergeIssuePr.copy(number: nil, issueCount: 3).title, "Merge this pull request?"

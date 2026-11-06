@@ -196,6 +196,28 @@ object Prompts {
         )
     }
 
+    /** #EXP-1707 (merge-train.json `mergeNowPrompt`): an owner's Merge now
+     *  (the `…` menu, the Needs you stuck row); [stack] = the PR sits in an
+     *  open stack (it lands the whole stack, bottom first). */
+    object MergeNowPr {
+        val spec = destructiveSpec(
+            "merge-now-pr",
+            mapOf(
+                "title" to "Merge PR #{number} now?",
+                "titleStack" to "Merge the stack now?",
+                "body" to "It skips the merge train's tests.",
+            ),
+            listOf("number"),
+            "merge",
+            "Merge",
+        )
+        fun prompt(number: Int?, stack: Boolean = false) = spec.render(
+            if (stack) "titleStack" else "title",
+            "body",
+            "number" to "${number ?: ""}",
+        )
+    }
+
     object StopRun {
         val spec = destructiveSpec("stop-run", mapOf("title" to "Stop this session?"), emptyList(), "stop", "Stop")
         fun prompt() = spec.render("title", null)
@@ -525,7 +547,7 @@ object Prompts {
     val all: Map<String, Spec> by lazy {
         listOf(
             DeleteIssue.spec, DeleteIssues.spec, DeleteFile.spec, MoveIssue.spec, MergeIssuePr.spec,
-            MergeRunPr.spec, MergeFailingPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
+            MergeRunPr.spec, MergeFailingPr.spec, MergeNowPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
             RemoveDeviceShare.spec,
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,

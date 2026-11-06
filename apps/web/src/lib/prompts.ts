@@ -159,6 +159,14 @@ export const mergeFailingPrPrompt = ({
   })
 }
 
+/** #EXP-1707 (merge-train.json `mergeNowPrompt`): an owner's Merge now (the
+ *  `…` menu, the Needs you stuck row); `stack` = the PR sits in an open
+ *  stack (it lands the whole stack, bottom first). */
+export const mergeNowPrPrompt = ({ number, stack = false }: { number?: number | null; stack?: boolean }) => {
+  const entry = P[`merge-now-pr`]
+  return copyOf(entry, stack ? entry.titleStack : entry.title, entry.body, number == null ? {} : { number })
+}
+
 export const stopRunPrompt = () =>
   copyOf(P[`stop-run`], P[`stop-run`].title, undefined)
 
