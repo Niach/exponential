@@ -127,6 +127,16 @@ fn world(portal_toml: &str) -> World {
     let socket = h.with(move |ede| ede.ipc_listen(&runtime, "wayland-test")).unwrap();
     let token = ede_protocol::Token::new(std::fs::read_to_string(dir.path().join("exponential-desktop/wayland-test.token")).unwrap()).unwrap();
     let config = dir.path().join("portal.toml");
+    // Hermetic: an `exponential-sealed` installed on this machine (the
+    // package) must not become the chooser; the tests pick the focused
+    // output or window as CI, which has none installed, does.
+    let portal_toml = if portal_toml.contains("chooser") {
+        portal_toml.to_string()
+    } else if portal_toml.contains("[screencast]") {
+        portal_toml.replacen("[screencast]\n", "[screencast]\nchooser = []\n", 1)
+    } else {
+        format!("[screencast]\nchooser = []\n{portal_toml}")
+    };
     std::fs::write(&config, format!("[screenshot]\ndir = \"{}\"\n{portal_toml}", dir.path().join("shots").display())).unwrap();
     let connect: ede_portal::Connect = Arc::new(move || ede_protocol::Client::connect(&socket, token.clone()));
     let ctx = Ctx::new(connect, Some(config));

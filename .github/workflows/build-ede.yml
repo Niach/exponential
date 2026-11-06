@@ -58,14 +58,12 @@ jobs:
         with:
           workspaces: |
             apps/ede
-            apps/ede/shell
+            apps/desktop
           key: ede-deb
       - uses: ./.github/actions/cargo-fetch
         with:
           dir: apps/ede
       - uses: ./.github/actions/cargo-fetch
-        with:
-          dir: apps/ede/shell
       - name: Stage
         run: apps/ede/packaging/stage.sh "$RUNNER_TEMP/stage"
       - name: Pack the .debs

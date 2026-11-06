@@ -16,8 +16,8 @@ package id in the tree splits every type and nothing compiles. gpui and
 gpui-component are git dependencies, pinned here (the policy table; the
 `test.yml` gate checks it against `apps/desktop/Cargo.toml` + `Cargo.lock`,
 `crates/app/tests/pinned_revs.rs`, the guide app
-`packages/exponential-ui/guides/gpui`, eDE's shell workspace `apps/ede/shell`
-and its install snippet on exponential.at/ui,
+`packages/exponential-ui/guides/gpui` and its install snippet on exponential.at/ui
+(eDE's shell, `crates/ede-shell`, is a member of this workspace since #EDE-51),
 with `bun packages/exponential-ui/release/check-gpui-revs.ts`):
 
 | pin | rev | covers |

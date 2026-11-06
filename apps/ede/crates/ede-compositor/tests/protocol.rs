@@ -19,6 +19,9 @@ const KEY_A: u32 = 30;
 const KEY_TAB: u32 = 15;
 const KEY_LEFTALT: u32 = 56;
 const KEY_LEFTMETA: u32 = 125;
+const KEY_LEFTCTRL: u32 = 29;
+const KEY_UP: u32 = 103;
+const KEY_DOWN: u32 = 108;
 const KEY_VOLUMEUP: u32 = 115;
 
 fn harness() -> Harness {
@@ -219,6 +222,93 @@ fn hotkeys_reach_a_listening_shell_and_the_switcher_commits_on_alt_release() {
     assert_eq!(names(&mut shell, 2), ["menu.toggle", "volume.up"]);
     app.roundtrip();
     assert!(!app.state.keys.contains(&KEY_VOLUMEUP));
+    // Ctrl+Alt+Up and Down (#EDE-49): Expo and Scale, the keys never reach the app.
+    press(&h, KEY_LEFTCTRL, true);
+    press(&h, KEY_LEFTALT, true);
+    press(&h, KEY_UP, true);
+    press(&h, KEY_UP, false);
+    press(&h, KEY_DOWN, true);
+    press(&h, KEY_DOWN, false);
+    press(&h, KEY_LEFTALT, false);
+    press(&h, KEY_LEFTCTRL, false);
+    assert_eq!(names(&mut shell, 2), ["expo.toggle", "scale.toggle"]);
+    app.roundtrip();
+    assert!(!app.state.keys.contains(&KEY_UP) && !app.state.keys.contains(&KEY_DOWN), "{:?}", app.state.keys);
+}
+
+/// #EDE-48: minimize over ede-protocol and from the app; a minimized window
+/// leaves the screen, keeps its place, and a focus from the taskbar restores it.
+#[test]
+fn minimized_windows_leave_the_screen_and_come_back_where_they_were() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let a = app.toplevel("a");
+    app.draw(&a, 300, 200, BLUE);
+    let b = app.toplevel("b");
+    app.draw(&b, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&b.surface));
+
+    let mut ipc = h.ipc();
+    ipc.subscribe().unwrap();
+    ipc.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let kinds = |ipc: &mut ede_protocol::Client, n: usize| -> Vec<String> { (0..n).map(|_| ipc.next_event().unwrap().kind).collect() };
+    let windows = ipc.windows().unwrap();
+    let before = windows.iter().find(|w| w.title.as_deref() == Some("b")).unwrap().clone();
+    let id_b = before.id.clone();
+    assert!(!before.minimized);
+
+    ipc.minimize(id_b.clone()).unwrap();
+    let ev = ipc.next_event().unwrap();
+    assert_eq!((ev.kind.as_str(), ev.data["window"].as_str()), (events::WINDOW_MINIMIZED, Some(id_b.as_str())));
+    assert_eq!(kinds(&mut ipc, 1), [events::WINDOW_FOCUSED], "focus fell to a");
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&a.surface));
+    // Listed as minimized at its old place; not drawn, not on the space.
+    let b_info = ipc.windows().unwrap().into_iter().find(|w| w.id == id_b).unwrap();
+    assert!(b_info.minimized && !b_info.focused && (b_info.x, b_info.y) == (before.x, before.y));
+    assert!(h.with(|ede| ede.space.elements().count() == 1));
+    assert_eq!(h.capture(0).at(before.x + 5, before.y + 5), BLUE, "a shows where b (cascaded over it) was");
+    // Its last frame is still there for the taskbar's hover preview.
+    let shot = ipc.capture(CaptureTarget::Window { window: id_b.clone() }).unwrap();
+    assert_eq!((shot.info.width, shot.info.height, shot.at(150, 100)), (300, 200, RED));
+
+    // Focusing it from the taskbar restores it where it was, on top.
+    ipc.focus(id_b.clone()).unwrap();
+    assert_eq!(kinds(&mut ipc, 2), [events::WINDOW_RESTORED, events::WINDOW_FOCUSED]);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&b.surface));
+    let back = ipc.windows().unwrap().into_iter().find(|w| w.id == id_b).unwrap();
+    assert!(!back.minimized && back.focused && (back.x, back.y) == (before.x, before.y));
+    assert_eq!(h.capture(0).at(before.x + 5, before.y + 5), RED);
+
+    // The app's own minimize button, then `restore_window`.
+    b.toplevel.set_minimized();
+    app.roundtrip();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&a.surface));
+    assert_eq!(kinds(&mut ipc, 2), [events::WINDOW_MINIMIZED, events::WINDOW_FOCUSED]);
+    ipc.restore(id_b.clone()).unwrap();
+    assert_eq!(kinds(&mut ipc, 2), [events::WINDOW_RESTORED, events::WINDOW_FOCUSED]);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&b.surface));
+    ipc.restore(id_b.clone()).unwrap(); // not minimized: nothing happens, no error
+
+    // Minimized, moved to workspace 2 while minimized, then focused: the
+    // restore brings workspace 2 along.
+    ipc.minimize(id_b.clone()).unwrap();
+    ipc.move_to_workspace(id_b.clone(), 1).unwrap();
+    assert_eq!(ipc.workspaces().unwrap()[1].windows, vec![id_b.clone()]);
+    assert!(ipc.windows().unwrap().iter().any(|w| w.id == id_b && w.minimized && w.workspace == 1));
+    ipc.focus(id_b.clone()).unwrap();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&b.surface));
+    assert!(ipc.workspaces().unwrap()[1].active);
+    let on_two = ipc.windows().unwrap().into_iter().find(|w| w.id == id_b).unwrap();
+    assert!(!on_two.minimized && on_two.workspace == 1 && (on_two.x, on_two.y) == (before.x, before.y));
+
+    // Closing a minimized window from the taskbar works and is announced.
+    ipc.minimize(id_b.clone()).unwrap();
+    ipc.close_window(id_b.clone()).unwrap();
+    wait_for(&mut app, |c| c.state.toplevels[1].closed);
+    b.toplevel.destroy();
+    app.roundtrip();
+    wait_for(&mut app, |_| h.with(|ede| ede.all_windows().len() == 1));
 }
 
 #[test]
