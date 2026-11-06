@@ -27853,6 +27853,396 @@
       }
     ]
   },
+  "SettingsRow\/example" : {
+    "height" : 94,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          94
+        ],
+        "id" : "settings-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          12,
+          358,
+          42
+        ],
+        "id" : "settings-row.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          12,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          34,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row.control"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row-child"
+      }
+    ]
+  },
+  "SettingsRow\/stackBelow=lg" : {
+    "height" : 94,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          94
+        ],
+        "id" : "settings-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          12,
+          358,
+          42
+        ],
+        "id" : "settings-row.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          12,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          34,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row.control"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row-child"
+      }
+    ]
+  },
+  "SettingsRow\/stackBelow=md" : {
+    "height" : 94,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          94
+        ],
+        "id" : "settings-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          12,
+          358,
+          42
+        ],
+        "id" : "settings-row.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          12,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          34,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row.control"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row-child"
+      }
+    ]
+  },
+  "SettingsRow\/stackBelow=never" : {
+    "height" : 66,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "settings-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          12,
+          202.8,
+          42
+        ],
+        "id" : "settings-row.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          12,
+          202.8,
+          20
+        ],
+        "id" : "settings-row.text.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          34,
+          202.8,
+          20
+        ],
+        "id" : "settings-row.text.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          230.8,
+          23,
+          143.2,
+          20
+        ],
+        "id" : "settings-row.control"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          230.8,
+          23,
+          143.2,
+          20
+        ],
+        "id" : "settings-row-child"
+      }
+    ]
+  },
+  "SettingsRow\/stackBelow=sm" : {
+    "height" : 94,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          94
+        ],
+        "id" : "settings-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          12,
+          358,
+          42
+        ],
+        "id" : "settings-row.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          12,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          34,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row.control"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row-child"
+      }
+    ]
+  },
+  "SettingsRow\/stackBelow=xl" : {
+    "height" : 94,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          94
+        ],
+        "id" : "settings-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          12,
+          358,
+          42
+        ],
+        "id" : "settings-row.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          12,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          34,
+          358,
+          20
+        ],
+        "id" : "settings-row.text.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row.control"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          62,
+          358,
+          20
+        ],
+        "id" : "settings-row-child"
+      }
+    ]
+  },
   "Sidebar\/collapseBelow=lg" : {
     "height" : 20,
     "nodes" : [

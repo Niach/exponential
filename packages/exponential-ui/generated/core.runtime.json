@@ -3392,6 +3392,28 @@
         "cancel"
       ]
     },
+    "SettingsRow": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "description": {
+          "type": "string",
+          "bindable": true
+        },
+        "stackBelow": {
+          "type": "enum",
+          "enum": "collapseBelow",
+          "default": "sm"
+        }
+      }
+    },
     "Input": {
       "kind": "native",
       "group": "input",

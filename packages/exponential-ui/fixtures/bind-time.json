@@ -47452,6 +47452,976 @@
       ]
     },
     {
+      "name": "SettingsRow/bound:label",
+      "input": {
+        "id": "settings-row",
+        "component": "SettingsRow",
+        "props": {
+          "label": {
+            "path": "/label"
+          },
+          "description": "One email a day at 8:00."
+        },
+        "children": [
+          {
+            "id": "settings-row-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "settings-row",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "settings-row.text",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row.text.label",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "path": "/label"
+                  },
+                  "variant": "body"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "label",
+                  "props": {}
+                }
+              },
+              {
+                "id": "settings-row.text.description",
+                "component": "Text",
+                "props": {
+                  "text": "One email a day at 8:00.",
+                  "variant": "caption",
+                  "tone": "neutral"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "description",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "flexShrink": 1,
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "text",
+              "props": {}
+            }
+          },
+          {
+            "id": "settings-row.control",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "stretch",
+              "justifyContent": "center",
+              "flexShrink": 0,
+              "width": "40%",
+              "maxWidth": 320,
+              "minWidth": 0,
+              "@media (max-width: $breakpoint.sm)": {
+                "width": "100%",
+                "maxWidth": "100%"
+              }
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "control",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.md",
+          "minHeight": 44,
+          "paddingHorizontal": "$spacing.lg",
+          "paddingVertical": "$spacing.md",
+          "@media (max-width: $breakpoint.sm)": {
+            "flexDirection": "column",
+            "alignItems": "stretch",
+            "gap": "$spacing.sm"
+          }
+        },
+        "recipe": {
+          "macro": "SettingsRow",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": {
+            "path": "/label"
+          },
+          "description": "One email a day at 8:00."
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "label": "Daily digest"
+          },
+          "bound": {
+            "id": "settings-row",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row.text",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row.text.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Daily digest",
+                      "variant": "body"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "label",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "settings-row.text.description",
+                    "component": "Text",
+                    "props": {
+                      "text": "One email a day at 8:00.",
+                      "variant": "caption",
+                      "tone": "neutral"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "description",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "text",
+                  "props": {}
+                }
+              },
+              {
+                "id": "settings-row.control",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "stretch",
+                  "justifyContent": "center",
+                  "flexShrink": 0,
+                  "width": "40%",
+                  "maxWidth": 320,
+                  "minWidth": 0,
+                  "@media (max-width: $breakpoint.sm)": {
+                    "width": "100%",
+                    "maxWidth": "100%"
+                  }
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "control",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.md",
+              "minHeight": 44,
+              "paddingHorizontal": "$spacing.lg",
+              "paddingVertical": "$spacing.md",
+              "@media (max-width: $breakpoint.sm)": {
+                "flexDirection": "column",
+                "alignItems": "stretch",
+                "gap": "$spacing.sm"
+              }
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Daily digest",
+              "description": "One email a day at 8:00."
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "label": ""
+          },
+          "bound": {
+            "id": "settings-row",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row.text",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row.text.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "",
+                      "variant": "body"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "label",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "settings-row.text.description",
+                    "component": "Text",
+                    "props": {
+                      "text": "One email a day at 8:00.",
+                      "variant": "caption",
+                      "tone": "neutral"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "description",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "text",
+                  "props": {}
+                }
+              },
+              {
+                "id": "settings-row.control",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "stretch",
+                  "justifyContent": "center",
+                  "flexShrink": 0,
+                  "width": "40%",
+                  "maxWidth": 320,
+                  "minWidth": 0,
+                  "@media (max-width: $breakpoint.sm)": {
+                    "width": "100%",
+                    "maxWidth": "100%"
+                  }
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "control",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.md",
+              "minHeight": 44,
+              "paddingHorizontal": "$spacing.lg",
+              "paddingVertical": "$spacing.md",
+              "@media (max-width: $breakpoint.sm)": {
+                "flexDirection": "column",
+                "alignItems": "stretch",
+                "gap": "$spacing.sm"
+              }
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "",
+              "description": "One email a day at 8:00."
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "settings-row",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row.text",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row.text.label",
+                    "component": "Text",
+                    "props": {
+                      "variant": "body"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "label",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "settings-row.text.description",
+                    "component": "Text",
+                    "props": {
+                      "text": "One email a day at 8:00.",
+                      "variant": "caption",
+                      "tone": "neutral"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "description",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "text",
+                  "props": {}
+                }
+              },
+              {
+                "id": "settings-row.control",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "stretch",
+                  "justifyContent": "center",
+                  "flexShrink": 0,
+                  "width": "40%",
+                  "maxWidth": 320,
+                  "minWidth": 0,
+                  "@media (max-width: $breakpoint.sm)": {
+                    "width": "100%",
+                    "maxWidth": "100%"
+                  }
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "control",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.md",
+              "minHeight": 44,
+              "paddingHorizontal": "$spacing.lg",
+              "paddingVertical": "$spacing.md",
+              "@media (max-width: $breakpoint.sm)": {
+                "flexDirection": "column",
+                "alignItems": "stretch",
+                "gap": "$spacing.sm"
+              }
+            },
+            "accessibility": {
+              "role": "group",
+              "description": "One email a day at 8:00."
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "SettingsRow/bound:description",
+      "input": {
+        "id": "settings-row",
+        "component": "SettingsRow",
+        "props": {
+          "label": "Daily digest",
+          "description": {
+            "path": "/description"
+          }
+        },
+        "children": [
+          {
+            "id": "settings-row-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "settings-row",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "settings-row.text",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row.text.label",
+                "component": "Text",
+                "props": {
+                  "text": "Daily digest",
+                  "variant": "body"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "label",
+                  "props": {}
+                }
+              },
+              {
+                "id": "settings-row.text.description",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "path": "/description"
+                  },
+                  "variant": "caption",
+                  "tone": "neutral"
+                },
+                "children": [],
+                "visible": {
+                  "path": "/description"
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "description",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "flexShrink": 1,
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "text",
+              "props": {}
+            }
+          },
+          {
+            "id": "settings-row.control",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "stretch",
+              "justifyContent": "center",
+              "flexShrink": 0,
+              "width": "40%",
+              "maxWidth": 320,
+              "minWidth": 0,
+              "@media (max-width: $breakpoint.sm)": {
+                "width": "100%",
+                "maxWidth": "100%"
+              }
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "control",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.md",
+          "minHeight": 44,
+          "paddingHorizontal": "$spacing.lg",
+          "paddingVertical": "$spacing.md",
+          "@media (max-width: $breakpoint.sm)": {
+            "flexDirection": "column",
+            "alignItems": "stretch",
+            "gap": "$spacing.sm"
+          }
+        },
+        "recipe": {
+          "macro": "SettingsRow",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Daily digest",
+          "description": {
+            "path": "/description"
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "description": "One email a day at 8:00."
+          },
+          "bound": {
+            "id": "settings-row",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row.text",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row.text.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Daily digest",
+                      "variant": "body"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "label",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "settings-row.text.description",
+                    "component": "Text",
+                    "props": {
+                      "text": "One email a day at 8:00.",
+                      "variant": "caption",
+                      "tone": "neutral"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "description",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "text",
+                  "props": {}
+                }
+              },
+              {
+                "id": "settings-row.control",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "stretch",
+                  "justifyContent": "center",
+                  "flexShrink": 0,
+                  "width": "40%",
+                  "maxWidth": 320,
+                  "minWidth": 0,
+                  "@media (max-width: $breakpoint.sm)": {
+                    "width": "100%",
+                    "maxWidth": "100%"
+                  }
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "control",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.md",
+              "minHeight": 44,
+              "paddingHorizontal": "$spacing.lg",
+              "paddingVertical": "$spacing.md",
+              "@media (max-width: $breakpoint.sm)": {
+                "flexDirection": "column",
+                "alignItems": "stretch",
+                "gap": "$spacing.sm"
+              }
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Daily digest",
+              "description": "One email a day at 8:00."
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "description": ""
+          },
+          "bound": {
+            "id": "settings-row",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row.text",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row.text.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Daily digest",
+                      "variant": "body"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "label",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "text",
+                  "props": {}
+                }
+              },
+              {
+                "id": "settings-row.control",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "stretch",
+                  "justifyContent": "center",
+                  "flexShrink": 0,
+                  "width": "40%",
+                  "maxWidth": 320,
+                  "minWidth": 0,
+                  "@media (max-width: $breakpoint.sm)": {
+                    "width": "100%",
+                    "maxWidth": "100%"
+                  }
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "control",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.md",
+              "minHeight": 44,
+              "paddingHorizontal": "$spacing.lg",
+              "paddingVertical": "$spacing.md",
+              "@media (max-width: $breakpoint.sm)": {
+                "flexDirection": "column",
+                "alignItems": "stretch",
+                "gap": "$spacing.sm"
+              }
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Daily digest",
+              "description": ""
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "settings-row",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "settings-row.text",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row.text.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Daily digest",
+                      "variant": "body"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SettingsRow",
+                      "part": "label",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "text",
+                  "props": {}
+                }
+              },
+              {
+                "id": "settings-row.control",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "settings-row-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "stretch",
+                  "justifyContent": "center",
+                  "flexShrink": 0,
+                  "width": "40%",
+                  "maxWidth": 320,
+                  "minWidth": 0,
+                  "@media (max-width: $breakpoint.sm)": {
+                    "width": "100%",
+                    "maxWidth": "100%"
+                  }
+                },
+                "recipe": {
+                  "macro": "SettingsRow",
+                  "part": "control",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.md",
+              "minHeight": 44,
+              "paddingHorizontal": "$spacing.lg",
+              "paddingVertical": "$spacing.md",
+              "@media (max-width: $breakpoint.sm)": {
+                "flexDirection": "column",
+                "alignItems": "stretch",
+                "gap": "$spacing.sm"
+              }
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Daily digest"
+            },
+            "recipe": {
+              "macro": "SettingsRow",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Rating/bound:value",
       "input": {
         "id": "rating",

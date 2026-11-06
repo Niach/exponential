@@ -756,6 +756,11 @@ impl Builder<'_, '_> {
                 if let Some(d) = str_prop(&owner.props, "description") {
                     b.text_part(col, &owner, "description", d, "muted", "");
                 }
+            } else if owner.component == "Switch" && str_prop(&owner.props, "label") == Some("") {
+                // VAPP-280: a label-less Switch (a SettingsRow's control,
+                // `label: ""`) keeps the web's empty `body` column, which
+                // grows and holds the track at the end; no empty label part.
+                b.part_in(parent, &owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0}), json!({}), "");
             } else if let Some(label) = str_prop(&owner.props, "label") {
                 let l = b.text_part(parent, &owner, "label", label, "body", "");
                 b.nodes[l as usize].base_style.insert("flexGrow".into(), json!(1));

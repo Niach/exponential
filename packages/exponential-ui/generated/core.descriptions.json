@@ -1818,6 +1818,24 @@
         "cancel": true
       }
     },
+    "SettingsRow": {
+      "props": {
+        "label": {
+          "description": "The setting's name."
+        },
+        "description": {
+          "description": "A muted line under the label."
+        },
+        "stackBelow": {
+          "description": "Puts the control under the label below this breakpoint."
+        }
+      },
+      "description": "A settings line: label (+ description) at the start, the control (children) at the end; stacks on phones.",
+      "example": {
+        "label": "Daily digest",
+        "description": "One email a day at 8:00."
+      }
+    },
     "Input": {
       "props": {
         "label": {

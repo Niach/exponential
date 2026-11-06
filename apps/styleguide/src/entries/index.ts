@@ -80,6 +80,7 @@ import { entry as qrCode } from "./qr-code.tsx"
 import { entry as outline } from "./outline.tsx"
 import { entry as recordForm } from "./record-form.tsx"
 import { entry as recordTable } from "./record-table.tsx"
+import { entry as settingsRow } from "./settings-row.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
 import { entry as zoomableImage } from "./zoomable-image.tsx"
 import { entry as motion } from "./motion.tsx"
@@ -132,6 +133,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   timeline,
   recordForm,
   recordTable,
+  settingsRow,
   composerDialog,
   issueContextMenu,
   sessionRow,

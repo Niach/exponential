@@ -60,8 +60,8 @@ fn without_builtin_themes_only_the_default_is_embedded() {
 #[test]
 fn the_embedded_catalog_parses_and_the_built_ins_load() {
     use eui_core::catalog::{CORE, CORE_MACROS, TOKEN_GROUPS};
-    assert_eq!(CORE.components.len(), 97, "VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion");
-    assert_eq!(CORE_MACROS.len(), 44, "VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan; EXP-1495: + Outline, Mosaic");
+    assert_eq!(CORE.components.len(), 98, "VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion");
+    assert_eq!(CORE_MACROS.len(), 45, "VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan; EXP-1495: + Outline, Mosaic");
     assert_eq!(TOKEN_GROUPS.keys().map(String::as_str).collect::<Vec<_>>(), eui_core::generated::catalog::TOKEN_GROUPS);
     for id in eui_core::themes::BUILTIN_THEME_IDS {
         assert!(eui_core::themes::builtin_theme(id).is_some(), "{id}");

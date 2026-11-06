@@ -178,6 +178,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   timeline: `Surfaces`,
   [`record-form`]: `Inputs & pickers`,
   [`record-table`]: `Lists & rows`,
+  [`settings-row`]: `Inputs & pickers`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,
   [`phone-board-menu`]: `Inputs & pickers`,

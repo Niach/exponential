@@ -686,6 +686,35 @@ function traceLines(size: string): NestedNode[] {
   ]
 }
 
+/** VAPP-280: the Select row of the SettingsRow specimen. */
+function settingsSelectRow(stackBelow?: string): NestedNode {
+  return {
+    id: `digest`,
+    component: `SettingsRow`,
+    props: { label: `Digest`, description: `How often the summary email goes out.`, ...(stackBelow ? { stackBelow } : {}) },
+    children: [{ id: `digest-select`, component: `Select`, props: { name: `digest`, value: `daily`, options: [{ label: `Hourly`, value: `hourly` }, { label: `Daily`, value: `daily` }, { label: `Off`, value: `off` }] } }],
+  }
+}
+
+/** VAPP-280: a settings page's group: Group (the card) over a bare Section
+ *  (the hairline-divided rows). */
+function settingsGroup(): NestedNode {
+  return {
+    id: `group`,
+    component: `Group`,
+    props: { title: `Notifications` },
+    children: [{
+      id: `rows`,
+      component: `Section`,
+      children: [
+        { id: `email`, component: `SettingsRow`, props: { label: `Email notifications`, stackBelow: `never` }, children: [{ id: `email-switch`, component: `Switch`, props: { label: ``, name: `email`, checked: true } }] },
+        settingsSelectRow(),
+        { id: `volume`, component: `SettingsRow`, props: { label: `Ring volume` }, children: [{ id: `volume-slider`, component: `Slider`, props: { min: 0, max: 100, step: 5, value: 60, icon: `media-volume-up`, endLabel: `60%`, showValue: false } }] },
+      ],
+    }],
+  }
+}
+
 /** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
  *  would otherwise read as an overlay's). */
 const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
@@ -711,6 +740,9 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `example`, node: { id: `form-actions`, component: `FormActions`, props: { submit: `Save`, cancel: true } } },
     { label: `destructive · true`, node: { id: `form-actions`, component: `FormActions`, props: { submit: `Delete team`, cancel: true, destructive: true } } },
   ],
+  // VAPP-280: no generated cases; its cases are SPECIMEN_EXTRA (a Group
+  // root must keep its own rows, not the Group demo children).
+  SettingsRow: [],
   StatTile: [
     { label: `example`, node: { id: `stat-tile`, component: `StatTile`, props: { label: `Active users`, value: `1,284`, delta: `+12 %`, tone: `success`, trend: [3, 4, 3, 5, 6, 8] } } },
     { label: `tone · danger`, node: { id: `stat-tile`, component: `StatTile`, props: { label: `Error rate`, value: `0.42 %`, delta: `+0.1 %`, tone: `danger`, trend: [2, 2, 3, 2, 4, 5] } } },
@@ -762,6 +794,13 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // VAPP-280: a settings page's group (a Switch that stays inline on phones,
+  // a Select with a description, a Slider), then the stacked phone layout at
+  // any width (`stackBelow: xl` is above the specimen's 720).
+  SettingsRow: [
+    { label: `example · a settings group`, node: settingsGroup() },
+    { label: `stackBelow · xl (stacked)`, node: { id: `group`, component: `Group`, children: [settingsSelectRow(`xl`)] } },
+  ],
   // EXP-1556: a vertical Separator between two items of a row (alone in a
   // column it has no height to draw).
   Separator: [{
@@ -1394,7 +1433,8 @@ function promptBudget() {
     // VAPP-286 (a named budget exception, round 7): Slider icon + endLabel + showValue, +21 tokens after trimming the new descriptions and the Slider's own sentence; the measured total (9237), no slack.
     // VAPP-282 (a named budget exception, round 7): DatePicker inline + marks (the dateMark shape) + today + the month event, +55 tokens with terse descriptions; the measured total with VAPP-286 (9292), no slack.
     // VAPP-279 (a named budget exception, round 7 for the eDE shell): Tabs `variant: strip` + its `reorder`/`more` events, +22 tokens after trimming the new description; the measured total with VAPP-286 + VAPP-282 (9314), no slack.
-    budgetTokens: 9314,
+    // VAPP-280 (a named budget exception, round 7 #VAPP-275): SettingsRow, +66 tokens after trimming its descriptions; the measured total with VAPP-279 (9381), no slack.
+    budgetTokens: 9381,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

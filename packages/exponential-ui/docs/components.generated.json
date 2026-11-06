@@ -5105,6 +5105,57 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe FormActions/<part>."
     },
     {
+      "name": "SettingsRow",
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "specimenId": "exponential-ui-settings-row",
+      "description": "A settings line: label (+ description) at the start, the control (children) at the end; stacks on phones.",
+      "children": "many",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "label",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The setting's name."
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "A muted line under the label."
+        },
+        {
+          "name": "stackBelow",
+          "type": "never | sm | md | lg | xl",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "sm",
+          "description": "Puts the control under the label below this breakpoint."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group named by the label, described by the description; the control inside needs no label of its own",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "SettingsRow",
+        "label": "Daily digest",
+        "description": "One email a day at 8:00."
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe SettingsRow/<part>."
+    },
+    {
       "name": "Input",
       "kind": "native",
       "group": "input",

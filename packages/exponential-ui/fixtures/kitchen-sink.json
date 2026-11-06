@@ -3138,6 +3138,25 @@
               ]
             },
             {
+              "id": "macros-setting",
+              "component": "SettingsRow",
+              "props": {
+                "label": "Notify watchers",
+                "description": "Email everyone who follows the issue."
+              },
+              "children": [
+                {
+                  "id": "macros-setting-switch",
+                  "component": "Switch",
+                  "props": {
+                    "label": "",
+                    "name": "notifyWatchers",
+                    "checked": true
+                  }
+                }
+              ]
+            },
+            {
               "id": "macros-actions",
               "component": "FormActions",
               "props": {

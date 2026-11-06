@@ -3385,6 +3385,18 @@
       "props": []
     },
     {
+      "name": "SettingsRow",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "text",
+        "label",
+        "description",
+        "control"
+      ],
+      "props": []
+    },
+    {
       "name": "Input",
       "kind": "native",
       "parts": [
