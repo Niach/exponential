@@ -4,4 +4,8 @@
          (production = "Exponential", staging = "Exp Staging"). -->
     <!-- EXP-1635: the text selection toolbar's row. -->
     <string name="process_text_label">Share to Exponential</string>
+    <!-- #EXP-1638 (app-shortcuts.json `copy`): the app icon's long-press statics. -->
+    <string name="shortcut_new_issue">New issue</string>
+    <string name="shortcut_new_chat">New chat</string>
+    <string name="shortcut_search">Search</string>
 </resources>

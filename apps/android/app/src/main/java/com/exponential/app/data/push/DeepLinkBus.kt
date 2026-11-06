@@ -45,6 +45,11 @@ class DeepLinkBus @Inject constructor() {
             val host: String,
         ) : Target
 
+        // #EXP-1638 (app-shortcuts.json): an app icon long-press shortcut;
+        // a recent chat opens like a session push tap, a chat that is gone
+        // leaves the app on its start screen.
+        data class AppShortcut(val target: com.exponential.app.domain.AppShortcuts.Target) : Target
+
         // A web source, or a claimed https link off the instance: a Custom Tab,
         // which never re-triggers App Links.
         data class WebUrl(val uri: android.net.Uri) : Target
@@ -103,6 +108,10 @@ class DeepLinkBus @Inject constructor() {
 
     fun openLink(link: AppLink, uri: android.net.Uri, host: String) {
         _target.value = Target.Link(link, uri, host)
+    }
+
+    fun openAppShortcut(target: com.exponential.app.domain.AppShortcuts.Target) {
+        _target.value = Target.AppShortcut(target)
     }
 
     fun openWebUrl(uri: android.net.Uri) {
