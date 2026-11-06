@@ -154,7 +154,7 @@ struct WorkMergePill: View {
     }
 
     /// S-3: the header's action slot. EXP-1552: THE md `GlassPill` ×4 (web
-    /// `PullRequestMergePill`, desktop, Android `MergePill(header = true)`),
+    /// `MergeStatusPill`, desktop, Android `MergeStatusPill`),
     /// primary only for `Needs approval`.
     private var toolbarButton: some View {
         MergeStatusPill(view: view, merging: merging, action: action, identifier: identifier)

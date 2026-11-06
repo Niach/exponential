@@ -172,30 +172,6 @@ object Prompts {
             spec.render(if (number != null) "title" else "titleNoNumber", "body", "number" to "${number ?: ""}")
     }
 
-    /** #EXP-1611 (pr-checks.json MERGE PILL): INSTEAD OF the plain / stack
-     *  merge confirm while the PR's `checks_state` is failure; [stack] = the
-     *  PR sits in an open stack (Merge lands it through its top). [names] =
-     *  [PrChecks.failingBody]'s list. */
-    object MergeFailingPr {
-        val spec = destructiveSpec(
-            "merge-failing-pr",
-            mapOf(
-                "title" to "Merge PR #{number} with failing checks?",
-                "titleStack" to "Merge the stack with failing checks?",
-                "body" to "Failing: {names}.",
-            ),
-            listOf("number", "names"),
-            "merge",
-            "Merge",
-        )
-        fun prompt(number: Int?, names: String, stack: Boolean = false) = spec.render(
-            if (stack) "titleStack" else "title",
-            "body",
-            "number" to "${number ?: ""}",
-            "names" to names,
-        )
-    }
-
     /** #EXP-1707 (merge-train.json `mergeNowPrompt`): an owner's Merge now
      *  (the `…` menu, the Needs you stuck row); [stack] = the PR sits in an
      *  open stack (it lands the whole stack, bottom first). */
@@ -547,7 +523,7 @@ object Prompts {
     val all: Map<String, Spec> by lazy {
         listOf(
             DeleteIssue.spec, DeleteIssues.spec, DeleteFile.spec, MoveIssue.spec, MergeIssuePr.spec,
-            MergeRunPr.spec, MergeFailingPr.spec, MergeNowPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
+            MergeRunPr.spec, MergeNowPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
             RemoveDeviceShare.spec,
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,

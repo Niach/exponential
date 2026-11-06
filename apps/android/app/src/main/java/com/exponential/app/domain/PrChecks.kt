@@ -3,7 +3,7 @@ package com.exponential.app.domain
 import com.exponential.app.data.db.PullRequestCheckEntity
 
 /**
- * #EXP-1611 (pr-checks.json MERGE PILL / CHECKS LIST, the UI ×4): CI on the
+ * #EXP-1611 (pr-checks.json CHECKS LIST, the UI ×4): CI on the
  * thread's PR, read from the synced `pull_request_checks` rows and
  * `pull_requests.checks_state`; no client calls GitHub. Mirrors the TS
  * reference `packages/domain-contract/src/pr-checks.ts` (bottom section);
@@ -14,7 +14,6 @@ object PrChecks {
     /** pr-checks.json `copy`. */
     object Copy {
         const val CHECKS = "Checks"
-        const val MERGE_FAILING = "Checks failing"
         const val SUMMARY_FAILING = "{count} failing"
         const val SUMMARY_RUNNING = "{count} running"
         const val SUMMARY_PASSED = "{count} passed"
@@ -65,16 +64,6 @@ object PrChecks {
     )
 
     data class Summary(val glyph: Glyph, val tone: Tone, val value: String)
-
-    /** What the header Merge pill draws ([glyph]: `pr-merged` | `spinner` |
-     *  `ci-failed`) and which card a tap opens ([confirm]: `merge` | `stack`
-     *  | `failing` = prompts.json `merge-failing-pr`). */
-    data class MergePillView(
-        val label: String,
-        val glyph: String,
-        val primary: Boolean,
-        val confirm: String,
-    )
 
     private val FAILING = DomainContract.prChecksFailingConclusions.toSet()
 
@@ -157,26 +146,6 @@ object PrChecks {
         }
     }
 
-    /** THE header Merge pill over the PR's `checks_state` ([state]). */
-    fun mergePill(state: String?, stack: Boolean): MergePillView {
-        if (state == DomainContract.prChecksStateFailure) {
-            return MergePillView(Copy.MERGE_FAILING, Glyph.Failed.wire, primary = false, confirm = "failing")
-        }
-        return MergePillView(
-            label = if (stack) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
-            glyph = if (state == DomainContract.prChecksStatePending) "spinner" else "pr-merged",
-            primary = true,
-            confirm = if (stack) "stack" else "merge",
-        )
-    }
-
-    /** The failing rows' names in list order, five then ` +N`. */
-    fun failingNames(checks: List<Check>): String {
-        val names = checksList(checks, 0L).filter { it.glyph == Glyph.Failed }.map { it.name }
-        val shown = names.take(5).joinToString(", ")
-        return if (names.size > 5) "$shown +${names.size - 5}" else shown
-    }
-
     /** pr-checks.json `specimen` (the styleguide's `pr-checks`; the test
      *  proves it equal to the fixture's). */
     const val SPECIMEN_NOW = "2026-11-01T12:10:00.000Z"
@@ -187,8 +156,4 @@ object PrChecks {
         Check("gate", "completed", "failure", "2026-11-01T12:00:00.000Z", "2026-11-01T12:04:12.000Z", "https://github.com/o/r/actions/runs/1/job/1"),
         Check("android", "queued", null, null, null, "https://github.com/o/r/actions/runs/1/job/3"),
     )
-
-    /** prompts.json `merge-failing-pr` body (`failingBody`). */
-    fun failingBody(checks: List<Check>): String =
-        Prompts.MergeFailingPr.prompt(null, failingNames(checks)).body.orEmpty()
 }

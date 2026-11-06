@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { failingChecksNames, type PrCheckRowLike } from "@exp/domain-contract/pr-checks"
+import type { PrCheckRowLike } from "@exp/domain-contract/pr-checks"
 import { prChecksMenuEntry, type MenuEntry } from "@exp/ui"
 import { pullRequestCheckCollection } from "@/lib/collections"
 import { mergeMenuEntries, type MenuEntryId } from "@exp/domain-contract/merge-train"
@@ -43,10 +43,8 @@ export function usePullRequestChecks(pullRequestId: string | null | undefined): 
   )
 }
 
-export { failingChecksNames }
-
-/** The `…` menu's PR rows (#EXP-1710: merge-train.json `mergeMenuEntries`,
- *  amending session-thread.json `guideMenuEntries` ×4): the Checks submenu
+/** The `…` menu's PR rows (#EXP-1710: merge-train.json `mergeMenuEntries`
+ *  ×4): the Checks submenu
  *  whenever the PR has check rows (any viewer), Merge now (owners), Hold |
  *  Resume auto-merge (members), Close (members); the callers own the rows. */
 export function usePullRequestGuideEntries(

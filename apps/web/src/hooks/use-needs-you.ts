@@ -2,12 +2,13 @@ import { useCallback, useMemo } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { needsYou, type NeedsYouMessageInput, type NeedsYouRow, type NeedsYouSessionInput } from "@exp/domain-contract/needs-you"
 import { resultAge } from "@exp/domain-contract/results-tab"
-import { stuckRow, type HoldReason, type StuckRow } from "@exp/domain-contract/merge-train"
+import { stuckRow, type HoldReason, type StuckRow, type TeamMergeMode } from "@exp/domain-contract/merge-train"
 import { useLiveQuery } from "@tanstack/react-db"
 import { useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
 import { deviceCollection, sessionCollection } from "@/lib/collections"
 import { resolveSessionDevice } from "@/lib/session-device"
 import { useNow } from "@/hooks/use-now"
+import { useTeamById } from "@/hooks/use-team-data"
 import { useAgents, useDigestMessages, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
 import { sessionTarget } from "@/lib/session-back"
 import type { Device } from "@/db/schema"
@@ -50,6 +51,8 @@ export function useNeedsYou(
   const { all: pullRequests } = useTeamPullRequestsByRoot(teamId ?? undefined)
   const now = useNow(60_000).getTime()
   const { data: deviceRows } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
+  // #EXP-1710: `auto` (the default) = no ready-to-merge PR waits for a person.
+  const mergeMode = (useTeamById(teamId)?.mergeMode ?? `auto`) as TeamMergeMode
 
   const inputs = useMemo<NeedsYouMessageInput[]>(
     () =>
@@ -115,6 +118,7 @@ export function useNeedsYou(
         basePullRequestId: pr.basePullRequestId ?? null,
         createdAt: iso(pr.createdAt),
       })),
+      mergeMode,
     })
     return withStuckRows(base, {
       pullRequests,
@@ -124,7 +128,7 @@ export function useNeedsYou(
       now,
       owner,
     })
-  }, [sessions, agents, titles, inputs, pullRequests, now, me, owner, byId, deviceRows])
+  }, [sessions, agents, titles, inputs, pullRequests, now, me, owner, byId, deviceRows, mergeMode])
 
   return { rows, isReady: sessionsReady && digestsReady }
 }

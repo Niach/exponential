@@ -17,7 +17,7 @@ import org.junit.Test
 
 /**
  * #EXP-1611: `packages/domain-contract/fixtures/pr-checks.json`'s UI cases
- * (mergePill, formatDuration, checksList, checksSummary, failingBody, plus the
+ * (formatDuration, checksList, checksSummary, plus the
  * server cases' `aggregate`, copy and testIds) replayed against [PrChecks]
  * (TS `pr-checks.test.ts`, desktop + iOS mirrors).
  */
@@ -48,7 +48,6 @@ class PrChecksTest {
     fun `copy and testIds are the fixture's`() {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("checks"), PrChecks.Copy.CHECKS)
-        assertEquals(copy.str("mergeFailing"), PrChecks.Copy.MERGE_FAILING)
         val summary = copy.getValue("summary").jsonObject
         assertEquals(summary.str("failing"), PrChecks.Copy.SUMMARY_FAILING)
         assertEquals(summary.str("running"), PrChecks.Copy.SUMMARY_RUNNING)
@@ -62,27 +61,6 @@ class PrChecksTest {
     fun `every aggregate case matches the fixture`() {
         for (case in fixture.getValue("aggregate").jsonArray.map { it.jsonObject }) {
             assertEquals(case.str("name"), case.str("expected"), PrChecks.aggregate(checks(case)))
-        }
-    }
-
-    @Test
-    fun `every mergePill case matches the fixture`() {
-        val cases = fixture.getValue("mergePill").jsonArray.map { it.jsonObject }
-        assertTrue(cases.isNotEmpty())
-        for (case in cases) {
-            val input = case.getValue("input").jsonObject
-            val expected = case.getValue("expected").jsonObject
-            val view = PrChecks.mergePill(input.str("state"), input.getValue("stack").jsonPrimitive.boolean)
-            assertEquals(
-                input.toString(),
-                PrChecks.MergePillView(
-                    label = expected.str("label")!!,
-                    glyph = expected.str("glyph")!!,
-                    primary = expected.getValue("primary").jsonPrimitive.boolean,
-                    confirm = expected.str("confirm")!!,
-                ),
-                view,
-            )
         }
     }
 
@@ -136,21 +114,5 @@ class PrChecksTest {
                 actual?.let { listOf(it.glyph.wire, it.tone.wire, it.value) },
             )
         }
-    }
-
-    @Test
-    fun `every failingBody case matches the fixture`() {
-        for (case in fixture.getValue("failingBody").jsonArray.map { it.jsonObject }) {
-            assertEquals(case.str("expected"), PrChecks.failingBody(checks(case)))
-        }
-    }
-
-    @Test
-    fun `the failing confirm is merge-failing-pr`() {
-        val plain = Prompts.MergeFailingPr.prompt(12, "gate")
-        assertEquals("Merge PR #12 with failing checks?", plain.title)
-        assertEquals("Failing: gate.", plain.body)
-        assertEquals("cancel", plain.focus)
-        assertEquals("Merge the stack with failing checks?", Prompts.MergeFailingPr.prompt(12, "gate", stack = true).title)
     }
 }

@@ -1465,7 +1465,7 @@ public enum SessionTree {
         public static let stack = "Stack"
         public static let guideStackTestId = "thread-guide-stack"
         public static let guideMergeTestId = "thread-guide-merge"
-        /// EXP-1307: the header's `…` on the Guide (`guideMenuEntries`).
+        /// EXP-1307: the header's `…` (merge-train `mergeMenuEntries`).
         public static let guideMenuTestId = "thread-guide-menu"
         /// EXP-1323: `copy.report`, `{session}` = the card name.
         public static let report = "Report from {session}"
@@ -2268,25 +2268,6 @@ public enum SessionTree {
             }
         }
         return newest(DomainContract.prStateOpen) ?? newest(DomainContract.prStateMerged)
-    }
-
-    /// EXP-1307: one entry of the thread header's `…` on the Guide.
-    public enum GuideMenuEntry: String, Sendable, Equatable {
-        /// #EXP-1611: the PR's CI rows (pr-checks.json CHECKS LIST).
-        case checks
-        case closePr = "close-pr"
-    }
-
-    /// EXP-1307: the thread header's `…` on the Guide: Close PR while the
-    /// Guide's PR (`state` = its state, nil = none) is open and the viewer is
-    /// a member; empty = no trigger. EXP-1338: no GitHub entry, only the agent
-    /// opens PRs. #EXP-1611: `checks` FIRST whenever the PR has synced check
-    /// rows (`checks` = their count), any PR state, any viewer.
-    public static func guideMenuEntries(state: String?, member: Bool, checks: Int = 0) -> [GuideMenuEntry] {
-        guard state != nil else { return [] }
-        var entries: [GuideMenuEntry] = checks > 0 ? [.checks] : []
-        if state == DomainContract.prStateOpen && member { entries.append(.closePr) }
-        return entries
     }
 
     /// EXP-1318: an open PR of the thread sits in an open stack: based on

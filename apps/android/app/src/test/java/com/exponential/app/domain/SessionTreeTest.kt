@@ -22,8 +22,8 @@ import org.junit.Test
 
 /**
  * EXP-1291 Threads v2: the session tree is fixture-locked ×4 — every case of
- * `session-card.json`, `session-thread.json` (cases + guidePullRequestCases +
- * guideMenuCases) and `threads-list.json` (cases +
+ * `session-card.json`, `session-thread.json` (cases + guidePullRequestCases)
+ * and `threads-list.json` (cases +
  * agentCases + markCases + unreadCases + recentCases + treeStateCases) runs here (TS `session-tree.test.ts`, desktop
  * `domain::session_tree`, iOS `SessionTreeTests`). Outputs are re-encoded in
  * the fixture's own JSON shape and compared as a WHOLE, so a field the port
@@ -718,24 +718,6 @@ class SessionTreeTest {
                 }
             } ?: JsonNull
             assertEquals(case.str("name"), case.getValue("expected"), actual)
-        }
-    }
-
-    @Test
-    fun `every guide menu case matches the fixture`() {
-        val cases = threadFixture.list("guideMenuCases")
-        assertTrue(cases.isNotEmpty())
-        for (case in cases) {
-            val input = case.getValue("input").jsonObject
-            assertEquals(
-                case.str("name"),
-                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
-                SessionTree.guideMenuEntries(
-                    state = input.str("state"),
-                    member = input.bool("member"),
-                    checks = input["checks"]?.jsonPrimitive?.int ?: 0,
-                ).map { it.wire },
-            )
         }
     }
 

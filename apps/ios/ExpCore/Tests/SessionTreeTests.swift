@@ -498,23 +498,6 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
-    /// EXP-1307: `guideMenuCases` — the header `…` entries, in order.
-    func testGuideMenuEntriesReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("session-thread.json"), "guideMenuCases") {
-            let name = try XCTUnwrap(testCase["name"] as? String)
-            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
-            XCTAssertEqual(
-                SessionTree.guideMenuEntries(
-                    state: string(input["state"]),
-                    member: try XCTUnwrap(input["member"] as? Bool),
-                    checks: input["checks"] as? Int ?? 0
-                ).map(\.rawValue),
-                try XCTUnwrap(testCase["expected"] as? [String]),
-                name
-            )
-        }
-    }
-
     /// EXP-1211: `repliesCases` — the quick replies above the composer.
     func testComposerRepliesReplaysEveryCase() throws {
         let fixture = try fixture("session-thread.json")

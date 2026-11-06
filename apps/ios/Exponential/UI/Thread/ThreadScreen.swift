@@ -372,7 +372,7 @@ struct ThreadScreen: View {
                 .sheet(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
                     ThreadMenuSheet(
                         identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier },
-                        guideEntries: target.guide ? guideMenuEntries.filter { $0 != .checks } : nil
+                        guideEntries: target.guide ? prMenuEntries.filter { $0 != .checks } : nil
                     ) { action in
                         pendingMenuAction = (action, target.issueId)
                         menuTarget = nil
@@ -1387,7 +1387,7 @@ struct ThreadScreen: View {
             return Chats.agentMenuEntries(busy: rows.root.busy, isOwner: isOwner).map { .agent($0) }
         }
         let own = Chats.threadMenuEntries(rootStatus: rows.root.status, canSteer: canSteer, canDelete: canDelete).map { ChatMenuSheet.Entry.thread($0) }
-        return own + guideMenuEntries.map { entry -> ChatMenuSheet.Entry in
+        return own + prMenuEntries.map { entry -> ChatMenuSheet.Entry in
             switch entry {
             case .checks: .checks
             case .mergeNow: .mergeNow
@@ -1465,7 +1465,7 @@ struct ThreadScreen: View {
 
     /// #EXP-1710: the Guide header's `…` entries (merge-train.json `menu`,
     /// `mergeMenuEntries` ×4) over the Guide's PR; empty = no trigger.
-    private var guideMenuEntries: [MergeTrain.MenuEntry] {
+    private var prMenuEntries: [MergeTrain.MenuEntry] {
         let pullRequest = rows?.guidePullRequest
         return MergeTrain.mergeMenuEntries(
             state: pullRequest?.state,
