@@ -5534,6 +5534,54 @@
         "sha256": "40271448610d240a6b8bb27e3170ddc4f9f887d1615f1378c90e448d49e9ec5d"
       }
     },
+    "os-live-activity": {
+      "android": {
+        "file": "shots/os-live-activity/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 42694,
+        "sha256": "c06a200c37a53fd7b91a8be8557ebf6147e21c67480b6047777671df1cbb87aa"
+      },
+      "ios": {
+        "file": "shots/os-live-activity/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 44592,
+        "sha256": "9c99397c9b16fd09bb685c1d220f7fbdc701f0d0a8d42a59268b10211b5bf0bc"
+      }
+    },
+    "os-live-activity-island": {
+      "android": {
+        "file": "shots/os-live-activity-island/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 26262,
+        "sha256": "e045cc2c43908d6453b369f340f601ea727f86444b2e85843bf8c32d8261b841"
+      },
+      "ios": {
+        "file": "shots/os-live-activity-island/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 36086,
+        "sha256": "a77dd976129f3a3311063d5e52e05c944dd9ce00362894bf6d7e8825c0038365"
+      }
+    },
+    "os-notification-actions": {
+      "android": {
+        "file": "shots/os-notification-actions/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 42152,
+        "sha256": "653e5f1d30577eb292c2fc2ab2ea2281d10609ad97e83e873ae6ce33ed78182c"
+      },
+      "ios": {
+        "file": "shots/os-notification-actions/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 34840,
+        "sha256": "ccff0493674c191a059dc79454929dccb339c5fec5c54dab8a47ff65bc4d8451"
+      }
+    },
     "phone-board-menu": {
       "android": {
         "file": "shots/phone-board-menu/android.webp",
