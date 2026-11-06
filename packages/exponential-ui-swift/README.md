@@ -260,8 +260,13 @@ their values; the painter draws each part and routes the platform input
 back. Every host text field (Input / Textarea `.field`, the Composer, the
 NumberField / ChipInput `input`, a searchable Select's `search`) is ONE
 UIKit/AppKit-owned view (`OwnedTextField`): the view owns the string,
-every edit carries a revision, an echo is written in only while the field
-is idle and unfocused; Up / Down step a NumberField, Backspace in an empty
+every edit carries a revision, an echo of its own edits (or any host
+write: updateDataModel, a bind) is written in only while the field is idle
+and unfocused, while a PROGRAMMATIC write (an action's `set`: a press's
+`functionCall set`, a package action's sets = `SurfaceModel.assignData`;
+the core's write epoch moves) lands even while focused, the outstanding
+edit dropped and the cursor at the end (a press sends the focused field's
+pending edit first, #VAPP-288); Up / Down step a NumberField, Backspace in an empty
 ChipInput removes the last chip. Switch and Slider are platform controls
 unless the recipe sets `native: false` (the drawn ones are rtl-aware).
 FileUpload takes `.fileImporter` picks and drops (`dragover` meanwhile);
