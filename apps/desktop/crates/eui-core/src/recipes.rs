@@ -78,7 +78,7 @@ pub fn macro_parts(def: &MacroDef) -> PartSpec {
 /// it a native gets `root` and its enum/boolean props.
 pub fn recipe_parts(view: &CatalogView) -> IndexMap<String, PartSpec> {
     let mut out = IndexMap::new();
-    for (name, def) in &view.components {
+    for (name, def) in view.components.iter() {
         if def.is_macro() {
             if let Some(m) = view.macros.get(name) {
                 out.insert(name.clone(), macro_parts(m));
@@ -123,7 +123,7 @@ impl RecipeIndex {
         let parts = recipe_parts(view);
         let mut defaults = IndexMap::new();
         let mut known = IndexMap::new();
-        for (name, def) in &view.components {
+        for (name, def) in view.components.iter() {
             known.insert(name.clone(), ());
             let Some(spec) = parts.get(name) else { continue };
             let mut d = Props::new();

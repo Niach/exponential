@@ -2,6 +2,7 @@
 //! catalog ids, token groups, and the merged VIEW of the core plus registered
 //! extensions every lookup goes through. Mirrors `src/catalog.ts`.
 
+use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
 
 use indexmap::IndexMap;
@@ -114,12 +115,15 @@ pub fn is_known_token(value: &Value) -> bool {
 
 /// The core merged with registered extensions. Extension names never shadow
 /// a core name (`define_extension` refuses that), so a plain overlay is exact.
+/// The tables BORROW the parsed core (`CORE`, `CORE_MACROS`) and copy only
+/// when an extension writes into them: the core view clones nothing (#VAPP-281,
+/// ~11.7k of the cold start's allocations).
 #[derive(Debug, Clone)]
 pub struct CatalogView {
-    pub components: IndexMap<String, ComponentDef>,
-    pub enums: IndexMap<String, Vec<String>>,
-    pub defs: IndexMap<String, DefSchema>,
-    pub macros: IndexMap<String, MacroDef>,
+    pub components: Cow<'static, IndexMap<String, ComponentDef>>,
+    pub enums: Cow<'static, IndexMap<String, Vec<String>>>,
+    pub defs: Cow<'static, IndexMap<String, DefSchema>>,
+    pub macros: Cow<'static, IndexMap<String, MacroDef>>,
     /// The extension ids this view was built with, in registration order.
     pub extension_ids: Vec<String>,
     /// Extension component name → the extension id that defines it.
@@ -130,28 +134,28 @@ static CORE_VIEW: LazyLock<Arc<CatalogView>> = LazyLock::new(|| Arc::new(Catalog
 
 impl CatalogView {
     fn build(extensions: &[ExtensionDef]) -> CatalogView {
-        let core = &*CORE;
+        let core: &'static CatalogSource = &CORE;
         let mut view = CatalogView {
-            components: core.components.clone(),
-            enums: core.enums.clone(),
-            defs: core.defs.clone(),
-            macros: CORE_MACROS.clone(),
+            components: Cow::Borrowed(&core.components),
+            enums: Cow::Borrowed(&core.enums),
+            defs: Cow::Borrowed(&core.defs),
+            macros: Cow::Borrowed(&*CORE_MACROS),
             extension_ids: Vec::new(),
             owner: IndexMap::new(),
         };
         for ext in extensions {
             for (k, v) in &ext.components {
-                view.components.insert(k.clone(), v.clone());
+                view.components.to_mut().insert(k.clone(), v.clone());
                 view.owner.insert(k.clone(), ext.id.clone());
             }
             for (k, v) in ext.enums.iter().flatten() {
-                view.enums.insert(k.clone(), v.clone());
+                view.enums.to_mut().insert(k.clone(), v.clone());
             }
             for (k, v) in ext.defs.iter().flatten() {
-                view.defs.insert(k.clone(), v.clone());
+                view.defs.to_mut().insert(k.clone(), v.clone());
             }
             for (k, v) in ext.macros.iter().flatten() {
-                view.macros.insert(k.clone(), v.clone());
+                view.macros.to_mut().insert(k.clone(), v.clone());
             }
             view.extension_ids.push(ext.id.clone());
         }
