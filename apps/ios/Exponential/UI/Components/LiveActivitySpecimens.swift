@@ -41,6 +41,12 @@ struct LiveActivitySpecimens: View {
     ]
 
     var body: some View {
+        content
+            // A fixed elapsed time, so a re-capture never rewrites the shot.
+            .environment(\.liveActivityFrozenTimer, "12:34")
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if kind == "os-live-activity-island" {

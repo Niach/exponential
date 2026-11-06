@@ -380,12 +380,16 @@ struct AppNavigator: View {
             UITestingStyleguide.requested.map(LiveActivitySpecimens.kinds.contains) == true
         )) {
             LiveActivitySpecimens(kind: UITestingStyleguide.requested ?? "os-live-activity")
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-cards-screen")
         }
         // #EXP-1641: the expanded notification's actions (capture only, a mock).
         .fullScreenCover(isPresented: .constant(
             UITestingStyleguide.requested.map(NotificationActionsSpecimen.kinds.contains) == true
         )) {
             NotificationActionsSpecimen()
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-cards-screen")
         }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }

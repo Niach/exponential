@@ -24,15 +24,29 @@ struct SessionActivityMark: View {
     }
 }
 
+extension EnvironmentValues {
+    /// A fixed timer text instead of the OS-counted one: the styleguide
+    /// captures, so a re-capture never rewrites the shot (Android's 12:34).
+    @Entry var liveActivityFrozenTimer: String? = nil
+}
+
 /// The badge: the OS-counted timer from `startedAt`, "Needs you", or a text
 /// (`PR #n`, an ended timer's "Done").
 struct SessionActivityBadge: View {
     var display: LiveActivityDisplay
     /// The Dynamic Island's compact trailing slot: a dot for Needs you.
     var compact = false
+    @Environment(\.liveActivityFrozenTimer) private var frozenTimer
 
     var body: some View {
-        if display.badge == .timer, !display.isDone, let startedAt = display.startedAt {
+        if display.badge == .timer, !display.isDone, let frozenTimer {
+            Text(frozenTimer)
+                .monospacedDigit()
+                .font(.system(size: compact ? 14 : 15, weight: .semibold))
+                .foregroundStyle(DesignTokens.Palette.foreground)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: compact ? 48 : 72, alignment: .trailing)
+        } else if display.badge == .timer, !display.isDone, let startedAt = display.startedAt {
             Text(timerInterval: startedAt...startedAt.addingTimeInterval(12 * 3600), countsDown: false)
                 .monospacedDigit()
                 .font(.system(size: compact ? 14 : 15, weight: .semibold))
