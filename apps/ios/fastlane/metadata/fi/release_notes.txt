@@ -1,9 +1,3 @@
-- Claude-kirjautumiset käyttävät taas selainkirjautumista
-- Säilytä kirjautuminen pitää Claude-tilin ajot kirjautuneina vuoden, ilman mitään kirjoitettavaa
-- Live-keskustelut piirtyvät uudelleen harvemmin agentin työskennellessä, joten vieritys pysyy sujuvana
-- Sovellusten tietueet kuuluvat tekijälleen; tiimin omistajat voivat kirjata tietueita muiden puolesta
-- Agentit voivat näyttää pieniä animaatioita korteissaan
-- Puhelimesta aloitetut kirjautumiset näyttävät taas linkin ja koodin, ja hylätty koodi kerrotaan
 - Tilin kortti kertoo, mikä kirjautuminen on käytössä
 - Kirjautumisen sulkeminen pysäyttää sen koneella
 - Lisää pääsyavain kohdasta Asetukset › Tili › Pääsyavaimet
@@ -46,3 +40,7 @@
 - Offline-laitteen istunto kertoo sen ja tarjoaa siirtoa
 - Jos Merkitse kaikki luetuiksi epäonnistuu, näet viestin ja Yritä uudelleen
 - Numerokenttä, jossa on alkuarvo, valitsee sen napautettaessa, joten ensimmäinen Tallenna toimii
+- iPadissa on sivupalkki, lista ja tiedot rinnakkain
+- Käynnissä olevat istunnot Live Activityna lukitusnäytöllä ja Dynamic Islandissa
+- Tehtävät ja keskustelut Spotlightissa; Siri ja Pikakomennot luovat tehtävän tai keskustelun
+- Pull requestit näyttävät yhdistämistilansa: Yhdistä nyt ja Pidä

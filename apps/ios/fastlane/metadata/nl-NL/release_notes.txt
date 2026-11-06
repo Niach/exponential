@@ -1,9 +1,3 @@
-- Claude-aanmeldingen gebruiken weer de browseraanmelding
-- Aanmelding bewaren houdt de runs van een Claude-account een jaar aangemeld, zonder iets te typen
-- Live chats tekenen minder vaak opnieuw terwijl een agent werkt, zodat scrollen soepel blijft
-- App-records zijn van hun auteur; teameigenaren kunnen records voor anderen invoeren
-- Agents kunnen kleine animaties in hun kaarten tonen
-- Aanmeldingen vanaf je telefoon tonen weer link en code, en een geweigerde code wordt gemeld
 - De kaart van een account toont welke aanmelding actief is
 - Een aanmelding sluiten stopt die op de machine
 - Voeg een toegangssleutel toe via Instellingen › Account › Toegangssleutels
@@ -46,3 +40,7 @@
 - Een sessie op een offline apparaat zegt dat en biedt Verplaatsen
 - Als Alles als gelezen markeren mislukt, krijg je een melding met Opnieuw
 - Een getalveld met een beginwaarde selecteert die bij tikken, zodat de eerste keer Opslaan werkt
+- De iPad krijgt zijbalk, lijst en detail naast elkaar
+- Lopende sessies als Live Activity op het toegangsscherm en in het Dynamic Island
+- Issues en chats in Spotlight; Siri en Opdrachten maken een issue of chat
+- Pull requests tonen hun mergestatus met Nu mergen en Vasthouden

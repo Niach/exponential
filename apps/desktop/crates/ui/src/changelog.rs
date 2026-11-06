@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-06-merge-status-ipad-and-siri",
+    date: "2026-11-06",
+    title: "Merge status, a real iPad layout, Siri and Spotlight",
+    summary: "Pull requests show where they stand with Merge now and Hold, the iPad gets sidebar, list and detail, and iPhone gets Live Activities, Spotlight and Siri.",
+    body: r#"- **Merge status**: every pull request shows a status pill (checks running, failing, conflict, needs approval, ready) with Merge now, Hold and Resume, a stuck pull request shows up in Needs you, and Settings has a Merge row for the team's merge mode.
+- **iPad**: the iPad gets the desktop's shape, with a sidebar, a list and the detail side by side.
+- **iPhone**: running sessions show as a Live Activity on the Lock Screen and in the Dynamic Island, issues and chats appear in Spotlight, and Siri and Shortcuts can create an issue or start a chat.
+- **Android**: Google Assistant can create an issue or a message, and issues and chats show up in the phone's search.
+- **Markdown**: code blocks are highlighted, and long answers render smoothly while they stream in.
+- **Desktop**: right-click a message in any chat to copy it.
+- **Same look**: dialogs keep their bottom edge, and the last differences between the apps are gone."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_217: ChangelogEntry = ChangelogEntry {
     id: "2026-11-06-lock-screen-and-notification-answers",
     date: "2026-11-06",
     title: "Lock screen sessions and answers from notifications",

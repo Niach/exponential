@@ -1,9 +1,3 @@
-- Autentificările Claude folosesc din nou autentificarea din browser
-- Păstrează autentificarea menține rulările unui cont Claude conectate timp de un an, fără să tastezi nimic
-- Chaturile live se redesenează mai rar cât timp lucrează un agent, așa că derularea rămâne fluidă
-- Înregistrările aplicațiilor aparțin autorului lor; proprietarii echipei pot introduce înregistrări pentru alții
-- Agenții pot afișa mici animații în cardurile lor
-- Autentificările pornite de pe telefon afișează din nou linkul și codul, iar un cod respins este semnalat
 - Cardul unui cont arată ce autentificare este activă
 - Închiderea unei autentificări o oprește pe mașină
 - Adaugă o cheie de acces din Setări › Cont › Chei de acces
@@ -46,3 +40,7 @@
 - O sesiune pe un dispozitiv offline spune asta și oferă mutarea
 - Dacă Marchează tot ca citit eșuează, apare un mesaj cu Reîncearcă
 - Un câmp numeric cu valoare inițială o selectează la atingere, așa că primul Salvează funcționează
+- iPad-ul are bară laterală, listă și detalii una lângă alta
+- Sesiunile în desfășurare ca Activitate live pe ecranul de blocare și în Dynamic Island
+- Probleme și chaturi în Spotlight; Siri și Scurtăturile creează o problemă sau un chat
+- Pull request-urile arată starea de îmbinare cu Îmbină acum și Reține
