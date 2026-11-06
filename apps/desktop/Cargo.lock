@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "ede-protocol",
  "emcp",
@@ -2801,7 +2801,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde_json",
  "toml 0.8.23",
@@ -2809,7 +2809,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "eui-core",
  "libc",

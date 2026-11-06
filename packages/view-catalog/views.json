@@ -6613,7 +6613,7 @@
       "group": "exponential-ui-catalog",
       "title": "genUI · SettingsRow",
       "blurb": "VAPP-280: A settings line: label (+ description) at the start, the control at the end; stacks on phones. The core catalog specimen (a settings group with a Switch, a Select and a Slider row, then the stacked layout) of ui.exponential.at/components/settings-row/.",
-      "order": 111,
+      "order": 112,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-settings-row",
         "anchor": {
