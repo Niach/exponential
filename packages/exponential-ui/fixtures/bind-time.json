@@ -85284,23 +85284,10 @@
           "density": "compact",
           "open": {
             "path": "/open"
-          }
-        },
-        "on": {
-          "press": {
-            "event": {
-              "name": "select",
-              "context": {
-                "page": "issues"
-              }
-            }
           },
-          "change": {
-            "event": {
-              "name": "fold"
-            }
-          }
+          "pressable": true
         },
+        "on": {},
         "children": [
           {
             "id": "labels",
@@ -85452,19 +85439,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "path": "/open"
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -85481,19 +85455,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "path": "/open"
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -85569,28 +85530,7 @@
               }
             },
             "on": {
-              "press": {
-                "event": {
-                  "name": "select",
-                  "context": {
-                    "page": "issues"
-                  }
-                }
-              },
               "toggle": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "path": "/open"
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -85970,19 +85910,6 @@
                     },
                     "on": {
                       "press": {
-                        "event": {
-                          "name": "fold",
-                          "context": {
-                            "open": {
-                              "call": "not",
-                              "args": {
-                                "value": {
-                                  "path": "/open"
-                                }
-                              }
-                            }
-                          }
-                        },
                         "functionCall": {
                           "call": "set",
                           "args": {
@@ -85999,19 +85926,6 @@
                         }
                       },
                       "toggle": {
-                        "event": {
-                          "name": "fold",
-                          "context": {
-                            "open": {
-                              "call": "not",
-                              "args": {
-                                "value": {
-                                  "path": "/open"
-                                }
-                              }
-                            }
-                          }
-                        },
                         "functionCall": {
                           "call": "set",
                           "args": {
@@ -86055,28 +85969,7 @@
                   "borderRadius": "$radius.md"
                 },
                 "on": {
-                  "press": {
-                    "event": {
-                      "name": "select",
-                      "context": {
-                        "page": "issues"
-                      }
-                    }
-                  },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "path": "/open"
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -86353,12 +86246,6 @@
               "outcome": {
                 "data": {
                   "open": false
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "open": false
-                  }
                 }
               }
             }
@@ -86483,19 +86370,6 @@
                     },
                     "on": {
                       "press": {
-                        "event": {
-                          "name": "fold",
-                          "context": {
-                            "open": {
-                              "call": "not",
-                              "args": {
-                                "value": {
-                                  "path": "/open"
-                                }
-                              }
-                            }
-                          }
-                        },
                         "functionCall": {
                           "call": "set",
                           "args": {
@@ -86512,19 +86386,6 @@
                         }
                       },
                       "toggle": {
-                        "event": {
-                          "name": "fold",
-                          "context": {
-                            "open": {
-                              "call": "not",
-                              "args": {
-                                "value": {
-                                  "path": "/open"
-                                }
-                              }
-                            }
-                          }
-                        },
                         "functionCall": {
                           "call": "set",
                           "args": {
@@ -86568,28 +86429,7 @@
                   "borderRadius": "$radius.md"
                 },
                 "on": {
-                  "press": {
-                    "event": {
-                      "name": "select",
-                      "context": {
-                        "page": "issues"
-                      }
-                    }
-                  },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "path": "/open"
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -86646,12 +86486,6 @@
               "outcome": {
                 "data": {
                   "open": true
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "open": true
-                  }
                 }
               }
             }
@@ -86773,19 +86607,6 @@
                     },
                     "on": {
                       "press": {
-                        "event": {
-                          "name": "fold",
-                          "context": {
-                            "open": {
-                              "call": "not",
-                              "args": {
-                                "value": {
-                                  "path": "/open"
-                                }
-                              }
-                            }
-                          }
-                        },
                         "functionCall": {
                           "call": "set",
                           "args": {
@@ -86802,19 +86623,6 @@
                         }
                       },
                       "toggle": {
-                        "event": {
-                          "name": "fold",
-                          "context": {
-                            "open": {
-                              "call": "not",
-                              "args": {
-                                "value": {
-                                  "path": "/open"
-                                }
-                              }
-                            }
-                          }
-                        },
                         "functionCall": {
                           "call": "set",
                           "args": {
@@ -86858,28 +86666,7 @@
                   "borderRadius": "$radius.md"
                 },
                 "on": {
-                  "press": {
-                    "event": {
-                      "name": "select",
-                      "context": {
-                        "page": "issues"
-                      }
-                    }
-                  },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "path": "/open"
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -86936,12 +86723,6 @@
               "outcome": {
                 "data": {
                   "open": true
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "open": true
-                  }
                 }
               }
             }

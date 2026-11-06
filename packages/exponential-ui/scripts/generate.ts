@@ -1350,7 +1350,9 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     // #VAPP-284: a foldable Row bound to /open: the head's fold button and
     // the plain head both write the flip back (`set`).
     name: `Row/fold:bound`,
-    input: foldRow({ path: `/open` }),
+    // No author handlers: a press is the two-way `set` alone (the renderers'
+    // bind replays compare the data a press writes).
+    input: { ...foldRow({ path: `/open` }), props: { ...foldRow({ path: `/open` }).props, pressable: true }, on: {} },
     datasets: [{ open: true }, { open: false }, {}],
   },
   {
