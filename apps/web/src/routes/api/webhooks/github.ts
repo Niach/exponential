@@ -5,10 +5,10 @@ import { db } from "@/db/connection"
 import { repositories, sessions } from "@/db/schema"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { attributePush, pushedRepositoryIds, pushTime } from "@/lib/sessions/push-attribution"
-import { yoloEdge } from "@/lib/yolo-edge"
+import { trainEdge } from "@/lib/merge-train/edge"
 import { checkFromGithubStatus } from "@/lib/ecode/github-status"
 import { isTrainBranch, writeCommitCheck } from "@/lib/merge-train/commit-checks"
-import { mergeTrainEdge, mergeTrainOn, onPullRequestPush } from "@/lib/merge-train/worker"
+import { mergeTrainEdge, onPullRequestPush } from "@/lib/merge-train/worker"
 import {
   adoptOutOfBandPullRequest,
   applyPullRequestBase,
@@ -404,7 +404,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     // EXP-1418: every other delivery carries GitHub's draft flag; a live
     // row follows it (a PR drafted or readied while a delivery was lost,
     // our own pr_open's row, an `edited`/`synchronize`). Ready again = a
-    // yolo edge: the thread may be complete already, waiting on it.
+    // merge-train edge: the PR may be ready now.
     const draft =
       payload.action === `converted_to_draft`
         ? true
@@ -424,7 +424,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         // applies and records its time.
         ...(changedAt ? (explicit ? { githubUpdatedAt: changedAt } : { notBefore: changedAt }) : {}),
       })
-      if (flipped && !draft) yoloEdge(flipped.rootSessionId)
+      if (flipped && !draft) trainEdge(flipped.rootSessionId)
       if (explicit) {
         return jsonResponse(200, { ok: true })
       }
@@ -467,7 +467,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     if (payload.action === `synchronize` && row && pr.head?.sha) {
       // EXP-1709: a new head = merge-train `push` (checks again; a testing
       // unit leaves its run).
-      if (mergeTrainOn()) await onPullRequestPush(row.id)
+      await onPullRequestPush(row.id)
       await repairPullRequestChecks(row.id, Date.now(), { headSha: pr.head.sha })
       return jsonResponse(200, { ok: true })
     }

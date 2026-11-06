@@ -201,8 +201,8 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
     // team_created conversion event (EXP-362).
     expect(inserts).toHaveLength(4)
     expect(inserts[0]!.table).toBe(teams)
-    // EXP-1709: merge_mode mirrors yolo_mode (off) until the EXP-1711 flip.
-    expect(inserts[0]!.values).toMatchObject({ mergeMode: `approval` })
+    // EXP-1709: a new team takes the column default (`auto`).
+    expect(inserts[0]!.values).not.toHaveProperty(`mergeMode`)
     expect(inserts[1]!.table).toBe(teamMembers)
     expect(inserts[1]!.values).toMatchObject({
       teamId: WS,
@@ -293,17 +293,14 @@ describe(`teams.update`, () => {
     expect(updates[0]!.values).not.toHaveProperty(`helpdeskEnabled`)
   })
 
-  // EXP-1709: the Merge select row (mergeMode) and yolo (yoloMode) stay one
-  // switch while yolo lives.
-  it(`writes merge_mode and yolo_mode together`, async () => {
-    updateReturningQueue.push([{ id: WS }], [{ id: WS }], [{ id: WS }])
+  // EXP-1709: a pre-#EXP-1710 client's yolo switch still writes the mode.
+  it(`maps an old client's yoloMode onto merge_mode`, async () => {
+    updateReturningQueue.push([{ id: WS }], [{ id: WS }])
     await caller().update({ teamId: WS, mergeMode: `approval` })
-    await caller().update({ teamId: WS, mergeMode: `auto` })
-    await caller().update({ teamId: WS, yoloMode: false })
+    await caller().update({ teamId: WS, yoloMode: true })
     expect(updates.map((u) => [u.values.mergeMode, u.values.yoloMode])).toEqual([
-      [`approval`, false],
+      [`approval`, undefined],
       [`auto`, true],
-      [`approval`, false],
     ])
   })
 

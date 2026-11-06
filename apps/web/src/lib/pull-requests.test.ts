@@ -43,10 +43,8 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
 vi.mock(`@/lib/integrations/github-pr`, () => ({
   closePullRequest: vi.fn(async () => {}),
   createPullRequest: vi.fn(async () => ({ url: `https://github.com/o/r/pull/7`, number: 7 })),
-  diagnoseUnmergeablePr: vi.fn(async () => ({ conflict: true, message: `Conflicts in a.ts` })),
   findOpenPullByHead: vi.fn(async () => null),
   getPullRequest: vi.fn(),
-  GitHubAsyncMergePending: class extends Error {},
   GitHubMergeError: class extends Error {
     constructor(
       public status: number,
@@ -55,13 +53,9 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
       super(message)
     }
   },
-  mergedByPerson: vi.fn(() => false),
-  mergedByPersonNote: vi.fn(() => `note`),
-  mergePullRequestSmart: vi.fn(async () => ({ merged: true, queued: false, sha: `s`, mergedBy: null })),
   PullAlreadyExistsError: class extends Error {},
   retargetPullRequest: vi.fn(async () => {}),
   setPullRequestDraft: vi.fn(async () => {}),
-  UNMERGEABLE_405: /not mergeable|merge conflicts?/i,
 }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoDefaultBranchCached: vi.fn(async () => `master`),
@@ -108,7 +102,6 @@ vi.mock(`@/lib/pr-stacks`, () => ({
   ensureGithubStack: vi.fn(async () => ({ number: 1, pulls: [] })),
   GitHubStackForkError: class extends Error {},
   inferBaseBranch: vi.fn(async () => ({ base: `master`, prNumber: null })),
-  mergeThrough: vi.fn(async () => ({ merged: true, queued: false, sha: `s`, mergedBy: null })),
 }))
 vi.mock(`@/lib/trpc/pr-update`, () => ({ patchPullDescription: vi.fn(async () => {}) }))
 vi.mock(`@/lib/sessions/pr-issues`, () => ({ prDefaultIssueIds: vi.fn(async () => []) }))
@@ -133,17 +126,14 @@ import { resolveTeamAccess } from "@/lib/auth/access"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import * as gh from "@/lib/integrations/github-pr"
 import * as sync from "@/lib/integrations/pr-sync"
-import * as guard from "@/lib/pr-merge-guard"
 import * as stacks from "@/lib/pr-stacks"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 import { compareChangedPaths } from "@/lib/pr-ui-guard"
 import { compareCommitMessages, linkedIssuesOfPullRequest, loadPrPictures } from "@/lib/pr-pictures"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
-import { _clearPrActorClaims, takePrMergeClaim, takePrOpenClaim } from "@/lib/integrations/pr-actor-claims"
+import { _clearPrActorClaims, takePrOpenClaim } from "@/lib/integrations/pr-actor-claims"
 import {
   closePullRequest,
-  mergePullRequest,
-  mergePullRequestOrThrow,
   openPullRequest,
   pullRequestFiles,
   resolvePullRequest,
@@ -471,134 +461,6 @@ describe(`openPullRequest`, () => {
       expect.objectContaining({ url: `https://github.com/o/r/pull/7`, issueIds: [`i-1`] })
     )
     expect(result.pullRequestId).toBe(`pr-1`)
-  })
-})
-
-describe(`mergePullRequest`, () => {
-  it(`squash-merges with the issue's commit title and completes the PR (no session ends)`, async () => {
-    const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
-    expect(result).toEqual({ merged: true, mergedIds: [`pr-1`] })
-    expect(gh.mergePullRequestSmart).toHaveBeenCalledWith({
-      repo: `o/r`,
-      prNumber: 7,
-      token: `tok`,
-      commitTitle: `EXP-1: Fix the nav (#7)`,
-    })
-    expect(sync.applyPullRequestMerged).toHaveBeenCalledWith(
-      expect.objectContaining({ pullRequestId: `pr-1`, actorUserId: `u-1`, actorViaAgent: false })
-    )
-    expect(takePrMergeClaim(`o/r`, 7)).toEqual({ userId: `u-1`, viaAgent: false })
-  })
-
-  it(`NEW-5: the merged head branch goes with the merge's token, any name`, async () => {
-    await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
-    expect(sync.applyPullRequestMerged).toHaveBeenCalledWith(
-      expect.objectContaining({ pullRequestId: `pr-1`, deleteHead: { token: `tok`, anyBranch: true } })
-    )
-    // The apply path owns the deletion when it won the claim.
-    expect(sync.deleteMergedHeadBranch).not.toHaveBeenCalled()
-  })
-
-  it(`NEW-5: when the webhook's echo won the claim, the merge still deletes its head`, async () => {
-    vi.mocked(sync.applyPullRequestMerged).mockResolvedValueOnce({ applied: false, txid: null })
-    const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
-    expect(result.merged).toBe(true)
-    expect(sync.deleteMergedHeadBranch).toHaveBeenCalledWith({
-      pullRequestId: `pr-1`,
-      token: `tok`,
-      anyBranch: true,
-    })
-  })
-
-  it(`NEW-5: a failed branch deletion never fails the merge`, async () => {
-    vi.mocked(sync.applyPullRequestMerged).mockResolvedValueOnce({ applied: false, txid: null })
-    vi.mocked(sync.deleteMergedHeadBranch).mockResolvedValueOnce(`failed`)
-    await expect(mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
-      merged: true,
-      mergedIds: [`pr-1`],
-    })
-  })
-
-  it(`an already merged PR is a no-op success`, async () => {
-    vi.mocked(sync.loadPullRequest).mockResolvedValueOnce(pr({ state: `merged` }) as never)
-    await expect(mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
-      merged: true,
-      mergedIds: [`pr-1`],
-    })
-    expect(gh.mergePullRequestSmart).not.toHaveBeenCalled()
-  })
-
-  const landing = [
-    { id: `pr-0`, number: 5, url: `u0`, head: `exp/EXP-0`, base: `master`, basePullRequestId: null, state: `open`, name: `EXP-0 (#5)` },
-    { id: `pr-1`, number: 7, url: `u1`, head: `exp/EXP-1`, base: `exp/EXP-0`, basePullRequestId: `pr-0`, state: `open`, name: `EXP-1 (#7)` },
-  ]
-
-  it(`refuses a stack member without 'stack', naming what lands with it`, async () => {
-    vi.mocked(guard.openStackMember).mockResolvedValueOnce({ kind: `stack`, landing })
-    const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
-    expect(result.merged).toBe(false)
-    expect(result.error).toMatch(/Use Merge stack .*EXP-0 \(#5\)/)
-    expect(gh.mergePullRequestSmart).not.toHaveBeenCalled()
-  })
-
-  it(`'stack' merges THROUGH the member and completes every landed PR`, async () => {
-    vi.mocked(guard.openStackMember).mockResolvedValueOnce({ kind: `stack`, landing })
-    const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1`, stack: true })
-    expect(stacks.ensureGithubStack).toHaveBeenCalledWith(
-      expect.objectContaining({ lowerPrNumber: 5, newPrNumber: 7 })
-    )
-    expect(stacks.mergeThrough).toHaveBeenCalled()
-    expect(result).toEqual({ merged: true, mergedIds: [`pr-0`, `pr-1`] })
-    expect(sync.applyPullRequestMerged).toHaveBeenCalledTimes(2)
-  })
-
-  it(`a tree child waits for its parent`, async () => {
-    vi.mocked(guard.openStackMember).mockResolvedValueOnce({ kind: `tree`, parent: `EXP-0 (#5)`, landing })
-    const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1`, stack: true })
-    expect(result.error).toBe(`This pull request is stacked on EXP-0 (#5); merge EXP-0 (#5) first`)
-  })
-
-  it(`awaits the heal when the PR below already merged`, async () => {
-    vi.mocked(guard.basedOnMergedPr).mockResolvedValueOnce({ id: `pr-0`, url: `u0`, head: `exp/EXP-0` })
-    await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
-    expect(sync.retargetChildrenOfMergedPr).toHaveBeenCalledWith(`pr-0`)
-    expect(guard.awaitRebaseOffMergedBranch).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ pullRequestId: `pr-1`, mergedBranch: `exp/EXP-0` })
-    )
-  })
-
-  it(`a diagnosed conflict is a conflict refusal on the tRPC path and the steps on the MCP path`, async () => {
-    const GitHubMergeError = gh.GitHubMergeError as unknown as new (s: number, m: string) => Error
-    const refusal = new GitHubMergeError(405, `Pull Request is not mergeable`)
-    vi.mocked(gh.mergePullRequestSmart).mockRejectedValueOnce(refusal).mockRejectedValueOnce(refusal)
-    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1` })).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      kind: `conflict`,
-      prNumber: 7,
-    })
-    await expect(mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
-      merged: false,
-      error: `The merge of PR #7 was refused: Conflicts in a.ts\n\nRebase onto the base branch, resolve the conflicts, push with --force-with-lease, then merge again.`,
-    })
-    // A failed merge leaves no claim behind.
-    expect(takePrMergeClaim(`o/r`, 7)).toBeNull()
-    expect(sync.applyPullRequestMerged).not.toHaveBeenCalled()
-  })
-
-  it(`a queued merge writes nothing`, async () => {
-    vi.mocked(gh.mergePullRequestSmart).mockResolvedValueOnce({ merged: false, queued: true, sha: null, mergedBy: null })
-    await expect(mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
-      merged: false,
-      queued: true,
-    })
-    expect(sync.applyPullRequestMerged).not.toHaveBeenCalled()
-  })
-
-  it(`a draft is refused`, async () => {
-    vi.mocked(sync.loadPullRequest).mockResolvedValueOnce(pr({ state: `draft` }) as never)
-    const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
-    expect(result.error).toMatch(/draft/)
   })
 })
 

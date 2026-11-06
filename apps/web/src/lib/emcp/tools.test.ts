@@ -310,18 +310,17 @@ const prChecks = vi.hoisted(() => ({
   loadPullRequestChecks: vi.fn(async () => [] as unknown[]),
 }))
 vi.mock(`@/lib/integrations/pr-checks`, () => prChecks)
-// EXP-1709: the merge train's worker (off unless a case switches it on).
+// EXP-1709: the merge train's worker.
 const train = vi.hoisted(() => ({
-  on: false,
   approvePullRequest: vi.fn(async () => {}),
   runRepository: vi.fn(async () => {}),
   queueReport: vi.fn(async () => ({ state: `queued`, wait: null, position: 2, testingWith: 0, holdReason: null, attempts: 0 })),
   holdPullRequest: vi.fn(async () => null),
   resumePullRequest: vi.fn(async () => null),
 }))
-vi.mock(`@/lib/merge-train/worker`, () => ({ ...train, mergeTrainOn: () => train.on }))
-const yoloEdge = vi.hoisted(() => vi.fn())
-vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge }))
+vi.mock(`@/lib/merge-train/worker`, () => train)
+const trainEdge = vi.hoisted(() => vi.fn())
+vi.mock(`@/lib/merge-train/edge`, () => ({ trainEdge }))
 // EXP-1280: the card builders stay real (the validation under test); only
 // the DB write is stubbed.
 const postShowCard = vi.hoisted(() => vi.fn())
@@ -2952,7 +2951,7 @@ describe(`pull request tools (EXP-1291)`, () => {
     })
     expect(noteAgentIssueActivity).toHaveBeenCalledWith(UUID, USER.id)
     // EXP-1413: `pr_open` is a yolo edge of the caller's thread.
-    expect(yoloEdge).toHaveBeenCalledWith(ROOT)
+    expect(trainEdge).toHaveBeenCalledWith(ROOT)
   })
 
   it(`pr_open holds a confined grant to the repository's team`, async () => {
@@ -2974,93 +2973,29 @@ describe(`pull request tools (EXP-1291)`, () => {
     expect(result.isError).toBeFalsy()
   })
 
-  it(`pr_merge defaults to the caller session's PR and passes stack`, async () => {
+  it(`pr_merge queues the caller session's PR and reports its place; nothing merges`, async () => {
     dbRows.current = [callerRow()]
-    prs.mergePullRequest.mockResolvedValue({ merged: true, mergedIds: [PR_ID] })
-    const result = await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
-      stack: true,
-    })
-    expect(parseOk(result)).toEqual({
+    const result = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ stack: true }))
+    expect(result).toEqual({
       pullRequestId: PR_ID,
       number: 7,
       url: PR.url,
-      merged: true,
-      mergedIds: [PR_ID],
+      merged: false,
+      queued: true,
+      mergeQueue: { state: `queued`, wait: null, position: 2, testingWith: 0, holdReason: null, attempts: 0 },
       checks: NO_CHECKS,
     })
-    expect(prs.resolvePullRequest).toHaveBeenCalledWith({
-      userId: USER.id,
-      callerSessionId: SESSION,
-    })
-    expect(prs.mergePullRequest).toHaveBeenCalledWith({
-      userId: USER.id,
-      pullRequestId: PR_ID,
-      stack: true,
-      callerSessionId: SESSION,
-    })
+    expect(prs.resolvePullRequest).toHaveBeenCalledWith({ userId: USER.id, callerSessionId: SESSION })
+    expect(train.approvePullRequest).toHaveBeenCalledWith(PR_ID)
+    expect(prs.mergePullRequest).not.toHaveBeenCalled()
   })
 
-  // EXP-1610
-  it(`MERGE_CHECK_GATE refuses a red required check unless force, and reports the checks`, async () => {
-    dbRows.current = [callerRow()]
-    const red = { state: `failure`, total: 1, failing: [{ name: `gate`, url: `https://x/1`, required: true }], pending: [] }
-    prChecks.pullRequestChecksBrief.mockResolvedValue(red)
-    prChecks.loadPullRequestChecks.mockResolvedValue([
-      { name: `gate`, status: `completed`, conclusion: `failure`, required: true, detailsUrl: `https://x/1` },
-    ])
-    prs.mergePullRequest.mockResolvedValue({ merged: true, mergedIds: [PR_ID] })
-    const before = process.env.MERGE_CHECK_GATE
-    process.env.MERGE_CHECK_GATE = `true`
-    try {
-      const refused = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({})) as Record<string, unknown>
-      expect(refused).toMatchObject({ merged: false, checks: red })
-      expect(refused.error).toMatch(/^PR #7 has failing checks: gate\./)
-      expect(prs.mergePullRequest).not.toHaveBeenCalled()
-      const forced = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
-      expect(forced).toMatchObject({ merged: true, checks: red })
-    } finally {
-      if (before === undefined) delete process.env.MERGE_CHECK_GATE
-      else process.env.MERGE_CHECK_GATE = before
-    }
-  })
-
-  it(`without MERGE_CHECK_GATE a red check only rides along in the reply`, async () => {
-    dbRows.current = [callerRow()]
-    const red = { state: `failure`, total: 1, failing: [{ name: `gate`, url: null, required: false }], pending: [] }
-    prChecks.pullRequestChecksBrief.mockResolvedValue(red)
-    prs.mergePullRequest.mockResolvedValue({ merged: true, mergedIds: [PR_ID] })
-    const result = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({}))
-    expect(result).toMatchObject({ merged: true, checks: red })
-    expect(prChecks.loadPullRequestChecks).not.toHaveBeenCalled()
-  })
-
-  it(`with the merge train on, pr_merge queues the PR and reports its place; nothing merges`, async () => {
-    dbRows.current = [callerRow()]
-    train.on = true
-    try {
-      const result = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({}))
-      expect(result).toMatchObject({ merged: false, queued: true, mergeQueue: { state: `queued`, position: 2 } })
-      expect(train.approvePullRequest).toHaveBeenCalled()
-      expect(prs.mergePullRequest).not.toHaveBeenCalled()
-    } finally {
-      train.on = false
-    }
-  })
-
-  it(`pr_update hold holds and resumes, the merge train on or off (off = a flag yolo respects)`, async () => {
-    parseOk(await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, hold: true }))
+  it(`pr_update holds and resumes auto-merge`, async () => {
+    const held = parseOk(await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, hold: true }))
+    expect(held).toMatchObject({ mergeQueue: { state: `queued` } })
     expect(train.holdPullRequest).toHaveBeenCalledWith(PR_ID)
-    train.holdPullRequest.mockClear()
-    train.on = true
-    try {
-      const held = parseOk(await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, hold: true }))
-      expect(held).toMatchObject({ mergeQueue: { state: `queued` } })
-      expect(train.holdPullRequest).toHaveBeenCalledWith(PR_ID)
-      await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, hold: false })
-      expect(train.resumePullRequest).toHaveBeenCalledWith(PR_ID)
-    } finally {
-      train.on = false
-    }
+    await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, hold: false })
+    expect(train.resumePullRequest).toHaveBeenCalledWith(PR_ID)
   })
 
   it(`pr_close closes the named PR without merging`, async () => {

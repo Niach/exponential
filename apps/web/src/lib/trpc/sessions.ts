@@ -81,7 +81,7 @@ import {
   startSuggestion,
 } from "@/lib/sessions/suggestions"
 import { issuesRouter } from "@/lib/trpc/issues"
-import { yoloEdge } from "@/lib/yolo-edge"
+import { trainEdge } from "@/lib/merge-train/edge"
 import {
   assertNotPlainInSealedTree,
   effectiveCli,
@@ -787,7 +787,7 @@ export const sessionsRouter = router({
       // session never ends on it and never reads "done": idle, and when it
       // was mid-turn the `restarted` INTERRUPTION (resume: its device
       // continues it; the watchdog's `resumeMinutes` rule puts it on a
-      // person if it does not), said once to its parent. Not a yolo edge.
+      // person if it does not), said once to its parent. Not a merge-train edge.
       // The device's explicit `midTurn` wins over the row's state.
       const midTurn = input.midTurn ?? (session.busy || session.status === `running`)
       const lost = input.lost
@@ -859,7 +859,7 @@ export const sessionsRouter = router({
           : undefined
       const turnEnded =
         (input.busy === false && session.busy) || status === `idle` || ending
-      // EXP-1413: the yolo edge = a REAL busy → idle transition (or the
+      // EXP-1413: the merge-train edge = a REAL busy → idle transition (or the
       // process going); a repeated idle report is none, and neither is the
       // end of a turn a person's Stop interrupted (`stoppedAt`).
       const nowBusy =
@@ -869,7 +869,7 @@ export const sessionsRouter = router({
       // the device says cut nothing (`interrupted: false`) holds nothing.
       const turnWasLive = session.busy || (session.status === `running` && status === `idle`)
       const stopSettled = !!session.stoppedAt && !nowBusy && input.interrupted === false
-      const yoloTurnEnd = ending || (turnWasLive && !nowBusy && (!session.stoppedAt || stopSettled))
+      const trainTurnEnd = ending || (turnWasLive && !nowBusy && (!session.stoppedAt || stopSettled))
       let endedHere = false
       const txid = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
@@ -934,8 +934,8 @@ export const sessionsRouter = router({
       if (newlyBlocked) void notifySessionBlocked(session.id, blocked!)
       // EXP-1415: a watched room learns the end like any other End.
       if (endedHere) await relayKillSessionsBestEffort([session.id])
-      // EXP-1413: a turn ending (or a child's process going) is a yolo edge.
-      if (yoloTurnEnd) yoloEdge(session.rootId)
+      // EXP-1413: a turn ending (or a child's process going) is a merge-train edge.
+      if (trainTurnEnd) trainEdge(session.rootId)
       return { txid }
     }),
 

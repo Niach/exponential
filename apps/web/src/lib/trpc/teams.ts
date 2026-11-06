@@ -128,9 +128,6 @@ export const teamsRouter = router({
             name: input.name,
             slug,
             iconUrl: input.iconUrl,
-            // EXP-1709: while yolo lives, a new team (yolo off) is `approval`
-            // (merge_mode mirrors yolo_mode until the EXP-1711 flip).
-            mergeMode: `approval`,
           })
           .returning(teamColumns)
 
@@ -197,11 +194,8 @@ export const teamsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { teamId: id, agentPrompt, ...updates } = input
       await assertTeamOwner(ctx.session.user.id, id)
-      // EXP-1709: merge_mode and yolo_mode stay one switch while yolo lives
-      // (the Merge select row writes mergeMode, yolo reads yoloMode).
-      if (updates.mergeMode !== undefined && updates.yoloMode === undefined) {
-        updates.yoloMode = updates.mergeMode === `auto`
-      } else if (updates.yoloMode !== undefined && updates.mergeMode === undefined) {
+      // EXP-1709: a pre-#EXP-1710 client's yolo switch still means the mode.
+      if (updates.yoloMode !== undefined && updates.mergeMode === undefined) {
         updates.mergeMode = updates.yoloMode ? `auto` : `approval`
       }
 
