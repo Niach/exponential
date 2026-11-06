@@ -9,6 +9,7 @@
 
 import type { FunctionCallInfo, MediaOptions, MediaRequest, ThemeIssue, UiNode, UrlPolicy } from "@exponential_app/eui"
 import type { ClientFunction } from "./data"
+import type { MarkdownOptions } from "./markdown"
 import type { QrScannerHost } from "./round5"
 
 /** A registry name → the renderer's icon component (a map or a lookup). */
@@ -110,6 +111,12 @@ export interface HostPlugin<Icon = unknown, Markdown = unknown> {
    *  destination as written) painted as a video, audio or file block; null =
    *  the paragraph. */
   attachment?: (href: string) => MarkdownAttachmentInfo | null
+  /** #VAPP-258 step 5 (`catalog/host.json` markdown.options): how this
+   *  host's Markdowns render: `breaks: hard` (every newline breaks),
+   *  `density: chat` (the theme's chat rhythm), `selectable` (unset = the
+   *  text selects), `streaming` (a growing prefix: only its tail reparses,
+   *  its unfinished end paints as plain text). Unset = the defaults. */
+  markdownOptions?: MarkdownOptions
   /** The URL policy EVERY href passes (Link, markdown links, FileUpload
    *  file urls, openUrl): `catalog/host.json` urls. Unset = the default
    *  schemes; relative urls resolve against `baseUrl`, else `media.baseUrl`,

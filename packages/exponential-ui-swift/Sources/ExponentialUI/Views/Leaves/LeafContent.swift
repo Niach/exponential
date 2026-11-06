@@ -315,10 +315,14 @@ struct MarkdownLeaf: View {
         if let view = cx.model.host.markdown(text, width: cx.inner.width) {
             view.frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading).offset(x: cx.inner.minX, y: cx.inner.minY)
         } else {
-            let styles = MarkdownPainter.styles(theme: cx.model.theme, mode: cx.model.mode, body: cx.textStyle, props: cx.props)
-            MarkdownView(text: text, width: cx.inner.width, styles: styles, ink: cx.ink, model: cx.model, props: cx.props)
+            // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
+            let options = cx.model.host.markdownOptions
+            let props = MarkdownPainter.props(cx.props, chat: options.chat)
+            let styles = MarkdownPainter.styles(theme: cx.model.theme, mode: cx.model.mode, body: cx.textStyle, props: props)
+            MarkdownView(text: text, width: cx.inner.width, styles: styles, ink: cx.ink, model: cx.model, props: props)
                 .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
                 .clipped()
+                .markdownSelection(options.selectable, text: text, model: cx.model)
                 .offset(x: cx.inner.minX, y: cx.inner.minY)
         }
     }
@@ -396,5 +400,27 @@ struct UnknownLeaf: View {
         TextLabel(SurfaceMeasurer.unknownLabel(cx.props, cx.node.component), ts, color: color)
             .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
             .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+}
+
+private extension View {
+    /// #VAPP-258 step 5 (`markdown.options.selectable`): `true` = the text
+    /// selects (macOS: the labels' own selection; iOS: a long press offers
+    /// Copy of the plain text), `false` = never (a `userSelect: text` style
+    /// cannot opt it back in), nil = as before.
+    @ViewBuilder
+    func markdownSelection(_ selectable: Bool?, text: String, model: SurfaceModel) -> some View {
+        switch selectable {
+        case .none: self
+        case .some(false): self.transformEnvironment(\.xuiTextPaint) { $0.userSelect = "none" }
+        case .some(true):
+            #if canImport(UIKit)
+            self.contextMenu {
+                Button(model.builtinString("copy")) { UIPasteboard.general.string = Markdown.plainText(text) }
+            }
+            #else
+            self.transformEnvironment(\.xuiTextPaint) { $0.userSelect = "text" }
+            #endif
+        }
     }
 }

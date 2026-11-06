@@ -68,6 +68,12 @@ pub const MARKDOWN_HOOKS: &[&str] = &["textLinks", "imageSize", "onImagePress", 
 pub const MARKDOWN_CHIP_KINDS: &[&str] = &["issue", "mention", "entity"];
 pub const MARKDOWN_ATTACHMENT_KINDS: &[&str] = &["video", "audio", "file"];
 pub const MARKDOWN_IMAGE_MAX_HEIGHT: f64 = 160.0;
+/// #VAPP-258 (step 5): the host-level render options (`markdown.options`):
+/// each one's values and default (`selectable` unset = the renderer's own).
+pub const MARKDOWN_BREAKS: &[&str] = &["soft", "hard"];
+pub const MARKDOWN_DENSITIES: &[&str] = &["document", "chat"];
+/// From this many blocks on, gpui and Compose lay out only visible blocks.
+pub const MARKDOWN_LAZY_BLOCKS: usize = 24;
 
 /// VAPP-122: how the `bind` action appends its params (`sources.paramsEncoding`).
 pub const SOURCE_PARAMS_ENCODING: &str = "sourceWithParams: keys sorted; key and value percent-encoded (everything but A-Z a-z 0-9 - _ . ! ~ * ' ( )); null skipped; an object or array as JSON; after ? or &";
@@ -91,7 +97,7 @@ pub fn host_contract() -> Value {
             "defaultSchemes": DEFAULT_MEDIA_SCHEMES,
             "limits": {"maxBytes": MEDIA_MAX_BYTES, "timeoutMs": MEDIA_TIMEOUT_MS, "maxPixels": MEDIA_MAX_PIXELS},
         },
-        "markdown": {"hooks": MARKDOWN_HOOKS, "chipKinds": MARKDOWN_CHIP_KINDS, "attachmentKinds": MARKDOWN_ATTACHMENT_KINDS, "imageMaxHeight": MARKDOWN_IMAGE_MAX_HEIGHT as u64},
+        "markdown": {"hooks": MARKDOWN_HOOKS, "chipKinds": MARKDOWN_CHIP_KINDS, "attachmentKinds": MARKDOWN_ATTACHMENT_KINDS, "imageMaxHeight": MARKDOWN_IMAGE_MAX_HEIGHT as u64, "options": {"breaks": {"values": MARKDOWN_BREAKS, "default": MARKDOWN_BREAKS[0]}, "density": {"values": MARKDOWN_DENSITIES, "default": MARKDOWN_DENSITIES[0]}, "selectable": {"default": null}, "streaming": {"default": false}}, "lazyBlocks": MARKDOWN_LAZY_BLOCKS},
         "sources": {"pattern": SOURCE_PATTERN, "paramsEncoding": SOURCE_PARAMS_ENCODING},
         "transport": {"mcpMimeTypes": MCP_MIME_TYPES, "mcpActionTool": MCP_ACTION_TOOL, "sseEvents": SSE_EVENTS},
         "negotiation": {},

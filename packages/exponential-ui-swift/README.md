@@ -71,6 +71,10 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   an inline Chip; `imageSize(src)` sizes a block image's box;
   `onImagePress` (nil = not pressable); `attachment(href)` makes a one-link
   paragraph a video / audio / file block. `HostPolicy` has the same closures.
+  `markdownOptions` (`MarkdownOptions(hardBreaks:chat:selectable:streaming:)`,
+  `catalog/host.json` `markdown.options`) sets hard breaks, the chat rhythm
+  (`density: chat` recipes), selection and a streamed prefix (its finished
+  blocks memoized, its unfinished tail plain); the measurer reads the same.
 - **Settings** (contract §4–6). `SurfaceOptions.settings` /
   `model.setSettings(SurfaceSettings(...))` or one setter each
   (`setLocale`, `setStrings`, `setModeSetting`, `setDensity`,

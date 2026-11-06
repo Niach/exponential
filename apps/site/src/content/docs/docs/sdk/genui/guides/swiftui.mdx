@@ -38,6 +38,7 @@ For lower-level use, `SurfaceModel` + `ExponentialSurface` take a `HostPlugin`; 
 - `onAction` gets every A2UI action. `onInput` gets text edits (debounced `change` with a revision, `commit` on blur or Return).
 - `openUrl`, `textLinks`, `resolveUrl`, `fontFamily`, `markdown`.
 - Markdown hooks, all optional: a `textLinks` segment's `chip` paints an inline Chip, `imageSize(src)` reserves an image's box before it loads, `onImagePress` makes block images pressable, and `attachment(href)` turns a one-link paragraph into a video, audio or file block. `HostPolicy` takes the same four as closures.
+- Markdown options: `HostPlugin.markdownOptions` (`MarkdownOptions(hardBreaks:chat:selectable:streaming:)`, also on `HostPolicy`) sets hard breaks, the chat rhythm, selection and a streamed prefix; the measurer reads the same.
 
 Register the font files a theme names with `ExponentialUI.registerFont(at:)`; switch themes with `ThemeHandle.load(json:)` and `setTheme`. Details in the [Swift package's README](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-swift/README.md).
 

@@ -30,6 +30,8 @@ and the Numbers page on ui.exponential.at rendered from the results.
 | `template-10k` | 10,000 template items in a plain column (maxTemplateItems), then the array replaced | `firstPaintMs`, `rebindMs`, `nodes` |
 | `overlay` | a bound Dialog opened and closed 50 times | `openMs`, `closeMs` |
 | `table-1k` | a Table over 1,000 bound rows, 20 scroll steps, the sort changed | `firstPaintMs`, `scrollStepMs`, `sortMs`, `renderedRows` |
+| `markdown-long` | #VAPP-258: one Markdown holding a 400-block issue description, painted then resized 900 ↔ 390 × 20; React and Solid (the manifest's `renderers`) | `firstPaintMs`, `warmPassMs` |
+| `markdown-stream` | #VAPP-258: ~2,000 tokens appended to a bound Markdown in 200 steps under the host options streaming + chat + hard breaks; React and Solid | `appendMs`, `p95AppendMs`, `totalMs` |
 | `records-25k` | VAPP-202, Apps §15: the local records query (eui-core `host::query`, its TS twin) over 25,000 rows, five query shapes, 60 timed runs each; no surface; `core`, `react-chromium` and Compose (`compose-jvm`, `compose-android`: through the `RecordsStore` handle, VAPP-212) run it (the manifest's `renderers`; every other runner skips it) | `<query>P50Ms`, `<query>P95Ms` (monthView, filterSort, groupBucket, groupRunning, betweenIn), `matched` |
 
 \* optional: a renderer without the counter leaves it out. Counters live

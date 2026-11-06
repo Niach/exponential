@@ -153,6 +153,32 @@ pub(crate) fn team_link_base(team_id: Option<&str>, cx: &App) -> Option<String> 
     expand_team_link("~/", Some(&team))
 }
 
+/// #VAPP-258 (`catalog/host.json` markdown): a Markdown block image's
+/// natural size when it is one of the team's synced attachments (the row's
+/// probed width × height); `None` = the fixed box.
+pub(crate) fn markdown_image_size(src: &str, cx: &App) -> Option<(f32, f32)> {
+    crate::markdown::attachment_natural_size(src, cx)
+}
+
+/// #VAPP-258: a one-link Markdown paragraph pointing at a synced attachment
+/// as a video / audio / file block (by its content type; the name = its
+/// filename); `None` = the paragraph stays.
+pub(crate) fn markdown_attachment(href: &str, cx: &App) -> Option<eui_gpui::host::MarkdownAttachment> {
+    let id = crate::markdown::image_url::attachment_id_from_src(href)?;
+    let row = Store::try_global(cx)?.collections().attachments.read(cx).get(id).cloned()?;
+    let content_type = row.content_type.unwrap_or_default();
+    let kind = if content_type.starts_with("video/") {
+        "video"
+    } else if content_type.starts_with("audio/") {
+        "audio"
+    } else if content_type.starts_with("image/") {
+        return None;
+    } else {
+        "file"
+    };
+    Some(eui_gpui::host::MarkdownAttachment { kind: kind.into(), name: row.filename.filter(|n| !n.is_empty()).unwrap_or_else(|| "Attachment".into()) })
+}
+
 /// #EXP-1674: the `#IDENT` refs of `text` that resolve in `team_id` (`None` =
 /// the active team) as the host's `text_links`; `None` = no link.
 pub(crate) fn issue_text_links(text: &str, team_id: Option<&str>, cx: &App) -> Option<Vec<TextLink>> {

@@ -70,7 +70,31 @@ class MarkdownHooks(
     val attachment: ((String) -> MarkdownAttachment?)? = null,
     val imageSize: ((String) -> MarkdownSize?)? = null,
     val textLinks: ((String) -> List<MarkdownTextLink>?)? = null,
+    /** #VAPP-258 step 5: the host's render options (hard breaks, a streamed prefix). */
+    val options: MarkdownOptions = MarkdownOptions(),
 )
+
+/**
+ * #VAPP-258 step 5 (`catalog/host.json` markdown.options): how a host's
+ * Markdowns render; the default = what a Markdown painted before them.
+ * [hardBreaks] = `breaks: hard` (every newline inside a paragraph, list item
+ * or quote paragraph breaks the line); [chat] = `density: chat` (the
+ * `Markdown` recipes resolved with `density: chat`, the theme's chat
+ * rhythm); [selectable] = whether the text selects and copies (null = no,
+ * as before); [streaming] = the text is a growing prefix (its stable blocks
+ * memoized, its unfinished tail held back). The measurer reads the same.
+ */
+data class MarkdownOptions(
+    val hardBreaks: Boolean = false,
+    val chat: Boolean = false,
+    val selectable: Boolean? = null,
+    val streaming: Boolean = false,
+) {
+    companion object {
+        /** From this many blocks on a painter lays out only the visible ones (`markdown.lazyBlocks`). */
+        const val LAZY_BLOCKS = 24
+    }
+}
 
 /** What a block is. */
 sealed class MarkdownBlockKind {
@@ -506,14 +530,14 @@ object Markdown {
     }
 
     /** Paragraph lines joined: a line ending in a backslash or two spaces breaks hard (a newline), any other is a space. */
-    private fun joinParagraph(para: List<String>): String {
+    private fun joinParagraph(para: List<String>, hard: Boolean = false): String {
         val sb = StringBuilder()
         para.forEachIndexed { k, line ->
             if (k > 0) {
                 when {
                     sb.endsWith("\\") -> { sb.setLength(sb.length - 1); sb.append('\n') }
                     sb.endsWith("  ") -> { while (sb.endsWith(" ")) sb.setLength(sb.length - 1); sb.append('\n') }
-                    else -> sb.append(' ')
+                    else -> sb.append(if (hard) '\n' else ' ')
                 }
             }
             sb.append(line)
@@ -558,7 +582,189 @@ object Markdown {
     }
 
     /** Parse a document into blocks. */
-    fun parse(text: String): List<MarkdownBlock> {
+    fun parse(text: String): List<MarkdownBlock> = parseBlocks(text, false)
+
+    /**
+     * #VAPP-258 step 5 (`catalog/host.json` markdown.options): [hardBreaks]
+     * = every newline inside a paragraph, list item or quote paragraph is a
+     * line break; [streaming] = the text is a growing prefix ([parseStreaming]).
+     */
+    fun parse(text: String, hardBreaks: Boolean, streaming: Boolean = false): List<MarkdownBlock> =
+        if (streaming) parseStreaming(text, hardBreaks) else parseBlocks(text, hardBreaks)
+
+    private fun fenceOpen(line: String): String? {
+        val t = line.trim()
+        return when {
+            t.startsWith("```") -> "```"
+            t.startsWith("~~~") -> "~~~"
+            else -> null
+        }
+    }
+
+    private data class Fences(val boundary: Int, val open: Boolean, val openerLast: Boolean)
+
+    /**
+     * [lines] from [from] (a line outside a fence) on: the line index after
+     * the last COMPLETE blank line outside a fence (else [from]; the last
+     * line is never complete), whether a fence is open at the end, and
+     * whether the last line is that fence's opener.
+     */
+    private fun scanFences(lines: List<String>, from: Int): Fences {
+        var fence: String? = null
+        var boundary = from
+        var openerLast = false
+        for (i in from until lines.size) {
+            val line = lines[i]
+            openerLast = false
+            val f = fence
+            if (f != null) {
+                if (line.trim().startsWith(f)) fence = null
+            } else {
+                val open = fenceOpen(line)
+                if (open != null) {
+                    fence = open
+                    openerLast = true
+                } else if (i < lines.size - 1 && line.trim().isEmpty()) {
+                    boundary = i + 1
+                }
+            }
+        }
+        return Fences(boundary, fence != null, openerLast)
+    }
+
+    private class StreamMemo(val text: String, val hard: Boolean, val boundary: Int, val stable: List<MarkdownBlock>)
+
+    private val streamMemos = ArrayList<StreamMemo>()
+    private const val STREAM_MEMO_CAP = 16
+
+    /** Forget every streamed parse (tests: a cold parse of a prefix). */
+    fun resetStreamMemo() {
+        synchronized(streamMemos) { streamMemos.clear() }
+    }
+
+    private fun maxGroup(blocks: List<MarkdownBlock>): Int = blocks.mapNotNull { it.listGroup }.maxOrNull() ?: 0
+
+    private fun offsetGroups(blocks: List<MarkdownBlock>, by: Int): List<MarkdownBlock> =
+        if (by == 0) blocks else blocks.map { b -> b.listGroup?.let { b.copy(listGroup = it + by) } ?: b }
+
+    /**
+     * #VAPP-258 step 5 (`fixtures/markdown-render.json` streamingCases): a
+     * growing prefix = the stable blocks before its last complete blank line
+     * outside a fence (memoized per text: only what extends the old text
+     * reparses) + the tail, whose unfinished end is held back.
+     */
+    fun parseStreaming(raw: String, hard: Boolean): List<MarkdownBlock> {
+        val text = raw.replace("\r\n", "\n").replace("\r", "\n")
+        val lines = text.split("\n")
+        val memo = synchronized(streamMemos) { streamMemos.filter { it.hard == hard && text.startsWith(it.text) }.maxByOrNull { it.text.length } }
+        val from = memo?.boundary ?: 0
+        var stable = memo?.stable ?: emptyList()
+        val boundary = scanFences(lines, from).boundary
+        if (boundary > from) stable = stable + offsetGroups(parseBlocks(lines.subList(from, boundary).joinToString("\n"), hard), maxGroup(stable))
+        synchronized(streamMemos) {
+            streamMemos.removeAll { it.hard == hard && text.startsWith(it.text) }
+            streamMemos.add(0, StreamMemo(text, hard, boundary, stable))
+            while (streamMemos.size > STREAM_MEMO_CAP) streamMemos.removeAt(streamMemos.size - 1)
+        }
+        val tailLines = lines.subList(boundary, lines.size).toMutableList()
+        if (tailLines.size == 1 && tailLines[0].isEmpty()) return stable
+        val fences = scanFences(tailLines, 0)
+        var tail: String
+        if (fences.open) {
+            // The open fence's last line waits while it is empty or only fence characters.
+            if (!fences.openerLast && tailLines.last().trim().all { it == '`' || it == '~' }) tailLines.removeAt(tailLines.size - 1)
+            tail = tailLines.joinToString("\n")
+        } else {
+            tail = tailLines.joinToString("\n")
+            while (true) tail = tail.substring(0, holdTrailing(tail) ?: break)
+        }
+        val blocks = offsetGroups(parseBlocks(tail, hard), maxGroup(stable)).toMutableList()
+        val last = blocks.removeLastOrNull()
+        if (last != null) {
+            val k = last.kind
+            val held = if (k is MarkdownBlockKind.Paragraph || k is MarkdownBlockKind.Heading || k is MarkdownBlockKind.Quote || k is MarkdownBlockKind.ListItem) last.copy(inlines = holdBack(last.inlines)) else last
+            if (!(held.kind is MarkdownBlockKind.Paragraph && held.inlines.all { it.text.isEmpty() })) blocks.add(held)
+        }
+        return stable + blocks
+    }
+
+    /**
+     * Where the tail's unfinished end starts, outside a fence (null = it ends
+     * finished): a last line that is only a list marker or heading hashes so
+     * far, a trailing run of `*` / `_`, or of backticks / tildes unless they
+     * are the line's only text (a fence opening or closing).
+     */
+    internal fun holdTrailing(tail: String): Int? {
+        if (tail.isEmpty()) return null
+        val lineStart = tail.lastIndexOf('\n') + 1
+        val line = tail.substring(lineStart).trimStart(' ', '\t')
+        val hashes = line.trimEnd(' ', '\t')
+        val digits = line.takeWhile { it in '0'..'9' }.length
+        val marker = line == "-" || line == "+" || line == "*" ||
+            (hashes.length in 1..6 && hashes.all { it == '#' }) ||
+            (digits in 1..9 && (line.length == digits || (line.length == digits + 1 && (line[digits] == '.' || line[digits] == ')'))))
+        if (marker) return maxOf(lineStart - 1, 0)
+        val stars = tail.length - tail.trimEnd('*', '_').length
+        if (stars > 0) return tail.length - stars
+        val ticks = tail.length - tail.trimEnd('`', '~').length
+        if (ticks > 0) {
+            val start = tail.length - ticks
+            if (!tail.substring(minOf(lineStart, start), start).all { it == ' ' || it == '\t' }) return start
+        }
+        return null
+    }
+
+    /**
+     * The streaming tail's last block: its plain runs (no flags, link or chip)
+     * hold back what would flicker: an unfinished link at the end paints as
+     * its label, and every opening delimiter run is dropped (a maximal run of
+     * `*` / `_` / backticks, or of 2+ `~`, not after an ASCII letter, digit or
+     * delimiter, followed by a non-space or ending the run).
+     */
+    internal fun holdBack(inlines: List<MarkdownInline>): List<MarkdownInline> {
+        fun plain(i: MarkdownInline) = !i.bold && !i.italic && !i.code && !i.strike && i.link == null && i.chip == null
+        val out = inlines.toMutableList()
+        val last = out.lastOrNull()
+        if (last != null && plain(last)) {
+            val open = last.text.lastIndexOf('[')
+            if (open >= 0) {
+                val rest = last.text.substring(open + 1)
+                val labelEnd = rest.indexOf(']').let { if (it < 0) rest.length else it }
+                val after = rest.substring(labelEnd)
+                val unfinished = after.isEmpty() || after == "]" || (after.startsWith("](") && after.substring(2).all { it != '(' && it != ')' && !it.isWhitespace() })
+                if (unfinished) {
+                    val start = if (open > 0 && last.text[open - 1] == '!') open - 1 else open
+                    out[out.size - 1] = last.copy(text = last.text.substring(0, start) + rest.substring(0, labelEnd))
+                }
+            }
+        }
+        return out.map { if (plain(it)) it.copy(text = dropDelimiters(it.text)) else it }.filter { it.text.isNotEmpty() || it.chip != null }
+    }
+
+    internal fun dropDelimiters(s: String): String {
+        val out = StringBuilder(s.length)
+        fun delim(c: Char) = c == '*' || c == '_' || c == '`'
+        fun alnum(c: Char) = c in '0'..'9' || c in 'a'..'z' || c in 'A'..'Z'
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            val tilde = c == '~'
+            if (delim(c) || tilde) {
+                var j = i
+                while (j < s.length && (if (tilde) s[j] == '~' else delim(s[j]))) j++
+                val beforeOk = i == 0 || !(alnum(s[i - 1]) || delim(s[i - 1]) || s[i - 1] == '~')
+                val afterOk = j == s.length || !s[j].isWhitespace()
+                if (!(beforeOk && afterOk && (!tilde || j - i >= 2))) out.append(s, i, j)
+                i = j
+                continue
+            }
+            out.append(c)
+            i++
+        }
+        return out.toString()
+    }
+
+    private fun parseBlocks(text: String, hard: Boolean): List<MarkdownBlock> {
         val normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         val lines = normalized.split("\n")
         val blocks = ArrayList<MarkdownBlock>()
@@ -566,7 +772,7 @@ object Markdown {
         var group = 0
         fun flush() {
             if (para.isNotEmpty()) {
-                val joined = joinParagraph(para)
+                val joined = joinParagraph(para, hard)
                 val image = imageOnly(joined)
                 if (image != null) {
                     blocks.add(MarkdownBlock(MarkdownBlockKind.Image(image.second, image.first), listOf(MarkdownInline(text = image.first))))
@@ -611,7 +817,16 @@ object Markdown {
                     body.add(l.trim())
                     i += 1
                 }
-                blocks.add(MarkdownBlock(MarkdownBlockKind.Quote, parseInline(body.filter { it.isNotEmpty() }.joinToString(" "))))
+                // Paragraphs join with a space; under `hard` a paragraph's lines with a newline.
+                val joined = StringBuilder()
+                var gap = false
+                for (l in body) {
+                    if (l.isEmpty()) { gap = true; continue }
+                    if (joined.isNotEmpty()) joined.append(if (hard && !gap) '\n' else ' ')
+                    joined.append(l)
+                    gap = false
+                }
+                blocks.add(MarkdownBlock(MarkdownBlockKind.Quote, parseInline(joined.toString())))
                 continue
             }
             if (isRule(trimmed) && para.isEmpty()) {
@@ -632,7 +847,7 @@ object Markdown {
                         // A non-blank line under an item that starts no block continues it.
                         val next = lines[i].trim()
                         if (next.isEmpty() || startsBlock(lines[i]) || blocks.isEmpty()) break
-                        lastBody += " $next"
+                        lastBody += (if (hard) "\n" else " ") + next
                         blocks[blocks.size - 1] = blocks.last().copy(inlines = parseInline(lastBody))
                         i += 1
                         continue
@@ -782,7 +997,7 @@ object Markdown {
 
     /** #VAPP-258: [text] parsed and resolved through [hooks] up to (not including) the text links. */
     fun prepare(text: String, hooks: MarkdownHooks): List<MarkdownBlock> {
-        var blocks = parse(text)
+        var blocks = parse(text, hooks.options.hardBreaks, hooks.options.streaming)
         hooks.attachment?.let { blocks = resolveAttachments(blocks, hooks.linkPolicy, it) }
         hooks.imagePolicy?.let { blocks = resolveImages(blocks, it) }
         hooks.imageSize?.let { blocks = sizeImages(blocks, it) }

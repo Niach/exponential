@@ -1,5 +1,5 @@
 {
- "$comment": "#VAPP-258 (owner 2026-11-06: genUI's renderer becomes THE Markdown of every client, the app moves onto it; code blocks highlighted everywhere). THE GOLDEN RENDER FIXTURE: markdown text → the block model in ONE normal form, replayed by every renderer's parser (web `src/web/markdown.ts` via `src/web/markdown-normal.ts` for React and Solid, Swift `ExponentialUIPrimitives/Markdown.swift`, Compose `primitives/Markdown.kt`, gpui `paint/markdown.rs`). THE NORMAL FORM: a flat list of blocks; `paragraph` / `quote` / `heading` (`level`) / `listItem` (`marker` = `•` or the item's own number + `.`, `task` only on a task item, `depth` 0 = top) carry `runs`; `codeBlock` its `text` and, when the fence has an info string, its `lang` (the info string as written: ` ```ts ` = `ts`); a renderer paints a codeBlock whose `lang` is a catalog/code.json language other than `plain` and `ansi` with the catalog's ONE tokenizer (`tokenizeCode`) in the COLOURS CodeBlock's `CodeBlock/token {kind}` recipe gives each token kind (colour only: the font, weight, style, padding, background and so the height stay the Markdown/codeBlock part's); an unknown or an empty `lang` (and `ansi`, whose escapes the tokenizer drops) = `plain` = no colours; `table` `header` (cells of runs) and `rows`; `rule`; `image` (`src`, `alt`) = a paragraph that is exactly one image. A run is `{text}` plus only the TRUE flags of `bold`, `italic`, `code`, `strike` and `link` (the raw destination); adjacent runs with the same flags merge, empty runs drop. A quote's paragraphs join with one space into one quote block; a soft line break inside a paragraph is one space; a hard break (a trailing backslash) is a newline in the run. Entities and backslash escapes are decoded (`&nbsp;` = U+00A0). SEEDS: every `CONTRACT_FIXTURES` string (apps/desktop crates/ui markdown/serialize.rs, the stored-bytes contract ×4) by its name, so what the editors store is what the reader paints, then chat and plan samples. `pending` = the cases a renderer does not meet YET (the parser-fidelity step fixes them, then the list empties); a renderer skips exactly its own pending cases and FAILS on any other mismatch, or when a pending case starts to pass (the list must shrink).",
+ "$comment": "#VAPP-258 (owner 2026-11-06: genUI's renderer becomes THE Markdown of every client, the app moves onto it; code blocks highlighted everywhere). THE GOLDEN RENDER FIXTURE: markdown text → the block model in ONE normal form, replayed by every renderer's parser (web `src/web/markdown.ts` via `src/web/markdown-normal.ts` for React and Solid, Swift `ExponentialUIPrimitives/Markdown.swift`, Compose `primitives/Markdown.kt`, gpui `paint/markdown.rs`). THE NORMAL FORM: a flat list of blocks; `paragraph` / `quote` / `heading` (`level`) / `listItem` (`marker` = `•` or the item's own number + `.`, `task` only on a task item, `depth` 0 = top) carry `runs`; `codeBlock` its `text` and, when the fence has an info string, its `lang` (the info string as written: ` ```ts ` = `ts`); a renderer paints a codeBlock whose `lang` is a catalog/code.json language other than `plain` and `ansi` with the catalog's ONE tokenizer (`tokenizeCode`) in the COLOURS CodeBlock's `CodeBlock/token {kind}` recipe gives each token kind (colour only: the font, weight, style, padding, background and so the height stay the Markdown/codeBlock part's); an unknown or an empty `lang` (and `ansi`, whose escapes the tokenizer drops) = `plain` = no colours; `table` `header` (cells of runs) and `rows`; `rule`; `image` (`src`, `alt`) = a paragraph that is exactly one image. A run is `{text}` plus only the TRUE flags of `bold`, `italic`, `code`, `strike` and `link` (the raw destination); adjacent runs with the same flags merge, empty runs drop. A quote's paragraphs join with one space into one quote block; a soft line break inside a paragraph is one space; a hard break (a trailing backslash) is a newline in the run. Entities and backslash escapes are decoded (`&nbsp;` = U+00A0). SEEDS: every `CONTRACT_FIXTURES` string (apps/desktop crates/ui markdown/serialize.rs, the stored-bytes contract ×4) by its name, so what the editors store is what the reader paints, then chat and plan samples. `pending` = the cases a renderer does not meet YET (the parser-fidelity step fixes them, then the list empties); a renderer skips exactly its own pending cases and FAILS on any other mismatch, or when a pending case starts to pass (the list must shrink). #VAPP-258 step 5 (catalog/host.json `markdown.options`): `optionCases` = a text parsed under host options (`breaks: hard` = every newline inside a paragraph, list item or quote paragraph is a line break in the run; `density` and `selectable` never change the blocks). `streamingCases` = a document streamed in: `steps[n]` is the normal form of the PREFIX `text[0..n+1]` (ASCII, so one unit = one character on every platform) parsed with `streaming: true` (and the case's `options`), replayed IN ORDER so each renderer's per-text memo reuses its stable blocks; a renderer also checks that a cold parse of each prefix gives the same blocks. Every step's blocks but the last equal the finished blocks they become (finished blocks never change); the tail's unfinished emphasis, code span or link paints as plain text, an open fence as an open code block.",
  "pending": {},
  "cases": [
   {
@@ -1693,6 +1693,3750 @@
       }
      ]
     }
+   ]
+  }
+ ],
+ "optionCases": [
+  {
+   "name": "hard_breaks_paragraph",
+   "options": {
+    "breaks": "hard"
+   },
+   "text": "one\ntwo\nthree",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "one\ntwo\nthree"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "soft_breaks_paragraph",
+   "options": {
+    "breaks": "soft"
+   },
+   "text": "one\ntwo\nthree",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "one two three"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "hard_breaks_keep_backslash_once",
+   "options": {
+    "breaks": "hard"
+   },
+   "text": "one\\\ntwo  \nthree",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "one\ntwo\nthree"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "hard_breaks_list_continuation",
+   "options": {
+    "breaks": "hard"
+   },
+   "text": "- first\n  more\n- second",
+   "blocks": [
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "first\nmore"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "second"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "hard_breaks_quote",
+   "options": {
+    "breaks": "hard"
+   },
+   "text": "> one\n> two\n>\n> three",
+   "blocks": [
+    {
+     "kind": "quote",
+     "runs": [
+      {
+       "text": "one\ntwo three"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "hard_breaks_leave_code",
+   "options": {
+    "breaks": "hard"
+   },
+   "text": "```\na\nb\n```\nafter\nline",
+   "blocks": [
+    {
+     "kind": "codeBlock",
+     "text": "a\nb"
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "after\nline"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "density_and_selectable_parse_alike",
+   "options": {
+    "density": "chat",
+    "selectable": false
+   },
+   "text": "one\ntwo **b**",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "one two "
+      },
+      {
+       "text": "b",
+       "bold": true
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "streamingCases": [
+  {
+   "name": "stream_emphasis",
+   "text": "Say **bold** and *it* now",
+   "steps": [
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "S"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Sa"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say b"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say bo"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say bol"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say bold"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say bold"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say bold"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " a"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " an"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and i"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and it"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and it"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and "
+       },
+       {
+        "text": "it",
+        "italic": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and "
+       },
+       {
+        "text": "it",
+        "italic": true
+       },
+       {
+        "text": " n"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and "
+       },
+       {
+        "text": "it",
+        "italic": true
+       },
+       {
+        "text": " no"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Say "
+       },
+       {
+        "text": "bold",
+        "bold": true
+       },
+       {
+        "text": " and "
+       },
+       {
+        "text": "it",
+        "italic": true
+       },
+       {
+        "text": " now"
+       }
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "name": "stream_code_span",
+   "text": "Run `make test` first",
+   "steps": [
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "R"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Ru"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run m"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run ma"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run mak"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run make"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run make"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run make t"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run make te"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run make tes"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run make test"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run make test"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run "
+       },
+       {
+        "text": "make test",
+        "code": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run "
+       },
+       {
+        "text": "make test",
+        "code": true
+       },
+       {
+        "text": " f"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run "
+       },
+       {
+        "text": "make test",
+        "code": true
+       },
+       {
+        "text": " fi"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run "
+       },
+       {
+        "text": "make test",
+        "code": true
+       },
+       {
+        "text": " fir"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run "
+       },
+       {
+        "text": "make test",
+        "code": true
+       },
+       {
+        "text": " firs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Run "
+       },
+       {
+        "text": "make test",
+        "code": true
+       },
+       {
+        "text": " first"
+       }
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "name": "stream_link",
+   "text": "See [the docs](https://x.dev/a) here",
+   "steps": [
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "S"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Se"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See "
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See t"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See th"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the d"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the do"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the doc"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See the docs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See "
+       },
+       {
+        "text": "the docs",
+        "link": "https://x.dev/a"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See "
+       },
+       {
+        "text": "the docs",
+        "link": "https://x.dev/a"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See "
+       },
+       {
+        "text": "the docs",
+        "link": "https://x.dev/a"
+       },
+       {
+        "text": " h"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See "
+       },
+       {
+        "text": "the docs",
+        "link": "https://x.dev/a"
+       },
+       {
+        "text": " he"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See "
+       },
+       {
+        "text": "the docs",
+        "link": "https://x.dev/a"
+       },
+       {
+        "text": " her"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "See "
+       },
+       {
+        "text": "the docs",
+        "link": "https://x.dev/a"
+       },
+       {
+        "text": " here"
+       }
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "name": "stream_fence",
+   "text": "Intro\n\n```ts\nconst a = 1\n```\n\nDone",
+   "steps": [
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "I"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "In"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Int"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intr"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "text": ""
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "t",
+      "text": ""
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": ""
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": ""
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "c"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "co"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "con"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "cons"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const "
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a "
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a ="
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = "
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "D"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Do"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Don"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Intro"
+       }
+      ]
+     },
+     {
+      "kind": "codeBlock",
+      "lang": "ts",
+      "text": "const a = 1"
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Done"
+       }
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "name": "stream_list",
+   "text": "- one\n- **two** items\n- three",
+   "steps": [
+    [],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": []
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "o"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "on"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": []
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": []
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": []
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "t"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "tw"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " i"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " it"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " ite"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " item"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": []
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "t"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "th"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "thr"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "thre"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "two",
+        "bold": true
+       },
+       {
+        "text": " items"
+       }
+      ]
+     },
+     {
+      "kind": "listItem",
+      "marker": "•",
+      "depth": 0,
+      "runs": [
+       {
+        "text": "three"
+       }
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "name": "stream_heading_then_para",
+   "text": "# Title *x*\n\nBody _y_ ok",
+   "steps": [
+    [],
+    [],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "T"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Ti"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Tit"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Titl"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title x"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title x"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "B"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Bo"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Bod"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Body"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Body"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Body"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Body y"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Body y"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Body "
+       },
+       {
+        "text": "y",
+        "italic": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Body "
+       },
+       {
+        "text": "y",
+        "italic": true
+       },
+       {
+        "text": " o"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "heading",
+      "level": 1,
+      "runs": [
+       {
+        "text": "Title "
+       },
+       {
+        "text": "x",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Body "
+       },
+       {
+        "text": "y",
+        "italic": true
+       },
+       {
+        "text": " ok"
+       }
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "name": "stream_hard_chat",
+   "options": {
+    "breaks": "hard"
+   },
+   "text": "Line one\nline *two*\n\nNext",
+   "steps": [
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "L"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Li"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Lin"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line o"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line on"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nl"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nli"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nlin"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline t"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline tw"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline two"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline two"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline "
+       },
+       {
+        "text": "two",
+        "italic": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline "
+       },
+       {
+        "text": "two",
+        "italic": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline "
+       },
+       {
+        "text": "two",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "N"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline "
+       },
+       {
+        "text": "two",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Ne"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline "
+       },
+       {
+        "text": "two",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Nex"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Line one\nline "
+       },
+       {
+        "text": "two",
+        "italic": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Next"
+       }
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "name": "stream_stable_prefix",
+   "text": "First **para**\n\nSecond [l](u) and `c`",
+   "steps": [
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "F"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Fi"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Fir"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Firs"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First p"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First pa"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First par"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First para"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First para"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First para"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "S"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Se"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Sec"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Seco"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Secon"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second l"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second l"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second l"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second l"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       },
+       {
+        "text": " a"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       },
+       {
+        "text": " an"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       },
+       {
+        "text": " and"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       },
+       {
+        "text": " and"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       },
+       {
+        "text": " and"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       },
+       {
+        "text": " and c"
+       }
+      ]
+     }
+    ],
+    [
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "First "
+       },
+       {
+        "text": "para",
+        "bold": true
+       }
+      ]
+     },
+     {
+      "kind": "paragraph",
+      "runs": [
+       {
+        "text": "Second "
+       },
+       {
+        "text": "l",
+        "link": "u"
+       },
+       {
+        "text": " and c"
+       }
+      ]
+     }
+    ]
    ]
   }
  ]

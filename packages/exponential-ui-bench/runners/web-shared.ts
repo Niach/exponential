@@ -163,6 +163,7 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
               break
             }
             case `card-grid`:
+            case `markdown-long`:
             case `deep-nesting`: {
               out.warmPassMs = await widthPasses(steps.widths as number[], steps.passes as number)
               if (id === `deep-nesting`) out.depth = b.depth()
@@ -209,6 +210,23 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
               out.totalMs = times.reduce((a, c) => a + c, 0)
               out.wallMs = performance.now() - t0
               out.nodes = b.nodes()
+              break
+            }
+            case `markdown-stream`: {
+              // #VAPP-258: the answer grows by one chunk per append.
+              const chunks = steps.chunks as string[]
+              const times: number[] = []
+              let text = ``
+              for (const chunk of chunks) {
+                text += chunk
+                const next = text
+                times.push(pass(() => b.setData(steps.path as string, next)))
+                await frame()
+              }
+              const sorted = [...times].sort((a, c) => a - c)
+              out.appendMs = times.reduce((a, c) => a + c, 0) / times.length
+              out.p95AppendMs = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]
+              out.totalMs = times.reduce((a, c) => a + c, 0)
               break
             }
             case `theme-switch`: {

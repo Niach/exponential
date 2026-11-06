@@ -247,12 +247,28 @@ function blocks(tree: readonly MarkdownBlock[], host: HostPlugin, scope: string,
  *  theme's scope class: the code token colours, the chip and file row
  *  recipes; `id` = the Markdown node's, its attachments' node ids). */
 export function renderMarkdown(text: string, host: HostPlugin = {}, scope = ``, id = `md`): JSX.Element[] {
-  return blocks(linkedMarkdown(host, parseMarkdown(text)), host, scope, id)
+  return blocks(linkedMarkdown(host, parseMarkdown(text, host.markdownOptions)), host, scope, id)
 }
 
 export function BuiltinMarkdown(props: { text: string; class?: string; host?: HostPlugin; id?: string }): JSX.Element {
   const ctx = useContext(SurfaceContext)
-  // Parsed once per text (and host, and theme).
-  const tree = createMemo(() => renderMarkdown(props.text, props.host, ctx?.compiled.scope ?? ``, props.id ?? `md`))
-  return <div class={props.class ? `xui-md ${props.class}` : `xui-md`}>{tree()}</div>
+  // Parsed once per text (and host, and theme). #VAPP-258 step 5: the host's
+  // options (catalog/host.json `markdown.options`); the blocks render keyed
+  // by object, so a streamed text's finished blocks (the parser's memo keeps
+  // their objects) keep their DOM while the tail re-renders.
+  const options = () => props.host?.markdownOptions
+  const tree = createMemo(() => {
+    const o = options()
+    return linkedMarkdown(props.host ?? {}, parseMarkdown(props.text, { breaks: o?.breaks, streaming: o?.streaming === true }))
+  })
+  const scope = () => ctx?.compiled.scope ?? ``
+  return (
+    <div class={props.class ? `xui-md ${props.class}` : `xui-md`} data-selectable={options()?.selectable === false ? `false` : undefined}>
+      {(() => {
+        // A theme change (its scope) re-renders every block.
+        const s = scope()
+        return <For each={tree()}>{(b, k) => block(b, props.host ?? {}, s, props.id ?? `md`, k())}</For>
+      })()}
+    </div>
+  )
 }

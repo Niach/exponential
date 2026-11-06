@@ -199,6 +199,8 @@ data class HostPolicy(
     val onImagePress: ((String) -> Unit)? = null,
     /** #VAPP-258: a one-link Markdown paragraph's attachment kind + name by RAW href (default: none). */
     val attachment: ((String) -> HostAttachment?)? = null,
+    /** #VAPP-258 step 5: the Markdown render options (default: the plugin's). */
+    val markdownOptions: at.exponential.ui.primitives.MarkdownOptions? = null,
 )
 
 /** A binding source URI, parsed (`exp:issues?board=b1` → scheme `exp`, name `issues`, params). */

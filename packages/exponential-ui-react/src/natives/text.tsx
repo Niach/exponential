@@ -2,7 +2,7 @@
 // → `data-xui-shimmer`, base-css), Markdown (`lines` truncation), Icon.
 
 import { displayString } from "@exponential_app/eui"
-import { textLinkSegments } from "@exponential_app/eui/web"
+import { propAttribute, textLinkSegments } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -58,7 +58,7 @@ export function MarkdownNative({ domId, props, rootProps }: NativeProps) {
   const Host = ctx.host.Markdown
   const lines = num(props.lines, 0)
   return (
-    <div {...(rootProps as Record<string, unknown>)} data-lines={lines > 0 ? lines : undefined} style={mergeStyle(rootProps, lines > 0 ? ({ WebkitLineClamp: lines } as React.CSSProperties) : undefined)}>
+    <div {...(rootProps as Record<string, unknown>)} {...(ctx.host.markdownOptions?.density ? { [propAttribute(false, `density`)]: ctx.host.markdownOptions.density } : {})} data-lines={lines > 0 ? lines : undefined} style={mergeStyle(rootProps, lines > 0 ? ({ WebkitLineClamp: lines } as React.CSSProperties) : undefined)}>
       {Host ? <Host text={text} className="xui-md" /> : <BuiltinMarkdown text={text} host={ctx.host} id={domId} />}
     </div>
   )

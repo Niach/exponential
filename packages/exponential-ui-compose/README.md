@@ -56,6 +56,7 @@ Column(Modifier.verticalScroll(rememberScrollState())) {
 
 - **Host.** `HostPlugin` gives every member a default. `ClosureHost(icons, actions, inputs, urls, unknowns)` builds one from lambdas.
 - **Markdown host hooks** (#VAPP-258, all optional, also as `HostPolicy` closures): a `textLinks` segment's `chip` (`TextLinkChip(kind, label, icon)`) paints inline in the Chip look and opens its href; `imageSize(src)` gives a block image its aspect box before it loads; `onImagePress` makes block images pressable; `attachment(href)` turns a one-link paragraph into a Video, AudioPlayer or FileUpload file row. The measurer asks the same hooks, so answers must be pure.
+- **Markdown options** (#VAPP-258 step 5, `catalog/host.json` `markdown.options`): `HostPlugin.markdownOptions` / `HostPolicy.markdownOptions` = `MarkdownOptions(hardBreaks, chat, selectable, streaming)`: hard breaks, the chat rhythm (`density: chat` recipes), `SelectionContainer` / `DisableSelection`, a streamed prefix (finished blocks memoized, the unfinished tail plain). The measurer reads the same; a document of 24+ blocks composes only the blocks in its visible window.
   - `icon(name, size)` maps the catalog's registry concepts to your composables, painted under `LocalContentColor`. `null` paints the placeholder circle.
   - `onAction` receives every A2UI action.
   - `onInput` receives host-owned text edits: `Change` is debounced 150 ms and carries a revision; `Commit` fires on blur or IME Done.

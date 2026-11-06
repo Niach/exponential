@@ -336,6 +336,55 @@
       ]
     },
     {
+      "id": "markdown-long",
+      "title": "Long Markdown description",
+      "what": "#VAPP-258: one Markdown node holding a 400-block issue description (headings, paragraphs with links and inline code, lists and tasks, highlighted code fences, quotes, tables), painted, then resized 900 ↔ 390 px. The app's issue pages on genUI's Markdown: where a renderer that lays out every block, visible or not, loses its frame.",
+      "file": "scenarios/markdown-long.json",
+      "renderers": [
+        "react-chromium",
+        "solid-chromium"
+      ],
+      "metrics": [
+        {
+          "id": "firstPaintMs",
+          "kind": "ms",
+          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass). Generated data is built before the clock starts and handed over inside it."
+        },
+        {
+          "id": "warmPassMs",
+          "kind": "ms",
+          "what": "Median of 20 passes alternating the width 900 ↔ 390 px (every block re-wraps)."
+        }
+      ]
+    },
+    {
+      "id": "markdown-stream",
+      "title": "Streaming Markdown chat",
+      "what": "#VAPP-258: an agent's chat answer streamed into one bound Markdown node: about 2,000 tokens appended in 200 steps of 10 (paragraphs, a code fence, a list, a quote, repeated), the host's Markdown options streaming + chat + hard breaks. Each append is bound, parsed, laid out and painted before the next. Where a renderer that reparses the whole text per token loses time as the answer grows.",
+      "file": "scenarios/markdown-stream.json",
+      "renderers": [
+        "react-chromium",
+        "solid-chromium"
+      ],
+      "metrics": [
+        {
+          "id": "appendMs",
+          "kind": "ms",
+          "what": "Mean cost of one append: the text set, parsed, laid out and painted."
+        },
+        {
+          "id": "p95AppendMs",
+          "kind": "ms",
+          "what": "The 95th percentile of that cost (the late appends, when the answer is long)."
+        },
+        {
+          "id": "totalMs",
+          "kind": "ms",
+          "what": "All 200 appends back to back."
+        }
+      ]
+    },
+    {
       "id": "records-25k",
       "title": "Records query over 25,000 rows",
       "what": "Apps §15 (VAPP-202): the local records query (eui-core host::query, its TS twin @exponential_app/eui/host/query) over 25,000 rows, the team plan's quota: five query shapes, each parsed once, 5 warm-up runs, then 60 timed; p95 = the 58th of the 60 sorted. The budget is p95 ≤ 16 ms on a MID PHONE, so a desktop CPU must hold about a third of it. No surface: the core, one web runner (the TS twin in Chromium) and Compose (the query through the RecordsStore handle over the FFI, VAPP-212) run it.",

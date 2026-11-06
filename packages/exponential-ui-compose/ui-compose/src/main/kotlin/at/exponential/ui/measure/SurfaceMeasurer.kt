@@ -123,6 +123,8 @@ class SurfaceMeasurer(
     val onPaintError: (id: String, message: String) -> Unit = { _, _ -> },
     /** #VAPP-258: a Markdown's blocks through the host's hooks (the painter's [at.exponential.ui.model.SurfaceModel.markdownBlocks]); null = parse + [mediaAllowed]. */
     val markdownBlocks: ((String) -> List<at.exponential.ui.primitives.MarkdownBlock>)? = null,
+    /** #VAPP-258 step 5: the host's Markdown options, as the painter reads them. */
+    val markdownOptions: at.exponential.ui.primitives.MarkdownOptions = at.exponential.ui.primitives.MarkdownOptions(),
     /** Whether a markdown image's src passes the host's media policy (the painter asks the same question). */
     val mediaAllowed: (String) -> Boolean = { true },
 ) : Measurer {
@@ -385,14 +387,16 @@ class SurfaceMeasurer(
 
     private fun markdown(leaf: LeafRequest, wrap: Float?): Content {
         val text = leaf.props.str("text")
-        val blocks = markdownBlocks?.invoke(text) ?: Markdown.resolveImages(Markdown.parse(text), mediaAllowed)
+        val o = markdownOptions
+        val blocks = markdownBlocks?.invoke(text) ?: Markdown.resolveImages(Markdown.parse(text, o.hardBreaks, o.streaming), mediaAllowed)
         val ts = leaf.textStyle
-        val styles = MarkdownPainter.styles(theme, mode, ts, leaf.props)
+        val styles = MarkdownPainter.styles(theme, mode, ts, MarkdownPainter.props(leaf.props, o.chat))
+        val lineHeight = styles.body.lineHeight
         val md = MarkdownShaper(shaper, theme?.monoFamily)
         val clamp = leaf.props.num("lines")?.toInt()?.takeIf { it > 0 }
         fun height(w: Float): Float {
             val h = Markdown.layout(blocks, styles, w, md).height
-            return if (clamp != null) min(h, clamp * ts.lineHeight) else h
+            return if (clamp != null) min(h, clamp * lineHeight) else h
         }
         val out = when {
             wrap == null -> {
@@ -405,7 +409,7 @@ class SurfaceMeasurer(
             }
             else -> Size(wrap, height(wrap))
         }
-        return Content(out.width, max(out.height, if (blocks.isEmpty()) 0f else ts.lineHeight), if (blocks.isEmpty()) null else baseline(ts))
+        return Content(out.width, max(out.height, if (blocks.isEmpty()) 0f else lineHeight), if (blocks.isEmpty()) null else baseline(ts))
     }
 
     private fun button(leaf: LeafRequest): Content {

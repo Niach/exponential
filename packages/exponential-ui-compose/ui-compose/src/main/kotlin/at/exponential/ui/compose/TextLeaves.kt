@@ -447,7 +447,10 @@ internal fun MarkdownLeaf(cx: LeafContext) {
         return
     }
     val theme = model.effectiveTheme
-    val styles = remember(theme, model.mode, cx.textStyle, cx.props) { MarkdownPainter.styles(theme, model.mode, cx.textStyle, cx.props) }
+    // #VAPP-258 step 5: the host's options (the chat rhythm, hard breaks, streaming, selection).
+    val options = model.host.markdownOptions
+    val props = remember(cx.props, options.chat) { MarkdownPainter.props(cx.props, options.chat) }
+    val styles = remember(theme, model.mode, cx.textStyle, props) { MarkdownPainter.styles(theme, model.mode, cx.textStyle, props) }
     val muted = cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f)
     val border = cx.themeColor("border") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.2f)
     val taskOff = cx.part("Checkbox", "box", TASK_OFF)
@@ -456,11 +459,11 @@ internal fun MarkdownLeaf(cx: LeafContext) {
     val colors = MarkdownColors(
         ink = cx.ink,
         muted = muted,
-        link = cx.part("Markdown", "link", cx.props).color ?: cx.themeColor("primary") ?: cx.ink,
+        link = cx.part("Markdown", "link", props).color ?: cx.themeColor("primary") ?: cx.ink,
         border = border,
-        codeBackground = cx.part("Markdown", "code", cx.props).style.background,
-        codeBlockBackground = cx.part("Markdown", "codeBlock", cx.props).style.background ?: cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.06f),
-        quoteBorder = cx.part("Markdown", "quote", cx.props).style.borderColor ?: border,
+        codeBackground = cx.part("Markdown", "code", props).style.background,
+        codeBlockBackground = cx.part("Markdown", "codeBlock", props).style.background ?: cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.06f),
+        quoteBorder = cx.part("Markdown", "quote", props).style.borderColor ?: border,
         // A task box IS the theme's Checkbox box (off / on) and its check.
         taskFill = taskOff.style.background ?: Color.Transparent,
         taskBorder = taskOff.style.borderColor ?: border,
@@ -479,6 +482,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             text = text,
             modifier = Modifier.fillMaxSize().clipToBounds(),
             styles = styles,
+            options = options,
             colors = colors,
             codeBlockRadius = (theme?.radius("md") ?: 6f).dp,
             monoFamily = theme?.monoFamily,

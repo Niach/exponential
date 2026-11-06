@@ -260,6 +260,8 @@ function inlineRun(text: string, depth: number): MarkdownInline[] {
 }
 
 export const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
+/** An item line with its continuation lines (`breaks: hard` joins them with newlines). */
+const LIST_ITEM_BODY = /^([ \t]*)([-*+]|\d+[.)])[ \t]+([\s\S]*)$/
 
 export interface MarkdownListItem {
   /** The item's raw text (its inline markdown). */
@@ -284,13 +286,13 @@ export function parseList(lines: readonly string[]): MarkdownList {
   const indentOf = (ws: string) => ws.replace(/\t/g, `    `).length
   // VAPP-107 (property-tested): no lines, or a line that is no list item,
   // is an empty list / a skipped line, never a throw.
-  const first = lines.length ? LIST_ITEM.exec(lines[0]!) : null
+  const first = lines.length ? LIST_ITEM_BODY.exec(lines[0]!) : null
   if (!first) return { indent: 0, ordered: false, start: 1, items: [] }
   const startOf = (marker: string) => (/\d/.test(marker) ? Number.parseInt(marker, 10) : 1)
   const root: MarkdownList = { indent: indentOf(first[1]!), ordered: /\d/.test(first[2]!), start: startOf(first[2]!), items: [] }
   const stack: MarkdownList[] = [root]
   for (const line of lines) {
-    const m = LIST_ITEM.exec(line)
+    const m = LIST_ITEM_BODY.exec(line)
     if (!m) continue
     const indent = indentOf(m[1]!)
     while (stack.length > 1 && indent < stack[stack.length - 1]!.indent) stack.pop()
@@ -302,8 +304,10 @@ export function parseList(lines: readonly string[]): MarkdownList {
       stack.push(child)
       list = child
     }
-    const task = /^\[([ xX])\]\s+(.*)$/.exec(m[3]!)
-    list.items.push(task ? { text: task[2]!, content: parseInline(task[2]!), task: task[1] !== ` `, children: [] } : { text: m[3]!, content: parseInline(m[3]!), children: [] })
+    // An item's trailing blanks are no text (as on the natives).
+    const body = m[3]!.replace(/[ \t]+$/, ``)
+    const task = /^\[([ xX])\]\s+([\s\S]*)$/.exec(body)
+    list.items.push(task ? { text: task[2]!, content: parseInline(task[2]!), task: task[1] !== ` `, children: [] } : { text: body, content: parseInline(body), children: [] })
   }
   return root
 }
@@ -332,11 +336,155 @@ export function markdownCodeLines(block: { lang?: string; text: string }): CodeT
   return language ? tokenizeCode(block.text, language) : null
 }
 
-export function parseMarkdown(text: string): MarkdownBlock[] {
-  return parseBlocks(text, 0)
+export function parseMarkdown(text: string, options: MarkdownOptions = {}): MarkdownBlock[] {
+  const hard = options.breaks === `hard`
+  return options.streaming ? parseStreaming(text, hard) : parseBlocks(text, 0, hard)
 }
 
-function parseBlocks(text: string, depth: number): MarkdownBlock[] {
+/** #VAPP-258 (catalog/host.json `markdown.options`): a host's render
+ *  options. Unset = the default (soft breaks, the document density, the
+ *  renderer's own selectability, a finished text). */
+export interface MarkdownOptions {
+  breaks?: `soft` | `hard`
+  density?: `document` | `chat`
+  selectable?: boolean
+  streaming?: boolean
+}
+
+/** From this many blocks on, gpui and Compose lay out only visible blocks. */
+export const MARKDOWN_LAZY_BLOCKS: number = HOST_CONTRACT.markdown.lazyBlocks
+
+const FENCE = /^(`{3,}|~{3,})([\w+#.-]*)\s*$/
+const fenceClose = (open: string) => new RegExp(`^${open[0] === `~` ? `~` : `\``}{${open.length},}\\s*$`)
+
+/** The fence still open after `text`'s lines from `from` on (`from` at a
+ *  line start outside a fence), its last COMPLETE blank line outside a
+ *  fence (the stable boundary: the index after it, else `from`) and the
+ *  line index of the open fence's opener. */
+function scanFences(text: string, from: number): { boundary: number; open: boolean; openerLine: number; lines: number } {
+  let close: RegExp | null = null
+  let boundary = from
+  let openerLine = -1
+  let n = 0
+  for (let at = from; ; n++) {
+    const nl = text.indexOf(`\n`, at)
+    const line = text.slice(at, nl < 0 ? text.length : nl)
+    if (close) {
+      if (close.test(line)) close = null
+    } else {
+      const f = FENCE.exec(line)
+      if (f) {
+        close = fenceClose(f[1]!)
+        openerLine = n
+      } else if (nl >= 0 && line.trim() === ``) boundary = nl + 1
+    }
+    if (nl < 0) break
+    at = nl + 1
+  }
+  return { boundary, open: close !== null, openerLine, lines: n + 1 }
+}
+
+/** The per-text memo of streamed parses: the stable blocks before a
+ *  boundary, reused while new text extends the old. */
+interface StreamMemo {
+  text: string
+  hard: boolean
+  boundary: number
+  stable: MarkdownBlock[]
+}
+const STREAM_MEMOS: StreamMemo[] = []
+const STREAM_MEMO_CAP = 16
+
+/** Forget every streamed parse (tests: a cold parse of a prefix). */
+export function resetMarkdownStreamMemo(): void {
+  STREAM_MEMOS.length = 0
+}
+
+/** #VAPP-258 (markdown-render.json `streamingCases`): a growing prefix =
+ *  the stable blocks (memoized, reparsed only past the old boundary) + the
+ *  tail with its unfinished end held back. */
+function parseStreaming(raw: string, hard: boolean): MarkdownBlock[] {
+  const text = raw.replace(/\r\n?/g, `\n`)
+  let memo: StreamMemo | undefined
+  for (const m of STREAM_MEMOS) if (m.hard === hard && text.startsWith(m.text) && (!memo || m.text.length > memo.text.length)) memo = m
+  const from = memo?.boundary ?? 0
+  const { boundary } = scanFences(text, from)
+  const stable = boundary > from ? [...(memo?.stable ?? []), ...parseBlocks(text.slice(from, boundary), 0, hard)] : (memo?.stable ?? [])
+  if (memo && memo.text.length <= text.length) STREAM_MEMOS.splice(STREAM_MEMOS.indexOf(memo), 1)
+  STREAM_MEMOS.unshift({ text, hard, boundary, stable })
+  if (STREAM_MEMOS.length > STREAM_MEMO_CAP) STREAM_MEMOS.length = STREAM_MEMO_CAP
+  let tail = text.slice(boundary)
+  if (!tail) return stable
+  // An open fence holds back its last line while it is empty or only fence
+  // characters (a closing fence on its way).
+  const fence = scanFences(tail, 0)
+  if (fence.open) {
+    const nl = tail.lastIndexOf(`\n`)
+    if (fence.lines - 1 > fence.openerLine && /^\s*[`~]*\s*$/.test(tail.slice(nl + 1))) tail = tail.slice(0, nl)
+  } else {
+    // Outside a fence the text's unfinished end waits: a trailing run of
+    // delimiters (a closer or opener on its way) and a last line that is
+    // only a list marker or heading hashes so far.
+    for (let held = tail.replace(TRAILING_HELD, ``); held !== tail; held = tail.replace(TRAILING_HELD, ``)) tail = held
+  }
+  const blocks = parseBlocks(tail, 0, hard)
+  const last = blocks[blocks.length - 1]
+  if (last) {
+    const held = holdBackBlock(last, true)
+    if (held.type === `paragraph` && held.children.length === 0) blocks.pop()
+    else blocks[blocks.length - 1] = held
+  }
+  return stable.length ? [...stable, ...blocks] : blocks
+}
+
+// (A line that is only backticks or tildes stays: a fence opening or closing.)
+const TRAILING_HELD = /(?:[*_]+|(?<!(?:^|\n)[ \t]*[`~]*)[`~]+|(?:^|\n)[ \t]*(?:[-+*]|\d{1,9}[.)]?|#{1,6}[ \t]*))$/
+
+const UNFINISHED_LINK = /!?\[([^[\]]*)(?:\](?:\([^()\s]*)?)?$/
+// A MAXIMAL run of `*` / `_` / backticks (or of 2+ `~`), not after an
+// ASCII letter, digit or delimiter, followed by a non-space or the end.
+const HELD_DELIMITERS = /(?<![A-Za-z0-9*_`~])(?:[*_`]+(?![*_`])|~~+(?!~))(?=\S|$)/g
+
+/** The streaming tail's plain text with what would flicker held back: an
+ *  unfinished link at its end → its label, and every opening delimiter
+ *  run dropped (catalog/host.json `markdown.options.streaming`). */
+function holdBackInlines(nodes: readonly MarkdownInline[]): MarkdownInline[] {
+  const out = [...nodes]
+  const last = out[out.length - 1]
+  if (typeof last === `string`) out[out.length - 1] = last.replace(UNFINISHED_LINK, `$1`)
+  return out.map((n) => (typeof n === `string` ? n.replace(HELD_DELIMITERS, ``) : n)).filter((n) => n !== ``)
+}
+
+function holdBackList(list: MarkdownList): MarkdownList {
+  const items = [...list.items]
+  const item = items[items.length - 1]
+  if (!item) return list
+  const child = item.children[item.children.length - 1]
+  items[items.length - 1] = child ? { ...item, children: [...item.children.slice(0, -1), holdBackList(child)] } : { ...item, content: holdBackInlines(item.content) }
+  return { ...list, items }
+}
+
+function holdBackAll(list: MarkdownList): MarkdownList {
+  return { ...list, items: list.items.map((item) => ({ ...item, content: holdBackInlines(item.content), children: item.children.map(holdBackAll) })) }
+}
+
+/** The tail's last block held back (`whole` = a quote's every inline, as
+ *  the natives' one quote block). */
+function holdBackBlock(b: MarkdownBlock, last: boolean): MarkdownBlock {
+  switch (b.type) {
+    case `paragraph`:
+    case `heading`:
+      return { ...b, children: holdBackInlines(b.children) }
+    case `quote`:
+      return { ...b, children: b.children.map((c) => holdBackBlock(c, false)) }
+    case `list`:
+      return { ...b, list: last ? holdBackList(b.list) : holdBackAll(b.list) }
+    default:
+      return b
+  }
+}
+
+function parseBlocks(text: string, depth: number, hard = false): MarkdownBlock[] {
   const lines = text.replace(/\r\n?/g, `\n`).split(`\n`)
   const blocks: MarkdownBlock[] = []
   let i = 0
@@ -345,10 +493,11 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
     if (para.length === 0) return
     // A line ending in a backslash or two spaces breaks hard (a newline in
     // the run); any other line break is a space.
+    // #VAPP-258: `breaks: hard` = every line break is one.
     const text = para.reduce((all, line, k) => {
       if (k === 0) return line
-      const hard = /(\\| {2,})$/.exec(all)
-      return hard ? `${all.slice(0, hard.index)}\n${line}` : `${all} ${line}`
+      const forced = /(\\| {2,})$/.exec(all)
+      return forced ? `${all.slice(0, forced.index)}\n${line}` : hard ? `${all}\n${line}` : `${all} ${line}`
     }, ``).replace(/ +$/, ``)
     const image = wholeImage(text)
     if (image) blocks.push({ type: `image`, alt: image.alt, src: image.src })
@@ -357,11 +506,11 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
   }
   while (i < lines.length) {
     const line = lines[i]!
-    const fence = /^(`{3,}|~{3,})([\w+#.-]*)\s*$/.exec(line)
+    const fence = FENCE.exec(line)
     if (fence) {
       flush()
       const body: string[] = []
-      const close = new RegExp(`^${fence[1]![0] === `~` ? `~` : `\``}{${fence[1]!.length},}\\s*$`)
+      const close = fenceClose(fence[1]!)
       i++
       while (i < lines.length && !close.test(lines[i]!)) body.push(lines[i++]!)
       i++
@@ -371,7 +520,7 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
     const heading = /^(#{1,6})\s+(.*)$/.exec(line)
     if (heading) {
       flush()
-      blocks.push({ type: `heading`, level: heading[1]!.length, children: parseInline(heading[2]!) })
+      blocks.push({ type: `heading`, level: heading[1]!.length, children: parseInline(heading[2]!.replace(/[ \t]+$/, ``)) })
       i++
       continue
     }
@@ -379,7 +528,7 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
       flush()
       const body: string[] = []
       while (i < lines.length && /^\s*>/.test(lines[i]!)) body.push(lines[i++]!.replace(/^\s*>\s?/, ``))
-      blocks.push({ type: `quote`, children: parseBlocks(body.join(`\n`), depth + 1) })
+      blocks.push({ type: `quote`, children: parseBlocks(body.join(`\n`), depth + 1, hard) })
       continue
     }
     if (LIST_ITEM.test(line)) {
@@ -389,7 +538,7 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
       while (i < lines.length) {
         const next = lines[i]!
         if (LIST_ITEM.test(next)) body.push(next)
-        else if (next.trim() !== `` && !startsBlock(next)) body[body.length - 1] += ` ${next.trim()}`
+        else if (next.trim() !== `` && !startsBlock(next)) body[body.length - 1] += `${hard ? `\n` : ` `}${next.trim()}`
         else break
         i++
       }

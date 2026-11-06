@@ -180,6 +180,57 @@ const TABLE_COLUMNS = [
 // macros expand into parts the sink already paints (no renderer code to
 // measure), and the workload, so its counts and timing budgets, stays the one
 // the ratchet was recorded on.
+// #VAPP-258 (step 5): Markdown at the app's sizes. A long issue
+// description: 400 blocks of every kind the app's descriptions hold; a
+// streaming chat answer: ~2,000 tokens appended in 200 steps of 10.
+function longMarkdown(blocks: number): string {
+  const out: string[] = []
+  for (let i = 0; out.length < blocks; i++) {
+    switch (i % 8) {
+      case 0:
+        out.push(`## Section ${i / 8 + 1}`)
+        break
+      case 1:
+        out.push(`Paragraph ${i}: the description explains **why** the change is needed, links [the spec](https://exponential.at/docs/${i}) and names \`code\` inline, long enough to wrap twice at a phone width.`)
+        break
+      case 2:
+        out.push(`- first point ${i}\n- second point with *emphasis*\n- [ ] an open task`)
+        break
+      case 3:
+        out.push("```ts\nconst value" + i + " = compute(input)\nif (value" + i + " > 0) return value" + i + "\n```")
+        break
+      case 4:
+        out.push(`> A quote from the reporter, number ${i}, with a ~~mistake~~ fixed.`)
+        break
+      case 5:
+        out.push(`| key | value |\n| --- | ---: |\n| row ${i} | ${i * 3} |`)
+        break
+      case 6:
+        out.push(`1. step one of ${i}\n2. step two`)
+        break
+      default:
+        out.push(`Closing paragraph ${i} with plain prose and nothing else in it.`)
+    }
+  }
+  return out.slice(0, blocks).join(`\n\n`)
+}
+
+/** ~`tokens` whitespace-separated tokens of a chat answer, cut into `steps` appends. */
+function streamingChunks(tokens: number, steps: number): string[] {
+  const parts = [
+    `Here is what I found while reading the **session tree** code.`,
+    `The watchdog runs every minute and posts a waking message into the parent:`,
+    "```ts\nexport function wake(parent: Session, child: Session) {\n  return post(parent.id, { kind: `waking`, child: child.id })\n}\n```",
+    `- the bus is the one entrypoint\n- every transition is *one* message\n- see [send.ts](https://exponential.at/src/send.ts) for details`,
+    `> Nothing else moves the status.`,
+    `So the fix is small: keep the memo per text and reparse only the tail.`,
+  ]
+  const words: string[] = []
+  for (let i = 0; words.length < tokens; i++) words.push(...parts[i % parts.length].split(/(?<=\s)/), `\n\n`)
+  const per = Math.ceil(tokens / steps)
+  return Array.from({ length: steps }, (_, i) => words.slice(i * per, (i + 1) * per).join(``))
+}
+
 const sink = ((n: NestedNode): NestedNode => ({ ...n, children: (n.children ?? []).filter((c) => c.id !== `macros-demo`) }))(kitchenSink as unknown as NestedNode)
 const sinkData = Object.fromEntries(Object.entries(kitchenSinkData as Record<string, unknown>).filter(([k]) => k !== `$comment`))
 
@@ -382,6 +433,35 @@ export const SCENARIOS: readonly ScenarioDef[] = [
       PASS_MS(`scrollStepMs`, `Mean of 20 scroll steps of one viewport each.`),
       PASS_MS(`sortMs`, `The sort changed by an updateComponents: applied, rows re-ordered, re-bound, laid out and painted.`),
       { id: `renderedRows`, kind: `count`, what: `Rows alive after the scroll steps (a windowed Table keeps it near the viewport's).` },
+    ],
+  },
+  {
+    id: `markdown-long`,
+    title: `Long Markdown description`,
+    what: `#VAPP-258: one Markdown node holding a 400-block issue description (headings, paragraphs with links and inline code, lists and tasks, highlighted code fences, quotes, tables), painted, then resized 900 ↔ 390 px. The app's issue pages on genUI's Markdown: where a renderer that lays out every block, visible or not, loses its frame.`,
+    theme: `exponential`,
+    mode: `dark`,
+    viewport: PHONE,
+    renderers: [`react-chromium`, `solid-chromium`],
+    surface: { nested: { id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, padding: 16 }, children: [{ id: `md`, component: `Markdown`, props: { text: longMarkdown(400) } }] } },
+    steps: { widths: [WIDE, PHONE.width], passes: 20 },
+    metrics: [FIRST_PAINT, PASS_MS(`warmPassMs`, `Median of 20 passes alternating the width 900 ↔ 390 px (every block re-wraps).`)],
+  },
+  {
+    id: `markdown-stream`,
+    title: `Streaming Markdown chat`,
+    what: `#VAPP-258: an agent's chat answer streamed into one bound Markdown node: about 2,000 tokens appended in 200 steps of 10 (paragraphs, a code fence, a list, a quote, repeated), the host's Markdown options streaming + chat + hard breaks. Each append is bound, parsed, laid out and painted before the next. Where a renderer that reparses the whole text per token loses time as the answer grows.`,
+    theme: `exponential`,
+    mode: `dark`,
+    viewport: PHONE,
+    renderers: [`react-chromium`, `solid-chromium`],
+    surface: { nested: { id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, padding: 16 }, children: [{ id: `md`, component: `Markdown`, props: { text: { path: `/md` } } }] } },
+    data: { md: `` },
+    steps: { path: `/md`, chunks: streamingChunks(2000, 200), markdownOptions: { streaming: true, density: `chat`, breaks: `hard` } },
+    metrics: [
+      PASS_MS(`appendMs`, `Mean cost of one append: the text set, parsed, laid out and painted.`),
+      PASS_MS(`p95AppendMs`, `The 95th percentile of that cost (the late appends, when the answer is long).`),
+      PASS_MS(`totalMs`, `All 200 appends back to back.`),
     ],
   },
   {

@@ -171,6 +171,9 @@ interface HostPlugin {
      */
     fun attachment(href: String): HostAttachment? = null
 
+    /** #VAPP-258 step 5 (`catalog/host.json` markdown.options): how this host's Markdowns render (the measurer reads the same). */
+    val markdownOptions: at.exponential.ui.primitives.MarkdownOptions get() = at.exponential.ui.primitives.MarkdownOptions()
+
     /**
      * Rewrites a media src BEFORE the media policy (relative attachment
      * paths, signed URLs); its result still passes [mediaOptions], never

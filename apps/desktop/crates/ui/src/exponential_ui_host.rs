@@ -2047,6 +2047,9 @@ impl IdeHost {
                     let team_id = scope.as_ref().and_then(|s| s.team_id.clone());
                     Rc::new(move |text: &str, cx: &App| crate::links::issue_text_links(text, team_id.as_deref(), cx))
                 }),
+                // #VAPP-258: a synced attachment's size and media / file block.
+                image_size: Some(Rc::new(crate::links::markdown_image_size)),
+                attachment: Some(Rc::new(crate::links::markdown_attachment)),
                 media: Some(MediaOptions {
                     base_url: instance,
                     allow_private,

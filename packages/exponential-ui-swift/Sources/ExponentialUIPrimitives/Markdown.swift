@@ -427,7 +427,215 @@ public enum Markdown {
         return nil
     }
 
+    /// #VAPP-258 step 5 (`catalog/host.json` markdown.options): `hardBreaks`
+    /// = every newline inside a paragraph, list item or quote paragraph is a
+    /// line break; `streaming` = the text is a growing prefix
+    /// (`parseStreaming`).
+    public static func parse(_ text: String, hardBreaks: Bool, streaming: Bool = false) -> [MarkdownBlock] {
+        streaming ? parseStreaming(text, hardBreaks: hardBreaks) : parseBlocks(text, hard: hardBreaks)
+    }
+
     public static func parse(_ text: String) -> [MarkdownBlock] {
+        parseBlocks(text, hard: false)
+    }
+
+    /// The 3-char fence a line opens (` ``` ` / `~~~`), else nil.
+    private static func fenceOpen(_ line: Substring) -> String? {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("```") { return "```" }
+        if t.hasPrefix("~~~") { return "~~~" }
+        return nil
+    }
+
+    /// `lines` from `from` (a line outside a fence) on: the line index after
+    /// the last COMPLETE blank line outside a fence (else `from`; the last
+    /// line is never complete), whether a fence is open at the end, and
+    /// whether the last line is that fence's opener.
+    private static func scanFences(_ lines: [Substring], from: Int) -> (boundary: Int, open: Bool, openerLast: Bool) {
+        var fence: String?
+        var boundary = from
+        var openerLast = false
+        var i = from
+        while i < lines.count {
+            let line = lines[i]
+            let complete = i < lines.count - 1
+            openerLast = false
+            if let f = fence {
+                if line.trimmingCharacters(in: .whitespaces).hasPrefix(f) { fence = nil }
+            } else if let f = fenceOpen(line) {
+                fence = f
+                openerLast = true
+            } else if complete, line.trimmingCharacters(in: .whitespaces).isEmpty {
+                boundary = i + 1
+            }
+            i += 1
+        }
+        return (boundary, fence != nil, openerLast)
+    }
+
+    private final class StreamMemos: @unchecked Sendable {
+        struct Entry {
+            var text: String
+            var hard: Bool
+            var boundary: Int
+            var stable: [MarkdownBlock]
+        }
+        let lock = NSLock()
+        var entries: [Entry] = []
+    }
+    private static let streamMemos = StreamMemos()
+    private static let streamMemoCap = 16
+
+    /// Forget every streamed parse (tests: a cold parse of a prefix).
+    public static func resetStreamMemo() {
+        streamMemos.lock.lock()
+        streamMemos.entries.removeAll()
+        streamMemos.lock.unlock()
+    }
+
+    private static func maxGroup(_ blocks: [MarkdownBlock]) -> Int {
+        blocks.compactMap(\.listGroup).max() ?? 0
+    }
+
+    private static func offsetGroups(_ blocks: inout [MarkdownBlock], by: Int) {
+        guard by > 0 else { return }
+        for i in blocks.indices where blocks[i].listGroup != nil { blocks[i].listGroup! += by }
+    }
+
+    /// #VAPP-258 step 5 (`fixtures/markdown-render.json` streamingCases): a
+    /// growing prefix = the stable blocks before its last complete blank
+    /// line outside a fence (memoized per text: only what extends the old
+    /// text reparses) + the tail, whose unfinished end is held back.
+    public static func parseStreaming(_ raw: String, hardBreaks hard: Bool) -> [MarkdownBlock] {
+        let text = raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        streamMemos.lock.lock()
+        let memo = streamMemos.entries.filter { $0.hard == hard && text.hasPrefix($0.text) }.max { $0.text.utf8.count < $1.text.utf8.count }
+        streamMemos.lock.unlock()
+        let from = memo?.boundary ?? 0
+        var stable = memo?.stable ?? []
+        let boundary = scanFences(lines, from: from).boundary
+        if boundary > from {
+            var more = parseBlocks(lines[from..<boundary].joined(separator: "\n"), hard: hard)
+            offsetGroups(&more, by: maxGroup(stable))
+            stable += more
+        }
+        streamMemos.lock.lock()
+        streamMemos.entries.removeAll { $0.hard == hard && text.hasPrefix($0.text) }
+        streamMemos.entries.insert(StreamMemos.Entry(text: text, hard: hard, boundary: boundary, stable: stable), at: 0)
+        if streamMemos.entries.count > streamMemoCap { streamMemos.entries.removeLast(streamMemos.entries.count - streamMemoCap) }
+        streamMemos.lock.unlock()
+        var tailLines = Array(lines[boundary...])
+        if tailLines.count == 1, tailLines[0].isEmpty { return stable }
+        let fences = scanFences(tailLines, from: 0)
+        var tail: String
+        if fences.open {
+            // The open fence's last line waits while it is empty or only
+            // fence characters (a closing fence on its way).
+            if !fences.openerLast, let last = tailLines.last, last.trimmingCharacters(in: .whitespaces).allSatisfy({ $0 == "`" || $0 == "~" }) {
+                tailLines.removeLast()
+            }
+            tail = tailLines.joined(separator: "\n")
+        } else {
+            tail = tailLines.joined(separator: "\n")
+            while let held = holdTrailing(tail) { tail = String(tail.utf8.prefix(held))! }
+        }
+        var blocks = parseBlocks(tail, hard: hard)
+        offsetGroups(&blocks, by: maxGroup(stable))
+        if var last = blocks.popLast() {
+            switch last.kind {
+            case .paragraph, .heading, .quote, .listItem: last.inlines = holdBack(last.inlines)
+            default: break
+            }
+            if !(last.kind == .paragraph && last.inlines.allSatisfy { $0.text.isEmpty }) { blocks.append(last) }
+        }
+        return stable + blocks
+    }
+
+    /// Where the tail's unfinished end starts (a UTF-8 offset), outside a
+    /// fence (nil = it ends finished): a last line that is only a list
+    /// marker or heading hashes so far, a trailing run of `*` / `_`, or of
+    /// backticks / tildes unless they are the line's only text.
+    static func holdTrailing(_ tail: String) -> Int? {
+        let b = Array(tail.utf8)
+        if b.isEmpty { return nil }
+        let lineStart = (b.lastIndex(of: 10).map { $0 + 1 }) ?? 0
+        var ls = lineStart
+        while ls < b.count, b[ls] == 32 || b[ls] == 9 { ls += 1 }
+        let line = Array(b[ls...])
+        var hashesEnd = line.count
+        while hashesEnd > 0, line[hashesEnd - 1] == 32 || line[hashesEnd - 1] == 9 { hashesEnd -= 1 }
+        let hashes = line[..<hashesEnd]
+        let digits = line.prefix { $0 >= 48 && $0 <= 57 }.count
+        let marker = (line.count == 1 && (line[0] == 45 || line[0] == 43 || line[0] == 42))
+            || ((1...6).contains(hashes.count) && hashes.allSatisfy { $0 == 35 })
+            || ((1...9).contains(digits) && (line.count == digits || (line.count == digits + 1 && (line[digits] == 46 || line[digits] == 41))))
+        if marker { return max(lineStart - 1, 0) }
+        func run(_ set: Set<UInt8>) -> Int {
+            var n = 0
+            while n < b.count, set.contains(b[b.count - 1 - n]) { n += 1 }
+            return n
+        }
+        let stars = run([42, 95])
+        if stars > 0 { return b.count - stars }
+        let ticks = run([96, 126])
+        if ticks > 0 {
+            let start = b.count - ticks
+            if !b[min(lineStart, start)..<start].allSatisfy({ $0 == 32 || $0 == 9 }) { return start }
+        }
+        return nil
+    }
+
+    /// The streaming tail's last block: its plain runs (no flags, link or
+    /// chip) hold back what would flicker: an unfinished link at the end
+    /// paints as its label, and every opening delimiter run is dropped (a
+    /// maximal run of `*` / `_` / backticks, or of 2+ `~`, not after an ASCII
+    /// letter, digit or delimiter, followed by a non-space or ending the run).
+    static func holdBack(_ inlines: [MarkdownInline]) -> [MarkdownInline] {
+        func plain(_ i: MarkdownInline) -> Bool { !i.bold && !i.italic && !i.code && !i.strike && i.link == nil && i.chip == nil }
+        var out = inlines
+        if let last = out.last, plain(last), let open = last.text.lastIndex(of: "[") {
+            let rest = last.text[last.text.index(after: open)...]
+            let labelEnd = rest.firstIndex(of: "]") ?? rest.endIndex
+            let after = rest[labelEnd...]
+            let unfinished = after.isEmpty || after == "]" || (after.hasPrefix("](") && after.dropFirst(2).allSatisfy { $0 != "(" && $0 != ")" && !$0.isWhitespace })
+            if unfinished {
+                var start = open
+                if open > last.text.startIndex, last.text[last.text.index(before: open)] == "!" { start = last.text.index(before: open) }
+                out[out.count - 1].text = String(last.text[..<start]) + String(rest[..<labelEnd])
+            }
+        }
+        for i in out.indices where plain(out[i]) { out[i].text = dropDelimiters(out[i].text) }
+        return out.filter { !$0.text.isEmpty || $0.chip != nil }
+    }
+
+    static func dropDelimiters(_ s: String) -> String {
+        let b = Array(s.utf8)
+        var out: [UInt8] = []
+        out.reserveCapacity(b.count)
+        func delim(_ c: UInt8) -> Bool { c == 42 || c == 95 || c == 96 }
+        func alnum(_ c: UInt8) -> Bool { (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) }
+        func space(_ c: UInt8) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 || c == 11 || c == 12 }
+        var i = 0
+        while i < b.count {
+            let c = b[i]
+            let tilde = c == 126
+            if delim(c) || tilde {
+                var j = i
+                while j < b.count, tilde ? b[j] == 126 : delim(b[j]) { j += 1 }
+                let beforeOk = i == 0 || !(alnum(b[i - 1]) || delim(b[i - 1]) || b[i - 1] == 126)
+                let afterOk = j == b.count || !space(b[j])
+                if !(beforeOk && afterOk && (!tilde || j - i >= 2)) { out += b[i..<j] }
+                i = j
+                continue
+            }
+            out.append(c)
+            i += 1
+        }
+        return String(decoding: out, as: UTF8.self)
+    }
+
+    private static func parseBlocks(_ text: String, hard: Bool) -> [MarkdownBlock] {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         let lines = normalized.components(separatedBy: "\n")
         var blocks: [MarkdownBlock] = []
@@ -442,7 +650,7 @@ public enum Markdown {
                     if k > 0 {
                         if text.hasSuffix("\\") { text.removeLast(); text += "\n" }
                         else if text.hasSuffix("  ") { while text.hasSuffix(" ") { text.removeLast() }; text += "\n" }
-                        else { text += " " }
+                        else { text += hard ? "\n" : " " }
                     }
                     text += line
                 }
@@ -486,7 +694,17 @@ public enum Markdown {
                     body.append(l.trimmingCharacters(in: .whitespaces))
                     i += 1
                 }
-                blocks.append(MarkdownBlock(kind: .quote, inlines: parseInline(body.filter { !$0.isEmpty }.joined(separator: " "))))
+                // Paragraphs join with a space; under `hard` a paragraph's
+                // lines with a newline.
+                var joined = ""
+                var gap = false
+                for l in body {
+                    if l.isEmpty { gap = true; continue }
+                    if !joined.isEmpty { joined += hard && !gap ? "\n" : " " }
+                    joined += l
+                    gap = false
+                }
+                blocks.append(MarkdownBlock(kind: .quote, inlines: parseInline(joined)))
                 continue
             }
             if isRule(trimmed), para.isEmpty {
@@ -509,7 +727,7 @@ public enum Markdown {
                         // block continues it.
                         let next = lines[i].trimmingCharacters(in: .whitespaces)
                         guard !next.isEmpty, !startsBlock(lines[i]), let last = blocks.indices.last else { break }
-                        lastBody += " " + next
+                        lastBody += (hard ? "\n" : " ") + next
                         blocks[last].inlines = parseInline(lastBody)
                         i += 1
                         continue

@@ -166,7 +166,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     /// hooks: chips, image sizes, attachments); nil = parsed + `mediaAllowed`.
     let markdownBlocks: ((String) -> [MarkdownBlock])?
 
-    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil) {
+    /// #VAPP-258 step 5: the host's Markdown options, as the painter reads them.
+    let markdownOptions: MarkdownOptions
+
+    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil, markdownOptions: MarkdownOptions = MarkdownOptions()) {
+        self.markdownOptions = markdownOptions
         self.mediaAllowed = mediaAllowed
         self.markdownBlocks = markdownBlocks
         self.memo = memo
@@ -497,9 +501,10 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
 
     private func markdown(_ leaf: LeafRequest, wrap: CGFloat?) -> MeasuredContent {
         let text = leaf.props.str("text")
-        let blocks = markdownBlocks?(text) ?? Markdown.resolveImages(Markdown.parse(text), allowed: mediaAllowed)
+        let o = markdownOptions
+        let blocks = markdownBlocks?(text) ?? Markdown.resolveImages(Markdown.parse(text, hardBreaks: o.hardBreaks, streaming: o.streaming), allowed: mediaAllowed)
         let ts = leaf.textStyle
-        let styles = MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: leaf.props)
+        let styles = MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: MarkdownPainter.props(leaf.props, chat: o.chat))
         let shaper = MarkdownShaper(mono: theme?.monoFamily, chip: styles.chip)
         let width: CGFloat
         switch wrap {
@@ -509,8 +514,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         }
         var height = Markdown.layout(blocks, styles, width: width, text: shaper).height
         // `lines`: the first n body lines (the web's -webkit-line-clamp).
-        if let n = Self.markdownClamp(leaf.props) { height = min(height, CGFloat(n) * ts.lineHeight) }
-        return MeasuredContent(width, max(height, blocks.isEmpty ? 0 : ts.lineHeight), Self.baseline(ts))
+        if let n = Self.markdownClamp(leaf.props) { height = min(height, CGFloat(n) * styles.body.lineHeight) }
+        return MeasuredContent(width, max(height, blocks.isEmpty ? 0 : styles.body.lineHeight), Self.baseline(ts))
     }
 
     private func button(_ leaf: LeafRequest) -> MeasuredContent {

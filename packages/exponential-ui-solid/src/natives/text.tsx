@@ -5,7 +5,7 @@
 import { For, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { displayString } from "@exponential_app/eui"
-import { textLinkSegments } from "@exponential_app/eui/web"
+import { propAttribute, textLinkSegments } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -69,7 +69,7 @@ export function MarkdownNative(props: NativeProps): JSX.Element {
   const text = () => displayString(props.props.text)
   const lines = () => num(props.props.lines, 0)
   return (
-    <div {...props.rootProps} data-lines={lines() > 0 ? lines() : undefined} style={mergeStyle(props.rootProps, lines() > 0 ? { WebkitLineClamp: lines() } : undefined)}>
+    <div {...props.rootProps} {...(ctx.host.markdownOptions?.density ? { [propAttribute(false, `density`)]: ctx.host.markdownOptions.density } : {})} data-lines={lines() > 0 ? lines() : undefined} style={mergeStyle(props.rootProps, lines() > 0 ? { WebkitLineClamp: lines() } : undefined)}>
       {ctx.host.Markdown ? <Dynamic component={ctx.host.Markdown} text={text()} class="xui-md" /> : <BuiltinMarkdown text={text()} host={ctx.host} id={props.domId} />}
     </div>
   )
