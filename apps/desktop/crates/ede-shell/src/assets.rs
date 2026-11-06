@@ -14,7 +14,7 @@ use gpui::{AssetSource, Result, SharedString};
 #[include = "icons/**/*.svg"]
 struct Embedded;
 
-const ICONS_JSON: &str = include_str!("../../../../packages/icons/icons.json");
+const ICONS_JSON: &str = include_str!("../../../../../packages/icons/icons.json");
 
 pub struct Assets;
 
