@@ -42,7 +42,7 @@ export const FREE_OWNED_TEAMS_CAP = 10
 // Every plan-limit throw below uses PRECONDITION_FAILED + a message starting
 // with PLAN_LIMIT_MESSAGE_PREFIX so clients can detect it and render an
 // upgrade nudge (see lib/plan-limit-error.ts).
-function planLimitError(message: string): TRPCError {
+export function planLimitError(message: string): TRPCError {
   return new TRPCError({
     code: `PRECONDITION_FAILED`,
     message: `${PLAN_LIMIT_MESSAGE_PREFIX} ${message}`,

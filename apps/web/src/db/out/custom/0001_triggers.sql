@@ -164,6 +164,9 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON creem_subscriptions
 -- EXP-630: import jobs are written by the wizard's router and by the worker
 -- (heartbeats, progress, terminal states) — one trigger covers both.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON import_jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- #EXP-1713: team imports are written by `imports.create/chunk/commit` and
+-- by the sweep (failed, purged) — one trigger covers both.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON imports FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- FEED-154: device_keys is written by the devices router (pin rotation) and
 -- admin.clearDeviceKey — one trigger covers both.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON device_keys FOR EACH ROW EXECUTE FUNCTION update_updated_at();
