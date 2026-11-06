@@ -8337,7 +8337,7 @@
       "group": "ede",
       "title": "Exponential Desktop · settings, Team",
       "blurb": "The settings window's Team group (apps/ede/ui/settings.json): the shell's desktop/team switcher heads it with its entries open as a Popover (a hosted xdg_popup of the window), the Local desktop's General page beside it (the name, Share as a team…); the IDE's Team, Boards, Agents and Apps groups appear only for a team entry, which eDE has none of yet (#EDE-54).",
-      "order": 9,
+      "order": 19,
       "ede": {
         "size": "1280x720",
         "open": [
