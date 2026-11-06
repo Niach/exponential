@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { needsYou, type NeedsYouMessageInput, type NeedsYouRow, type NeedsYouSessionInput } from "@exp/domain-contract/needs-you"
 import { resultAge } from "@exp/domain-contract/results-tab"
-import { stuckRow, type HoldReason, type StuckRow, type TeamMergeMode } from "@exp/domain-contract/merge-train"
+import { offlineSince, stuckRow, type HoldReason, type StuckRow, type TeamMergeMode } from "@exp/domain-contract/merge-train"
 import { useLiveQuery } from "@tanstack/react-db"
 import { useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
 import { deviceCollection, sessionCollection } from "@/lib/collections"
@@ -24,11 +24,15 @@ import { prMergeState, type PullRequestRow, type SessionRow } from "@/lib/sessio
 // (held by the limits, or a fix waiting 2 h+ on the opener's offline device)
 // is ONE `pr` row titled `Auto-merge stuck on #N`, meta = the reason, with
 // its Retry / Merge now (owners) / Close PR actions; it replaces that PR's
-// ready-to-merge row and sorts with the PR rows (newest first).
+// ready-to-merge row and sorts with the PR rows (newest first). An
+// `approval`-mode ready row carries its PR: its press is Needs approval (THE
+// pill's confirm), never the chat.
 
-/** A Needs you row; a stuck PR's carries its PR and actions. */
+/** A Needs you row; a stuck PR's carries its PR and actions, an `approval`
+ *  ready PR's its PR to approve. */
 export type NeedsYouListRow = NeedsYouRow & {
   stuck?: { pullRequest: PullRequestRow; actions: StuckRow[`actions`] }
+  approve?: PullRequestRow
 }
 
 const iso = (value: unknown): string => {
@@ -120,7 +124,7 @@ export function useNeedsYou(
       })),
       mergeMode,
     })
-    return withStuckRows(base, {
+    const folded = withStuckRows(base, {
       pullRequests,
       sessions: byId,
       chats: new Map(input.map((row) => [row.id, row.name])),
@@ -128,6 +132,7 @@ export function useNeedsYou(
       now,
       owner,
     })
+    return withApprovals(folded, pullRequests, mergeMode)
   }, [sessions, agents, titles, inputs, pullRequests, now, me, owner, byId, deviceRows, mergeMode])
 
   return { rows, isReady: sessionsReady && digestsReady }
@@ -153,15 +158,7 @@ export function withStuckRows(
   for (const pr of input.pullRequests) {
     const rootId = pr.rootSessionId
     if (!rootId || (pr.state !== `open` && pr.state !== `draft`)) continue
-    const opener = input.sessions.get(pr.sessionId ?? rootId)
-    let deviceOfflineSince: string | null = null
-    if (opener?.deviceId && opener.userId) {
-      const host = { deviceId: opener.deviceId, userId: opener.userId }
-      if (resolveSessionDevice(host, devices, new Date(now)).online === false) {
-        const row = devices.find((d) => d.deviceId === host.deviceId && d.userId === host.userId)
-        deviceOfflineSince = iso((row ?? devices.find((d) => d.deviceId === host.deviceId))?.lastSeenAt)
-      }
-    }
+    const deviceOfflineSince = prDeviceOfflineSince(pr, rootId, input.sessions, devices, now)
     const view = stuckRow({
       number: pr.number,
       state: prMergeState(pr),
@@ -192,6 +189,49 @@ export function withStuckRows(
     (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
   )
   return [...decisions, ...prs]
+}
+
+/** merge-train `offlineSince` over the synced rows: the opener = the PR's
+ *  `sessionId` session, else its root; its device = THE device presence
+ *  (`resolveSessionDevice`) and that row's `lastSeenAt`, null when no devices
+ *  row is synced (an unknown last-seen = since the PR's `updatedAt`). */
+export function prDeviceOfflineSince(
+  pr: Pick<PullRequestRow, `sessionId` | `updatedAt`>,
+  rootId: string,
+  sessions: ReadonlyMap<string, Pick<SessionRow, `deviceId` | `userId`>>,
+  devices: readonly Device[],
+  now: number
+): string | null {
+  const opener = (pr.sessionId ? sessions.get(pr.sessionId) : undefined) ?? sessions.get(rootId)
+  const deviceId = opener?.deviceId || null
+  let device: { online: boolean; lastSeenAt: string | null } | null = null
+  if (deviceId) {
+    const matches = devices.filter((d) => d.deviceId === deviceId)
+    const row = matches.find((d) => d.userId === opener?.userId) ?? matches[0]
+    if (row) {
+      // A row without a heartbeat is never online.
+      const online =
+        row.lastSeenAt != null &&
+        resolveSessionDevice({ deviceId, userId: opener?.userId ?? `` }, devices, new Date(now)).online === true
+      device = { online, lastSeenAt: row.lastSeenAt != null ? iso(row.lastSeenAt) : null }
+    }
+  }
+  return offlineSince({ opener: deviceId !== null, device, updatedAt: iso(pr.updatedAt) })
+}
+
+/** #EXP-1710: in `approval` mode a ready PR row (kind `pr`, not stuck) carries
+ *  its PR, whose press asks THE pill's Needs approval confirm. */
+export function withApprovals(
+  rows: readonly NeedsYouListRow[],
+  pullRequests: readonly PullRequestRow[],
+  mergeMode: TeamMergeMode
+): NeedsYouListRow[] {
+  if (mergeMode !== `approval`) return rows as NeedsYouListRow[]
+  const byId = new Map(pullRequests.map((pr) => [pr.id, pr]))
+  return rows.map((row) => {
+    const pr = row.kind === `pr` && !row.stuck ? byId.get(row.messageId) : undefined
+    return pr ? { ...row, approve: pr } : row
+  })
 }
 
 /** Where a row opens, pure (fixture `opens`): a plan = plan-page.json's deep

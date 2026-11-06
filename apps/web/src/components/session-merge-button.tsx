@@ -85,6 +85,100 @@ function useTrainSize(trainId: string | null): number | null {
 }
 
 
+/** #EXP-1710: THE Needs approval confirm over one PR (the pill's tap and a
+ *  Needs you `approval` row's press share it): `request()` asks the plain
+ *  confirm (prompts.json merge-issue-pr / merge-run-pr) or the stack confirm
+ *  when the PR has an open stack, and Merge calls `pullRequests.merge`, which
+ *  QUEUES it (the train on: never a direct merge). Cancel closes it. Render
+ *  `dialog` once; `onSettled` runs when the confirm closes either way. */
+export function usePullRequestApproval(
+  pr: Pick<PullRequestRow, `id` | `number` | `head` | `base` | `state` | `url` | `repositoryId`> | null,
+  onSettled?: () => void
+): { ready: boolean; busy: boolean; stack: boolean; request: () => void; dialog: ReactNode } {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [stackOpen, setStackOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const active = pr !== null && pr.state === `open`
+  const stack = usePullRequestStackConfirm(active ? pr : null)
+  const linked = useLinkedIssueCount(pr?.id ?? ``, active)
+  const copy =
+    linked > 0
+      ? mergeIssuePrPrompt({ number: pr?.number ?? 0, count: linked })
+      : mergeRunPrPrompt(pr?.number ?? 0)
+
+  useEffect(() => {
+    if (active) return
+    setBusy(false)
+    setConfirmOpen(false)
+    setStackOpen(false)
+  }, [active])
+
+  const settle = () => {
+    setConfirmOpen(false)
+    setStackOpen(false)
+    onSettled?.()
+  }
+
+  const approve = async (input: { pullRequestId: string; stack?: boolean }) => {
+    setBusy(true)
+    const what = input.stack ? `the stack` : `the PR`
+    try {
+      const result = await trpc.pullRequests.merge.mutate(input, SKIP_ERROR_TOAST)
+      settle()
+      if (result.error) failedAction(`merge`, what, result.error)
+    } catch (error) {
+      settle()
+      failedAction(`merge`, what, mergeFailure(error, `The pull request could not be merged`).message, {
+        retry: () => void approve(input),
+      })
+    } finally {
+      // The echo moves the row off `approval` (queued); until then the
+      // spinner shows only while the call is in flight.
+      setBusy(false)
+    }
+  }
+
+  const request = () => {
+    if (!active || !stack.ready) return
+    if (stack.confirm) setStackOpen(true)
+    else setConfirmOpen(true)
+  }
+
+  const dialog = active ? (
+    <>
+      <StackMergeConfirmDialog
+        confirm={stackOpen ? stack.confirm : null}
+        busy={busy}
+        onCancel={settle}
+        onConfirm={(input) => void approve({ pullRequestId: input.issueId, stack: true })}
+      />
+      <span className="contents" onClick={(event) => event.stopPropagation()}>
+        <Prompt
+          open={confirmOpen}
+          onOpenChange={(next) => {
+            if (next) setConfirmOpen(true)
+            else settle()
+          }}
+          busy={busy}
+          title={copy.title}
+          body={copy.body}
+          actions={promptActions(copy, {
+            merge: {
+              busy,
+              leading: <PrMergedIcon />,
+              onSelect: () => {
+                if (pr) void approve({ pullRequestId: pr.id })
+              },
+            },
+          })}
+        />
+      </span>
+    </>
+  ) : null
+
+  return { ready: stack.ready, busy, stack: Boolean(stack.confirm), request, dialog }
+}
+
 export function PullRequestStatusPill({
   pr,
   member = true,
@@ -95,15 +189,11 @@ export function PullRequestStatusPill({
   member?: boolean
   className?: string
 }) {
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [stackOpen, setStackOpen] = useState(false)
   const [checksOpen, setChecksOpen] = useState(false)
-  const [approving, setApproving] = useState(false)
   const open = pr.state === `open`
   const state = prMergeState(pr)
   const approval = open && member && state === `checks` && pr.mergeWait === `approval`
-  const stack = usePullRequestStackConfirm(approval ? pr : null)
-  const linked = useLinkedIssueCount(pr.id, approval)
+  const approve = usePullRequestApproval(approval ? pr : null)
   const checks = usePullRequestChecks(pr.id)
   const batchSize = useTrainSize(state === `testing` ? (pr.mergeTrainId ?? null) : null)
   const computed = statusPill({
@@ -112,7 +202,7 @@ export function PullRequestStatusPill({
     position: pr.mergePosition ?? null,
     batchSize,
     holdReason: (pr.mergeHold ?? null) as HoldReason | null,
-    stack: Boolean(stack.confirm),
+    stack: approve.stack,
     checks: checks.length,
   })
   // A viewer's `Needs approval` is a status they cannot act on.
@@ -120,56 +210,22 @@ export function PullRequestStatusPill({
     computed.tap === `approve` && !approval
       ? { ...computed, primary: false, tap: checks.length > 0 ? (`checks` as const) : null }
       : computed
-  const copy =
-    linked > 0
-      ? mergeIssuePrPrompt({ number: pr.number, count: linked })
-      : mergeRunPrPrompt(pr.number)
-
-  useEffect(() => {
-    if (approval) return
-    setApproving(false)
-    setConfirmOpen(false)
-    setStackOpen(false)
-  }, [approval])
 
   if (pr.state === `closed`) return null
-
-  const approve = async (input: { pullRequestId: string; stack?: boolean }) => {
-    setApproving(true)
-    const what = input.stack ? `the stack` : `the PR`
-    try {
-      const result = await trpc.pullRequests.merge.mutate(input, SKIP_ERROR_TOAST)
-      setConfirmOpen(false)
-      setStackOpen(false)
-      if (result.error) failedAction(`merge`, what, result.error)
-    } catch (error) {
-      setConfirmOpen(false)
-      setStackOpen(false)
-      failedAction(`merge`, what, mergeFailure(error, `The pull request could not be merged`).message, {
-        retry: () => void approve(input),
-      })
-    } finally {
-      // The echo moves the row off `approval` (queued); until then the pill
-      // keeps its spinner only while the call is in flight.
-      setApproving(false)
-    }
-  }
 
   const pill = (
     <PrStatusPill
       view={view}
-      busy={approving}
-      disabled={view.tap === `approve` && (approving || !stack.ready)}
-      aria-label={approving ? FEEDBACK_WORDS.pending.merge : view.label}
+      busy={approve.busy}
+      disabled={view.tap === `approve` && (approve.busy || !approve.ready)}
+      aria-label={approve.busy ? FEEDBACK_WORDS.pending.merge : view.label}
       title={view.label}
       data-testid={MERGE_TRAIN_TEST_IDS.statusPill}
       data-state={state}
       className={className}
       onClick={(event) => {
         event.stopPropagation()
-        if (view.tap !== `approve`) return
-        if (stack.confirm) setStackOpen(true)
-        else setConfirmOpen(true)
+        if (view.tap === `approve`) approve.request()
       }}
     />
   )
@@ -196,28 +252,7 @@ export function PullRequestStatusPill({
   return (
     <>
       {pill}
-      <StackMergeConfirmDialog
-        confirm={stackOpen ? stack.confirm : null}
-        busy={approving}
-        onCancel={() => setStackOpen(false)}
-        onConfirm={(input) => void approve({ pullRequestId: input.issueId, stack: true })}
-      />
-      <span className="contents" onClick={(event) => event.stopPropagation()}>
-        <Prompt
-          open={confirmOpen}
-          onOpenChange={setConfirmOpen}
-          busy={approving}
-          title={copy.title}
-          body={copy.body}
-          actions={promptActions(copy, {
-            merge: {
-              busy: approving,
-              leading: <PrMergedIcon />,
-              onSelect: () => void approve({ pullRequestId: pr.id }),
-            },
-          })}
-        />
-      </span>
+      {approve.dialog}
     </>
   )
 }

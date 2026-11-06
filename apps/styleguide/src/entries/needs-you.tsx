@@ -3,14 +3,15 @@ import { NeedsYouSpecimen } from "@exp/ui"
 import type { StyleguideEntry } from "./types.ts"
 
 // #FEED-191 NEEDS YOU (fixtures/needs-you.json): the list's rows (`cases[1]`)
-// and the phones' entry row (and the app's `?dev=needs-you` capture).
+// + ONE stuck PR row (#EXP-1710, merge-train.json `stuckRow` cases[0]) and the
+// phones' entry row (and the app's `?dev=needs-you` capture).
 
 export const entry: StyleguideEntry = {
   id: `needs-you`,
   section: `special`,
   owner: `FEED-191`,
   title: `Needs you`,
-  blurb: `Every plan and question waiting on the viewer and every PR ready to merge (fixture \`needs-you.json\` ×4; Exponential-specific, not genUI): one reading column of THE inbox page's ListRow, newest first: the glyph in the needs-you tone, the title with its age muted at the end, then the chat · meta muted. A press opens the chat on the right tab. None = THE EmptyState. Wide: a sidebar entry right after Agent with a count Badge, gone at 0. Phones: the first row of Chats (the row above the list here), pushing the list.`,
+  blurb: `Every plan and question waiting on the viewer and every PR ready to merge (fixture \`needs-you.json\` ×4; Exponential-specific, not genUI): one reading column of THE inbox page's ListRow, newest first: the glyph in the needs-you tone, the title with its age muted at the end, then the chat · meta muted. A press opens the chat on the right tab; an \`approval\`-mode ready PR's press asks Needs approval. A stuck PR (\`Auto-merge stuck on #12\`, \`3 bounces\`) carries Retry · Merge now · Close PR. None = THE EmptyState. Wide: a sidebar entry right after Agent with a count Badge, gone at 0. Phones: the first row of Chats (the row above the list here), pushing the list.`,
   status: {
     web: {
       state: `ok`,

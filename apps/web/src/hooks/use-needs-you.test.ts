@@ -6,7 +6,7 @@ vi.mock(`@/hooks/use-team-data`, () => ({}))
 vi.mock(`@/components/thread/threads-list`, () => ({}))
 vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => vi.fn() }))
 
-const { needsYouDestination, withStuckRows } = await import(`./use-needs-you`)
+const { needsYouDestination, prDeviceOfflineSince, withApprovals, withStuckRows } = await import(`./use-needs-you`)
 
 const sessions = new Map<string, { id: string; rootId: string; agentId: string | null; userId: string | null }>([
   [`r`, { id: `r`, rootId: `r`, agentId: null, userId: `me` }],
@@ -71,11 +71,11 @@ describe(`withStuckRows`, () => {
   const pr = (over: Record<string, unknown>) =>
     ({
       id: `p1`, number: 12, state: `open`, rootSessionId: `r1`, sessionId: `c1`, mergeState: `held`,
-      mergeHold: `bounces`, createdAt: `2027-01-15T07:00:00.000Z`, ...over,
+      mergeHold: `bounces`, createdAt: `2027-01-15T07:00:00.000Z`, updatedAt: `2027-01-15T07:30:00.000Z`, ...over,
     }) as never
   const sessions = new Map([[`c1`, { deviceId: `mac`, userId: `me` }]])
   const chats = new Map([[`r1`, `Palette`]])
-  const devices = (lastSeenAt: string) => [{ deviceId: `mac`, userId: `me`, label: `Mac`, lastSeenAt }] as never
+  const devices = (lastSeenAt: string | null) => [{ deviceId: `mac`, userId: `me`, label: `Mac`, lastSeenAt }] as never
 
   it(`a PR held by the bounces replaces its ready row, under the decisions`, () => {
     const rows = withStuckRows([decision, ready], {
@@ -102,5 +102,66 @@ describe(`withStuckRows`, () => {
     expect(
       withStuckRows([], { pullRequests: [pr({ mergeHold: `person` })], sessions, chats, devices: [], now, owner: true })
     ).toEqual([])
+  })
+
+  it(`an unknown last-seen (no devices row, or none synced yet) = offline since the PR's updatedAt`, () => {
+    const conflict = (updatedAt: string) => pr({ mergeState: `conflict`, mergeHold: null, updatedAt })
+    const at = (updatedAt: string, list: never) =>
+      withStuckRows([], { pullRequests: [conflict(updatedAt)], sessions, chats, devices: list, now, owner: true })
+    // No devices row synced: never online, waits 2 h from the PR's last write.
+    expect(at(`2027-01-15T09:00:00.000Z`, [] as never)).toEqual([])
+    expect(at(`2027-01-15T08:00:00.000Z`, [] as never)[0]?.meta).toBe(`Device offline`)
+    // A row without a heartbeat.
+    expect(at(`2027-01-15T08:00:00.000Z`, devices(null))[0]?.meta).toBe(`Device offline`)
+  })
+})
+
+// merge-train.json `offlineSince` over the synced rows.
+describe(`prDeviceOfflineSince`, () => {
+  const now = Date.parse(`2027-01-15T10:00:00.000Z`)
+  const updatedAt = `2027-01-15T08:00:00.000Z`
+  const sessions = new Map([
+    [`r1`, { deviceId: `mac`, userId: `me` }],
+    [`c1`, { deviceId: `pc`, userId: `me` }],
+    [`r2`, { deviceId: ``, userId: `me` }],
+  ])
+  const device = (deviceId: string, lastSeenAt: string | null) => ({ deviceId, userId: `me`, label: deviceId, lastSeenAt })
+  const since = (sessionId: string | null, rootId: string, list: unknown[]) =>
+    prDeviceOfflineSince({ sessionId, updatedAt } as never, rootId, sessions, list as never, now)
+
+  it(`the opener's device online = none; offline = its last heartbeat`, () => {
+    expect(since(`c1`, `r1`, [device(`pc`, `2027-01-15T09:59:50.000Z`)])).toBeNull()
+    expect(since(`c1`, `r1`, [device(`pc`, `2027-01-15T07:30:00.000Z`)])).toBe(`2027-01-15T07:30:00.000Z`)
+  })
+
+  it(`an unknown last-seen = the PR's updatedAt`, () => {
+    expect(since(`c1`, `r1`, [device(`pc`, null)])).toBe(updatedAt)
+    expect(since(`c1`, `r1`, [device(`mac`, `2027-01-15T09:59:50.000Z`)])).toBe(updatedAt)
+  })
+
+  it(`no sessionId session synced = the root; no device on the opener = none`, () => {
+    expect(since(null, `r1`, [device(`mac`, `2027-01-15T07:00:00.000Z`)])).toBe(`2027-01-15T07:00:00.000Z`)
+    expect(since(`gone`, `r1`, [])).toBe(updatedAt)
+    expect(since(null, `r2`, [])).toBeNull()
+    expect(since(null, `unknown`, [])).toBeNull()
+  })
+})
+
+// #EXP-1710: an `approval` ready PR row's press = Needs approval.
+describe(`withApprovals`, () => {
+  const ready = {
+    messageId: `p1`, sessionId: `r1`, rootId: `r1`, kind: `pr` as const, opens: `results` as const,
+    title: `Ship`, chat: `Palette`, meta: `#12`, age: `3h`, createdAt: `2027-01-15T07:00:00.000Z`,
+  }
+  const pr = { id: `p1`, number: 12 } as never
+
+  it(`approval mode: the ready row carries its PR; a stuck row never`, () => {
+    expect(withApprovals([ready], [pr], `approval`)[0]?.approve).toBe(pr)
+    const stuck = { ...ready, stuck: { pullRequest: pr, actions: [] } }
+    expect(withApprovals([stuck], [pr], `approval`)[0]?.approve).toBeUndefined()
+  })
+
+  it(`auto mode: untouched`, () => {
+    expect(withApprovals([ready], [pr], `auto`)[0]?.approve).toBeUndefined()
   })
 })
