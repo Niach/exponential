@@ -1,0 +1,4 @@
+id = "at.exponential.samples.photobook"
+name = "Photobook"
+version = "1.0.0"
+network = "off"
