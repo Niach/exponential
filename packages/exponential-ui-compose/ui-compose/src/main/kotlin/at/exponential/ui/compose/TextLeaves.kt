@@ -320,7 +320,7 @@ internal fun SurfaceModel.codeTokenPart(kind: String, base: Props = emptyMap()):
  * highlight; an unknown language tokenizes as all `plain`; tokens that do
  * not concatenate back to the text colour nothing.
  */
-internal fun markdownCodeSpans(text: String, lang: String?, color: (String) -> Color?): List<MarkdownCodeSpan> {
+fun markdownCodeSpans(text: String, lang: String?, color: (String) -> Color?): List<MarkdownCodeSpan> {
     if (lang.isNullOrEmpty() || lang == "plain" || lang == "ansi" || text.isEmpty()) return emptyList()
     val out = ArrayList<MarkdownCodeSpan>()
     val joined = StringBuilder()
@@ -449,7 +449,8 @@ internal fun MarkdownLeaf(cx: LeafContext) {
     // #VAPP-258 step 5: the host's options (the chat rhythm, hard breaks, streaming, selection).
     val options = model.host.markdownOptions
     val props = remember(cx.props, options.chat) { MarkdownPainter.props(cx.props, options.chat) }
-    val styles = remember(theme, model.mode, cx.textStyle, props) { MarkdownPainter.styles(theme, model.mode, cx.textStyle, props) }
+    val scale = model.textScale
+    val styles = remember(theme, model.mode, cx.textStyle, props, scale) { MarkdownPainter.styles(theme, model.mode, cx.textStyle, props, scale) }
     val muted = cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f)
     val border = cx.themeColor("border") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.2f)
     val taskOff = cx.part("Checkbox", "box", TASK_OFF)
@@ -482,6 +483,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             modifier = Modifier.fillMaxSize().clipToBounds(),
             styles = styles,
             options = options,
+            viewportHeight = model.viewportHeight.takeIf { it > 0f },
             colors = colors,
             codeBlockRadius = (theme?.radius("md") ?: 6f).dp,
             monoFamily = theme?.monoFamily,
@@ -500,6 +502,13 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             image = { src, alt ->
                 val picture = rememberPolicedImage(model, src)
                 if (picture != null) {
+                    // #VAPP-258 (markdown-host.json `loaded`): a picture the host
+                    // could not size reports its decoded size; the leaf measures
+                    // again at that aspect (no gap under it).
+                    androidx.compose.runtime.LaunchedEffect(picture, src) {
+                        at.exponential.ui.primitives.MarkdownImageSizes.remember(src, picture.width.toFloat(), picture.height.toFloat())
+                        if (model.markdownImageSize(src) == null) model.remeasure(cx.index)
+                    }
                     androidx.compose.foundation.Image(
                         picture,
                         alt,
@@ -547,7 +556,7 @@ private fun MarkdownAttachmentView(
             )
         }
         "audio" -> Box(Modifier.size(w.dp, h.dp)) {
-            val ts = MarkdownPainter.audioTitle(model.effectiveTheme, model.mode, cx.textStyle)
+            val ts = MarkdownPainter.audioTitle(model.effectiveTheme, model.mode, cx.textStyle, model.textScale)
             val color = cx.part("AudioPlayer", "track", emptyMap()).color ?: cx.ink
             AudioView(cx, src = href, title = attachmentName, durationMs = null, rowHeight = styles.audioRow) {
                 BasicText(it, style = cx.composeTextStyle(ts = ts, color = color), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)

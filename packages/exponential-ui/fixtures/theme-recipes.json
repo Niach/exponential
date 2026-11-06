@@ -2361,6 +2361,61 @@
       }
     },
     {
+      "component": "Markdown",
+      "part": "image",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "borderRadius": 6
+            }
+          },
+          "dark": {
+            "default": {
+              "borderRadius": 6
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "borderRadius": 8
+            }
+          },
+          "dark": {
+            "default": {
+              "borderRadius": 8
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "borderRadius": 10
+            }
+          },
+          "dark": {
+            "default": {
+              "borderRadius": 10
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "borderRadius": 8
+            }
+          },
+          "dark": {
+            "default": {
+              "borderRadius": 8
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "CodeBlock",
       "part": "root",
       "props": {

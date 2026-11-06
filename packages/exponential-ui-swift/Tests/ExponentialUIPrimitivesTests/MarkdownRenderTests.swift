@@ -14,8 +14,11 @@ final class MarkdownRenderTests: XCTestCase {
         XCTAssertFalse(boxes.isEmpty)
         for b in boxes {
             let name = b["name"] as! String
-            let size = (b["size"] as? [String: Double]).map { CGSize(width: $0["width"]!, height: $0["height"]!) }
-            let box = Markdown.imageBox(size: size, available: CGFloat(b["available"] as! Double), maxHeight: 160)
+            let pair = { (v: Any?) in (v as? [String: Double]).map { CGSize(width: $0["width"]!, height: $0["height"]!) } }
+            // `loaded`: an unknown (or invalid) host size takes the decoded one.
+            let size = Markdown.imageSize(host: pair(b["size"]), loaded: pair(b["loaded"]))
+            let cap: CGFloat? = b.keys.contains("maxHeight") ? (b["maxHeight"] as? Double).map { CGFloat($0) } : 160
+            let box = Markdown.imageBox(size: size, available: CGFloat(b["available"] as! Double), maxHeight: cap, viewport: (b["viewport"] as? Double).map { CGFloat($0) })
             let expected = b["box"] as! [String: Double]
             XCTAssertEqual(box.width, expected["width"]!, accuracy: 0.01, name)
             XCTAssertEqual(box.height, expected["height"]!, accuracy: 0.01, name)

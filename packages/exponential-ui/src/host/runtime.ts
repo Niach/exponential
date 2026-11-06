@@ -64,7 +64,7 @@ export interface HostPolicy {
   attachment?: (href: string) => { kind: `video` | `audio` | `file`; name: string } | null
   /** #VAPP-258 step 5 (catalog/host.json `markdown.options`): how this
    *  host's Markdowns render (unset = the defaults). */
-  markdownOptions?: { breaks?: `soft` | `hard`; density?: `document` | `chat`; selectable?: boolean; streaming?: boolean }
+  markdownOptions?: { breaks?: `soft` | `hard`; density?: `document` | `chat`; selectable?: boolean; streaming?: boolean; imageMaxHeight?: number | null }
   media?: MediaOptions
 }
 

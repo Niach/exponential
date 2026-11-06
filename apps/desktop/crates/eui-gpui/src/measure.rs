@@ -771,7 +771,7 @@ impl<'a> GpuiMeasure<'a> {
         let blocks = markdown::hosted(self.fonts.host.as_ref(), &parsed, self.cx).unwrap_or(parsed);
         let ts = leaf.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
-        let styles = MdStyles::resolve(self.theme, self.mode, body, &markdown::density_props(leaf.props, options.chat));
+        let styles = MdStyles::resolve(self.theme, self.mode, body, &markdown::density_props(leaf.props, options.chat)).imaged(&options, f32::from(self.window.viewport_size().height));
         let line_height = styles.body.line_height;
         let clamp = num_prop(leaf.props, "lines").filter(|n| *n > 0.0).map(|n| n as usize);
         let mut s = self.shaper();

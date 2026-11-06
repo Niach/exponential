@@ -1,5 +1,5 @@
 {
-  "$comment": "#VAPP-258 (catalog/host.json `markdown`): the host hooks a Markdown asks, as a FAKE HOST's answers → the normal form of fixtures/markdown-render.json AFTER the hooks and the URL policy, replayed by React and Solid (web/markdown.ts `hostMarkdown` + markdown-normal.ts), Swift, Compose and gpui. THE NORMAL FORM ADDS: on a run, `link` = the href AS PAINTED (policed: a denied link is no link; the fixture's markdown destinations are canonical absolute urls, so policed = written) and `chip: {kind, label, icon?}` (a chip run never merges with a neighbour); `{kind: \"attachment\", type, name, href}` blocks; `width` / `height` on an `image` block the host sized. THE FAKE HOST, with the URL policy `policy` (otherwise the default): `textLinks(piece)` scans the piece left to right and, at each index, takes the FIRST key of `links` (in order) the piece continues with as a segment `{text: key, href, chip?}` from its value (everything between = plain segments; no key found = null); `imageSize(src)` = `images[src]` (else null); `attachment(href)` = `attachments[href]` (else null). `imageBoxes`: the block image box for `size` (null = the host does not know) in `available` px (`imageMaxHeight` 160): {width, height}, compared to 0.01.",
+  "$comment": "#VAPP-258 (catalog/host.json `markdown`): the host hooks a Markdown asks, as a FAKE HOST's answers → the normal form of fixtures/markdown-render.json AFTER the hooks and the URL policy, replayed by React and Solid (web/markdown.ts `hostMarkdown` + markdown-normal.ts), Swift, Compose and gpui. THE NORMAL FORM ADDS: on a run, `link` = the href AS PAINTED (policed: a denied link is no link; the fixture's markdown destinations are canonical absolute urls, so policed = written) and `chip: {kind, label, icon?}` (a chip run never merges with a neighbour); `{kind: \"attachment\", type, name, href}` blocks; `width` / `height` on an `image` block the host sized. THE FAKE HOST, with the URL policy `policy` (otherwise the default): `textLinks(piece)` scans the piece left to right and, at each index, takes the FIRST key of `links` (in order) the piece continues with as a segment `{text: key, href, chip?}` from its value (everything between = plain segments; no key found = null); `imageSize(src)` = `images[src]` (else null); `attachment(href)` = `attachments[href]` (else null). `imageBoxes`: the block image box for `size` (null = the host does not know) in `available` px under `maxHeight` (absent = `imageMaxHeight` 160; a number = that cap; null = none, catalog/host.json `markdown.options.imageMaxHeight`) and the renderer's `viewport` height (absent = unknown), with `loaded` = the size the image DECODED at (absent = not loaded yet: an unknown size keeps the placeholder box): a size the host does not know (null or invalid) takes the loaded size, so the box relayouts once to the picture's real aspect (no gap under it; the measurer asks the same media cache, measure = paint), and a host size always wins: {width, height}, compared to 0.01.",
   "policy": {
     "baseUrl": "https://app.example/",
     "linkBase": "/t/acme"
@@ -697,6 +697,196 @@
       "box": {
         "width": 320,
         "height": 160
+      }
+    },
+    {
+      "name": "a custom cap: tall, capped by it",
+      "size": {
+        "width": 300,
+        "height": 1200
+      },
+      "available": 320,
+      "maxHeight": 240,
+      "box": {
+        "width": 60,
+        "height": 240
+      }
+    },
+    {
+      "name": "a custom cap: no size = available × the cap",
+      "size": null,
+      "available": 320,
+      "maxHeight": 240,
+      "box": {
+        "width": 320,
+        "height": 240
+      }
+    },
+    {
+      "name": "no cap: a screenshot fills the width at its aspect",
+      "size": {
+        "width": 1600,
+        "height": 900
+      },
+      "available": 320,
+      "maxHeight": null,
+      "box": {
+        "width": 320,
+        "height": 180
+      }
+    },
+    {
+      "name": "no cap: a small image grows to the width",
+      "size": {
+        "width": 120,
+        "height": 60
+      },
+      "available": 320,
+      "maxHeight": null,
+      "box": {
+        "width": 320,
+        "height": 160
+      }
+    },
+    {
+      "name": "no cap: no size = the width at 4:3",
+      "size": null,
+      "available": 320,
+      "maxHeight": null,
+      "box": {
+        "width": 320,
+        "height": 240
+      }
+    },
+    {
+      "name": "no cap: a tall capture stops at the viewport height",
+      "size": {
+        "width": 300,
+        "height": 1200
+      },
+      "available": 320,
+      "maxHeight": null,
+      "viewport": 600,
+      "box": {
+        "width": 150,
+        "height": 600
+      }
+    },
+    {
+      "name": "no cap, no viewport: a tall capture keeps the width",
+      "size": {
+        "width": 300,
+        "height": 1200
+      },
+      "available": 320,
+      "maxHeight": null,
+      "box": {
+        "width": 320,
+        "height": 1280
+      }
+    },
+    {
+      "name": "no cap: shorter than the viewport keeps the width",
+      "size": {
+        "width": 1600,
+        "height": 900
+      },
+      "available": 320,
+      "maxHeight": null,
+      "viewport": 600,
+      "box": {
+        "width": 320,
+        "height": 180
+      }
+    },
+    {
+      "name": "no cap: a non-positive size = the width at 4:3",
+      "size": {
+        "width": 0,
+        "height": 40
+      },
+      "available": 320,
+      "maxHeight": null,
+      "viewport": 200,
+      "box": {
+        "width": 266.6666666666667,
+        "height": 200
+      }
+    },
+    {
+      "name": "loaded, no host size, no cap: the width at the loaded aspect",
+      "size": null,
+      "loaded": {
+        "width": 1600,
+        "height": 400
+      },
+      "available": 320,
+      "maxHeight": null,
+      "box": {
+        "width": 320,
+        "height": 80
+      }
+    },
+    {
+      "name": "loaded, no host size, the default cap: the loaded size scaled to fit",
+      "size": null,
+      "loaded": {
+        "width": 800,
+        "height": 200
+      },
+      "available": 320,
+      "box": {
+        "width": 320,
+        "height": 80
+      }
+    },
+    {
+      "name": "loaded tall, no cap: stops at the viewport",
+      "size": null,
+      "loaded": {
+        "width": 300,
+        "height": 1200
+      },
+      "available": 320,
+      "maxHeight": null,
+      "viewport": 600,
+      "box": {
+        "width": 150,
+        "height": 600
+      }
+    },
+    {
+      "name": "an invalid host size takes the loaded one",
+      "size": {
+        "width": 0,
+        "height": 40
+      },
+      "loaded": {
+        "width": 400,
+        "height": 300
+      },
+      "available": 320,
+      "maxHeight": null,
+      "box": {
+        "width": 320,
+        "height": 240
+      }
+    },
+    {
+      "name": "the host's size wins over the loaded one",
+      "size": {
+        "width": 1600,
+        "height": 900
+      },
+      "loaded": {
+        "width": 100,
+        "height": 100
+      },
+      "available": 320,
+      "maxHeight": null,
+      "box": {
+        "width": 320,
+        "height": 180
       }
     }
   ]

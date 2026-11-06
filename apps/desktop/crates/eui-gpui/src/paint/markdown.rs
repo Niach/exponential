@@ -400,10 +400,20 @@ fn usable_size(size: Option<(f32, f32)>) -> Option<(f32, f32)> {
     size.filter(|(w, h)| w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0)
 }
 
-/// #VAPP-258: a block image's box `(width, height)` in `available` px: the
-/// natural size scaled by min(1, available / width, max_height / height),
-/// else the fixed box (available × max_height).
-pub fn image_box(size: Option<(f32, f32)>, available: f32, max_height: f32) -> (f32, f32) {
+/// #VAPP-258: a block image's box `(width, height)` in `available` px. With
+/// a `max_height` cap: the natural size scaled by min(1, available / width,
+/// max_height / height), else the fixed box (available × max_height). With
+/// none: the available width at the size's aspect (4:3 unknown), scaled down
+/// to `viewport` when taller (`None` = no limit).
+pub fn image_box(size: Option<(f32, f32)>, available: f32, max_height: Option<f32>, viewport: Option<f32>) -> (f32, f32) {
+    let Some(max_height) = max_height else {
+        let ratio = usable_size(size).map_or(eui_core::host::MARKDOWN_UNSIZED_ASPECT as f32, |(w, h)| h / w);
+        let h = available * ratio;
+        return match viewport.filter(|v| v.is_finite() && *v > 0.0) {
+            Some(v) if h > v => (v / ratio, v),
+            _ => (available, h),
+        };
+    };
     match usable_size(size) {
         Some((w, h)) => {
             let k = 1f32.min(available / w).min(max_height / h);
@@ -467,7 +477,9 @@ pub fn hosted(host: &dyn crate::host::HostPlugin, blocks: &[Block], cx: &App) ->
         blocks,
         &MdHooks {
             attachment: &|href| host.attachment(href, cx),
-            image_size: &|src| host.image_size(src, cx),
+            // #VAPP-258 (markdown-host.json `loaded`): an unknown size is the
+            // decoded one once the picture loaded (the media cache).
+            image_size: &|src| usable_size(host.image_size(src, cx)).or_else(|| crate::media::loaded_size(src)),
             href: &|href| eui_core::host::safe_href(urls.as_ref(), href),
             text_links: &|piece| host.text_links(piece, cx).and_then(|links| eui_core::host::police_text_links(urls.as_ref(), piece, links)),
         },
@@ -1163,8 +1175,14 @@ pub struct MdStyles {
     pub heading_top: f32,
     pub heading_bottom: f32,
     pub list_indent: f32,
-    /// A block image's box height (loaded or not, so measure = paint).
-    pub image_height: f32,
+    /// A block image's box height cap (loaded or not, so measure = paint);
+    /// `None` = no cap (`markdown.options.imageMaxHeight: null`).
+    pub image_height: Option<f32>,
+    /// #VAPP-258: the viewport (window) height an uncapped image stops at.
+    pub viewport_height: Option<f32>,
+    /// #VAPP-258: a block image's corner radius (the `Markdown/image`
+    /// recipe's `borderRadius`; 0 without a theme).
+    pub image_radius: f32,
     pub cell_pad_h: f32,
     pub cell_pad_v: f32,
     /// #VAPP-258: the inline chip's metrics.
@@ -1217,6 +1235,15 @@ pub struct AttachMetrics {
 }
 
 impl MdStyles {
+    /// #VAPP-258 (`markdown.options.imageMaxHeight`): these styles with the
+    /// host's image cap and the window height an uncapped image stops at
+    /// (the measurer and the painter both lay out with them).
+    pub fn imaged(mut self, options: &crate::host::MarkdownOptions, viewport: f32) -> Self {
+        self.image_height = options.image_cap();
+        self.viewport_height = (viewport > 0.0).then_some(viewport);
+        self
+    }
+
     /// Plain metrics for a body text style (geometry mode, tests).
     pub fn plain(body: TextSpec) -> MdStyles {
         let chip = ChipMetrics { height: 20.0, pad: 8.0, gap: 4.0, icon: 16.0, caption: TextSpec { size: 12.0, line_height: 16.0, weight: 400, family: body.family.clone() } };
@@ -1237,7 +1264,9 @@ impl MdStyles {
             heading: TextSpec { size: body.size + 4.0, line_height: body.line_height + 8.0, weight: 600, family: body.family.clone() },
             code: TextSpec { size: (body.size - 2.0).max(10.0), line_height: body.line_height, weight: 400, family: None },
             list_indent: (body.size * 1.4).round(),
-            image_height: 160.0,
+            image_height: Some(160.0),
+            viewport_height: None,
+            image_radius: 0.0,
             body,
             code_pad: 12.0,
             quote_border: 2.0,
@@ -1280,6 +1309,7 @@ impl MdStyles {
         let quote = part("quote");
         s.quote_border = px_prop(&quote, "borderWidth").unwrap_or(s.quote_border);
         s.quote_pad = px_prop(&quote, "paddingHorizontal").unwrap_or(s.quote_pad);
+        s.image_radius = px_prop(&part("image"), "borderRadius").unwrap_or(0.0);
         s.block_gap = root.as_ref().and_then(|r| px_prop(r, "gap")).unwrap_or_else(|| spacing(theme, "sm"));
         s.heading_top = spacing(theme, "md");
         s.heading_bottom = spacing(theme, "xs");
@@ -1492,7 +1522,7 @@ pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText)
         let (height, rows) = match &b.kind {
             BlockKind::Paragraph | BlockKind::Heading(_) => (text.height(&b.inlines, spec, Some(width.max(1.0))), Vec::new()),
             BlockKind::ListItem { depth, .. } => (text.height(&b.inlines, spec, Some((width - s.list_indent * (*depth as f32 + 1.0)).max(1.0))), Vec::new()),
-            BlockKind::Image { size, .. } => (image_box(*size, width.max(1.0), s.image_height).1, Vec::new()),
+            BlockKind::Image { size, .. } => (image_box(*size, width.max(1.0), s.image_height, s.viewport_height).1, Vec::new()),
             BlockKind::Attachment { kind, .. } => (attachment_height(*kind, s, width), Vec::new()),
             BlockKind::Quote => (text.height(&b.inlines, spec, Some((width - s.quote_border - s.quote_pad).max(1.0))), Vec::new()),
             BlockKind::CodeBlock => (text.height(&b.inlines, spec, None) + 2.0 * s.code_pad, Vec::new()),
@@ -1535,8 +1565,8 @@ pub fn max_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
             match &b.kind {
                 BlockKind::Paragraph | BlockKind::Heading(_) => text.width(&b.inlines, spec),
                 BlockKind::ListItem { depth, .. } => text.width(&b.inlines, spec) + s.list_indent * (*depth as f32 + 1.0),
-                BlockKind::Image { size: Some(size), .. } => image_box(Some(*size), f32::INFINITY, s.image_height).0,
-                BlockKind::Image { .. } => (s.image_height * 1.5).round(),
+                BlockKind::Image { size: Some(size), .. } => image_box(Some(*size), size.0, Some(s.image_height.unwrap_or(size.1)), s.viewport_height).0,
+                BlockKind::Image { .. } => (s.image_height.unwrap_or(160.0) * 1.5).round(),
                 BlockKind::Attachment { kind: AttachmentKind::File, name, .. } => {
                     let a = &s.attach;
                     2.0 * a.file_pad + a.file_icon + a.file_gap + text.width(&[Inline { text: name.clone(), ..Inline::default() }], &a.file_name)
@@ -2007,13 +2037,15 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                         let muted = p.muted;
                         // #VAPP-258: the host-sized box, start-aligned (the
                         // fixed box fills the width).
-                        let (bw, bh) = image_box(*size, width.max(1.0), s.image_height);
+                        let (bw, bh) = image_box(*size, width.max(1.0), s.image_height, s.viewport_height);
                         let frame = div()
                             .absolute()
                             .top_0()
                             .left(px(if p.rtl { (width - bw).max(0.0) } else { 0.0 }))
                             .w(px(bw))
                             .h(px(bh))
+                            .rounded(px(s.image_radius))
+                            .overflow_hidden()
                             .child(gpui::img(source).size_full().object_fit(gpui::ObjectFit::Contain).with_fallback(move || div().text_color(muted).child(fallback_alt.clone()).into_any_element()));
                         let frame: AnyElement = match &p.image_press {
                             Some(press) => {
@@ -2392,8 +2424,15 @@ mod tests {
         let max = host.f["imageMaxHeight"].as_f64().map_or(eui_core::host::MARKDOWN_IMAGE_MAX_HEIGHT, |v| v) as f32;
         assert_eq!(max, 160.0);
         for b in host.f["imageBoxes"].as_array().expect("imageBoxes") {
-            let size = b["size"].as_object().map(|s| (s["width"].as_f64().unwrap() as f32, s["height"].as_f64().unwrap() as f32));
-            let (w, h) = image_box(size, b["available"].as_f64().unwrap() as f32, max);
+            let pair = |v: &serde_json::Value| v.as_object().map(|s| (s["width"].as_f64().unwrap() as f32, s["height"].as_f64().unwrap() as f32));
+            // `loaded`: an unknown (or invalid) host size takes the decoded one.
+            let size = usable_size(pair(&b["size"])).or_else(|| pair(&b["loaded"]));
+            // `maxHeight`: absent = 160, null = none; `viewport`: absent = unknown.
+            let cap = match b.get("maxHeight") {
+                None => Some(max),
+                Some(v) => v.as_f64().map(|v| v as f32),
+            };
+            let (w, h) = image_box(size, b["available"].as_f64().unwrap() as f32, cap, b["viewport"].as_f64().map(|v| v as f32));
             let (ew, eh) = (b["box"]["width"].as_f64().unwrap() as f32, b["box"]["height"].as_f64().unwrap() as f32);
             assert!((w - ew).abs() < 0.01 && (h - eh).abs() < 0.01, "{}: {w}×{h}, expected {ew}×{eh}", b["name"]);
         }
@@ -2553,7 +2592,7 @@ mod tests {
         let body_lh = crate::paint::parts::px_prop(&crate::paint::parts::part_props(Some(&theme), Mode::Light, "Text", "root", &Map::new(), &[]), "lineHeight").unwrap_or(20.0);
         let styles = MdStyles::resolve(Some(&theme), Mode::Light, TextSpec { size: 14.0, line_height: body_lh, weight: 400, family: None }, &Map::new());
         let gap = spacing(Some(&theme), "sm");
-        let file_top = body_lh + gap + image_box(Some((400.0, 100.0)), w, 160.0).1 + gap;
+        let file_top = body_lh + gap + image_box(Some((400.0, 100.0)), w, Some(160.0), None).1 + gap;
         let expected = file_top
             + [AttachmentKind::File, AttachmentKind::Video, AttachmentKind::Audio].iter().map(|k| attachment_height(*k, &styles, w)).sum::<f32>()
             + 2.0 * gap;
@@ -2725,7 +2764,7 @@ mod tests {
         assert_eq!(blocks[0].kind, BlockKind::Image { src: "https://exponential.at/c.png".into(), alt: "chart".into(), size: None });
         assert_eq!(plain(&blocks[1].inlines), "text inline bad ok", "an inline image is its alt text");
         let s = MdStyles::plain(body());
-        assert_eq!(layout(&blocks[..1], &s, 300.0, &mut Fixed).height, s.image_height);
+        assert_eq!(Some(layout(&blocks[..1], &s, 300.0, &mut Fixed).height), s.image_height);
         let resolved = resolve_urls(blocks, |h| h.starts_with("https:"), |_| false);
         assert_eq!(resolved[0].kind, BlockKind::Paragraph, "a denied image is its alt text");
         assert_eq!(plain(&resolved[0].inlines), "chart");

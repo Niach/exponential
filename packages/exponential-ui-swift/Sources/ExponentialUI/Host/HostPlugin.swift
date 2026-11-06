@@ -155,12 +155,25 @@ public struct MarkdownOptions: Equatable, Sendable {
     public var chat: Bool
     public var selectable: Bool?
     public var streaming: Bool
+    /// #VAPP-258: a block image's height cap (pt); nil = none (the width at
+    /// the image's aspect, at most the viewport's height). Default 160.
+    public var imageMaxHeight: CGFloat?
 
-    public init(hardBreaks: Bool = false, chat: Bool = false, selectable: Bool? = nil, streaming: Bool = false) {
+    /// catalog/host.json `markdown.imageMaxHeight`.
+    public static let defaultImageMaxHeight: CGFloat = 160
+
+    public init(hardBreaks: Bool = false, chat: Bool = false, selectable: Bool? = nil, streaming: Bool = false, imageMaxHeight: CGFloat? = MarkdownOptions.defaultImageMaxHeight) {
         self.hardBreaks = hardBreaks
         self.chat = chat
         self.selectable = selectable
         self.streaming = streaming
+        self.imageMaxHeight = imageMaxHeight
+    }
+
+    /// `imageMaxHeight` as applied: nil = none, an invalid number = the default.
+    public var imageCap: CGFloat? {
+        guard let v = imageMaxHeight else { return nil }
+        return v.isFinite && v > 0 ? v : MarkdownOptions.defaultImageMaxHeight
     }
 }
 

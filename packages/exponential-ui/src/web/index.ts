@@ -32,7 +32,7 @@ export { DEBOUNCE_MS, HostOwnedController, parseLocaleNumber, switchTravel } fro
 export type { HostOwnedControllerOptions, HostOwnedSend } from "./inputs"
 export { MEDIA_CACHE_IDLE_MAX, acquireMedia, releaseMedia, mediaCacheKey, mediaCacheStats, clearMediaCache, openMediaSource, streamEntry, fetchStream, fetchLimited } from "./media"
 export type { MediaKind, MediaCacheEntry, MediaSourcePlan } from "./media"
-export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, LIST_ITEM, linkAt, wholeImage, parseInline, parseList, parseMarkdown, resetMarkdownStreamMemo, MARKDOWN_LAZY_BLOCKS, linkMarkdownText, markdownCodeLines, hostMarkdown, markdownImageBox, validChip, CHIP_KINDS, ATTACHMENT_KINDS, MARKDOWN_IMAGE_MAX_HEIGHT } from "./markdown"
+export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, LIST_ITEM, linkAt, wholeImage, parseInline, parseList, parseMarkdown, resetMarkdownStreamMemo, MARKDOWN_LAZY_BLOCKS, linkMarkdownText, markdownCodeLines, hostMarkdown, markdownImageBox, markdownImageCap, markdownImageStyle, markdownImageSizeOf, loadedImageSize, rememberImageSize, MARKDOWN_UNSIZED_ASPECT, validChip, CHIP_KINDS, ATTACHMENT_KINDS, MARKDOWN_IMAGE_MAX_HEIGHT } from "./markdown"
 export type { MarkdownInline, MarkdownBlock, MarkdownList, MarkdownListItem, MarkdownChip, MarkdownAttachment, MarkdownHooks, MarkdownOptions } from "./markdown"
 export { FormRegistry, documentOrder, fieldErrorsVisible, validateOnDefault } from "./form"
 export type { FormField, FormError, FormCheck } from "./form"

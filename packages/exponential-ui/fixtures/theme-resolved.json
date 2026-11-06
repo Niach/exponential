@@ -641,6 +641,13 @@
                 "borderRadius": "$radius.md"
               }
             }
+          ],
+          "image": [
+            {
+              "style": {
+                "borderRadius": "$radius.sm"
+              }
+            }
           ]
         },
         "Icon": {
@@ -7810,6 +7817,13 @@
                 "borderWidth": "$border.hairline",
                 "borderColor": "$color.border",
                 "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "image": [
+            {
+              "style": {
+                "borderRadius": "$radius.sm"
               }
             }
           ]
@@ -15338,6 +15352,13 @@
                 "borderWidth": "$border.hairline",
                 "borderColor": "$color.border",
                 "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "image": [
+            {
+              "style": {
+                "borderRadius": "$radius.sm"
               }
             }
           ]
@@ -23156,6 +23177,13 @@
                 "borderWidth": "$border.hairline",
                 "borderColor": "$color.border",
                 "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "image": [
+            {
+              "style": {
+                "borderRadius": "$radius.sm"
               }
             }
           ]

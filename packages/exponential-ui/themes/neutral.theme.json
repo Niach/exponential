@@ -636,6 +636,13 @@
             "borderRadius": "$radius.md"
           }
         }
+      ],
+      "image": [
+        {
+          "style": {
+            "borderRadius": "$radius.sm"
+          }
+        }
       ]
     },
     "Icon": {

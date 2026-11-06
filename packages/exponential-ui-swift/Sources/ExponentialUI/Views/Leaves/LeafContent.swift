@@ -318,8 +318,8 @@ struct MarkdownLeaf: View {
             // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
             let options = cx.model.host.markdownOptions
             let props = MarkdownPainter.props(cx.props, chat: options.chat)
-            let styles = MarkdownPainter.styles(theme: cx.model.theme, mode: cx.model.mode, body: cx.textStyle, props: props)
-            MarkdownView(text: text, width: cx.inner.width, styles: styles, ink: cx.ink, model: cx.model, props: props)
+            let styles = MarkdownPainter.imaged(MarkdownPainter.styles(theme: cx.model.theme, mode: cx.model.mode, body: cx.textStyle, props: props), options: options, viewport: cx.model.viewportHeight)
+            MarkdownView(text: text, width: cx.inner.width, styles: styles, ink: cx.ink, model: cx.model, props: props, node: cx.index)
                 .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
                 .clipped()
                 .markdownSelection(options.selectable, text: text, model: cx.model)

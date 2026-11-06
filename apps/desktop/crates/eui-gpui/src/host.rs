@@ -31,13 +31,37 @@ pub struct MarkdownAttachment {
 /// `Markdown/*` recipes resolved with `density: chat`: the theme's chat
 /// rhythm); `selectable` = whether press-drag selects and copies (`None` =
 /// gpui's default, it does); `streaming` = the text is a growing prefix (its
-/// stable blocks memoized, its unfinished tail held back).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// stable blocks memoized, its unfinished tail held back); `image_max_height`
+/// = a block image's height cap (#VAPP-258, [`ImageCap`]).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct MarkdownOptions {
     pub hard_breaks: bool,
     pub chat: bool,
     pub selectable: Option<bool>,
     pub streaming: bool,
+    pub image_max_height: ImageCap,
+}
+
+/// #VAPP-258 (`markdown.options.imageMaxHeight`): a block image's height cap.
+/// `Catalog` = unset (`markdown.imageMaxHeight`, 160); `None` = no cap (the
+/// width at the image's aspect, at most the window's height); `Height(px)`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ImageCap {
+    #[default]
+    Catalog,
+    None,
+    Height(f32),
+}
+
+impl MarkdownOptions {
+    /// The cap as applied: `None` = none, an invalid height = the catalog's.
+    pub fn image_cap(&self) -> Option<f32> {
+        match self.image_max_height {
+            ImageCap::None => None,
+            ImageCap::Height(h) if h.is_finite() && h > 0.0 => Some(h),
+            _ => Some(eui_core::host::MARKDOWN_IMAGE_MAX_HEIGHT as f32),
+        }
+    }
 }
 
 /// A server event (A2UI `action`) the surface fired.

@@ -16,6 +16,9 @@ import at.exponential.ui.primitives.MarkdownBlock
 import at.exponential.ui.primitives.MarkdownBlockKind
 import at.exponential.ui.primitives.MarkdownChipStyle
 import at.exponential.ui.primitives.MarkdownInline
+import at.exponential.ui.primitives.MarkdownOptions
+import at.exponential.ui.primitives.MarkdownSize
+import at.exponential.ui.primitives.MarkdownHooks
 import at.exponential.ui.primitives.MarkdownStyles
 import at.exponential.ui.primitives.MarkdownTextMeasure
 import at.exponential.ui.primitives.MarkdownTextSpec
@@ -183,12 +186,44 @@ class MarkdownHostTest {
         val boxes = f["imageBoxes"]!!.array!!
         assertTrue(boxes.isNotEmpty())
         for (b in boxes) {
-            val size = b["size"]?.takeIf { it != JsonValue.Null }
-            val box = Markdown.imageBox(size?.get("width")?.number?.toFloat(), size?.get("height")?.number?.toFloat(), b["available"]!!.number!!.toFloat(), 160f)
+            fun sizeOf(v: JsonValue?) = v?.takeIf { it != JsonValue.Null }?.let { MarkdownSize(it["width"]!!.number!!.toFloat(), it["height"]!!.number!!.toFloat()) }
+            // `loaded`: an unknown (or invalid) host size takes the decoded one.
+            val size = Markdown.imageSizeOf(sizeOf(b["size"]), sizeOf(b["loaded"]))
+            // `maxHeight`: absent = 160, null = none; `viewport`: absent = unknown.
+            val cap = if (b.obj!!.containsKey("maxHeight")) b["maxHeight"]?.number?.toFloat() else 160f
+            val box = Markdown.imageBox(size?.width, size?.height, b["available"]!!.number!!.toFloat(), cap, b["viewport"]?.number?.toFloat())
             val name = b["name"]!!.string
             assertEquals(name, b["box"]!!["width"]!!.number!!.toFloat(), box.width, 0.01f)
             assertEquals(name, b["box"]!!["height"]!!.number!!.toFloat(), box.height, 0.01f)
         }
+    }
+
+    /** #VAPP-258 (`loaded`): the media cache sizes only the images the host could not size. */
+    @Test
+    fun loadedSizesFillOnlyUnsizedImages() {
+        val text = "![a](https://x.example/a.png)\n\n![b](https://x.example/b.png)"
+        val hooks = MarkdownHooks(
+            imageSize = { if (it.endsWith("a.png")) MarkdownSize(1600f, 900f) else null },
+            loadedSize = { MarkdownSize(400f, 100f) },
+        )
+        val kinds = Markdown.prepare(text, hooks).map { it.kind as MarkdownBlockKind.Image }
+        assertEquals(1600f, kinds[0].width)
+        assertEquals(400f, kinds[1].width)
+        assertEquals(100f, kinds[1].height)
+        val none = Markdown.prepare(text, MarkdownHooks()).map { it.kind as MarkdownBlockKind.Image }
+        assertEquals(null, none[1].width)
+    }
+
+    /** catalog/host.json `markdown.options.imageMaxHeight`: unset = the catalog's 160, null = none, invalid = 160; the measurer lays an uncapped image out at the width. */
+    @Test
+    fun imageMaxHeightOption() {
+        Fixtures.require()
+        assertEquals(MarkdownOptions.IMAGE_MAX_HEIGHT, MarkdownOptions().imageCap)
+        assertEquals(null, MarkdownOptions(imageMaxHeight = null).imageCap)
+        assertEquals(MarkdownOptions.IMAGE_MAX_HEIGHT, MarkdownOptions(imageMaxHeight = -3f).imageCap)
+        assertEquals(240f, MarkdownOptions(imageMaxHeight = 240f).imageCap)
+        val contract = JsonValue.parse(java.io.File(Fixtures.dir, "../catalog/host.json").readText())
+        assertEquals(MarkdownOptions.IMAGE_MAX_HEIGHT.toDouble(), contract["markdown"]!!["options"]!!["imageMaxHeight"]!!["default"]!!.number!!, 0.0)
     }
 
     /** No hook (or no answer): exactly the blocks without them. */

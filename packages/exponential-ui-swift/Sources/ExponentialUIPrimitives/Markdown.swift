@@ -811,14 +811,35 @@ public enum Markdown {
         s.width.isFinite && s.height.isFinite && s.width > 0 && s.height > 0 ? s : nil
     }
 
-    /// #VAPP-258 (`imageBoxes`): a block image's box `available` wide: the
-    /// natural size scaled by min(1, available / width, maxHeight /
-    /// height), start-aligned; no (valid) size = available × maxHeight.
-    public static func imageBox(size: CGSize?, available: CGFloat, maxHeight: CGFloat) -> CGSize {
-        guard let s = size.flatMap(validImageSize) else { return CGSize(width: max(available, 0), height: maxHeight) }
-        let scale = min(1, max(available, 0) / s.width, maxHeight / s.height)
+    /// #VAPP-258 (`imageBoxes` `loaded`): the size a block image's box uses:
+    /// the host's, else the size it DECODED at (the media cache: an image the
+    /// host cannot size takes its real aspect once loaded, one relayout from
+    /// the placeholder box), else nil.
+    public static func imageSize(host: CGSize?, loaded: CGSize?) -> CGSize? {
+        host.flatMap(validImageSize) ?? loaded.flatMap(validImageSize)
+    }
+
+    /// #VAPP-258 (`imageBoxes`): a block image's box `available` wide. With
+    /// a `maxHeight` cap: the natural size scaled by min(1, available /
+    /// width, maxHeight / height), start-aligned; no (valid) size =
+    /// available × maxHeight. With none (nil): the available width at the
+    /// size's aspect (4:3 unknown), scaled down to `viewport` when taller.
+    public static func imageBox(size: CGSize?, available: CGFloat, maxHeight: CGFloat?, viewport: CGFloat? = nil) -> CGSize {
+        let avail = max(available, 0)
+        let valid = size.flatMap(validImageSize)
+        guard let cap = maxHeight else {
+            let ratio = valid.map { $0.height / $0.width } ?? unsizedAspect
+            let h = avail * ratio
+            if let v = viewport, v.isFinite, v > 0, h > v { return CGSize(width: v / ratio, height: v) }
+            return CGSize(width: avail, height: h)
+        }
+        guard let s = valid else { return CGSize(width: avail, height: cap) }
+        let scale = min(1, avail / s.width, cap / s.height)
         return CGSize(width: s.width * scale, height: s.height * scale)
     }
+
+    /// An unsized image's aspect (height / width) with no cap: 4:3.
+    public static let unsizedAspect: CGFloat = 0.75
 
     /// Every link through `href` (nil = the policy denied it: the span
     /// stays, as plain text).
@@ -965,8 +986,14 @@ public struct MarkdownStyles: Equatable, Sendable {
     public var cellPadH: CGFloat
     public var cellPadV: CGFloat
     /// An image block's box height (the picture fits inside it); #VAPP-258:
-    /// `imageMaxHeight`, the cap of a host-sized image.
-    public var imageHeight: CGFloat
+    /// `imageMaxHeight`, the cap of a host-sized image; nil = no cap (the
+    /// host's `markdown.options.imageMaxHeight: null`).
+    public var imageHeight: CGFloat?
+    /// #VAPP-258: a block image's corner radius (the `Markdown/image`
+    /// recipe's `borderRadius`; 0 without a theme).
+    public var imageRadius: CGFloat = 0
+    /// #VAPP-258: the viewport height an uncapped image stops at (nil = unknown, no limit).
+    public var viewportHeight: CGFloat?
     /// #VAPP-258: the inline chip's metrics.
     public var chip: MarkdownChipStyle
     /// #VAPP-258: a video attachment's box: min(available, `mediaWidth`)
@@ -1115,8 +1142,8 @@ public extension Markdown {
             case .rule:
                 height = 1
             case .image:
-                let box = imageBox(size: b.imageSize, available: width, maxHeight: s.imageHeight)
-                if b.imageSize != nil { boxWidth = box.width }
+                let box = imageBox(size: b.imageSize, available: width, maxHeight: s.imageHeight, viewport: s.viewportHeight)
+                if b.imageSize != nil || s.imageHeight == nil { boxWidth = box.width }
                 height = box.height
             case let .attachment(type, _, _):
                 let box = s.attachmentBox(type, available: width)
@@ -1146,8 +1173,8 @@ public extension Markdown {
             case .listItem: return text.width(b.inlines, spec) + s.listInset(b)
             case .quote: return text.width(b.inlines, spec) + s.quoteBorder + s.quotePad
             case .image:
-                if let size = b.imageSize { return imageBox(size: size, available: size.width, maxHeight: s.imageHeight).width }
-                return (s.imageHeight * 1.5).rounded()
+                if let size = b.imageSize { return imageBox(size: size, available: size.width, maxHeight: s.imageHeight ?? size.height, viewport: s.viewportHeight).width }
+                return ((s.imageHeight ?? 160) * 1.5).rounded()
             case let .attachment(type, name, _):
                 switch type {
                 case .video: return s.mediaWidth

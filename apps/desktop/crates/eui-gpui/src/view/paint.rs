@@ -1236,12 +1236,29 @@ impl SurfaceView {
         // A host's text links (and #VAPP-258 its attachments and image
         // sizes) read live, like a `hostLinks` Text's; the measurer asks the same.
         let blocks = markdown::hosted(self.host.as_ref(), &blocks, cx).map_or(blocks, Rc::new);
+        // #VAPP-258 (markdown-host.json `loaded`): a block image the host
+        // cannot size keeps the placeholder box until it decodes; then its
+        // size goes to the media cache and the leaf measures again (one
+        // relayout to the picture's real aspect, measure = paint).
+        let mut decoded = false;
+        for b in blocks.iter() {
+            if let markdown::BlockKind::Image { src, size: None, .. } = &b.kind {
+                if let Some(Ok(image)) = crate::media::image_source(self.host.as_ref(), src).and_then(|source| crate::paint::natives::render_image(&source, window, cx)) {
+                    let px = image.size(0);
+                    decoded |= crate::media::remember_size(src, (px.width.0 as f32, px.height.0 as f32));
+                }
+            }
+        }
+        if decoded {
+            self.md_remeasure.borrow_mut().push(index);
+            cx.notify();
+        }
         let ts = lcx.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
         // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
         let options = self.host.markdown_options(cx);
         let props = markdown::density_props(&lcx.node.props, options.chat);
-        let styles = MdStyles::resolve(lcx.theme, lcx.mode, body, &props);
+        let styles = MdStyles::resolve(lcx.theme, lcx.mode, body, &props).imaged(&options, f32::from(window.viewport_size().height));
         let mut shaper = Shaper::new(window, &self.fonts);
         let blocks = markdown::size_chips(&blocks, &styles, Some(w), &mut shaper).map_or(blocks, Rc::new);
         let lay = markdown::layout(&blocks, &styles, w, &mut shaper);

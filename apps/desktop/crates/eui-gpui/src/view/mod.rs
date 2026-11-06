@@ -389,6 +389,9 @@ pub struct SurfaceView {
     /// The category / slice under the pointer, per Chart.
     chart_hover: HashMap<u32, usize>,
     markdown: RefCell<MarkdownCache>,
+    /// #VAPP-258: Markdown leaves whose block image just decoded at a size
+    /// the host did not know: measured again next pass (its real aspect).
+    md_remeasure: RefCell<Vec<u32>>,
     /// Layers fading out after they closed.
     exiting: Vec<ExitingLayer>,
     /// Markdown text units: registered while building, committed once
@@ -600,6 +603,7 @@ impl SurfaceView {
             pending_day: None,
             chart_hover: HashMap::new(),
             markdown: RefCell::new(HashMap::new()),
+            md_remeasure: RefCell::default(),
             exiting: Vec::new(),
             md_pending: Rc::default(),
             md_units: Rc::default(),
@@ -967,6 +971,9 @@ impl SurfaceView {
         }
         self.track_focus(window, cx);
         self.flush_states();
+        for i in self.md_remeasure.take() {
+            self.surface.mark_dirty(i);
+        }
         // While a layer is open, keep what this pass replaces: a layer that
         // closes paints it fading out. A rebuild (the host touched the
         // surface, a compaction renumbered the slots) moves the whole
