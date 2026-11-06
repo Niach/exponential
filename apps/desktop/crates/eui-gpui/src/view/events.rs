@@ -368,7 +368,8 @@ impl SurfaceView {
     pub(crate) fn outside_press(&mut self, root: u32, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let (px_, py) = (f32::from(position.x - self.origin.x), f32::from(position.y - self.origin.y));
         for l in &self.layers {
-            if l.root == root {
+            // VAPP-281: a hosted popup is in another window.
+            if l.root == root || l.hosted {
                 continue;
             }
             let (shift_x, shift) = self.layer_offset(l);
