@@ -128,6 +128,8 @@ final class GeometryTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
         _ = view.fittingSize
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        #else
+        renderInWindow(root, size: CGSize(width: 390, height: 44))
         #endif
         let popup = try XCTUnwrap(box.heard.last?.first)
         XCTAssertEqual(popup.owner, "calendar")
