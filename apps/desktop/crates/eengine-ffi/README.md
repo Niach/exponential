@@ -66,6 +66,39 @@ locked: it must not call back into the same `AppInstance` synchronously.
 Errors: `EngineError` = `invalid {reason}` | `load {kind, issuesJson}` |
 `failure {code, reason}`.
 
+## Capabilities (Swift)
+
+`swift/ExponentialEngineCapabilities` (#VAPP-265, SwiftPM product
+`ExponentialEngineCapabilities`, depends on `ExponentialEngine`) = the native
+half of capabilities v1 (`packages/eengine/fixtures/capabilities.json`):
+`EngineCapabilities.ios(CapabilityConfig(presenter:))` → the five
+`Capability`s for `EngineProviders(capabilities:)`. The Engine validates,
+stores files and shapes app results; these only see native arguments
+(bytes = base64 `data`) and answer `nativeOutputSchema`.
+
+| capability | iOS | Info.plist (E7 declares) |
+|---|---|---|
+| `photos` | `pick` = PHPickerViewController (no permission, HEIC stays `image/heic`); `list`/`get` = PhotoKit, images newest first, id = `localIdentifier`, cursor = an offset token, bytes via PHImageManager (iCloud allowed); library access requested on first use | `NSPhotoLibraryUsageDescription` |
+| `files` | `open` = UIDocumentPickerViewController (copies; `accept` → UTTypes); `save` = export a temp file | none |
+| `share` | UIActivityViewController; `shared` = its completion | `NSPhotoLibraryAddUsageDescription` (Save Image) |
+| `print` | UIPrintInteractionController with the bytes; `printed` = its completion | none |
+| `notifications` | UNUserNotificationCenter: authorization on the first post; identifier = the Engine's `<app>/<id>` (posting again replaces, `cancel` removes pending + delivered); `at` ahead → a time-interval (< 1 min) or calendar trigger; the tap JSON rides in `userInfo` | none (runtime prompt) |
+
+- **Threading:** `call` BLOCKS until the person answers; UI is presented on
+  the main queue from `presenter` (default: the key window's top view
+  controller). Never call a capability on the main thread: it answers
+  `failed: main thread` (the Engine calls from its worker).
+- **Taps:** set `UNUserNotificationCenter.current().delegate` at launch; in
+  `didReceive`, `NotificationTaps.tapJson(response:)` → `app.event(eventJson:)`
+  (nil for a dismiss or a foreign notification).
+- **macOS:** `EngineCapabilities.macOS()` = notifications; photos, files,
+  share, print answer `unavailable` (no AppKit seams yet).
+- Every platform call sits behind a seam (`Seams.swift`); the suite
+  (`tests/swift-capabilities`, in `run-binding-tests.sh swift`) replays the
+  fixture against fakes and typechecks the UIKit half for iOS 15.
+- Limits: iOS keeps at most 64 pending notifications; a library change
+  between `list` pages can shift the offset cursor.
+
 ## Features
 
 `sqlite` (default): the SQLite record store. `hub`: MCP Proxy's in-process
