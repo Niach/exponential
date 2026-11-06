@@ -1,8 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import {
-  buildWhereClause,
-  getReadableTeamIds,
-} from "@/lib/team-membership"
+import { buildWhereClause, getMemberTeamIds } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Server-pinned column allowlist (clients cannot widen it). These are exactly
@@ -42,7 +39,9 @@ export const Route = createFileRoute(`/api/shapes/teams`)({
         table: `teams`,
         columns: TEAM_COLUMNS,
         getWhere: async (userId) => {
-          const teamIds = await getReadableTeamIds(userId)
+          // #EXP-1720: joined teams only: a personal team never syncs (it
+          // would show in every switcher, shipped clients included).
+          const teamIds = userId ? await getMemberTeamIds(userId) : []
           return buildWhereClause(`id`, teamIds)
         },
       }),

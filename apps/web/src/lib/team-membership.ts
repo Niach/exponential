@@ -8,6 +8,8 @@ export {
   getReadableTeamIds,
   getReadableUserIdsInTeams,
   getUserTeamIds,
+  getMemberTeamIds,
+  getPersonalTeamId,
   getSoleHumanMemberId,
   getTeamMember,
   assertTeamMember,

@@ -264,8 +264,18 @@ export const teams = pgTable(`teams`, {
   // desktopId, name, importedAt}`, a Local desktop shared as a team). NULL for
   // every team made in the app. SERVER-ONLY: behind the teams shape allowlist.
   importedFrom: jsonb(`imported_from`),
+  // #EXP-1720 (agent-settings.json `assistant`): `team` | `personal` (a
+  // server-only varchar). A PERSONAL team = one per member
+  // (`owner_id`), holding their global Assistant and its conversation: no
+  // team_members row (the owner counts as its member: lib/auth/membership.ts),
+  // no billing, no invites, never in the teams shape or a switcher.
+  // SERVER-ONLY, behind the teams shape allowlist.
+  kind: varchar({ length: 16 }).notNull().default(`team`),
+  ownerId: text(`owner_id`).references(() => users.id, { onDelete: `cascade` }),
   ...timestamps,
-})
+}, (table) => [
+  uniqueIndex(`uniq_teams_personal_owner`).on(table.ownerId).where(sql`kind = 'personal'`),
+])
 
 // Better Auth's Drizzle adapter resolves models by snake_case key, so this
 // must be exported as `creem_subscriptions` (not camelCase). It lives here
@@ -2196,6 +2206,11 @@ export const sessions = pgTable(
     // The title as a body envelope (`exp-sealed:v1:…`); `title` stays a
     // neutral fallback. SYNCED.
     sealedTitle: text(`sealed_title`),
+    // #EXP-1720 (emcp access.json `assistantScope`): the Assistant's
+    // conversation ROOT only = the teams its member picked for the latest
+    // turn (the composer's Teams row); NULL = every team they belong to. The
+    // gate clamps the tree to the pick ∩ their teams. SYNCED (the picker).
+    scopeTeamIds: uuid(`scope_team_ids`).array(),
     ...timestamps,
   },
   (table) => [
@@ -2827,6 +2842,10 @@ export const messages = pgTable(
     // (fixtures/session-brief.json `issueBriefCases`): clear even when the
     // body is sealed; the device appends it to what the agent reads. SYNCED.
     issueBrief: text(`issue_brief`),
+    // #EXP-1720: the Teams pick this turn was sent with (a message into the
+    // Assistant's conversation; it also became the root's scope_team_ids).
+    // SERVER-ONLY (audit).
+    scopeTeamIds: uuid(`scope_team_ids`).array(),
     ...timestamps,
   },
   (table) => [

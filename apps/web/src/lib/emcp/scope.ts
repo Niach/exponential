@@ -165,23 +165,32 @@ export function clampMcpAccessToTeam(
   teamId: string,
   boardTeamIds: ReadonlyMap<string, string> = new Map()
 ): McpAccess {
+  return clampMcpAccessToTeams(access, [teamId], boardTeamIds)
+}
+
+/** #EXP-1720: `clampMcpAccessToTeam` over a tree's teams (the Assistant's
+ *  scope, emcp access.json `assistantScope`). */
+export function clampMcpAccessToTeams(
+  access: McpAccess,
+  teamIds: readonly string[],
+  boardTeamIds: ReadonlyMap<string, string> = new Map()
+): McpAccess {
+  const allowed = new Set(teamIds)
   if (access.full) {
-    return buildMcpAccess({ allTeams: false, teamIds: [teamId], boardIds: [] }, new Map(), `agent`)
+    return buildMcpAccess({ allTeams: false, teamIds: [...allowed], boardIds: [] }, new Map(), `agent`)
   }
   const grantedBoardIds = new Set(
-    [...access.grantedBoardIds].filter((boardId) => boardTeamIds.get(boardId) === teamId)
+    [...access.grantedBoardIds].filter((boardId) => allowed.has(boardTeamIds.get(boardId) ?? ``))
   )
-  const fullTeamIds = new Set([...access.fullTeamIds].filter((id) => id === teamId))
-  const visibleTeamIds = new Set(
-    [...access.visibleTeamIds].filter((id) => id === teamId)
-  )
+  const fullTeamIds = new Set([...access.fullTeamIds].filter((id) => allowed.has(id)))
+  const visibleTeamIds = new Set([...access.visibleTeamIds].filter((id) => allowed.has(id)))
   return { full: false, origin: `agent`, fullTeamIds, grantedBoardIds, visibleTeamIds }
 }
 
-/** `clampMcpAccessToTeam` with the granted boards' teams looked up. */
-export async function resolveMcpAccessClampedToTeam(
+/** `clampMcpAccessToTeams` with the granted boards' teams looked up. */
+export async function resolveMcpAccessClampedToTeams(
   access: McpAccess,
-  teamId: string
+  teamIds: readonly string[]
 ): Promise<McpAccess> {
   const map = new Map<string, string>()
   if (!access.full && access.grantedBoardIds.size > 0) {
@@ -191,7 +200,15 @@ export async function resolveMcpAccessClampedToTeam(
       .where(inArray(boards.id, [...access.grantedBoardIds]))
     for (const row of rows) map.set(row.id, row.teamId)
   }
-  return clampMcpAccessToTeam(access, teamId, map)
+  return clampMcpAccessToTeams(access, teamIds, map)
+}
+
+/** `clampMcpAccessToTeam` with the granted boards' teams looked up. */
+export async function resolveMcpAccessClampedToTeam(
+  access: McpAccess,
+  teamId: string
+): Promise<McpAccess> {
+  return resolveMcpAccessClampedToTeams(access, [teamId])
 }
 
 /**
