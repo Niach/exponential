@@ -188,6 +188,33 @@ fn skeleton_rows_are_rows_of_a_dot_and_two_bars() {
     assert_eq!(bar.component, "Skeleton", "the pieces pulse like a Skeleton");
 }
 
+/// EXP-1676: a Skeleton's `%` width (and height) resolves against its
+/// parent in the core like web's inline style, never a host measure's
+/// px-only guess; a px string stays px, an authored style wins.
+#[test]
+fn a_skeleton_percent_width_resolves_against_its_parent() {
+    let mut s = surface(json!([
+        {"id": "half", "component": "Skeleton", "props": {"width": "50%", "height": "12px"}},
+        {"id": "px", "component": "Skeleton", "props": {"width": "80px", "height": "20px"}},
+        {"id": "styled", "component": "Skeleton", "props": {"width": "50%"}, "style": {"width": 40}},
+        {"id": "pane", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "width": 300, "height": 100}, "children": [
+            {"id": "quarter", "component": "Skeleton", "props": {"width": "25%", "height": "50%"}}
+        ]},
+        {"id": "full", "component": "Skeleton", "props": {}}
+    ]));
+    let out = s.layout(&mut fixed());
+    let frame = |id: &str| {
+        let i = s.index_of(id).unwrap_or_else(|| panic!("no node {id}"));
+        out.frames.iter().find(|f| f.index == i).copied().unwrap_or_else(|| panic!("no frame {id}"))
+    };
+    // The root is 600 wide less 16 padding a side: 568 of content.
+    assert_eq!((frame("half").w, frame("half").h), (284.0, 12.0));
+    assert_eq!((frame("px").w, frame("px").h), (80.0, 20.0));
+    assert_eq!(frame("styled").w, 40.0, "the authored style wins");
+    assert_eq!((frame("quarter").w, frame("quarter").h), (75.0, 50.0), "a row parent too, both axes");
+    assert_eq!((frame("full").w, frame("full").h), (568.0, 16.0), "no width = the full width (web's default)");
+}
+
 #[test]
 fn the_built_in_themes_carry_the_motion_scale() {
     for id in eui_core::themes::BUILTIN_THEME_IDS {
