@@ -210,7 +210,7 @@ fn js_len(value: Option<&Value>) -> usize {
 
 /// `^(len|range)\((.+)\)$`
 fn function_form(text: &str) -> Option<(&str, &str)> {
-    for name in ["len", "range"] {
+    for name in ["len", "range", "treeRows"] {
         if let Some(rest) = text.strip_prefix(name).and_then(|r| r.strip_prefix('(')).and_then(|r| r.strip_suffix(')')) {
             if !rest.is_empty() && !rest.contains('\n') {
                 return Some((name, rest));
@@ -227,13 +227,18 @@ fn function_form(text: &str) -> Option<(&str, &str)> {
 /// overflow). Mirrors `MAX_RANGE_ITEMS` in `src/expr.ts`.
 pub const MAX_RANGE_ITEMS: usize = 10_000;
 
-/// One expression: `len(path)`, `range(n)`, `path|fallback`, `!path`, `path`.
+/// One expression: `len(path)`, `range(n)`, `treeRows(props)`, `path|fallback`, `!path`, `path`.
 /// The function forms wrap the whole expression and are tried first, so a
 /// fallback inside their parentheses stays theirs.
 pub fn eval_expr(expr: &str, ctx: &ExprContext) -> Option<Value> {
     let text = expr.trim();
     if let Some((name, inner)) = function_form(text) {
         let inner = eval_expr(inner, ctx);
+        // #VAPP-285: `treeRows(props)` = a Tree's flat rows (`crate::tree`).
+        if name == "treeRows" {
+            let props = inner.as_ref().and_then(Value::as_object);
+            return Some(Value::Array(crate::tree::tree_rows(props.and_then(|p| p.get("items")), props.and_then(|p| p.get("expanded")))));
+        }
         if name == "len" {
             if is_dynamic_opt(&inner) {
                 return Some(call("len", vec![("value", inner)]));

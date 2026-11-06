@@ -177,6 +177,18 @@ fn recipe_props(exp: &Expansion, ctx: &ExprContext, extra: Option<&Props>) -> Pr
 }
 
 /// `and{values}` / `or{values}` over several conditions; one alone is itself.
+/// #VAPP-285: an event name of `$on` / `$set` (a key or a routed name):
+/// literal, or interpolated (`{node.toggleOn}`); not a string = none.
+fn event_name(name: &str, ctx: &ExprContext) -> String {
+    if !name.contains('{') {
+        return name.to_string();
+    }
+    match eval_value(&Value::String(name.to_string()), ctx) {
+        Some(Value::String(s)) => s,
+        _ => String::new(),
+    }
+}
+
 fn combine(mut conditions: Vec<Value>, op: &str) -> Value {
     if conditions.len() == 1 {
         return conditions.pop().expect("one");
@@ -313,8 +325,15 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
     });
     if let Some(routes) = &tpl.on {
         let mut on = IndexMap::new();
-        for (part_event, route) in routes {
-            let macro_event = route.event();
+        for (key, route) in routes {
+            // #VAPP-285: a part event (key) or a routed event name may
+            // interpolate (a Tree row's `{node.toggleOn}`); empty = none.
+            let part_event = event_name(key, ctx);
+            let macro_event = event_name(route.event(), ctx);
+            if part_event.is_empty() || macro_event.is_empty() {
+                continue;
+            }
+            let macro_event = macro_event.as_str();
             let Some(action) = exp.source.on.as_ref().and_then(|o| o.get(macro_event)).filter(|a| js_truthy(a)) else {
                 continue;
             };
@@ -325,21 +344,26 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                 MacroRoute::Routed { context, .. } => context.as_ref(),
             };
             let context = raw.and_then(|c| eval_value(&Value::Object(c.clone()), ctx));
-            on.insert(part_event.clone(), routed_action(action, context.as_ref()));
+            on.insert(part_event, routed_action(action, context.as_ref()));
         }
         if !on.is_empty() {
             node.on = Some(on);
         }
     }
     if let Some(sets) = &tpl.set {
-        for (part_event, spec) in sets {
+        for (key, spec) in sets {
+            let part_event = event_name(key, ctx);
+            if part_event.is_empty() {
+                continue;
+            }
+            let part_event = &part_event;
             let Some(bound) = exp.base_props.get(&spec.prop).filter(|b| is_binding(b)) else { continue };
             let has_function = node.on.as_ref().and_then(|on| on.get(part_event)).and_then(|a| a.get("functionCall")).is_some_and(js_truthy);
             if has_function {
                 // An Action carries ONE `functionCall`: the author's routed
                 // function call wins and the bound prop is not written back (reported,
                 // never lost silently). Route an `event` to keep the write.
-                let macro_event = tpl.on.as_ref().and_then(|o| o.get(part_event)).map(MacroRoute::event).unwrap_or(part_event);
+                let macro_event = tpl.on.as_ref().and_then(|o| o.get(key)).map(|r| event_name(r.event(), ctx)).unwrap_or_else(|| part_event.clone());
                 let message = format!(
                     "on.{macro_event}: a function action replaces the two-way set of props.{}; write it in that function's handler or use an event",
                     spec.prop
