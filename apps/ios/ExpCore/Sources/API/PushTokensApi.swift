@@ -8,12 +8,29 @@ public struct RegisterTokenInput: Encodable, Sendable {
     // both, the server only pushes sealed.
     public let capability: String
     public let pushPublicKey: String
+    /// #EXP-1639: this build draws Live Activities (sealed content).
+    public let liveActivities: Bool?
 
-    public init(token: String, platform: String, capability: String, pushPublicKey: String) {
+    public init(token: String, platform: String, capability: String, pushPublicKey: String, liveActivities: Bool? = nil) {
         self.token = token
         self.platform = platform
         self.capability = capability
         self.pushPublicKey = pushPublicKey
+        self.liveActivities = liveActivities
+    }
+}
+
+/// #EXP-1639: `pushTokens.activity`: a started Live Activity of `sessionId`,
+/// registered with the relay as `activityId`, for the row keyed `token`.
+public struct RegisterActivityInput: Encodable, Sendable {
+    public let token: String
+    public let sessionId: String
+    public let activityId: String
+
+    public init(token: String, sessionId: String, activityId: String) {
+        self.token = token
+        self.sessionId = sessionId
+        self.activityId = activityId
     }
 }
 
@@ -40,11 +57,26 @@ public final class PushTokensApi: Sendable {
 
     /// Registers with the relay capability + push public key: the server then
     /// seals this row's pushes and POSTs them to the relay (EXP-1435).
-    public func register(accountId: String, token: String, capability: String, pushPublicKey: String) async throws {
+    public func register(
+        accountId: String, token: String, capability: String, pushPublicKey: String, liveActivities: Bool = false
+    ) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "pushTokens.register",
-            input: RegisterTokenInput(token: token, platform: "ios", capability: capability, pushPublicKey: pushPublicKey)
+            input: RegisterTokenInput(
+                token: token, platform: "ios", capability: capability, pushPublicKey: pushPublicKey,
+                liveActivities: liveActivities ? true : nil
+            )
+        )
+    }
+
+    /// #EXP-1639: hands the server a started Live Activity's relay id; the
+    /// next change of the session is pushed to it.
+    public func activity(accountId: String, token: String, sessionId: String, activityId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "pushTokens.activity",
+            input: RegisterActivityInput(token: token, sessionId: sessionId, activityId: activityId)
         )
     }
 

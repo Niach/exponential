@@ -1,3 +1,4 @@
+import CoreSpotlight
 import Combine
 import ExpUI
 import ExpCore
@@ -241,6 +242,10 @@ struct AppNavigator: View {
     @State private var toastBannerHeight: CGFloat = 0
     /// NEW-69: the app's one call.
     @State private var voiceCall = VoiceCallClient.shared
+    /// #EXP-1642: every signed-in account's issues and chats in Spotlight;
+    /// here (not MainNavigator) so a sign-out deletes its domain even when it
+    /// was the last account.
+    @State private var systemSearch: SystemSearchIndexer?
 
     private struct ExternalUrl: Identifiable {
         let url: URL
@@ -290,6 +295,19 @@ struct AppNavigator: View {
         }
         .onChange(of: deps.auth.authenticatedAccountIds) { _, _ in
             deps.steerSessions.removeAll()
+            systemSearch?.refresh()
+        }
+        .task {
+            // Capture runs index nothing (the store is the seed's).
+            guard systemSearch == nil, !ProcessInfo.processInfo.arguments.contains("-uiTesting") else { return }
+            systemSearch = SystemSearchIndexer(auth: deps.auth, db: deps.db)
+            systemSearch?.refresh()
+            // #EXP-1640: the agents the "Ask <agent>" phrase knows.
+            AppIntentsHost.refreshShortcutParameters()
+        }
+        // #EXP-1642: a Spotlight result opens like a push tap.
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            SystemSearchIndexer.open(activity, deps: deps)
         }
         // URL handling lives at the ROOT view (mounted from first render), so a
         // cold launch via exponential:// lands in the bus even before
@@ -356,6 +374,18 @@ struct AppNavigator: View {
             UITestingStyleguide.requested.map(ShareSpecimens.kinds.contains) == true
         )) {
             ShareSpecimens(kind: UITestingStyleguide.requested ?? "share-to")
+        }
+        // #EXP-1639: the Live Activity's views (capture only).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(LiveActivitySpecimens.kinds.contains) == true
+        )) {
+            LiveActivitySpecimens(kind: UITestingStyleguide.requested ?? "os-live-activity")
+        }
+        // #EXP-1641: the expanded notification's actions (capture only, a mock).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(NotificationActionsSpecimen.kinds.contains) == true
+        )) {
+            NotificationActionsSpecimen()
         }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }

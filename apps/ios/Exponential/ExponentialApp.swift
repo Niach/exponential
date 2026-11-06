@@ -7,10 +7,15 @@ import ExpUI
 struct ExponentialApp: App {
     // #EXP-1638: the scene delegate receives the app icon's shortcuts.
     @UIApplicationDelegateAdaptor(ExponentialAppDelegate.self) private var appDelegate
-    @State private var dependencies = AppDependencies()
+    @State private var dependencies: AppDependencies
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Built first, as the property initializer did before (#EXP-1640:
+        // held here so an intent launched in the background reaches it).
+        let dependencies = AppDependencies()
+        _dependencies = State(initialValue: dependencies)
+        AppIntentsHost.deps = dependencies
         FirebaseApp.configure()
         // Heal installs whose shared URLCache holds poisoned Electric shape
         // snapshots (shape responses carry `cache-control: public` and older
