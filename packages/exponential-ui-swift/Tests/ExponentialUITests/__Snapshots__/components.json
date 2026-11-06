@@ -33612,6 +33612,206 @@
       }
     ]
   },
+  "Tabs\/variant=pill" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          102,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          56,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      }
+    ]
+  },
+  "Tabs\/variant=strip" : {
+    "height" : 76,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          76
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "tabs.list",
+        "part" : "list"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          46,
+          32
+        ],
+        "id" : "tabs.item.0",
+        "part" : "item",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          3,
+          4,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          50,
+          0,
+          62,
+          32
+        ],
+        "id" : "tabs.item.1",
+        "part" : "item",
+        "radius" : 8
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          53,
+          4,
+          56,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "bg" : "#00000000",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          40,
+          32
+        ],
+        "id" : "tabs.more",
+        "part" : "more",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          32,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          44,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      }
+    ]
+  },
   "Text\/align=center" : {
     "height" : 20,
     "nodes" : [
