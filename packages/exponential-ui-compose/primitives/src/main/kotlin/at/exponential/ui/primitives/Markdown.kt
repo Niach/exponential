@@ -1157,8 +1157,10 @@ object Markdown {
                 is MarkdownBlockKind.Table -> {
                     val cols = maxOf(k.header.size, k.rows.maxOfOrNull { it.size } ?: 0, 1)
                     val cellW = max(width / cols - 2 * s.cellPadH, 1f)
-                    for (row in listOf(k.header) + k.rows) {
-                        val h = row.map { text.height(it, s.body, cellW, s.chip) }.fold(s.body.lineHeight) { a, x -> max(a, x) }
+                    // #EXP-1728: the header row wraps in the semibold it paints in.
+                    val head = s.body.copy(weight = maxOf(s.body.weight, 600))
+                    for ((r, row) in (listOf(k.header) + k.rows).withIndex()) {
+                        val h = row.map { text.height(it, if (r == 0) head else s.body, cellW, s.chip) }.fold(s.body.lineHeight) { a, x -> max(a, x) }
                         rows.add(h + 2 * s.cellPadV + 1)
                     }
                     rows.sum() + 1

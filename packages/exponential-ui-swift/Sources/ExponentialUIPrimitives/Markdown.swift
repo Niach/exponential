@@ -1217,8 +1217,11 @@ public extension Markdown {
             case let .table(header, trs):
                 let cols = max(header.count, trs.map(\.count).max() ?? 0, 1)
                 let cellW = max(width / CGFloat(cols) - 2 * s.cellPadH, 1)
-                for row in [header] + trs {
-                    let h = row.map { text.height($0, s.body, width: cellW) }.reduce(s.body.lineHeight, max)
+                // #EXP-1728: the header row wraps in the semibold it paints in.
+                var head = s.body
+                head.weight = max(head.weight, 600)
+                for (r, row) in ([header] + trs).enumerated() {
+                    let h = row.map { text.height($0, r == 0 ? head : s.body, width: cellW) }.reduce(s.body.lineHeight, max)
                     rows.append(h + 2 * s.cellPadV + 1)
                 }
                 height = rows.reduce(0, +) + 1

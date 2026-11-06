@@ -187,6 +187,17 @@ enum Piece {
     Picture { alt: String, src: String },
 }
 
+/// One document block in THE column: the full width, the block centred at
+/// `max_width`. #EXP-1728: a flex item with `w_full` + `max_w` takes its
+/// HEIGHT from its content laid out at the unclamped width (taffy), so a
+/// long plan's wrapped paragraphs, tables and code painted taller than their
+/// boxes and over the next block. The display-block column inside a
+/// full-width item resolves its width first (`issue_detail::centered_column`,
+/// EXP-179).
+pub(crate) fn plan_column(element: AnyElement, max_width: f32) -> gpui::Div {
+    div().flex_shrink_0().w_full().child(div().w_full().max_w(px(max_width)).mx_auto().min_w_0().child(element))
+}
+
 /// A `markdown` block split at its picture-only lines (outside a fence).
 fn prose_pieces(text: &str) -> Vec<Piece> {
     let mut out = Vec::new();
@@ -366,7 +377,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
 
     // ── the document ──
     let pad = layout.column_padding.wide;
-    let column = |element: AnyElement| div().flex_shrink_0().w_full().max_w(px(layout.column_max_width)).min_w_0().child(element);
+    let column = |element: AnyElement| plan_column(element, layout.column_max_width);
     let mut document = v_flex()
         .id(SharedString::from(ids.document.clone()))
         .size_full()
@@ -595,5 +606,67 @@ mod tests {
         assert_eq!(spy(tops, 20.), Some("a"));
         assert_eq!(spy(tops, 500.), Some("b"));
         assert_eq!(spy(tops, 2000.), Some("c"));
+    }
+
+    /// #EXP-1728: every plan block's box is as tall as its content at the
+    /// column width (a long plan's blocks never paint over each other), at
+    /// a wide window and after a resize that narrows the column.
+    #[gpui::test]
+    async fn plan_blocks_are_as_tall_as_their_content(cx: &mut gpui::TestAppContext) {
+        use gpui::{size, Bounds, Pixels, Render, VisualTestContext};
+        use std::cell::RefCell;
+
+        const PIECES: [&str; 4] = [
+            "Its primitives are quads, shadows, paths and glyph sprites from an atlas. So gpui is already \"one engine, drawn on the GPU\", and it now has iOS and web ports. **It has no Android port.**",
+            "## 2. The three options",
+            "| | A today | B shared scene | C shared renderer (vello) |\n|---|---|---|---|\n| Same look ×5 | by conformance (drifts, gets fixed) | by construction except anti-aliasing | pixel-identical |\n\n```\nA  TODAY: shared core, native everything\n   core -> 5 painters -> SwiftUI views / Compose nodes / DOM / gpui elements\n```\n\n**Is one engine faster than four native ones?** Our own benchmarks say the shared core is cheap and **the native toolkits are the cost**.",
+            "## 3. The recommendation: B now, C where there is no platform to replay on",
+        ];
+        const PAD: f32 = 32.;
+        const MAX: f32 = 720.;
+
+        /// The plan document (`reference` = each block at a fixed width,
+        /// the height its content takes).
+        struct Doc {
+            reference: bool,
+            boxes: Rc<RefCell<Vec<Bounds<Pixels>>>>,
+        }
+        impl Render for Doc {
+            fn render(&mut self, window: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let column_w = (f32::from(window.viewport_size().width) - 2. * PAD).min(MAX);
+                let mut doc = v_flex().size_full().items_center().p(px(PAD)).gap(px(16.));
+                for (at, piece) in PIECES.iter().enumerate() {
+                    let view = crate::markdown::MarkdownView::new(format!("plan-height-{}-{at}", self.reference), *piece).chat(true).into_any_element();
+                    doc = doc.child(if self.reference { div().flex_shrink_0().w(px(column_w)).child(view) } else { plan_column(view, MAX) });
+                }
+                let boxes = self.boxes.clone();
+                doc.on_children_prepainted(move |bounds, _, _| *boxes.borrow_mut() = bounds)
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let heights = |cx: &mut gpui::TestAppContext, reference: bool, width: f32| {
+            let boxes = Rc::new(RefCell::new(Vec::new()));
+            let held = boxes.clone();
+            let (_doc, vcx) = cx.add_window_view(move |_, _| Doc { reference, boxes: held });
+            let vcx: &mut VisualTestContext = vcx;
+            let mut out = Vec::new();
+            for w in [1400., width] {
+                vcx.simulate_resize(size(px(w), px(900.)));
+                for _ in 0..3 {
+                    vcx.update(|window, cx| window.draw(cx).clear(cx));
+                    vcx.run_until_parked();
+                }
+                out.push(boxes.borrow().iter().map(|b| f32::from(b.size.height)).collect::<Vec<_>>());
+            }
+            out
+        };
+        let reference = heights(cx, true, 560.);
+        let plan = heights(cx, false, 560.);
+        assert!(reference[1][0] > reference[0][0], "the narrow column wraps more: {reference:?}");
+        assert_eq!(plan, reference, "each block's box = its content's height");
     }
 }
