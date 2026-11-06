@@ -1,0 +1,4 @@
+- Running sessions show on the lock screen
+- Approve a plan, answer a question or reply right from the notification
+- Long-press the app icon for New issue, New chat and Search
+- If Mark all read fails, you get a message with Retry

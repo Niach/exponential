@@ -44,3 +44,5 @@
 - Zatwierdzony plan dostaje znacznik, a rozstrzygnięte plany znikają z kart
 - Potrzebuje cię pokazuje każdą czekającą kartę
 - Sesja na urządzeniu offline mówi o tym i proponuje przeniesienie
+- Gdy Oznacz wszystko jako przeczytane się nie uda, pojawi się komunikat z Ponów
+- Pole liczbowe z wartością początkową zaznacza ją po dotknięciu, więc pierwsze Zapisz działa

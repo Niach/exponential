@@ -44,3 +44,5 @@
 - Un plan approuvé reçoit une coche et les plans décidés quittent les onglets
 - Vous attend affiche toutes les cartes en attente
 - Une session sur un appareil hors ligne le dit et propose Déplacer
+- Si Tout marquer comme lu échoue, un message propose Réessayer
+- Un champ numérique pré-rempli sélectionne sa valeur au toucher, le premier Enregistrer fonctionne

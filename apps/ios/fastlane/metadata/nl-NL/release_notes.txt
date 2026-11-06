@@ -44,3 +44,5 @@
 - Een goedgekeurd plan krijgt een vinkje en besliste plannen verlaten de tabbladen
 - Heeft je nodig toont elke wachtende kaart
 - Een sessie op een offline apparaat zegt dat en biedt Verplaatsen
+- Als Alles als gelezen markeren mislukt, krijg je een melding met Opnieuw
+- Een getalveld met een beginwaarde selecteert die bij tikken, zodat de eerste keer Opslaan werkt

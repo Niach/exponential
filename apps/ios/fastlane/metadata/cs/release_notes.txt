@@ -44,3 +44,5 @@
 - Schválený plán dostane fajfku a rozhodnuté plány zmizí ze záložek
 - Potřebuje vás ukazuje všechny čekající karty
 - Relace na offline zařízení to řekne a nabídne přesun
+- Když se označení všeho jako přečteného nepovede, zobrazí se zpráva s možností Zkusit znovu
+- Číselné pole s výchozí hodnotou ji při klepnutí označí, takže první Uložit funguje

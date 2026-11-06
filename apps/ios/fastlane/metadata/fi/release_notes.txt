@@ -44,3 +44,5 @@
 - Hyväksytty suunnitelma saa merkin, ja päätetyt suunnitelmat poistuvat välilehdiltä
 - Tarvitsee sinua näyttää kaikki odottavat kortit
 - Offline-laitteen istunto kertoo sen ja tarjoaa siirtoa
+- Jos Merkitse kaikki luetuiksi epäonnistuu, näet viestin ja Yritä uudelleen
+- Numerokenttä, jossa on alkuarvo, valitsee sen napautettaessa, joten ensimmäinen Tallenna toimii

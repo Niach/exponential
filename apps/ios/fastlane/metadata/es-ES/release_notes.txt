@@ -44,3 +44,5 @@
 - Un plan aprobado lleva una marca y los planes decididos salen de las pestañas
 - Te necesita muestra todas las tarjetas en espera
 - Una sesión en un dispositivo sin conexión lo indica y ofrece Mover
+- Si Marcar todo como leído falla, aparece un mensaje con Reintentar
+- Un campo numérico con valor inicial lo selecciona al tocarlo, así el primer Guardar funciona

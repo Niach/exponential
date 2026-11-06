@@ -44,3 +44,5 @@
 - Um plano aprovado recebe um visto e os planos decididos saem dos separadores
 - Precisa de ti mostra todos os cartões em espera
 - Uma sessão num dispositivo offline diz isso e oferece Mover
+- Se Marcar tudo como lido falhar, aparece uma mensagem com Tentar novamente
+- Um campo numérico com valor inicial seleciona-o ao tocar, e o primeiro Guardar funciona
