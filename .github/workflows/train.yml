@@ -83,8 +83,12 @@ jobs:
           [[ "$TRAIN_ID" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::train_id: [A-Za-z0-9._-] only"; exit 1; }
           git config user.name 'exp-train'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # The units' commits come WITH their blobs (blob:limit overrides the
+          # clone's blob:none): a squash must never lazy-fetch a blob later,
+          # because GitHub refuses one that only an older, force-pushed
+          # history of a stack reaches ("upload-pack: not our ref", #EXP-1711).
           # shellcheck disable=SC2046
-          git fetch --no-tags --quiet origin $(jq -r '.[].prs[].head_sha' <<<"$UNITS" | sort -u)
+          git fetch --no-tags --quiet --filter=blob:limit=1g origin $(jq -r '.[].prs[].head_sha' <<<"$UNITS" | sort -u)
           # A tested sha that is gone only costs the proof (CI runs instead).
           for sha in $(jq -r '.[].tested_sha // empty' <<<"$UNITS"); do git fetch --no-tags --quiet origin "$sha" || true; done
       - name: Compose
