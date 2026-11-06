@@ -122,7 +122,8 @@ impl Surface {
         let Some(parent) = self.nodes[slot as usize].parent else { return false };
         let old = self.subtree(slot);
         let old_ids: HashSet<&str> = old.iter().map(|s| self.nodes[*s as usize].id.as_str()).collect();
-        if self.layers.iter().any(|l| old_ids.contains(l.owner.as_str())) || self.toasts.iter().any(|t| old_ids.contains(t.id.as_str())) {
+        // VAPP-276: an overlay's anchor inside is linked by the full build.
+        if self.layers.iter().any(|l| old_ids.contains(l.owner.as_str())) || self.toasts.iter().any(|t| old_ids.contains(t.id.as_str())) || self.anchor_ids.iter().any(|a| old_ids.contains(a.as_str())) {
             return false;
         }
         let Some(root) = self.root.take() else { return false };
@@ -285,6 +286,7 @@ impl Surface {
         let candidates: Vec<u32> = (0..self.nodes.len() as u32).filter(|s| self.live[*s as usize]).collect();
         let (map, structure_changed) = self.reconcile_core(built.nodes, None, candidates);
         self.main_root = map.first().copied();
+        self.anchor_ids = std::mem::take(&mut built.anchors).into_iter().collect();
         self.layers = built
             .layers
             .into_iter()

@@ -357,16 +357,27 @@ final class ConformanceTests: XCTestCase {
                 let a = c["anchor"]!, s = c["size"]!, v = c["viewport"]!, e = c["expected"]!
                 let vw = v["width"]!.number!, vh = v["height"]!.number!
                 // The painter's popover: anchored at the core's placement.
+                // VAPP-276: `align` along the side; `byId` = no trigger, the
+                // Popover names a SIBLING box in `anchor`.
+                let align = c["align"]?.string ?? "center"
+                let at: JSONValue = .object(["position": .string("absolute"), "left": a["x"]!, "top": a["y"]!, "width": a["width"]!, "height": a["height"]!])
+                let content: JSONValue = .array([.object(["id": .string("content"), "component": .string("Box"), "style": .object(["width": s["width"]!, "height": s["height"]!])])])
+                let children: JSONValue = c["byId"]?.bool == true
+                    ? .array([
+                        .object(["id": .string("anchor"), "component": .string("Box"), "style": at]),
+                        .object(["id": .string("pop"), "component": .string("Popover"), "props": .object(["open": .bool(true), "side": c["side"]!, "align": .string(align), "anchor": .string("anchor")]), "children": content]),
+                    ])
+                    : .array([.object([
+                        "id": .string("pop"), "component": .string("Popover"),
+                        "props": .object(["open": .bool(true), "side": c["side"]!, "align": .string(align)]),
+                        "style": at,
+                        "slots": .object(["trigger": .object(["id": .string("anchor"), "component": .string("Box"), "style": .object(["width": a["width"]!, "height": a["height"]!])])]),
+                        "children": content,
+                    ])])
                 let tree: JSONValue = .object([
                     "id": .string("root"), "component": .string("Box"),
                     "style": .object(["position": .string("relative"), "width": .number(vw), "height": .number(vh), "overflow": .string("hidden")]),
-                    "children": .array([.object([
-                        "id": .string("pop"), "component": .string("Popover"),
-                        "props": .object(["open": .bool(true), "side": c["side"]!]),
-                        "style": .object(["position": .string("absolute"), "left": a["x"]!, "top": a["y"]!, "width": a["width"]!, "height": a["height"]!]),
-                        "slots": .object(["trigger": .object(["id": .string("anchor"), "component": .string("Box"), "style": .object(["width": a["width"]!, "height": a["height"]!])])]),
-                        "children": .array([.object(["id": .string("content"), "component": .string("Box"), "style": .object(["width": s["width"]!, "height": s["height"]!])])]),
-                    ])]),
+                    "children": children,
                 ])
                 let m = try model("ov", theme: "neutral")
                 try m.setNested(json: tree.json)
@@ -374,7 +385,7 @@ final class ConformanceTests: XCTestCase {
                 _ = paint(m, width: CGFloat(vw), height: CGFloat(vh))
                 guard let layer = m.layers.first(where: { $0.kind == "Popover" }) else { return "no popover layer" }
                 let got = layer.frame
-                let want = try placeOverlay(anchorX: a["x"]!.number!, anchorY: a["y"]!.number!, anchorW: a["width"]!.number!, anchorH: a["height"]!.number!, sizeW: Double(got.width), sizeH: Double(got.height), viewportW: vw, viewportH: vh, side: c["side"]!.string!)
+                let want = try placeOverlayAligned(anchorX: a["x"]!.number!, anchorY: a["y"]!.number!, anchorW: a["width"]!.number!, anchorH: a["height"]!.number!, sizeW: Double(got.width), sizeH: Double(got.height), viewportW: vw, viewportH: vh, side: c["side"]!.string!, align: align)
                 if layer.placementSide != e["side"]?.string { return "side \(layer.placementSide ?? "nil")" }
                 if want.side != e["side"]?.string { return "placeOverlay side \(want.side)" }
                 if layer.flipped != (e["flipped"]?.bool ?? false) { return "flipped \(layer.flipped)" }

@@ -112,7 +112,7 @@ fun main(args: Array<String>) {
     val overlay = load("overlay-geometry.json")
     for (c in list(overlay["cases"]).map(::obj)) {
         val a = obj(c["anchor"]); val s = obj(c["size"]); val v = obj(c["viewport"]); val e = obj(c["expected"])
-        val p = placeOverlay(a["x"] as Double, a["y"] as Double, a["width"] as Double, a["height"] as Double, s["width"] as Double, s["height"] as Double, v["width"] as Double, v["height"] as Double, c["side"] as String)
+        val p = placeOverlayAligned(a["x"] as Double, a["y"] as Double, a["width"] as Double, a["height"] as Double, s["width"] as Double, s["height"] as Double, v["width"] as Double, v["height"] as Double, c["side"] as String, (c["align"] as String?) ?: "center")
         check(p.x == e["x"] && p.y == e["y"] && p.side == e["side"] && p.flipped == e["flipped"]) { "overlay ${c["name"]}: $p" }
     }
     val layout = load("layout-geometry.json")

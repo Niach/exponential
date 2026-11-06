@@ -3204,6 +3204,23 @@
           "description": "Preferred side of the trigger."
         },
         {
+          "name": "align",
+          "type": "start | center | end",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "center",
+          "description": "Along the side."
+        },
+        {
+          "name": "anchor",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "A node id to open at; it toggles it."
+        },
+        {
           "name": "openOn",
           "type": "press | hover",
           "required": false,
@@ -3310,6 +3327,32 @@
           "bindable": false,
           "responsive": false,
           "description": "The entries in order."
+        },
+        {
+          "name": "side",
+          "type": "top | right | bottom | left",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "bottom",
+          "description": "Preferred side of the trigger."
+        },
+        {
+          "name": "align",
+          "type": "start | center | end",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "start",
+          "description": "Along the side."
+        },
+        {
+          "name": "anchor",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "A node id to open at; it toggles it."
         },
         {
           "name": "openOn",

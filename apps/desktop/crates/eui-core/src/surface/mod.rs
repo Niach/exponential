@@ -502,6 +502,8 @@ pub struct Surface {
     free: Vec<u32>,
     main_root: Option<u32>,
     layers: Vec<LayerSpec>,
+    /// VAPP-276: the node ids overlays are anchored to (the last full build's).
+    anchor_ids: HashSet<String>,
     lists: Vec<ListSpec>,
     toasts: Vec<ToastSpec>,
     node_state: Vec<NodeState>,
@@ -612,6 +614,7 @@ impl Surface {
             free: Vec::new(),
             main_root: None,
             layers: Vec::new(),
+            anchor_ids: HashSet::new(),
             lists: Vec::new(),
             toasts: Vec::new(),
             node_state: Vec::new(),

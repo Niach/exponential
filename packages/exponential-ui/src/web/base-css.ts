@@ -209,6 +209,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Dialog-close{position:absolute;top:var(--xui-spacing-sm);inset-inline-end:var(--xui-spacing-sm);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Dialog-close>svg{width:16px;height:16px}
 .xui-Popover-content,.xui-Tooltip-content,.xui-Menu-content,.xui-Select-content,.xui-TimePicker-list{z-index:52;display:flex;flex-direction:column;outline:none;max-height:var(--radix-popper-available-height,320px);overflow:auto}
+.xui-Popover-content{gap:var(--xui-spacing-md)}
 .xui-Tooltip-content{max-width:280px}
 .xui-Menu-item,.xui-Select-item,.xui-TimePicker-item{display:flex;align-items:center;cursor:pointer;user-select:none;white-space:nowrap;outline:none}
 .xui-Menu-item[data-disabled],.xui-Select-item[data-disabled],.xui-Select-item[aria-disabled="true"]{pointer-events:none}

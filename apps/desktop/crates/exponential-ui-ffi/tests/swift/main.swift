@@ -178,7 +178,7 @@ print("theme fixtures: \(checks) checks so far")
 let overlay = load("overlay-geometry.json") as! [String: Any]
 for c in overlay["cases"] as! [[String: Any]] {
     let a = c["anchor"] as! [String: Double], s = c["size"] as! [String: Double], v = c["viewport"] as! [String: Double]
-    let p = try! placeOverlay(anchorX: a["x"]!, anchorY: a["y"]!, anchorW: a["width"]!, anchorH: a["height"]!, sizeW: s["width"]!, sizeH: s["height"]!, viewportW: v["width"]!, viewportH: v["height"]!, side: c["side"] as! String)
+    let p = try! placeOverlayAligned(anchorX: a["x"]!, anchorY: a["y"]!, anchorW: a["width"]!, anchorH: a["height"]!, sizeW: s["width"]!, sizeH: s["height"]!, viewportW: v["width"]!, viewportH: v["height"]!, side: c["side"] as! String, align: (c["align"] as? String) ?? "center")
     let e = c["expected"] as! [String: Any]
     check(p.x == e["x"] as! Double && p.y == e["y"] as! Double && p.side == e["side"] as! String && p.flipped == e["flipped"] as! Bool, "overlay \(c["name"]!): \(p)")
 }
