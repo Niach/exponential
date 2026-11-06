@@ -21,7 +21,8 @@ import type { Tx } from "@/lib/sessions/tx"
 // NEW-1: THE server bus. Every transition of a session S is posted into
 // S's PARENT conversation and into every live session whose `wake_on`
 // names S (a watcher: `sessions.send({wakeOn})`, or the starter of a root
-// started from inside a session). A row that must wake its reader is
+// started from inside a session, again once a message revives it:
+// `rewatchRevived`, #FEED-206). A row that must wake its reader is
 // authored BY S (`author_session_id` = S) with `consumed_at` NULL: that is
 // exactly the pending input the devices already deliver ("Message from
 // <S> (session <id>): <body>", `pendingInput()`), so nothing on the device
@@ -587,4 +588,44 @@ export async function watchSessions(
   const next = [...new Set([...(row.wakeOn ?? []), ...live.map((entry) => entry.id)])]
   await tx.update(sessions).set({ wakeOn: next }).where(eq(sessions.id, watcherId))
   return live.map((entry) => entry.id)
+}
+
+/** #FEED-206: a revived thread root (`reviveRoot`) is WATCHED again, as at
+ *  its start: its report had dropped every watch (`forgetWatched`), so
+ *  without this its new turns and its next report reach nobody. Its
+ *  STARTER (the live session carrying its `thread_started` card: the team
+ *  agent's conversation that asked for the work, whoever resumes it) and
+ *  the calling session (a session outside its tree) watch it. The starter
+ *  is looked up among the root's agent's conversations and the sessions
+ *  that wrote into the root, so the card check stays on indexed
+ *  conversations. */
+export async function rewatchRevived(
+  tx: Tx,
+  root: Pick<Session, `id` | `startedByAgentId`>,
+  caller: Pick<Session, `id` | `rootId`> | null
+): Promise<void> {
+  const card = JSON.stringify({ kind: `thread_started`, sessionId: root.id })
+  const starters = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        ne(sessions.status, `ended`),
+        ne(sessions.rootId, root.id),
+        or(
+          root.startedByAgentId ? eq(sessions.agentId, root.startedByAgentId) : undefined,
+          inArray(
+            sessions.id,
+            tx
+              .select({ id: sql<string>`${messages.authorSessionId}` })
+              .from(messages)
+              .where(and(inSession(root.id), sql`${messages.authorSessionId} IS NOT NULL`))
+          )
+        ),
+        sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${inSession(sessions.id)} AND ${messages.card} @> ${card}::jsonb)`
+      )
+    )
+  const watchers = new Set(starters.map((row) => row.id))
+  if (caller && caller.rootId !== root.id) watchers.add(caller.id)
+  for (const watcherId of [...watchers].sort()) await watchSessions(tx, watcherId, [root.id])
 }

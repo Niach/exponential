@@ -331,6 +331,19 @@ function watchSessions(ctx: Ctx, watcherId: string, ids: readonly string[]): str
   return live
 }
 
+/** #FEED-206: a revived root is watched again, as at its start: by its starter (the live session carrying its
+ *  `thread_started` card) and by the calling session outside its tree. */
+function rewatchRevived(ctx: Ctx, root: HubSession, caller: HubSession | null) {
+  const watchers = new Set<string>()
+  for (const m of ctx.state.messages) {
+    if (m.card?.kind !== `thread_started` || m.card.sessionId !== root.id) continue
+    const starter = ctx.state.sessions[m.sessionId]
+    if (starter && isLive(starter) && starter.rootId !== root.id) watchers.add(starter.id)
+  }
+  if (caller && caller.rootId !== root.id) watchers.add(caller.id)
+  for (const id of [...watchers].sort()) watchSessions(ctx, id, [root.id])
+}
+
 // ── the tree ─────────────────────────────────────────────────────────────────
 
 function assertTreeRoom(state: HubState, rootId: string, depth: number) {
@@ -521,6 +534,7 @@ function sendMessage(ctx: Ctx, data: SendData, caller: HubSession | null): StepR
       blocked: null,
       updatedAt: ctx.now,
     })
+    rewatchRevived(ctx, target, caller)
     const messageId = postSend(ctx, target, text, data.sealed === true, caller)
     return { sessionId: target.id, messageId }
   }

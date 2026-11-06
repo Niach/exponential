@@ -52,7 +52,7 @@ import {
   loadSessionForUser,
   sessionDeviceOwner,
 } from "@/lib/sessions/access"
-import { closeAskMirrorsOf, watchSessions } from "@/lib/sessions/bus"
+import { closeAskMirrorsOf, rewatchRevived, watchSessions } from "@/lib/sessions/bus"
 import { clearBlockedInTx } from "@/lib/sessions/watchdog"
 import {
   agentForwardLine,
@@ -1604,6 +1604,8 @@ async function reviveRoot(
     .where(and(eq(sessions.id, root.id), eq(sessions.status, `ended`)))
     .returning()
   if (!revived) moveRaced()
+  // #FEED-206: its starter (and the caller) hear it again.
+  await rewatchRevived(tx, revived, caller)
   if (moveTarget) {
     const fromName = deviceName(
       await loadDeviceRow(root.deviceId, await sessionDeviceOwner(root)),
