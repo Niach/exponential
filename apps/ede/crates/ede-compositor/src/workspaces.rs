@@ -31,7 +31,7 @@ impl Ede {
 
     /// How many to list: the highest in use plus one, at least [`MIN_LISTED`].
     pub fn workspace_count(&self) -> usize {
-        let highest = self.workspaces.parked.iter().map(|w| window_state(w).workspace).chain(std::iter::once(self.workspaces.active)).max().unwrap_or(0);
+        let highest = self.workspaces.parked.iter().chain(&self.minimized).map(|w| window_state(w).workspace).chain(std::iter::once(self.workspaces.active)).max().unwrap_or(0);
         (highest + 1).max(MIN_LISTED).min(MAX)
     }
 
@@ -78,7 +78,13 @@ impl Ede {
             return;
         }
         st.workspace = index;
-        if index != self.workspaces.active {
+        if st.minimized {
+            // Stays in the taskbar; it comes back on its new workspace.
+            set_window_state(window, st);
+            if follow {
+                self.switch_workspace(index);
+            }
+        } else if index != self.workspaces.active {
             st.parked_at = self.space.element_location(window);
             set_window_state(window, st);
             let had_focus = self.focused_window().as_ref() == Some(window);
@@ -107,9 +113,9 @@ impl Ede {
         self.workspaces.parked.retain(|w| w != window);
     }
 
-    /// Every window, on screen or parked.
+    /// Every window: on screen, parked on another workspace, or minimized.
     pub fn all_windows(&self) -> Vec<Window> {
-        self.space.elements().cloned().chain(self.workspaces.parked.iter().cloned()).collect()
+        self.space.elements().cloned().chain(self.workspaces.parked.iter().cloned()).chain(self.minimized.iter().cloned()).collect()
     }
 
     /// The workspaces as ede-protocol lists them.

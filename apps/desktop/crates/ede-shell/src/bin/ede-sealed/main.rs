@@ -39,10 +39,10 @@ use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{div, layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions}, point, prelude::*, px, size, App, Bounds, Entity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions};
 use serde_json::{json, Value};
 
-const LOCK: &str = include_str!("../../../../../../sealed/lock.json");
-const POLKIT: &str = include_str!("../../../../../../sealed/polkit.json");
-const CONSENT: &str = include_str!("../../../../../../sealed/consent.json");
-const SHARE: &str = include_str!("../../../../../../sealed/share.json");
+const LOCK: &str = include_str!("../../../../../../ede/sealed/lock.json");
+const POLKIT: &str = include_str!("../../../../../../ede/sealed/polkit.json");
+const CONSENT: &str = include_str!("../../../../../../ede/sealed/consent.json");
+const SHARE: &str = include_str!("../../../../../../ede/sealed/share.json");
 
 struct Surface {
     view: Entity<SurfaceView>,
