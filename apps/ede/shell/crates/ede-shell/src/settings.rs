@@ -161,7 +161,7 @@ pub fn demo_services() -> Value {
         "power": {"available": true, "battery": {"present": true, "percent": 73, "state": "discharging"}, "onBattery": true, "profile": "balanced", "profiles": ["power-saver", "balanced", "performance"], "canSuspend": true, "canReboot": true, "canPowerOff": true},
         "updates": {"available": true, "count": 2, "security": 1, "packages": [{"name": "firefox", "suite": "noble-security", "version": "130.0", "from": "129.0"}, {"name": "vim", "suite": "noble", "version": "2:9.1", "from": "2:9.0"}]},
         "printers": {"available": true, "printers": [{"name": "HP_LaserJet", "state": "idle", "default": true}]},
-        "about": {"available": true, "hostname": "ubuntu-wayland", "os": "Ubuntu 26.04 LTS", "kernel": "7.0.0-38-generic", "cpu": "13th Gen Intel Core i9-13900K", "cpus": 6, "memoryMb": 7423, "ede": "0.1.0"},
+        "about": {"available": true, "hostname": "ubuntu-wayland", "os": "Ubuntu 26.04 LTS", "kernel": "7.0.0-38-generic", "cpu": "13th Gen Intel Core i9-13900K", "cpus": 6, "memoryMb": 7423, "ede": "0.2.0", "checking": false, "checks": [{"name": "render", "level": "ok", "status": "OK", "detail": "renderD128 (virtio_gpu)"}, {"name": "seat", "level": "ok", "status": "OK", "detail": "logind session 2 on seat0"}, {"name": "Xwayland", "level": "ok", "status": "OK", "detail": "/usr/bin/Xwayland 24.1.10, explicit sync"}]},
     });
     for d in ["power", "updates", "about"] {
         let s = v[d].clone();

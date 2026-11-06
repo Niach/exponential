@@ -96,7 +96,11 @@
           {"id": "about-kernel", "component": "Row", "props": {"title": "Kernel", "value": {"path": "/services/about/kernel"}, "density": "compact"}},
           {"id": "about-cpu", "component": "Row", "props": {"title": "Processor", "value": {"path": "/services/about/cpu"}, "density": "compact"}},
           {"id": "about-memory", "component": "Row", "props": {"title": "Memory", "value": {"path": "/services/about/memoryText"}, "density": "compact"}},
-          {"id": "about-ede", "component": "Row", "props": {"title": "Exponential desktop", "value": {"path": "/services/about/ede"}, "density": "compact"}}
+          {"id": "about-ede", "component": "Row", "props": {"title": "Exponential Desktop", "value": {"path": "/services/about/ede"}, "density": "compact"}},
+          {"id": "checks-title", "component": "Text", "props": {"text": "System check", "variant": "label"}},
+          {"id": "checks", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "check", "path": "/services/about/checks", "key": "name"}, "children": []},
+          {"id": "check", "component": "Row", "props": {"title": {"path": "name"}, "subtitle": {"path": "detail"}, "meta": {"path": "status"}, "density": "compact"}},
+          {"id": "checks-run", "component": "Button", "props": {"label": "Check again", "variant": "outline", "icon": "ui-refresh"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "about", "action": "check"}}}}}
         ]}
       ]}
     ]

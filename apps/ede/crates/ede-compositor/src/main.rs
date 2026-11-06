@@ -49,7 +49,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     if doctor {
-        let ok = ede_compositor::doctor::report(&ede_compositor::doctor::run_checks());
+        let checks = ede_compositor::doctor::run_checks();
+        // `doctor --json`: what Settings shows (#EDE-35, exponential-services' about domain).
+        let ok = if std::env::args().any(|a| a == "--json") {
+            println!("{}", ede_compositor::doctor::to_json(&checks));
+            !checks.iter().any(|c| c.level == ede_compositor::doctor::Level::Fail)
+        } else {
+            ede_compositor::doctor::report(&checks)
+        };
         std::process::exit(if ok { 0 } else { 1 });
     }
     if recovery {
@@ -79,7 +86,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--config" => config_path = Some(args.next().ok_or("--config needs a path")?.into()),
             "--" => command.extend(args.by_ref()),
             "-h" | "--help" => {
-                println!("usage: exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]\n       exponential-compositor doctor\n       exponential-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
+                println!("usage: exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]\n       exponential-compositor doctor [--json]\n       exponential-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
                 return Ok(());
             }
             other => return Err(format!("unknown argument {other:?} (try --help)").into()),

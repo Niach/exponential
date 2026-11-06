@@ -397,6 +397,22 @@ pub fn report(checks: &[Check]) -> bool {
     !checks.iter().any(|c| c.level == Level::Fail)
 }
 
+/// The checks as JSON for Settings: `[{name, level: ok|warn|fail, detail}]`.
+pub fn to_json(checks: &[Check]) -> String {
+    let rows: Vec<serde_json::Value> = checks
+        .iter()
+        .map(|c| {
+            let level = match c.level {
+                Level::Ok => "ok",
+                Level::Warn => "warn",
+                Level::Fail => "fail",
+            };
+            serde_json::json!({"name": c.name, "level": level, "detail": c.detail})
+        })
+        .collect();
+    serde_json::Value::Array(rows).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,6 +492,13 @@ mod tests {
         assert_eq!(level(nv("595.99.02", false)), Level::Fail);
         assert_eq!(level(nv("550.1", true)), Level::Warn);
         assert_eq!(level(nv("555.42.02\n", true)), Level::Ok);
+    }
+
+    #[test]
+    fn the_checks_as_json() {
+        let json = to_json(&[Check { name: "Xwayland", level: Level::Warn, detail: "23.2 \"old\"".into() }]);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, serde_json::json!([{"name": "Xwayland", "level": "warn", "detail": "23.2 \"old\""}]));
     }
 
     #[test]
