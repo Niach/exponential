@@ -25,9 +25,9 @@ name: record-compose-fixtures
 # pinned label column), `tableColumnMin` 96 and the dashboard's Timeline.
 # EXP-1670 (2026-11-05): re-recorded for the kitchen sink's subtitle
 # `Online · 2 sessions` (the product never says run).
-# VAPP-280 (2026-11-06): re-recorded for the core catalog's SettingsRow (the
-# kitchen sink's macros-setting row: the Compose goldens + `SettingsRow.png`,
-# the web baseline rewrite's gpui budget).
+# VAPP-280 (2026-11-06): re-recorded for the core catalog's SettingsRow
+# (`SettingsRow.png`; the kitchen-sink goldens, the Compose ratchet and the
+# gpui budget came back unchanged).
 
 on:
   workflow_dispatch: {}
