@@ -655,6 +655,16 @@ struct MainNavigator: View {
                 navigate({ openLinkLanding() }, dropped: { _ = deps.deepLinkBus.consumeLinkLanding() })
             }
         }
+        // #EXP-1638: a pick from the app icon's long-press menu.
+        .onChange(of: deps.deepLinkBus.pendingShortcut) { _, target in
+            if target != nil {
+                navigate({ openShortcut() }, dropped: { _ = deps.deepLinkBus.consumeShortcut() })
+            }
+        }
+        // A cold-launch New issue waits for the boards to arrive.
+        .onChange(of: teamState.boards.map(\.id)) { _, _ in
+            if deps.deepLinkBus.pendingShortcut == .newIssue { openShortcut() }
+        }
         // A team was deleted in-app (EXP-43): back to the landing tab (Home)
         // so no pushed view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
@@ -684,6 +694,7 @@ struct MainNavigator: View {
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
             if deps.deepLinkBus.pendingLinkLanding != nil { openLinkLanding() }
+            if deps.deepLinkBus.pendingShortcut != nil { openShortcut() }
         }
         // A stack, not a safeAreaInset: an inset never moves the pushed pages'
         // navigation bars, so a banner covered their headers.
@@ -1548,6 +1559,61 @@ extension MainNavigator {
         path.append(.teamSettingsSection(
             accountId: accountId, teamId: teamState.activeTeamId ?? "", section: .devices
         ))
+    }
+
+    /// #EXP-1638 (app-shortcuts.json): open what an app-icon shortcut names,
+    /// through the openers the app already has: the tab bar's New-issue arm,
+    /// its chat arm (the Agent tab's composer), the header's Search push, and
+    /// a session push tap. A chat that is gone opens nothing (the start
+    /// screen). New issue opens on the current board, else the active
+    /// team's first (the page's board picker moves it); with no board synced
+    /// yet it waits for the boards, at most `shortcutBoardWait`, then drops.
+    private func openShortcut() {
+        let bus = deps.deepLinkBus
+        guard let target = bus.pendingShortcut else { return }
+        if case .newIssue = target, shortcutBoard == nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: Self.shortcutBoardWait)
+                if bus.pendingShortcut == .newIssue { _ = bus.consumeShortcut() }
+            }
+            return
+        }
+        _ = bus.consumeShortcut()
+        switch target {
+        case .newIssue:
+            guard let board = shortcutBoard else { return }
+            path.append(.issueDraft(
+                accountId: board.accountId,
+                draftId: UUID().uuidString.lowercased(),
+                boardId: board.boardId
+            ))
+        case .newChat:
+            landOnRoot(of: .agent)
+            bus.pendingComposerFocus = true
+        case .search:
+            path.append(.search)
+        case let .chat(sessionId):
+            let accountId = deps.auth.activeAccountId ?? ""
+            let exists = (try? deps.db.pool(forAccountId: accountId).read { db in
+                try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \"sessions\" WHERE \"id\" = ?)", arguments: [sessionId])
+            }) ?? nil
+            guard exists == true else { return }
+            activateTeam(forSession: sessionId, accountId: accountId)
+            path.append(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+        }
+    }
+
+    private static let shortcutBoardWait: Duration = .seconds(15)
+
+    /// The New issue shortcut's board: the tab bar's compose target, else the
+    /// active team's first board, else the account's first.
+    private var shortcutBoard: (accountId: String, boardId: String)? {
+        if let composeTarget { return composeTarget }
+        guard let accountId = deps.auth.activeAccountId else { return nil }
+        let board = teamState.filteredBoards.first
+            ?? teamState.boards.first { $0.teamId == teamState.activeTeamId }
+            ?? teamState.boards.first
+        return board.map { (accountId, $0.id) }
     }
 
     /// #EXP-1674: land where a link resolved to. Another signed-in account

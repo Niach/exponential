@@ -283,6 +283,27 @@ let sharedInfoPlist: [String: Plist.Value] = [
     "UILaunchScreen": .dictionary([:]),
     // EXP-1635: the direct-share donations.
     "NSUserActivityTypes": .array([.string("INSendMessageIntent")]),
+    // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu, the
+    // three statics in order (type = fixture id, title = fixture copy, icon =
+    // the concept's lucide imageset); the recent chat is set at runtime
+    // (`AppShortcutsPublisher`).
+    "UIApplicationShortcutItems": .array([
+        .dictionary([
+            "UIApplicationShortcutItemType": .string("new-issue"),
+            "UIApplicationShortcutItemTitle": .string("New issue"),
+            "UIApplicationShortcutItemIconFile": .string("lucide-square-pen"),
+        ]),
+        .dictionary([
+            "UIApplicationShortcutItemType": .string("new-chat"),
+            "UIApplicationShortcutItemTitle": .string("New chat"),
+            "UIApplicationShortcutItemIconFile": .string("lucide-message-circle"),
+        ]),
+        .dictionary([
+            "UIApplicationShortcutItemType": .string("search"),
+            "UIApplicationShortcutItemTitle": .string("Search"),
+            "UIApplicationShortcutItemIconFile": .string("lucide-search"),
+        ]),
+    ]),
     "CFBundleURLTypes": .array([
         .dictionary([
             "CFBundleURLSchemes": .array([.string("exponential")]),

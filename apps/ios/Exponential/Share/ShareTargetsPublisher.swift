@@ -13,7 +13,8 @@ private let logger = Logger(subsystem: "at.exponential", category: "ShareTargets
 /// per signed-in account over the agents, the root sessions and the devices,
 /// throttled (a session row moves on every turn), writes
 /// `SharedShareMirror`, and for the ACTIVE account donates the system share
-/// sheet's rows (`DirectShareDonations`).
+/// sheet's rows (`DirectShareDonations`) and the app icon's long-press menu
+/// (#EXP-1638, `AppShortcutItems`).
 @MainActor
 final class ShareTargetsPublisher {
     /// One pass per account at most this often.
@@ -26,6 +27,7 @@ final class ShareTargetsPublisher {
     private let db: DatabaseManager
     private var tasks: [String: Task<Void, Never>] = [:]
     private var donated: [String: [DirectShareDonations.Row]] = [:]
+    private var shortcuts: [String: [AppShortcuts.Entry]] = [:]
 
     init(auth: AuthRepository, db: DatabaseManager) {
         self.auth = auth
@@ -40,6 +42,7 @@ final class ShareTargetsPublisher {
             task.cancel()
             tasks[accountId] = nil
             donated[accountId] = nil
+            shortcuts[accountId] = nil
         }
         for account in signedIn where tasks[account.id] == nil {
             start(accountId: account.id, userId: account.userId)
@@ -59,6 +62,7 @@ final class ShareTargetsPublisher {
                     guard let self else { return }
                     SharedShareMirror.write(accountId: accountId, snapshot.targets)
                     self.donated[accountId] = snapshot.rows
+                    self.shortcuts[accountId] = snapshot.shortcuts
                     self.donate()
                     try await Task.sleep(for: Self.throttle)
                 }
@@ -71,8 +75,15 @@ final class ShareTargetsPublisher {
 
     /// The active account's rows, once its first read landed (a launch must
     /// not wipe the donations before it); signed out = none.
+    /// #EXP-1638: the app shortcuts follow the ACTIVE account the same way.
     private func donate() {
-        guard auth.hasAuthenticatedAccount else { return DirectShareDonations.donate([]) }
+        guard auth.hasAuthenticatedAccount else {
+            AppShortcutItems.publish([])
+            return DirectShareDonations.donate([])
+        }
+        if let entries = auth.activeAccountId.flatMap({ shortcuts[$0] }) {
+            AppShortcutItems.publish(entries)
+        }
         guard let rows = auth.activeAccountId.flatMap({ donated[$0] }) else { return }
         DirectShareDonations.donate(rows)
     }
@@ -81,6 +92,8 @@ final class ShareTargetsPublisher {
     private struct Snapshot: Equatable, Sendable {
         let targets: MirroredShareTargets
         let rows: [DirectShareDonations.Row]
+        /// #EXP-1638: the long-press menu (statics + the recent chat).
+        let shortcuts: [AppShortcuts.Entry]
     }
 
     nonisolated private static func read(_ db: Database, userId: String?) throws -> Snapshot {
@@ -161,7 +174,18 @@ final class ShareTargetsPublisher {
             }
             return DirectShareDonations.Row(id: entry.id, title: entry.title, glyph: agent.glyph, color: agent.color)
         }
-        return Snapshot(targets: targets, rows: rows)
+        // #EXP-1638: the recent chat, same filter; a sealed root never
+        // reaches the OS (the query already drops them; `sealed` restates it).
+        let shortcuts = AppShortcuts.appShortcuts(chats: roots.map { root in
+            AppShortcuts.Chat(
+                id: root.id,
+                title: root.openedTitle ?? ShareTargets.Copy.newChat,
+                updatedAt: root.updatedAt,
+                agentId: root.agentId,
+                sealed: root.sealKey != nil || root.sealedTitle != nil
+            )
+        })
+        return Snapshot(targets: targets, rows: rows, shortcuts: shortcuts)
     }
 
     nonisolated private static func sealRoot(_ root: SessionEntity) -> MirroredSealRoot {
