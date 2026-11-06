@@ -132,6 +132,13 @@ is the navigation manifest: the templates a person can open, in order.
   included, is one toast ("Not found or no access"). The link pushes, so back
   returns to the first app. `crossAppTarget(pkg, screen, params)` is the rule. A
   person's URL or an agent's chat link opens any declared screen.
+- **App files** (VAPP-271, `catalog/host.json` `media.appFile`): an image
+  `src` of the form `app-file:<fileId>` (the `fileId` a capability answered:
+  `photos.pick`, `print.pdf`, `files.open`) shows that file of the app. The
+  host resolves it from its own file store under the usual image limits; the
+  Engine's runners do (web, desktop, iOS, Android). A host without app files
+  (Exponential itself) loads nothing and paints the image's fallback. Bind it:
+  `{"src": {"call": "expr", "args": {"expr": "'app-file:' + f", "vars": {"f": {"path": ""}}, "default": ""}}}`.
 - **`@media (form-factor: phone|wide)`** is the style condition for a
   layout that truly differs on phones (the host's form factor; unset = the
   surface width against `$breakpoint.md`).

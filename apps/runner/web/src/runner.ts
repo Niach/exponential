@@ -94,6 +94,7 @@ export class Runner {
   private pending: Pending | null = null
   private toastTimer: unknown = null
   private ids: () => string
+  private blobs: BlobStore | null = null
 
   constructor(private readonly options: RunnerOptions) {
     this.formFactor = options.formFactor
@@ -148,6 +149,7 @@ export class Runner {
     await this.options.hold?.(() => this.fail(`busy`))
     this.failure = null
     const storage = await this.options.openStorage(appId)
+    this.blobs = storage.blobs
     const deviceId = await localDeviceId(storage.vault, runnerFixture.storage.deviceKey)
     try {
       this.instance = await AppInstance.load(
@@ -212,6 +214,12 @@ export class Runner {
   private async navigate(args: unknown): Promise<void> {
     const result = await this.instance?.call(`app.navigate`, args)
     if (result && `refused` in result) this.toast(result.refused.message)
+  }
+
+  /** VAPP-271: an `app-file:<fileId>` src's bytes (catalog/host.json media.appFile), from the app's OPFS files. */
+  async appFile(fileId: string): Promise<Blob | null> {
+    const bytes = this.instance && this.blobs ? await this.blobs.get(this.instance.appId, fileId).catch(() => null) : null
+    return bytes ? new Blob([bytes as BlobPart]) : null
   }
 
   // ------------------------------------------------------------ calls

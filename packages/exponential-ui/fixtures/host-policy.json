@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the pure host rules (catalog/host.json functions, urls, media, sources, negotiation). Inputs hand-written; `expected` filled by the generator from src/host/{policy,sources,package}.ts. VAPP-122: `sourceParams` = sourceWithParams(source, params) → the source URI the `bind` action follows. #EXP-1674: `urls` `~/x` cases: decideUrl expands it against `linkBase` first; denied without one, for `~//` and for a `.` or `..` segment in any spelling the URL parser reads as one.",
+  "$comment": "VAPP-91: the pure host rules (catalog/host.json functions, urls, media, sources, negotiation). Inputs hand-written; `expected` filled by the generator from src/host/{policy,sources,package}.ts. VAPP-122: `sourceParams` = sourceWithParams(source, params) → the source URI the `bind` action follows. #EXP-1674: `urls` `~/x` cases: decideUrl expands it against `linkBase` first; denied without one, for `~//` and for a `.` or `..` segment in any spelling the URL parser reads as one. VAPP-271: `appFiles` = appFileId(src) → the file id of an `app-file:<fileId>` src (catalog/host.json media.appFile) or null; `media` locks that such a src is no media url (a host without app files loads nothing: the fallback).",
   "functions": [
     {
       "name": "a built-in always runs",
@@ -1244,6 +1244,12 @@
         "baseUrl": "https://app.example"
       },
       "expected": null
+    },
+    {
+      "name": "an app file is no media url (a host without app files loads nothing)",
+      "options": {},
+      "url": "app-file:blob-1",
+      "expected": null
     }
   ],
   "sources": [
@@ -1465,6 +1471,48 @@
         "a": "1"
       },
       "expected": "exp:x?&a=1"
+    }
+  ],
+  "appFiles": [
+    {
+      "name": "a file id",
+      "src": "app-file:3f2c9a1e-8b7d-4c1e-9f00-1a2b3c4d5e6f",
+      "expected": "3f2c9a1e-8b7d-4c1e-9f00-1a2b3c4d5e6f"
+    },
+    {
+      "name": "the fixtures' blob ids",
+      "src": "app-file:blob-1",
+      "expected": "blob-1"
+    },
+    {
+      "name": "no id",
+      "src": "app-file:",
+      "expected": null
+    },
+    {
+      "name": "no path in an id",
+      "src": "app-file:a/b",
+      "expected": null
+    },
+    {
+      "name": "no query",
+      "src": "app-file:a?x=1",
+      "expected": null
+    },
+    {
+      "name": "another scheme",
+      "src": "https://example.com/app-file:a",
+      "expected": null
+    },
+    {
+      "name": "case matters",
+      "src": "App-File:a",
+      "expected": null
+    },
+    {
+      "name": "at most 200 characters",
+      "src": "app-file:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": null
     }
   ]
 }

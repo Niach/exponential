@@ -58,7 +58,9 @@ class RunnerActivity : ComponentActivity() {
         val bundle = RunnerBundle.read { name -> runCatching { assets.open("${RunnerBundle.DIR}/$name").bufferedReader().use { it.readText() } }.getOrNull() }
         config = (bundle as? BundleLoad.Ready)?.config
         val activity = this
-        val started = controller.start(bundle) { cfg ->
+        // VAPP-271: the app's files, handed to the Engine and read by genUI's `app-file:` images.
+        val blobs = config?.let { RunnerBlobs(File(filesDir, "apps/${it.id}/blobs")) }
+        val started = controller.start(bundle, blobs) { cfg ->
             val vault = KeystoreVault(applicationContext)
             val capabilities = AndroidCapabilities.all(ComponentActivityHost(applicationContext) { activity.takeIf { !it.isDestroyed } })
             Engine(
@@ -72,7 +74,7 @@ class RunnerActivity : ComponentActivity() {
                     dataDir = File(filesDir, "apps/${cfg.id}").absolutePath,
                 ),
                 EngineIdentity.Local(RunnerController.deviceId(vault)),
-                EngineProviders(vault, controller.window, capabilities = capabilities),
+                EngineProviders(vault, controller.window, blobs = blobs, capabilities = capabilities),
             )
         }
         if (!started) return

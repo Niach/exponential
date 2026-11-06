@@ -638,6 +638,8 @@ class ExponentialHost(
 
         override fun resolveUrl(src: String): String = base.resolveUrl(src)
 
+        override val appFile: AppFileLoader? get() = options.policy.appFile ?: base.appFile
+
         override fun onPaintError(error: PaintError) {
             paintError(error)
             base.onPaintError(error)

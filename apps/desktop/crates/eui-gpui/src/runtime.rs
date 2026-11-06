@@ -1303,6 +1303,10 @@ impl HostPlugin for HostAdapter {
         self.base.resolve_url(src)
     }
 
+    fn app_files(&self) -> Option<std::sync::Arc<dyn crate::host::AppFiles>> {
+        self.base.app_files()
+    }
+
     fn font_family(&self, family: &str) -> gpui::SharedString {
         self.base.font_family(family)
     }

@@ -628,6 +628,8 @@ final class HostBridge: HostPlugin {
 
     func mediaRequest(_ src: String) -> URLRequest? { host?.mediaRequest(resolveUrl(src)) }
 
+    var appFile: AppFileLoader? { host?.options.policy.appFile ?? base?.appFile }
+
     func onUnknown(component: String, catalogId: String?, id: String) { base?.onUnknown(component: component, catalogId: catalogId, id: id) }
 
     func fontFamily(_ name: String) -> String? { base?.fontFamily(name) }

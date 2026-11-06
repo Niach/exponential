@@ -195,3 +195,30 @@ fn the_functions_a_package_reaches() {
         assert!(names.contains(&n.to_string()), "{n}: {names:?}");
     }
 }
+
+/// VAPP-271: an `app-file:<fileId>` src reads the instance's BlobStore under
+/// its app id, through eui-gpui's media loader (the image limits); a missing
+/// file is none (the fallback paints).
+#[test]
+fn an_app_file_src_reads_the_instances_blob_store() {
+    struct Host(Arc<dyn eui_gpui::host::AppFiles>);
+    impl eui_gpui::host::HostPlugin for Host {
+        fn app_files(&self) -> Option<Arc<dyn eui_gpui::host::AppFiles>> {
+            Some(self.0.clone())
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("eengine-runner-app-files-{}", std::process::id()));
+    let store = Arc::new(FsBlobStore::new(&dir));
+    let r = Runner::boot(config(), &package(), Providers { blobs: store.clone(), ..providers() }, FormFactor::Wide).expect("boots");
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89".to_vec();
+    let id = store.put(r.app_id(), "a.png", "image/png", &png).unwrap();
+    let files = r.app_files();
+    assert_eq!(files.read(&id), Some(png.clone()));
+    assert_eq!(files.read("3f2c9a1e-8b7d-4c1e-9f00-1a2b3c4d5e6f"), None);
+    let host = Host(files);
+    let key = eui_gpui::media::image_key(&host, &format!("app-file:{id}")).expect("an app file loads");
+    assert_eq!(eui_gpui::media::fetch(&key).unwrap(), png);
+    let gone = eui_gpui::media::image_key(&host, "app-file:3f2c9a1e-8b7d-4c1e-9f00-1a2b3c4d5e6f").unwrap();
+    assert!(eui_gpui::media::fetch(&gone).is_err());
+    std::fs::remove_dir_all(&dir).ok();
+}

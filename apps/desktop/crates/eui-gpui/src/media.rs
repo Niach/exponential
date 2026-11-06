@@ -16,15 +16,21 @@
 //! `MEDIA_MAX_PIXELS` BEFORE any decode (an SVG at gpui's 2× raster, an
 //! unreadable raster refused). Video / AudioPlayer hand-offs stream to a
 //! file with no byte cap (`catalog/host.json`: the byte limits are images').
+//!
+//! VAPP-271: an `app-file:<fileId>` src (`catalog/host.json` media.appFile)
+//! is no URL: it reads the host's [`crate::host::HostPlugin::app_files`]
+//! (off the main thread, under the same image limits and the same asset
+//! cache); a host without app files, a bad id or a missing file loads
+//! nothing (the fallback paints).
 
 use std::sync::Arc;
 
-use eui_core::host::{media_image_within_limits, media_request, media_within_limits, svg_dimensions, MediaOptions, MediaRequest, MEDIA_MAX_BYTES};
+use eui_core::host::{app_file_id, media_image_within_limits, APP_FILE_SCHEME, media_request, media_within_limits, svg_dimensions, MediaOptions, MediaRequest, MEDIA_MAX_BYTES};
 #[cfg(feature = "net")]
 use eui_core::host::MEDIA_TIMEOUT_MS;
 use gpui::{App, Asset, Image, ImageCacheError, ImageFormat, ImageSource, RenderImage, SharedString, Window};
 
-use crate::host::HostPlugin;
+use crate::host::{AppFiles, HostPlugin};
 
 /// One media load: the url, the headers (sorted, so the asset key is
 /// stable) and the host's media policy as JSON (every redirect hop passes
@@ -34,12 +40,46 @@ pub struct MediaKey {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub policy: String,
+    /// VAPP-271: the host's app files an `app-file:` `url` reads from.
+    pub app_file: Option<AppFileSource>,
+}
+
+/// VAPP-271: the app files a [`MediaKey`] reads. It takes no part in the
+/// key's equality or hash: an app file is keyed by its `app-file:<fileId>`
+/// url alone (a file id is unique in its store), so a host that answers a
+/// fresh reader per frame still hits gpui's asset cache.
+#[derive(Clone)]
+pub struct AppFileSource(pub Arc<dyn AppFiles>);
+
+impl std::fmt::Debug for AppFileSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AppFileSource")
+    }
+}
+
+impl PartialEq for AppFileSource {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for AppFileSource {}
+
+impl std::hash::Hash for AppFileSource {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
 }
 
 impl MediaKey {
     /// The key for a request the host's `options` allowed.
     pub fn new(r: &MediaRequest, options: &MediaOptions) -> Self {
-        MediaKey { url: r.url.clone(), headers: r.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect(), policy: serde_json::to_string(options).unwrap_or_default() }
+        MediaKey { url: r.url.clone(), headers: r.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect(), policy: serde_json::to_string(options).unwrap_or_default(), app_file: None }
+    }
+
+    /// VAPP-271: the key for an `app-file:<fileId>` src read from `files`
+    /// (`None` = not one, or a bad id).
+    pub fn app_file(src: &str, files: Arc<dyn AppFiles>) -> Option<Self> {
+        let id = app_file_id(src)?;
+        Some(MediaKey { url: format!("app-file:{id}"), headers: Vec::new(), policy: String::new(), app_file: Some(AppFileSource(files)) })
     }
 
     /// The host's media policy this load runs under.
@@ -76,7 +116,12 @@ pub fn sniff_format(bytes: &[u8]) -> Option<ImageFormat> {
 /// The bytes of a [`MediaKey`] under the media limits (the policy already
 /// passed: [`image_source`] builds keys only from allowed requests).
 pub fn fetch(key: &MediaKey) -> Result<Vec<u8>, String> {
-    let bytes = if key.url.starts_with("data:") {
+    let bytes = if let Some(files) = &key.app_file {
+        let id = app_file_id(&key.url).ok_or_else(|| format!("{}: not an app file", truncate(&key.url)))?;
+        let bytes = files.0.read(id).ok_or_else(|| format!("{}: no such app file", truncate(&key.url)))?;
+        media_within_limits(bytes.len() as u64, None)?;
+        bytes
+    } else if key.url.starts_with("data:") {
         let bytes = crate::paint::natives::data_bytes(&key.url).ok_or_else(|| format!("{}: not a data image", truncate(&key.url)))?;
         media_within_limits(bytes.len() as u64, None)?;
         bytes
@@ -257,9 +302,23 @@ pub fn remember_size(src: &str, size: (f32, f32)) -> bool {
 /// media schemes and hosts (a custom hook cannot widen them), fetched and
 /// decoded by [`MediaLoader`] under the media limits.
 pub fn image_source(host: &dyn HostPlugin, src: &str) -> Option<ImageSource> {
-    let req = allowed_request(host, src)?;
-    let key = MediaKey::new(&req, &host.media_options());
+    let key = image_key(host, src)?;
     Some(ImageSource::Custom(Arc::new(move |window: &mut Window, cx: &mut App| window.use_asset::<MediaLoader>(&key, cx))))
+}
+
+/// The [`MediaLoader`] key for an image `src` (`None` = nothing loads): an
+/// `app-file:` src reads the host's app files (VAPP-271: resolved before
+/// the media policy; no app files or a bad id = `None`), anything else the
+/// host's policed media request.
+pub fn image_key(host: &dyn HostPlugin, src: &str) -> Option<MediaKey> {
+    if src.strip_prefix(APP_FILE_SCHEME).is_some_and(|rest| rest.starts_with(':')) {
+        if !host.media_allowed(src) {
+            return None;
+        }
+        return MediaKey::app_file(src, host.app_files()?);
+    }
+    let req = allowed_request(host, src)?;
+    Some(MediaKey::new(&req, &host.media_options()))
 }
 
 /// The host's request for `src` when the media policy allows it.
@@ -486,6 +545,61 @@ mod tests {
         assert!(allowed_request(&Plain, "data:image/png;base64,iVBORw0KGgo=").is_some());
         assert!(allowed_request(&Files, "file:///tmp/a.png").is_some());
         assert!(allowed_request(&Widening, "https://x.test/a.png").is_none());
+    }
+
+    /// VAPP-271: a host whose app files hold one tiny PNG (`blob-1`).
+    const TINY_PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
+    struct Blobs;
+    impl HostPlugin for Blobs {
+        fn app_files(&self) -> Option<Arc<dyn AppFiles>> {
+            Some(Arc::new(|id: &str| (id == "blob-1").then(|| TINY_PNG.to_vec())))
+        }
+    }
+
+    #[test]
+    fn an_app_file_src_reads_the_hosts_app_files_under_the_image_limits() {
+        let key = image_key(&Blobs, "app-file:blob-1").expect("an app file loads");
+        assert_eq!(key.url, "app-file:blob-1");
+        let bytes = fetch(&key).unwrap();
+        assert_eq!(sniff_format(&bytes), Some(ImageFormat::Png));
+        assert!(image_source(&Blobs, "app-file:blob-1").is_some());
+        // The same src = the same asset key (gpui's cache), whatever reader answers.
+        assert_eq!(image_key(&Blobs, "app-file:blob-1"), Some(key));
+        // A missing file fails the load: the fallback paints.
+        let missing = image_key(&Blobs, "app-file:gone").unwrap();
+        assert!(fetch(&missing).unwrap_err().contains("no such app file"));
+        // Over the pixel cap = refused before decoding, like any image.
+        struct Huge;
+        impl HostPlugin for Huge {
+            fn app_files(&self) -> Option<Arc<dyn AppFiles>> {
+                Some(Arc::new(|_: &str| {
+                    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+                    png.extend_from_slice(&40_000u32.to_be_bytes());
+                    png.extend_from_slice(&30_000u32.to_be_bytes());
+                    Some(png)
+                }))
+            }
+        }
+        assert!(fetch(&image_key(&Huge, "app-file:a").unwrap()).unwrap_err().contains("40000×30000"));
+    }
+
+    #[test]
+    fn an_app_file_src_without_app_files_or_with_a_bad_id_loads_nothing() {
+        assert!(image_key(&Plain, "app-file:blob-1").is_none(), "no app files = unresolved");
+        assert!(image_source(&Plain, "app-file:blob-1").is_none());
+        for bad in ["app-file:", "app-file:a/b", "app-file:a?x=1", "App-File:a"] {
+            assert!(image_key(&Blobs, bad).is_none(), "{bad}");
+        }
+        struct Denying;
+        impl HostPlugin for Denying {
+            fn media_allowed(&self, _src: &str) -> bool {
+                false
+            }
+            fn app_files(&self) -> Option<Arc<dyn AppFiles>> {
+                Blobs.app_files()
+            }
+        }
+        assert!(image_key(&Denying, "app-file:blob-1").is_none(), "the host's deny-only narrowing holds");
     }
 
     #[test]

@@ -391,7 +391,7 @@ struct MarkdownView: View {
         case let .image(src, alt):
             let boxWidth = box.width ?? width
             let unsized = block.imageSize == nil
-            let image = MediaImage(request: model.mediaRequest(src), options: model.mediaPolicy) { image in
+            let image = MediaImage(request: model.mediaRequest(src), options: model.mediaPolicy, appFile: model.appFile) { image in
                 image.resizable().scaledToFit().frame(maxWidth: boxWidth, maxHeight: box.height, alignment: .topLeading)
                     // #VAPP-258: the picture decoded while its box was the
                     // placeholder: the leaf measures again at its aspect.
