@@ -44,3 +44,4 @@
 - Bežiace relácie ako živá aktivita na zamknutej obrazovke a v Dynamic Island
 - Úlohy a chaty v Spotlighte; Siri a Skratky vytvoria úlohu alebo chat
 - Pull requesty ukazujú stav zlúčenia s možnosťami Zlúčiť teraz a Pozdržať
+- Markdown v úlohách, komentároch a chatoch vyzerá rovnako vo všetkých aplikáciách

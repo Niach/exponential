@@ -150,8 +150,8 @@ android {
         applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 36
-        versionCode = 203
-        versionName = "0.14.120"
+        versionCode = 204
+        versionName = "0.14.121"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

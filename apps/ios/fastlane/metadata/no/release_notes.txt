@@ -44,3 +44,4 @@
 - Kjørende økter som Live Activity på låseskjermen og i Dynamic Island
 - Saker og chatter i Spotlight; Siri og Snarveier kan opprette en sak eller chat
 - Pull requests viser flettestatus med Flett nå og Hold
+- Markdown i saker, kommentarer og chatter ser likt ut i alle appene

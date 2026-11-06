@@ -44,3 +44,4 @@
 - Le sessioni in corso come Attività in tempo reale sulla schermata di blocco e nella Dynamic Island
 - Issue e chat in Spotlight; Siri e Comandi rapidi creano una issue o una chat
 - Le pull request mostrano lo stato di merge con Unisci ora e Trattieni
+- Il Markdown di issue, commenti e chat è identico su ogni app

@@ -1,0 +1,2 @@
+- Markdown in issues, comments and chats looks the same on every app
+- Apps get an inline calendar and a richer slider

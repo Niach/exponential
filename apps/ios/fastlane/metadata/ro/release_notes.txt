@@ -44,3 +44,4 @@
 - Sesiunile în desfășurare ca Activitate live pe ecranul de blocare și în Dynamic Island
 - Probleme și chaturi în Spotlight; Siri și Scurtăturile creează o problemă sau un chat
 - Pull request-urile arată starea de îmbinare cu Îmbină acum și Reține
+- Markdown-ul din probleme, comentarii și chaturi arată la fel în toate aplicațiile

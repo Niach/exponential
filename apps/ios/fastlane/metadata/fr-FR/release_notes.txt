@@ -44,3 +44,4 @@
 - Les sessions en cours en Activité en direct sur l'écran verrouillé et dans la Dynamic Island
 - Tickets et chats dans Spotlight ; Siri et Raccourcis créent un ticket ou un chat
 - Les pull requests affichent leur état de fusion avec Fusionner maintenant et Suspendre
+- Le Markdown des tickets, commentaires et chats est identique sur toutes les apps

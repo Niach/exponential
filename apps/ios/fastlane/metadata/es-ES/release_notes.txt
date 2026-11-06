@@ -44,3 +44,4 @@
 - Las sesiones en curso como Actividad en vivo en la pantalla bloqueada y en la Dynamic Island
 - Incidencias y chats en Spotlight; Siri y Atajos crean una incidencia o un chat
 - Las pull requests muestran su estado de fusión con Fusionar ahora y Retener
+- El Markdown de incidencias, comentarios y chats se ve igual en todas las apps

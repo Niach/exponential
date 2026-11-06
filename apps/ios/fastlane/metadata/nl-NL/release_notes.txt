@@ -44,3 +44,4 @@
 - Lopende sessies als Live Activity op het toegangsscherm en in het Dynamic Island
 - Issues en chats in Spotlight; Siri en Opdrachten maken een issue of chat
 - Pull requests tonen hun mergestatus met Nu mergen en Vasthouden
+- Markdown in issues, opmerkingen en chats ziet er in elke app hetzelfde uit

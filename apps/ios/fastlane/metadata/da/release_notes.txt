@@ -44,3 +44,4 @@
 - Kørende sessioner som Live Activity på låseskærmen og i Dynamic Island
 - Opgaver og chats i Spotlight; Siri og Genveje kan oprette en opgave eller chat
 - Pull requests viser flettestatus med Flet nu og Hold
+- Markdown i opgaver, kommentarer og chats ser ens ud i alle apps

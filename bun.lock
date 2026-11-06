@@ -273,7 +273,7 @@
     },
     "packages/exponential-ui": {
       "name": "@exponential_app/eui",
-      "version": "0.16.3",
+      "version": "0.17.0",
       "dependencies": {
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -299,7 +299,7 @@
     },
     "packages/exponential-ui-bench": {
       "name": "@exponential_app/eui-bench",
-      "version": "0.16.3",
+      "version": "0.17.0",
       "devDependencies": {
         "@exp/tsconfig": "workspace:*",
         "@exponential_app/eui": "workspace:*",
@@ -313,7 +313,7 @@
     },
     "packages/exponential-ui-element": {
       "name": "@exponential_app/eui-element",
-      "version": "0.16.3",
+      "version": "0.17.0",
       "dependencies": {
         "@exponential_app/eui": "workspace:*",
         "@exponential_app/eui-solid": "workspace:*",
@@ -339,7 +339,7 @@
     },
     "packages/exponential-ui-react": {
       "name": "@exponential_app/eui-react",
-      "version": "0.16.3",
+      "version": "0.17.0",
       "dependencies": {
         "@exponential_app/eui": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -376,7 +376,7 @@
     },
     "packages/exponential-ui-solid": {
       "name": "@exponential_app/eui-solid",
-      "version": "0.16.3",
+      "version": "0.17.0",
       "dependencies": {
         "@exponential_app/eui": "workspace:*",
         "@floating-ui/dom": "^1.7.0",

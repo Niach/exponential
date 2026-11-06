@@ -44,3 +44,4 @@
 - Käynnissä olevat istunnot Live Activityna lukitusnäytöllä ja Dynamic Islandissa
 - Tehtävät ja keskustelut Spotlightissa; Siri ja Pikakomennot luovat tehtävän tai keskustelun
 - Pull requestit näyttävät yhdistämistilansa: Yhdistä nyt ja Pidä
+- Markdown näyttää samalta tehtävissä, kommenteissa ja keskusteluissa kaikissa sovelluksissa

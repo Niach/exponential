@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-06-one-markdown-everywhere`,
+    date: `2026-11-06`,
+    title: `One Markdown on every app`,
+    summary: `Issues, comments and chats render Markdown the same way on the web, desktop, iPhone and Android, apps get an inline calendar and a richer slider, and screenshots match the new look.`,
+    body: `- **Markdown**: issue descriptions, comments and chat messages now render through one Markdown renderer on the web, desktop, iPhone and Android, so headings, lists, code, tables and images look the same everywhere.
+- **Apps**: date pickers can show an inline calendar with marked days and today, and a slider can show an icon, an end label and its value.
+- **Apps need the latest version**: apps now use a new package format; on an older version an app asks you to update before it opens.
+- **Store pictures**: the screenshots on every store and the site show today's look.`,
+  },
+  {
     id: `2026-11-06-exponential-desktop-packages`,
     date: `2026-11-06`,
     title: `Exponential Desktop: install and update it from our package repositories`,

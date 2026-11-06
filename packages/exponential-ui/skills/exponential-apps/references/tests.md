@@ -1,6 +1,6 @@
 # Package tests
 
-> Generated from packages/exponential-ui/docs/package-format.md (Tests) (genUI 0.16.3) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Tests) (genUI 0.17.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Tests
 
