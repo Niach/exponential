@@ -10,6 +10,7 @@ import {
   taskbarPress,
   taskbarScroll,
   workspaceBadges,
+  switcherSections,
   type ShellEvent,
   type ShellState,
   type StartMenuApp,
@@ -53,6 +54,7 @@ describe(`shell.json selectors`, () => {
   for (const c of fixture.selectors.taskbarPress) test(c.name, () => expect(taskbarPress(given(c.state), c.args.app)).toEqual(c.expected as ReturnType<typeof taskbarPress>))
   for (const c of fixture.selectors.taskbarScroll) test(c.name, () => expect(taskbarScroll(given(c.state), c.args.app, c.args.direction as `up` | `down`)).toEqual(c.expected as ReturnType<typeof taskbarScroll>))
   for (const c of fixture.selectors.workspaceBadges) test(c.name, () => expect(workspaceBadges(given(c.state))).toEqual(c.expected))
+  for (const c of fixture.selectors.switcherSections) test(c.name, () => expect(switcherSections(given(c.state as never))).toEqual(c.expected))
   for (const c of fixture.selectors.altTabOrder) test(c.name, () => expect(altTabOrder(given(c.state))).toEqual(c.expected))
   for (const c of fixture.selectors.startMenuApps) {
     const args = (c as { args?: { apps?: StartMenuApp[]; favourites?: string[] } }).args ?? {}

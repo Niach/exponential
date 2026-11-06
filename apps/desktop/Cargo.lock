@@ -2771,13 +2771,16 @@ dependencies = [
 name = "ede-shell"
 version = "0.14.136"
 dependencies = [
+ "api",
  "base64 0.22.1",
  "ede-protocol",
  "ede-services",
  "ede-theme",
  "ede-ui",
+ "elocal",
  "eui-core",
  "eui-gpui",
+ "flume 0.11.1",
  "futures-util",
  "gpui",
  "gpui-component",
@@ -2789,6 +2792,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
+ "sync",
  "tempfile",
  "toml 0.8.23",
  "tracing",

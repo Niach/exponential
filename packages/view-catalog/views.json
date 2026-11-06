@@ -8336,7 +8336,7 @@
       "id": "ede-settings-team",
       "group": "ede",
       "title": "Exponential Desktop · settings, Team",
-      "blurb": "The settings window's Team group (apps/ede/ui/settings.json): the shell's desktop/team switcher heads it with its entries open as a Popover (a hosted xdg_popup of the window), the Local desktop's General page beside it (the name, Share as a team…); the IDE's Team, Boards, Agents and Apps groups appear only for a team entry, which eDE has none of yet (#EDE-54).",
+      "blurb": "The settings window's Team group (apps/ede/ui/settings.json): the shell's desktop/team switcher heads it with its sections open as a Popover (a hosted xdg_popup of the window; #EDE-56: the Local desktops, then one section per connected account with its teams), the Local desktop's General page beside it (the name, Share as a team…); the IDE's Team, Boards, Agents and Apps groups appear for a team entry.",
       "order": 19,
       "ede": {
         "size": "1280x720",
@@ -8396,7 +8396,8 @@
         "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
         "ios": "Exponential Desktop only.",
         "android": "Exponential Desktop only."
-      }    },
+      }
+    },
     {
       "id": "ede-expo",
       "group": "ede",
@@ -8416,7 +8417,8 @@
         "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
         "ios": "Exponential Desktop only.",
         "android": "Exponential Desktop only."
-      }    },
+      }
+    },
     {
       "id": "ede-scale",
       "group": "ede",
@@ -8436,7 +8438,8 @@
         "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
         "ios": "Exponential Desktop only.",
         "android": "Exponential Desktop only."
-      }    },
+      }
+    },
     {
       "id": "ede-history",
       "group": "ede",
@@ -8449,6 +8452,27 @@
           "history"
         ],
         "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-connect",
+      "group": "ede",
+      "title": "Exponential Desktop · Connect Exponential",
+      "blurb": "The switcher's Connect Exponential (apps/ede/ui/connect.json, #EDE-56): the instance and the two ways in, the browser (the PKCE flow, when the shell is the exponential:// handler) or a code (the device-code flow the shell polls); the account then joins the shared accounts.json and its teams the switcher.",
+      "order": 20,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "connect"
+        ],
+        "settleMs": 2000
       },
       "notes": {
         "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
