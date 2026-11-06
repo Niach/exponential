@@ -10,6 +10,12 @@
 //!   discards it; the host commits the writes as ONE unit (`records.batch`,
 //!   [`apply_record_batch`] over in-memory rows), applies the sets, runs the
 //!   calls. `fixtures/actions.json` locks it (TS, Rust, Swift, Kotlin).
+//! - VAPP-271: a `call` step may name its answer (`result: <name>`). It
+//!   runs when the plan reaches it, before the commit: [`run_action`]
+//!   answers [`ActionRun::Pending`] for the first one not in
+//!   [`ActionContext::results`]; the host runs it and runs the action again
+//!   over the same snapshot with the answer added, so later steps read it
+//!   as `results.<name>`.
 
 use serde_json::{json, Map, Value};
 
@@ -26,6 +32,8 @@ pub use crate::cel::function_effect;
 pub const ACTION_LIMIT_ACTIONS: usize = 32;
 pub const ACTION_LIMIT_STEPS: usize = 64;
 pub const ACTION_LIMIT_MAX_STEPS: usize = 100_000;
+/// VAPP-271: a `call` step's `result` name (`results.<name>`).
+pub const ACTION_RESULT_PATTERN: &str = "^[a-z][A-Za-z0-9_]{0,31}$";
 /// The step forms, by their one key.
 pub const ACTION_STEP_KINDS: &[&str] = &["require", "records.upsert", "records.delete", "set", "call"];
 /// An action's name (`actions.<name>`).
@@ -48,6 +56,46 @@ pub struct ActionContext<'a> {
     pub offset: Option<&'a (dyn Fn(f64) -> i32 + Send + Sync)>,
     /// The run's evaluation budget (default [`ACTION_LIMIT_MAX_STEPS`]).
     pub max_steps: Option<usize>,
+    /// VAPP-271: the answers of the `call` steps with a `result` so far, by
+    /// name (the `results` var; `None` = none yet).
+    pub results: Option<&'a Map<String, Value>>,
+}
+
+/// VAPP-271: the next `call` step with a `result` whose answer the host
+/// must get first (TS `PendingCall`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingCall {
+    pub step: usize,
+    pub name: String,
+    pub args: Map<String, Value>,
+    pub result: String,
+}
+
+impl PendingCall {
+    /// `{step, name, args, result}` (`fixtures/actions.json` `results.run`).
+    pub fn to_value(&self) -> Value {
+        json!({"step": self.step, "name": self.name, "args": self.args, "result": self.result})
+    }
+}
+
+/// What [`run_action`] answers when no step failed: the plan, or the
+/// result call the host must run first (VAPP-271).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActionRun {
+    /// `{writes, sets, calls}`.
+    Plan(Value),
+    /// The first `call` step with an unanswered `result`.
+    Pending(PendingCall),
+}
+
+impl ActionRun {
+    /// `{"plan": …}` | `{"pending": …}` (TS `ActionResult`).
+    pub fn to_value(&self) -> Value {
+        match self {
+            ActionRun::Plan(plan) => json!({ "plan": plan }),
+            ActionRun::Pending(p) => json!({ "pending": p.to_value() }),
+        }
+    }
 }
 
 fn escape(key: &str) -> String {
@@ -108,8 +156,9 @@ fn sorted_keys(m: &Map<String, Value>) -> Vec<&String> {
 }
 
 /// The names a step expression reads, typed: `params` (the action's
-/// params schema), `data` (the surface data: open), `me` (a member id).
-pub fn action_var_types(action: &Map<String, Value>) -> Map<String, Value> {
+/// params schema), `data` (the surface data: open), `me` (a member id) and
+/// `results` (VAPP-271: the answers EARLIER steps name, each `dyn`).
+pub fn action_var_types(action: &Map<String, Value>, results: &[&str]) -> Map<String, Value> {
     let schema = action.get("params").and_then(Value::as_object);
     let empty = Map::new();
     let props = schema.and_then(|s| s.get("properties")).and_then(Value::as_object).unwrap_or(&empty);
@@ -118,6 +167,7 @@ pub fn action_var_types(action: &Map<String, Value>) -> Map<String, Value> {
     // VAPP-195: the surface data is untyped and the member may be unknown.
     types.insert("data".into(), optional_type(ty("dyn")));
     types.insert("me".into(), optional_type(ty("string")));
+    types.insert("results".into(), Value::Object(results.iter().map(|r| (r.to_string(), ty("dyn"))).collect()));
     types
 }
 
@@ -136,6 +186,10 @@ fn fits(field: &Value, t: &Value) -> bool {
     }
     if field == "dyn" || t == "dyn" || t == "null" {
         return true;
+    }
+    // VAPP-271: a list of open items (an answer mapped) fits any list; the schema checks it when it runs.
+    if let (Some(f), Some(t)) = (field.as_array(), t.as_array()) {
+        return fits(f.first().unwrap_or(&Value::Null), t.first().unwrap_or(&Value::Null));
     }
     if textual(field) {
         return textual(t);
@@ -187,12 +241,25 @@ fn validate_action(pkg: &Map<String, Value>, name: &str, action: &Value, at: &st
     if steps.len() > ACTION_LIMIT_STEPS {
         issues.push(issue(format!("{at}/steps"), format!("at most {ACTION_LIMIT_STEPS} steps")));
     }
-    let types = action_var_types(action);
     let empty = Map::new();
     let records = pkg.get("records").and_then(Value::as_object).unwrap_or(&empty);
     let functions: Option<Vec<&str>> = pkg.get("functions").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).collect());
+    // VAPP-271: a step reads the results of the steps before it.
+    let mut named: Vec<(&str, usize)> = Vec::new();
     for (i, step) in steps.iter().enumerate() {
-        issues.extend(validate_step(step, &format!("{at}/steps/{i}"), &types, records, functions.as_deref()));
+        let earlier: Vec<&str> = named.iter().map(|(n, _)| *n).collect();
+        issues.extend(validate_step(step, &format!("{at}/steps/{i}"), &action_var_types(action, &earlier), records, functions.as_deref()));
+        let Some(result) = step.as_object().and_then(|s| s.get("result")) else { continue };
+        let here = format!("{at}/steps/{i}/result");
+        if step_kind(step) != Some("call") {
+            issues.push(issue(here, "result names a call's answer: only a call step has one"));
+        } else if !result.as_str().is_some_and(is_action_name) {
+            issues.push(issue(here, "a result name is a letter, then letters, digits and underscores"));
+        } else if let Some((_, j)) = named.iter().find(|(n, _)| Some(*n) == result.as_str()) {
+            issues.push(issue(here, format!("result {} is already named by step {j}", result.as_str().unwrap_or(""))));
+        } else {
+            named.push((result.as_str().unwrap_or(""), i));
+        }
     }
     issues
 }
@@ -508,8 +575,11 @@ fn param_issue_text(issues: &[PackageIssue]) -> String {
 
 /// Run a package action against one snapshot: its plan `{writes, sets,
 /// calls}`, or the error that discards it whole (a false `require` = its
-/// message; else `step <i>: …`).
-pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) -> Result<Value, String> {
+/// message; else `step <i>: …`). VAPP-271: a `call` step with a `result`
+/// not yet in `ctx.results` stops the run with [`ActionRun::Pending`] (the
+/// plan so far is dropped); an answered one binds `results.<name>` and adds
+/// no call to the plan.
+pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) -> Result<ActionRun, String> {
     let action = pkg.get("actions").and_then(Value::as_object).and_then(|a| a.get(name)).and_then(Value::as_object);
     let Some((action, steps)) = action.and_then(|a| a.get("steps").and_then(Value::as_array).map(|s| (a, s))) else { return Err(format!("no action {name}")) };
     let p = if params.is_null() { Value::Object(Map::new()) } else { params.clone() };
@@ -532,6 +602,7 @@ pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) 
     vars.insert("params".into(), p);
     vars.insert("data".into(), ctx.data.cloned().unwrap_or(Value::Null));
     vars.insert("me".into(), ctx.me.map_or(Value::Null, |m| Value::String(m.into())));
+    vars.insert("results".into(), Value::Object(ctx.results.cloned().unwrap_or_default()));
     let empty = Map::new();
     let records = pkg.get("records").and_then(Value::as_object).unwrap_or(&empty);
     let mut budget: i64 = ctx.max_steps.unwrap_or(ACTION_LIMIT_MAX_STEPS) as i64;
@@ -661,12 +732,20 @@ pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) 
                         args.insert(k.clone(), value(&given[k.as_str()])?);
                     }
                 }
-                calls.push(json!({"name": name, "args": args}));
+                let Some(result) = step.get("result").and_then(Value::as_str) else {
+                    calls.push(json!({"name": name, "args": args}));
+                    continue;
+                };
+                // VAPP-271: an answered result is bound; the first unanswered one stops the run.
+                if ctx.results.is_some_and(|r| r.contains_key(result)) {
+                    continue;
+                }
+                return Ok(ActionRun::Pending(PendingCall { step: i, name: name.to_string(), args, result: result.to_string() }));
             }
             _ => {}
         }
     }
-    Ok(json!({"writes": writes, "sets": sets, "calls": calls}))
+    Ok(ActionRun::Plan(json!({"writes": writes, "sets": sets, "calls": calls})))
 }
 
 // ---------------------------------------------------------------------------

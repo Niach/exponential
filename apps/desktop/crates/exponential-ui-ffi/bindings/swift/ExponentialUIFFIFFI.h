@@ -1444,7 +1444,7 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_run_action_json(RustBuffer action_j
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_PACKAGE_ACTION_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_PACKAGE_ACTION_JSON
-RustBuffer uniffi_exponential_ui_ffi_fn_func_run_package_action_json(RustBuffer package_json, RustBuffer name, RustBuffer params_json, RustBuffer data_json, RustBuffer me, RustBuffer now_ms, RustBuffer zone, RustBuffer max_steps, RustCallStatus *_Nonnull out_status
+RustBuffer uniffi_exponential_ui_ffi_fn_func_run_package_action_json(RustBuffer package_json, RustBuffer name, RustBuffer params_json, RustBuffer data_json, RustBuffer me, RustBuffer now_ms, RustBuffer zone, RustBuffer max_steps, RustBuffer results_json, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_PACKAGE_TESTS_JSON

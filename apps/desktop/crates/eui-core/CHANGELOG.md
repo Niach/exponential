@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A call's answer (#VAPP-271): a package action's `call` step may name its answer, `result: <name>` (`ACTION_RESULT_PATTERN`, `catalog/host.json` `package.actions.resultPattern`), read by the later steps as `results.<name>`; `run_action` now answers `Result<ActionRun, String>` (`ActionRun::Plan` | `ActionRun::Pending(PendingCall {step, name, args, result})`), `ActionContext.results` carries the answers so far; a list of dyn items fits any list field at install; every Engine capability name (`camera.` … `share.`) is a host function; a package test's action takes `results` (`step <i>: <call> has no result in the test`).
 - Tree (#VAPP-285): `tree::tree_rows` / `tree_key`, `{treeRows(props)}`, per-item `$each` conditions, interpolated `$on`/`$set` event names; `Surface::event(index, "key")` on a treeitem answers a `Focus` event. `tree_rows` takes the rail Sidebar's `rail` (every row a tile, #VAPP-277).
 - A foldable Row (#VAPP-284): macro `alternatives` + `{childCount}`, `$on` routes with their own context (`MacroRoute`), `fold::fold_key` and `Surface::event(index, "key", {key})` firing `toggle` on a node that folds.
 - `SurfaceSettings::hosted_popups` (VAPP-281): anchored Popover / Menu layers unclipped, no flip / shift (`overlay::anchor_position`), `Layer.hosted` + `Layer.align`.

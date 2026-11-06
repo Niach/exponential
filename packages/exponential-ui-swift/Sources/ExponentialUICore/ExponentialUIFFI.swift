@@ -8251,11 +8251,16 @@ public func runActionJson(actionJson: String, dataJson: String, scope: String, s
  * `package_json` with `params_json` against one snapshot: `data_json` (the
  * surface data), `me` (the member; `None` = null), `now_ms` (`None` = the
  * wall clock), `zone` (`None` = UTC), `max_steps` (the run's budget; `None`
- * = 100 000) → `{"plan": {writes, sets, calls}}` or `{"error": "…"}`
- * (`fixtures/actions.json` `run`). Named `run_package_action_json`
- * because `run_action_json` is the bind-time press.
+ * = 100 000), `results_json` (VAPP-271: the answers of the `call` steps
+ * with a `result` so far, `{<name>: answer}`; `None` or empty = none) →
+ * `{"plan": {writes, sets, calls}}`, `{"pending": {step, name, args,
+ * result}}` (the first result call still unanswered: the host gates and
+ * runs it, then calls again with its answer added, same snapshot) or
+ * `{"error": "…"}` (`fixtures/actions.json` `run` and `results.run`).
+ * Named `run_package_action_json` because `run_action_json` is the
+ * bind-time press.
  */
-public func runPackageActionJson(packageJson: String, name: String, paramsJson: String, dataJson: String, me: String?, nowMs: Double?, zone: HostZone?, maxSteps: UInt32? = nil)throws  -> String  {
+public func runPackageActionJson(packageJson: String, name: String, paramsJson: String, dataJson: String, me: String?, nowMs: Double?, zone: HostZone?, maxSteps: UInt32? = nil, resultsJson: String? = nil)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
     uniffi_exponential_ui_ffi_fn_func_run_package_action_json(
         FfiConverterString.lower(packageJson),
@@ -8265,7 +8270,8 @@ public func runPackageActionJson(packageJson: String, name: String, paramsJson: 
         FfiConverterOptionString.lower(me),
         FfiConverterOptionDouble.lower(nowMs),
         FfiConverterOptionTypeHostZone.lower(zone),
-        FfiConverterOptionUInt32.lower(maxSteps),$0
+        FfiConverterOptionUInt32.lower(maxSteps),
+        FfiConverterOptionString.lower(resultsJson),$0
     )
 })
 }
@@ -8758,7 +8764,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_run_package_action_json() != 54713) {
+    if (uniffi_exponential_ui_ffi_checksum_func_run_package_action_json() != 47504) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_run_package_tests_json() != 35878) {

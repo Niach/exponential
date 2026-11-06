@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::actions::{apply_record_batch_as, run_action, ActionContext};
+use super::actions::{apply_record_batch_as, run_action, ActionContext, ActionRun};
 use super::record_policy::{readable_rows, RecordViewer};
 use super::package::PackageIssue;
 use super::query::{expand_query_source, parse_records_source, records_value_owned, RecordRow, RecordsContext, RECORDS_SCHEME};
@@ -176,6 +176,9 @@ pub fn validate_package_tests(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                 if !actions.contains_key(name) {
                     issues.push(issue(format!("{kat}/name"), format!("action {name} names no package action")));
                 }
+                if body.as_object().and_then(|b| b.get("results")).is_some_and(|r| !r.is_object()) {
+                    issues.push(issue(format!("{kat}/results"), "results is an object"));
+                }
             }
         }
     }
@@ -268,10 +271,12 @@ fn run_test(pkg: &Map<String, Value>, t: &Map<String, Value>) -> Value {
     let a = t.get("action").and_then(Value::as_object);
     let field = |k: &str| a.and_then(|a| a.get(k));
     let name = field("name").and_then(Value::as_str).unwrap_or("");
-    let ctx = ActionContext { data: field("data"), me: Some(me), now: now_ms, offset: None, max_steps: None };
+    let ctx = ActionContext { data: field("data"), me: Some(me), now: now_ms, offset: None, max_steps: None, results: field("results").and_then(Value::as_object) };
     let pkg_value = Value::Object(pkg.clone());
     let plan = match run_action(&pkg_value, name, field("params").unwrap_or(&Value::Null), &ctx) {
-        Ok(plan) => plan,
+        Ok(ActionRun::Plan(plan)) => plan,
+        // VAPP-271: a test gives every call's answer; one it leaves out fails the test.
+        Ok(ActionRun::Pending(p)) => return error(format!("step {}: {} has no result in the test", p.step, p.name)),
         Err(e) => return error(e),
     };
     let writes = plan.get("writes").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);

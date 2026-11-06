@@ -594,12 +594,20 @@ export class ExponentialHost {
       return { decision: `allow`, error: message }
     }
     if (!store || !pkg) return failed(`no action ${action}`)
-    const result = runAction(pkg as unknown as Record<string, unknown>, action, call.args, {
-      data: store.data,
-      me: this.options.me ?? null,
-      now: this.options.now?.(),
-      offset: this.options.zone,
-    })
+    // VAPP-271: a call step with a `result` runs when the plan reaches it
+    // (before the commit); the action runs again over the SAME snapshot with
+    // its answer as `results.<name>`.
+    const ctx = { data: store.data, me: this.options.me ?? null, now: this.options.now?.(), offset: this.options.zone, results: {} as Record<string, unknown> }
+    let result = runAction(pkg as unknown as Record<string, unknown>, action, call.args, ctx)
+    while (`pending` in result) {
+      const pending = { surfaceId: call.surfaceId, componentId: call.componentId, name: result.pending.name, args: result.pending.args }
+      const gate = await this.gate(pending)
+      if (gate.decision !== `allow`) return failed(gate.error ?? `${pending.name} was not allowed`)
+      const outcome = await this.run(pending)
+      if (outcome.error !== undefined) return failed(outcome.error)
+      ctx.results = { ...ctx.results, [result.pending.result]: outcome.result ?? null }
+      result = runAction(pkg as unknown as Record<string, unknown>, action, call.args, ctx)
+    }
     if (`error` in result) return failed(result.error)
     const plan: ActionPlan = result.plan
     const calls = plan.calls.map((c) => ({ surfaceId: call.surfaceId, componentId: call.componentId, name: c.name, args: c.args }))
