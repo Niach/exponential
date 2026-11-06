@@ -866,6 +866,27 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     { label: `children · closed`, node: { id: `device`, component: `Row`, props: { title: `This device`, icon: `ui-device`, density: `compact`, pressable: true, open: false }, children: [{ id: `tools`, component: `Row`, props: { title: `Tools`, icon: `settings-tools`, density: `compact`, pressable: true } }] } },
     { label: `children · open`, node: { id: `issues`, component: `Row`, props: { title: `Issues`, icon: `settings-issues`, density: `compact`, pressable: true, open: true }, children: foldChildren(`statuses`) } },
   ],
+  // VAPP-276: a bottom panel's buttons open popovers ABOVE them by `anchor`
+  // (no trigger of their own): top-start at the start button, top-end at
+  // the clock at the panel's end (the eDE start menu and calendar applet).
+  Popover: [{
+    label: `anchor · top-start + top-end (a bottom panel)`,
+    node: {
+      id: `desk`,
+      component: `Box`,
+      style: { position: `relative`, height: 300, borderRadius: `$radius.lg`, backgroundColor: `$color.muted`, overflow: `hidden` },
+      children: [
+        {
+          id: `panel`,
+          component: `Box`,
+          style: { position: `absolute`, left: 0, right: 0, bottom: 0, display: `flex`, flexDirection: `row`, justifyContent: `space-between`, alignItems: `center`, padding: `$spacing.xs`, backgroundColor: `$color.card` },
+          children: [button(`start`, `Start`, `ghost`), button(`clock`, `12:00`, `ghost`)],
+        },
+        { id: `start-menu`, component: `Popover`, props: { anchor: `start`, side: `top`, align: `start`, open: true }, children: [text(`files`, `Files`), text(`terminal`, `Terminal`), text(`settings`, `Settings`)] },
+        { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end`, open: true }, children: [{ id: `month`, component: `Heading`, props: { text: `November 2026`, level: `h4` } }, text(`today`, `Friday, 6`)] },
+      ],
+    },
+  }],
   // EXP-1556: a vertical Separator between two items of a row (alone in a
   // column it has no height to draw).
   Separator: [{

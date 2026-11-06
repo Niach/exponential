@@ -1,12 +1,15 @@
 package at.exponential.ui
 
 import at.exponential.ui.ffi.placeOverlay
+import at.exponential.ui.ffi.placeOverlayAligned
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.Insets
 import at.exponential.ui.model.SurfaceEnvironment
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.dismissLayer
+import at.exponential.ui.model.escape
+import at.exponential.ui.model.press
 import at.exponential.ui.model.setOpen
 import at.exponential.ui.theme.Mode
 import kotlinx.coroutines.CoroutineScope
@@ -124,11 +127,20 @@ class GeometryTest {
             val a = c["anchor"]!!
             val s = c["size"]!!
             val v = c["viewport"]!!
-            val p = placeOverlay(
+            // VAPP-276: `align` along the side (centre without one).
+            val p = placeOverlayAligned(
                 a["x"]!!.number!!, a["y"]!!.number!!, a["width"]!!.number!!, a["height"]!!.number!!,
                 s["width"]!!.number!!, s["height"]!!.number!!, v["width"]!!.number!!, v["height"]!!.number!!,
-                c["side"]!!.string!!,
+                c["side"]!!.string!!, c["align"]?.string ?: "center",
             )
+            if (c["align"] == null) {
+                val q = placeOverlay(
+                    a["x"]!!.number!!, a["y"]!!.number!!, a["width"]!!.number!!, a["height"]!!.number!!,
+                    s["width"]!!.number!!, s["height"]!!.number!!, v["width"]!!.number!!, v["height"]!!.number!!,
+                    c["side"]!!.string!!,
+                )
+                assertEquals(p, q)
+            }
             val e = c["expected"]!!
             val name = c["name"]?.string ?: ""
             assertEquals(name, e["x"]!!.number!!, p.x, 0.0)
@@ -136,6 +148,40 @@ class GeometryTest {
             assertEquals(name, e["side"]!!.string!!, p.side)
             e["flipped"]?.bool?.let { assertEquals(name, it, p.flipped) }
         }
+    }
+
+    /** VAPP-276: a Popover / Menu `anchor`ed to a panel button elsewhere in
+     *  the tree: the core makes the button its trigger and places the layer
+     *  against its frame; a press opens it, Escape closes it. */
+    @Test
+    fun anAnchorByIdIsTheTriggerAndPlacesTheLayer() {
+        val m = makeModel("anchor", theme = null, fixed = true, width = 800f)
+        m.setViewport(800f, 600f)
+        m.setNested(
+            """{"id": "root", "component": "Box", "style": {"position": "relative", "width": 800, "height": 600}, "children": [
+              {"id": "panel", "component": "Box", "style": {"position": "absolute", "left": 0, "top": 556, "width": 800, "height": 44, "display": "flex", "flexDirection": "row", "justifyContent": "space-between"}, "children": [
+                {"id": "start", "component": "Button", "props": {"label": "Start"}},
+                {"id": "clock", "component": "Button", "props": {"label": "12:00"}}]},
+              {"id": "startMenu", "component": "Menu", "props": {"anchor": "start", "side": "top", "align": "start", "items": [{"label": "Files", "value": "files"}]}},
+              {"id": "calendar", "component": "Popover", "props": {"anchor": "clock", "side": "top", "align": "end"}, "children": [{"id": "month", "component": "Text", "props": {"text": "November"}}]}]}""",
+        )
+        assertTrue("no default Menu trigger", m.nodes.none { it.id == "startMenu.trigger" && !it.removed })
+        val clock = m.nodes.first { it.id == "clock" && !it.removed }
+        assertEquals("calendar", clock.triggerFor)
+        m.press("clock")
+        val layer = m.layers.first { it.owner == "calendar" }
+        assertEquals("top", layer.placementSide)
+        assertEquals(m.frame(clock.index), layer.anchorFrame)
+        assertEquals("end-aligned", m.frame(clock.index).right, layer.frame.right, 0.01f)
+        assertTrue("above the clock", layer.frame.bottom <= m.frame(clock.index).top)
+        assertTrue(m.escape())
+        assertTrue(m.layers.none { it.owner == "calendar" })
+        m.press("start")
+        val menu = m.layers.first { it.owner == "startMenu" }
+        assertEquals("top", menu.placementSide)
+        assertEquals(m.frame(m.nodes.first { it.id == "start" && !it.removed }.index), menu.anchorFrame)
+        m.press("start")
+        assertTrue("the anchor toggles it closed", m.layers.none { it.owner == "startMenu" })
     }
 
     @Test

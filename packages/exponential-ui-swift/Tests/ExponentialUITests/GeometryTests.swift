@@ -46,12 +46,53 @@ final class GeometryTests: XCTestCase {
         let cases = try Fixtures.json("overlay-geometry.json")["cases"]?.array ?? []
         for c in cases {
             let a = c["anchor"]!, s = c["size"]!, v = c["viewport"]!
-            let p = try placeOverlay(anchorX: a["x"]!.number!, anchorY: a["y"]!.number!, anchorW: a["width"]!.number!, anchorH: a["height"]!.number!, sizeW: s["width"]!.number!, sizeH: s["height"]!.number!, viewportW: v["width"]!.number!, viewportH: v["height"]!.number!, side: c["side"]!.string!)
+            // VAPP-276: `align` along the side (centre without one).
+            let p = try placeOverlayAligned(anchorX: a["x"]!.number!, anchorY: a["y"]!.number!, anchorW: a["width"]!.number!, anchorH: a["height"]!.number!, sizeW: s["width"]!.number!, sizeH: s["height"]!.number!, viewportW: v["width"]!.number!, viewportH: v["height"]!.number!, side: c["side"]!.string!, align: c["align"]?.string ?? "center")
+            if c["align"] == nil {
+                let q = try placeOverlay(anchorX: a["x"]!.number!, anchorY: a["y"]!.number!, anchorW: a["width"]!.number!, anchorH: a["height"]!.number!, sizeW: s["width"]!.number!, sizeH: s["height"]!.number!, viewportW: v["width"]!.number!, viewportH: v["height"]!.number!, side: c["side"]!.string!)
+                XCTAssertEqual(p.x, q.x)
+                XCTAssertEqual(p.y, q.y)
+            }
             let e = c["expected"]!
             XCTAssertEqual(p.x, e["x"]!.number!, c["name"]?.string ?? "")
             XCTAssertEqual(p.y, e["y"]!.number!, c["name"]?.string ?? "")
             XCTAssertEqual(p.side, e["side"]!.string!)
         }
+    }
+
+    /// VAPP-276: a Popover / Menu `anchor`ed to a panel button elsewhere in
+    /// the tree: the core makes the button its trigger (the focus return
+    /// reads `trigger(of:)`) and places the layer against its frame; a press
+    /// opens it, Escape closes it, a second press on the anchor toggles.
+    func testAnAnchorByIdIsTheTriggerAndPlacesTheLayer() throws {
+        let m = try makeModel("anchor", theme: nil, width: 800, fixed: true)
+        m.setViewport(width: 800, height: 600)
+        try m.setNested(json: """
+        {"id": "root", "component": "Box", "style": {"position": "relative", "width": 800, "height": 600}, "children": [
+          {"id": "panel", "component": "Box", "style": {"position": "absolute", "left": 0, "top": 556, "width": 800, "height": 44, "display": "flex", "flexDirection": "row", "justifyContent": "space-between"}, "children": [
+            {"id": "start", "component": "Button", "props": {"label": "Start"}},
+            {"id": "clock", "component": "Button", "props": {"label": "12:00"}}]},
+          {"id": "startMenu", "component": "Menu", "props": {"anchor": "start", "side": "top", "align": "start", "items": [{"label": "Files", "value": "files"}]}},
+          {"id": "calendar", "component": "Popover", "props": {"anchor": "clock", "side": "top", "align": "end"}, "children": [{"id": "month", "component": "Text", "props": {"text": "November"}}]}]}
+        """)
+        XCTAssertFalse(m.nodes.contains { $0.id == "startMenu.trigger" && !$0.removed }, "no default Menu trigger")
+        XCTAssertEqual(m.trigger(of: "calendar")?.id, "clock")
+        XCTAssertEqual(m.trigger(of: "startMenu")?.id, "start")
+        m.press(id: "clock")
+        let layer = try XCTUnwrap(m.layers.first { $0.owner == "calendar" })
+        let clock = try XCTUnwrap(m.trigger(of: "calendar"))
+        XCTAssertEqual(layer.placementSide, "top")
+        XCTAssertEqual(layer.anchorFrame, m.frame(clock.index))
+        XCTAssertEqual(layer.frame.maxX, m.frame(clock.index).maxX, accuracy: 0.01, "end-aligned")
+        XCTAssertLessThanOrEqual(layer.frame.maxY, m.frame(clock.index).minY, "above the clock")
+        XCTAssertTrue(m.escape())
+        XCTAssertFalse(m.layers.contains { $0.owner == "calendar" })
+        m.press(id: "start")
+        let menu = try XCTUnwrap(m.layers.first { $0.owner == "startMenu" })
+        XCTAssertEqual(menu.placementSide, "top")
+        XCTAssertEqual(menu.anchorFrame, m.frame(try XCTUnwrap(m.trigger(of: "startMenu")).index))
+        m.press(id: "start")
+        XCTAssertFalse(m.layers.contains { $0.owner == "startMenu" }, "the anchor toggles it closed")
     }
 
     func testOpenLayersCarryFrames() throws {

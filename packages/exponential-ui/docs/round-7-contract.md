@@ -378,3 +378,89 @@ Renderers:
   replays `tree`.
 - [x] SwiftUI / Compose: the same keys on a treeitem go to `nodeKey`; the
   macro paints with no other change.
+
+## Popover / Menu anchored to any element (#VAPP-276)
+
+The eDE panel is a bottom taskbar: its start button opens the start menu and
+its applets (calendar, volume, network) open popovers ABOVE themselves,
+aligned to the button's start or end edge. Before this round a Popover only
+opened from its own `trigger` slot (centred on its `side`) and a Menu only
+from its child (bottom-start), so a panel hand-positioned absolute boxes.
+
+### What moved
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| enum | NEW `overlayAlign` = `start \| center \| end` | `core.catalog.json` | generated ×4 |
+| `Popover` | `align` (`overlayAlign`, default `center`), `anchor` (string, a node id) | `core.catalog.json` | `catalog-components.json`, `overlay-geometry.json` |
+| `Menu` | `side` (default `bottom`), `align` (default `start`), `anchor` | `core.catalog.json` | `catalog-components.json`, the core + renderer tests |
+| placement | `overlay-geometry.json` + 11 cases: every placement (top-start, top-end, bottom-start, bottom-end, right-start, left-end), the flip at the bottom edge, the shift at both side edges, two anchor-by-id cases (`byId`) | `src/overlay.ts` `placeOverlay` (unchanged: it already took `align`) | `overlay.test.ts`, eui-core `layout_fixtures.rs` + `conformance.rs`, the FFI facade (Rust, Swift, Kotlin), gpui `suites.rs`, Swift + Compose geometry/conformance, React/Solid/element Chromium |
+| FFI | NEW `place_overlay_aligned(..., side, align)` (the side-only `place_overlay` = centre) | `exponential-ui-ffi/src/lib.rs` | `tests/facade.rs`, the Swift + Kotlin binding tests |
+| web | NEW `findAnchor`, `linkAnchor`, `markAnchor`, `virtualAnchor`, `withinAnchor` (`@exponential_app/eui/web`, `src/web/anchor.ts`) | the shared half of the React + Solid natives | `round7.test.tsx` (React + Solid) |
+| specimen | Popover + `anchor · top-start + top-end (a bottom panel)` | `scripts/generate.ts` `SPECIMEN_EXTRA` | `specimens.json` |
+| budget | 9,216 → 9,278 tokens (a named exception: +62 after trimming the new descriptions) | `scripts/generate.ts` | `prompt-budget.json` |
+
+### Placement
+
+`side` + `align` = the placement: `top` + `start` = top-start (the overlay's
+start edge flush with the anchor's start edge, `OVERLAY_OFFSET` 4 px above
+it), `top` + `end` = top-end (end edges flush), `center` centres it on the
+cross axis. On a `left`/`right` side, `start`/`end` align the top/bottom
+edges. Then, unchanged from VAPP-87: FLIP to the opposite side when the
+preferred side has less room than the overlay needs and the opposite has
+more (a bottom-start Menu at the screen's bottom edge opens top-start), and
+SHIFT along the cross axis to stay `OVERLAY_PADDING` (8 px) inside the
+surface (a top-end popover from a button at the start edge moves right).
+The core mirrors `start`/`end` under RTL (`anchor_place`), like the web's
+floating-ui.
+
+### `anchor`: open against any node
+
+`anchor` names a node id anywhere in the surface. The overlay then opens
+against THAT node's frame instead of its own trigger, and that node becomes
+its TRIGGER, on every renderer:
+
+- a press on it toggles the overlay (`open` writes through when bound; a
+  Menu, which has no `open` prop, toggles its local state);
+- it carries the trigger's semantics (web: `aria-haspopup` dialog | menu,
+  `aria-expanded`, `aria-controls` = the content's id while open,
+  `data-state`; natives: the node's `triggerFor` = the overlay's id);
+- a press on it is never an "outside" press of a non-modal overlay (the
+  press closes it as a toggle instead of dismissing and reopening);
+- Escape (a `dismiss` on the layer root) closes the overlay and returns focus
+  to the anchor (the natives' focus return reads `trigger(of:)` / the layer
+  return, which the anchor now is).
+
+The overlay itself lays out nothing (`data-xui-overlay-root="none"` on web,
+the zero-size wrapper in the core). A Menu with an `anchor` and no child
+draws NO default trigger; with a child, the child toggles it too. An id that
+names no painted node leaves the overlay against its own wrapper. Only the
+FIRST node with that id that is not already a trigger is linked.
+
+Core: `Builder::link_anchors` runs after the whole tree is built (so the
+anchor may come after the overlay in tree order): it sets the node's
+`trigger_for`, makes it pressable (not for `openOn: hover`), and points the
+open layer's `Anchored { anchor }` at it. A subtree rebuild over an anchored
+node rebuilds fully (`Surface::anchor_ids`).
+
+### Per-renderer checklist
+
+- [x] TS reference: `overlay.test.ts` replays every case with its `align`.
+- [x] Rust core (`eui-core`): Popover/Menu `side` + `align`, `link_anchors`,
+      the subtree-rebuild guard; `layout_fixtures.rs` (every aligned case as a
+      surface, the anchor-by-id trigger + toggle + dismiss), `conformance.rs`.
+- [x] FFI: `place_overlay_aligned` + regenerated Swift/Kotlin bindings;
+      `facade.rs`, `tests/swift/main.swift`, `tests/kotlin/FacadeTest.kt`.
+- [x] gpui: paints the core's layers (no own geometry); `suites.rs` overlay
+      suite builds the `byId` cases with the anchor as a sibling.
+- [x] React: Radix Popover `align` + `PopoverPrimitive.Anchor virtualRef`
+      for `anchor`; DropdownMenu `side` + `align`, the anchor as a virtual
+      trigger (`AnchorProxy`); focus return + inside-press via the shared
+      `linkAnchor`; `round7.test.tsx`, `browser/overlay.test.ts`.
+- [x] Solid: the Popper `align`, `createAnchor` (the found element is the
+      popper anchor); `round7.test.tsx`, `browser/overlay.test.ts`
+      (`data-align` checked).
+- [x] element: paints through Solid; the harness builds the `byId` cases.
+- [x] SwiftUI + Compose: paint the core's frames; geometry + conformance
+      replays call `placeOverlayAligned`; a model test per SDK (anchored
+      Popover + Menu: trigger, frame, Escape, toggle).

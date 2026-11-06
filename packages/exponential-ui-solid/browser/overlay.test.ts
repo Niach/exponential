@@ -48,7 +48,7 @@ describe(`overlay-geometry.json in Chromium (Solid)`, () => {
       expect(want.side).toBe(c.expected.side)
       expect(Math.abs(got.x - want.x), `x: solid ${got.x} rule ${want.x}`).toBeLessThanOrEqual(tolerance)
       expect(Math.abs(got.y - want.y), `y: solid ${got.y} rule ${want.y}`).toBeLessThanOrEqual(tolerance)
-      expect(placed).toEqual({ wrapper: true, position: `fixed`, inLayer: true, align: `center` })
+      expect(placed).toEqual({ wrapper: true, position: `fixed`, inLayer: true, align: c.align ?? `center` })
     })
   })
 })
