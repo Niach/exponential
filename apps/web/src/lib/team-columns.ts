@@ -17,6 +17,7 @@ export const teamColumns = {
   prMergedAutomation: teams.prMergedAutomation,
   endSessionsOnMerge: teams.endSessionsOnMerge,
   yoloMode: teams.yoloMode,
+  mergeMode: teams.mergeMode,
   estimationType: teams.estimationType,
   // VAPP-201: the team time zone (NULL = each device's own).
   timeZone: teams.timeZone,

@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { contract } from "@exp/domain-contract"
 import { issueEstimationSchema } from "@/lib/domain"
-import { timeZoneSchema } from "@exp/db-schema/domain"
+import { teamMergeModeValues, timeZoneSchema } from "@exp/db-schema/domain"
 import { TRPCError } from "@trpc/server"
 import {
   router,
@@ -177,6 +177,8 @@ export const teamsRouter = router({
         iconUrl: z.string().url().max(2048).nullable().optional(),
         // EXP-1105: yolo mode (auto-merge every agent PR, hide Reviews).
         yoloMode: z.boolean().optional(),
+        // EXP-1709 (merge-train.json MODE): auto | approval.
+        mergeMode: z.enum(teamMergeModeValues).optional(),
         // EXP-630: the estimate scale; `none` switches estimates off (values
         // already set stay on the rows, hidden until a scale is picked again).
         estimationType: issueEstimationSchema.optional(),

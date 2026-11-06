@@ -25,6 +25,8 @@ const TEAM_COLUMNS = [
   `end_sessions_on_merge`,
   // EXP-1105 — yolo mode (auto-merge + hidden Reviews, default false).
   `yolo_mode`,
+  // EXP-1709 — the merge train's mode (auto | approval), replaces yolo_mode.
+  `merge_mode`,
   // EXP-630 — the estimate scale (`none` = off).
   `estimation_type`,
   // VAPP-201 — the team time zone app hosts read dates in (NULL = the device's).

@@ -1779,6 +1779,13 @@
       "when": 1793921676809,
       "tag": "0253_pr_issue_closes",
       "breakpoints": true
+    },
+    {
+      "idx": 254,
+      "version": "7",
+      "when": 1793926197913,
+      "tag": "0254_merge_train",
+      "breakpoints": true
     }
   ]
 }

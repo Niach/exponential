@@ -154,6 +154,13 @@ describe(`sessions allowlist`, () => {
     expect(PULL_REQUEST_COLUMNS).toContain(`checks_state`)
     expect(PULL_REQUEST_CHECK_COLUMNS).not.toContain(`queued_flagged_at`)
   })
+  it(`syncs the EXP-1709 merge train state, never its server-only clocks`, () => {
+    expect(PULL_REQUEST_COLUMNS).toEqual(
+      expect.arrayContaining([`merge_state`, `merge_wait`, `merge_hold`, `merge_position`, `merge_train_id`])
+    )
+    expect(PULL_REQUEST_COLUMNS).not.toContain(`merge_ready_at`)
+    expect(PULL_REQUEST_COLUMNS).not.toContain(`merge_approved_at`)
+  })
   it(`keeps a meeting message's expiry server-only (NEW-57)`, () => {
     expect(MESSAGE_COLUMNS).not.toContain(`expires_at`)
   })
