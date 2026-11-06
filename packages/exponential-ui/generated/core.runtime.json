@@ -681,6 +681,18 @@
           "type": "string"
         }
       }
+    },
+    "dateMark": {
+      "properties": {
+        "date": {
+          "type": "date",
+          "required": true
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone"
+        }
+      }
     }
   },
   "functions": {
@@ -3961,10 +3973,25 @@
         },
         "firstDayOfWeek": {
           "type": "number"
+        },
+        "inline": {
+          "type": "boolean",
+          "default": false
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "dateMark"
+          }
+        },
+        "today": {
+          "type": "date"
         }
       },
       "events": [
-        "change"
+        "change",
+        "month"
       ]
     },
     "DateRangePicker": {

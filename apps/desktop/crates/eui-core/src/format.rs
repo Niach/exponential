@@ -635,6 +635,8 @@ pub fn format_pattern(pattern: &str, f: &DateFields, names: &DateNames) -> Strin
                 _ => pad(f.month as i64, n),
             }),
             'd' => out.push_str(&pad(f.day as i64, n)),
+            // `EEEEE` = the narrow name (its first letter).
+            'E' if n >= 5 => out.extend(name(&names.weekdays_short, f.weekday as usize).chars().take(1)),
             'E' => out.push_str(&if n >= 4 { name(&names.weekdays, f.weekday as usize) } else { name(&names.weekdays_short, f.weekday as usize) }),
             'h' => out.push_str(&pad(h12 as i64, n)),
             'H' => out.push_str(&pad(f.hour as i64, n)),

@@ -191,6 +191,7 @@ export interface Shapes {
   planStep: { title: string; detail?: string; icon?: IconName; status?: TraceStatusValue }
   outlineItem: { id: string; title: string | Dynamic; count?: number | Dynamic }
   picture: { src: string; alt?: string }
+  dateMark: { date: string; tone?: ToneValue }
 }
 /** Every component's props, by name. */
 export interface ComponentProps {
@@ -276,7 +277,7 @@ export interface ComponentProps {
   Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   SearchList: { items: Shapes["searchItem"][] | Dynamic; query?: string | Dynamic; placeholder?: string; value?: string | Dynamic; emptyText?: string; maxRows?: number; showCount?: boolean }
   ChipInput: { label?: string; name: string; values?: string[] | Dynamic; suggestions?: Shapes["option"][] | Dynamic; placeholder?: string; max?: number; disabled?: boolean; checks?: Shapes["check"][] }
-  DatePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number }
+  DatePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number; inline?: boolean; marks?: Shapes["dateMark"][]; today?: string }
   DateRangePicker: { label?: string; name: string; start?: string | Dynamic; end?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number }
   TimePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; step?: number; placeholder?: string; disabled?: boolean }
   FileUpload: { label?: string; name: string; accept?: string; multiple?: boolean; maxSize?: number; files?: Shapes["file"][] | Dynamic; hint?: string; disabled?: boolean }

@@ -5176,7 +5176,7 @@
       "id": "exponential-ui-date-picker",
       "group": "exponential-ui-catalog",
       "title": "genUI · DatePicker",
-      "blurb": "A calendar date field (date only in v1); bind `value` as an ISO date. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/date-picker/.",
+      "blurb": "A calendar date field (date only in v1); bind `value` as an ISO date. #VAPP-282: `inline: true` paints the month grid in place (the calendar applet): `today` ringed, `marks` event dots, `firstDayOfWeek`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/date-picker/.",
       "order": 53,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-date-picker",

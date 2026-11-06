@@ -18,7 +18,7 @@ import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
 import { useListNavigation } from "./listbox"
 import { bool, BuiltinIcon, num, str, useParts, TextPart, type PartFn } from "./shared"
-import { addDays, addMonths, calendarStop, isoDate, monthGrid, parseIsoDate, sameDay } from "@exponential_app/eui/web"
+import { addDays, addMonths, calendarStop, isoDate, isoMonth, markTones, monthGrid, parseIsoDate, sameDay } from "@exponential_app/eui/web"
 
 export { calendarStop, isoDate, monthGrid, parseIsoDate }
 
@@ -41,13 +41,27 @@ interface CalendarProps {
   /** The SURFACE direction (never the document's): ArrowLeft/Right mirror in
    *  RTL, like the grid. */
   direction?: `ltr` | `rtl`
+  /** #VAPP-282: the ringed day (the `today` prop, else the device's). */
+  today?: string
+  /** #VAPP-282: each marked day's dot tone (`markTones`). */
+  marks?: Map<string, string>
+  /** #VAPP-282: the view moved to another month (`yyyy-mm`). */
+  onMonth?: (month: string) => void
 }
 
-export function CalendarGrid({ part, dayPart, formatter, firstDay, min, max, isSelected, inRange, initial, onPick, t, direction = `ltr` }: CalendarProps) {
+export function CalendarGrid({ part, dayPart, formatter, firstDay, min, max, isSelected, inRange, initial, onPick, t, direction = `ltr`, today = isoDate(new Date(Date.now())), marks, onMonth }: CalendarProps) {
   const [focus, setFocus] = useState<Date>(initial)
   const [view, setView] = useState<Date>(new Date(initial.getFullYear(), initial.getMonth(), 1))
   const grid = useRef<HTMLDivElement>(null)
   const moved = useRef(false)
+  const shown = useRef(isoMonth(view))
+  useEffect(() => {
+    const month = isoMonth(view)
+    if (month === shown.current) return
+    shown.current = month
+    onMonth?.(month)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
   const days = monthGrid(view, firstDay)
   const weekdays = useMemo(() => {
     // 2023-01-01 was a Sunday; names through the surface Formatter (`EEE`;
@@ -130,22 +144,25 @@ export function CalendarGrid({ part, dayPart, formatter, firstDay, min, max, isS
               const outside = d.getMonth() !== view.getMonth()
               const off = disabled(d)
               const focused = sameDay(d, stop)
+              const isToday = key === today
+              const mark = marks?.get(key)
               return (
                 <span role="gridcell" key={key} aria-selected={sel} className="xui-calendar-cell">
                   <button
                     type="button"
-                    {...(part(dayPart, sel && `selected`, off && `disabled`) as Record<string, string>)}
+                    {...(part.with(dayPart, { isToday: isToday || undefined, outside: outside || undefined }, sel && `selected`, off && `disabled`) as Record<string, string>)}
                     data-date={key}
                     data-outside={outside ? `` : undefined}
                     data-range={range ? `` : undefined}
-                    data-today={sameDay(d, new Date()) ? `` : undefined}
+                    data-today={isToday ? `` : undefined}
+                    data-mark={mark}
                     disabled={off}
                     tabIndex={focused ? 0 : -1}
                     onFocus={() => {
                       if (!sameDay(d, focus)) setFocus(d)
                     }}
                     aria-label={dayLabel.format(d)}
-                    aria-current={sameDay(d, new Date()) ? `date` : undefined}
+                    aria-current={isToday ? `date` : undefined}
                     onClick={() => {
                       setFocus(d)
                       onPick(d)
@@ -153,6 +170,7 @@ export function CalendarGrid({ part, dayPart, formatter, firstDay, min, max, isS
                   >
                     {range && !sel ? <span {...(part(`range`) as Record<string, string>)} aria-hidden="true" /> : null}
                     <span className="xui-calendar-day-label">{d.getDate()}</span>
+                    {mark ? <span className="xui-calendar-mark" data-tone={mark} aria-hidden="true" /> : null}
                   </button>
                 </span>
               )
@@ -182,6 +200,9 @@ export function DatePickerNative({ node, props, rootProps, emit, scope, domId }:
   const firstDay = useFirstDay(props, ctx.locale)
   const label = selected ? ctx.formatter.date(isoDate(selected)) : ``
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
+  const today = parseIsoDate(str(props.today)) ? str(props.today).slice(0, 10) : isoDate(new Date(Date.now()))
+  const marks = useMemo(() => markTones(props.marks), [props.marks])
+  const onMonth = (month: string) => void emit(`month`, { month }, { month })
   const pick = (d: Date) => {
     const next = isoDate(d)
     setValue(next)
@@ -189,6 +210,18 @@ export function DatePickerNative({ node, props, rootProps, emit, scope, domId }:
     f.touch()
     void emit(`change`, { value: next }, { value: next })
     setOpen(false)
+  }
+  // #VAPP-282: `inline` = the popup's month grid in place (no field).
+  if (bool(props.inline)) {
+    return (
+      <div {...(rootProps as Record<string, unknown>)}>
+        <TextPart part={part(`label`)} text={props.label} />
+        <div {...(part(`calendar`) as Record<string, string>)} dir={ctx.direction} role="group" aria-label={str(props.label) || undefined}>
+          <CalendarGrid part={part} dayPart="day" locale={ctx.locale} formatter={ctx.formatter} firstDay={firstDay} min={min} max={max} isSelected={(d) => sameDay(d, selected)} initial={selected ?? parseIsoDate(today) ?? new Date()} onPick={pick} t={ctx.t} direction={ctx.direction} today={today} marks={marks} onMonth={onMonth} />
+        </div>
+        <FieldErrors part={part} field={f} />
+      </div>
+    )
   }
   return (
     <div {...(rootProps as Record<string, unknown>)}>
@@ -204,7 +237,7 @@ export function DatePickerNative({ node, props, rootProps, emit, scope, domId }:
             const el = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLButtonElement>(`.xui-calendar-grid button[tabindex="0"]`)
             el?.focus()
           }}>
-            <CalendarGrid part={part} dayPart="day" locale={ctx.locale} formatter={ctx.formatter} firstDay={firstDay} min={min} max={max} isSelected={(d) => sameDay(d, selected)} initial={selected ?? new Date()} onPick={pick} t={ctx.t} direction={ctx.direction} />
+            <CalendarGrid part={part} dayPart="day" locale={ctx.locale} formatter={ctx.formatter} firstDay={firstDay} min={min} max={max} isSelected={(d) => sameDay(d, selected)} initial={selected ?? parseIsoDate(today) ?? new Date()} onPick={pick} t={ctx.t} direction={ctx.direction} today={today} marks={marks} onMonth={onMonth} />
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       </PopoverPrimitive.Root>

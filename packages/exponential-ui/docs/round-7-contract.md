@@ -62,3 +62,51 @@ Renderers:
   `xui-slider-row`, `xui-Slider-icon`, `xui-Slider-end` in `web/base-css.ts`;
   `row`, `icon`, `end` are placed parts (`web/parts.ts`).
 - [x] Compose example: `media-volume-up` mapped in `SinkIcons`.
+## DatePicker `inline`: the month grid in place (#VAPP-282)
+
+The eDE panel's calendar applet (a Cinnamon-style month grid under the
+clock). No new component: the DatePicker popup's month grid, painted in
+place, with event dots.
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| props | `inline` (boolean, default false: the month grid in place, no field), `marks` (array of `dateMark` {date, tone?}: one event dot per listed day), `today` (date: the ringed day; else the host's / device's today) | `core.catalog.json` | `catalog-components.json` (+ `DatePicker/inline=true|false`) |
+| event | `month {month: "yyyy-mm"}` when the view moves to another month (the steppers; on web also PageUp/PageDown); `change {value}` as before (an inline pick never closes anything) | `core.catalog.json` | `month-grid.json` `events` |
+| recipe props | `inline` (component; on the `calendar` part), `isToday`, `outside` (per day, DatePicker and DateRangePicker) | `recipes.json` | `theme-recipes.json`, `theme-resolved.json` |
+| neutral recipes | `calendar` + `inline` = no frame (transparent, no border, no shadow, no padding: the host frames it); `day` + `outside` = `$opacity.tertiary`; `day` + `isToday` = a `$border.hairline` ring in `$color.ring` (the selected fill still wins). These replace the web-only underline / 0.4 opacity: popup and inline grids now look the same on every renderer | `themes/neutral.theme.json` | `theme-recipes.json`, `eui-core/tests/month_grid.rs` |
+| grid | THE month grid: 42 cells from `firstDayOfWeek` (else the locale's week start), leading / trailing days `outside`; the view opens on `value`'s month, else `today`'s, else `min`'s; a later mark on the same day is ignored, no tone = `primary` | `src/web/dates.ts` `monthView` / `markTones` / `openingMonth` | `fixtures/month-grid.json` (TS: `src/web/month-grid.test.ts`; Rust: `eui-core/tests/month_grid.rs`) |
+| specimen | DatePicker case `inline · today · marks · firstDayOfWeek 1` (value 2026-10-14, today 2026-10-08, four tones) | `scripts/generate.ts` `SPECIMEN_EXTRA` | `specimens.json` |
+| prompt | +55 tokens, a named exception: the measured 9,271 (terse descriptions) | `scripts/generate.ts` | `prompt-budget.json`, `prompt.test.ts` |
+
+Geometry (the web reference, `web/base-css.ts` `.xui-calendar-*`; the Rust
+core `layout_tree/fields.rs` `date_picker` now builds the same for the
+popup AND inline, so the natives match the web):
+
+- `calendar`: column, gap `$spacing.sm`; inline it is start-aligned (sized
+  to its seven columns, 236 wide in neutral), in flow after the `label`.
+- `header`: the 28 × 28 `previous` / `next` steppers (radius sm, 16 glyph)
+  around the `title` (`MMMM yyyy`, medium).
+- `grid` (new core container): the `weekdays` row and six `week` rows,
+  `$spacing.xxs` apart; columns 32 wide, `xxs` apart.
+- `weekday`: 24 tall, the NARROW name (`EEEEE`, its accessible name `EEE`),
+  xs, muted.
+- `day`: `$control.buttonSm` square (recipe), the label centred.
+- The event dot: 4 × 4, round, horizontally centred, 1 px above the day's
+  bottom edge, in the tone's colour (`primary`, `success`, `warning`,
+  `danger` → destructive, `info`, `neutral` → mutedForeground); on the
+  selected day `primaryForeground`. Painted with the day (no node): the
+  core puts `mark: <tone>` on the day's props.
+
+Renderers:
+
+- [x] Rust core: inline build path, `today` / `marks` / recipe props,
+  `month` event, the calendar month seed (`today` prop, then `min`), the
+  web geometry, `EEEEE` in the English fallback formatter; FFI unchanged
+  (no new API).
+- [x] React / Solid (element paints through Solid): `inline` renders the
+  `calendar` part as a `group` in place; the day carries
+  `data-r-is-today` / `data-r-outside` and a `.xui-calendar-mark`
+  (`data-tone`); `month` emits on a view change; parity-gated
+  (`dates.parity.test.tsx`, inline + a step).
+- [x] gpui, SwiftUI, Compose: paint the core's frames; a `DatePicker/day`
+  with a `mark` draws the dot over its text.

@@ -471,15 +471,26 @@ impl Surface {
             ("DatePicker" | "DateRangePicker", Some("previous" | "next"), "press") => {
                 let delta = if part.as_deref() == Some("next") { 1 } else { -1 };
                 let current = self.calendar_month(&owner_id);
-                self.local.month.insert(owner_id.clone(), dates::shift_month(current.0, current.1, delta));
+                let (y, m) = dates::shift_month(current.0, current.1, delta);
+                self.local.month.insert(owner_id.clone(), (y, m));
                 self.needs_build = true;
+                // #VAPP-282 (fixtures/month-grid.json): the view moved.
+                if owner_component == "DatePicker" {
+                    out.extend(self.fire(&owner_id, "month", Some(json!({"month": format!("{y:04}-{m:02}")}))));
+                }
                 out.push(OutEvent::Relayout);
             }
             ("DatePicker", Some("day"), "press") => {
                 let date = n.props.get("date").map(js).unwrap_or_default();
                 out.extend(self.write_field(&owner_id, "value", Value::String(date.clone())));
                 out.extend(self.fire(&owner_id, "change", Some(json!({"value": date}))));
-                out.extend(self.set_open(&owner_id, false));
+                // An inline grid has no popup to close.
+                if self.node_by_id(&owner_id).is_some_and(|o| o.props.get("inline").and_then(Value::as_bool) == Some(true)) {
+                    self.needs_build = true;
+                    out.push(OutEvent::Relayout);
+                } else {
+                    out.extend(self.set_open(&owner_id, false));
+                }
             }
             ("DateRangePicker", Some("day"), "press") => out.extend(self.range_pick(&n, &owner_id)),
             ("TimePicker", Some("item"), "press") => {
@@ -908,7 +919,14 @@ impl Surface {
         }
         let owner = self.node_by_id(id);
         let start = owner.and_then(|o| o.props.get("value").or_else(|| o.props.get("start"))).and_then(Value::as_str).and_then(dates::parse);
-        start.map(|(y, m, _)| (y, m)).or_else(|| self.settings.today.as_deref().and_then(dates::parse).map(|(y, m, _)| (y, m))).unwrap_or((2026, 1))
+        // The builder's order: the value, `today` (the prop, else the host's), `min`.
+        let prop = |k: &str| owner.and_then(|o| o.props.get(k)).and_then(Value::as_str).and_then(dates::parse).map(|(y, m, _)| (y, m));
+        start
+            .map(|(y, m, _)| (y, m))
+            .or_else(|| prop("today"))
+            .or_else(|| self.settings.today.as_deref().and_then(dates::parse).map(|(y, m, _)| (y, m)))
+            .or_else(|| prop("min"))
+            .unwrap_or((2026, 1))
     }
 
     /// DateRangePicker: the first pick anchors, the second completes the

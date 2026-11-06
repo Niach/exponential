@@ -10199,6 +10199,32 @@
       }
     },
     {
+      "name": "DatePicker/inline=true",
+      "node": {
+        "id": "date-picker",
+        "component": "DatePicker",
+        "props": {
+          "label": "Due",
+          "name": "due",
+          "value": "2026-10-14",
+          "inline": true
+        }
+      }
+    },
+    {
+      "name": "DatePicker/inline=false",
+      "node": {
+        "id": "date-picker",
+        "component": "DatePicker",
+        "props": {
+          "label": "Due",
+          "name": "due",
+          "value": "2026-10-14",
+          "inline": false
+        }
+      }
+    },
+    {
       "name": "DateRangePicker/example",
       "node": {
         "id": "date-range-picker",

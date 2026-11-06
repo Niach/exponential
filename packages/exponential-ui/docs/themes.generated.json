@@ -3590,7 +3590,11 @@
         "calendar",
         "day"
       ],
-      "props": []
+      "props": [
+        "inline",
+        "isToday",
+        "outside"
+      ]
     },
     {
       "name": "DateRangePicker",
@@ -3603,7 +3607,10 @@
         "day",
         "range"
       ],
-      "props": []
+      "props": [
+        "isToday",
+        "outside"
+      ]
     },
     {
       "name": "TimePicker",

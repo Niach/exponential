@@ -604,7 +604,9 @@
         "part": "trigger",
         "cases": {
           "default": {
-            "props": {},
+            "props": {
+              "inline": false
+            },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,
@@ -1904,7 +1906,9 @@
         "part": "trigger",
         "cases": {
           "default": {
-            "props": {},
+            "props": {
+              "inline": false
+            },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,
@@ -3204,7 +3208,9 @@
         "part": "trigger",
         "cases": {
           "default": {
-            "props": {},
+            "props": {
+              "inline": false
+            },
             "geometry": {
               "height": 44,
               "paddingHorizontal": 12,
@@ -4507,7 +4513,9 @@
         "part": "trigger",
         "cases": {
           "default": {
-            "props": {},
+            "props": {
+              "inline": false
+            },
             "geometry": {
               "height": 36,
               "paddingHorizontal": 12,

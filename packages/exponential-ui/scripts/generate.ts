@@ -773,6 +773,12 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     label: `icon · endLabel · showValue false`,
     node: { id: `volume`, component: `Slider`, props: { min: 0, max: 100, value: 34, icon: `media-volume-up`, endLabel: `34%`, showValue: false }, style: { width: 320 } },
   }],
+  // #VAPP-282: the month grid in place (the calendar applet): today ringed,
+  // the selected day, event dots, Monday first.
+  DatePicker: [{
+    label: `inline · today · marks · firstDayOfWeek 1`,
+    node: { id: `month`, component: `DatePicker`, props: { name: `day`, inline: true, value: `2026-10-14`, today: `2026-10-08`, firstDayOfWeek: 1, marks: [{ date: `2026-10-02`, tone: `primary` }, { date: `2026-10-14`, tone: `success` }, { date: `2026-10-20`, tone: `warning` }, { date: `2026-10-29`, tone: `danger` }] } },
+  }],
   Heading: [{
     label: `style · on a band`,
     node: { id: `band`, component: `Box`, style: { backgroundColor: `$color.primary`, padding: `$spacing.lg`, borderRadius: `$radius.lg` }, children: [
@@ -1374,7 +1380,8 @@ function promptBudget() {
     // EXP-1604/1605 (a named budget exception, approved in EXP-1584: ≤ +700): Motion with its dialect guide and state machine, +619 tokens; the measured total (8,750), no slack.
     // VAPP-232 + VAPP-217 (eApps U3 + U2): raised for the U2/U3 macros, awaiting Danny's review: Calendar + Timeline (+198 tokens), RecordForm + RecordTable (+239 tokens, host-filled props stay out of the prompt); the measured total (9216), no slack.
     // VAPP-286 (a named budget exception, round 7): Slider icon + endLabel + showValue, +21 tokens after trimming the new descriptions and the Slider's own sentence; the measured total (9237), no slack.
-    budgetTokens: 9237,
+    // VAPP-282 (a named budget exception, round 7): DatePicker inline + marks (the dateMark shape) + today + the month event, +55 tokens with terse descriptions; the measured total with VAPP-286 (9292), no slack.
+    budgetTokens: 9292,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

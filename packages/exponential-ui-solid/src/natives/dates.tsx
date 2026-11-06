@@ -19,7 +19,7 @@
 import { For, Index, batch, createComputed, createEffect, createMemo, createSignal, createUniqueId, on, untrack, type Component, type JSX } from "solid-js"
 import { weekStart } from "@exponential_app/eui"
 import type { Formatter } from "@exponential_app/eui"
-import { addDays, addMonths, calendarStop, isoDate, monthGrid, parseIsoDate, sameDay } from "@exponential_app/eui/web"
+import { addDays, addMonths, calendarStop, isoDate, isoMonth, markTones, monthGrid, parseIsoDate, sameDay } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField } from "../form"
 import type { NativeProps } from "../node-view"
@@ -54,6 +54,12 @@ interface CalendarProps {
   t: (id: string) => string
   /** The SURFACE direction: ArrowLeft/Right mirror in RTL. */
   direction?: `ltr` | `rtl`
+  /** #VAPP-282: the ringed day (the `today` prop, else the device's). */
+  today?: string
+  /** #VAPP-282: each marked day's dot tone (`markTones`). */
+  marks?: Map<string, string>
+  /** #VAPP-282: the view moved to another month (`yyyy-mm`). */
+  onMonth?: (month: string) => void
 }
 
 export function CalendarGrid(props: CalendarProps): JSX.Element {
@@ -63,6 +69,13 @@ export function CalendarGrid(props: CalendarProps): JSX.Element {
   let grid: HTMLDivElement | undefined
   let moved = false
   const days = createMemo(() => monthGrid(view(), props.firstDay))
+  createEffect(
+    on(
+      () => isoMonth(view()),
+      (month) => props.onMonth?.(month),
+      { defer: true }
+    )
+  )
   const weekdays = createMemo(() => {
     // 2023-01-01 was a Sunday; names through the surface Formatter (`EEE`;
     // the one-letter column head is the locale's narrow form, Intl).
@@ -161,16 +174,18 @@ export function CalendarGrid(props: CalendarProps): JSX.Element {
                   const outside = () => d().getMonth() !== view().getMonth()
                   const off = () => disabled(d())
                   const focused = () => sameDay(d(), stop())
-                  const today = () => sameDay(d(), new Date())
+                  const today = () => isoDate(d()) === (props.today ?? isoDate(new Date(Date.now())))
+                  const mark = () => props.marks?.get(isoDate(d()))
                   return (
                     <span role="gridcell" aria-selected={sel()} class="xui-calendar-cell">
                       <button
                         type="button"
-                        {...props.part(props.dayPart, sel() && `selected`, off() && `disabled`)}
+                        {...props.part.with(props.dayPart, { isToday: today() || undefined, outside: outside() || undefined }, sel() && `selected`, off() && `disabled`)}
                         data-date={isoDate(d())}
                         data-outside={outside() ? `` : undefined}
                         data-range={range() ? `` : undefined}
                         data-today={today() ? `` : undefined}
+                        data-mark={mark()}
                         disabled={off()}
                         tabindex={focused() ? 0 : -1}
                         onFocus={() => {
@@ -185,6 +200,7 @@ export function CalendarGrid(props: CalendarProps): JSX.Element {
                       >
                         {range() && !sel() ? <span {...props.part(`range`)} aria-hidden="true" /> : null}
                         <span class="xui-calendar-day-label">{d().getDate()}</span>
+                        {mark() ? <span class="xui-calendar-mark" data-tone={mark()} aria-hidden="true" /> : null}
                       </button>
                     </span>
                   )
@@ -222,6 +238,9 @@ export function DatePickerNative(props: NativeProps): JSX.Element {
     return s ? ctx.formatter.date(isoDate(s)) : ``
   }
   const disabled = () => bool(props.props.disabled) || Boolean(f.form?.disabled)
+  const today = () => (parseIsoDate(str(props.props.today)) ? str(props.props.today).slice(0, 10) : isoDate(new Date(Date.now())))
+  const marks = createMemo(() => markTones(props.props.marks))
+  const onMonth = (month: string) => void props.emit(`month`, { month }, { month })
   const pick = (d: Date) => {
     const next = isoDate(d)
     setValue(next)
@@ -229,6 +248,18 @@ export function DatePickerNative(props: NativeProps): JSX.Element {
     f.touch()
     void props.emit(`change`, { value: next }, { value: next })
     setOpen(false)
+  }
+  // #VAPP-282: `inline` = the popup's month grid in place (no field).
+  if (untrack(() => bool(props.props.inline))) {
+    return (
+      <div {...props.rootProps}>
+        <TextPart part={part(`label`)} text={props.props.label} />
+        <div {...part(`calendar`)} dir={ctx.direction} role="group" aria-label={str(props.props.label) || undefined}>
+          <CalendarGrid part={part} dayPart="day" locale={ctx.locale} formatter={ctx.formatter} firstDay={firstDay()} min={min()} max={max()} isSelected={(d) => sameDay(d, selected())} initial={selected() ?? parseIsoDate(today()) ?? new Date()} onPick={pick} t={ctx.t} direction={ctx.direction} today={today()} marks={marks()} onMonth={onMonth} />
+        </div>
+        <FieldErrors part={part} field={f} />
+      </div>
+    )
   }
   return (
     <div {...props.rootProps}>
@@ -258,7 +289,7 @@ export function DatePickerNative(props: NativeProps): JSX.Element {
         attrs={{ ...part(`calendar`, open() && `open`), dir: ctx.direction, role: `dialog`, "aria-label": str(props.props.label) || undefined, "data-xui-overlay": `DatePicker` }}
         onOpenAutoFocus={focusGridStop}
       >
-        <CalendarGrid part={part} dayPart="day" locale={ctx.locale} formatter={ctx.formatter} firstDay={firstDay()} min={min()} max={max()} isSelected={(d) => sameDay(d, selected())} initial={selected() ?? new Date()} onPick={pick} t={ctx.t} direction={ctx.direction} />
+        <CalendarGrid part={part} dayPart="day" locale={ctx.locale} formatter={ctx.formatter} firstDay={firstDay()} min={min()} max={max()} isSelected={(d) => sameDay(d, selected())} initial={selected() ?? parseIsoDate(today()) ?? new Date()} onPick={pick} t={ctx.t} direction={ctx.direction} today={today()} marks={marks()} onMonth={onMonth} />
       </PickerPopover>
       <FieldErrors part={part} field={f} />
     </div>
