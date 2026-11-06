@@ -1,0 +1,55 @@
+{
+  "$comment": "VAPP-260 (Engine E0, epic VAPP-259, docs/spec/apps.md §13.1): WHAT A HOST HANDS THE ENGINE, the `HostConfig`. Each key of `providers` is `required` (the Engine refuses to start without it: `missing`) or optional (absent = its `default`); `list: true` = zero or more. There is NO telemetry and NO update provider: `forbidden` keys are refused by name (`forbidden`), so an exported runner can never grow an analytics, crash-report or over-the-air channel through its config (a new package version = a rebundle, decided 2026-11-05); any other unknown key is `unknown`. `network` is one of `networkPolicies`; `identity.kind` one of `identityKinds`. A capability is mounted under its name (capabilities.json), each name once (`duplicateCapability`); an agent provider (Agents' `AgentProvider`: `acp`, `localModel`, `remoteSession`) once per id (`duplicateAgent`). `validateHostConfig(config)` -> the issues `{key, code}` in `providers` order, then forbidden and unknown keys sorted. HOSTS (`hosts`): what each host kind provides, informative and checked against the validator (each must pass). IDENTITY (`identityCases`, `engineViewer`): `member` = the signed-in member with their team role and app access (Exponential); `local` = ONE person on one device and no account (the softcoded app, eDE Local desktops, exported apps): the viewer = `{id: the device uuid, role: owner, access: write}`, so genUI's `recordRefusal` allows every op of every kind policy (`member`, `author`, `owners` all collapse to \"me\"), and records the instance writes carry the device uuid as author; `peer` = a P2P key (Spezl), judged like `member` with the key as id and role `member`. NETWORK (`networkCases`, `networkAllows`): `off` = nothing leaves the device (upstreams, `http.fetch` and a sync transport are refused `offline`); `upstreamsOnly` = the package's declared `upstreams` and the sync transport, never `http.fetch`; `any` = all three (an `http.fetch` still needs its manifest origin and consent: capabilities.json). A refusal is `{allowed: false, reason}`.",
+  "providers": {
+    "host": { "required": true, "doc": "HostInfo: host kind, platform, form factor, locale, Engine version" },
+    "storage": { "required": true, "doc": "RecordStore: query, write (writeId), history, subscribe (MemoryRecordStore, SqliteRecordStore = elocal's app-records table, SyncedRecordStore)" },
+    "blobs": { "required": true, "doc": "BlobStore: put/get record files (FsBlobStore, the server's attachments)" },
+    "identity": { "required": true, "doc": "Identity: the viewer (member, local or peer)" },
+    "vault": { "required": true, "doc": "emcp Vault: grants, upstream tokens (Keychain, Keystore, libsecret, sealed server column)" },
+    "window": { "required": true, "doc": "WindowHost: open a screen (window, nav stack, sheet), report lifecycle events" },
+    "clock": { "required": false, "default": "system", "doc": "Clock: now (tests pin it)" },
+    "zone": { "required": false, "default": "device", "doc": "HostZone: the IANA zone of today/now/month (the team's in Exponential)" },
+    "network": { "required": false, "default": "upstreamsOnly", "doc": "NetworkPolicy" },
+    "sync": { "required": false, "default": null, "doc": "SyncTransport: pull deltas, push outbox entries (Exponential: Electric in, tRPC out; Spezl: P2P); absent = writes apply locally, no outbox" },
+    "agents": { "required": false, "default": [], "list": true, "doc": "AgentProvider (Agents): acp, localModel, remoteSession; each gets its tools only as a hub grant" },
+    "capabilities": { "required": false, "default": [], "list": true, "doc": "Capability: a native tool provider on the in-process hub (capabilities.json)" },
+    "consent": { "required": false, "default": "sheet", "doc": "ConsentUi: the Engine's own genUI sheet unless the host paints it (consent.json)" }
+  },
+  "forbidden": ["analytics", "crashReporter", "telemetry", "updateChannel", "updates"],
+  "networkPolicies": ["off", "upstreamsOnly", "any"],
+  "identityKinds": ["member", "local", "peer"],
+  "hosts": {
+    "exponential": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "member" }, "vault": {}, "window": {}, "zone": {}, "network": "any", "sync": {}, "agents": [{ "id": "acp" }, { "id": "remoteSession" }], "capabilities": [{ "name": "files" }, { "name": "share" }, { "name": "notifications" }] },
+    "softcoded": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {}, "network": "upstreamsOnly", "agents": [{ "id": "localModel" }] },
+    "ede": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {}, "network": "any", "agents": [{ "id": "acp" }], "capabilities": [{ "name": "files" }, { "name": "notifications" }, { "name": "shell" }] },
+    "spezl": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "peer" }, "vault": {}, "window": {}, "network": "any", "sync": {}, "agents": [{ "id": "acp" }] },
+    "exported": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {}, "network": "off", "capabilities": [{ "name": "photos" }, { "name": "print" }, { "name": "share" }] }
+  },
+  "validateCases": [
+    { "name": "the minimum", "config": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {} }, "expected": [] },
+    { "name": "every required key missing", "config": {}, "expected": [{ "key": "host", "code": "missing" }, { "key": "storage", "code": "missing" }, { "key": "blobs", "code": "missing" }, { "key": "identity", "code": "missing" }, { "key": "vault", "code": "missing" }, { "key": "window", "code": "missing" }] },
+    { "name": "no telemetry, no update channel", "config": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {}, "updates": {}, "telemetry": {}, "theme": {} }, "expected": [{ "key": "telemetry", "code": "forbidden" }, { "key": "theme", "code": "unknown" }, { "key": "updates", "code": "forbidden" }] },
+    { "name": "a bad network policy and identity kind", "config": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "guest" }, "vault": {}, "window": {}, "network": "lan" }, "expected": [{ "key": "identity", "code": "invalid" }, { "key": "network", "code": "invalid" }] },
+    { "name": "a capability or agent twice", "config": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "member" }, "vault": {}, "window": {}, "agents": [{ "id": "acp" }, { "id": "acp" }], "capabilities": [{ "name": "photos" }, { "name": "photos" }] }, "expected": [{ "key": "agents", "code": "duplicateAgent" }, { "key": "capabilities", "code": "duplicateCapability" }] },
+    { "name": "a capability under a reserved or invalid name", "config": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "member" }, "vault": {}, "window": {}, "capabilities": [{ "name": "records" }, { "name": "Bad_Name" }] }, "expected": [{ "key": "capabilities", "code": "invalidCapability" }] },
+    { "name": "an unknown agent provider", "config": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "member" }, "vault": {}, "window": {}, "agents": [{ "id": "openclaw" }] }, "expected": [{ "key": "agents", "code": "invalid" }] }
+  ],
+  "agentProviders": ["acp", "localModel", "remoteSession"],
+  "identityCases": [
+    { "name": "local: an author-only update of someone else's record", "identity": { "kind": "local", "deviceId": "d-1" }, "policy": { "read": "author", "create": "owners", "update": "author", "delete": "owners" }, "op": "update", "row": { "authorId": "u-imported" }, "expected": { "viewer": { "id": "d-1", "role": "owner", "access": "write" }, "refusal": null } },
+    { "name": "local: an owners-only delete", "identity": { "kind": "local", "deviceId": "d-1" }, "policy": { "read": "member", "create": "member", "update": "author", "delete": "owners" }, "op": "delete", "row": { "authorId": "d-1" }, "expected": { "viewer": { "id": "d-1", "role": "owner", "access": "write" }, "refusal": null } },
+    { "name": "member: the policy applies", "identity": { "kind": "member", "userId": "u-1", "role": "member", "access": "write" }, "policy": { "read": "member", "create": "member", "update": "author", "delete": "author" }, "op": "update", "row": { "authorId": "u-2" }, "expected": { "viewer": { "id": "u-1", "role": "member", "access": "write" }, "refusal": "Only the record's author or a team owner can change it" } },
+    { "name": "peer: a key judged as a member", "identity": { "kind": "peer", "key": "pk-9" }, "policy": { "read": "member", "create": "member", "update": "author", "delete": "author" }, "op": "update", "row": { "authorId": "pk-9" }, "expected": { "viewer": { "id": "pk-9", "role": "member", "access": "write" }, "refusal": null } }
+  ],
+  "networkCases": [
+    { "policy": "off", "target": "upstream", "declared": true, "expected": { "allowed": false, "reason": "offline" } },
+    { "policy": "off", "target": "sync", "declared": true, "expected": { "allowed": false, "reason": "offline" } },
+    { "policy": "off", "target": "http", "declared": true, "expected": { "allowed": false, "reason": "offline" } },
+    { "policy": "upstreamsOnly", "target": "upstream", "declared": true, "expected": { "allowed": true, "reason": null } },
+    { "policy": "upstreamsOnly", "target": "upstream", "declared": false, "expected": { "allowed": false, "reason": "notDeclared" } },
+    { "policy": "upstreamsOnly", "target": "sync", "declared": true, "expected": { "allowed": true, "reason": null } },
+    { "policy": "upstreamsOnly", "target": "http", "declared": true, "expected": { "allowed": false, "reason": "network" } },
+    { "policy": "any", "target": "http", "declared": true, "expected": { "allowed": true, "reason": null } },
+    { "policy": "any", "target": "upstream", "declared": false, "expected": { "allowed": false, "reason": "notDeclared" } }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@exp/eengine",
+  "version": "0.0.0",
+  "description": "The Engine's contract: an app instance's lifecycle, consent and grants, the one capability broker for app UI and agents, the host providers and the outbox mode (fixtures + the pure TypeScript reference, the web's twin; the eengine crate replays them)",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "bun test ./src",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@exp/domain-contract": "workspace:*",
+    "@exp/emcp": "workspace:*",
+    "@exponential_app/eui": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./capabilities": "./src/capabilities.ts",
+    "./consent": "./src/consent.ts",
+    "./lifecycle": "./src/lifecycle.ts",
+    "./providers": "./src/providers.ts",
+    "./outbox": "./src/outbox.ts",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}
