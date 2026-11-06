@@ -1,2 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest />
+<!-- #VAPP-265: the components the native capabilities need (merged into the
+     host app). Permissions are the host's (E7): see ../README.md
+     "Capabilities (Kotlin)". -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- share: serves the shared file read-only, per-URI grants only. -->
+        <provider
+            android:name="at.exponential.engine.capabilities.ShareFileProvider"
+            android:authorities="${applicationId}.exponential.engine.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+        <!-- share: the chooser's chosen-component callback (a PendingIntent). -->
+        <receiver
+            android:name="at.exponential.engine.capabilities.ShareChosenReceiver"
+            android:exported="false" />
+        <!-- notifications: a scheduled one is due (a PendingIntent alarm). -->
+        <receiver
+            android:name="at.exponential.engine.capabilities.NotificationAlarmReceiver"
+            android:exported="false" />
+        <!-- notifications: reschedule after a reboot (needs RECEIVE_BOOT_COMPLETED) or an update. -->
+        <receiver
+            android:name="at.exponential.engine.capabilities.NotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

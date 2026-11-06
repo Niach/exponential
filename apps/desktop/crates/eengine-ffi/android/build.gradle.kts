@@ -1,7 +1,8 @@
 // #VAPP-263: `at.exponential:engine`. One AAR = eengine-ffi's `.so` for
 // arm64-v8a, armeabi-v7a and x86_64 (built by ../build-android.sh into
 // ../out/jniLibs) + the generated Kotlin binding (committed, package
-// `at.exponential.engine.ffi`) over JNA. Depends on nothing from the app.
+// `at.exponential.engine.ffi`) over JNA + the native capabilities (#VAPP-265,
+// `at.exponential.engine.capabilities`). Depends on nothing from the app.
 // The POM, the local `centralBundle` repository and signing (ONLY with
 // `ORG_GRADLE_PROJECT_signingInMemoryKey` / `…Password`) are eUI Compose's
 // (packages/exponential-ui-compose/build.gradle.kts). `-PengineVersion=…` sets
@@ -36,6 +37,14 @@ android {
         }
     }
 
+    // #VAPP-265: the capabilities' pure parts run on the plain JVM (no
+    // Robolectric, no .so) and check their results against the contract.
+    testOptions {
+        unitTests.all {
+            it.systemProperty("eengine.fixtures", File(ffiCrate, "../../../../packages/eengine/fixtures").canonicalPath)
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -57,6 +66,12 @@ kotlin {
 
 dependencies {
     implementation("${libs.jna.aar.get()}@aar")
+    // #VAPP-265: the native capabilities (package
+    // `at.exponential.engine.capabilities`): the Activity Result API for the
+    // pickers and permission prompts, NotificationCompat.
+    implementation("androidx.activity:activity:${libs.versions.activity.compose.get()}")
+    implementation(libs.core.ktx)
+    testImplementation(libs.junit)
 }
 
 publishing {
