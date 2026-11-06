@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-06-trees-popovers-and-folding-rows",
+    date: "2026-11-06",
+    title: "Trees, popovers and folding rows in apps",
+    summary: "Apps can show trees, rows that fold open, popovers and menus anchored to any element, and a compact sidebar rail; a value an action sets now reaches a field you are typing in.",
+    body: r#"- **Trees**: apps can show a tree that expands and collapses, loads children on demand and works with the keyboard.
+- **Folding rows**: a row with children folds open under its head.
+- **Popovers and menus**: an app's popover or menu opens anchored to the element you pressed, flips to stay on screen and closes with Escape.
+- **Sidebar rail**: an app's sidebar can collapse to a rail of icons with badges and tooltips.
+- **Typing**: when an app's action sets a value, it reaches the field you are typing in instead of being overwritten.
+- **Fixes**: an app screen without a shell scrolls, and a refused action's toast reads as plain words."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_220: ChangelogEntry = ChangelogEntry {
     id: "2026-11-06-one-markdown-everywhere",
     date: "2026-11-06",
     title: "One Markdown on every app",
