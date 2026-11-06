@@ -8,7 +8,7 @@
  * possible here: only live rows are read.
  *
  * The forge read sits behind `ForgePullReader` (GitHub today; #EXP-1709's
- * forge seam replaces `githubPullReader`). Dry run by default: the plan
+ * forge seam backs `githubPullReader`). Dry run by default: the plan
  * lists each PR's forge state and the linked issues with their current and
  * target status, without writing anything.
  *
@@ -22,7 +22,7 @@ import { db } from "@/db/connection"
 import { issueEvents, issueStatuses, issues, pullRequestIssues, pullRequests } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { decidePrPollAction, parseRepoFromPrUrl } from "@/lib/bootstrap-self-hosted"
-import { fetchPullState, resolveRepoToken } from "@/lib/integrations/github-pr"
+import { forgeFor } from "@/lib/ecode/forge"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import {
   applyPrEventToIssuesInTx,
@@ -48,16 +48,17 @@ export type ForgePullReader = (pr: {
   teamId: string
 }) => Promise<ForgePullState | null>
 
-/** GitHub: null for a URL that is not a GitHub PR (another forge's row). */
+/** Through the forge seam (EXP-1709): null for a URL no forge recognises. */
 export const githubPullReader: ForgePullReader = async (pr) => {
   const repo = parseRepoFromPrUrl(pr.url)
   if (!repo) return null
-  const token = await resolveRepoToken({ teamId: pr.teamId, repo })
-  const state = await fetchPullState(repo, pr.number, token)
+  const forgeRepo = { id: ``, fullName: repo }
+  const state = await (await forgeFor(forgeRepo)).readPullRequest(forgeRepo, pr.number)
+  if (!state) return null
   return {
     state: state.state,
     merged: state.merged,
-    mergedAt: state.mergedAt ?? null,
+    mergedAt: state.mergedAt,
     baseRef: state.baseRef,
     mergedByUserId: state.merged ? await resolveAppUserForGithubActor(state.mergedBy) : null,
   }
