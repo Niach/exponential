@@ -212,4 +212,22 @@ class MergeTrainTest {
         assertEquals(3, MergeTrain.batchSize("t1", listOf("t1", null, "t1", "t2", "t1")))
         assertNull(MergeTrain.batchSize(null, listOf("t1")))
     }
+
+    @Test
+    fun `the PR's own state wins over merge_state`() {
+        assertEquals("merged", MergeTrain.prMergeState("merged", "queued"))
+        assertEquals("draft", MergeTrain.prMergeState("draft", "checks"))
+        assertEquals("testing", MergeTrain.prMergeState("open", "testing"))
+    }
+
+    @Test
+    fun `a viewer's Needs approval is a plain status`() {
+        val approval = MergeTrain.statusPill(MergeTrain.StatusPillInput("checks", "approval", stack = false, checks = 2))
+        assertEquals(approval, MergeTrain.forViewer(approval, member = true, checks = 2))
+        val viewer = MergeTrain.forViewer(approval, member = false, checks = 2)
+        assertEquals(MergeTrain.StatusPillView("Needs approval", "pr-merged", "muted", primary = false, tap = "checks"), viewer)
+        assertNull(MergeTrain.forViewer(approval, member = false, checks = 0).tap)
+        val queued = MergeTrain.statusPill(MergeTrain.StatusPillInput("queued", null, position = 1, stack = false, checks = 0))
+        assertEquals(queued, MergeTrain.forViewer(queued, member = false, checks = 0))
+    }
 }

@@ -541,7 +541,7 @@ internal fun needsYouFold(
                 checksState = pr.checksState,
                 basePullRequestId = pr.basePullRequestId,
                 createdAt = pr.createdAt,
-                mergeState = if (pr.state == "merged") "merged" else pr.mergeState,
+                mergeState = MergeTrain.prMergeState(pr.state, pr.mergeState),
                 holdReason = pr.mergeHold,
                 deviceOfflineSince = openerOfflineSince(pr.sessionId, sessionsById, devicesById, now),
             )

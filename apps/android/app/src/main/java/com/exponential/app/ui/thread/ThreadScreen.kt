@@ -341,7 +341,7 @@ fun ThreadScreen(
             member = isMember,
             owner = isOwner,
             checks = guideChecks.size,
-            mergeState = pr.mergeState,
+            mergeState = com.exponential.app.domain.MergeTrain.prMergeState(pr.state, pr.mergeState),
         ).mapNotNull { entry ->
             when (entry) {
                 com.exponential.app.domain.MergeTrain.MenuEntry.Checks -> guideChecksItem
@@ -609,7 +609,7 @@ fun ThreadScreen(
                 onSurfaceReply = { text -> viewModel.send(text) },
                 // S-3: the Merge rides the header, left of `…` (phones too).
                 headerAction = if (agent == null) {
-                    { ThreadHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests, checksItem = guideChecksItem) }
+                    { ThreadHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests, checksItem = guideChecksItem, member = isMember) }
                 } else {
                     null
                 },
@@ -1274,6 +1274,8 @@ private fun ThreadHeaderMerge(
     teamPullRequests: List<PullRequestEntity>,
     /** #EXP-1611: the `…`'s Checks entry (its submenu = the pill's rows). */
     checksItem: com.exponential.app.ui.components.ChatMenuItem?,
+    /** A viewer (not a member) sees Needs approval as a plain status. */
+    member: Boolean,
 ) {
     val newest = SessionTree.guidePullRequest(pullRequests) ?: return
     if (newest.state == DomainContract.prStateClosed) return
@@ -1284,10 +1286,10 @@ private fun ThreadHeaderMerge(
         if (newest.state == DomainContract.prStateOpen) PullRequestStack.stackConfirm(newest, stackPool) else null
     }
     val checkRows = checksItem?.submenu.orEmpty()
-    val view = remember(newest, stack, stackPool, checkRows.size) {
+    val view = remember(newest, stack, stackPool, checkRows.size, member) {
         com.exponential.app.domain.MergeTrain.statusPill(
             com.exponential.app.domain.MergeTrain.StatusPillInput(
-                state = if (newest.state == DomainContract.prStateMerged) "merged" else newest.mergeState,
+                state = com.exponential.app.domain.MergeTrain.prMergeState(newest.state, newest.mergeState),
                 wait = newest.mergeWait,
                 position = newest.mergePosition,
                 batchSize = com.exponential.app.domain.MergeTrain.batchSize(newest.mergeTrainId, stackPool.map { it.mergeTrainId }),
@@ -1295,7 +1297,7 @@ private fun ThreadHeaderMerge(
                 stack = stack != null,
                 checks = checkRows.size,
             ),
-        )
+        ).let { com.exponential.app.domain.MergeTrain.forViewer(it, member, checkRows.size) }
     }
     var approveOpen by remember { mutableStateOf(false) }
     var checksOpen by remember { mutableStateOf(false) }

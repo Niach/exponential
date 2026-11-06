@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,8 +47,8 @@ import com.exponential.app.domain.NeedsYou
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
-import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.GlassSubmitButton
+import com.exponential.app.ui.components.SubmitSize
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
 import com.exponential.app.ui.components.ChatEntryRow
@@ -117,6 +119,7 @@ private val NeedsYou.Row.glyph: ImageVector
 /** One row (THE inbox page's flat row): the leading glyph in the needs-you tone,
  *  line 1 the title then the age muted trailing, line 2 the chat then ` · meta`,
  *  muted. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NeedsYouRowItem(
     row: NeedsYou.Row,
@@ -163,18 +166,21 @@ fun NeedsYouRowItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // #EXP-1710 (merge-train.json NEEDS YOU): a stuck PR's actions,
-            // THE small pill row.
+            // #EXP-1710 (merge-train.json NEEDS YOU, web
+            // `needs-you-stuck-actions.tsx`): a stuck PR's actions, THE
+            // Button sm outline, one wrapping row under the meta line.
             if (row.actions.isNotEmpty()) {
-                Row(
+                FlowRow(
                     modifier = Modifier.padding(top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     row.actions.forEach { action ->
-                        GlassPill(
+                        GlassSubmitButton(
                             label = stuckActionLabel(action),
                             onClick = { onAction(row, action) },
-                            size = PillSize.Sm,
+                            size = SubmitSize.Small,
+                            outline = true,
                             modifier = Modifier.testTag("${MergeTrain.TestIds.STUCK_ROW}-${action.wire}"),
                         )
                     }

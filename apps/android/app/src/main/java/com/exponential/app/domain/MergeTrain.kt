@@ -209,6 +209,21 @@ object MergeTrain {
         }
     }
 
+    /** Web `prMergeState`: the PR's own state wins (merged → `merged`,
+     *  draft → `draft`), else its synced `merge_state`. */
+    fun prMergeState(state: String, mergeState: String): String = when (state) {
+        "merged" -> "merged"
+        "draft" -> "draft"
+        else -> mergeState
+    }
+
+    /** A viewer (not a member) cannot approve: `Needs approval` reads as a
+     *  plain status (same label and glyph, not primary, tap = the Checks
+     *  submenu when the PR has rows, else readonly). */
+    fun forViewer(view: StatusPillView, member: Boolean, checks: Int): StatusPillView =
+        if (member || view.tap != "approve") view
+        else view.copy(primary = false, tap = if (checks > 0) "checks" else null, confirm = null)
+
     // ── THE `…` MENU ───────────────────────────────────────────────────────
 
     enum class MenuEntry(val wire: String) {
