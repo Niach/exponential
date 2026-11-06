@@ -96,7 +96,7 @@ Section: x11
 Priority: optional
 Homepage: https://exponential.at
 Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin, xdg-desktop-portal (>= 1.18), xdg-desktop-portal-gtk, pipewire
-Recommends: gnome-keyring, fonts-inter, papirus-icon-theme
+Recommends: gnome-keyring, fonts-inter
 Description: eDE, the Exponential desktop
  A Wayland desktop session: the ede-compositor (floating windows with edge
  snapping, Xwayland 24.1+ with explicit sync) started by ede-session from the login

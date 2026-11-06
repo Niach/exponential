@@ -3,7 +3,7 @@
 # session; the password goes through polkit-agent-helper-1.
 [Unit]
 Description=eDE polkit authentication agent (ede-sealed)
-PartOf=graphical-session.target
+PartOf=graphical-session.target ede-session.target
 After=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
 

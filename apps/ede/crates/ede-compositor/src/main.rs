@@ -3,6 +3,12 @@
 //! lock (pictures of them in a VM); refused with --udev, a real screen is
 //! never captured unredacted.
 //! `ede-compositor doctor`: what this machine is missing for eDE.
+//! `ede-compositor recovery --reason … [--next …]`: the message a failed
+//! session leaves on the displays, without a GPU ([`ede_compositor::fallback`]).
+//!
+//! A run that cannot drive the display ends with [`FATAL_EXIT`] and the
+//! reason in [`failure_file`] (#EDE-40), which ede-session shows; a crash
+//! ends any other way.
 //!
 //! Inside a running X11 or Wayland session it nests in a window (winit);
 //! from a TTY (neither `DISPLAY` nor `WAYLAND_DISPLAY` set) it takes the
@@ -13,9 +19,28 @@
 use ede_compositor::{Config, Ede};
 use smithay::reexports::{calloop::EventLoop, wayland_server::Display};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// The exit code of a session that stopped itself: the reason is in
+/// [`failure_file`], and the same start would fail the same way.
+pub const FATAL_EXIT: i32 = 3;
+
+/// `$XDG_RUNTIME_DIR/ede/failure`: why the last run could not drive the
+/// display (ede-session reads and removes it).
+#[cfg(feature = "udev")]
+fn failure_file() -> Option<std::path::PathBuf> {
+    Some(std::path::PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join("ede").join("failure"))
+}
+
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("ede-compositor: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1).peekable();
     let doctor = args.peek().map(String::as_str) == Some("doctor");
+    let recovery = args.peek().map(String::as_str) == Some("recovery");
     // The doctor's table stands alone: smithay's renderer chatter (and its
     // warning that a render node has no DRM master) stays behind RUST_LOG.
     let default_log = if doctor { "error" } else { "info" };
@@ -26,6 +51,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if doctor {
         let ok = ede_compositor::doctor::report(&ede_compositor::doctor::run_checks());
         std::process::exit(if ok { 0 } else { 1 });
+    }
+    if recovery {
+        let rest: Vec<String> = args.skip(1).collect();
+        return ede_compositor::fallback::main(&rest).map_err(Into::into);
     }
     let mut headless: Option<(i32, i32)> = None;
     let mut no_xwayland = false;
@@ -50,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--config" => config_path = Some(args.next().ok_or("--config needs a path")?.into()),
             "--" => command.extend(args.by_ref()),
             "-h" | "--help" => {
-                println!("usage: ede-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]\n       ede-compositor doctor");
+                println!("usage: ede-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]\n       ede-compositor doctor\n       ede-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
                 return Ok(());
             }
             other => return Err(format!("unknown argument {other:?} (try --help)").into()),
@@ -81,7 +110,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if udev && headless.is_none() {
         #[cfg(feature = "udev")]
         {
-            return ede_compositor::backend::udev::run(config, config_path, command);
+            if let Err(e) = ede_compositor::backend::udev::run(config, config_path, command) {
+                tracing::error!("{e}");
+                if let Some(path) = failure_file() {
+                    if let Some(dir) = path.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    let _ = std::fs::write(&path, e.to_string());
+                }
+                std::process::exit(FATAL_EXIT);
+            }
+            return Ok(());
         }
         #[cfg(not(feature = "udev"))]
         return Err("no display to nest in, and built without the udev backend (cargo build --features udev)".into());

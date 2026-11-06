@@ -13,6 +13,7 @@
 pub mod backend;
 pub mod config;
 pub mod doctor;
+pub mod fallback;
 pub mod frames;
 pub mod grabs;
 mod handlers;

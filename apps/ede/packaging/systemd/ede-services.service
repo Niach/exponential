@@ -7,7 +7,7 @@
 [Unit]
 Description=eDE services (data source + MCP face)
 Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
-PartOf=graphical-session.target
+PartOf=graphical-session.target ede-session.target
 After=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
 

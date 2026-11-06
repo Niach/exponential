@@ -10,7 +10,7 @@
 [Unit]
 Description=eDE shell (the genUI panel under the ede-ui supervisor)
 Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
-PartOf=graphical-session.target
+PartOf=graphical-session.target ede-session.target
 After=graphical-session.target ede-theme.service
 ConditionEnvironment=WAYLAND_DISPLAY
 
