@@ -3564,6 +3564,7 @@
             "shape": "segment"
           },
           "required": true,
+          "bindable": true,
           "description": "The slices in order."
         },
         "max": {

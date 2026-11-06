@@ -96,6 +96,32 @@ fn bound_macro_inputs_bind_at_layout_time() {
     assert_eq!(s.nodes().iter().find(|n| n.id == "pg.label").unwrap().props["text"], json!("3 / 5"));
 }
 
+/// VAPP-278: a Meter whose `segments` are BOUND paints its slices (the
+/// track's data template), not an empty track; literal segments stay `$each`.
+#[test]
+fn a_meter_with_bound_segments_paints_each_slice() {
+    let mut s = surface(json!({
+        "id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [
+            {"id": "m", "component": "Meter", "props": {"segments": {"path": "/disk"}, "max": 100}},
+            {"id": "l", "component": "Meter", "props": {"segments": [{"value": 34, "tone": "primary"}], "max": 100}}
+        ]
+    }));
+    s.set_data("", Some(json!({"disk": [{"value": 34, "tone": "primary"}, {"value": 16}]}))).unwrap();
+    s.set_viewport(400.0, 0.0, None);
+    let mut m = fixed();
+    let out = s.layout(&mut m);
+    let nodes = s.nodes();
+    let track = frame(&s, &out, "m.track");
+    let slices: Vec<_> = nodes.iter().filter(|n| n.id.starts_with("m.track.segment")).map(|n| n.id.clone()).collect();
+    assert_eq!(slices.len(), 2, "{slices:?}");
+    let widths: Vec<f32> = slices.iter().map(|id| frame(&s, &out, id).w).collect();
+    assert!((widths[0] - track.w * 0.34).abs() < 0.5, "{widths:?} of {}", track.w);
+    assert!((widths[1] - track.w * 0.16).abs() < 0.5, "{widths:?} of {}", track.w);
+    let literal = frame(&s, &out, "l.track.segment.0");
+    assert!((literal.w - widths[0]).abs() < 0.5);
+}
+
 #[test]
 fn visible_drops_a_node_and_its_subtree_and_brings_it_back() {
     let mut s = surface(json!({
