@@ -119,7 +119,15 @@ export interface CoreFunctionDef {
 
 /** A child entry of a macro template: a part, the author's children
  *  (`$children`) or one of the author's slots spliced in place (`$slot:name`). */
-export type MacroChild = MacroTemplate | `$children` | `$slot:${string}`
+export type MacroChild = MacroTemplate | MacroSlotSplice | `$children` | `$slot:${string}`
+
+/** #VAPP-277: an author slot spliced in place only while `$if`/`$any` hold
+ *  (a bound condition splices it with `visible`). */
+export interface MacroSlotSplice {
+  $slot: string
+  $if?: unknown
+  $any?: unknown[]
+}
 
 /** A macro template node (catalog/macros.json). */
 export interface MacroTemplate {
@@ -153,9 +161,23 @@ export interface MacroTemplate {
   $template?: { path: unknown; key?: unknown; item: MacroTemplate }
 }
 
+/** #VAPP-277: a macro's PASS DOWN, applied BEFORE its slot expands (macros
+ *  expand bottom-up, so a template cannot restyle its slot's nodes): when
+ *  `$if` holds (evaluated in the macro's own context, literal only), every
+ *  `component` node in the author's `slot` subtree (a nested node of the same
+ *  macro ends the walk) takes `props` (evaluated like any template value, so a
+ *  bound macro prop passes the binding itself), never over a prop its author set. */
+export interface MacroPass {
+  slot: string
+  component: string
+  $if?: unknown
+  props: Record<string, unknown>
+}
+
 export interface MacroDef {
   recipeProps: readonly string[]
   root: MacroTemplate
+  $pass?: readonly MacroPass[]
 }
 
 /** An extension catalog: its own id, extending the core, with components and

@@ -807,6 +807,26 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     label: `orientation · vertical`,
     node: { id: `bar`, component: `Stack`, props: { direction: `horizontal`, gap: `md`, align: `center` }, children: [text(`a`, `Inbox`), { id: `separator`, component: `Separator`, props: { orientation: `vertical` }, style: { height: 20 } }, text(`b`, `Drafts`)] },
   }],
+  // #VAPP-277: the rail Sidebar, expanded and collapsed (icon tiles,
+  // tooltips, the counts as badges, the Section's header → a rule).
+  Sidebar: [false, true].map((collapsed) => ({
+    label: collapsed ? `rail · collapsed` : `rail · expanded`,
+    node: {
+      id: `sidebar`,
+      component: `Sidebar`,
+      props: { rail: true, collapsed, collapseBelow: `never` },
+      slots: {
+        sidebar: { id: `nav`, component: `Stack`, props: { gap: `xs` }, children: [
+          { id: `n1`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, meta: `3`, selected: true, pressable: true } },
+          { id: `n2`, component: `Row`, props: { title: `Issues`, icon: `nav-issues`, pressable: true } },
+          { id: `more`, component: `Section`, props: { title: `More` }, children: [
+            { id: `n3`, component: `Row`, props: { title: `Search`, icon: `nav-search`, meta: `12`, pressable: true } },
+          ] },
+        ] },
+      },
+      children: [text(`main`, `Pick a board on the left.`)],
+    },
+  })),
   // #VAPP-286: the volume row (icon, track, end label, no value above).
   Slider: [{
     label: `icon · endLabel · showValue false`,
@@ -1075,8 +1095,37 @@ function authoredStyleCases(): ComponentCase[] {
   ]
 }
 
+/** #VAPP-277: a Sidebar's nav column, for the rail cases: a count and a
+ *  trailing slot on Inbox, a leading slot instead of an icon on Issues, a
+ *  Row in a closed collapsible Section (the rail shows it: header → rule). */
+function railNav(): NestedNode {
+  return {
+    id: `nav`,
+    component: `Stack`,
+    props: { gap: `xs` },
+    children: [
+      { id: `inbox`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, meta: `3`, selected: true, pressable: true }, slots: { trailing: { id: `inbox-new`, component: `Badge`, props: { text: `New` } } } },
+      { id: `issues`, component: `Row`, props: { title: `Issues`, pressable: true }, slots: { leading: { id: `issues-dot`, component: `Icon`, props: { name: `nav-issues`, size: `sm` } } } },
+      { id: `more`, component: `Section`, props: { title: `More`, collapsible: true, open: false }, children: [{ id: `search`, component: `Row`, props: { title: `Search`, icon: `nav-search`, meta: `120`, pressable: true } }] },
+    ],
+  }
+}
+
+/** #VAPP-277: Sidebar `rail` hands its `collapsed` to the sidebar's Rows
+ *  (`$pass`): collapsed = the icon rail, expanded = the Rows as without
+ *  `rail`, bound = calls (bind-time.json binds them). */
+function railCases(): ComponentCase[] {
+  const sidebar = (name: string, collapsed: unknown): ComponentCase => ({
+    name: `Sidebar/rail:${name}`,
+    node: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed, collapseBelow: `never` }, slots: { sidebar: railNav() }, children: [{ id: `main`, component: `Text`, props: { text: `Pick a board.` } }] },
+  })
+  const right = sidebar(`right`, true)
+  right.node.props = { ...right.node.props, side: `right` }
+  return [sidebar(`collapsed`, true), sidebar(`expanded`, false), sidebar(`bound`, { path: `/collapsed` }), right]
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases()]
+  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
@@ -1253,6 +1302,14 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
       visible: { call: `expr`, args: { expr: `weekday(d) >= 6 || mul(minutes, 2) > 1000`, vars: { d: { path: `/day` }, minutes: { path: `/minutes` } } } },
     },
     datasets: [{ minutes: 450, day: `2026-01-31` }, { minutes: 600, day: `2026-02-02` }, { minutes: 450, day: `2026-02-02` }, { minutes: `x`, day: `nope` }, {}],
+  },
+  {
+    // #VAPP-277: a rail Sidebar whose `collapsed` is bound: every rail Row
+    // part and style is a call the bind pass resolves (rail when true,
+    // the plain Rows when false or missing).
+    name: `Sidebar/rail:bound-collapsed`,
+    input: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed: { path: `/collapsed` }, collapseBelow: `never` }, slots: { sidebar: railNav() } },
+    datasets: [{ collapsed: true }, { collapsed: false }, {}],
   },
 ]
 

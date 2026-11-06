@@ -12,6 +12,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 - `host.markdownOptions` (`breaks`, `density`, `selectable`, `streaming`): hard breaks, the chat rhythm (`data-r-density` on the Markdown root), selection off, and streamed text whose finished blocks are memoized (each top-level block re-renders only when its block changes).
 - Markdown host hooks (`catalog/host.json` `markdown`): a `textLinks` chip paints the Chip look inline, `imageSize` / `onImagePress` size and press block images, `attachment` paints a one-link paragraph as the Video / AudioPlayer native or the FileUpload file row. `hostPlugin(host)` forwards the policy's hooks.
 - `SettingsRow` (#VAPP-280, round 7): one line of a settings page as a catalog macro: the label (+ a muted description) on the start column, the control (its children) on the end column, 16 px in, 12 px top and bottom, at least 44 px tall; below `stackBelow` (default `sm`; `never` keeps it inline) the control goes under the label and stretches. A group named by the label. Every renderer paints it through the core's expansion; prompt budget 9,292 → 9,359 tokens (a named exception).
+- Sidebar `rail` (#VAPP-277): paints the icon rail from the expanded tree; Tooltip resolves the logical sides `start`/`end` against the surface direction, and a Tooltip inside a focusable host (a pressable Row) adds no tab stop: the host's keyboard focus opens it.
 
 ## 0.16.3 (2026-11-06)
 

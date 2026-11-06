@@ -13,13 +13,13 @@
   },
   "terse": {
     "components": 96,
-    "chars": 26048,
-    "tokens": 6512
+    "chars": 26042,
+    "tokens": 6511
   },
   "index": {
     "components": 96,
-    "chars": 12579,
-    "tokens": 3145
+    "chars": 12559,
+    "tokens": 3140
   },
   "rules": {
     "chars": 2056,

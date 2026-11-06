@@ -1,0 +1,57 @@
+// #VAPP-277: the Sidebar rail on the web: ONE tab stop per rail row (the
+// tooltip anchor inside the pressable Row adds none), the Row's keyboard
+// focus opens its tooltip, and the tooltip's logical side resolves against
+// the surface direction.
+
+import { afterEach, describe, expect, it } from "vitest"
+import { act, cleanup, fireEvent, render } from "@testing-library/react"
+import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
+import { ExponentialSurface } from "./surface"
+
+afterEach(() => cleanup())
+
+const shell = (side: `left` | `right`): NestedNode => ({
+  id: `shell`,
+  component: `Sidebar`,
+  props: { rail: true, collapsed: true, collapseBelow: `never`, side },
+  slots: { sidebar: { id: `nav`, component: `Stack`, children: [{ id: `inbox`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, meta: `3`, pressable: true } }] } },
+  children: [{ id: `main`, component: `Text`, props: { text: `Pick a board.` } }],
+})
+const tree = (node: NestedNode) => reduceNested(node, { catalogId: CORE_CATALOG_ID }).root
+
+describe(`Sidebar rail (#VAPP-277)`, () => {
+  it(`one tab stop per rail row: the Row, named by its title and count`, () => {
+    const { container } = render(<ExponentialSurface root={tree(shell(`left`))} theme="neutral" id="rail" />)
+    const stops = [...container.querySelectorAll<HTMLElement>(`[tabindex]`)].filter((el) => el.tabIndex >= 0)
+    expect(stops.map((el) => el.getAttribute(`aria-label`))).toEqual([`Inbox, 3`])
+    expect(container.querySelector(`[data-xui-part="Tooltip/anchor"]`)?.hasAttribute(`tabindex`)).toBe(false)
+  })
+
+  it(`the Row's keyboard focus opens its tooltip, blur closes it`, async () => {
+    const { container } = render(<ExponentialSurface root={tree(shell(`left`))} theme="neutral" id="rail" />)
+    const row = container.querySelector<HTMLElement>(`[aria-label="Inbox, 3"]`)!
+    await act(async () => {
+      fireEvent.focus(row)
+    })
+    expect(document.querySelector(`[data-xui-overlay="Tooltip"]`)?.textContent).toContain(`Inbox`)
+    await act(async () => {
+      fireEvent.blur(row)
+    })
+    expect(document.querySelector(`[data-xui-overlay="Tooltip"]`)).toBeNull()
+  })
+
+  it(`the tooltip points into the content, mirrored under RTL`, async () => {
+    const sides: string[] = []
+    for (const [side, direction] of [[`left`, `ltr`], [`right`, `ltr`], [`left`, `rtl`], [`right`, `rtl`]] as const) {
+      const { container } = render(<ExponentialSurface root={tree(shell(side))} theme="neutral" id={`rail-${side}-${direction}`} direction={direction} />)
+      const row = container.querySelector<HTMLElement>(`[aria-label="Inbox, 3"]`)!
+      await act(async () => {
+        fireEvent.focus(row)
+      })
+      sides.push(document.querySelector(`[data-xui-overlay="Tooltip"]`)?.getAttribute(`data-side`) ?? `none`)
+      cleanup()
+    }
+    expect(sides).toEqual([`right`, `left`, `left`, `right`])
+  })
+})

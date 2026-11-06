@@ -279,3 +279,126 @@ fn a_loaded_picture_remeasures_its_markdown_and_never_resizes_an_image() {
     let chars = "Ship it ![chart](https://example.com/c.png)".chars().count() as f32;
     assert_eq!(md.h, (chars * 8.0 / md.w).ceil() * 20.0 + 120.0, "{md:?}");
 }
+
+/// #VAPP-277: Sidebar `rail` + `collapsed` = the icon rail: the column is
+/// `$spacing.xl3` wide, each nav Row a `$control.buttonIcon` square centred
+/// in it, its icon centred in the square, the `meta` count a badge
+/// (`$control.iconSm` tall, at least as wide, primary fill) flush
+/// in the square's top-end corner; the title is the
+/// tooltip and the accessible name (`, <count>` with one). A bound
+/// `collapsed` switches between the rail and the plain Rows at bind time.
+#[test]
+fn sidebar_rail_squares_icons_badges_and_tooltips() {
+    let shell = |collapsed: Value| {
+        json!({"id": "shell", "component": "Sidebar", "props": {"rail": true, "collapsed": collapsed, "collapseBelow": "never"},
+            "slots": {"sidebar": {"id": "nav", "component": "Stack", "props": {"gap": "xs"}, "children": [
+                {"id": "inbox", "component": "Row", "props": {"title": "Inbox", "icon": "nav-inbox", "meta": "3", "selected": true, "pressable": true}},
+                {"id": "issues", "component": "Row", "props": {"title": "Issues", "icon": "nav-issues", "pressable": true}}
+            ]}},
+            "children": [{"id": "main", "component": "Text", "props": {"text": "Pick a board."}}]})
+    };
+    let t = builtin_theme("neutral").unwrap();
+    let (rail_w, square, badge_h, inset) = (t.tokens.spacing["xl3"] as f32, t.tokens.control["buttonIcon"] as f32, t.tokens.control["iconSm"] as f32, t.tokens.spacing["none"] as f32);
+    let mut s = themed(shell(json!(true)), "neutral", Mode::Dark);
+    s.set_viewport(600.0, 400.0, None);
+    let out = s.layout(&mut fixed());
+    let column = frame(&s, &out, "shell.sidebar");
+    assert_eq!(column.w, rail_w, "the rail is xl3 wide");
+    for id in ["inbox", "issues"] {
+        let row = frame(&s, &out, id);
+        assert_eq!((row.w, row.h), (square, square), "{id}: a buttonIcon square");
+        // Centred in the content box (the theme draws a hairline on the inner edge).
+        assert!((row.x + row.w / 2.0 - (column.x + (column.w - 1.0) / 2.0)).abs() < 0.01, "{id}: centred in the rail {row:?} {column:?}");
+        let icon = frame(&s, &out, &format!("{id}.tip.tile.tileIcon"));
+        assert!((icon.x + icon.w / 2.0 - (row.x + row.w / 2.0)).abs() < 0.01 && (icon.y + icon.h / 2.0 - (row.y + row.h / 2.0)).abs() < 0.01, "{id}: the icon is centred");
+        for part in ["icon", "body", "body.title", "meta"] {
+            assert!(s.index_of(&format!("{id}.{part}")).is_none(), "{id}.{part} drops on the rail");
+        }
+    }
+    let (row, badge) = (frame(&s, &out, "inbox"), frame(&s, &out, "inbox.tip.tile.badge"));
+    assert_eq!(badge.h, badge_h, "the badge is iconSm tall");
+    assert!(badge.w >= badge_h, "and at least as wide");
+    assert_eq!((badge.y, badge.x + badge.w), (row.y + inset, row.x + row.w - inset), "flush in the top-end corner");
+    assert!(s.index_of("issues.tip.tile.badge").is_none(), "no meta, no badge");
+    assert_eq!(color(&s, "inbox.tip.tile.badge").0.as_deref(), Some(t.modes.dark.color["primary"].as_str()), "primary fill");
+    assert_eq!(color(&s, "inbox.tip.tile.badge.count").1.as_deref(), Some(t.modes.dark.color["primaryForeground"].as_str()), "primary ink");
+    let nodes = s.nodes();
+    let a11y = |id: &str| nodes.iter().find(|n| n.id == id).and_then(|n| n.accessibility.clone());
+    assert_eq!(a11y("inbox"), Some(json!({"role": "button", "selected": true, "label": "Inbox, 3"})), "the title (and count) is the name");
+    assert_eq!(a11y("issues"), Some(json!({"role": "button", "selected": false, "label": "Issues"})));
+    assert_eq!(a11y("inbox.tip.tile").and_then(|a| a.get("hidden").cloned()), Some(json!(true)), "the drawn tile stays out of the a11y tree");
+    assert!(s.set_states("inbox.tip.anchor", vec!["hover".into()]));
+    let out = s.layout(&mut fixed());
+    let layer = out.layers.iter().find(|l| l.kind == "Tooltip").expect("hover opens the tooltip");
+    assert_eq!(layer.owner, "inbox.tip");
+    assert_eq!(s.nodes().iter().find(|n| n.id == "inbox.tip.label").map(|n| n.props["text"].clone()), Some(json!("Inbox")), "the tooltip is the title");
+
+    // Bound: data decides between the rail and the plain Rows.
+    let mut s = themed(shell(json!({"path": "/collapsed"})), "neutral", Mode::Dark);
+    s.set_viewport(600.0, 400.0, None);
+    s.set_data("/collapsed", Some(json!(true))).unwrap();
+    let out = s.layout(&mut fixed());
+    assert_eq!(frame(&s, &out, "shell.sidebar").w, rail_w);
+    assert_eq!(frame(&s, &out, "inbox").w, square);
+    assert!(s.index_of("inbox.body").is_none());
+    s.set_data("/collapsed", Some(json!(false))).unwrap();
+    let out = s.layout(&mut fixed());
+    assert_eq!(frame(&s, &out, "shell.sidebar").w, 240.0, "expanded = the width");
+    assert!(s.index_of("inbox.body.title").is_some() && s.index_of("inbox.tip").is_none(), "the plain Row");
+    assert!(frame(&s, &out, "inbox").w > square, "the Row spans the column");
+}
+
+/// #VAPP-277: the rail tooltip points into the content (right of a left
+/// rail, left of a right one, both mirrored under RTL); the Row is the ONE
+/// focus stop and its keyboard focus opens the tooltip; the Row's slots and
+/// a Section's header drop (the Section draws a full-width rule instead).
+#[test]
+fn sidebar_rail_tooltip_side_focus_slots_and_sections() {
+    let shell = |side: &str, direction: &str| {
+        json!({"id": "root", "component": "Box", "style": {"direction": direction, "display": "flex", "flexDirection": "column"}, "children": [
+            {"id": "shell", "component": "Sidebar", "props": {"rail": true, "collapsed": true, "collapseBelow": "never", "side": side},
+                "slots": {"sidebar": {"id": "nav", "component": "Stack", "props": {"gap": "xs"}, "children": [
+                    {"id": "inbox", "component": "Row", "props": {"title": "Inbox", "icon": "nav-inbox", "pressable": true},
+                     "slots": {"leading": {"id": "lead", "component": "Icon", "props": {"name": "nav-issues"}}, "trailing": {"id": "trail", "component": "Badge", "props": {"text": "New"}}}},
+                    {"id": "more", "component": "Section", "props": {"title": "More", "collapsible": true, "open": false}, "children": [
+                        {"id": "search", "component": "Row", "props": {"title": "Search", "icon": "nav-search", "pressable": true}}
+                    ]}
+                ]}},
+                "children": [{"id": "main", "component": "Text", "props": {"text": "Pick a board."}}]}
+        ]})
+    };
+    for (side, direction, expected) in [("left", "ltr", "right"), ("right", "ltr", "left"), ("left", "rtl", "left"), ("right", "rtl", "right")] {
+        let mut s = themed(shell(side, direction), "neutral", Mode::Dark);
+        s.set_viewport(600.0, 400.0, None);
+        s.layout(&mut fixed());
+        assert!(s.set_states("inbox.tip.anchor", vec!["hover".into()]));
+        let out = s.layout(&mut fixed());
+        let layer = out.layers.iter().find(|l| l.kind == "Tooltip").expect("hover opens the tooltip");
+        assert_eq!(layer.position, expected, "{side} sidebar, {direction}");
+    }
+    let mut s = themed(shell("left", "ltr"), "neutral", Mode::Dark);
+    s.set_viewport(600.0, 400.0, None);
+    let out = s.layout(&mut fixed());
+    for id in ["lead", "trail", "more.header", "more.header.title"] {
+        assert!(s.index_of(id).is_none(), "{id} drops on the rail");
+    }
+    let (column, rule) = (frame(&s, &out, "shell.sidebar"), frame(&s, &out, "more.rule"));
+    assert_eq!((rule.x, rule.h), (column.x, 1.0), "a hairline rule");
+    assert_eq!(rule.w, column.w - 1.0, "across the rail (inside its hairline edge)");
+    assert_eq!(frame(&s, &out, "search").w, 36.0, "a closed Section still shows its rows on the rail");
+    // One focus stop per row: the Row; its keyboard focus opens the tooltip.
+    let nodes = s.nodes();
+    let pressables: Vec<&str> = nodes.iter().filter(|n| n.pressable).map(|n| n.id.as_str()).collect();
+    assert_eq!(pressables, ["inbox", "search"], "the tooltip anchors add no stop");
+    s.set_states("inbox", vec!["focus".into(), "focus-visible".into()]);
+    let out = s.layout(&mut fixed());
+    assert!(out.layers.iter().any(|l| l.owner == "inbox.tip"), "keyboard focus on the Row opens its tooltip");
+    s.set_states("inbox", vec![]);
+    assert!(s.layout(&mut fixed()).layers.is_empty(), "blur closes it");
+    // A Tooltip around a Button inside a pressable Row is NOT hosted.
+    let mut s = themed(json!({"id": "r", "component": "Row", "props": {"title": "Row", "pressable": true}, "slots": {"trailing": {"id": "tip", "component": "Tooltip", "props": {"content": "Copy"}, "children": [{"id": "b", "component": "Button", "props": {"label": "Copy"}}]}}}), "neutral", Mode::Dark);
+    s.set_viewport(400.0, 300.0, None);
+    s.layout(&mut fixed());
+    s.set_states("r", vec!["focus".into(), "focus-visible".into()]);
+    assert!(s.layout(&mut fixed()).layers.is_empty(), "the Button keeps its own tooltip focus");
+}

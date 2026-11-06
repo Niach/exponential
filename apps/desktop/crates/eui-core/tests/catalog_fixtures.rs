@@ -96,7 +96,7 @@ struct ComponentCase {
 #[test]
 fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_booleans() {
     let cases: Vec<ComponentCase> = cases(&fixture("catalog-components.json"));
-    assert_eq!(cases.len(), 647, "VAPP-280: + SettingsRow; VAPP-279: + Tabs/variant ×2; VAPP-282: + DatePicker/inline; VAPP-286: + Slider/showValue; VAPP-217: + RecordForm, RecordTable; EXP-1674: + Button/href, Row/href; VAPP-232: + Calendar, Timeline; EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic, Carousel counter; EXP-1548: + Table/wide; EXP-1586: + ZoomableImage; EXP-1604: + Motion; + Switch/size; VAPP-286: + Slider/showValue");
+    assert_eq!(cases.len(), 649, "VAPP-277: + Sidebar/rail; VAPP-280: + SettingsRow; VAPP-279: + Tabs/variant ×2; VAPP-282: + DatePicker/inline; VAPP-286: + Slider/showValue; VAPP-217: + RecordForm, RecordTable; EXP-1674: + Button/href, Row/href; VAPP-232: + Calendar, Timeline; EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic, Carousel counter; EXP-1548: + Table/wide; EXP-1586: + ZoomableImage; EXP-1604: + Motion; + Switch/size; VAPP-286: + Slider/showValue");
     let mut seen: Vec<String> = cases.iter().map(|c| c.node.component.clone()).collect::<HashSet<_>>().into_iter().collect();
     seen.sort();
     let mut names = component_names(false);

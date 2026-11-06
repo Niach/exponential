@@ -24,7 +24,7 @@ const NATIVE_PARTS = recipesJson.native as Record<string, PartSpec>
  *  template builds, e.g. AlertDialog's footer); `$children`/`$slot:` splices
  *  carry no part. */
 function walkTemplate(tpl: MacroChild, parts: Set<string>, props: Set<string>): void {
-  if (typeof tpl === `string`) return
+  if (typeof tpl === `string` || `$slot` in tpl) return
   parts.add(tpl.part)
   for (const key of Object.keys(tpl.$recipe ?? {})) props.add(key)
   for (const child of tpl.children ?? []) walkTemplate(child, parts, props)
