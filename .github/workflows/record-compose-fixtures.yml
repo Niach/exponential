@@ -31,6 +31,7 @@ name: record-compose-fixtures
 # VAPP-285 (2026-11-06): re-recorded for the kitchen sink's Tree (a
 # repository tree after the Outline: the Compose goldens + the web
 # baseline rewrite's gpui budget).
+# VAPP-285 (2026-11-06, rebased onto VAPP-277): re-recorded for the kitchen sink with the rail AND the Tree (kitchen-sink-exponential.png + -orange.png; the ratchets unchanged).
 
 on:
   workflow_dispatch: {}
