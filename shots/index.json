@@ -1859,6 +1859,51 @@
         "sha256": "8d8b8bbb0c92d13cd5dac3a7450db002fa71a592f6abe12d6b13b124921bf577"
       }
     },
+    "ede-applet-battery": {
+      "ede": {
+        "file": "shots/ede-applet-battery/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 13870,
+        "sha256": "fb22a5a11de0cf12feedd4828f6569810ba63b3b3b1092df971dbf7b3d43419d"
+      }
+    },
+    "ede-applet-bluetooth": {
+      "ede": {
+        "file": "shots/ede-applet-bluetooth/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 16300,
+        "sha256": "5ce1d68f232143ee1c4355ebda2d32b1b9745847a26ae71ad1c3902c9030d7b3"
+      }
+    },
+    "ede-applet-calendar": {
+      "ede": {
+        "file": "shots/ede-applet-calendar/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 18152,
+        "sha256": "c03346a249c8c7a2bcbaecf3c7121a186c7b64d48e01015d48daa646fc1db289"
+      }
+    },
+    "ede-applet-network": {
+      "ede": {
+        "file": "shots/ede-applet-network/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 16804,
+        "sha256": "0e9803edccae274df3091f8bd161019dbab58211d72efe653653788863eba92d"
+      }
+    },
+    "ede-applet-sound": {
+      "ede": {
+        "file": "shots/ede-applet-sound/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 18606,
+        "sha256": "8637cb26b8de6b59a14f2c5fe3a6173a8860fe039710a9d305198e6e66b8c682"
+      }
+    },
     "ede-chat": {
       "ede": {
         "file": "shots/ede-chat/ede.webp",

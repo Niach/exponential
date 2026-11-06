@@ -150,6 +150,12 @@ fn node_json(n: &Node) -> Value {
     json!({"id": n.id, "name": n.name, "volume": n.volume, "muted": n.muted, "default": n.default})
 }
 
+/// `id` from a call's args: a number, or the string a Select hands over
+/// (the applet's output picker, #EDE-43).
+fn node_id(args: &Value) -> Result<u64, String> {
+    args["id"].as_u64().or_else(|| args["id"].as_str().and_then(|s| s.trim().parse().ok())).ok_or_else(|| "id".to_string())
+}
+
 impl Service for Sound {
     fn name(&self) -> &'static str {
         "sound"
@@ -205,18 +211,18 @@ impl Service for Sound {
                 Ok(json!({"muted": on}))
             }
             "set_default" | "set_default_source" => {
-                let id = args["id"].as_u64().ok_or("id")?;
+                let id = node_id(args)?;
                 run(&["set-default", &id.to_string()])?;
                 Ok(json!({"default": id}))
             }
             "set_stream_volume" => {
-                let id = args["id"].as_u64().ok_or("id")?;
+                let id = node_id(args)?;
                 let percent = args["percent"].as_u64().ok_or("percent")?.min(100);
                 run(&["set-volume", "-l", "1.0", &id.to_string(), &format!("{percent}%")])?;
                 Ok(json!({"id": id, "volume": percent}))
             }
             "mute_stream" => {
-                let id = args["id"].as_u64().ok_or("id")?;
+                let id = node_id(args)?;
                 let on = args["on"].as_bool().unwrap_or(true);
                 run(&["set-mute", &id.to_string(), if on { "1" } else { "0" }])?;
                 Ok(json!({"id": id, "muted": on}))

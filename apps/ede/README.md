@@ -50,7 +50,8 @@ does a Popover or Menu inside a document (hosted popups: the surface paints
 none of it, the shell opens a popup window with the layer at (0, 0)). A
 change on disk redraws the surface and the shell prints the document's
 frame line, which the supervisor reads.
-Data every document may bind: `/time` + `/date` (local), `/windows` (the
+Data every document may bind: `/time` + `/date` + `/dateText` (local; the
+calendar applet's weekday and date words), `/windows` (the
 active workspace's windows over ede-protocol: id, title, app, focused,
 minimized), `/shell` (the model: `rail`, `taskbar.buttons` (Mint's groups:
 app, pinned, windows, focused, minimized, running), `taskbar.previews`,
