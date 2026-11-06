@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #EXP-1641 (notification-actions.json `copy`): answering from the notification. -->
+<resources>
+    <string name="notification_action_approve">Approve</string>
+    <string name="notification_action_request_changes">Request changes…</string>
+    <string name="notification_action_request_changes_placeholder">What should change?</string>
+    <string name="notification_action_answer">Answer…</string>
+    <string name="notification_action_answer_placeholder">Answer</string>
+    <string name="notification_action_reply">Reply</string>
+    <string name="notification_action_reply_placeholder">Reply</string>
+    <string name="notification_action_send">Send</string>
+    <string name="notification_action_open">Open</string>
+    <string name="notification_action_failed">Couldn\'t send. Open Exponential to retry.</string>
+</resources>

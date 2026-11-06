@@ -111,6 +111,7 @@ describe.skipIf(!ready.ok)(`VAPP-45: a sealed question push`, () => {
     pushes.length = 0
     await notifySessionAsk({
       sessionId: t.sessionId,
+      messageId: `00000000-0000-4000-8000-000000000001`,
       card: sealCard(tree.publicKey, 1, { kind: `question`, question: SECRET }) as never,
       sealedAskText,
     })

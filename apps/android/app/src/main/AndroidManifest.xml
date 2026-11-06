@@ -173,6 +173,12 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- #EXP-1641: a push's notification actions (answer, approve, reply),
+             run without opening the app. Only this app's PendingIntents reach it. -->
+        <receiver
+            android:name=".data.push.NotificationActionReceiver"
+            android:exported="false" />
+
         <service
             android:name=".data.push.FcmService"
             android:exported="false">

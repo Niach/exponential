@@ -1097,6 +1097,7 @@ export const sessionsRouter = router({
       if (asks) {
         void notifySessionAsk({
           sessionId: session.id,
+          messageId: result.messageId,
           card: card as Extract<MessageCard, { kind: `question` | `plan` }>,
           sealedAskText: input.askText,
         })

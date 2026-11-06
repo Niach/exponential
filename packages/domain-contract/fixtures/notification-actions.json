@@ -1,0 +1,401 @@
+{
+  "$comment": "#EXP-1641 (owner 2026-11-06, drafts approved as drawn): ANSWER FROM THE NOTIFICATION ×2 (iOS `UNNotificationCategory` actions + `UNTextInputNotificationAction`, the category set per push by the Notification Service Extension; Android `NotificationCompat.Action`s + `RemoteInput`; web and desktop have none). Model = pure `notificationActions` + `askTextOptions` (src/notification-actions.ts; iOS ExpPush `NotificationActions.swift`, so the extension links it, Android `data/push/NotificationActions.kt`), every mirror replays the `*Cases`. WHICH PUSHES: a question/plan push (question-push.json) carries `dataKeys.messageId` + `dataKeys.cardKind`; a PLAINTEXT card also `dataKeys.options` (the question's option labels, a JSON array string), `dataKeys.custom` (`1` = free text allowed, `0` not) and `dataKeys.planQuestions` (a plan's question count). A SEALED card carries neither, but `dataKeys.sealed` = `1`: its options come from the ask text the phone opens with the tree key (`askTextOptions` over question-push.json's sealed text); no tree key held = `[open]`, the phone never answers what it cannot read or re-seal. Any other push naming a `sessionId` (a mention in a chat, a blocked or leftover session) gets `[reply]`, unless it is a sealed message's push (`dataKeys.sealed` = `1`, plus `rootId`) and the tree key is not held (`[]`): a reply to an encrypted chat is never sent in clear. Everything else: no actions. THE ACTIONS, in order. A plan: `approve` (button), `request-changes` (text), `open` (button); a plan WITH questions has no `approve` (its picks need the page). A question: one `option:<i>` button per option when there are at most `maxOptionButtons` minus one (free text) or `maxOptionButtons` (no free text) options, then `answer` (text) when free text is allowed; nothing at all = `[open]`. WHAT THEY DO, in the app's own process without opening it (iOS: no `.foreground`; Android: a BroadcastReceiver), every mutating one behind the device unlock (iOS `.authenticationRequired`, Android `setAuthenticationRequired(true)`): `approve` = sessions.answer `{messageId, decision: approved}`; `request-changes` = `{messageId, decision: rejected, feedback: <text>}`; `option:<i>` = `{messageId, answers: [<label>]}`; `answer` = `{messageId, answer: <text>}`; `reply` = sessions.send `{sessionId, text}` as the member's message, THE composer's send path. ALL go through the app's existing answer/send code, so a SEALED card or an ENCRYPTED chat is re-sealed / sealed ON THE PHONE with the tree key (SessionSealer) exactly like the session page: the text never leaves in clear. `open` opens the session like a tap (inbox-route.json). Success removes the notification; a failure (offline, already answered elsewhere: CONFLICT) replaces it with a local one titled `copy.failed` that opens the session. Copy below; no new component, the OS draws them.",
+  "copy": {
+    "approve": "Approve",
+    "requestChanges": "Request changes…",
+    "requestChangesPlaceholder": "What should change?",
+    "answer": "Answer…",
+    "answerPlaceholder": "Answer",
+    "reply": "Reply",
+    "replyPlaceholder": "Reply",
+    "send": "Send",
+    "open": "Open",
+    "failed": "Couldn't send. Open Exponential to retry."
+  },
+  "dataKeys": {
+    "messageId": "messageId",
+    "cardKind": "cardKind",
+    "options": "options",
+    "custom": "custom",
+    "planQuestions": "planQuestions",
+    "sealed": "sealed"
+  },
+  "maxOptionButtons": 3,
+  "actionCases": [
+    {
+      "name": "a plain plan: approve, request changes, open",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "plan",
+          "planQuestions": "0"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "approve",
+          "kind": "button",
+          "title": "Approve"
+        },
+        {
+          "id": "request-changes",
+          "kind": "text",
+          "title": "Request changes…"
+        },
+        {
+          "id": "open",
+          "kind": "button",
+          "title": "Open"
+        }
+      ]
+    },
+    {
+      "name": "a plan with questions: no approve",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "plan",
+          "planQuestions": "2"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "request-changes",
+          "kind": "text",
+          "title": "Request changes…"
+        },
+        {
+          "id": "open",
+          "kind": "button",
+          "title": "Open"
+        }
+      ]
+    },
+    {
+      "name": "a question with two options and free text",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "question",
+          "options": "[\"Postgres\",\"SQLite\"]",
+          "custom": "1"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "option:0",
+          "kind": "button",
+          "title": "Postgres"
+        },
+        {
+          "id": "option:1",
+          "kind": "button",
+          "title": "SQLite"
+        },
+        {
+          "id": "answer",
+          "kind": "text",
+          "title": "Answer…"
+        }
+      ]
+    },
+    {
+      "name": "three options, free text: too many buttons, answer only",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "question",
+          "options": "[\"A\",\"B\",\"C\"]",
+          "custom": "1"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "answer",
+          "kind": "text",
+          "title": "Answer…"
+        }
+      ]
+    },
+    {
+      "name": "three options, no free text: three buttons",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "question",
+          "options": "[\"A\",\"B\",\"C\"]",
+          "custom": "0"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "option:0",
+          "kind": "button",
+          "title": "A"
+        },
+        {
+          "id": "option:1",
+          "kind": "button",
+          "title": "B"
+        },
+        {
+          "id": "option:2",
+          "kind": "button",
+          "title": "C"
+        }
+      ]
+    },
+    {
+      "name": "four options, no free text: open",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "question",
+          "options": "[\"A\",\"B\",\"C\",\"D\"]",
+          "custom": "0"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "open",
+          "kind": "button",
+          "title": "Open"
+        }
+      ]
+    },
+    {
+      "name": "a question without options: answer",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "question",
+          "options": "[]",
+          "custom": "1"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "answer",
+          "kind": "text",
+          "title": "Answer…"
+        }
+      ]
+    },
+    {
+      "name": "a sealed question opened on the phone: its options from the ask text",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "question",
+          "sealed": "1"
+        },
+        "keyHeld": true,
+        "openedAskText": "Asks: Which database?\nOptions: Postgres | SQLite (free text allowed)\nAnswer with exponential_sessions_send(…)"
+      },
+      "expected": [
+        {
+          "id": "option:0",
+          "kind": "button",
+          "title": "Postgres"
+        },
+        {
+          "id": "option:1",
+          "kind": "button",
+          "title": "SQLite"
+        },
+        {
+          "id": "answer",
+          "kind": "text",
+          "title": "Answer…"
+        }
+      ]
+    },
+    {
+      "name": "a sealed plan opened on the phone",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "plan",
+          "sealed": "1"
+        },
+        "keyHeld": true,
+        "openedAskText": "Proposes a plan:\n\n## Migrate\n1. Add\n\nDecide with exponential_sessions_send(…)"
+      },
+      "expected": [
+        {
+          "id": "approve",
+          "kind": "button",
+          "title": "Approve"
+        },
+        {
+          "id": "request-changes",
+          "kind": "text",
+          "title": "Request changes…"
+        },
+        {
+          "id": "open",
+          "kind": "button",
+          "title": "Open"
+        }
+      ]
+    },
+    {
+      "name": "a sealed plan with questions opened on the phone: no approve",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "plan",
+          "sealed": "1"
+        },
+        "keyHeld": true,
+        "openedAskText": "Proposes a plan:\n\n## Migrate\n\nQuestions:\n- db: Which database? (Postgres | SQLite)\n\nDecide with exponential_sessions_send(…)"
+      },
+      "expected": [
+        {
+          "id": "request-changes",
+          "kind": "text",
+          "title": "Request changes…"
+        },
+        {
+          "id": "open",
+          "kind": "button",
+          "title": "Open"
+        }
+      ]
+    },
+    {
+      "name": "a sealed card without the tree key: open",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "messageId": "m",
+          "cardKind": "question",
+          "sealed": "1"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "open",
+          "kind": "button",
+          "title": "Open"
+        }
+      ]
+    },
+    {
+      "name": "a mention in a chat: reply",
+      "input": {
+        "data": {
+          "sessionId": "s"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "reply",
+          "kind": "text",
+          "title": "Reply"
+        }
+      ]
+    },
+    {
+      "name": "an encrypted chat with the key held: reply",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "sealed": "1"
+        },
+        "keyHeld": true,
+        "openedAskText": null
+      },
+      "expected": [
+        {
+          "id": "reply",
+          "kind": "text",
+          "title": "Reply"
+        }
+      ]
+    },
+    {
+      "name": "an encrypted chat without the key: nothing",
+      "input": {
+        "data": {
+          "sessionId": "s",
+          "sealed": "1"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": []
+    },
+    {
+      "name": "an issue push: nothing",
+      "input": {
+        "data": {
+          "issueId": "i"
+        },
+        "keyHeld": false,
+        "openedAskText": null
+      },
+      "expected": []
+    }
+  ],
+  "optionCases": [
+    {
+      "name": "options and both flags",
+      "input": "Asks: Pick\nOptions: A | B (several allowed, free text allowed)\nAnswer with …",
+      "expected": {
+        "options": [
+          "A",
+          "B"
+        ],
+        "custom": true
+      }
+    },
+    {
+      "name": "options, no free text",
+      "input": "Asks: Pick\nOptions: A | B\nAnswer with …",
+      "expected": {
+        "options": [
+          "A",
+          "B"
+        ],
+        "custom": false
+      }
+    },
+    {
+      "name": "no options line: free text",
+      "input": "Asks: Why?\nAnswer with …",
+      "expected": {
+        "options": [],
+        "custom": true
+      }
+    }
+  ]
+}

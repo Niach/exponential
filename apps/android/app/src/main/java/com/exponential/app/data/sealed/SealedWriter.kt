@@ -117,8 +117,10 @@ class SealedWriter @Inject constructor(
         if (!SealedContent.isSealedCard(raw)) return@withContext input
         val opened = SealedContent.openCard(row.rootId, raw!!)
         val root = db.sessionDao().getById(row.rootId)
-        val publicKey = root?.sealPublicKey
-        val epoch = root?.sealEpoch
+        // #EXP-1641: a root not synced here (a notification action) asks the server.
+        val key = root?.sealPublicKey?.let { it to root.sealEpoch } ?: publicKey(accountId, row.rootId)
+        val publicKey = key?.first
+        val epoch = key?.second
         if (SealedContent.isSealedCard(opened) || publicKey == null || epoch == null) throw TrpcException(LOCKED_ANSWER)
         val answered = SealedWrite.answeredCard(opened, input) ?: throw TrpcException(LOCKED_ANSWER)
         val sealedCard = Json.parseToJsonElement(crypto.sealCard(publicKey, epoch, answered.toString())) as JsonObject
@@ -129,6 +131,33 @@ class SealedWriter @Inject constructor(
             sealedCard = sealedCard,
         )
     }
+
+    /**
+     * #EXP-1641: a message into the ENCRYPTED tree [rootId], named explicitly
+     * (a notification's reply: the session row may not be synced here). Sealed
+     * with that tree's public key (the root row's, else the server's); no key
+     * = refused, never the plaintext fallback of [prepareSend].
+     */
+    suspend fun prepareSealedSend(accountId: String, input: SessionsSendInput, rootId: String): PreparedSend =
+        withContext(Dispatchers.IO) {
+            val text = input.text.orEmpty()
+            if (text.isBlank()) throw TrpcException(LOCKED_SEND)
+            val db = dbs.database(accountId)
+            val mentions = mentionIds(db, text)
+            val refs = issueRefIds(db, text)
+            val root = db.sessionDao().getById(rootId)
+            val key = root?.sealPublicKey?.let { it to root.sealEpoch } ?: publicKey(accountId, rootId)
+            val publicKey = key?.first ?: throw TrpcException(LOCKED_SEND)
+            val epoch = key.second ?: throw TrpcException(LOCKED_SEND)
+            val body = SealedWrite.withAttachmentEmbeds(text, input.attachmentIds.orEmpty())
+            PreparedSend(
+                input.copy(
+                    text = crypto.sealBody(publicKey, epoch, body),
+                    mentionUserIds = mentions.takeIf { it.isNotEmpty() },
+                    refIssueIds = refs.takeIf { it.isNotEmpty() },
+                ),
+            )
+        }
 
     private suspend fun mentionIds(db: ExponentialDatabase, text: String): List<String> {
         val emails = SealedWrite.mentionEmails(text)
@@ -201,5 +230,6 @@ class SealedWriter @Inject constructor(
         const val TAG = "SealedWriter"
         const val FIRST_EPOCH = 1
         const val LOCKED_ANSWER = "This card can't be answered on this device yet."
+        const val LOCKED_SEND = "This chat can't be written to from this device yet."
     }
 }

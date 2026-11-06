@@ -52,6 +52,7 @@ import { deriveSessionTitle } from "@/lib/sessions/brief"
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { isSealedBody, isSealedCard, isSealedMessage } from "@/lib/sessions/sealed"
 import { askText as busAskText } from "@/lib/sessions/bus"
+import { NOTIFICATION_ACTIONS } from "@exp/domain-contract/notification-actions"
 import { reporterFacingText } from "@/lib/reporter/report-text"
 import type { CodingSessionBlocked, MessageCard } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
@@ -1014,6 +1015,22 @@ export async function notifySessionBlocked(
   }
 }
 
+/** #EXP-1641 (notification-actions.json): what a card push carries for the
+ *  phone's actions. A sealed card names only its kind; the phone reads the
+ *  options out of the ask text it opens. */
+export function notificationActionData(
+  messageId: string,
+  card: Extract<MessageCard, { kind: `question` | `plan` }>,
+  sealed: boolean
+): Record<string, string> {
+  const keys = NOTIFICATION_ACTIONS.dataKeys
+  const data: Record<string, string> = { [keys.messageId]: messageId, [keys.cardKind]: card.kind }
+  if (sealed) return { ...data, [keys.sealed]: `1` }
+  if (card.kind === `plan`) return { ...data, [keys.planQuestions]: String(card.questions?.length ?? 0) }
+  const options = (card.options ?? []).filter((option): option is string => typeof option === `string`)
+  return { ...data, [keys.options]: JSON.stringify(options), [keys.custom]: card.custom === false ? `0` : `1` }
+}
+
 /**
  * #VAPP-45 (question-push.json): a ROOT session posted a question or plan
  * card on itself (it now waits on a person): ONE issue-less `agent_message`
@@ -1026,6 +1043,8 @@ export async function notifySessionBlocked(
  */
 export async function notifySessionAsk(args: {
   sessionId: string
+  /** #EXP-1641: the card's message, which the notification's actions answer. */
+  messageId: string
   card: Extract<MessageCard, { kind: `question` | `plan` }>
   /** A sealed card's ask text, sealed by the device to its own tree. */
   sealedAskText?: string | null
@@ -1065,6 +1084,7 @@ export async function notifySessionAsk(args: {
         teamSlug: session.teamSlug,
         [QUESTION_PUSH_DATA_KEYS.rootId]: session.rootId,
         ...(sealedText ? { [QUESTION_PUSH_DATA_KEYS.sealedText]: sealedText } : {}),
+        ...notificationActionData(args.messageId, args.card, sealed),
       },
       sessionId: session.id,
     })
@@ -1299,7 +1319,13 @@ export async function notifySessionMessage(messageId: string): Promise<void> {
         ? `${who}'s agent mentioned you in ${thread}`
         : `${who} mentioned you in ${thread}`,
     body: sealed ? SEALED_MESSAGE_NOTIFY_BODY : source.length > 140 ? `${source.slice(0, 139)}…` : source,
-    pushData: { sessionId: row.sessionId, teamId: row.teamId, teamSlug: row.teamSlug },
+    pushData: {
+      sessionId: row.sessionId,
+      teamId: row.teamId,
+      teamSlug: row.teamSlug,
+      // #EXP-1641: a sealed message's reply action needs the tree key.
+      ...(sealed ? { [NOTIFICATION_ACTIONS.dataKeys.sealed]: `1`, rootId: row.rootId } : {}),
+    },
     sessionId: row.sessionId,
   })
 }
