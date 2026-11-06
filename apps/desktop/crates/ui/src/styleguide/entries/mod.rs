@@ -65,6 +65,8 @@ pub(crate) mod voice_call_overlay;
 // NEW-67: Settings → Voice.
 pub(crate) mod voice_settings;
 pub(crate) mod meeting_consent;
+// VAPP-262: the Engine's consent sheet (consent.json).
+pub(crate) mod consent_sheet;
 pub(crate) mod computer_use_banner;
 pub(crate) mod feedback_states;
 pub(crate) mod trace;
@@ -216,6 +218,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: computer_use_banner::ID, owner: computer_use_banner::OWNER, render: computer_use_banner::render },
     Entry { id: voice_settings::ID, owner: voice_settings::OWNER, render: voice_settings::render },
     Entry { id: meeting_consent::ID, owner: meeting_consent::OWNER, render: meeting_consent::render },
+    Entry { id: consent_sheet::ID, owner: consent_sheet::OWNER, render: consent_sheet::render },
     Entry { id: agent_home::ID, owner: agent_home::OWNER, render: agent_home::render },
     Entry { id: work_tabs_strip::ID, owner: work_tabs_strip::OWNER, render: work_tabs_strip::render },
     Entry { id: getting_started::ID, owner: getting_started::OWNER, render: getting_started::render },

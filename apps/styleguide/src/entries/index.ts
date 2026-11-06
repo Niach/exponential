@@ -56,6 +56,7 @@ import { entry as voiceCall } from "./voice-call.tsx"
 import { entry as computerUseBanner } from "./computer-use-banner.tsx"
 import { entry as voiceSettings } from "./voice-settings.tsx"
 import { entry as meetingConsent } from "./meeting-consent.tsx"
+import { entry as consentSheet } from "./consent-sheet.tsx"
 import { entry as feedbackStates } from "./feedback-states.tsx"
 import { entry as agentHome } from "./agent-home.tsx"
 import { entry as workTabsStrip } from "./work-tabs-strip.tsx"
@@ -167,6 +168,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   computerUseBanner,
   voiceSettings,
   meetingConsent,
+  consentSheet,
   agentHome,
   workTabsStrip,
   gettingStarted,
