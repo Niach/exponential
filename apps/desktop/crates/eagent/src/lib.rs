@@ -46,6 +46,9 @@ pub mod lockfile;
 pub mod mcp;
 // EXP-419: the one `Command` constructor for background spawns.
 pub mod process;
+// VAPP-264: `AgentProvider`, one way to start a run above the spawn seams
+// (`AcpAgent`, `LocalModel` behind `local-model`, `RemoteSession`).
+pub mod provider;
 /// NEW-17: each agent run in its own systemd scope on Linux.
 pub mod run_scope;
 // EXP-1426 part 4c: live rate-limit windows + their registry (`coding::agent_usage`).

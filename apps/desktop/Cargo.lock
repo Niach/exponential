@@ -2675,6 +2675,7 @@ version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
  "dirs",
+ "ecore",
  "flume 0.11.1",
  "libc",
  "log",

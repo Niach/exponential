@@ -41,7 +41,7 @@ consumes them as dependencies.
 | **P2P** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/sdk/p2p/ |
 | **Apps** | inside `eui-core` (the format and its pure logic: validation, query, CEL, policy, transitions, migrations, exposes); no `eapps` crate (decided 2026-11-05, #VAPP-259) | inside `@exponential_app/eui/host` | inside `eui-compose` | inside `ExponentialUI` | rides `eui-v*` | exponential.at/sdk/apps/ |
 | **Engine** | `eengine` (#VAPP-261: AppInstance, lifecycle, sources, dispatch, outbox, stores, local identity; the capability broker on an in-process `emcp` hub, #VAPP-262; the modules behind cargo features; git dependency on the tag), `eengine-ffi` (UniFFI, #VAPP-263; not published, ships inside Swift/Kotlin) | `@exp/eengine` (the contract: fixtures + the pure TS twin, `packages/eengine`, #VAPP-260; private until it ships as `@exponential_app/engine`, #VAPP-263) | `engine` (planned) | `ExponentialEngine` (planned) | `eengine-v*` → `release-eengine.yml` (planned) | exponential.at/sdk/apps/ |
-| **Agents** | `eagent` (from `coding` + `engine`, #EXP-1426; renamed from `exponential-agent-runtime` in #EXP-1505, which stays one release as a re-export shim; git dependency on the tag) | `@exp/eagent` (the orchestration spec: fixtures + a pure TS reducer, `packages/eagent`, #EXP-1508; private for now; its Rust port `eagent-hub-core` + WASM `eagent-hub-core-wasm`, #EXP-1509, replay the same fixtures) | none | none | `eagent-v*` → `release-eagent.yml` (still accepts `agent-runtime-v*` for one release) | exponential.at/sdk/agents/ |
+| **Agents** | `eagent` (from `coding` + `engine`, #EXP-1426; renamed from `exponential-agent-runtime` in #EXP-1505, which stays one release as a re-export shim; git dependency on the tag; `provider::AgentProvider` = one way to start a run: `AcpAgent`, `LocalModel` behind the `local-model` feature, `RemoteSession`, tools only as a hub grant, #VAPP-264) | `@exp/eagent` (the orchestration spec: fixtures + a pure TS reducer, `packages/eagent`, #EXP-1508; private for now; its Rust port `eagent-hub-core` + WASM `eagent-hub-core-wasm`, #EXP-1509, replay the same fixtures) | none | none | `eagent-v*` → `release-eagent.yml` (still accepts `agent-runtime-v*` for one release) | exponential.at/sdk/agents/ |
 | **MCP Proxy** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; the local hub and code mode (feature `codemode`), #EXP-1507; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/sdk/mcp-proxy/ |
 | **Core** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | exponential.at/sdk/core/ |
 
@@ -96,8 +96,9 @@ How spezl (or anyone) depends on the `publish = false` crates:
    `epilot`/`epilot-screen` take `emcp` at `emcp-v…` (#EXP-1492); a path
    dependency would resolve inside the etalk tag's checkout and hand a
    consumer a second eui-gpui whose types never unify with its own. The one
-   exception is Core (`ecore`, types only, no tag yet): `emcp` takes it by
-   path (#EXP-1517), so it resolves inside the emcp tag's checkout. The
+   exception is Core (`ecore`, types only, no tag yet): `emcp` (#EXP-1517)
+   and `eagent` (#VAPP-264) take it by path, so it resolves inside the
+   tag's own checkout. The
    desktop workspace's `[patch."https://github.com/Niach/exponential"]` builds
    them from the local crates. A consumer of `etalk-gpui` pins genUI and Computer Use
    at the tags `etalk-gpui`'s Cargo.toml names (same URL, same tag): Cargo

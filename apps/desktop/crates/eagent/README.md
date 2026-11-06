@@ -28,6 +28,37 @@ old name re-exports this one (`pub use eagent::*;`), and the release workflow st
    token intermediation, so `coding/src/claude_oauth.rs` is NOT part of this crate and never will
    be. Exponential's multi-account staging and rotation stay in `coding`.
 
+## Providers (#VAPP-264)
+
+`provider::AgentProvider` is the one way to start a run, above the spawn seams below: a CLI spawn,
+an in-process model and a run inside Exponential all start the same way.
+
+```rust
+pub trait AgentProvider: Send + Sync {
+    fn id(&self) -> &str;
+    fn available(&self) -> bool { true }
+    fn start(&self, brief: Brief, tools: HubGrant, sink: Arc<dyn EventSink>) -> Result<RunHandle, Failure>;
+}
+```
+
+- **`Brief`**: the prompt plus the run's context (eCore `SessionId` / `RunId`, system append, cwd,
+  resume id, `RunOptions`).
+- **`HubGrant`**: the ONLY tools a run reaches, `packages/emcp/fixtures/hub.json`'s grant (a level
+  per mounted server, `teamId`, `userId`) plus the hub's endpoint and the run's eCore `Token`.
+- **`EventSink`**: the same `wire::ActivityEvent`s the engine emits, so UIs and `eagent-hub-core`
+  never care which provider ran. **`RunHandle`** stops the run; a start that cannot happen is an
+  eCore `Failure` (`invalid`, `not_found`, `unavailable`, ...).
+- **`Providers`**: the host's providers in preference order; `select(Some(id))` is exactly that one,
+  `select(None)` the first `available()` one (the offline fallback).
+
+| Provider | What runs | Notes |
+| --- | --- | --- |
+| `AcpAgent` | the user's own Claude Code / Codex over the Agent Client Protocol | `local::LocalAgent::start` unchanged underneath; the hub is mounted as one MCP server `hub`, its token only as `${EXP_HUB_TOKEN}` in the spawn env (#EDE-58) |
+| `LocalModel` | an in-process model behind `provider::Generate` | cargo feature `local-model`, off by default, no dependency: `eui-gen` (#SA-8) implements `Generate` in the host, so eagent never links llama.cpp; one turn per run (#EXP-1721) |
+| `RemoteSession` | a session inside Exponential (phones, web) | the host implements `SessionsSend` (`sessions.send`, its stop) and forwards the session's events; eagent stays server-free |
+
+eagent takes eCore (`ecore`, serde-only types) by path, the one path dependency the gate allows.
+
 ## Seams
 
 Server coupling becomes traits the hosts implement. Each lands with the first module that needs it.
