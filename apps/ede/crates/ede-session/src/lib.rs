@@ -347,7 +347,7 @@ mod tests {
         assert!(shell.contains("ExecStart=/usr/bin/exponential-ui supervise -- /usr/bin/exponential-shell\n"));
         assert!(shell.contains("ConditionEnvironment=WAYLAND_DISPLAY\n"));
         assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE"));
-        let deb = std::fs::read_to_string(root.join("build-deb.sh")).unwrap();
+        let deb = [root.join("stage.sh"), root.join("pack-deb.sh")].iter().map(|p| std::fs::read_to_string(p).unwrap()).collect::<String>();
         for bin in ["exponential-compositor", "exponential-session", "exponential-ui", "exponential-shell", "exponential-sealed", "exponential-services", "exponential-theme"] {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
         }

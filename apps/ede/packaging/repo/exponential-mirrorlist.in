@@ -1,0 +1,2 @@
+# Exponential packages (exponential-repo; rewritten by its updates).
+Server = https://@PKG_HOST@/arch/$arch

@@ -1,0 +1,6 @@
+# Exponential packages (exponential-repo; rewritten by its updates).
+Types: deb
+URIs: https://@PKG_HOST@/apt
+Suites: @SUITE@
+Components: main
+Signed-By: /etc/apt/keyrings/exponential.asc
