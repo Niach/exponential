@@ -75,7 +75,9 @@ fn a_launch_installs_the_shell_and_opens_the_first_screen() {
     let mut r = runner(&package());
     let paints = r.launch(Vec::new());
     let Paint::Install(shell) = &paints[0] else { panic!("the shell first: {paints:?}") };
-    assert_eq!(shell["templates"]["albums"]["components"][0]["component"], "Sidebar");
+    let components = shell["templates"]["albums"]["components"].as_array().unwrap();
+    assert!(components.iter().any(|c| c["component"] == "Sidebar"), "the wide shell: {components:?}");
+    assert!(components.iter().any(|c| c["id"] == "runner-page"));
     let opens = messages(&paints);
     assert_eq!(opens[0], &open_message("acme.album", "albums", &Map::new()));
     assert!(paints.contains(&Paint::Live(true)));
