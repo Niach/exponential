@@ -142,7 +142,10 @@ export interface MacroTemplate {
   $any?: unknown[]
   $each?: string
   $as?: string
-  $on?: Record<string, string>
+  /** Part event → the author's macro event (`$context` merged into it), or
+   *  #VAPP-284 `{event, context}` = that event with its OWN context (a part
+   *  routing two events that must not share one). */
+  $on?: Record<string, string | MacroRoute>
   $context?: Record<string, unknown>
   $recipe?: Record<string, unknown>
   /** Round 1 two-way binding: per part event, the macro prop a bound author
@@ -174,10 +177,21 @@ export interface MacroPass {
   props: Record<string, unknown>
 }
 
+/** #VAPP-284: a `$on` entry with its own context. */
+export interface MacroRoute {
+  event: string
+  context?: Record<string, unknown>
+}
+
 export interface MacroDef {
   recipeProps: readonly string[]
   root: MacroTemplate
   $pass?: readonly MacroPass[]
+  /** #VAPP-284: other roots, tried in order: the first whose `$if` holds
+   *  (decided at expansion: a bound condition never picks one) replaces
+   *  `root`, and its root part keeps the author's id whatever it is named.
+   *  The conditions also see `{childCount}` (the author's children). */
+  alternatives?: readonly { $if: unknown; root: MacroTemplate }[]
 }
 
 /** An extension catalog: its own id, extending the core, with components and

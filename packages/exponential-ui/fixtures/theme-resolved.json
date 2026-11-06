@@ -4921,6 +4921,23 @@
                 "fontWeight": "$type.weight.medium"
               }
             }
+          ],
+          "foldIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
           ]
         },
         "Table": {
@@ -12900,6 +12917,23 @@
                 "fontSize": "$type.size.xs",
                 "lineHeight": "$type.lineHeight.xs",
                 "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "foldIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
               }
             }
           ]
@@ -20913,6 +20947,23 @@
                 "fontSize": "$type.size.xs",
                 "lineHeight": "$type.lineHeight.xs",
                 "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "foldIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
               }
             }
           ],
@@ -29050,6 +29101,23 @@
                 "fontSize": "$type.size.xs",
                 "lineHeight": "$type.lineHeight.xs",
                 "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "foldIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
               }
             }
           ]

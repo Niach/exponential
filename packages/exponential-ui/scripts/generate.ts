@@ -533,7 +533,8 @@ function childFor(name: string): NestedNode {
 
 function makeCase(name: string, def: ComponentDef, suffix: string, props: Record<string, unknown>): ComponentCase {
   const node: NestedNode = { id: kebab(name), component: name, props }
-  if (def.children !== `none`) node.children = [childFor(name)]
+  // #VAPP-284: children make a Row a foldable parent; the sweep keeps the plain row (foldCases cover the parent).
+  if (def.children !== `none` && name !== `Row`) node.children = [childFor(name)]
   return { name: `${name}/${suffix}`, node }
 }
 
@@ -805,6 +806,15 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
   ],
 }
 
+/** #VAPP-284: a Row with children is a foldable parent (the settings nav's
+ *  Issues › Labels, Statuses): closed and open, a pressable head (its own
+ *  fold button) and a plain one (the head folds), a bound `open`. */
+const foldChildren = (selected?: string): NestedNode[] => [
+  { id: `labels`, component: `Row`, props: { title: `Labels`, icon: `settings-labels`, density: `compact`, pressable: true, ...(selected === `labels` ? { selected: true } : {}) } },
+  { id: `statuses`, component: `Row`, props: { title: `Statuses`, icon: `settings-statuses`, density: `compact`, pressable: true, ...(selected === `statuses` ? { selected: true } : {}) } },
+]
+const FOLD_ON = { press: { event: { name: `select`, context: { page: `issues` } } }, change: { event: { name: `fold` } } }
+const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => ({ id: `issues`, component: `Row`, props: { title: `Issues`, icon: `settings-issues`, density: `compact`, open }, on: FOLD_ON, children: foldChildren(`statuses`), ...extra })
 /** VAPP-163: cases a specimen shows AFTER its generated ones (past the cap),
  *  each pinning a cross-renderer drift the spezl drafts found: a styled
  *  Heading on a band (the author's style beats the Heading recipe), the
@@ -818,6 +828,11 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   SettingsRow: [
     { label: `example · a settings group`, node: settingsGroup() },
     { label: `stackBelow · xl (stacked)`, node: { id: `group`, component: `Group`, children: [settingsSelectRow(`xl`)] } },
+  ],
+  // #VAPP-284: a foldable parent (the settings nav's groups), closed and open.
+  Row: [
+    { label: `children · closed`, node: { id: `device`, component: `Row`, props: { title: `This device`, icon: `ui-device`, density: `compact`, pressable: true, open: false }, children: [{ id: `tools`, component: `Row`, props: { title: `Tools`, icon: `settings-tools`, density: `compact`, pressable: true } }] } },
+    { label: `children · open`, node: { id: `issues`, component: `Row`, props: { title: `Issues`, icon: `settings-issues`, density: `compact`, pressable: true, open: true }, children: foldChildren(`statuses`) } },
   ],
   // EXP-1556: a vertical Separator between two items of a row (alone in a
   // column it has no height to draw).
@@ -996,7 +1011,8 @@ function generatedCases(name: string, all: ComponentCase[]): { label: string; no
   const own = all.filter((c) => c.node.component === name)
   const suffix = (c: ComponentCase) => c.name.slice(name.length + 1)
   const def = coreCatalog.components[name]
-  if (def.props.open) {
+  // #VAPP-284: a Row's `open` folds its children; it is no overlay.
+  if (def.props.open && name !== `Row`) {
     const open = own.find((c) => suffix(c) === `open=true`)!
     // EXP-1653: a timed overlay (Toast) stays up for the shot on every
     // platform instead of dismissing itself before the capture settles.
@@ -1142,8 +1158,35 @@ function railCases(): ComponentCase[] {
   return [sidebar(`collapsed`, true), sidebar(`expanded`, false), sidebar(`bound`, { path: `/collapsed` }), right]
 }
 
+/** #VAPP-284: the fold cases (helpers above SPECIMEN_EXTRA). */
+function foldCases(): ComponentCase[] {
+  return [
+    { name: `Row/fold:closed`, node: foldRow(false) },
+    { name: `Row/fold:open`, node: foldRow(true) },
+    { name: `Row/fold:plain-open`, node: { ...foldRow(true), on: { change: FOLD_ON.change } } },
+    { name: `Row/fold:bound`, node: foldRow({ path: `/open` }) },
+    { name: `Row/fold:rtl`, node: { ...foldRow(true), style: { direction: `rtl` } } },
+  ]
+}
+
+/** #VAPP-277 × #VAPP-284: a foldable parent in a rail Sidebar. Collapsed:
+ *  its head is the icon tile and its children follow as tiles whatever
+ *  `open` (as a rail Section shows its closed body); expanded: the plain
+ *  foldable parent (closed = the children hidden). */
+function railFoldCases(): ComponentCase[] {
+  const nav: NestedNode = { id: `nav`, component: `Stack`, props: { gap: `xs` }, children: [
+    { id: `inbox`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, pressable: true } },
+    { ...foldRow(false), props: { ...foldRow(false).props, meta: `2` } },
+  ] }
+  const sidebar = (name: string, collapsed: boolean): ComponentCase => ({
+    name: `Sidebar/rail:${name}`,
+    node: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed, collapseBelow: `never` }, slots: { sidebar: nav }, children: [{ id: `main`, component: `Text`, props: { text: `Pick a board.` } }] },
+  })
+  return [sidebar(`fold-collapsed`, true), sidebar(`fold-expanded`, false)]
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases()]
+  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases(), ...foldCases(), ...railFoldCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
@@ -1302,6 +1345,18 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     name: `Section/set:author-function`,
     input: { id: `section`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { functionCall: { call: `openUrl`, args: { url: `https://example.com` } } } }, children: [{ id: `r`, component: `Row`, props: { title: `A` } }] },
     datasets: [{ open: true }],
+  },
+  {
+    // #VAPP-284: a foldable Row bound to /open: the head's fold button and
+    // the plain head both write the flip back (`set`).
+    name: `Row/fold:bound`,
+    input: foldRow({ path: `/open` }),
+    datasets: [{ open: true }, { open: false }, {}],
+  },
+  {
+    name: `Row/fold:bound-plain`,
+    input: { ...foldRow({ path: `/open` }), on: {} },
+    datasets: [{ open: true }, {}],
   },
   {
     name: `Pagination/page:string-data`,
@@ -1509,7 +1564,8 @@ function promptBudget() {
     // VAPP-282 (a named budget exception, round 7): DatePicker inline + marks (the dateMark shape) + today + the month event, +55 tokens with terse descriptions; the measured total with VAPP-286 (9292), no slack.
     // VAPP-279 (a named budget exception, round 7 for the eDE shell): Tabs `variant: strip` + its `reorder`/`more` events, +22 tokens after trimming the new description; the measured total with VAPP-286 + VAPP-282 (9314), no slack.
     // VAPP-280 (a named budget exception, round 7 #VAPP-275): SettingsRow, +66 tokens after trimming its descriptions; the measured total with VAPP-279 (9381), no slack.
-    budgetTokens: 9381,
+    // #VAPP-284 (a named budget exception, round 7): Row's foldable parent (`open`, children, `change`) + Box `toggle`: +19 tokens after trimming; the measured total with VAPP-280 (9400), no slack.
+    budgetTokens: 9400,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
