@@ -1814,6 +1814,13 @@
       "when": 1793959197094,
       "tag": "0258_eapps_format_v5",
       "breakpoints": true
+    },
+    {
+      "idx": 259,
+      "version": "7",
+      "when": 1794004641021,
+      "tag": "0259_global_assistant_scope",
+      "breakpoints": true
     }
   ]
 }

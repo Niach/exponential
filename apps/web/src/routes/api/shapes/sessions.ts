@@ -52,6 +52,8 @@ export const SESSION_COLUMNS = [
   // #FEED-177: a private turn's rotation flag (the holders rotate).
   `seal_rotate_epoch`,
   `sealed_title`,
+  // #EXP-1720: the Assistant conversation root's Teams pick (null = all).
+  `scope_team_ids`,
   // VAPP-229: the app that started it ("via <app>", via-app.json; NOT
   // `app_id`, an editor session's app).
   `via_app_id`,

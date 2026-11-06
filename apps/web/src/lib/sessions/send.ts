@@ -32,7 +32,9 @@ import { generateTxId } from "@/lib/trpc"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import { startDiskWarning } from "@/lib/device-disk"
-import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
+import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember } from "@/lib/auth/membership"
+import { rules as eagentRules } from "@exp/eagent/copy"
+import { treeTeams } from "@/lib/sessions/tree-teams"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import {
   briefedText,
@@ -138,6 +140,12 @@ async function loadCallerSession(userId: string, callerSessionId?: string | null
 }
 
 export const AGENT_TEAM_ONLY_MESSAGE = `A team agent works only in its own team`
+/** #EXP-1720 (eagent rules.json copy.teamOutOfScope): a tree's new session
+ *  or send outside its teams. */
+export const TEAM_OUT_OF_SCOPE_MESSAGE = eagentRules.copy.teamOutOfScope
+/** #EXP-1720 (copy.scopeAssistantOnly): a Teams pick into anything but the
+ *  Assistant's conversation. */
+export const SCOPE_ASSISTANT_ONLY_MESSAGE = eagentRules.copy.scopeAssistantOnly
 
 /** #EXP-1383: a tree's ACTING agent: the agent of a conversation root,
  *  else the agent whose session started the root (`started_by_agent_id`). */
@@ -157,11 +165,6 @@ async function callerTreeAgentId(caller: Session | null): Promise<string | null>
   return root ? treeAgentId(root) : null
 }
 
-/** #EXP-1383: the team an AGENT-tree caller is confined to, or null for
- *  every other caller. */
-async function agentTreeTeam(caller: Session | null): Promise<string | null> {
-  return (await callerTreeAgentId(caller)) ? caller!.teamId : null
-}
 
 /** The team a send lands in (null = its target does not exist: the form's
  *  own lookup answers NOT_FOUND). */
@@ -187,14 +190,29 @@ async function sendTargetTeam(input: SessionsSendInput, caller: Session | null):
 }
 
 /** #EXP-1383: a caller speaking for an agent-tree session sends into, and
- *  starts sessions in, that session's team only (FORBIDDEN else). */
+ *  starts sessions in, its tree's teams only (FORBIDDEN else). #EXP-1720:
+ *  a team agent's tree = its team; the Assistant's = its scope. */
 async function assertAgentTreeTeam(input: SessionsSendInput, caller: Session | null): Promise<void> {
-  const teamId = await agentTreeTeam(caller)
-  if (!teamId) return
+  if (!caller || !(await callerTreeAgentId(caller))) return
+  const allowed = await treeTeams(caller.rootId)
   const target = await sendTargetTeam(input, caller)
-  if ((input.teamId && input.teamId !== teamId) || (target && target !== teamId)) {
-    throw new TRPCError({ code: `FORBIDDEN`, message: AGENT_TEAM_ONLY_MESSAGE })
+  if ((input.teamId && !allowed.includes(input.teamId)) || (target && !allowed.includes(target))) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: allowed.length > 1 ? TEAM_OUT_OF_SCOPE_MESSAGE : AGENT_TEAM_ONLY_MESSAGE,
+    })
   }
+}
+
+/** #EXP-1720 (eagent tree.json): a child starts in the named team when its
+ *  tree works there (the Assistant's children spawn in their target team),
+ *  else in its parent's. */
+async function childTeam(input: SessionsSendInput, parent: Session): Promise<string> {
+  if (!input.teamId || input.teamId === parent.teamId) return parent.teamId
+  if (!(await treeTeams(parent.rootId)).includes(input.teamId)) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: TEAM_OUT_OF_SCOPE_MESSAGE })
+  }
+  return input.teamId
 }
 
 /**
@@ -218,8 +236,9 @@ export async function resolveSessionDevice(
   if (own) {
     // #EXP-1440: a machine shared with other teams belongs to them; only a
     // personal one (shared with no team) or one shared with THIS team runs
-    // this team's sessions.
-    if (!deviceUsableInTeam(own, teamId)) {
+    // this team's sessions. #EXP-1720: the owner's personal team (their
+    // Assistant) runs on any machine of theirs.
+    if (!deviceUsableInTeam(own, teamId) && teamId !== (await getPersonalTeamId(userId))) {
       throw new TRPCError({ code: `FORBIDDEN`, message: DEVICE_OTHER_TEAM_MESSAGE })
     }
     return { shared: (own.sharedTeamIds ?? []).includes(teamId), ownerId: userId }
@@ -456,6 +475,31 @@ export async function assertNotPlainInSealedTree(
  *  `author_session_id`; `asSession` = the message is that SESSION's input
  *  into another one (a child asking its parent, #EXP-1452 an agent starting
  *  a session), agent-authored. */
+/** #EXP-1720 (eagent tree.json, emcp access.json `assistantScope`): a
+ *  Teams pick is the member's Assistant's alone: into its conversation ROOT,
+ *  by its member. Stored ∩ their teams (deduplicated, the root's own team
+ *  dropped); null = every team. Returns what was stored. */
+async function applyTeamsPick(
+  tx: Tx,
+  session: Pick<Session, `id` | `rootId` | `teamId` | `userId`>,
+  authorId: string,
+  picked: string[] | null
+): Promise<string[] | null> {
+  const [root] = await tx
+    .select({ parentId: sessions.parentId, userId: sessions.userId, role: agents.role })
+    .from(sessions)
+    .leftJoin(agents, eq(agents.id, sessions.agentId))
+    .where(eq(sessions.id, session.id))
+    .limit(1)
+  if (!root || root.parentId !== null || root.role !== `assistant` || root.userId !== authorId) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: SCOPE_ASSISTANT_ONLY_MESSAGE })
+  }
+  const member = new Set(await getMemberTeamIds(authorId))
+  const scope = picked === null ? null : [...new Set(picked)].filter((id) => id !== session.teamId && member.has(id))
+  await tx.update(sessions).set({ scopeTeamIds: scope, updatedAt: new Date() }).where(eq(sessions.id, session.id))
+  return scope
+}
+
 async function postSendMessage(
   tx: Tx,
   session: Pick<Session, `id` | `rootId` | `teamId` | `shared` | `userId`>,
@@ -469,6 +513,8 @@ async function postSendMessage(
   // agent acts with its host's key, so the caller is the uploader set's
   // first entry, never the effective starter).
   const sealUserId = uploaderIds[0]!
+  // #EXP-1720: the turn's Teams pick becomes the Assistant root's scope, even with nothing to post.
+  const scope = input.scopeTeamIds === undefined ? undefined : await applyTeamsPick(tx, session, authorId, input.scopeTeamIds)
   let text = input.text ?? ``
   // EXP-1458: the tree's key arrives with its first sealed message.
   if (input.seal) await createTreeKeyInTx(tx, sealUserId, { ...input.seal, rootId: session.rootId })
@@ -484,12 +530,13 @@ async function postSendMessage(
   const messageId = from?.asSession
     ? await postSessionInput(tx, session, from.sessionId, text)
     : await postPersonMessage(tx, session, authorId, text, from?.sessionId ?? null)
-  if (input.mentionUserIds?.length || input.refIssueIds?.length) {
+  if (input.mentionUserIds?.length || input.refIssueIds?.length || scope !== undefined) {
     await tx
       .update(messages)
       .set({
         ...(input.mentionUserIds?.length ? { mentionUserIds: [...new Set(input.mentionUserIds)] } : {}),
         ...(input.refIssueIds?.length ? { refIssueIds: [...new Set(input.refIssueIds)] } : {}),
+        ...(scope !== undefined ? { scopeTeamIds: scope } : {}),
       })
       .where(eq(messages.id, messageId))
   }
@@ -1702,9 +1749,8 @@ async function startChild(
 ): Promise<SendOutcome> {
   const parent = await loadSessionForUser(userId, input.parentId!)
   await assertCanSteer(userId, parent)
-  if (input.teamId && input.teamId !== parent.teamId) {
-    throw new TRPCError({ code: `BAD_REQUEST`, message: `The parent is in another team` })
-  }
+  const teamId = await childTeam(input, parent)
+  await assertTeamMember(userId, teamId)
   const deviceId = input.deviceId ?? parent.deviceId
   // #FEED-182: profile ids are device-local — a child on ANOTHER device gets
   // a login of THAT device (the named one, or the parent's by email).
@@ -1713,14 +1759,14 @@ async function startChild(
     ? await childAccountOnDevice(
         parent,
         input.cli ?? (await effectiveCli(parent)) ?? `claude`,
-        { deviceId, ownerId: (await resolveSessionDevice(userId, parent.teamId, deviceId)).ownerId },
+        { deviceId, ownerId: (await resolveSessionDevice(userId, teamId, deviceId)).ownerId },
         input.account
       )
     : undefined
 
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    const device = await resolveSessionDeviceInTx(tx, userId, parent.teamId, deviceId)
+    const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId)
     await assertTreeRoom(tx, parent.rootId, parent.depth + 1)
     const [root] = await tx.select().from(sessions).where(eq(sessions.id, parent.rootId)).limit(1)
     if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
@@ -1730,14 +1776,16 @@ async function startChild(
     if (!root.shared && device.ownerId !== userId) {
       throw new TRPCError({ code: `BAD_REQUEST`, message: `A private session's child runs on your own device` })
     }
+    // #EXP-1720: a child in another team than its parent takes nothing team-bound from it.
+    const sameTeam = teamId === parent.teamId
     const mcpServerIds =
-      (await assertMcpServersInTeam(tx, parent.teamId, input.mcpServerIds)) ?? parent.mcpServerIds
+      (await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)) ?? (sameTeam ? parent.mcpServerIds : null)
     // #EXP-1656: a child without its own pick inherits its parent's skills.
-    const skillIds = (await assertSkillsInTeam(tx, parent.teamId, input.skillIds)) ?? parent.skillIds
+    const skillIds = (await assertSkillsInTeam(tx, teamId, input.skillIds)) ?? (sameTeam ? parent.skillIds : null)
     const id = crypto.randomUUID()
     const child = await insertSession(tx, {
       id,
-      teamId: parent.teamId,
+      teamId,
       parentId: parent.id,
       rootId: parent.rootId,
       depth: parent.depth + 1,
@@ -1753,7 +1801,7 @@ async function startChild(
       ...(input.sealedName ? { sealedTitle: input.sealedName } : {}),
       mcpServerIds,
       skillIds,
-      repositoryId: parent.repositoryId ?? root.repositoryId,
+      repositoryId: sameTeam ? (parent.repositoryId ?? root.repositoryId) : null,
       status: `queued`,
       // One visibility per tree: a child inherits its root's.
       shared: root.shared,
@@ -1821,8 +1869,9 @@ async function startRoot(
 
   // An agent's spawn runs on the agent's own device unless it names one:
   // the caller's root is a conversation session (its device = the agent's).
+  // #EXP-1720: also across teams (the Assistant starts threads in its scope teams).
   const callerRoot =
-    caller && caller.teamId === teamId
+    caller
       ? caller.rootId === caller.id
         ? caller
         : ((await db.select().from(sessions).where(eq(sessions.id, caller.rootId)).limit(1))[0] ?? null)

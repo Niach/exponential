@@ -11,6 +11,7 @@ import { TRPCError } from "@trpc/server"
 // schema tables is enough.
 
 const h = vi.hoisted(() => ({
+  personalTeamId: null as string | null,
   createApiKey: vi.fn(async () => ({
     key: `expu_raw`,
     id: `new-key`,
@@ -33,6 +34,8 @@ const B_GONE = `44444444-4444-4444-8444-444444444444`
 vi.mock(`@/lib/auth/membership`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/membership")>()),
   getUserTeamIds: vi.fn(async () => [T1, T2]),
+  // #EXP-1720: T2 is the caller's personal team in the Assistant key case.
+  getPersonalTeamId: vi.fn(async () => h.personalTeamId),
   // #EXP-1383: a team agent's key needs the caller's membership.
   assertTeamMember: vi.fn(async (_userId: string, teamId: string) => {
     if (![T1, T2].includes(teamId)) {
@@ -161,6 +164,20 @@ describe(`users — scoped API keys (FEED-76)`, () => {
     )
     expect(foreign.code).toBe(`FORBIDDEN`)
     expect(h.createApiKey).not.toHaveBeenCalled()
+  })
+
+  it(`#EXP-1720: an agent key for the caller's personal team is the Assistant's: every team they belong to`, async () => {
+    h.personalTeamId = T2
+    try {
+      await callerFor().mintPersonalApiKey({ purpose: `agent`, teamId: T2, name: `Agent` })
+      expect(h.createApiKey).toHaveBeenCalledWith({
+        body: expect.objectContaining({
+          metadata: { kind: `agent`, scope: { allTeams: false, teamIds: [], boardIds: [], assistant: true } },
+        }),
+      })
+    } finally {
+      h.personalTeamId = null
+    }
   })
 
   it(`lists the scope by name, dropping a vanished board, and never the raw metadata`, async () => {

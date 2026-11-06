@@ -3,6 +3,7 @@ import { ASSISTANT_SILENT_EVENTS, assistantAgentIds } from "@/lib/agents/assista
 import type { CodingSessionBlocked, MessageCard, MessageEventKind } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { sliceUnits } from "@exp/eagent/copy"
+import { treeTeams } from "@/lib/sessions/tree-teams"
 import {
   ASK_PLAN_LEAD,
   ASK_PRIVATE_PLAN_LEAD,
@@ -563,12 +564,15 @@ export async function watchSessions(
   const wanted = [...new Set(ids)].filter((id) => id !== watcherId)
   if (wanted.length === 0) return []
   const [row] = await tx
-    .select({ wakeOn: sessions.wakeOn, teamId: sessions.teamId, userId: sessions.userId })
+    .select({ wakeOn: sessions.wakeOn, rootId: sessions.rootId, userId: sessions.userId })
     .from(sessions)
     .where(eq(sessions.id, watcherId))
     .limit(1)
     .for(`update`)
   if (!row) return []
+  // #EXP-1720: any team of the watcher's tree (the Assistant's: its scope).
+  const teams = await treeTeams(row.rootId, tx)
+  if (teams.length === 0) return []
   const live = await tx
     .select({ id: sessions.id })
     .from(sessions)
@@ -576,7 +580,7 @@ export async function watchSessions(
       and(
         inArray(sessions.id, wanted),
         ne(sessions.status, `ended`),
-        eq(sessions.teamId, row.teamId),
+        inArray(sessions.teamId, teams),
         or(eq(sessions.shared, true), eq(sessions.userId, row.userId))
       )
     )

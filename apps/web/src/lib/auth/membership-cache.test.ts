@@ -25,7 +25,7 @@ vi.mock(`@/db/connection`, () => {
         : Promise.resolve(h.state.queue.shift() ?? [])
     ) as Promise<unknown[]> & Record<string, () => unknown>
     h.state.failNext = false
-    for (const m of [`from`, `where`]) {
+    for (const m of [`from`, `leftJoin`, `where`]) {
       p[m] = () => p
     }
     return p

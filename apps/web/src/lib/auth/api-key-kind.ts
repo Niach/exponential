@@ -41,6 +41,10 @@ export interface ApiKeyScope {
   allTeams: false
   teamIds: string[]
   boardIds: string[]
+  /** #EXP-1720: the Assistant's key (minted for the member's personal team):
+   *  every team the member belongs to AT REQUEST TIME, MCP-only like any
+   *  scoped key; `teamIds` stays empty. */
+  assistant?: true
 }
 
 export interface ApiKeyMetadata {
@@ -80,11 +84,13 @@ export function parseApiKeyMetadata(
     allTeams?: unknown
     teamIds?: unknown
     boardIds?: unknown
+    assistant?: unknown
   }
   if (!scope || typeof scope !== `object`) {
     return { kind, scope: { allTeams: false, teamIds: [], boardIds: [] } }
   }
   if (scope.allTeams === true) return { kind, scope: null }
+  if (scope.assistant === true) return { kind, scope: { allTeams: false, teamIds: [], boardIds: [], assistant: true } }
   if (!isStringArray(scope.teamIds) || !isStringArray(scope.boardIds)) {
     return { kind, scope: { allTeams: false, teamIds: [], boardIds: [] } }
   }

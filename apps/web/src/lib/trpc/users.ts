@@ -29,7 +29,7 @@ import {
   parseApiKeyMetadata,
   type ApiKeyScope,
 } from "@/lib/auth/api-key-kind"
-import { assertTeamMember, getUserTeamIds } from "@/lib/auth/membership"
+import { assertTeamMember, getPersonalTeamId, getUserTeamIds } from "@/lib/auth/membership"
 import { boardVisible } from "@/lib/board-visibility"
 import {
   clampScopeSelection,
@@ -168,7 +168,12 @@ export const usersRouter = router({
           })
         }
         await assertTeamMember(ctx.session.user.id, input.teamId)
-        scope = { allTeams: false, teamIds: [input.teamId], boardIds: [] }
+        // #EXP-1720: the personal team's agent is the member's Assistant:
+        // its key reaches all their teams (resolved per request).
+        scope =
+          input.teamId === (await getPersonalTeamId(ctx.session.user.id))
+            ? { allTeams: false, teamIds: [], boardIds: [], assistant: true }
+            : { allTeams: false, teamIds: [input.teamId], boardIds: [] }
       } else if (input?.scope) {
         if (kind === `agent`) {
           throw new TRPCError({
