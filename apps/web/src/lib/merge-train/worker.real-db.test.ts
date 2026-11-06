@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { and, eq, sql } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 import type { TrainCheck, TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
 import { agents, boards, devices, mergeTrains, messages, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
@@ -64,6 +64,7 @@ interface FakePr {
   title: string
   state: `open` | `closed`
   draft: boolean
+  mergeable?: boolean | null
 }
 
 class FakeForge {
@@ -97,6 +98,7 @@ class FakeForge {
           mergedAt: null,
           mergedBy: null,
           author: `dev <dev@example.com>`,
+          mergeable: pr.mergeable ?? null,
         }
       },
       readBranch: async (_repo, branch) => this.branch.get(branch) ?? null,
@@ -211,14 +213,50 @@ const lines = (sessionId: string) =>
     .select({ body: messages.body, card: messages.card, consumedAt: messages.consumedAt })
     .from(messages)
     .where(and(inSession(sessionId), sql`${messages.card}->>'event' = 'pr_merge'`))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
 const pass = async (repoId: string, n = 1) => {
   for (let i = 0; i < n; i++) await worker.runRepository(repoId)
 }
 
 describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
-  it(`is inert while MERGE_TRAIN is off`, async () => {
+  it(`MERGE_TRAIN off: the display pass only (ready = queued, unmergeable = conflict), no run, no landing, no post`, async () => {
     delete process.env.MERGE_TRAIN
-    expect(await worker.runMergeTrainTick()).toBe(0)
+    const w = await world()
+    const a = await w.pr(201)
+    const b = await w.pr(202)
+    expect(await worker.runMergeTrainTick()).toBeGreaterThanOrEqual(1)
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `session` })
+    await w.idle()
+    fake.prs.get(202)!.mergeable = false
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `queued`, mergeWait: null, mergePosition: null, mergeQueuedSince: null })
+    expect((await prRow(a)).mergeReadyAt).not.toBeNull()
+    expect(await prRow(b)).toMatchObject({ mergeState: `conflict`, mergeAttempts: 0 })
+    expect(fake.dispatches).toEqual([])
+    expect(fake.squashed).toEqual([])
+    expect(fake.closed).toEqual([])
+    expect(await db.select().from(mergeTrains).where(eq(mergeTrains.repositoryId, w.repoId))).toEqual([])
+    expect(await lines(w.children[201]!)).toEqual([])
+    expect(await lines(w.children[202]!)).toEqual([])
+  })
+
+  it(`MERGE_TRAIN off: an approval team's ready PR waits on Needs approval; Hold is a flag (no post), Resume re-reads`, async () => {
+    delete process.env.MERGE_TRAIN
+    const w = await world()
+    await db.update(teams).set({ mergeMode: `approval` }).where(eq(teams.id, w.teamId))
+    const a = await w.pr(211)
+    await w.idle()
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `approval` })
+    await worker.holdPullRequest(a)
+    await worker.drainMergeTrainEdges()
+    expect(await prRow(a)).toMatchObject({ mergeState: `held`, mergeHold: `person` })
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).toBe(`held`)
+    expect(await lines(w.children[211]!)).toEqual([])
+    await worker.resumePullRequest(a)
+    await worker.drainMergeTrainEdges()
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `approval`, mergeHold: null })
   })
 
   it(`waits for the opener's subtree, then batches ready PRs, lands them on green and tells each opener`, async () => {

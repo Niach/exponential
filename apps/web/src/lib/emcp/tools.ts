@@ -3274,8 +3274,8 @@ export function registerExponentialTools(
         const { pr } = await selectPr(selector)
         // EXP-1709: hold / resume auto-merge (merge-train.json `hold`, `resume`).
         if (hold !== undefined) {
+          // The switch off: a flag yolo respects (no train acts on it).
           const train = await import(`@/lib/merge-train/worker`)
-          if (!train.mergeTrainOn()) throw new Error(`Auto-merge is not on for this server`)
           await (hold ? train.holdPullRequest : train.resumePullRequest)(pr.id)
           if (title === undefined && body === undefined && draft === undefined) {
             return ok({ ...prRef(pr), mergeQueue: await train.queueReport(pr.id), checks: await prChecks(pr.id) })

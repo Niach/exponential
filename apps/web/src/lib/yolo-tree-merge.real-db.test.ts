@@ -289,6 +289,17 @@ describe.skipIf(!ready.ok)(`#EXP-1413: the yolo automerge runs on the lifecycle 
     expect(await refusals(t.root)).toHaveLength(0)
   })
 
+  it(`#EXP-1709: a person's Hold auto-merge holds yolo: skipped silently, no refusal`, async () => {
+    const t = await thread()
+    await db.update(pullRequests).set({ mergeState: `held`, mergeHold: `person` }).where(eq(pullRequests.id, t.prId))
+    await t.report(t.child, { status: `idle`, busy: false })
+    await t.report(t.root, { status: `idle`, busy: false })
+    await drainYoloEdges()
+    expect(await maybeMergeYoloThread(t.root)).toEqual({ status: `merged`, outcomes: { [t.prId]: { kind: `held` } } })
+    expect(merge).not.toHaveBeenCalled()
+    expect(await refusals(t.root)).toHaveLength(0)
+  })
+
   it(`two concurrent triggers merge once (in process, and across instances by the advisory lock)`, async () => {
     const t = await thread()
     await db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.rootId, t.root))

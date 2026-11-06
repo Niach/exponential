@@ -13,8 +13,10 @@
 //      repo without it lands directly, serialized: lone PRs and stack
 //      bottoms through the forge's own squash merge);
 //   4. the queue positions (`Queued · 2nd`).
-// Every outcome posts ONE waking `pr_merge` line (messages.ts). Inert unless
-// MERGE_TRAIN=true: yolo and the Merge buttons keep working while it is off.
+// Every outcome posts ONE waking `pr_merge` line (messages.ts). While
+// MERGE_TRAIN is off only the readiness half runs (`displayRepository`): it
+// keeps `merge_state` honest for the status pill and never dispatches,
+// composes, lands or posts; yolo and the direct merge keep merging.
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm"
 import {
   composeBatch,
@@ -23,12 +25,14 @@ import {
   heldText,
   mergeStep,
   mergeWait,
+  preTrainState,
   mergedText,
   trainQueue,
   trainVerdict,
   type HoldReason,
   type MergeEvent,
   type MergeOutcome,
+  type MergeWait,
   type MergePr,
   type PrMergeState,
   type TeamMergeMode,
@@ -167,7 +171,9 @@ function stepPullRequest(prId: string, event: MergeEvent, ctx: StepContext): Pro
 
 // ── readiness ────────────────────────────────────────────────────────────
 
-async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): Promise<void> {
+type ReadinessInputs = Awaited<ReturnType<typeof readinessInputs>>
+
+async function readinessInputs(prs: PrRow[]) {
   const roots = [...new Set(prs.flatMap((pr) => (pr.rootSessionId ? [pr.rootSessionId] : [])))]
   const tree =
     roots.length === 0
@@ -181,6 +187,24 @@ async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): 
     const [team] = await db.select({ mode: teams.mergeMode }).from(teams).where(eq(teams.id, teamId)).limit(1)
     modes.set(teamId, (team?.mode as TeamMergeMode | undefined) ?? `auto`)
   }
+  return { tree, modes }
+}
+
+function waitOf(pr: PrRow, { tree, modes }: ReadinessInputs): MergeWait | null {
+  return mergeWait({
+    draft: pr.state === `draft`,
+    checksState: pr.checksState,
+    subtreeIdle: subtreeIdle(
+      pr.sessionId,
+      tree.filter((s) => s.rootId === pr.rootSessionId)
+    ),
+    mode: modes.get(pr.teamId) ?? `auto`,
+    approved: pr.mergeApprovedAt !== null,
+  })
+}
+
+async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): Promise<void> {
+  const inputs = await readinessInputs(prs)
   const at = now.toISOString()
   for (const pr of prs) {
     const base = pr.base
@@ -203,19 +227,54 @@ async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): 
       }
     }
     if (pr.mergeState !== `testing` && pr.mergeState !== `held`) {
-      const wait = mergeWait({
-        draft: pr.state === `draft`,
-        checksState: pr.checksState,
-        subtreeIdle: subtreeIdle(
-          pr.sessionId,
-          tree.filter((s) => s.rootId === pr.rootSessionId)
-        ),
-        mode: modes.get(pr.teamId) ?? `auto`,
-        approved: pr.mergeApprovedAt !== null,
-      })
+      const wait = waitOf(pr, inputs)
       await stepPullRequest(pr.id, { type: `readiness`, wait, at }, { base, now, extra: { mergeWait: wait } })
     }
     await stepPullRequest(pr.id, { type: `tick`, now: at }, { base, now })
+  }
+}
+
+// ── the switch off: display only ─────────────────────────────────────────
+
+/** A ready PR's forge `mergeable` is re-read at most this often. */
+export const MERGEABLE_READ_MS = 5 * 60_000
+const mergeableReads = new Map<string, { at: number; mergeable: boolean | null }>()
+
+async function mergeableOf(repo: RepoRow, pr: PrRow, forge: Forge, now: Date): Promise<boolean | null> {
+  const known = mergeableReads.get(pr.id)
+  const settled = pr.mergeState === `queued` || pr.mergeState === `conflict`
+  if (known && settled && now.getTime() - known.at < MERGEABLE_READ_MS) return known.mergeable
+  const live = await forge.readPullRequest(forgeRepo(repo), pr.number).catch(() => null)
+  const mergeable = live?.mergeable ?? known?.mergeable ?? null
+  mergeableReads.set(pr.id, { at: now.getTime(), mergeable })
+  return mergeable
+}
+
+/** MERGE_TRAIN off (merge-train.json TRAIN OFF): the readiness half only,
+ *  so the pill reads true while yolo and the direct merge still merge.
+ *  `preTrainState(wait)`, a ready PR the forge reports unmergeable =
+ *  `conflict`; a person's Hold stays (yolo skips it). No queue position,
+ *  no 24 h clock, no bounce, no `pr_merge` post. */
+async function displayRepository(repo: RepoRow, forge: Forge, now: Date): Promise<void> {
+  const prs = await livePrs(repo.id)
+  const inputs = await readinessInputs(prs)
+  for (const pr of prs) {
+    if (pr.mergeState === `held`) continue
+    const wait = waitOf(pr, inputs)
+    let state = preTrainState(wait)
+    if (state === `queued` && (await mergeableOf(repo, pr, forge, now)) === false) state = `conflict`
+    if (state !== `queued` && state !== `conflict`) mergeableReads.delete(pr.id)
+    const set: Partial<PrRow> = {}
+    if (pr.mergeState !== state) set.mergeState = state
+    if (pr.mergeWait !== wait) set.mergeWait = wait
+    if (pr.mergePosition !== null) set.mergePosition = null
+    if (pr.mergeTrainId !== null) set.mergeTrainId = null
+    if (state === `queued` && pr.mergeState !== `queued`) set.mergeReadyAt = now
+    if (Object.keys(set).length === 0) continue
+    await db.transaction(async (tx) => {
+      await generateTxId(tx)
+      await tx.update(pullRequests).set(set).where(eq(pullRequests.id, pr.id))
+    })
   }
 }
 
@@ -584,6 +643,10 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
     .limit(1)
   if (!repo) return
   const forge = await forgeFor(forgeRepo(repo))
+  if (!mergeTrainOn()) {
+    await displayRepository(repo, forge, now)
+    return
+  }
   await readiness(repo, await livePrs(repo.id), forge, now)
 
   const [live] = await db
@@ -698,10 +761,10 @@ async function repositoriesOf(scope: EdgeScope): Promise<string[]> {
   return rows.map((r) => r.id)
 }
 
-/** A lifecycle edge (fire and forget, after its write committed). Inert
- *  while the switch is off. */
+/** A lifecycle edge (fire and forget, after its write committed); the
+ *  switch off = the display pass. */
 export function mergeTrainEdge(scope: EdgeScope | null | undefined): void {
-  if (!scope || !mergeTrainOn()) return
+  if (!scope) return
   const edge: Promise<void> = repositoriesOf(scope)
     .then((ids) => Promise.all(ids.map((id) => runRepository(id))))
     .then(() => {})
@@ -718,7 +781,6 @@ export async function drainMergeTrainEdges(): Promise<void> {
 /** The watchdog tick: every repository with a live PR in the train's hands
  *  or a live run. → how many repositories were passed. */
 export async function runMergeTrainTick(now: Date = new Date()): Promise<number> {
-  if (!mergeTrainOn()) return 0
   const rows = await db
     .selectDistinct({ id: pullRequests.repositoryId })
     .from(pullRequests)
@@ -746,13 +808,36 @@ async function personEvent(pullRequestId: string, event: MergeEvent): Promise<St
 export function onPullRequestPush(pullRequestId: string): Promise<StepOutcome | null> {
   return personEvent(pullRequestId, { type: `push` })
 }
-/** A person's Hold (never a Needs you row). */
-export function holdPullRequest(pullRequestId: string): Promise<StepOutcome | null> {
-  return personEvent(pullRequestId, { type: `hold` })
+/** A person's Hold (never a Needs you row). The switch off: the flag
+ *  only (yolo skips a held PR), no `pr_merge` post. */
+export async function holdPullRequest(pullRequestId: string): Promise<StepOutcome | null> {
+  if (mergeTrainOn()) return personEvent(pullRequestId, { type: `hold` })
+  return flagHold(pullRequestId, true)
 }
 /** Resume auto-merge / Needs you Retry: checks again, bounces and clock reset. */
-export function resumePullRequest(pullRequestId: string): Promise<StepOutcome | null> {
-  return personEvent(pullRequestId, { type: `resume` })
+export async function resumePullRequest(pullRequestId: string): Promise<StepOutcome | null> {
+  if (mergeTrainOn()) return personEvent(pullRequestId, { type: `resume` })
+  return flagHold(pullRequestId, false)
+}
+
+async function flagHold(pullRequestId: string, hold: boolean): Promise<StepOutcome | null> {
+  const outcome = await db.transaction(async (tx) => {
+    const [pr] = await tx.select().from(pullRequests).where(eq(pullRequests.id, pullRequestId)).limit(1).for(`update`)
+    if (!pr) return null
+    const live = (LIVE_PR_STATES as readonly string[]).includes(pr.state)
+    const holdable = live && pr.mergeState !== `draft` && pr.mergeState !== `merged`
+    if (hold ? !holdable || pr.mergeState === `held` : pr.mergeState !== `held`) {
+      return { post: null, assistant: null, state: pr.mergeState as PrMergeState }
+    }
+    const set: Partial<PrRow> = hold
+      ? { mergeState: `held`, mergeHold: `person`, mergeWait: null, mergePosition: null }
+      : { mergeState: `checks`, mergeHold: null, mergeAttempts: 0, mergeQueuedSince: null }
+    await generateTxId(tx)
+    await tx.update(pullRequests).set(set).where(eq(pullRequests.id, pr.id))
+    return { post: null, assistant: null, state: set.mergeState as PrMergeState }
+  })
+  mergeTrainEdge({ pullRequestId })
+  return outcome
 }
 /** An owner's Merge now: next, alone, untested (a stack lands whole). */
 export async function mergeNowPullRequest(pullRequestId: string): Promise<StepOutcome | null> {
@@ -817,5 +902,6 @@ export async function queueReport(pullRequestId: string): Promise<QueueReport | 
 
 export function resetMergeTrainForTests(): void {
   backoff.clear()
+  mergeableReads.clear()
   inFlight.clear()
 }

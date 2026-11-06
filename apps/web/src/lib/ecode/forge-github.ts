@@ -94,6 +94,7 @@ export const githubForge: Forge = {
       user?: { id?: number; login?: string } | null
       head?: { sha?: string; ref?: string }
       base?: { ref?: string }
+      mergeable?: boolean | null
     }
     const merged = Boolean(data.merged)
     const pr: ForgePullRequest = {
@@ -108,6 +109,7 @@ export const githubForge: Forge = {
       mergedAt: merged && data.merged_at ? new Date(data.merged_at) : null,
       mergedBy: merged ? (data.merged_by ?? null) : null,
       author: githubAuthorLine(data.user),
+      mergeable: data.mergeable ?? null,
     }
     return pr
   },
