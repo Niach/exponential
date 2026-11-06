@@ -25,6 +25,9 @@
     "./tools": "./src/tools.ts",
     "./pdf": "./src/pdf.ts",
     "./runner": "./src/runner.ts",
+    "./broker": "./src/broker.ts",
+    "./stores": "./src/stores.ts",
+    "./instance": "./src/instance.ts",
     "./web": "./src/web/index.ts",
     "./fixtures/*": "./fixtures/*"
   },
