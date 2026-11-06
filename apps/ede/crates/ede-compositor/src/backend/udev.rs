@@ -10,7 +10,13 @@
 //! modeset through [`Ede::set_mode`], and a per-output dmabuf feedback
 //! with a scanout tranche of the primary plane's formats, sent to a
 //! fullscreen window so games and video allocate buffers the DRM
-//! compositor can put straight on the plane (direct scanout).
+//! compositor can put straight on the plane (direct scanout). A connector
+//! that changes while connected (a VM window resized: VirtualBox's
+//! VBoxDRMClient and VMware push a new preferred mode through vmwgfx and
+//! raise a hotplug; a monitor re-reading its EDID) follows its new
+//! preferred mode unless `[[outputs]]` pins one it still offers. Frames on
+//! a GPU without IN_FENCE_FD (vmwgfx, virtio-gpu, llvmpipe) wait for the
+//! renderer before the flip, else the host shows them half drawn.
 
 use std::{
     cell::RefCell,
@@ -28,7 +34,7 @@ use smithay::{
             Fourcc,
         },
         drm::{
-            compositor::FrameFlags,
+            compositor::{FrameFlags, PrimaryPlaneElement},
             exporter::gbm::GbmFramebufferExporter,
             output::{DrmOutput, DrmOutputManager, DrmOutputRenderElements},
             DrmDevice, DrmDeviceFd, DrmEvent, DrmNode, NodeType,
@@ -52,7 +58,7 @@ use smithay::{
             EventLoop, RegistrationToken,
         },
         drm::{
-            control::{connector, crtc, Device as _, ModeTypeFlags},
+            control::{connector, crtc, Device as _, Mode, ModeTypeFlags},
             ClientCapability, Device as _,
         },
         input::Libinput,
@@ -107,7 +113,14 @@ struct Device {
     /// A virtual GPU that took DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT: its
     /// cursor plane is the host's cursor, placed by its HOTSPOT_X/Y.
     cursor_hotspot: bool,
+    /// A connector scan is due ([`RESCAN_DELAY`] after the last change).
+    rescan_timer: Option<RegistrationToken>,
 }
+
+/// Connector changes come in bursts (a VM window being dragged pushes a new
+/// layout every 250 ms, a monitor waking re-reads its EDID): one scan this
+/// long after the last change, so a drag ends in one modeset.
+const RESCAN_DELAY: Duration = Duration::from_millis(150);
 
 pub struct Udev {
     session: LibSeatSession,
@@ -308,7 +321,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         }
         UdevEvent::Changed { device_id } => {
             if let Ok(node) = DrmNode::from_dev_id(device_id) {
-                scan_connectors(&u, state, node);
+                schedule_scan(&u, state, node);
             }
         }
         UdevEvent::Removed { device_id } => {
@@ -390,7 +403,7 @@ fn device_added(udev: &Shared, state: &mut Ede, node: DrmNode, path: &Path) -> R
         DrmEvent::Error(e) => tracing::error!("DRM error on {node}: {e:?}"),
     })?;
 
-    u.devices.insert(node, Device { manager, surfaces: HashMap::new(), render_node, token, cursor_hotspot });
+    u.devices.insert(node, Device { manager, surfaces: HashMap::new(), render_node, token, cursor_hotspot, rescan_timer: None });
     drop(u);
     scan_connectors(udev, state, node);
     Ok(())
@@ -402,7 +415,47 @@ fn device_removed(udev: &Shared, state: &mut Ede, node: DrmNode) {
         drop_surface(state, surface);
     }
     state.loop_handle.remove(device.token);
+    if let Some(t) = device.rescan_timer.take() {
+        state.loop_handle.remove(t);
+    }
     udev.borrow_mut().gpus.as_mut().remove_node(&device.render_node);
+}
+
+/// Scans `node`'s connectors [`RESCAN_DELAY`] after the last change event.
+fn schedule_scan(udev: &Shared, state: &mut Ede, node: DrmNode) {
+    let mut u = udev.borrow_mut();
+    let Some(device) = u.devices.get_mut(&node) else { return };
+    if let Some(t) = device.rescan_timer.take() {
+        state.loop_handle.remove(t);
+    }
+    let ud = udev.clone();
+    device.rescan_timer = state
+        .loop_handle
+        .insert_source(Timer::from_duration(RESCAN_DELAY), move |_, _, state| {
+            if let Some(d) = ud.borrow_mut().devices.get_mut(&node) {
+                d.rescan_timer = None;
+            }
+            scan_connectors(&ud, state, node);
+            TimeoutAction::Drop
+        })
+        .ok();
+}
+
+/// The connector's preferred mode (the first one when it marks none).
+fn preferred_mode(info: &connector::Info) -> Mode {
+    info.modes().iter().find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED)).copied().unwrap_or(info.modes()[0])
+}
+
+/// The connector's mode `[[outputs]]` asks for (`refresh` 0 = the highest
+/// of that size), if it offers one.
+fn configured_drm_mode(info: &connector::Info, (w, h, refresh): (i32, i32, i32)) -> Option<Mode> {
+    let mut fitting: Vec<Mode> = info.modes().iter().filter(|m| m.size() == (w as u16, h as u16)).copied().collect();
+    fitting.sort_by_key(|m| std::cmp::Reverse(m.vrefresh()));
+    if refresh == 0 {
+        fitting.first().copied()
+    } else {
+        fitting.into_iter().find(|m| (WlMode::from(*m).refresh - refresh).abs() < 500)
+    }
 }
 
 /// Connects outputs for newly connected connectors and drops the ones that
@@ -429,6 +482,47 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         }
     }
 
+    // Still connected, but its modes changed: follow the new preferred
+    // mode (a VM window resized, a monitor's new EDID) unless `[[outputs]]`
+    // pins a mode the connector still offers.
+    let mut resized: Vec<Output> = Vec::new();
+    for surface in device.surfaces.values_mut() {
+        let Some(info) = infos.iter().find(|i| i.handle() == surface.connector) else { continue };
+        if info.modes().is_empty() {
+            continue;
+        }
+        let name = surface.output.name();
+        let preferred = preferred_mode(info);
+        let pinned = state.configured_mode(&name).and_then(|wanted| configured_drm_mode(info, wanted));
+        let Some(wanted) = super::mode_to_follow(surface.output.current_mode(), WlMode::from(preferred), pinned.map(WlMode::from)) else { continue };
+        let Some(mode) = info.modes().iter().find(|m| WlMode::from(**m) == wanted).copied() else { continue };
+        let Ok(mut renderer) = u.gpus.single_renderer(&device.render_node) else { continue };
+        let set = surface.drm_output.use_mode(mode, &mut renderer, &DrmOutputRenderElements::<_, OutputElements<UdevRenderer<'_>>>::default());
+        drop(renderer);
+        if let Err(e) = set {
+            tracing::warn!("{name}: could not switch to {}x{}@{}: {e:?}", wanted.size.w, wanted.size.h, wanted.refresh);
+            continue;
+        }
+        // wl_output's list follows the connector's; the current mode stays listed.
+        let offered: Vec<WlMode> = info.modes().iter().map(|m| WlMode::from(*m)).collect();
+        for m in surface.output.modes() {
+            if !offered.contains(&m) && m != wanted {
+                surface.output.delete_mode(m);
+            }
+        }
+        for m in &offered {
+            surface.output.add_mode(*m);
+        }
+        surface.output.set_preferred(WlMode::from(preferred));
+        surface.output.change_current_state(Some(wanted), None, None, None);
+        surface.queued = false;
+        tracing::info!("output {name} now {}x{}@{} (its preferred mode changed)", wanted.size.w, wanted.size.h, wanted.refresh);
+        resized.push(surface.output.clone());
+    }
+    for output in &resized {
+        state.output_resized(output);
+    }
+
     // New: connected, not set up yet, with a free CRTC its encoders reach.
     for info in infos.iter().filter(|i| i.state() == connector::State::Connected) {
         if device.surfaces.values().any(|s| s.connector == info.handle()) || info.modes().is_empty() {
@@ -448,18 +542,13 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         };
 
         let name = format!("{}-{}", info.interface().as_str(), info.interface_id());
-        let preferred = info.modes().iter().find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED)).copied().unwrap_or(info.modes()[0]);
+        let preferred = preferred_mode(info);
         // `[[outputs]]` may name a mode (refresh 0 = the highest of that size).
         let mode = match state.configured_mode(&name) {
-            Some((w, h, refresh)) => {
-                let mut fitting: Vec<_> = info.modes().iter().filter(|m| m.size() == (w as u16, h as u16)).copied().collect();
-                fitting.sort_by_key(|m| std::cmp::Reverse(m.vrefresh()));
-                let chosen = if refresh == 0 { fitting.first().copied() } else { fitting.into_iter().find(|m| (WlMode::from(*m).refresh - refresh).abs() < 500) };
-                chosen.unwrap_or_else(|| {
-                    tracing::warn!("{name}: no mode {w}x{h}@{}; using the preferred one", refresh as f64 / 1000.0);
-                    preferred
-                })
-            }
+            Some(wanted @ (w, h, refresh)) => configured_drm_mode(info, wanted).unwrap_or_else(|| {
+                tracing::warn!("{name}: no mode {w}x{h}@{}; using the preferred one", refresh as f64 / 1000.0);
+                preferred
+            }),
             None => preferred,
         };
         let wl_mode = WlMode::from(mode);
@@ -630,6 +719,16 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     match result {
         Ok(frame) if !frame.is_empty => {
             u.health.drew();
+            // No IN_FENCE_FD on this plane (vmwgfx, virtio-gpu, llvmpipe's
+            // EGL fences cannot be exported): the kernel would scan out the
+            // buffer while the renderer still draws into it, and the host
+            // shows half-drawn frames (flicker). Wait for the renderer here,
+            // like anvil does.
+            if frame.needs_sync() {
+                if let PrimaryPlaneElement::Swapchain(element) = &frame.primary_element {
+                    let _ = element.sync.wait();
+                }
+            }
             // The fullscreen window alone on this output may go straight to
             // the plane: tell it which buffers make that possible.
             if let (Some((render_fb, scanout_fb)), Some(w)) = (surface.feedback.as_ref(), state.fullscreen_on(&output)) {

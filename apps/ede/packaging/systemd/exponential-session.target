@@ -1,10 +1,13 @@
 # Started by exponential-session once the compositor is up; stopped when it exits.
 # Pulls in the shell (exponential-shell.service: the panel under the exponential-ui
 # supervisor), the desktop-wide graphical session and the XDG autostart apps
-# (systemd's generator honours OnlyShowIn/NotShowIn against XDG_CURRENT_DESKTOP=eDE).
+# (systemd's generator honours OnlyShowIn/NotShowIn against
+# XDG_CURRENT_DESKTOP=Exponential), and the Exponential device
+# (exponential-device.service: the app or daemon stays up, so the machine is
+# online for sessions).
 [Unit]
 Description=Exponential Desktop session
 Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
 BindsTo=graphical-session.target
-Wants=graphical-session-pre.target xdg-desktop-autostart.target exponential-theme.service exponential-services.service exponential-shell.service exponential-polkit-agent.service exponential-keyring.service
+Wants=graphical-session-pre.target xdg-desktop-autostart.target exponential-theme.service exponential-services.service exponential-shell.service exponential-polkit-agent.service exponential-keyring.service exponential-device.service
 After=graphical-session-pre.target

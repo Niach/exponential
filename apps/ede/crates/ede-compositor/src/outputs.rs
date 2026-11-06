@@ -75,6 +75,34 @@ impl Ede {
         Ok(())
     }
 
+    /// The backend changed `output`'s mode under it (hotplug: a VM window
+    /// resized, a monitor's new EDID): outputs without a configured position
+    /// close ranks left to right, every output's layers re-arrange, tiled
+    /// windows follow the work area, and windows left on no output come back.
+    pub fn output_resized(&mut self, output: &Output) {
+        let mut outputs: Vec<Output> = self.space.outputs().cloned().collect();
+        outputs.sort_by_key(|o| self.space.output_geometry(o).map(|g| g.loc.x).unwrap_or(0));
+        let mut x = 0;
+        for o in &outputs {
+            let at = match self.config.output(&o.name()).and_then(|s| s.position) {
+                Some([px, py]) => (px, py),
+                None => (x, 0),
+            };
+            self.space.map_output(o, at);
+            layer_map_for_output(o).arrange();
+            if let Some(g) = self.space.output_geometry(o) {
+                x = x.max(g.loc.x + g.size.w);
+            }
+        }
+        for w in self.space.elements().cloned().collect::<Vec<_>>() {
+            if let Some(tile) = crate::state::window_state(&w).tile {
+                self.tile(&w, tile);
+            }
+        }
+        self.rehome_lost_windows(&[]);
+        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::json!({ "output": output.name() }));
+    }
+
     /// Re-applies every `[[outputs]]` entry (a config reload).
     pub fn apply_output_settings(&mut self) {
         let names: Vec<String> = self.space.outputs().map(|o| o.name()).collect();

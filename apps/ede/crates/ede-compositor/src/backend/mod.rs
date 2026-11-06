@@ -355,6 +355,16 @@ pub fn reconcile_primary<T: Copy + PartialEq>(primary: T, registered: &[T]) -> O
     }
 }
 
+/// The mode an output switches to after its connector changed while
+/// connected (hotplug with a new mode list: a VM window resized, a monitor
+/// re-reading its EDID): the `[[outputs]]` mode when the connector still
+/// offers it (`pinned`), else the connector's new `preferred` mode; `None`
+/// when that is the `current` mode already.
+pub fn mode_to_follow(current: Option<smithay::output::Mode>, preferred: smithay::output::Mode, pinned: Option<smithay::output::Mode>) -> Option<smithay::output::Mode> {
+    let wanted = pinned.unwrap_or(preferred);
+    (current != Some(wanted)).then_some(wanted)
+}
+
 /// Whether the outputs ever drew (udev, #EDE-40). A session whose outputs
 /// get no frame at all would stay black forever with the log filling up;
 /// after [`FATAL_FAILURES`] attempts without one frame it stops itself with
@@ -435,6 +445,22 @@ mod tests {
         // Mesa's software device names no node: the card's render node, where the primary GPU lives.
         assert_eq!(render_node_for(None, Some("renderD128"), "card0"), "renderD128");
         assert_eq!(render_node_for(None, None, "card0"), "card0");
+    }
+
+    #[test]
+    fn a_changed_connector_follows_its_new_preferred_mode_unless_the_config_pins_one() {
+        let mode = |w, h| smithay::output::Mode { size: (w, h).into(), refresh: 60_000 };
+        // VirtualBox: the window grew, vmwgfx's preferred mode followed.
+        assert_eq!(mode_to_follow(Some(mode(2560, 1440)), mode(3942, 2148), None), Some(mode(3942, 2148)));
+        // The same layout pushed again (VBoxDRMClient repeats it): nothing to do.
+        assert_eq!(mode_to_follow(Some(mode(3942, 2148)), mode(3942, 2148), None), None);
+        // `[[outputs]]` pins a mode the connector still offers: it stays.
+        assert_eq!(mode_to_follow(Some(mode(1920, 1080)), mode(3942, 2148), Some(mode(1920, 1080))), None);
+        // The pinned mode went away with the old window size: the preferred one.
+        assert_eq!(mode_to_follow(Some(mode(3200, 1824)), mode(1280, 800), None), Some(mode(1280, 800)));
+        // A pinned mode that just appeared (the window is that size again) wins.
+        assert_eq!(mode_to_follow(Some(mode(1280, 800)), mode(3200, 1824), Some(mode(3200, 1824))), Some(mode(3200, 1824)));
+        assert_eq!(mode_to_follow(None, mode(1280, 800), None), Some(mode(1280, 800)));
     }
 
     #[test]
