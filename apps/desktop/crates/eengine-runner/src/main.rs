@@ -254,11 +254,16 @@ impl Render for RunnerView {
         let host = self.ctx.host.read(cx);
         let app = host.surface(runner::APP);
         let overlays: Vec<_> = [runner::CONSENT, runner::PERMISSIONS, runner::TOAST].into_iter().filter_map(|id| host.surface(id)).collect();
-        div()
-            .size_full()
-            .relative()
-            .bg(bg)
-            .child(div().id(runner::APP).size_full().overflow_y_scroll().children(app))
+        // runner.json SURFACES: `app` is laid out at the window's height, so
+        // the shell fills the window and the page scrolls inside it.
+        if let Some(app) = &app {
+            let height = f32::from(window.viewport_size().height);
+            app.update(cx, |v, cx| {
+                v.set_viewport_height(height, cx);
+                v.set_fill_height(true, cx);
+            });
+        }
+        div().size_full().relative().bg(bg).child(div().id(runner::APP).size_full().children(app))
             .children(overlays.into_iter().map(|s| div().absolute().top_0().left_0().w_full().child(s)))
     }
 }

@@ -201,6 +201,14 @@ lto = true
 codegen-units = 1
 strip = true
 
+# #VAPP-266: the desktop runner's release assets (release-eengine.yml):
+# symbols stripped, thin LTO; `log`'s release_max_level_off (the runner's
+# Cargo.toml) compiles every log macro out.
+[profile.runner]
+inherits = "release"
+lto = "thin"
+strip = true
+
 # EXP-1457: the browser's eNet node (`exponential-net-wasm`, built by
 # scripts/build-enet-wasm.sh): small over fast, it downloads after sign-in.
 [profile.wasm]

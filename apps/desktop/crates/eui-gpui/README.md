@@ -187,7 +187,8 @@ view.update(cx, |v, cx| {
   the surface the host shows. Windowed lists without a bounded height window
   off it. Dialogs, drawers and toasts are placed in it (centred in what the
   user sees, not from the surface top). `set_viewport_height` overrides the
-  height.
+  height; `set_fill_height(true)` lays the surface out AT it (a full-height
+  root fills a window the host owns; no scroller around the surface).
 - **Settings** (`SurfaceSettings`, `set_settings`): locale (week start, RTL
   for `ar`, `he`…), string overrides, mode `light | dark | system`
   (`system` follows the window appearance live), density, contrast, font
@@ -627,7 +628,7 @@ does not tag. The ratchet records on Linux only (the `gpui` job of
     `next_focus` / `is_focusable`.
   - `SurfaceView`: `new`, `apply`, `set_nested`, `set_data`, `set_theme`,
     `set_mode`, `set_settings`, `fonts_changed`, `register_painter`,
-    `surface`, `surface_mut`, `stats`, `set_viewport_height`, `set_width`,
+    `surface`, `surface_mut`, `stats`, `set_viewport_height`, `set_fill_height`, `set_width`,
     `index_of`, `layout_now`, `layers`, `focused`, `focus_order`,
     `focus_next`, `handle_key`, `press`, `fire`, `escape`, `flush_field`,
     `submit_composer`, `type_into`, `field_text`, `files_picked`,

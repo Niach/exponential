@@ -6,6 +6,8 @@ name: release-eengine
 # Not on crates.io (publish = false): consumers depend on the tag with git = + tag =
 # (docs/libraries.md "Consuming from another repo"). The contract and TS twin
 # (packages/eengine) publish as npm @exponential_app/engine at the same version.
+# The desktop runner (#VAPP-266) ships as release assets: exponential-runner
+# for macOS (universal), Linux (x86_64, arm64) and Windows (x86_64).
 # The phone facade eengine-ffi ships like Voice's:
 #   SwiftPM  ExponentialEngine: the xcframework zip on this release + the tagged
 #            distribution repo Niach/exponential-engine-swift (SWIFT_DIST_TOKEN)
@@ -205,8 +207,71 @@ jobs:
           path: dist-npm/*.tgz
           if-no-files-found: ignore
 
+  # #VAPP-266: the desktop runner (`exponential-runner`) as release assets,
+  # what E7's `exponential bundle` copies: a macOS universal binary (arm64 +
+  # x86_64 lipo'd), Linux x86_64 + arm64, Windows x86_64. Profile `runner`
+  # (stripped, thin LTO, log macros compiled out); no updater, no telemetry.
+  runner:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-26, asset: exponential-runner-macos-universal, targets: "aarch64-apple-darwin x86_64-apple-darwin" }
+          - { os: ubuntu-24.04, asset: exponential-runner-linux-x86_64, targets: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, asset: exponential-runner-linux-arm64, targets: aarch64-unknown-linux-gnu }
+          - { os: windows-latest, asset: exponential-runner-windows-x86_64.exe, targets: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      # The .app's floor (the desktop app's LSMinimumSystemVersion).
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config clang
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Targets
+        shell: bash
+        run: for t in ${{ matrix.targets }}; do rustup target add "$t"; done
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: runner-${{ matrix.os }}
+      - uses: ./.github/actions/cargo-fetch
+      - name: Tests (the glue and the dependency gate)
+        shell: bash
+        working-directory: apps/desktop
+        run: cargo test --locked -p eengine-runner
+      - name: Build
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          mkdir -p ../../dist-runner
+          bins=()
+          for t in ${{ matrix.targets }}; do
+            cargo build --locked -p eengine-runner --profile runner --target "$t"
+            bins+=("target/$t/runner/exponential-runner$([ "$RUNNER_OS" = Windows ] && echo .exe || true)")
+          done
+          if [ "${#bins[@]}" -gt 1 ]; then
+            lipo -create -output "../../dist-runner/${{ matrix.asset }}" "${bins[@]}"
+            lipo -info "../../dist-runner/${{ matrix.asset }}"
+          else
+            cp "${bins[0]}" "../../dist-runner/${{ matrix.asset }}"
+          fi
+          ls -l ../../dist-runner
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runner-${{ matrix.asset }}
+          path: dist-runner/
+
   release:
-    needs: [version, test, npm, swift, maven]
+    needs: [version, test, npm, swift, maven, runner]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -219,6 +284,7 @@ jobs:
           cp artifacts/swift/ExponentialEngineFFI.xcframework.zip out/
           cp artifacts/maven/central-bundle.zip out/engine-${{ needs.version.outputs.version }}-bundle.zip
           cp artifacts/npm/*.tgz out/ 2>/dev/null || true
+          cp artifacts/runner-*/exponential-runner-* out/
           cp LICENSE NOTICE out/
           (cd out && sha256sum * > SHA256SUMS)
           ls -l out

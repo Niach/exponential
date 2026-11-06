@@ -302,6 +302,8 @@ pub struct SurfaceView {
     /// The host fixed the width (`set_width`): gpui's layout does not move it.
     width_fixed: bool,
     viewport_height: f32,
+    /// #VAPP-266: lay out AT the viewport height (`set_fill_height`).
+    fill_height: bool,
     visible: VisibleRegion,
     origin: gpui::Point<Pixels>,
     /// #VAPP-252: [`SurfaceViewOptions::lift_layers`], the window they hang
@@ -553,6 +555,7 @@ impl SurfaceView {
             width,
             width_fixed: options.width.is_some(),
             viewport_height: 0.0,
+            fill_height: false,
             // Until the first prepaint sees the clip: the window.
             visible: VisibleRegion { left: 0.0, top: 0.0, height: window_size.1 },
             origin: gpui::Point::default(),
@@ -905,6 +908,18 @@ impl SurfaceView {
         }
     }
 
+    /// #VAPP-266: lay the surface out AT the viewport height
+    /// ([`Self::set_viewport_height`]) instead of as tall as its content, so
+    /// a full-height root fills it and scrolls inside (the runner's shell).
+    /// For a host that owns the whole window, with no scroller around it.
+    pub fn set_fill_height(&mut self, on: bool, cx: &mut Context<Self>) {
+        if on != self.fill_height {
+            self.changed = true;
+            self.fill_height = on;
+            cx.notify();
+        }
+    }
+
     /// Fix the surface width (gpui's layout no longer moves it).
     pub fn set_width(&mut self, width: f32, cx: &mut Context<Self>) {
         self.width_fixed = true;
@@ -1012,7 +1027,8 @@ impl SurfaceView {
         };
         let max_h = (visible_h > 0.0).then_some(visible_h);
         self.sync_appearance(window);
-        self.surface.set_viewport(self.width, 0.0, max_h);
+        let fill = if self.fill_height && self.viewport_height > 0.0 { self.viewport_height } else { 0.0 };
+        self.surface.set_viewport(self.width, fill, if fill > 0.0 { None } else { max_h });
         // #VAPP-253: a lifted top or bottom sheet spans the window.
         if self.lift_layers {
             self.surface.set_layer_viewport(self.window_size.0, self.window_size.1);
