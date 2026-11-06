@@ -208,12 +208,19 @@ impl Ctx {
     }
 }
 
-/// Icons by concept from the embedded set; everything else the painter's.
-struct Icons;
+/// Icons by concept from the embedded set; an `app-file:` src from the
+/// instance's BlobStore (VAPP-271); everything else the painter's.
+struct Icons {
+    files: Option<Arc<dyn eui_gpui::host::AppFiles>>,
+}
 
 impl HostPlugin for Icons {
     fn icon(&self, name: &str) -> Option<SharedString> {
         assets::icon_path(name)
+    }
+
+    fn app_files(&self) -> Option<Arc<dyn eui_gpui::host::AppFiles>> {
+        self.files.clone()
     }
 }
 
@@ -375,7 +382,7 @@ fn main() {
         // The genUI host: the app's functions and `records:` sources route to the instance.
         let bindings_next = Rc::new(Cell::new(0u64));
         let ctx_slot: Rc<RefCell<Option<Rc<Ctx>>>> = Rc::new(RefCell::new(None));
-        let mut options = HostOptions { theme: Some(theme.clone()), mode, plugin: Rc::new(Icons), lift_layers: true, ..Default::default() };
+        let mut options = HostOptions { theme: Some(theme.clone()), mode, plugin: Rc::new(Icons { files: booted.as_ref().ok().map(Runner::app_files) }), lift_layers: true, ..Default::default() };
         {
             let tx = tx.clone();
             options.on_send = Some(Rc::new(move |message: &Value| {

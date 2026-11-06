@@ -32,6 +32,19 @@ fn host_policy_every_function_url_media_source_and_negotiation_case_equals_the_r
     assert_all(support::policy_cases(), count("host-policy.json", &["functions", "combine", "urls", "media", "sources", "sourceParams", "negotiation"]));
 }
 
+/// VAPP-271: `appFiles` = app_file_id(src) (`catalog/host.json` media.appFile;
+/// not a conformance-manifest suite case, like the TS replay).
+#[test]
+fn host_policy_every_app_file_case_equals_the_reference() {
+    let f = fixture("host-policy.json");
+    let cases = f["appFiles"].as_array().unwrap();
+    assert!(!cases.is_empty());
+    for c in cases {
+        assert_eq!(json!(host::app_file_id(c["src"].as_str().unwrap())), c["expected"], "{}", c["name"]);
+    }
+    assert_eq!(host::APP_FILE_SCHEME, read("catalog/host.json")["media"]["appFile"]["scheme"]);
+}
+
 #[test]
 fn host_params_at_an_instant_in_a_zone() {
     let f = fixture("host-router.json");

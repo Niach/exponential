@@ -206,6 +206,19 @@ export function decideUrl(policy: UrlPolicy | undefined, url: string): UrlDecisi
   return { allowed: true, url: parsed.href }
 }
 
+/** VAPP-271 (catalog/host.json media.appFile): an app's own file as a src. */
+export const APP_FILE_SCHEME = `app-file`
+export const APP_FILE_ID_PATTERN = /^[A-Za-z0-9._-]{1,200}$/
+
+/** The file id of an `app-file:<fileId>` src, else null. A host with a
+ *  BlobStore resolves it before the media policy; any other host leaves it
+ *  unresolved (nothing loads, the fallback paints). */
+export function appFileId(src: unknown): string | null {
+  if (typeof src !== `string` || !src.startsWith(`${APP_FILE_SCHEME}:`)) return null
+  const id = src.slice(APP_FILE_SCHEME.length + 1)
+  return APP_FILE_ID_PATTERN.test(id) ? id : null
+}
+
 export interface MediaRule {
   prefix: string
   headers: Record<string, string>

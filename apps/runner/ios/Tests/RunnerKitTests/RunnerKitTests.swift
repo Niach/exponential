@@ -303,6 +303,38 @@ final class RunnerKitTests: XCTestCase {
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("at.acme.album").path))
     }
+
+    // VAPP-271: an `app-file:<fileId>` image reads the app's files: the store the Engine was handed.
+    func testAppFilesReadTheEnginesStore() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("runner-files-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let idle = session(.success(RunnerBundle(config: sampleConfig, packageJson: RunnerJSON.text(samplePackage))), Recorder(), dataRoot: root)
+        let notRunning = await idle.appFile("3f2c9a1e-8b7d-4c1e-9f00-1a2b3c4d5e6f")
+        XCTAssertNil(notRunning, "not running: nothing")
+        for dataRoot in [root, nil] as [URL?] {
+            let s = session(.success(RunnerBundle(config: sampleConfig, packageJson: RunnerJSON.text(samplePackage))), Recorder(), dataRoot: dataRoot)
+            s.start()
+            s.settle()
+            let blobs = try XCTUnwrap(s.blobs)
+            let id = try blobs.put(app: "acme.album", name: "a.png", mime: "image/png", bytes: Data([1, 2, 3]))
+            let got = await s.appFile(id)
+            XCTAssertEqual(got, Data([1, 2, 3]), "\(String(describing: dataRoot))")
+            let missing = await s.appFile(UUID().uuidString.lowercased())
+            XCTAssertNil(missing)
+            let notAnId = await s.appFile("../a")
+            XCTAssertNil(notAnId)
+            if dataRoot != nil {
+                // The Engine's FsBlobStore layout: <dataDir>/blobs/<app>/<id> + <id>.json.
+                let dir = root.appendingPathComponent("at.acme.album/blobs/acme.album")
+                XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(id)), Data([1, 2, 3]))
+                let meta = RunnerJSON.object(try String(contentsOf: dir.appendingPathComponent("\(id).json"), encoding: .utf8))
+                XCTAssertEqual(meta?["mime"] as? String, "image/png")
+                try blobs.delete(app: "acme.album", id: id)
+                let deleted = await s.appFile(id)
+                XCTAssertNil(deleted)
+            }
+        }
+    }
 }
 
 extension Result {

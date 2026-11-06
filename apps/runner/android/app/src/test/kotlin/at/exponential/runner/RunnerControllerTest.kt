@@ -98,7 +98,8 @@ class RunnerControllerTest {
         assertTrue(h.controller.onEvent("consent.answer", obj("answer" to "allow")))
         val value = withTimeout(5000) { pick.await() }
         assertEquals(1, h.photos.calls)
-        assertTrue("$value", value!!.json.contains("structuredContent"))
+        // VAPP-271: app UI reads the structuredContent.
+        assertTrue("$value", value!!.json.contains("\"photos\"") && !value.json.contains("structuredContent"))
         assertNull("the sheet closes", h.painter.surfaces[RunnerSurfaces.CONSENT])
         assertEquals("""{"photos.read":"granted"}""", h.controller.app!!.grantsJson())
         // Granted: the next pick runs without the sheet.
@@ -161,5 +162,38 @@ class RunnerControllerTest {
         h.controller.lifecycle("""{"type":"foreground"}""")
         h.controller.lifecycle("""{"type":"terminate"}""")
         assertTrue(h.controller.app!!.stateJson().contains("stopped"))
+    }
+
+    // VAPP-271: an `app-file:<fileId>` image reads the app's files: the store the Engine was handed.
+    @Test
+    fun appFilesReadTheEnginesStore() = runBlocking {
+        val idle = Harness()
+        assertNull("not running: nothing", idle.controller.appFile("3f2c9a1e-8b7d-4c1e-9f00-1a2b3c4d5e6f"))
+        val h = Harness()
+        assertTrue(h.start(ALBUM))
+        val id = h.blobs.put("acme.album", "a.png", "image/png", byteArrayOf(1, 2, 3))
+        assertTrue(h.controller.appFile(id)!!.contentEquals(byteArrayOf(1, 2, 3)))
+        assertNull(h.controller.appFile(java.util.UUID.randomUUID().toString()))
+        assertNull(h.controller.appFile("../a"))
+    }
+
+    @Test
+    fun runnerBlobsKeepTheEnginesLayout() {
+        val root = java.nio.file.Files.createTempDirectory("runner-blobs").toFile()
+        try {
+            val blobs = RunnerBlobs(java.io.File(root, "blobs"))
+            val id = blobs.put("acme.album", "a.png", "image/png", byteArrayOf(4, 5))
+            // FsBlobStore's layout: <dataDir>/blobs/<app>/<id> + <id>.json.
+            val dir = java.io.File(root, "blobs/acme.album")
+            assertTrue(java.io.File(dir, id).readBytes().contentEquals(byteArrayOf(4, 5)))
+            assertEquals("image/png", JsonValue.parse(java.io.File(dir, "$id.json").readText())["mime"]?.string)
+            assertTrue(blobs.get("acme.album", id)!!.contentEquals(byteArrayOf(4, 5)))
+            assertNull("not an id", blobs.get("acme.album", "../x"))
+            blobs.delete("acme.album", id)
+            assertNull(blobs.get("acme.album", id))
+            assertFalse(java.io.File(dir, "$id.json").exists())
+        } finally {
+            root.deleteRecursively()
+        }
     }
 }

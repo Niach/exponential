@@ -106,13 +106,13 @@ describe(`AppInstance`, () => {
     if (!(`ask` in asked)) throw new Error(JSON.stringify(asked))
     expect(asked.sheet.components[0]!.title).toBe(`Allow Album to access your photos?`)
     const answered = await app.answerConsent(`photos.pick`, {}, asked.ask, `allow`)
-    expect(answered).toEqual({ value: { content: [{ type: `text`, text: `{"photos":[]}` }], structuredContent: { photos: [] } } })
+    expect(answered).toEqual({ value: { photos: [] } }) // VAPP-271: the structuredContent
     expect(native.calls).toEqual([[`pick`, { limit: 1 }]]) // the bridge fills the default
     await app.broker.persisted
     expect(await vault.read(`eengine/grants/acme.album`)).toContain(`"photos.read":"granted"`)
     expect(`value` in (await app.call(`photos.pick`, {}))).toBe(true) // granted: no second sheet
     const bad = await app.call(`photos.pick`, { limit: 0 })
-    expect(`value` in bad && (bad.value as { content: { text: string }[] }).content[0]!.text).toBe(`invalidParams: /limit minimum`)
+    expect(bad).toEqual({ refused: { code: `failed`, message: `invalidParams: /limit minimum` } }) // an isError result is a refusal
     // Only the ConsentUi after a gesture changes a grant.
     expect(app.setGrant(`agent`, true, `photos.read`, null)).toBe(`onlyConsentUi`)
     expect(app.setGrant(`consentUi`, false, `photos.read`, null)).toBe(`noGesture`)

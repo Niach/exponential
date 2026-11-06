@@ -82,6 +82,9 @@ class RunnerController(
     private var pendingConsent: CompletableDeferred<ConsentAnswer>? = null
     private val sources = ArrayList<Pair<String, (JsonValue?) -> Unit>>()
 
+    /** VAPP-271: the app's files (the store the Engine was handed) + its app id. */
+    @Volatile private var files: Pair<String, RunnerBlobs>? = null
+
     /** The instance once the bundle loaded (tests). */
     val app: AppInstance? get() = instance
 
@@ -94,7 +97,7 @@ class RunnerController(
      * with [window]), or the failure surface (`missing`, `config`,
      * `signature`, `invalid`). Runs on the caller's thread.
      */
-    fun start(bundle: BundleLoad, engine: (RunnerConfig) -> Engine): Boolean {
+    fun start(bundle: BundleLoad, blobs: RunnerBlobs? = null, engine: (RunnerConfig) -> Engine): Boolean {
         val ready = when (bundle) {
             is BundleLoad.Failed -> return fail(bundle.kind)
             is BundleLoad.Ready -> bundle
@@ -108,7 +111,19 @@ class RunnerController(
         }
         instance = app
         packageId = app.appId()
+        files = blobs?.let { app.appId() to it }
         return true
+    }
+
+    /**
+     * VAPP-271: an `app-file:<fileId>` src's bytes (catalog/host.json
+     * media.appFile) from the running app's files, off the main thread and
+     * off [worker] (a picker may hold it); null = missing or not running.
+     * genUI's `appFile` hook.
+     */
+    suspend fun appFile(fileId: String): ByteArray? {
+        val (app, blobs) = files ?: return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { blobs.get(app, fileId) }.getOrNull() }
     }
 
     private fun fail(kind: String): Boolean {

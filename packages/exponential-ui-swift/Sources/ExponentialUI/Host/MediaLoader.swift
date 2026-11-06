@@ -59,14 +59,19 @@ final class MediaLoader {
         cache.object(forKey: Self.key(request) as NSString)
     }
 
-    func load(_ request: URLRequest, options: MediaOptions?) async -> PlatformImage? {
+    /// `appFile` answers an `app-file:` request (VAPP-271); without it such
+    /// a request loads nothing.
+    func load(_ request: URLRequest, options: MediaOptions?, appFile: AppFileLoader? = nil) async -> PlatformImage? {
         let key = Self.key(request)
         if let hit = cache.object(forKey: key as NSString) { return hit }
         if let running = inflight[key] { return await running.value }
         let session = self.session
         let limits = self.limits
+        let fileId = Self.appFileOf(request)
+        if fileId != nil, appFile == nil { return nil }
         let task = Task<PlatformImage?, Never>.detached {
-            try? await Self.fetch(request, session: session, limits: limits, options: options).get()
+            if let fileId, let appFile { return try? await Self.fetchAppFile(fileId, appFile, limits: limits).get() }
+            return try? await Self.fetch(request, session: session, limits: limits, options: options).get()
         }
         inflight[key] = task
         let image = await task.value
@@ -80,6 +85,31 @@ final class MediaLoader {
     nonisolated static func fetch(_ request: URLRequest, session: URLSession, limits: MediaLimits, options: MediaOptions? = nil) async -> Result<PlatformImage, Failure> {
         switch await fetchData(request, session: session, limits: limits, options: options) {
         case .success(let (data, _)): return decode(data, limits: limits)
+        case .failure(let f): return .failure(f)
+        }
+    }
+
+    // MARK: - App files (VAPP-271, catalog/host.json media.appFile)
+
+    /// The request an `app-file:<fileId>` src loads with (never sent: the
+    /// loader asks the host's `appFile`). Cached per file id.
+    nonisolated static func appFileRequest(_ fileId: String) -> URLRequest? {
+        URL(string: "\(appFileScheme):\(fileId)").map { URLRequest(url: $0) }
+    }
+
+    /// The file id an `app-file:` request names, else nil.
+    nonisolated static func appFileOf(_ request: URLRequest) -> String? {
+        request.url.flatMap { appFileId($0.absoluteString) }
+    }
+
+    /// One app file as a picture under `limits`: the host's bytes within
+    /// `timeoutMs`, at most `maxBytes`, then the header-checked decode. A
+    /// missing file fails like a 404 (the fallback paints).
+    nonisolated static func fetchAppFile(_ fileId: String, _ appFile: @escaping AppFileLoader, limits: MediaLimits) async -> Result<PlatformImage, Failure> {
+        let got = await bounded(max(limits.timeoutMs, 1) / 1000) { await appFile(fileId) }
+        switch got {
+        case .success(nil): return .failure(.http(404))
+        case .success(let data?): return decode(data, limits: limits)
         case .failure(let f): return .failure(f)
         }
     }
@@ -193,6 +223,8 @@ final class MediaLoader {
     /// server that redirects the probe and the player differently is not
     /// re-policed. A fetched file is retained until `release`.
     func playable(_ request: URLRequest, kind: MediaKind, options: MediaOptions?) async -> Playable? {
+        // VAPP-271: an app file is an image src; a player opens nothing.
+        if Self.appFileOf(request) != nil { return nil }
         switch Self.playback(request) {
         case .stream(let request):
             guard let scheme = request.url?.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
@@ -394,6 +426,8 @@ struct MediaImage<Content: View, Placeholder: View>: View {
     let request: URLRequest?
     /// The media policy its redirects pass (`SurfaceModel.mediaPolicy`).
     let options: MediaOptions?
+    /// VAPP-271: the host's app files (`SurfaceModel.appFile`).
+    var appFile: AppFileLoader? = nil
     @ViewBuilder let content: (Image) -> Content
     @ViewBuilder let placeholder: () -> Placeholder
     @State private var image: PlatformImage?
@@ -414,7 +448,7 @@ struct MediaImage<Content: View, Placeholder: View>: View {
                 loadedKey = nil
                 return
             }
-            let loaded = await MediaLoader.shared.load(request, options: options)
+            let loaded = await MediaLoader.shared.load(request, options: options, appFile: appFile)
             image = loaded
             loadedKey = key
         }

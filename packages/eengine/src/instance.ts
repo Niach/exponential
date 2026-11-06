@@ -91,7 +91,15 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 /** The package a file carries (`package`), or the value itself when it is a bare package. */
 export const packageOf = (file: unknown): unknown => (isObject(file) && isObject(file.package) ? file.package : file)
 
-const brokered = (answer: BrokerAnswer): CallResult => (`result` in answer ? { value: answer.result } : answer)
+/** VAPP-271: app UI reads a capability's answer as its `structuredContent`
+ *  (an action step's `results.<name>`); an `isError` result is the call's
+ *  refusal, its text the toast. */
+const brokered = (answer: BrokerAnswer): CallResult => {
+  if (!(`result` in answer)) return answer
+  const { result } = answer
+  if (result.isError) return { refused: { code: `failed`, message: result.content[0]?.text ?? `failed` } }
+  return { value: result.structuredContent ?? null }
+}
 
 const failure = (code: string, error: unknown): Failure =>
   isObject(error) && typeof error.code === `string` && typeof error.message === `string` ? { code: error.code, message: error.message } : { code, message: error instanceof Error ? error.message : String(error) }

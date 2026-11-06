@@ -229,6 +229,11 @@ public protocol HostPlugin: AnyObject {
     /// (`mediaOptions`). The surface re-checks the result's url against the
     /// media schemes / hosts.
     func mediaRequest(_ src: String) -> URLRequest?
+    /// VAPP-271 (catalog/host.json `media.appFile`): the bytes of an app
+    /// file for an `app-file:<fileId>` src (the Engine's runners: their
+    /// BlobStore), loaded once under the image limits and cached like any
+    /// image. nil (the default) = such a src loads nothing (the fallback).
+    var appFile: AppFileLoader? { get }
     /// A component's painter failed (it painted an empty box). Called once
     /// per surface + component + message.
     func onPaintError(_ error: SurfacePaintError)
@@ -273,6 +278,7 @@ public extension HostPlugin {
     func mediaRequest(_ src: String) -> URLRequest? {
         policyMediaRequest(resolveUrl(src), options: mediaOptions)
     }
+    var appFile: AppFileLoader? { nil }
     func onPaintError(_ error: SurfacePaintError) {}
 
     /// The URL policy with its `baseUrl` defaulting to the media one.
@@ -325,6 +331,8 @@ public final class ClosureHost: HostPlugin {
     public var paintErrors: (SurfacePaintError) -> Void
     public var urlPolicy: UrlPolicy?
     public var mediaOptions: MediaOptions?
+    /// VAPP-271: `app-file:<fileId>` bytes (nil = such a src loads nothing).
+    public var appFile: AppFileLoader?
 
     public init(
         icons: @escaping (String, CGFloat) -> AnyView? = { _, _ in nil },
@@ -336,8 +344,10 @@ public final class ClosureHost: HostPlugin {
         announcements: @escaping (String, String) -> Void = { _, _ in },
         paintErrors: @escaping (SurfacePaintError) -> Void = { _ in },
         urlPolicy: UrlPolicy? = nil,
-        mediaOptions: MediaOptions? = nil
+        mediaOptions: MediaOptions? = nil,
+        appFile: AppFileLoader? = nil
     ) {
+        self.appFile = appFile
         self.paintErrors = paintErrors
         self.urlPolicy = urlPolicy
         self.mediaOptions = mediaOptions

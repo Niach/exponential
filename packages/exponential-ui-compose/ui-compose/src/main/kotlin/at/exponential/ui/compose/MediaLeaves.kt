@@ -137,12 +137,19 @@ object LeafImages {
         request: MediaRequest,
         limits: MediaLimits = MediaLimits.contract,
         police: (String) -> MediaRequest? = { null },
+        appFile: at.exponential.ui.host.AppFileLoader? = null,
     ): ImageBitmap? {
         val url = request.url
         cache.get(url)?.let { return it }
+        // VAPP-271: an `app-file:` request reads the host's app files (none = nothing loads).
+        val fileId = at.exponential.ui.host.appFileId(url)
+        if (fileId != null && appFile == null) return null
         if (hasFailed(url)) return null
         val bitmap = withContext(Dispatchers.IO) {
-            runCatching { decode(fetch(request, limits, police), limits) }.getOrNull()
+            runCatching {
+                val bytes = if (fileId != null && appFile != null) appFileBytes(fileId, appFile, limits) else fetch(request, limits, police)
+                decode(bytes, limits)
+            }.getOrNull()
         }
         if (bitmap == null) {
             synchronized(failed) { failed.add(url) }
@@ -150,6 +157,17 @@ object LeafImages {
         }
         cache.put(url, bitmap)
         return bitmap
+    }
+
+    /**
+     * VAPP-271: one app file's bytes within [limits] (`timeoutMs`, `maxBytes`).
+     * A missing file fails like a 404. Throws [LoadFailure].
+     */
+    suspend fun appFileBytes(fileId: String, appFile: at.exponential.ui.host.AppFileLoader, limits: MediaLimits = MediaLimits.contract): ByteArray {
+        val bytes = kotlinx.coroutines.withTimeoutOrNull(limits.timeoutMs) { appFile(fileId) ?: throw LoadFailure(Failure.Http, "app file $fileId not found") }
+            ?: throw LoadFailure(Failure.Timeout, "app file $fileId timed out")
+        if (bytes.size.toLong() > limits.maxBytes) throw LoadFailure(Failure.TooLarge, "${bytes.size} > ${limits.maxBytes}")
+        return bytes
     }
 
     /** The bytes of a policed request within [limits] (blocking). Throws [LoadFailure]. */
@@ -337,7 +355,7 @@ internal fun rememberPolicedImage(model: at.exponential.ui.model.SurfaceModel, s
     if (src.isEmpty()) return null
     val request = remember(src, model.host) { model.mediaRequest(src) } ?: return null
     val image by produceState(LeafImages.cached(request.url), request) {
-        value = LeafImages.load(request, police = { model.mediaRequest(it) })
+        value = LeafImages.load(request, police = { model.mediaRequest(it) }, appFile = model.host.appFile)
     }
     return image
 }

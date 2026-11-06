@@ -146,13 +146,15 @@ fn capability_calls_go_through_the_broker() {
     };
     assert_eq!(sheet.components[0]["title"], json!("Allow Album to access your photos?"));
     match app.answer_consent("photos.pick", &json!({}), &verdict, ConsentAnswer::Allow) {
-        CallResult::Value(v) => assert_eq!(v, json!({"content": [{"type": "text", "text": "{\"photos\":[]}"}], "structuredContent": {"photos": []}})),
+        // VAPP-271: app UI reads the structuredContent.
+        CallResult::Value(v) => assert_eq!(v, json!({"photos": []})),
         other => panic!("{other:?}"),
     }
     assert!(vault.read("eengine/grants/acme.album").unwrap().contains("\"photos.read\":\"granted\""));
     assert!(matches!(app.call("photos.pick", &json!({}), &[]), CallResult::Value(_)), "granted: no second sheet");
     match app.call("photos.pick", &json!({"limit": 0}), &[]) {
-        CallResult::Value(v) => assert_eq!(v["content"][0]["text"], json!("invalidParams: /limit minimum")),
+        // An isError result is a refusal.
+        CallResult::Refused(f) => assert_eq!((f.code.as_str(), f.message.as_str()), ("failed", "invalidParams: /limit minimum")),
         other => panic!("{other:?}"),
     }
     // Only the ConsentUi after a gesture changes a grant.
