@@ -36,6 +36,25 @@ export function aggregateChecksState(checks: readonly PrCheckLike[]): PrChecksSt
   return `success`
 }
 
+/** #FEED-199 (`fixture.wake`): the state a `pr_checks` wake reports, or
+ *  null = no wake yet. Gated = the base branch's `required` names when it
+ *  names any (a required name without a row = not reported), else every
+ *  row. A `cancelled` run is no outcome (a push/rebase superseded it).
+ *  failure = a gated red other than cancelled (wins) · success = every gated
+ *  check completed, none red or cancelled · else null. */
+export function checksWakeState<T extends PrCheckLike>(
+  checks: readonly T[],
+  required: Iterable<string>
+): { state: `success` | `failure`; gated: T[] } | null {
+  const names = new Set(required)
+  const gated = names.size > 0 ? checks.filter((check) => names.has(check.name)) : [...checks]
+  if (gated.length === 0) return null
+  if (gated.some((check) => isFailingCheck(check) && check.conclusion !== `cancelled`)) return { state: `failure`, gated }
+  if (names.size > 0 && [...names].some((name) => !gated.some((check) => check.name === name))) return null
+  if (gated.some((check) => check.status !== `completed` || check.conclusion === `cancelled`)) return null
+  return { state: `success`, gated }
+}
+
 /** GitHub's check-run / workflow-run status → contract prCheckStatus. */
 export function checkStatusFromGithub(status: string | null | undefined): PrCheckStatus {
   if (status === `completed`) return `completed`
