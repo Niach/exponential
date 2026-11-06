@@ -99,6 +99,56 @@ stores files and shapes app results; these only see native arguments
 - Limits: iOS keeps at most 64 pending notifications; a library change
   between `list` pages can shift the offset cursor.
 
+## Capabilities (Kotlin)
+
+The AAR also ships the native capabilities v1 (#VAPP-265,
+`packages/eengine/fixtures/capabilities.json`), package
+`at.exponential.engine.capabilities` (`android/src/main/kotlin`):
+
+```kotlin
+val host = ComponentActivityHost(applicationContext) { currentActivity } // the foreground ComponentActivity
+val capabilities = AndroidCapabilities.all(host) // photos, files, share, print, notifications → EngineProviders.capabilities
+AndroidNotifications.configure(applicationContext, R.drawable.ic_notification, "Reminders") // optional
+// launch activity, onCreate + onNewIntent:
+NotificationTaps.fromIntent(intent)?.let { tap -> instance.event(tap) }
+```
+
+**Threading:** a call BLOCKS until the person is done (picker, chooser,
+print dialog, permission prompt): the Engine calls on its worker thread, the
+UI work is posted to the main thread over the host's ActivityResultRegistry
+and waited on. Never call a capability on the main thread: every tool
+answers `failed: main thread` there. A pending call fails (`failed: activity
+gone`) when its activity is destroyed (a rotation included, unless the host
+declares `android:configChanges`).
+
+| capability | Android |
+|---|---|
+| `photos` | `list`/`get`: MediaStore.Images, newest first (DATE_TAKEN, then DATE_MODIFIED), id = the content URI, cursor = an offset token; `pick`: the Photo Picker (`PickVisualMedia` / `PickMultipleVisualMedia`) |
+| `files` | SAF `ACTION_OPEN_DOCUMENT` (accept → MIME types; an unknown extension widens to every type), `ACTION_CREATE_DOCUMENT` |
+| `share` | an `ACTION_SEND` chooser; a file through the library's `ShareFileProvider` (read-only, URI grants, cache files pruned after a day); `shared` = the chooser's chosen-component callback (Copy and similar chooser actions read as false) |
+| `print` | PrintManager: a PDF as is, a PNG/JPEG fitted onto a page; `printed` = the job queued/started/completed |
+| `notifications` | NotificationManagerCompat on channel `exponential-engine`, tag = the id, numeric id = FNV-1a of it; a future `at` = an inexact `setAndAllowWhileIdle` alarm; records in SharedPreferences (`cancelled` = a pending one, or a shown one still in the shade); a tap opens the launch activity with the tap JSON verbatim as an extra |
+
+`toolsJson()` = the fixture's native `tools` (description + the app-facing
+`inputSchema`), generated into `ToolCatalog.kt` and locked by its test.
+
+The library manifest merges its components into the app: `ShareFileProvider`
+(`${applicationId}.exponential.engine.share`), `ShareChosenReceiver`,
+`NotificationAlarmReceiver`, `NotificationBootReceiver` (none exported).
+The PERMISSIONS are the app's (E7 declares them; the library declares none):
+
+| capability | permissions |
+|---|---|
+| `photos` | `READ_MEDIA_IMAGES` (API 33+), `READ_MEDIA_VISUAL_USER_SELECTED` (API 34+, partial access), `READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"`; `pick` needs none |
+| `files`, `share`, `print` | none |
+| `notifications` | `POST_NOTIFICATIONS` (API 33+, asked on the first post); `RECEIVE_BOOT_COMPLETED` (re-arms scheduled ones after a reboot; without it they wait for the next app update) |
+
+`cd android && ../../../../../packages/exponential-ui-compose/gradlew -p . testDebugUnitTest`
+runs the pure parts on the plain JVM (fakes behind `PhotoLibrary`,
+`DocumentPicker`, `ShareSheet`, `Printer`, `NotificationPoster`,
+`AlarmScheduler`, `NotificationStore`; no `.so`) against the fixture's
+`nativeOutputSchema` and `bridgeCases`.
+
 ## Features
 
 `sqlite` (default): the SQLite record store. `hub`: MCP Proxy's in-process
