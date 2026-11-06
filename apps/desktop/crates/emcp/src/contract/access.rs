@@ -115,3 +115,27 @@ pub fn tool_visible(level: Level, access: ToolAccess) -> bool {
     };
     level >= needed
 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantScopeInput {
+    /// The member's hidden personal team (the Assistant's own conversation).
+    pub personal_team_id: String,
+    /// The teams the member belongs to now, in their order.
+    pub member_team_ids: Vec<String>,
+    /// The composer's Teams pick on the conversation root; `None` = every team.
+    pub picked_team_ids: Option<Vec<String>>,
+}
+
+/// #EXP-1720: the teams an Assistant tree may touch this turn: the personal
+/// team, then the picked teams ∩ the member's (`None` = all).
+pub fn assistant_scope(input: &AssistantScopeInput) -> Vec<String> {
+    let mut teams = vec![input.personal_team_id.clone()];
+    for team in &input.member_team_ids {
+        let picked = input.picked_team_ids.as_ref().is_none_or(|picked| picked.contains(team));
+        if picked && !teams.contains(team) {
+            teams.push(team.clone());
+        }
+    }
+    teams
+}

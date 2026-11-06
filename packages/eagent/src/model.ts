@@ -49,6 +49,9 @@ export interface HubSession {
   wakeOn: string[]
   /** A ROOT's tree key epoch (EXP-1458): non-null = keyed, its tree takes sealed text only (#FEED-185). */
   sealEpoch: number | null
+  /** #EXP-1720: a ROOT's OTHER teams its tree may work in besides its own (the Assistant's picked teams ∩ the
+   *  member's, emcp access.json `assistantScope`); null = its own team only. */
+  scopeTeamIds: string[] | null
   createdAt: number
   startedAt: number | null
   endedAt: number | null

@@ -389,16 +389,29 @@ fn bus_report(ctx: &mut Ctx, child: &HubSession, summary: Option<&str>, summary_
     }
 }
 
-/// `watcher` watches `ids`: live sessions of its team its account may see, never itself.
+/// #EXP-1720: the teams `row`'s tree works in: its root's own team, then the root's scope teams.
+pub fn tree_teams(state: &HubState, row: &HubSession) -> Vec<String> {
+    let root = state.sessions.get(&row.root_id).unwrap_or(row);
+    let mut teams = vec![root.team_id.clone()];
+    for team in root.scope_team_ids.iter().flatten() {
+        if !teams.contains(team) {
+            teams.push(team.clone());
+        }
+    }
+    teams
+}
+
+/// `watcher` watches `ids`: live sessions of its tree's teams its account may see, never itself.
 fn watch_sessions(ctx: &mut Ctx, watcher_id: &str, ids: &[String]) -> Vec<String> {
     let Some(watcher) = ctx.state.sessions.get(watcher_id) else { return vec![] };
+    let teams = tree_teams(&ctx.state, watcher);
     let mut seen = HashSet::new();
     let live: Vec<String> = ids
         .iter()
         .filter(|id| seen.insert(id.as_str()))
         .filter(|id| *id != watcher_id)
         .filter_map(|id| ctx.state.sessions.get(id))
-        .filter(|row| is_live(row) && row.team_id == watcher.team_id && (row.shared || row.user_id == watcher.user_id))
+        .filter(|row| is_live(row) && teams.contains(&row.team_id) && (row.shared || row.user_id == watcher.user_id))
         .map(|row| row.id.clone())
         .collect();
     let watcher = ctx.row_mut(watcher_id);
@@ -460,6 +473,7 @@ fn insert_session(ctx: &mut Ctx, row: NewSession) -> Step<HubSession> {
         blocked: None,
         wake_on: vec![],
         seal_epoch: None,
+        scope_team_ids: None,
         created_at: ctx.now,
         started_at: None,
         ended_at: None,
@@ -521,6 +535,23 @@ struct SendData {
     attachment_ids: Option<Vec<String>>,
     /// The id a fresh thread or a continuation takes.
     fresh_id: Option<String>,
+    /// #EXP-1720: the team a new session starts in (one of the caller's / parent's tree teams).
+    team_id: Option<String>,
+    /// #EXP-1720: the Assistant's teams for this turn (a message to its conversation root): the root's new scope.
+    scope_team_ids: Option<Vec<String>>,
+}
+
+/// #EXP-1720: the team a new session of a tree starts in: the named one when the tree works there, else refused.
+fn start_team(state: &HubState, tree: Option<&HubSession>, team_id: Option<&String>, fallback: &str) -> Step<String> {
+    match team_id {
+        Some(team) if !team.is_empty() && team != fallback => {
+            if tree.is_some_and(|tree| !tree_teams(state, tree).contains(team)) {
+                return refuse(ErrorCode::Forbidden, text(&["teamOutOfScope"]));
+            }
+            Ok(team.clone())
+        }
+        _ => Ok(fallback.to_string()),
+    }
 }
 
 fn sent(id: String, message_id: Option<String>) -> StepResult {
@@ -543,6 +574,10 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
         return refuse(ErrorCode::Invalid, text(&["startNeedsWork"]));
     }
     let id = data.id.clone().or_else(|| data.fresh_id.clone()).unwrap_or_default();
+    let team_id = match caller {
+        Some(c) if caller_tree_agent(&ctx.state, Some(c)).is_some() => start_team(&ctx.state, Some(c), data.team_id.as_ref(), &c.team_id)?,
+        _ => data.team_id.clone().or_else(|| caller.map(|c| c.team_id.clone())).unwrap_or_else(|| default_session("teamId")),
+    };
     let root = insert_session(
         ctx,
         NewSession {
@@ -550,7 +585,7 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
             parent_id: None,
             root_id: id,
             depth: 0,
-            team_id: caller.map_or_else(|| default_session("teamId"), |c| c.team_id.clone()),
+            team_id,
             user_id: data.user_id.clone().or_else(|| caller.map(|c| c.user_id.clone())).unwrap_or_else(|| default_session("userId")),
             shared: data.shared.unwrap_or(true),
             device_id,
@@ -576,6 +611,7 @@ fn start_child(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> S
     let parent = session(&ctx.state, data.parent_id.as_deref())?;
     assert_tree_room(&ctx.state, &parent.root_id, parent.depth + 1)?;
     let root = session(&ctx.state, Some(&parent.root_id))?;
+    let team_id = start_team(&ctx.state, Some(&parent), data.team_id.as_ref(), &parent.team_id)?;
     let child = insert_session(
         ctx,
         NewSession {
@@ -583,7 +619,7 @@ fn start_child(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> S
             parent_id: Some(parent.id.clone()),
             root_id: parent.root_id.clone(),
             depth: parent.depth + 1,
-            team_id: parent.team_id.clone(),
+            team_id,
             user_id: data.user_id.clone().or_else(|| caller.map(|c| c.user_id.clone())).unwrap_or_else(|| parent.user_id.clone()),
             shared: root.shared,
             device_id: data.device_id.clone().unwrap_or_else(|| parent.device_id.clone()),
@@ -640,7 +676,25 @@ fn agent_fresh_thread(ctx: &mut Ctx, data: &SendData, caller: &HubSession, targe
 }
 
 fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> Step<StepResult> {
-    let target = session(&ctx.state, data.session_id.as_deref())?;
+    let mut target = session(&ctx.state, data.session_id.as_deref())?;
+    if let Some(scope) = &data.scope_team_ids {
+        // #EXP-1720: a turn's teams are the Assistant's alone: they become its conversation root's scope.
+        let assistant = target.agent_id.as_ref().and_then(|id| ctx.state.agents.get(id)).is_some_and(|a| a.role == AgentRole::Assistant);
+        if target.parent_id.is_some() || !assistant {
+            return refuse(ErrorCode::Invalid, text(&["scopeAssistantOnly"]));
+        }
+        let mut teams: Vec<String> = vec![];
+        for team in scope {
+            if *team != target.team_id && !teams.contains(team) {
+                teams.push(team.clone());
+            }
+        }
+        let now = ctx.now;
+        let row = ctx.row_mut(&target.id);
+        row.scope_team_ids = Some(teams);
+        row.updated_at = now;
+        target = row.clone();
+    }
     if let Some(caller) = caller {
         if let Some(fresh) = agent_fresh_thread(ctx, data, caller, &target)? {
             return Ok(fresh);
@@ -1235,7 +1289,12 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
 // ── wake-ups: schedules and events ───────────────────────────────────────────
 
 fn trees_moved(ctx: &Ctx, agent: &HubAgent, since: i64) -> bool {
-    let rows: Vec<&HubSession> = ctx.state.sessions.values().filter(|row| row.team_id == agent.team_id).collect();
+    // #EXP-1720: an Assistant's chats span its conversation's teams.
+    let teams = match ctx.state.sessions.get(&agent.conversation_id) {
+        Some(conversation) if agent.role == AgentRole::Assistant => tree_teams(&ctx.state, conversation),
+        _ => vec![agent.team_id.clone()],
+    };
+    let rows: Vec<&HubSession> = ctx.state.sessions.values().filter(|row| teams.contains(&row.team_id)).collect();
     let moved = |row: &&HubSession| row.last_activity_at.is_some_and(|at| at > since);
     if agent.role == AgentRole::Assistant {
         // An Assistant watches all its member's chats; its own conversation's turns are not news, its children are.

@@ -88,3 +88,20 @@ export function effectiveAccess(input: AccessInput): Level {
 export function toolVisible(level: Level, access: ToolAccess): boolean {
   return RANK[level] >= RANK[access]
 }
+
+export interface AssistantScopeInput {
+  /** The member's hidden personal team (the Assistant's own conversation). */
+  personalTeamId: string
+  /** The teams the member belongs to now, in their order. */
+  memberTeamIds: readonly string[]
+  /** The composer's Teams pick on the conversation root; null = every team. */
+  pickedTeamIds: readonly string[] | null
+}
+
+/** #EXP-1720: the teams an Assistant tree may touch this turn: the
+ *  personal team, then the picked teams ∩ the member's (null = all). */
+export function assistantScope(input: AssistantScopeInput): string[] {
+  const picked = input.pickedTeamIds === null ? null : new Set(input.pickedTeamIds)
+  const teams = input.memberTeamIds.filter((id) => picked === null || picked.has(id))
+  return [...new Set([input.personalTeamId, ...teams])]
+}
