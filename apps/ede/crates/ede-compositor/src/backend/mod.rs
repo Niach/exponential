@@ -267,16 +267,42 @@ smithay::backend::renderer::element::render_elements! {
     Solid=smithay::backend::renderer::element::solid::SolidColorRenderElement,
 }
 
-/// The pointer at `pos` (output-local): the client's cursor surface if it
-/// set one, nothing if it hid it, else `fallback` with its hotspot.
+/// Where a cursor image goes on an output of `scale`: the pointer at `pos`
+/// (output-local, logical) less the image's `hotspot` (logical). Returns the
+/// image's top-left in the output's physical pixels and the hotspot in
+/// physical pixels, the plane's HOTSPOT_X/Y (a host cursor in a VM puts it
+/// under the host pointer). Both are in physical pixels: the elements are
+/// laid out in them, so a logical position at a scale above 1 drew the
+/// cursor towards the top left.
+pub fn cursor_placement(
+    pos: smithay::utils::Point<f64, smithay::utils::Logical>,
+    hotspot: smithay::utils::Point<f64, smithay::utils::Logical>,
+    scale: f64,
+) -> (smithay::utils::Point<i32, smithay::utils::Physical>, smithay::utils::Point<i32, smithay::utils::Physical>) {
+    let hotspot = hotspot.to_physical(scale).to_i32_round();
+    (pos.to_physical(scale).to_i32_round() - hotspot, hotspot)
+}
+
+/// The scale an xcursor image is picked and uploaded at on an output of
+/// `scale`: the next whole one (1.5 takes the 2x image, drawn at 1.5).
+pub fn cursor_buffer_scale(scale: f64) -> i32 {
+    (scale.ceil() as i32).max(1)
+}
+
+/// The pointer at `pos` (output-local, logical) on an output of `scale`:
+/// the client's cursor surface if it set one, nothing if it hid it, else
+/// `fallback` (uploaded at `cursor_buffer_scale`) with its hotspot in
+/// logical pixels. Also returns the hotspot in physical pixels (`None` =
+/// no cursor).
 #[cfg_attr(not(feature = "udev"), allow(dead_code))]
 pub fn cursor_elements<R>(
     state: &Ede,
     renderer: &mut R,
     pos: smithay::utils::Point<f64, smithay::utils::Logical>,
+    scale: f64,
     fallback: &smithay::backend::renderer::element::memory::MemoryRenderBuffer,
-    hotspot: (i32, i32),
-) -> Vec<OutputElements<R>>
+    hotspot: smithay::utils::Point<f64, smithay::utils::Logical>,
+) -> (Vec<OutputElements<R>>, Option<smithay::utils::Point<i32, smithay::utils::Physical>>)
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Send + Clone + 'static,
@@ -287,22 +313,24 @@ where
         wayland::compositor::with_states,
     };
     match &state.cursor_status {
-        CursorImageStatus::Hidden => vec![],
+        CursorImageStatus::Hidden => (vec![], None),
         CursorImageStatus::Surface(surface) => {
             let hotspot = with_states(surface, |s| {
                 s.data_map.get::<std::sync::Mutex<CursorImageAttributes>>().map(|a| a.lock().unwrap().hotspot).unwrap_or_default()
             });
-            let at = (pos - hotspot.to_f64()).to_physical(1.0).to_i32_round();
-            render_elements_from_surface_tree(renderer, surface, at, 1.0, 1.0, Kind::Cursor)
+            let (at, hotspot) = cursor_placement(pos, hotspot.to_f64(), scale);
+            let elements = render_elements_from_surface_tree(renderer, surface, at, scale, 1.0, Kind::Cursor)
                 .into_iter()
                 .map(OutputElements::Surface)
-                .collect()
+                .collect();
+            (elements, Some(hotspot))
         }
         CursorImageStatus::Named(_) => {
-            let at = (pos - smithay::utils::Point::from((hotspot.0 as f64, hotspot.1 as f64))).to_physical(1.0);
-            MemoryRenderBufferRenderElement::from_buffer(renderer, at, fallback, None, None, None, Kind::Cursor)
+            let (at, hotspot) = cursor_placement(pos, hotspot, scale);
+            let elements = MemoryRenderBufferRenderElement::from_buffer(renderer, at.to_f64(), fallback, None, None, None, Kind::Cursor)
                 .map(|e| vec![OutputElements::Memory(e)])
-                .unwrap_or_default()
+                .unwrap_or_default();
+            (elements, Some(hotspot))
         }
     }
 }
@@ -371,6 +399,35 @@ impl FrameHealth {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cursor_sits_under_the_pointer_at_every_scale() {
+        // 4K at 200%: the pointer at logical (960, 540) is physical (1920, 1080).
+        let (at, hot) = cursor_placement((960.0, 540.0).into(), (4.0, 4.0).into(), 2.0);
+        assert_eq!((at.x, at.y, hot.x, hot.y), (1912, 1072, 8, 8));
+        assert_eq!(at + hot, (1920, 1080).into(), "the hotspot lands exactly on the pointer");
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0, 3.0] {
+            for (pos, hotspot) in [((0.0, 0.0), (0.0, 0.0)), ((1280.4, 719.6), (4.0, 3.0)), ((10.0, 3000.0), (12.5, 12.5))] {
+                let (at, hot) = cursor_placement(pos.into(), hotspot.into(), scale);
+                let pointer = smithay::utils::Point::<f64, smithay::utils::Logical>::from(pos).to_physical(scale).to_i32_round();
+                assert_eq!(at + hot, pointer, "scale {scale}, pointer {pos:?}");
+                assert_eq!(hot, smithay::utils::Point::<f64, smithay::utils::Logical>::from(hotspot).to_physical(scale).to_i32_round());
+            }
+        }
+        // At 100% nothing moves (the case that always looked right).
+        let (at, hot) = cursor_placement((100.0, 50.0).into(), (1.0, 1.0).into(), 1.0);
+        assert_eq!((at.x, at.y, hot.x, hot.y), (99, 49, 1, 1));
+    }
+
+    #[test]
+    fn an_xcursor_image_is_picked_at_the_next_whole_scale() {
+        assert_eq!(cursor_buffer_scale(1.0), 1);
+        assert_eq!(cursor_buffer_scale(1.25), 2);
+        assert_eq!(cursor_buffer_scale(1.5), 2);
+        assert_eq!(cursor_buffer_scale(2.0), 2);
+        assert_eq!(cursor_buffer_scale(2.5), 3);
+        assert_eq!(cursor_buffer_scale(0.5), 1);
+    }
 
     #[test]
     fn a_card_renders_through_egls_node_else_its_own_render_node_else_itself() {

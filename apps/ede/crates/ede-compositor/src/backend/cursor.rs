@@ -33,9 +33,13 @@ impl Cursor {
         Self { icons, size }
     }
 
-    /// The frame to show at `time` (themes may animate).
-    pub fn image(&self, time: Duration) -> Image {
-        let nearest = self.icons.iter().min_by_key(|i| (self.size as i32 - i.size as i32).abs()).unwrap();
+    /// The frame to show at `time` (themes may animate) on an output whose
+    /// cursor buffers have `buffer_scale`: the theme's size nearest
+    /// `$XCURSOR_SIZE` times that, so a 200% output gets the 48 px image,
+    /// not the 24 px one stretched.
+    pub fn image(&self, buffer_scale: i32, time: Duration) -> Image {
+        let want = self.size as i32 * buffer_scale;
+        let nearest = self.icons.iter().min_by_key(|i| (want - i.size as i32).abs()).unwrap();
         let frames: Vec<&Image> = self.icons.iter().filter(|i| i.width == nearest.width && i.height == nearest.height).collect();
         let total: u32 = frames.iter().map(|i| i.delay).sum();
         if total == 0 {
@@ -49,5 +53,12 @@ impl Cursor {
             ms -= f.delay;
         }
         frames[0].clone()
+    }
+
+    /// The buffer scale `image` is uploaded at: how many times
+    /// `$XCURSOR_SIZE` it is (a theme without a 48 px image gives the 24 px
+    /// one at 1, stretched, rather than a cursor half the size).
+    pub fn buffer_scale(&self, image: &Image) -> i32 {
+        ((image.size as f64 / self.size.max(1) as f64).round() as i32).max(1)
     }
 }

@@ -53,13 +53,13 @@ use smithay::{
         },
         drm::{
             control::{connector, crtc, Device as _, ModeTypeFlags},
-            Device as _,
+            ClientCapability, Device as _,
         },
         input::Libinput,
         rustix::fs::OFlags,
         wayland_server::{backend::GlobalId, Display},
     },
-    utils::DeviceFd,
+    utils::{DeviceFd, Physical, Point},
     wayland::{
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder},
         drm_syncobj::{supports_syncobj_eventfd, DrmSyncobjState},
@@ -95,6 +95,8 @@ struct Surface {
     /// What a fullscreen window hears: render formats, then the primary
     /// plane's formats as a scanout tranche (`None` = no feedback).
     feedback: Option<(DmabufFeedback, DmabufFeedback)>,
+    /// The HOTSPOT_X/Y last given to the cursor planes (virtual GPUs only).
+    hotspot: Option<Point<i32, Physical>>,
 }
 
 struct Device {
@@ -102,6 +104,9 @@ struct Device {
     surfaces: HashMap<crtc::Handle, Surface>,
     render_node: DrmNode,
     token: RegistrationToken,
+    /// A virtual GPU that took DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT: its
+    /// cursor plane is the host's cursor, placed by its HOTSPOT_X/Y.
+    cursor_hotspot: bool,
 }
 
 pub struct Udev {
@@ -339,6 +344,18 @@ fn device_added(udev: &Shared, state: &mut Ede, node: DrmNode, path: &Path) -> R
     let mut u = udev.borrow_mut();
     let fd = u.session.open(path, OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK)?;
     let fd = DrmDeviceFd::new(DeviceFd::from(fd));
+    // A virtual GPU (vmwgfx, virtio-gpu, qxl, vboxvideo) hides its cursor
+    // plane from atomic clients that do not set its hotspot, so the cursor
+    // was drawn into the frame while VirtualBox's mouse integration showed
+    // the host's own pointer as well: two cursors. Taking the cap (it needs
+    // atomic first; DrmDevice::new maps the planes it then sees) puts the
+    // cursor on that plane, which the host draws as its one pointer.
+    // Real GPUs refuse the cap and keep their cursor plane as it was.
+    let cursor_hotspot = fd.set_client_capability(ClientCapability::Atomic, true).is_ok()
+        && fd.set_client_capability(ClientCapability::CursorPlaneHotspot, true).is_ok();
+    if cursor_hotspot {
+        tracing::info!("{node}: virtual GPU, the cursor plane carries the hotspot (one host cursor)");
+    }
     let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
     let gbm = GbmDevice::new(fd)?;
 
@@ -373,7 +390,7 @@ fn device_added(udev: &Shared, state: &mut Ede, node: DrmNode, path: &Path) -> R
         DrmEvent::Error(e) => tracing::error!("DRM error on {node}: {e:?}"),
     })?;
 
-    u.devices.insert(node, Device { manager, surfaces: HashMap::new(), render_node, token });
+    u.devices.insert(node, Device { manager, surfaces: HashMap::new(), render_node, token, cursor_hotspot });
     drop(u);
     scan_connectors(udev, state, node);
     Ok(())
@@ -504,7 +521,7 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         };
         drop(renderer);
         state.add_output(&output);
-        device.surfaces.insert(crtc, Surface { output, connector: info.handle(), drm_output, global: Some(global), queued: false, idle_timer: None, feedback });
+        device.surfaces.insert(crtc, Surface { output, connector: info.handle(), drm_output, global: Some(global), queued: false, idle_timer: None, feedback, hotspot: None });
     }
 }
 
@@ -567,11 +584,14 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
         }
     };
 
-    // The cursor: the client's surface if it set one, else the theme's arrow.
+    // The cursor: the client's surface if it set one, else the theme's
+    // arrow at this output's scale.
     let pointer = state.seat.get_pointer().unwrap().current_location();
+    let scale = output.current_scale().fractional_scale();
     let mut elements: Vec<OutputElements<UdevRenderer<'_>>> = Vec::new();
     if output_geo.to_f64().contains(pointer) {
-        let image = u.cursor.image(state.start_time.elapsed());
+        let image = u.cursor.image(super::cursor_buffer_scale(scale), state.start_time.elapsed());
+        let buffer_scale = u.cursor.buffer_scale(&image);
         let buffer = match u.cursor_buffers.iter().find(|(i, _)| *i == image) {
             Some((_, b)) => b.clone(),
             None => {
@@ -579,7 +599,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                     &image.pixels_rgba,
                     Fourcc::Abgr8888,
                     (image.width as i32, image.height as i32),
-                    1,
+                    buffer_scale,
                     smithay::utils::Transform::Normal,
                     None,
                 );
@@ -587,7 +607,21 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                 b
             }
         };
-        elements.extend(super::cursor_elements(state, &mut renderer, pointer - output_geo.loc.to_f64(), &buffer, (image.xhot as i32, image.yhot as i32)));
+        let hotspot = Point::from((image.xhot as f64, image.yhot as f64)).downscale(buffer_scale as f64);
+        let (cursor, hotspot) = super::cursor_elements(state, &mut renderer, pointer - output_geo.loc.to_f64(), scale, &buffer, hotspot);
+        elements.extend(cursor);
+        if device.cursor_hotspot && hotspot.is_some() && hotspot != surface.hotspot {
+            // No flip is pending here (render_surface only runs unqueued),
+            // so a blocking commit of the two properties cannot collide.
+            let planes: Vec<_> = surface.drm_output.with_compositor(|c| c.surface().planes().cursor.iter().map(|p| p.handle).collect());
+            match set_cursor_hotspot(device.manager.device(), &planes, hotspot.unwrap()) {
+                Ok(()) => surface.hotspot = hotspot,
+                Err(e) => {
+                    tracing::warn!("{}: cursor hotspot: {e}", output.name());
+                    device.cursor_hotspot = false;
+                }
+            }
+        }
     }
     elements.extend(super::output_elements(state, &output, &mut renderer));
 
@@ -634,6 +668,30 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
         }
         Err(e) => frame_failed(u, state, &output, format!("{}: render failed: {e:?}", output.name())),
     }
+}
+
+/// Gives the cursor `planes` the image's `hotspot` (physical pixels from
+/// its top-left), which a virtual GPU passes to the host so its pointer
+/// shows the image with the hotspot under it.
+fn set_cursor_hotspot(drm: &DrmDevice, planes: &[smithay::reexports::drm::control::plane::Handle], hotspot: Point<i32, Physical>) -> Result<(), String> {
+    use smithay::reexports::drm::control::{atomic::AtomicModeReq, property, AtomicCommitFlags};
+    if planes.is_empty() {
+        return Ok(());
+    }
+    let mut req = AtomicModeReq::new();
+    for plane in planes {
+        let props = drm.get_properties(*plane).map_err(|e| e.to_string())?;
+        for (handle, _) in &props {
+            let Ok(info) = drm.get_property(*handle) else { continue };
+            let value = match info.name().to_bytes() {
+                b"HOTSPOT_X" => hotspot.x,
+                b"HOTSPOT_Y" => hotspot.y,
+                _ => continue,
+            };
+            req.add_property(*plane, *handle, property::Value::SignedRange(value as i64));
+        }
+    }
+    drm.atomic_commit(AtomicCommitFlags::empty(), req).map_err(|e| e.to_string())
 }
 
 /// An output got no frame: logged (the first time, then rarely), and when
