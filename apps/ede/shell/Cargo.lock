@@ -1541,7 +1541,7 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ecore",
  "serde",
@@ -1550,7 +1550,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ede-protocol",
  "emcp",
@@ -1564,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "ede-shell"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "ede-protocol",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde_json",
  "toml 0.8.23",
@@ -1601,7 +1601,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "eui-core",
  "libc",
