@@ -41,7 +41,7 @@ for p in $peers; do
   plib="${p%%:*}"
   tag="$(printf '%s\n' "$manifests" | grep -o "tag = \"$plib-v[^\"]*\"" | cut -d'"' -f2 | sort -u || true)"
   [ -n "$tag" ] || tag="$(git -C "$repo" tag -l "$plib-v*" --sort=-v:refname | head -1)"
-  [ "$(printf '%s\n' "$tag" | wc -l)" = 1 ] || { echo "$lib names more than one $plib tag: $tag" >&2; exit 1; }
+  [ "$(printf '%s\n' "$tag" | wc -l | tr -d ' ')" = 1 ] || { echo "$lib names more than one $plib tag: $tag" >&2; exit 1; }
   for c in $(printf %s "${p#*:}" | tr , " "); do
     tagged+="$c = { git = \"https://github.com/Niach/exponential\", tag = \"$tag\" }"$'\n'
   done
