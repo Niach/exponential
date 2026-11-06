@@ -37,6 +37,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var accountDeduplicator: AccountDeduplicator
     @Inject lateinit var steerConnectionStore: SteerConnectionStore
     @Inject lateinit var directShareShortcuts: com.exponential.app.data.share.DirectShareShortcuts
+    @Inject lateinit var systemSearchIndexer: com.exponential.app.data.search.SystemSearchIndexer
 
     override fun onCreate() {
         super.onCreate()
@@ -57,6 +58,8 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         syncManager.start()
         // EXP-1635: the system share sheet's rows follow the synced agents + chats.
         directShareShortcuts.start()
+        // #EXP-1642: issues and chats in the phone's own search (AppSearch).
+        systemSearchIndexer.start()
         // VAPP-235: replay the offline outbox at launch and whenever sync comes back.
         appRecordOutbox.start()
         pushTokenManager.start()

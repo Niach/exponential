@@ -1,0 +1,57 @@
+{
+  "$comment": "#EXP-1642 (owner 2026-11-06): ISSUES AND CHATS IN THE PHONE'S OWN SEARCH ×2 (iOS CoreSpotlight `CSSearchableItem`s, Android AppSearch documents in the platform `AppSearchManager` / Jetpack `androidx.appsearch` with `setSchemaTypeVisibilityForSystemUi`; web and desktop have none). Model = pure `systemSearchItems` + `parseSystemSearchId` (src/system-search.ts; iOS ExpCore `SystemSearch.swift`, Android `domain/SystemSearch.kt`), every mirror replays the `*Cases`. WHAT IS INDEXED, from the synced store of EACH signed-in account: the issues it holds that are neither trashed nor archived, newest `updatedAt` first, capped at `maxIssues`; then its chats with the share-targets.json direct-share filter (no agent conversation, NO ENCRYPTED chat: a tree key or a sealed title never reaches the OS index), newest first, capped at `maxChats`. An issue item: id `issuePrefix` + issue id, title = the issue title, subtitle = `copy.issueSubtitle` filled with the identifier and the board name, keywords = the identifier and the board name. A chat item: id `chatPrefix` + session id, title = the chat's display title, subtitle `copy.chatSubtitle`, keywords none. Each item lives in the account's domain (`domainPrefix` + local account id) so a sign-out deletes that domain and nothing else; a client re-syncs the index at most once per `debounceMs` after its store changes, upserting the current items and deleting the ids that left. Descriptions, comments and messages are NEVER indexed. OPENING a result: the app routes the parsed id like a push tap, under the account of the item's domain: an issue opens THE issue page, a chat opens the session (inbox-route.json session target); an id that no longer resolves opens the normal start screen. No new component.",
+  "copy": {
+    "issueSubtitle": "{identifier} · {board}",
+    "chatSubtitle": "Chat"
+  },
+  "issuePrefix": "issue:",
+  "chatPrefix": "chat:",
+  "domainPrefix": "account:",
+  "maxIssues": 2,
+  "maxChats": 2,
+  "debounceMs": 2000,
+  "productionCaps": { "maxIssues": 1000, "maxChats": 200 },
+  "itemCases": [
+    {
+      "name": "live issues newest first then plain chats, capped, sealed and agent chats left out",
+      "input": {
+        "boards": [{ "id": "b1", "name": "Mobile App" }],
+        "issues": [
+          { "id": "i1", "identifier": "APP-1", "title": "Old", "boardId": "b1", "updatedAt": "2026-11-01T10:00:00.000Z" },
+          { "id": "i2", "identifier": "APP-2", "title": "Reduce cold start", "boardId": "b1", "updatedAt": "2026-11-04T10:00:00.000Z" },
+          { "id": "i3", "identifier": "APP-3", "title": "Trashed", "boardId": "b1", "updatedAt": "2026-11-05T10:00:00.000Z", "trashed": true },
+          { "id": "i4", "identifier": "APP-4", "title": "Archived", "boardId": "b1", "updatedAt": "2026-11-05T11:00:00.000Z", "archived": true },
+          { "id": "i5", "identifier": "APP-5", "title": "Dark mode", "boardId": "b1", "updatedAt": "2026-11-03T10:00:00.000Z" }
+        ],
+        "chats": [
+          { "id": "s1", "title": "Fix login crash", "updatedAt": "2026-11-03T10:00:00.000Z", "agentId": null },
+          { "id": "s2", "title": "Agent conversation", "updatedAt": "2026-11-05T10:00:00.000Z", "agentId": "a" },
+          { "id": "s3", "title": "Encrypted", "updatedAt": "2026-11-05T12:00:00.000Z", "agentId": null, "sealed": true },
+          { "id": "s4", "title": "Release notes", "updatedAt": "2026-11-04T10:00:00.000Z", "agentId": null },
+          { "id": "s5", "title": "Oldest", "updatedAt": "2026-10-01T10:00:00.000Z", "agentId": null }
+        ]
+      },
+      "expected": [
+        { "id": "issue:i2", "title": "Reduce cold start", "subtitle": "APP-2 · Mobile App", "keywords": ["APP-2", "Mobile App"] },
+        { "id": "issue:i5", "title": "Dark mode", "subtitle": "APP-5 · Mobile App", "keywords": ["APP-5", "Mobile App"] },
+        { "id": "chat:s4", "title": "Release notes", "subtitle": "Chat", "keywords": [] },
+        { "id": "chat:s1", "title": "Fix login crash", "subtitle": "Chat", "keywords": [] }
+      ]
+    },
+    {
+      "name": "an issue whose board is not held: the identifier alone",
+      "input": {
+        "boards": [],
+        "issues": [{ "id": "i1", "identifier": "APP-1", "title": "Orphan", "boardId": "gone", "updatedAt": "2026-11-01T10:00:00.000Z" }],
+        "chats": []
+      },
+      "expected": [{ "id": "issue:i1", "title": "Orphan", "subtitle": "APP-1", "keywords": ["APP-1"] }]
+    }
+  ],
+  "parseCases": [
+    { "name": "an issue", "input": "issue:i2", "expected": { "kind": "issue", "id": "i2" } },
+    { "name": "a chat", "input": "chat:s4", "expected": { "kind": "chat", "id": "s4" } },
+    { "name": "no id", "input": "issue:", "expected": null },
+    { "name": "unknown", "input": "board:b1", "expected": null }
+  ]
+}

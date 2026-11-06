@@ -31,7 +31,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-218 third-party components are distributed as part of this build. They are
+222 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -45,7 +45,7 @@ section for the policy.
 Apache-2.0
 ------------------------------------------------------------------------------
 
-Applies to the following 210 components:
+Applies to the following 214 components:
 
   androidx.activity:activity 1.12.4
   androidx.activity:activity-compose 1.12.4
@@ -54,6 +54,8 @@ Applies to the following 210 components:
   androidx.annotation:annotation-experimental 1.4.1
   androidx.appcompat:appcompat 1.7.1
   androidx.appcompat:appcompat-resources 1.7.1
+  androidx.appsearch:appsearch 1.1.0
+  androidx.appsearch:appsearch-platform-storage 1.1.0
   androidx.arch.core:core-common 2.2.0
   androidx.arch.core:core-runtime 2.2.0
   androidx.autofill:autofill 1.0.0
@@ -81,6 +83,10 @@ Applies to the following 210 components:
   androidx.compose.ui:ui-util 1.11.2
   androidx.compose:compose-bom 2024.12.01
   androidx.concurrent:concurrent-futures 1.2.0
+  androidx.concurrent:concurrent-futures-ktx 1.2.0
+    Copyright 2016-2024 JetBrains s.r.o and contributors
+    Copyright 2000-2020 JetBrains s.r.o. and Kotlin Programming Language
+    contributors.
   androidx.core:core 1.16.0
   androidx.core:core-ktx 1.16.0
   androidx.core:core-splashscreen 1.0.1
@@ -167,6 +173,7 @@ Applies to the following 210 components:
   com.google.android.datatransport:transport-api 3.1.0
   com.google.android.datatransport:transport-backend-cct 3.1.9
   com.google.android.datatransport:transport-runtime 3.1.9
+  com.google.auto.service:auto-service-annotations 1.0-rc6
   com.google.code.findbugs:jsr305 3.0.2
   com.google.code.gson:gson 2.8.9
   com.google.crypto.tink:tink-android 1.8.0
