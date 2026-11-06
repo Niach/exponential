@@ -46,7 +46,9 @@
 //! accounts' teams, `/shell/switcher/sections`), `ede.connect {action:
 //! start|code|open|cancel, instance?}` (Connect Exponential: `/connecting`,
 //! `/accounts`; `exponential-shell connect <url>` is the scheme handler's
-//! command, forwarding the browser's callback to the running shell).
+//! command, forwarding the browser's callback to the running shell);
+//! #EDE-57: `ede.share {action: start|run|cancel, name?, account?}` (Share a
+//! Local desktop as a team: `/sharing`).
 //!
 //! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
@@ -63,6 +65,7 @@ mod connect;
 mod dbus;
 mod settings;
 mod settings_pages;
+mod share;
 mod system;
 mod thumbs;
 
@@ -201,6 +204,12 @@ struct Shell {
     workspaces: accounts::Workspaces,
     /// #EDE-56: Connect Exponential's state.
     connect: connect::Connect,
+    /// #EDE-57: Share as a team's state.
+    share: share::Share,
+    /// The Local desktop opened for a share (its store, blobs, identity).
+    local: Option<Arc<elocal::LocalDesktop>>,
+    /// A team to make current once the account's teams shape carries it.
+    pending_pick: Option<String>,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -538,9 +547,25 @@ impl HostPlugin for Host {
                         open_on_demand(&shell, "connect", cx);
                         refresh(&shell, cx);
                     }
-                    // Share as a team comes with #EDE-57.
-                    Some(other) => tracing::info!(action = other, "the switcher action comes with Share as a team (#EDE-57)"),
+                    Some("share") => {
+                        settings_open_page(&shell, "local-general", cx);
+                        share_start(&shell, cx);
+                    }
+                    Some(other) => tracing::warn!(action = other, "unknown switcher action"),
                     None => {}
+                });
+            }
+            // #EDE-57: Share a Local desktop as a team.
+            "ede.share" => {
+                let args = args.clone();
+                cx.defer(move |cx| {
+                    match args.get("action").and_then(Value::as_str) {
+                        Some("start") => share_start(&shell, cx),
+                        Some("run") => share_run(&shell, args.get("name").and_then(Value::as_str).unwrap_or(""), args.get("account").and_then(Value::as_str).unwrap_or("")),
+                        Some("cancel") => shell.borrow_mut().share.cancel(),
+                        other => tracing::warn!(?other, "unknown share action"),
+                    }
+                    sharing_changed(&shell, cx);
                 });
             }
             // #EDE-56: Connect Exponential.
@@ -714,6 +739,85 @@ fn overlays_refresh(shell: &SharedShell) {
 }
 
 /// Launches the desktop entry `app` (its id, with or without `.desktop`).
+/// Opens the Settings window on `page` (the document owns `/settings`
+/// again right after: the feed hands it the page once).
+fn settings_open_page(shell: &SharedShell, page: &str, cx: &mut App) {
+    let state = json!({"page": page, "deviceOpen": false, "personalOpen": false, "codingOpen": false, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": false});
+    shell.borrow_mut().feed.set("/settings", state);
+    close(shell, "start-menu", cx);
+    dispatch(shell, ShellEvent::StartMenuClose, cx);
+    open_on_demand(shell, "settings", cx);
+    refresh(shell, cx);
+    shell.borrow_mut().feed.remove("/settings");
+}
+
+/// The current Local desktop, opened once (#EDE-57).
+fn local_desktop(shell: &SharedShell) -> Option<Arc<elocal::LocalDesktop>> {
+    let current = shell.borrow().workspaces.desktops.current().map(str::to_string)?;
+    if let Some(open) = shell.borrow().local.clone().filter(|d| d.entry.id == current) {
+        return Some(open);
+    }
+    let opened = match shell.borrow().workspaces.desktops.open_desktop(&current) {
+        Ok(d) => Arc::new(d),
+        Err(e) => {
+            tracing::warn!("local desktop: {e}");
+            return None;
+        }
+    };
+    shell.borrow_mut().local = Some(opened.clone());
+    Some(opened)
+}
+
+/// Share as a team…: the accounts to pick from and what goes up.
+fn share_start(shell: &SharedShell, _cx: &mut App) {
+    let Some(desktop) = local_desktop(shell) else { return };
+    let accounts: Vec<(String, String)> = shell.borrow().workspaces.auth.signed_in_accounts().iter().map(|a| (a.id.clone(), a.email.clone())).collect();
+    let summary = share::summary(&desktop);
+    shell.borrow_mut().share.start(&desktop.entry.id, accounts, summary);
+}
+
+/// The upload, to the picked account, named as asked (else as the desktop).
+fn share_run(shell: &SharedShell, name: &str, account: &str) {
+    let Some(desktop) = local_desktop(shell) else { return };
+    let accounts = shell.borrow().workspaces.auth.signed_in_accounts();
+    let Some(account) = accounts.iter().find(|a| a.id == account).or_else(|| accounts.first()).cloned() else {
+        shell.borrow_mut().share.state = share::State::NeedsAccount;
+        return;
+    };
+    let name = if name.trim().is_empty() { desktop.entry.name.clone() } else { name.trim().to_string() };
+    let client = api::TrpcClient::new(&account.instance_url, shell.borrow().workspaces.auth.token_provider(&account.id));
+    let device_id = api::device_identity::device_id(&api::default_data_dir());
+    let mut s = shell.borrow_mut();
+    s.share.account_id = Some(account.id.clone());
+    s.share.run(client, desktop, name, Some(device_id));
+}
+
+/// `/sharing` into the views.
+fn sharing_changed(shell: &SharedShell, cx: &mut App) {
+    let feed = shell.borrow().share.feed();
+    shell.borrow_mut().feed.set("/sharing", feed);
+    refresh(shell, cx);
+}
+
+/// The share is done: the desktop becomes the team (its file archived), the
+/// team takes its place in the switcher once the account's shape carries it.
+fn share_done(shell: &SharedShell, shared: elocal::share::Shared, cx: &mut App) {
+    let (desktop_id, account) = {
+        let s = shell.borrow();
+        (s.share.desktop_id.clone(), s.share.account_id.clone())
+    };
+    if let (Some(desktop_id), Some(account)) = (desktop_id, account) {
+        let shared_as = elocal::SharedAs { account, team_id: shared.team_id.clone(), slug: shared.slug.clone(), shared_at: elocal::time::now() };
+        let archived = shell.borrow_mut().workspaces.desktops.archive(&desktop_id, Some(shared_as));
+        if let Err(e) = archived {
+            tracing::warn!("archive: {e}");
+        }
+        shell.borrow_mut().local = None;
+    }
+    shell.borrow_mut().pending_pick = Some(shared.team_id);
+    switcher_refresh_entries(shell, cx);
+}
+
 /// `Local`, then `Local 2`, `Local 3`… among the desktops that exist.
 fn next_desktop_name(shell: &Shell) -> String {
     let taken: Vec<String> = shell.workspaces.desktops.active().iter().map(|d| d.name.clone()).collect();
@@ -730,7 +834,12 @@ fn switcher_refresh_entries(shell: &SharedShell, cx: &mut App) {
     if entries.is_empty() {
         return;
     }
+    let pending = shell.borrow().pending_pick.clone().filter(|id| entries.iter().any(|e| e.kind == uicore_model::SwitcherKind::Team && &e.id == id));
     dispatch(shell, ShellEvent::SwitcherSet { entries }, cx);
+    if let Some(id) = pending {
+        shell.borrow_mut().pending_pick = None;
+        dispatch(shell, ShellEvent::SwitcherPick { entry_kind: uicore_model::SwitcherKind::Team, id }, cx);
+    }
 }
 
 fn launch_app(shell: &Shell, app: &str) {
@@ -1628,6 +1737,8 @@ fn main() {
         connect::listen_urls(urls_tx);
     }
     let connect = connect::Connect::new(workspaces.auth.clone(), connect_tx);
+    let (share_tx, share_rx) = mpsc::channel::<share::Event>();
+    let share = share::Share::new(share_tx);
 
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
         gpui_component::init(cx);
@@ -1653,6 +1764,7 @@ fn main() {
         feed.set("/user", settings::user_json());
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
+        feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
             feed.set("/notifications", json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}));
@@ -1731,6 +1843,9 @@ fn main() {
             tray: Vec::new(),
             workspaces,
             connect,
+            share,
+            local: None,
+            pending_pick: None,
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
@@ -1829,6 +1944,13 @@ fn main() {
                     let feed = s.borrow().connect.feed();
                     s.borrow_mut().feed.set("/connecting", feed);
                     dirty = true;
+                }
+                while let Ok(event) = share_rx.try_recv() {
+                    let done = s.borrow_mut().share.apply(event);
+                    if let Some(shared) = done {
+                        cx.update(|cx| share_done(&s, shared, cx));
+                    }
+                    cx.update(|cx| sharing_changed(&s, cx));
                 }
                 if teams_changed {
                     cx.update(|cx| switcher_refresh_entries(&s, cx));

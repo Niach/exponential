@@ -8516,6 +8516,31 @@
       }
     },
     {
+      "id": "ede-settings-share",
+      "group": "ede",
+      "title": "Exponential Desktop · Share as a team",
+      "blurb": "Settings › General of a Local desktop sharing it (apps/ede/ui/settings.json, #EDE-57): the team name, the account when there are several, what goes up (issues, comments, sessions, files); the upload runs through the team import API and the desktop becomes that team, its file archived for 30 days.",
+      "order": 21,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "settings"
+        ],
+        "env": {
+          "EDE_SHELL_SETTINGS_PAGE": "local-general",
+          "EDE_SHELL_SHARE": "picking"
+        },
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
       "id": "ede-applet-sound",
       "group": "ede",
       "title": "Exponential Desktop · sound applet",

@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory settings (#EDE-47, the merged Settings window of the IDE look): ONE on-demand top-layer window (the menu's Settings rows open it with ede.open_document, the close button closes it), a 272 px sidebar nav on the left and the page on the right, no tile overview. The nav: This device (Display, Sound, Network, Bluetooth, Power, Themes, Keyboard, Mouse & Touchpad, Date & Time, Users, Notifications, Workspaces, Windows, Startup apps, Default apps, then the folded Coding group: Tools, Coding CLIs, Worktrees, Sessions, the IDE's This device group), Personal (Account, Devices, Security, What's new, About) and Team, headed by the shell's switcher (/shell/switcher/current; its sections as a Popover: Local desktops, then one per connected account with its teams, #EDE-56): a Local desktop shows General, Agents, Apps; a team entry shows the IDE's groups from settings-nav.json (Team, Boards, Agents, Apps), which eDE has none of yet (#EDE-54). Picking an entry here sets /settings/team only: the shell's desktop stays. Pages bind what the shell feeds: /services/<domain> (#EDE-13), /outputs, /config, /user, /shell, /date, /notifications, and /pages (#EDE-47: the layouts, Date & Time, Startup apps, Default apps, Workspaces, Windows, Mouse & Touchpad). Controls are two-way bound and call a host function with the new value: ede.service {domain, action, args}, ede.output {name, mode?, scale?}, ede.config {theme}, ede.settings {page, key, value} (compositor.toml's [keyboard] and [windows], the XDG autostart overrides, xdg-mime default, timedatectl). A setting the machine cannot apply yet is a read-only value row (Mouse & Touchpad, the workspace count, the 24-hour clock), never a dead control; the Exponential rows (Notifications' email/push, Coding, Devices, Security, a team's pages) are honest empty states until the Exponential app runs on this desktop.",
+  "$comment": "Exponential Desktop's factory settings (#EDE-47, the merged Settings window of the IDE look): ONE on-demand top-layer window (the menu's Settings rows open it with ede.open_document, the close button closes it), a 272 px sidebar nav on the left and the page on the right, no tile overview. The nav: This device (Display, Sound, Network, Bluetooth, Power, Themes, Keyboard, Mouse & Touchpad, Date & Time, Users, Notifications, Workspaces, Windows, Startup apps, Default apps, then the folded Coding group: Tools, Coding CLIs, Worktrees, Sessions, the IDE's This device group), Personal (Account, Devices, Security, What's new, About) and Team, headed by the shell's switcher (/shell/switcher/current; its sections as a Popover: Local desktops, then one per connected account with its teams, #EDE-56): a Local desktop shows General, Agents, Apps; a team entry shows the IDE's groups from settings-nav.json (Team, Boards, Agents, Apps), which eDE has none of yet (#EDE-54). Picking an entry here sets /settings/team only: the shell's desktop stays. Pages bind what the shell feeds: /services/<domain> (#EDE-13), /outputs, /config, /user, /shell, /date, /notifications, and /pages (#EDE-47: the layouts, Date & Time, Startup apps, Default apps, Workspaces, Windows, Mouse & Touchpad). Controls are two-way bound and call a host function with the new value: ede.service {domain, action, args}, ede.output {name, mode?, scale?}, ede.config {theme}, ede.settings {page, key, value} (compositor.toml's [keyboard] and [windows], the XDG autostart overrides, xdg-mime default, timedatectl). A setting the machine cannot apply yet is a read-only value row (Mouse & Touchpad, the workspace count, the 24-hour clock), never a dead control; the Exponential rows (Notifications' email/push, Coding, Devices, Security, a team's pages) are honest empty states until the Exponential app runs on this desktop. #EDE-57: a Local desktop's General page shares it as a team: Share as a team… asks for the team name and, with several accounts, the account (ede.share {action: start|run|cancel, name?, account?}; the host feeds /sharing {state idle|needsAccount|picking|running|done|failed, accounts, summary, progress, label, teamName, error}), uploads through the team import API and the desktop becomes that team (archived here for 30 days).",
   "surface": {
     "layer": "top",
     "size": {
@@ -19,7 +19,8 @@
       "ede.switcher",
       "ede.workspace",
       "ede.notify_clear",
-      "ede.close_document"
+      "ede.close_document",
+      "ede.share"
     ]
   },
   "root": {
@@ -6498,13 +6499,367 @@
                         "on": {
                           "press": {
                             "functionCall": {
-                              "call": "ede.switcher",
+                              "call": "ede.share",
                               "args": {
-                                "action": "share"
+                                "action": "start"
                               }
                             }
                           }
+                        },
+                        "visible": {
+                          "call": "eq",
+                          "args": {
+                            "a": {
+                              "path": "/sharing/state"
+                            },
+                            "b": "idle"
+                          }
                         }
+                      },
+                      {
+                        "id": "share-needs-account",
+                        "component": "Stack",
+                        "props": {
+                          "direction": "vertical",
+                          "gap": "sm"
+                        },
+                        "visible": {
+                          "call": "eq",
+                          "args": {
+                            "a": {
+                              "path": "/sharing/state"
+                            },
+                            "b": "needsAccount"
+                          }
+                        },
+                        "children": [
+                          {
+                            "id": "share-needs-account-text",
+                            "component": "Text",
+                            "props": {
+                              "text": "Sharing makes this desktop a team of your Exponential account. Connect one first.",
+                              "variant": "muted"
+                            }
+                          },
+                          {
+                            "id": "share-connect",
+                            "component": "Button",
+                            "props": {
+                              "label": "Connect Exponential",
+                              "variant": "outline",
+                              "icon": "brand-exponential"
+                            },
+                            "on": {
+                              "press": {
+                                "functionCall": {
+                                  "call": "ede.switcher",
+                                  "args": {
+                                    "action": "connect"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "share-needs-account-cancel",
+                            "component": "Button",
+                            "props": {
+                              "label": "Cancel",
+                              "variant": "ghost"
+                            },
+                            "on": {
+                              "press": {
+                                "functionCall": {
+                                  "call": "ede.share",
+                                  "args": {
+                                    "action": "cancel"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "share-pick",
+                        "component": "Stack",
+                        "props": {
+                          "direction": "vertical",
+                          "gap": "md"
+                        },
+                        "visible": {
+                          "call": "eq",
+                          "args": {
+                            "a": {
+                              "path": "/sharing/state"
+                            },
+                            "b": "picking"
+                          }
+                        },
+                        "children": [
+                          {
+                            "id": "share-name",
+                            "component": "Input",
+                            "props": {
+                              "type": "text",
+                              "name": "name",
+                              "label": "Team name",
+                              "placeholder": "The desktop's name",
+                              "value": {
+                                "path": "/share/name"
+                              }
+                            }
+                          },
+                          {
+                            "id": "share-account",
+                            "component": "Select",
+                            "props": {
+                              "label": "Account",
+                              "name": "account",
+                              "options": {
+                                "path": "/sharing/accounts"
+                              },
+                              "value": {
+                                "path": "/share/account"
+                              }
+                            },
+                            "visible": {
+                              "call": "not",
+                              "args": {
+                                "value": {
+                                  "call": "eq",
+                                  "args": {
+                                    "a": {
+                                      "call": "len",
+                                      "args": {
+                                        "value": {
+                                          "path": "/sharing/accounts"
+                                        }
+                                      }
+                                    },
+                                    "b": 1
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "share-summary",
+                            "component": "Text",
+                            "props": {
+                              "text": {
+                                "path": "/sharing/summary"
+                              },
+                              "variant": "muted"
+                            }
+                          },
+                          {
+                            "id": "share-actions",
+                            "component": "Stack",
+                            "props": {
+                              "direction": "horizontal",
+                              "gap": "sm",
+                              "align": "center"
+                            },
+                            "children": [
+                              {
+                                "id": "share-run",
+                                "component": "Button",
+                                "props": {
+                                  "label": "Share",
+                                  "variant": "default",
+                                  "icon": "ui-share"
+                                },
+                                "on": {
+                                  "press": {
+                                    "functionCall": {
+                                      "call": "ede.share",
+                                      "args": {
+                                        "action": "run",
+                                        "name": {
+                                          "path": "/share/name"
+                                        },
+                                        "account": {
+                                          "path": "/share/account"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "id": "share-cancel",
+                                "component": "Button",
+                                "props": {
+                                  "label": "Cancel",
+                                  "variant": "ghost"
+                                },
+                                "on": {
+                                  "press": {
+                                    "functionCall": {
+                                      "call": "ede.share",
+                                      "args": {
+                                        "action": "cancel"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "id": "share-running",
+                        "component": "Stack",
+                        "props": {
+                          "direction": "vertical",
+                          "gap": "sm"
+                        },
+                        "visible": {
+                          "call": "eq",
+                          "args": {
+                            "a": {
+                              "path": "/sharing/state"
+                            },
+                            "b": "running"
+                          }
+                        },
+                        "children": [
+                          {
+                            "id": "share-progress",
+                            "component": "Progress",
+                            "props": {
+                              "value": {
+                                "path": "/sharing/progress"
+                              },
+                              "max": 100,
+                              "label": "Sharing"
+                            }
+                          },
+                          {
+                            "id": "share-progress-label",
+                            "component": "Text",
+                            "props": {
+                              "text": {
+                                "path": "/sharing/label"
+                              },
+                              "variant": "muted"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "share-done",
+                        "component": "Stack",
+                        "props": {
+                          "direction": "vertical",
+                          "gap": "sm"
+                        },
+                        "visible": {
+                          "call": "eq",
+                          "args": {
+                            "a": {
+                              "path": "/sharing/state"
+                            },
+                            "b": "done"
+                          }
+                        },
+                        "children": [
+                          {
+                            "id": "share-done-text",
+                            "component": "Text",
+                            "props": {
+                              "text": "Now the team",
+                              "variant": "muted"
+                            }
+                          },
+                          {
+                            "id": "share-done-team",
+                            "component": "Text",
+                            "props": {
+                              "text": {
+                                "path": "/sharing/teamName"
+                              },
+                              "variant": "title",
+                              "lines": 1
+                            }
+                          },
+                          {
+                            "id": "share-done-hint",
+                            "component": "Text",
+                            "props": {
+                              "text": "Its issues, comments, sessions and files are in the team now; the desktop's file stays here for 30 days.",
+                              "variant": "body"
+                            }
+                          },
+                          {
+                            "id": "share-done-close",
+                            "component": "Button",
+                            "props": {
+                              "label": "Done",
+                              "variant": "default"
+                            },
+                            "on": {
+                              "press": {
+                                "functionCall": {
+                                  "call": "ede.share",
+                                  "args": {
+                                    "action": "cancel"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "share-failed",
+                        "component": "Stack",
+                        "props": {
+                          "direction": "vertical",
+                          "gap": "sm"
+                        },
+                        "visible": {
+                          "call": "eq",
+                          "args": {
+                            "a": {
+                              "path": "/sharing/state"
+                            },
+                            "b": "failed"
+                          }
+                        },
+                        "children": [
+                          {
+                            "id": "share-error",
+                            "component": "Alert",
+                            "props": {
+                              "title": "Could not share the desktop",
+                              "message": {
+                                "path": "/sharing/error"
+                              },
+                              "type": "error"
+                            }
+                          },
+                          {
+                            "id": "share-retry",
+                            "component": "Button",
+                            "props": {
+                              "label": "Try again",
+                              "variant": "outline"
+                            },
+                            "on": {
+                              "press": {
+                                "functionCall": {
+                                  "call": "ede.share",
+                                  "args": {
+                                    "action": "start"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
                       }
                     ]
                   },
@@ -7264,6 +7619,19 @@
     "notifications": {
       "count": 0
     },
-    "date": ""
+    "date": "",
+    "share": {
+      "name": "",
+      "account": ""
+    },
+    "sharing": {
+      "state": "idle",
+      "accounts": [],
+      "summary": "",
+      "progress": 0,
+      "label": "",
+      "teamName": "",
+      "error": ""
+    }
   }
 }

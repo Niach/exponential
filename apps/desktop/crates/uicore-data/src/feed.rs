@@ -29,6 +29,13 @@ impl Feed {
         true
     }
 
+    /// Forgets a path: a value fed once (a page to open on) that the
+    /// document then owns again.
+    pub fn remove(&mut self, path: &str) -> Option<Value> {
+        let path = if path.starts_with('/') { path.to_string() } else { format!("/{path}") };
+        self.entries.remove(&path)
+    }
+
     pub fn get(&self, path: &str) -> Option<&Value> {
         self.entries.get(path)
     }

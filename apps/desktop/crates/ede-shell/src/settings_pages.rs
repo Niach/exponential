@@ -70,6 +70,18 @@ pub fn demo_state() -> Option<Value> {
     Some(demo_state_for(&spec))
 }
 
+/// `EDE_SHELL_SHARE=picking|running|done|failed` (the goldens): `/sharing`.
+pub fn demo_sharing() -> Option<Value> {
+    let state = std::env::var("EDE_SHELL_SHARE").ok().filter(|v| !v.is_empty() && demo())?;
+    let accounts = json!([{"label": "danny@example.com", "value": "demo"}, {"label": "danny@yourev.at", "value": "demo-2"}]);
+    Some(match state.as_str() {
+        "running" => json!({"state": "running", "accounts": accounts, "summary": "", "progress": 62, "label": "Uploading 3 of 5 files", "teamName": "", "error": ""}),
+        "done" => json!({"state": "done", "accounts": accounts, "summary": "", "progress": 100, "label": "", "teamName": "Local", "error": ""}),
+        "failed" => json!({"state": "failed", "accounts": accounts, "summary": "", "progress": 0, "label": "", "teamName": "", "error": "Your plan allows up to 250 MB of attachment storage. Upgrade to upload more."}),
+        _ => json!({"state": "picking", "accounts": accounts, "summary": "12 issues, 31 comments, 4 sessions and 5 files (2.1 MB)", "progress": 0, "label": "", "teamName": "", "error": ""}),
+    })
+}
+
 fn demo_state_for(spec: &str) -> Value {
     let (page, switcher) = spec.split_once(',').map(|(p, s)| (p, s == "switcher")).unwrap_or((spec, false));
     let coding = ["tools", "coding-clis", "worktrees", "sessions"].contains(&page);
