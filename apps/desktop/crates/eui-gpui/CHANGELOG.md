@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A foldable Row (#VAPP-284): ArrowRight / ArrowLeft on a node with `expanded` go to the core's fold keys.
+
 ## 0.17.0 (2026-11-06)
 
 - #VAPP-258: two gpui host extras for an app's own Markdown: `HostPlugin::chip_icon` paints an inline chip's icon (a status glyph in its tint), `tasks_pressable` / `on_task_toggle` make task boxes pressable (the host rewrites its text); `markdown_hooks_version` memoizes a leaf's laid-out blocks (`paint::markdown_memo`), `markdown_visible_only` builds only the blocks near the host's viewport, `markdown_window_selection` joins the text units to the host's window-level selection (gpui-base, `paint::markdown_selection`).
