@@ -41,36 +41,20 @@ export const pullRequestsRouter = router({
           await approvePullRequest(input.pullRequestId)
           return { merged: false, queued: true }
         }
-        let result: Awaited<ReturnType<typeof mergePullRequestOrThrow>>
-        try {
-          result = await mergePullRequestOrThrow({
-            userId: ctx.session.user.id,
-            pullRequestId: input.pullRequestId,
-            ...(input.stack !== undefined ? { stack: input.stack } : {}),
-            callerSessionId: null,
-          })
-        } catch (err) {
-          if (!isMergeRefusal(err)) throw err
-          const posted = await postMergeRefusal({
-            pullRequestId: input.pullRequestId,
-            actorUserId: ctx.session.user.id,
-            error: err,
-          })
-          throw new MergeRefusal({ kind: err.kind, message: withHandoff(err.message, posted) })
-        }
-        return {
-          merged: result.merged,
-          ...(result.queued ? { queued: true } : {}),
-          ...(result.txid != null ? { txid: result.txid } : {}),
-        }
+        return directMerge(ctx.session.user.id, input.pullRequestId, input.stack)
       }
     ),
 
   /** EXP-1709 (merge-train.json `menu`): an owner's Merge now: next, alone,
    *  untested (a stack member lands its whole stack). */
   mergeNow: authedProcedure.input(z.object({ pullRequestId: uuid })).mutation(async ({ ctx, input }) => {
-    const pr = await trainPr(input.pullRequestId)
+    const pr = await prTeam(input.pullRequestId)
     await assertTeamOwner(ctx.session.user.id, pr.teamId)
+    // The train off: today's direct merge, through the whole stack beneath.
+    if (!(await trainOn())) {
+      await directMerge(ctx.session.user.id, input.pullRequestId, true)
+      return { ok: true as const }
+    }
     const { mergeNowPullRequest } = await import(`@/lib/merge-train/worker`)
     await mergeNowPullRequest(input.pullRequestId)
     return { ok: true as const }
@@ -81,7 +65,8 @@ export const pullRequestsRouter = router({
   hold: authedProcedure
     .input(z.object({ pullRequestId: uuid, hold: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      const pr = await trainPr(input.pullRequestId)
+      // The train off: a flag yolo respects (worker `holdPullRequest`).
+      const pr = await prTeam(input.pullRequestId)
       await assertTeamMember(ctx.session.user.id, pr.teamId)
       const { holdPullRequest, resumePullRequest } = await import(`@/lib/merge-train/worker`)
       await (input.hold ? holdPullRequest : resumePullRequest)(input.pullRequestId)
@@ -117,8 +102,29 @@ async function prTeam(pullRequestId: string): Promise<{ teamId: string }> {
   return pr
 }
 
-/** A PR the train's controls act on (the switch on). */
-async function trainPr(pullRequestId: string): Promise<{ teamId: string }> {
-  if (!(await trainOn())) throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Auto-merge is not on for this server` })
-  return prTeam(pullRequestId)
+/** Today's squash-merge (the train off): a refusal is posted into the PR's
+ *  root session first (EXP-1391), then thrown. */
+async function directMerge(
+  userId: string,
+  pullRequestId: string,
+  stack: boolean | undefined
+): Promise<{ merged: boolean; queued?: boolean; txid?: number }> {
+  let result: Awaited<ReturnType<typeof mergePullRequestOrThrow>>
+  try {
+    result = await mergePullRequestOrThrow({
+      userId,
+      pullRequestId,
+      ...(stack !== undefined ? { stack } : {}),
+      callerSessionId: null,
+    })
+  } catch (err) {
+    if (!isMergeRefusal(err)) throw err
+    const posted = await postMergeRefusal({ pullRequestId, actorUserId: userId, error: err })
+    throw new MergeRefusal({ kind: err.kind, message: withHandoff(err.message, posted) })
+  }
+  return {
+    merged: result.merged,
+    ...(result.queued ? { queued: true } : {}),
+    ...(result.txid != null ? { txid: result.txid } : {}),
+  }
 }

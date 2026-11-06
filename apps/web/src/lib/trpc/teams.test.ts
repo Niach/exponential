@@ -201,6 +201,8 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
     // team_created conversion event (EXP-362).
     expect(inserts).toHaveLength(4)
     expect(inserts[0]!.table).toBe(teams)
+    // EXP-1709: merge_mode mirrors yolo_mode (off) until the EXP-1711 flip.
+    expect(inserts[0]!.values).toMatchObject({ mergeMode: `approval` })
     expect(inserts[1]!.table).toBe(teamMembers)
     expect(inserts[1]!.values).toMatchObject({
       teamId: WS,
@@ -289,6 +291,20 @@ describe(`teams.update`, () => {
     } as never)
     expect(updates).toHaveLength(1)
     expect(updates[0]!.values).not.toHaveProperty(`helpdeskEnabled`)
+  })
+
+  // EXP-1709: the Merge select row (mergeMode) and yolo (yoloMode) stay one
+  // switch while yolo lives.
+  it(`writes merge_mode and yolo_mode together`, async () => {
+    updateReturningQueue.push([{ id: WS }], [{ id: WS }], [{ id: WS }])
+    await caller().update({ teamId: WS, mergeMode: `approval` })
+    await caller().update({ teamId: WS, mergeMode: `auto` })
+    await caller().update({ teamId: WS, yoloMode: false })
+    expect(updates.map((u) => [u.values.mergeMode, u.values.yoloMode])).toEqual([
+      [`approval`, false],
+      [`auto`, true],
+      [`approval`, false],
+    ])
   })
 
   // REV2-67: `.returning()` used to hand back the whole row, comp_tier and

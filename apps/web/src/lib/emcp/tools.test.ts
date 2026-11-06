@@ -3047,8 +3047,10 @@ describe(`pull request tools (EXP-1291)`, () => {
     }
   })
 
-  it(`pr_update hold needs the merge train; with it, holds and resumes`, async () => {
-    expect((await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, hold: true })).isError).toBe(true)
+  it(`pr_update hold holds and resumes, the merge train on or off (off = a flag yolo respects)`, async () => {
+    parseOk(await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, hold: true }))
+    expect(train.holdPullRequest).toHaveBeenCalledWith(PR_ID)
+    train.holdPullRequest.mockClear()
     train.on = true
     try {
       const held = parseOk(await tool(`exponential_pr_update`)({ pullRequestId: PR_ID, hold: true }))

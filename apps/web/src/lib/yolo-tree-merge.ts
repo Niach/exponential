@@ -11,7 +11,8 @@
 // person (an open question/plan card = needs_input, a wall = blocked),
 // holding a Stopped turn (`stopped_at`), or has unread input (a child's
 // report, a person's message, an answered card: the device's pickup set).
-// Drafts are skipped silently (their descendants wait). Merge order = by
+// Drafts and held PRs (a person's Hold) are skipped silently (their
+// descendants wait). Merge order = by
 // stack parent (`base_pull_request_id`): a PR merges only after the PR it
 // sits on, so each merge is a plain squash onto the default branch once the
 // EXP-324 heal moved it there (`mergePullRequestOrThrow` awaits that heal).
@@ -35,6 +36,7 @@ export type YoloOutcome =
   | { kind: `failed`; error: string }
   | { kind: `blocked`; on: string }
   | { kind: `draft` }
+  | { kind: `held` }
 
 export type YoloResult =
   | { status: `not_yolo` }
@@ -201,6 +203,11 @@ async function mergeNow(rootId: string): Promise<YoloResult> {
     // A draft is not ready: skipped silently (no refusal, no wake).
     if (pr.state === `draft`) {
       outcomes[id] = { kind: `draft` }
+      continue
+    }
+    // EXP-1709: a person's Hold auto-merge (the pill's menu) holds yolo too.
+    if (pr.mergeState === `held`) {
+      outcomes[id] = { kind: `held` }
       continue
     }
     try {

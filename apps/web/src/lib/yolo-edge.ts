@@ -19,9 +19,12 @@ export function yoloEdge(rootId: string | null | undefined): void {
     pending.add(edge)
     return
   }
+  // The switch off: yolo merges and the train's display pass keeps the
+  // status pill true (merge-train.json TRAIN OFF).
   const edge: Promise<void> = import(`@/lib/yolo-tree-merge`)
     .then(({ maybeMergeYoloThread }) => maybeMergeYoloThread(rootId))
-    .then(() => {})
+    .then(() => import(`@/lib/merge-train/worker`))
+    .then(({ mergeTrainEdge }) => mergeTrainEdge({ rootId }))
     .catch((err) => console.error(`[yolo] thread ${rootId} edge failed`, err))
     .finally(() => pending.delete(edge))
   pending.add(edge)

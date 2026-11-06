@@ -674,8 +674,9 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     }),
     // EXP-1706 (issue-lifecycle.json `reconcile`): a lost `closed` delivery
     // never strands a merged PR (cloud too, not only GITHUB_POLLING).
-    // EXP-1709 (merge-train.json): the merge train's tick (inert unless
-    // MERGE_TRAIN=true) and the per-commit checks it no longer needs.
+    // EXP-1709 (merge-train.json): the merge train's tick (MERGE_TRAIN off
+    // = the display-only readiness pass) and the per-commit checks it no
+    // longer needs.
     mergeTrainRepos: await import(`@/lib/merge-train/worker`)
       .then((m) => m.runMergeTrainTick(now))
       .catch((err) => {

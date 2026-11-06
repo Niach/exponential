@@ -32,6 +32,9 @@ export interface ForgePullRequest {
   mergedBy: { id?: number | null; login?: string | null; type?: string | null } | null
   /** The PR author as a commit author line `Name <email>`, when known. */
   author: string | null
+  /** The forge's own mergeability against its base (false = conflicts),
+   *  null = unknown or still computing. */
+  mergeable?: boolean | null
 }
 
 /** One pipeline run's result as the forge holds it. */
