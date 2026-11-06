@@ -273,6 +273,9 @@ Renderers:
 - [x] React / Solid / element: `TooltipNative` resolves `start`/`end` and
   drops the anchor's tab stop inside a focus host (`tooltipFocusHost`);
   fixtures snapshot + conformance + parity green.
-- [ ] SwiftUI, Compose, gpui: paint the core's frames and layers (no painter
+- [x] SwiftUI, Compose, gpui: paint the core's frames and layers (no painter
   change); the Swift and Compose component snapshots re-recorded for the new
-  cases.
+  cases; gpui `tests/interaction.rs`
+  `a_rail_row_is_one_tab_stop_whose_focus_opens_its_tooltip` +
+  `hovering_a_rail_tile_opens_its_tooltip`; store shots
+  `exponential-ui-sidebar` re-taken on iOS and Android.
