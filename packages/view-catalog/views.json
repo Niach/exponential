@@ -465,6 +465,10 @@
         "shot": "01_board",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "01_board",
+        "lane": "store"
+      },
       "android": {
         "shot": "1_board",
         "lane": "store"
@@ -502,6 +506,10 @@
         "settleMs": 1200
       },
       "ios": {
+        "shot": "02_issue-detail",
+        "lane": "store"
+      },
+      "ipad": {
         "shot": "02_issue-detail",
         "lane": "store"
       },
@@ -800,6 +808,10 @@
       },
       "webMobile": "inherit",
       "ios": {
+        "shot": "07_inbox",
+        "lane": "store"
+      },
+      "ipad": {
         "shot": "07_inbox",
         "lane": "store"
       },
@@ -1117,6 +1129,10 @@
         "shot": "04_steering",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "04_steering",
+        "lane": "store"
+      },
       "android": {
         "shot": "4_steering",
         "lane": "store"
@@ -1211,6 +1227,10 @@
       "blurb": "The phone's way into the composer: the issue's Start coding button lands on the Agent page with that one issue already chipped. The store slide keeps its start-coding filename.",
       "order": 8,
       "ios": {
+        "shot": "03_start-coding",
+        "lane": "store"
+      },
+      "ipad": {
         "shot": "03_start-coding",
         "lane": "store"
       },

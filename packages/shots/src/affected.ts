@@ -437,7 +437,7 @@ const SDK_PACKAGES: {
 const SOURCE_ROOTS: { test: RegExp; platforms: readonly Platform[] }[] = [
   { test: /^apps\/web\//, platforms: [`web`, `web-mobile`] },
   { test: /^apps\/desktop\//, platforms: [`desktop`] },
-  { test: /^apps\/ios\//, platforms: [`ios`] },
+  { test: /^apps\/ios\//, platforms: [`ios`, `ipad`] },
   { test: /^apps\/android\//, platforms: [`android`] },
   // eDE's shell draws the factory documents with eui-gpui; the compositor composes them.
   { test: /^apps\/ede\//, platforms: [`ede`] },
@@ -612,7 +612,8 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
         widen(path, shared.platforms, shared.why)
         continue
       }
-      const natives: Platform[] = path.startsWith(`apps/ios/`) ? [`ios`] : [`android`]
+      // #NEW-12: `ipad` rides `ios` (one lane, the same Swift sources).
+      const natives: Platform[] = path.startsWith(`apps/ios/`) ? [`ios`, `ipad`] : [`android`]
       for (const platform of natives) {
         if (!hits.has(platform)) continue
         const viewIds = nativeMatches(path, platform)

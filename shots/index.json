@@ -1077,6 +1077,13 @@
         "bytes": 66498,
         "sha256": "b6d90027ca993c64733a5195398afa69b1b57e40af81641a76d69383f6e2ec23"
       },
+      "ipad": {
+        "file": "shots/board/ipad.webp",
+        "width": 1350,
+        "height": 1800,
+        "bytes": 65274,
+        "sha256": "5577e44c29d6503962fad71328729a0a8e9fc78400578379aee1d22c99fc9abd"
+      },
       "web": {
         "file": "shots/board/web.webp",
         "width": 1800,
@@ -1291,6 +1298,13 @@
         "height": 1800,
         "bytes": 20712,
         "sha256": "f138fc87e667d95295ea0001475ec8a14c1643d6d0848658305b64d0cfa1453d"
+      },
+      "ipad": {
+        "file": "shots/chat-from-issue/ipad.webp",
+        "width": 1350,
+        "height": 1800,
+        "bytes": 62676,
+        "sha256": "968efee795db60541ec9cfc202feadbdb96ef3db9f69bf6f3db8a01c3b5e2e14"
       }
     },
     "chat-header": {
@@ -4987,6 +5001,13 @@
         "bytes": 45918,
         "sha256": "254459b7f85f848dec0f5b7584ee2244e27c6e12e24fc624699a9dfc5eca7c9a"
       },
+      "ipad": {
+        "file": "shots/inbox/ipad.webp",
+        "width": 1350,
+        "height": 1800,
+        "bytes": 83910,
+        "sha256": "dd689e01880330ead16305ae423c499c19ca72bb7c5993ab0559a22fd5c1c6e4"
+      },
       "web": {
         "file": "shots/inbox/web.webp",
         "width": 1800,
@@ -5134,6 +5155,13 @@
         "height": 1800,
         "bytes": 71472,
         "sha256": "4e87d51a3ef3307a2d39e16668a91a6dc185b7bba481c2f038f6058b621040a1"
+      },
+      "ipad": {
+        "file": "shots/issue-detail/ipad.webp",
+        "width": 1350,
+        "height": 1800,
+        "bytes": 118354,
+        "sha256": "3117d0abb51e93bccb25bf18349f35317847af8b9fc522463252bb721d98e7ba"
       },
       "web": {
         "file": "shots/issue-detail/web.webp",

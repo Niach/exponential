@@ -481,6 +481,21 @@ struct MainNavigator: View {
     /// #EXP-1645: a pick of another server's team rebuilds this navigator
     /// (`.id(activeAccountId)`); the new one lands on the Team page.
     @MainActor private static var landOnTeamPage = false
+    /// #NEW-12: regular width (iPad full screen, the ⅔ split) = the split
+    /// layout (`TabletShell`); compact = the phone's.
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// #NEW-12: the sidebar's open entry (follows `tab` on a landing).
+    @State private var sidebar: SidebarItem = .agent
+    /// #NEW-12: a list column row's open REPLACES the detail.
+    @State private var listPushAction = PushRouteAction()
+    /// #NEW-12: every sidebar pick (an overlaid sidebar folds on one).
+    @State private var sidebarPicks = 0
+
+    /// The size class mirrored into state: the push handlers are closures
+    /// set once, and read it after the body that set them.
+    @State private var splitActive = false
+
+    private var isSplit: Bool { sizeClass == .regular }
 
     private struct CreateBoardTarget: Identifiable {
         let accountId: String
@@ -491,18 +506,31 @@ struct MainNavigator: View {
         ZStack {
             AppBackground()
 
-            NavigationStack(path: $path) {
-                tabRoot
-                    // Every root states its bar visible explicitly — the
-                    // roots swap inside ONE stack (EXP-1358: Threads wears the
-                    // same inline bar as the others again).
-                    .toolbar(.visible, for: .navigationBar)
-                    // EXP-1554: every pushed page's back = the bare arrow;
-                    // the draft page draws its own (the discard guard).
-                    .navigationDestination(for: AppRoute.self) { route in
-                        destination(for: route).bareBackButton(enabled: !route.isIssueDraft)
-                    }
+            if isSplit {
+                tabletShell
+            } else {
+                NavigationStack(path: $path) {
+                    tabRoot
+                        // Every root states its bar visible explicitly — the
+                        // roots swap inside ONE stack (EXP-1358: Threads wears the
+                        // same inline bar as the others again).
+                        .toolbar(.visible, for: .navigationBar)
+                        // EXP-1554: every pushed page's back = the bare arrow;
+                        // the draft page draws its own (the discard guard).
+                        .navigationDestination(for: AppRoute.self) { route in
+                            destination(for: route).bareBackButton(enabled: !route.isIssueDraft)
+                        }
+                }
             }
+        }
+        .background { if isSplit { tabletShortcuts } }
+        .onChange(of: isSplit, initial: true) { _, split in splitActive = split }
+        .onChange(of: tab) { _, target in
+            // #NEW-12: a landing on a phone root lights its sidebar entry.
+            if sidebar.tab != target { sidebar = SidebarItem(target, board: currentBoard) }
+        }
+        .onChange(of: currentBoard) { _, board in
+            if case .board = sidebar, let board { sidebar = .board(board.boardId) }
         }
         .environment(teamState)
         .environment(sessionLists)
@@ -535,7 +563,19 @@ struct MainNavigator: View {
                 Self.landOnTeamPage = false
                 tab = .team
             }
+            listPushAction.setHandler { route in
+                if let item = sidebarItem(for: route) {
+                    selectSidebar(item)
+                } else {
+                    navigate { path = [route] }
+                }
+            }
             pushRouteAction.setHandler { route in
+                // #NEW-12: the split layout's entries are sidebar picks.
+                if splitActive, let item = sidebarItem(for: route) {
+                    selectSidebar(item)
+                    return
+                }
                 // EXP-1210: a bar destination is never pushed — a link to one
                 // (an entity chip, a getting-started card) switches to it.
                 if let target = Self.tab(for: route) {
@@ -711,7 +751,7 @@ struct MainNavigator: View {
         // its own clearance via `.tabBarBottomInset()` instead — one source of
         // truth, no double-inset.
         .overlay(alignment: .bottom) {
-            if showsTabBar && !tabBarChrome.suppressed {
+            if showsTabBar && !tabBarChrome.suppressed && !isSplit {
                 MobileTabBar(
                     selected: barSelection,
                     agentActive: tab == .agent,
@@ -1093,6 +1133,148 @@ struct SyncHealthBanner: View {
 }
 
 extension MainNavigator {
+    // MARK: - #NEW-12 split layout
+
+    private var tabletShell: some View {
+        TabletShell(
+            picks: sidebarPicks,
+            sidebar: AnyView(TabletSidebar(
+                selection: sidebar,
+                currentBoardId: currentBoard?.boardId,
+                draftCount: draftTeamIds.filter { $0 == teamState.activeTeamId }.count,
+                onSelect: { selectSidebar($0) },
+                onSearch: { openSearch() },
+                onNewIssue: newIssueAction
+            )),
+            listColumn: tabletListColumn,
+            detailRoot: tabletDetailRoot,
+            placeholderIcon: sidebar.placeholderIcon,
+            path: $path,
+            listPush: listPushAction,
+            destination: { route, pushed in
+                pushed
+                    ? AnyView(destination(for: route).bareBackButton(enabled: !route.isIssueDraft))
+                    : AnyView(destination(for: route))
+            }
+        )
+    }
+
+    /// The hardware keyboard's ⌘N (New issue), ⌘K (Search) and ⌘F (find:
+    /// the desktop binds it to the same search).
+    private var tabletShortcuts: some View {
+        Group {
+            Button("New issue") { newIssueAction?() }
+                .keyboardShortcut("n", modifiers: .command)
+            Button("Search") { openSearch() }
+                .keyboardShortcut("k", modifiers: .command)
+            Button("Find") { openSearch() }
+                .keyboardShortcut("f", modifiers: .command)
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    /// The New issue page on the board in view (the tab bar's compose arm).
+    private var newIssueAction: (() -> Void)? {
+        guard let target = composeTarget else { return nil }
+        return {
+            navigate {
+                path.append(.issueDraft(
+                    accountId: target.accountId,
+                    draftId: UUID().uuidString.lowercased(),
+                    boardId: target.boardId
+                ))
+            }
+        }
+    }
+
+    private func openSearch() {
+        if case .search? = path.last { return }
+        navigate { path.append(.search) }
+    }
+
+    /// The sidebar entry a route NAMES (it selects, never pushes).
+    private func sidebarItem(for route: AppRoute) -> SidebarItem? {
+        switch route {
+        case .threads: .chats
+        case .apps: .apps
+        case .settings: .settings
+        case let .agent(_, seed) where seed == .empty: .agent
+        case .needsYou: .needsYou
+        case let .board(_, id): .board(id)
+        default: nil
+        }
+    }
+
+    /// A sidebar pick: the entry's columns, the detail cleared (through the
+    /// draft hold like every other path change).
+    private func selectSidebar(_ item: SidebarItem) {
+        navigate {
+            if case let .board(boardId) = item, let accountId = deps.auth.activeAccountId,
+               currentBoard?.boardId != boardId {
+                selectBoard(accountId: accountId, boardId: boardId)
+            }
+            var swap = Transaction()
+            swap.disablesAnimations = true
+            withTransaction(swap) {
+                sidebar = item
+                tab = item.tab
+                path = []
+            }
+            sidebarPicks += 1
+        }
+    }
+
+    /// The entry's list column (nil = the entry is one page).
+    private var tabletListColumn: AnyView? {
+        let accountId = deps.auth.activeAccountId ?? ""
+        switch sidebar {
+        case .needsYou:
+            return AnyView(NeedsYouPage().environment(\.accountId, accountId))
+        case .chats:
+            return AnyView(ChatsView().environment(\.accountId, accountId))
+        case .drafts:
+            return AnyView(TabletDraftsColumn().environment(\.accountId, accountId))
+        case .apps:
+            return AnyView(AppsListScreen().environment(\.accountId, accountId))
+        case .settings:
+            return AnyView(TeamTabView(
+                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
+                onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
+            ).environment(\.accountId, accountId))
+        case .board:
+            return AnyView(IssuesHomeView(
+                syncing: syncing,
+                currentBoard: currentBoard,
+                boardLoader: boardLoader,
+                onSelectBoard: { accountId, boardId in selectBoard(accountId: accountId, boardId: boardId) }
+            ))
+        case .agent, .devices, .agentChannel, .app, .thread:
+            return nil
+        }
+    }
+
+    /// A one-page entry's page, the detail stack's root.
+    private var tabletDetailRoot: AnyView? {
+        let accountId = deps.auth.activeAccountId ?? ""
+        switch sidebar {
+        case .agent:
+            return AnyView(AgentPageView(seed: .empty).environment(\.accountId, accountId))
+        case .devices:
+            return AnyView(AgentsView().environment(\.accountId, accountId))
+        case let .agentChannel(agentId):
+            return AnyView(AgentChannelScreen(agentId: agentId).id(agentId).environment(\.accountId, accountId))
+        case let .app(appId):
+            return AnyView(AppRunScreen(appId: appId).id(appId).environment(\.accountId, accountId))
+        case let .thread(rootId):
+            return AnyView(ThreadScreen(rootId: rootId, initialPage: .conversation).id(rootId)
+                .environment(\.accountId, accountId))
+        case .needsYou, .chats, .drafts, .apps, .settings, .board:
+            return nil
+        }
+    }
+
     @ViewBuilder
     private func destination(for route: AppRoute) -> some View {
         switch route {

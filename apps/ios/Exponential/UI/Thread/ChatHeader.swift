@@ -15,12 +15,16 @@ struct ChatHeader<Title: View, Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.detailColumnRoot) private var columnRoot
 
     var body: some View {
         HStack(spacing: CGFloat(Measures.gap)) {
-            // The id UI tests find Back by (`bareBackButton`'s too).
-            ChatHeaderGhostButton(icon: AppIcons.uiBack, label: "Back", identifier: "BackButton") {
-                dismiss()
+            // The id UI tests find Back by (`bareBackButton`'s too). #NEW-12:
+            // none at the iPad detail column's root (its list is beside it).
+            if !columnRoot {
+                ChatHeaderGhostButton(icon: AppIcons.uiBack, label: "Back", identifier: "BackButton") {
+                    dismiss()
+                }
             }
             title()
                 .frame(maxWidth: .infinity, alignment: .leading)

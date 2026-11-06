@@ -31,13 +31,12 @@ import { captureFor, viewsFor, type NativeCapture, type Platform } from "@exp/vi
 import { rawShotPath, repoRoot } from "./paths.ts"
 
 /**
- * The platforms this importer handles. The iOS Snapfile still runs the store
- * set on an iPad simulator too, so `iPad…-<shot>.png` files sit beside the
- * iPhone ones in the same directory — the `devicePrefix` below is what keeps
- * them out. They are the App Store's (EXP-657): the ASO compositor reads them
- * straight out of fastlane's output, and the store holds no tablet lane.
+ * The platforms this importer handles. `ipad` (#NEW-12) rides the iOS lane:
+ * the Snapfile runs the store set on both simulators, so the tablet PNGs sit
+ * in the SAME directory as the iPhone ones and differ only by their filename
+ * prefix (`devicePrefix`).
  */
-export const NATIVE_PLATFORMS: readonly Platform[] = [`ios`, `android`]
+export const NATIVE_PLATFORMS: readonly Platform[] = [`ios`, `ipad`, `android`]
 
 /**
  * The tEXt chunk the store compositor stamps into finished marketing slides
@@ -76,6 +75,17 @@ function sourceDirs(platform: Platform, lane: NativeCapture[`lane`]): SourceDir[
           devicePrefix: /^iPhone/,
         },
         { dir: ios(`screenshots`), legacy: true, devicePrefix: /^iPhone/ },
+      ]
+    case `ipad`:
+      // Same dirs, same shot ids: only the simulator prefix separates the two
+      // frames, which is why the catalog makes `ipad` mirror `ios`.
+      return [
+        {
+          dir: lane === `store` ? ios(`screenshots-raw`) : ios(`screenshots-styleguide`),
+          legacy: false,
+          devicePrefix: /^iPad/,
+        },
+        { dir: ios(`screenshots`), legacy: true, devicePrefix: /^iPad/ },
       ]
     case `android`:
       return [

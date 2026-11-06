@@ -55,17 +55,21 @@ export function isRect(r: unknown): r is Rect {
    headline is about and converting its bounding box, with a ~1–2% margin.
    Re-measure whenever `seed:screenshots` or a client's layout changes.
 
-   Two things the raws taught us: the iPad shots are NOT split views (every
-   surface is one full-width column, so the tablet rects are full-bleed), and
+   #NEW-12 RE-MEASURED 2026-11-06 the tablet rects: the iPad is a split view
+   now (portrait = the list column, 0–37% of the width, beside the detail;
+   the sidebar folded), so each rect frames ONE column's element instead of a
+   full-bleed band. `steering:ios-tablet` is still the old measurement (no
+   eNet node in that run, so its raw was not re-captured). And
    a lone list row on a phone is ~9:1, so several rects deliberately take in
    the neighbouring group header or sibling row to land in the 2:1–6:1 band the
    compositor's cards want. Rows are always framed whole — never half a row. ── */
 export const HAND_RECTS: Record<string, Rect> = {
   // The richest issue row (APP-6: priority, id, label dot, due date, avatar),
-  // under its "Todo" group header. Tablet takes the whole Todo group.
+  // under its "Todo" group header. Tablet: the list column's Backlog header
+  // and its first three rows.
   "board:ios-phone": { x: 0.024, y: 0.359, w: 0.953, h: 0.081 },
   "board:android-phone": { x: 0.024, y: 0.33, w: 0.951, h: 0.0735 },
-  "board:ios-tablet": { x: 0.007, y: 0.226, w: 0.986, h: 0.157 },
+  "board:ios-tablet": { x: 0.012, y: 0.099, w: 0.345, h: 0.123 },
 
   // RE-MEASURED 2026-09-13 after EXP-862 moved the Agent page composer to the
   // top (running runs in a band below it, past runs folded behind a count):
@@ -74,7 +78,7 @@ export const HAND_RECTS: Record<string, Rect> = {
   // doctor line below the chips stays out. Android reads its sidecar.
   "start-coding:ios-phone": { x: 0.024, y: 0.132, w: 0.952, h: 0.19 },
   "start-coding:android-phone": { x: 0.0239, y: 0.0858, w: 0.9522, h: 0.259 },
-  "start-coding:ios-tablet": { x: 0.007, y: 0.066, w: 0.986, h: 0.137 },
+  "start-coding:ios-tablet": { x: 0.379, y: 0.787, w: 0.607, h: 0.18 },
 
   // The agent's unanswered question card with its two numbered options, and
   // nothing above it: starting mid-transcript repeated the results table's
@@ -94,12 +98,12 @@ export const HAND_RECTS: Record<string, Rect> = {
   // Tablet needs three rows to stay out of sliver territory.
   "inbox:ios-phone": { x: 0.0217, y: 0.189, w: 0.955, h: 0.0735 },
   "inbox:android-phone": { x: 0.0222, y: 0.1465, w: 0.955, h: 0.0705 },
-  "inbox:ios-tablet": { x: 0.007, y: 0.1095, w: 0.986, h: 0.151 },
+  "inbox:ios-tablet": { x: 0.391, y: 0.079, w: 0.6, h: 0.112 },
 
   // The markdown checklist and the live green "Coding now" row below it.
   "issue-detail:ios-phone": { x: 0.042, y: 0.36, w: 0.923, h: 0.198 },
   "issue-detail:android-phone": { x: 0.032, y: 0.324, w: 0.928, h: 0.2145 },
-  "issue-detail:ios-tablet": { x: 0.007, y: 0.165, w: 0.986, h: 0.148 },
+  "issue-detail:ios-tablet": { x: 0.387, y: 0.219, w: 0.588, h: 0.231 },
 }
 
 function sidecarRect(rawPath: string, shot: string, form: Form): Rect | null {

@@ -399,13 +399,15 @@ extension XCTestCase {
         let selfHostLink = app.buttons["instance-self-host-link"]
         let loginEmail = app.buttons["login-continue-with-email-button"]
         let issuesTab = app.buttons["tab-board"]
+        // #NEW-12: the iPad's split layout with its sidebar folded (portrait).
+        let sidebarToggle = app.buttons["tablet-sidebar-toggle"]
         // The first-run wizard of an account that never finished it: its
         // signed-in footer, or the step a capture hook parked it on.
         let wizardMarks = ["onboarding-signed-in-as", "onboarding-invite-step", "onboarding-devices-step"]
             .map { anyElement(app, identified: $0) }
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if issuesTab.exists || wizardMarks.contains(where: { $0.exists }) { return .signedIn }
+            if issuesTab.exists || sidebarToggle.exists || wizardMarks.contains(where: { $0.exists }) { return .signedIn }
             if loginEmail.exists { return .login }
             if selfHostLink.exists || urlField.exists { return .instancePicker }
             usleep(250_000)
@@ -755,13 +757,39 @@ extension XCTestCase {
     /// again (a tap on the scrim above it).
     @MainActor
     func showBoard(_ app: XCUIApplication) {
-        let boardTab = app.buttons["tab-board"]
-        expect(boardTab, within: Wait.nav, "Board tab missing")
+        let boardTab = shellEntry(app, "tab-board", within: Wait.nav)
+        expect(boardTab, within: 1, "Board tab missing")
         boardTab.tap()
         let menu = anyElement(app, identified: "board-menu")
         if menu.waitForExistence(timeout: 1.5) {
             closeBoardMenu(app)
         }
+    }
+
+    /// #NEW-12: the iPad's regular width has no tab bar: its sidebar rows
+    /// carry the tabs' ids. A folded sidebar (portrait, the ⅔ split) is
+    /// opened with its toggle first. The phone just finds the tab.
+    @MainActor
+    func shellEntry(_ app: XCUIApplication, _ identifier: String, within timeout: TimeInterval) -> XCUIElement {
+        let entry = app.buttons[identifier]
+        let toggle = app.buttons["tablet-sidebar-toggle"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if entry.exists, entry.isHittable { return entry }
+            if toggle.exists, toggle.isHittable {
+                toggle.tap()
+                _ = entry.waitForExistence(timeout: 2)
+                continue
+            }
+            usleep(250_000)
+        }
+        return entry
+    }
+
+    /// #NEW-12: the iPad at regular width (the split layout): a list row
+    /// REPLACES the detail, so a walk pops one page less there.
+    var isSplitLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
     }
 
     /// #EXP-1384: collapses an open board menu (a tap outside the panel).

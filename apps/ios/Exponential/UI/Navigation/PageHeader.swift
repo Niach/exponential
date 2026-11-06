@@ -22,12 +22,26 @@ extension View {
 extension EnvironmentValues {
     /// The page header's inbox dot: an unread notification of the ACTIVE team.
     @Entry var inboxUnread = false
+    /// #NEW-12: the iPad's split columns host a `pushed` page (Needs you,
+    /// Devices) as a column ROOT: no back arrow to carry its title.
+    @Entry var pageHeaderAsRoot = false
+    /// #NEW-12: the page is the iPad detail column's ROOT (a list row opened
+    /// it beside its list): there is nothing to go back to.
+    @Entry var detailColumnRoot = false
 }
 
 private struct PageHeaderModifier: ViewModifier {
     let title: String
-    let pushed: Bool
+    let requestedPushed: Bool
     @Environment(\.inboxUnread) private var inboxUnread
+    @Environment(\.pageHeaderAsRoot) private var asRoot
+
+    init(title: String, pushed: Bool) {
+        self.title = title
+        requestedPushed = pushed
+    }
+
+    private var pushed: Bool { requestedPushed && !asRoot }
 
     func body(content: Content) -> some View {
         let titled = content
