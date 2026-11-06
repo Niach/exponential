@@ -49,7 +49,7 @@ final class RunnerModel: RunnerPainter {
         host = ExponentialHost(HostOptions(
             functions: functions,
             sources: ["records": { source, emit in me.value?.bind(source.uri, emit) }],
-            settings: SurfaceSettings(mode: .system),
+            settings: SurfaceSettings(mode: .dark), // the runners paint dark ×5 (web, desktop, Android too)
             plugin: ClosureHost(
                 icons: { name, size in
                     guard let paths = LucideIcons.paths(name) else { return nil }

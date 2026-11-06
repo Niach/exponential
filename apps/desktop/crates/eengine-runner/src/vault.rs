@@ -4,7 +4,7 @@
 //! screen and the `local` identity's device uuid.
 //!
 //! A keystore that is not there (a Linux session without a Secret Service,
-//! a locked collection that would prompt) falls back to `vault.json` in the
+//! a locked collection or a macOS Keychain item that would prompt) falls back to `vault.json` in the
 //! app's data directory (0600 on unix): a read tries the keystore, then the
 //! file, so a value written while the keystore was away stays readable.
 
@@ -152,6 +152,7 @@ fn platform_keystore(_id: &str, _name: &str) -> Option<Arc<dyn Keystore>> {
 
 #[cfg(target_os = "macos")]
 mod mac {
+    use security_framework::os::macos::keychain::{KeychainUserInteractionLock, SecKeychain};
     use security_framework::passwords::{delete_generic_password, get_generic_password, set_generic_password};
 
     /// errSecItemNotFound.
@@ -162,8 +163,17 @@ mod mac {
         pub service: String,
     }
 
+    /// Never a Keychain prompt: an item this build may not read without
+    /// asking (another build's ACL, e.g. a rebundled ad-hoc app) or a locked
+    /// keychain answers errSecInteractionNotAllowed, and the Vault falls back
+    /// to `vault.json` instead of blocking the launch on a hidden dialog.
+    fn quiet() -> Result<KeychainUserInteractionLock, String> {
+        SecKeychain::disable_user_interaction().map_err(|e| e.to_string())
+    }
+
     impl super::Keystore for Keychain {
         fn get(&self, key: &str) -> Result<Option<String>, String> {
+            let _quiet = quiet()?;
             match get_generic_password(&self.service, key) {
                 Ok(bytes) => Ok(String::from_utf8(bytes).ok()),
                 Err(e) if e.code() == NOT_FOUND => Ok(None),
@@ -172,10 +182,12 @@ mod mac {
         }
 
         fn set(&self, key: &str, value: &str) -> Result<(), String> {
+            let _quiet = quiet()?;
             set_generic_password(&self.service, key, value.as_bytes()).map_err(|e| e.to_string())
         }
 
         fn delete(&self, key: &str) -> Result<(), String> {
+            let _quiet = quiet()?;
             match delete_generic_password(&self.service, key) {
                 Err(e) if e.code() != NOT_FOUND => Err(e.to_string()),
                 _ => Ok(()),

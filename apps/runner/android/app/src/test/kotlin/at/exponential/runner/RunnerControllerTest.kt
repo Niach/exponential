@@ -53,6 +53,9 @@ class RunnerControllerTest {
         // runner.navigate = app.navigate through the Engine.
         h.controller.onEvent("runner.navigate", obj("screen" to "pages"))
         withTimeout(5000) { while (h.painter.ops.last() != "open pages {}") yield() }
+        // genUI's app.navigate {screen, params}: the params reach the screen.
+        h.controller.onEvent("runner.navigate", obj("screen" to "pages", "params" to mapOf("album" to "a1")))
+        withTimeout(5000) { while (h.painter.ops.last() != "open pages {album=a1}") yield() }
         // The device uuid is created once, under runner.json's key.
         val device = h.vault.values[RunnerController.DEVICE_KEY]!!
         assertEquals(device, RunnerController.deviceId(h.vault) { "other" })

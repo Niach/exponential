@@ -363,7 +363,9 @@ pub fn function_names(pkg: &Value) -> Vec<String> {
     names
 }
 
-/// The broker's answer as a `CallResult` (what `AppInstance::call` answers).
+/// The broker's answer as a `CallResult` (what `AppInstance::call` answers,
+/// VAPP-271): the app reads a capability's `structuredContent` (an action
+/// step's `results.<name>`); an `isError` result is a refusal, its text the toast.
 pub fn brokered(answer: eengine::BrokerAnswer) -> CallResult {
     // VAPP-271: the Engine's mapping (an action's `results.<name>` = the
     // answer's `structuredContent`, `isError` = a refusal), never the raw MCP result.

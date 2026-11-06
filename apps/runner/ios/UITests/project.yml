@@ -1,0 +1,27 @@
+# #VAPP-271: the UI test runner that drives an INSTALLED bundled app by its
+# bundle id (no host app: XCUIApplication(bundleIdentifier:)). check-flow.sh
+# generates the project from this spec and runs it against a simulator.
+name: RunnerFlow
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  RunnerFlowUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: PhotobookFlowTests.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: at.exponential.runner.flow-uitests
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  RunnerFlow:
+    build:
+      targets:
+        RunnerFlowUITests: [test]
+    test:
+      targets:
+        - RunnerFlowUITests

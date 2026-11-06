@@ -20,6 +20,7 @@ see `apps/desktop/crates/eengine-ffi/Package.swift`), then `xcodebuild`.
 | `make-project.sh` | bundle + capabilities → `project.yml` (XcodeGen), `Info.plist` (bundle id/name/version + URL scheme from `runner.json`, purpose strings from the package's `capabilities[].why`), `RunnerCapabilities.swift` (only the declared modules), the bundle at `<name>.app/app`; `--build simulator|device` |
 | `sample/app` | a small bundle with an `ask` scope (`photos.read`): the build check and the screenshots |
 | `check-bundle.sh` | E7's `exponential bundle --target ios` end to end: the kit (`scripts/runner-kits/ios.sh`), the album sample to `Album-<v>.ipa` + a simulator build, both checked (`otool -L`, the purpose strings, NOTICES.txt, AppIcon); `--launch shot.png` installs it on a simulator of its own |
+| `UITests/check-flow.sh` | THE Photobook flow (#VAPP-271) on a simulator of its own under the `ios` lane: install the bundle's simulator `.app`, `simctl addmedia` 3 photos, an XCUITest (`PhotobookFlowTests.swift`, no host app: it drives the installed bundle by id) runs Albums → Permissions → a new album → Add photos (consent sheet, PHPicker) → 3 thumbnails → Export PDF, then a `%PDF-` file in the app's container and no internet socket on the app's process (`lsof -i`); `bash apps/runner/ios/UITests/check-flow.sh <Photobook-…-simulator.app> [shots dir]` |
 | `check-build.sh` | builds the sample twice for the simulator and checks what is linked (`otool -L`) and declared (`Info.plist`) |
 | `../../../scripts/lanes/runner-ios.sh` | THE MAC BUILD LANE: the xcframeworks (when missing) + `make-project.sh` under the `ios` lane lock |
 
@@ -45,6 +46,7 @@ scripts/lanes/runner-ios.sh <owner> --bundle <app dir> --out <dir> --capabilitie
 - **Signing:** `--build device` signs with `RUNNER_DEVELOPMENT_TEAM` when
   set, else leaves the `.app` unsigned for E7 to sign. A `runner.json` id
   with `_` becomes `-` in the bundle id (the URL scheme keeps the id).
+- **Look:** always dark (`preferredColorScheme(.dark)`, the host's `mode: .dark`), like the other runners.
 - **Threading:** every Engine call runs on one serial worker queue (a
   capability blocks it while its picker is up); the painter runs on main.
 - **Storage:** `Application Support/<config id>/` (`records.sqlite`,
