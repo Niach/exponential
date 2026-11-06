@@ -367,6 +367,13 @@ let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the 
 for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
 ```
 
+## Apps (#EDE-20)
+
+`APPS.md`: Mint's default apps against what eDE keeps, replaces with the
+shell and settings, or rewrites as eApps packages once the `eapps` crate
+exists (#EXP-1420); Calculator, System Monitor and Software are parked
+there with what each needs first.
+
 ## The theme bridge: `ede-theme` (#EDE-19)
 
 Foreign apps look like the shell: `crates/ede-theme` generates, from the
