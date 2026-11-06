@@ -48,6 +48,9 @@ pub struct Ede {
     /// Toplevels that exist but have not committed a buffer yet: they are
     /// placed when their first frame arrives, so the size is known.
     pub unmapped: Vec<Window>,
+    /// Windows in the taskbar only (#EDE-48, [`crate::minimize`]): out of
+    /// the space, their place and workspace remembered.
+    pub minimized: Vec<Window>,
     pub popups: PopupManager,
 
     pub compositor_state: CompositorState,
@@ -145,6 +148,8 @@ pub struct WindowState {
     pub parked_at: Option<Point<i32, Logical>>,
     /// The compositor draws its title bar ([`crate::frames`]).
     pub decorated: bool,
+    /// In the taskbar only ([`crate::minimize`]); `parked_at` keeps its place.
+    pub minimized: bool,
 }
 
 pub fn window_state(window: &Window) -> WindowState {
@@ -196,6 +201,7 @@ impl Ede {
             config,
             space: Space::default(),
             unmapped: Vec::new(),
+            minimized: Vec::new(),
             popups: PopupManager::default(),
             compositor_state,
             xdg_shell_state,
@@ -384,12 +390,13 @@ impl Ede {
         }
     }
 
-    /// The output's area minus exclusive layer-shell zones (a panel), in
-    /// space coordinates.
+    /// The output's area minus exclusive layer-shell zones (a panel), inset
+    /// by `[windows] panel_margin` on every side (the IDE look, #EDE-48),
+    /// in space coordinates.
     pub fn work_area(&self, output: &Output) -> Option<Rect> {
         let geo = self.space.output_geometry(output)?;
         let zone = layer_map_for_output(output).non_exclusive_zone();
-        Some(Rectangle::new(geo.loc + zone.loc, zone.size))
+        Some(layout::inset(Rectangle::new(geo.loc + zone.loc, zone.size), self.config.windows.panel_margin))
     }
 
     pub fn output_at(&self, p: Point<f64, Logical>) -> Option<Output> {

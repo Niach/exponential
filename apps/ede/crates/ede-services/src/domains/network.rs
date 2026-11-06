@@ -1,5 +1,7 @@
 //! Network over NetworkManager: the state, every device, the Wi-Fi access
-//! points in reach; connect, disconnect, Wi-Fi on and off.
+//! points in reach, the wired devices and the VPN connections (#EDE-43's
+//! applet: switch rows for Wired, Wireless and VPN); connect, disconnect,
+//! Wi-Fi on and off, wired on and off, a VPN up or down.
 
 use std::collections::HashMap;
 
@@ -12,8 +14,65 @@ use crate::{unavailable, ActionSpec, Service};
 
 const NM: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";
+const SETTINGS_PATH: &str = "/org/freedesktop/NetworkManager/Settings";
 
 pub struct Network;
+
+/// A saved connection as NetworkManager's settings list it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SavedConnection {
+    pub path: String,
+    pub uuid: String,
+    pub id: String,
+    pub kind: String,
+}
+
+/// NetworkManager's connection types that are a VPN for the applet.
+pub fn is_vpn(kind: &str) -> bool {
+    matches!(kind, "vpn" | "wireguard")
+}
+
+/// The snapshot's `vpn` list: every saved VPN connection, `active` when
+/// its uuid is among the active connections.
+pub fn vpn_entries(saved: &[SavedConnection], active_uuids: &[String]) -> Vec<Value> {
+    saved
+        .iter()
+        .filter(|c| is_vpn(&c.kind))
+        .map(|c| json!({"id": c.uuid, "name": c.id, "type": c.kind, "active": active_uuids.contains(&c.uuid)}))
+        .collect()
+}
+
+/// The snapshot's `wired` list: the ethernet devices.
+pub fn wired_entries(devices: &[Value]) -> Vec<Value> {
+    devices
+        .iter()
+        .filter(|d| d["type"] == "ethernet")
+        .map(|d| json!({"path": d["path"], "interface": d["interface"], "state": d["state"], "connection": d["connection"]}))
+        .collect()
+}
+
+fn saved_connections(conn: &zbus::blocking::Connection) -> Vec<SavedConnection> {
+    let settings = format!("{NM}.Settings");
+    let paths: Vec<OwnedObjectPath> = conn.call_method(Some(NM), SETTINGS_PATH, Some(settings.as_str()), "ListConnections", &()).and_then(|r| r.body().deserialize()).unwrap_or_default();
+    paths
+        .into_iter()
+        .filter_map(|c| {
+            let s: HashMap<String, HashMap<String, OwnedValue>> = conn.call_method(Some(NM), c.as_str(), Some(format!("{NM}.Settings.Connection").as_str()), "GetSettings", &()).and_then(|r| r.body().deserialize()).ok()?;
+            let connection = s.get("connection")?;
+            Some(SavedConnection { path: c.as_str().to_string(), uuid: super::str_of(connection, "uuid"), id: super::str_of(connection, "id"), kind: super::str_of(connection, "type") })
+        })
+        .collect()
+}
+
+/// `(path, uuid)` of every active connection.
+fn active_connections(conn: &zbus::blocking::Connection) -> Vec<(String, String)> {
+    let active: Vec<OwnedObjectPath> = prop(conn, NM, NM_PATH, NM, "ActiveConnections").unwrap_or_default();
+    active.into_iter().map(|a| (a.as_str().to_string(), prop::<String>(conn, NM, a.as_str(), &format!("{NM}.Connection.Active"), "Uuid").unwrap_or_default())).collect()
+}
+
+fn root_path() -> OwnedObjectPath {
+    OwnedObjectPath::try_from("/").unwrap()
+}
 
 fn device_type(t: u32) -> &'static str {
     match t {
@@ -108,7 +167,11 @@ impl Service for Network {
         }
         access_points.sort_by(|a, b| b["strength"].as_u64().cmp(&a["strength"].as_u64()));
         access_points.dedup_by(|a, b| a["ssid"] == b["ssid"]);
-        json!({"available": true, "state": nm_state(state), "connected": state >= 50, "primary": primary_type, "wifiEnabled": wifi_enabled, "devices": devices, "accessPoints": access_points})
+        let active_uuids: Vec<String> = active_connections(&conn).into_iter().map(|(_, uuid)| uuid).collect();
+        let vpn = vpn_entries(&saved_connections(&conn), &active_uuids);
+        let wired = wired_entries(&devices);
+        let wired_connected = wired.iter().any(|d| d["state"] == "connected");
+        json!({"available": true, "state": nm_state(state), "connected": state >= 50, "primary": primary_type, "wifiEnabled": wifi_enabled, "wiredConnected": wired_connected, "devices": devices, "wired": wired, "accessPoints": access_points, "vpn": vpn})
     }
 
     fn actions(&self) -> Vec<ActionSpec> {
@@ -116,6 +179,9 @@ impl Service for Network {
             ActionSpec::new("wifi_enable", "Turn Wi-Fi on or off.", json!({"on": {"type": "boolean"}}), &["on"], Some(Capability::System)),
             ActionSpec::new("connect", "Join a Wi-Fi network by SSID (a saved one, or a new one with its password).", json!({"ssid": {"type": "string"}, "password": {"type": "string"}}), &["ssid"], Some(Capability::System)),
             ActionSpec::new("disconnect", "Disconnect a device (its object path from the snapshot).", json!({"device": {"type": "string"}}), &["device"], Some(Capability::System)),
+            ActionSpec::new("wired_enable", "Connect (on) or disconnect (off) the wired devices; off also stops them from reconnecting on their own.", json!({"on": {"type": "boolean"}}), &["on"], Some(Capability::System)),
+            ActionSpec::new("vpn_connect", "Bring a saved VPN up, by its id from the snapshot's vpn list.", json!({"id": {"type": "string"}}), &["id"], Some(Capability::System)),
+            ActionSpec::new("vpn_disconnect", "Take an active VPN down, by its id.", json!({"id": {"type": "string"}}), &["id"], Some(Capability::System)),
         ]
     }
 
@@ -131,6 +197,45 @@ impl Service for Network {
                 let device = args["device"].as_str().ok_or("device")?;
                 conn.call_method(Some(NM), device, Some(format!("{NM}.Device").as_str()), "Disconnect", &()).map_err(|e| e.to_string())?;
                 Ok(json!({"disconnected": device}))
+            }
+            "wired_enable" => {
+                let on = args["on"].as_bool().unwrap_or(true);
+                let dev = format!("{NM}.Device");
+                let snapshot = self.snapshot();
+                let wired = snapshot["wired"].as_array().cloned().unwrap_or_default();
+                if wired.is_empty() {
+                    return Err("no wired device".into());
+                }
+                let mut touched = Vec::new();
+                for d in &wired {
+                    let path = d["path"].as_str().unwrap_or("/");
+                    let path_obj = OwnedObjectPath::try_from(path.to_string()).map_err(|e| e.to_string())?;
+                    set_prop(&conn, NM, path, &dev, "Autoconnect", ZValue::from(on))?;
+                    if on && d["state"] == "disconnected" {
+                        // "/" = NetworkManager picks the device's best saved connection.
+                        if conn.call_method(Some(NM), NM_PATH, Some(NM), "ActivateConnection", &(root_path(), path_obj, root_path())).is_ok() {
+                            touched.push(path.to_string());
+                        }
+                    } else if !on && d["state"] != "disconnected" && d["state"] != "unavailable" && d["state"] != "unmanaged" {
+                        conn.call_method(Some(NM), path, Some(dev.as_str()), "Disconnect", &()).map_err(|e| e.to_string())?;
+                        touched.push(path.to_string());
+                    }
+                }
+                Ok(json!({"wiredEnabled": on, "devices": touched}))
+            }
+            "vpn_connect" => {
+                let id = args["id"].as_str().ok_or("id")?;
+                let saved = saved_connections(&conn).into_iter().find(|c| c.uuid == id && is_vpn(&c.kind)).ok_or_else(|| format!("no VPN connection {id}"))?;
+                let path = OwnedObjectPath::try_from(saved.path.clone()).map_err(|e| e.to_string())?;
+                conn.call_method(Some(NM), NM_PATH, Some(NM), "ActivateConnection", &(path, root_path(), root_path())).map_err(|e| e.to_string())?;
+                Ok(json!({"id": id, "name": saved.id, "connecting": true}))
+            }
+            "vpn_disconnect" => {
+                let id = args["id"].as_str().ok_or("id")?;
+                let (path, _) = active_connections(&conn).into_iter().find(|(_, uuid)| uuid == id).ok_or_else(|| format!("VPN {id} is not active"))?;
+                let path = OwnedObjectPath::try_from(path).map_err(|e| e.to_string())?;
+                conn.call_method(Some(NM), NM_PATH, Some(NM), "DeactivateConnection", &(path,)).map_err(|e| e.to_string())?;
+                Ok(json!({"id": id, "active": false}))
             }
             "connect" => {
                 let ssid = args["ssid"].as_str().ok_or("ssid")?;
@@ -163,5 +268,27 @@ impl Service for Network {
             }
             other => Err(format!("no action {other}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vpn_and_wired_lists_come_from_the_saved_connections_and_devices() {
+        let saved = vec![
+            SavedConnection { path: "/c/1".into(), uuid: "aaa".into(), id: "Office".into(), kind: "vpn".into() },
+            SavedConnection { path: "/c/2".into(), uuid: "bbb".into(), id: "Home WG".into(), kind: "wireguard".into() },
+            SavedConnection { path: "/c/3".into(), uuid: "ccc".into(), id: "Wired connection 1".into(), kind: "802-3-ethernet".into() },
+        ];
+        let vpn = vpn_entries(&saved, &["bbb".into(), "ccc".into()]);
+        assert_eq!(vpn, vec![json!({"id": "aaa", "name": "Office", "type": "vpn", "active": false}), json!({"id": "bbb", "name": "Home WG", "type": "wireguard", "active": true})]);
+        assert!(is_vpn("wireguard") && !is_vpn("802-11-wireless"));
+        let devices = vec![
+            json!({"path": "/d/1", "interface": "enp3s0", "type": "ethernet", "state": "connected", "connection": "Wired connection 1", "addresses": ["10.0.0.2"]}),
+            json!({"path": "/d/2", "interface": "wlp2s0", "type": "wifi", "state": "disconnected", "connection": "", "addresses": []}),
+        ];
+        assert_eq!(wired_entries(&devices), vec![json!({"path": "/d/1", "interface": "enp3s0", "state": "connected", "connection": "Wired connection 1"})]);
     }
 }

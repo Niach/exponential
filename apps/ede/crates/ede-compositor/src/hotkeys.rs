@@ -3,7 +3,8 @@
 //! the shell's layer surfaces never hold the keyboard while an app has it.
 //! Alt+Tab opens the switcher and cycles it (Shift reverses), releasing Alt
 //! commits, Escape cancels; Super alone toggles the menu; Super+Space the
-//! agent panel; Print the screenshot; Ctrl+Alt+T a terminal; the media keys
+//! agent panel; Ctrl+Alt+Up Expo and Ctrl+Alt+Down Scale (#EDE-49); Print
+//! the screenshot; Ctrl+Alt+T a terminal; the media keys
 //! (volume, microphone, brightness, play/next/previous) show the OSD.
 //!
 //! With no shell listening (dead, or not started yet) the compositor falls
@@ -24,6 +25,10 @@ pub mod names {
     pub const SWITCHER_CANCEL: &str = "switcher.cancel";
     pub const MENU_TOGGLE: &str = "menu.toggle";
     pub const AGENT_TOGGLE: &str = "agent.toggle";
+    /// Ctrl+Alt+Up: the workspace overview (#EDE-49); Ctrl+Alt+Down: the
+    /// current workspace's windows tiled. Both shell overlays, no fallback.
+    pub const EXPO_TOGGLE: &str = "expo.toggle";
+    pub const SCALE_TOGGLE: &str = "scale.toggle";
     pub const SCREENSHOT: &str = "screenshot";
     pub const TERMINAL: &str = "terminal";
     pub const VOLUME_UP: &str = "volume.up";
@@ -48,6 +53,8 @@ pub enum Hotkey {
     SwitcherCancel,
     MenuToggle,
     AgentToggle,
+    ExpoToggle,
+    ScaleToggle,
     Screenshot,
     Terminal,
     /// A media key the shell shows an OSD for; `None` of a shell = the app gets it.
@@ -65,6 +72,8 @@ impl Hotkey {
             Hotkey::SwitcherCancel => names::SWITCHER_CANCEL,
             Hotkey::MenuToggle => names::MENU_TOGGLE,
             Hotkey::AgentToggle => names::AGENT_TOGGLE,
+            Hotkey::ExpoToggle => names::EXPO_TOGGLE,
+            Hotkey::ScaleToggle => names::SCALE_TOGGLE,
             Hotkey::Screenshot => names::SCREENSHOT,
             Hotkey::Terminal => names::TERMINAL,
             Hotkey::Media(name) => name,
@@ -127,6 +136,10 @@ pub fn decide(h: &mut Hotkeys, mods: &ModifiersState, sym: u32, state: KeyState,
             (true, Some(if mods.shift { Hotkey::SwitcherPrev } else { Hotkey::SwitcherNext }))
         }
         KEY_space if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => (true, Some(Hotkey::AgentToggle)),
+        // Expo and Scale are shell overlays (#EDE-49): with no shell the
+        // key goes to the app, as Print does.
+        KEY_Up if mods.ctrl && mods.alt && !mods.logo && !mods.shift => (shell_listening, Some(Hotkey::ExpoToggle)),
+        KEY_Down if mods.ctrl && mods.alt && !mods.logo && !mods.shift => (shell_listening, Some(Hotkey::ScaleToggle)),
         KEY_Print if plain(mods) && !mods.alt => (shell_listening, Some(Hotkey::Screenshot)),
         KEY_t | KEY_T if mods.ctrl && mods.alt && !mods.logo => (true, Some(Hotkey::Terminal)),
         _ => {
@@ -258,5 +271,23 @@ mod tests {
         assert_eq!(decide(&mut h, &mods(false, true, false, false), keysyms::KEY_space, KeyState::Pressed, true), (true, Some(Hotkey::AgentToggle)));
         assert_eq!(decide(&mut h, &mods(true, false, true, false), keysyms::KEY_t, KeyState::Pressed, true), (true, Some(Hotkey::Terminal)));
         assert_eq!(decide(&mut h, &mods(false, false, false, false), keysyms::KEY_Print, KeyState::Pressed, true), (true, Some(Hotkey::Screenshot)));
+    }
+
+    #[test]
+    fn ctrl_alt_up_and_down_toggle_expo_and_scale_for_a_listening_shell_only() {
+        let mut h = Hotkeys::default();
+        let ctrl_alt = mods(true, false, true, false);
+        assert_eq!(decide(&mut h, &ctrl_alt, keysyms::KEY_Up, KeyState::Pressed, true), (true, Some(Hotkey::ExpoToggle)));
+        assert_eq!(decide(&mut h, &ctrl_alt, keysyms::KEY_Down, KeyState::Pressed, true), (true, Some(Hotkey::ScaleToggle)));
+        assert_eq!(Hotkey::ExpoToggle.name(), "expo.toggle");
+        assert_eq!(Hotkey::ScaleToggle.name(), "scale.toggle");
+        // No shell: nothing to open, the app keeps the key.
+        assert_eq!(decide(&mut h, &ctrl_alt, keysyms::KEY_Up, KeyState::Pressed, false), (false, Some(Hotkey::ExpoToggle)));
+        // Releases and other modifier sets are not Expo (Ctrl+Alt+Shift+Up is free, Super+Up maximizes).
+        assert_eq!(decide(&mut h, &ctrl_alt, keysyms::KEY_Up, KeyState::Released, true), (false, None));
+        assert_eq!(decide(&mut h, &mods(true, false, true, true), keysyms::KEY_Up, KeyState::Pressed, true), (false, None));
+        assert_eq!(decide(&mut h, &mods(false, true, false, false), keysyms::KEY_Up, KeyState::Pressed, true), (false, None));
+        // Super+Space stays the agent panel.
+        assert_eq!(decide(&mut h, &mods(false, true, false, false), keysyms::KEY_space, KeyState::Pressed, true), (true, Some(Hotkey::AgentToggle)));
     }
 }

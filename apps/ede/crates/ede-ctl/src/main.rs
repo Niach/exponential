@@ -9,6 +9,7 @@
 //! exponential-ctl capture --png FILE --expect-drawn                  …and fail unless something is drawn
 //! exponential-ctl key <keycode> [--pressed|--released] [--bindings]  a key by evdev code (both edges by default; --bindings = as the person's, through Alt+Tab, Super, the media keys)
 //! exponential-ctl pointer <x> <y> [--click] [--bindings]              pointer motion, optionally a left click (--bindings = as the person's)
+//! exponential-ctl minimize <id> | restore <id>                         into the taskbar and back (#EDE-48)
 //! ```
 //!
 //! An agent in the VM uses this instead of QMP's screendump and
@@ -20,7 +21,7 @@ use std::{fs::File, io::BufWriter, path::PathBuf};
 use ede_protocol::{CaptureTarget, Client, InputEvent, WindowId};
 
 fn usage() -> ! {
-    eprintln!("usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click] [--bindings]");
+    eprintln!("usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click] [--bindings] | minimize ID | restore ID");
     std::process::exit(2)
 }
 
@@ -112,6 +113,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 send(InputEvent::PointerButton { button: 0x110, pressed: true })?;
                 send(InputEvent::PointerButton { button: 0x110, pressed: false })?;
             }
+        }
+        "minimize" | "restore" => {
+            let id = WindowId::new(args.next().unwrap_or_else(|| usage())).map_err(|e| format!("not a window id: {e:?}"))?;
+            if cmd == "minimize" { ede.minimize(id)? } else { ede.restore(id)? }
         }
         _ => usage(),
     }
