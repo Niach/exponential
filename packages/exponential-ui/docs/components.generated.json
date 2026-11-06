@@ -3797,7 +3797,7 @@
           "name": "segments",
           "type": "[segment]",
           "required": true,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "The slices in order."
         },

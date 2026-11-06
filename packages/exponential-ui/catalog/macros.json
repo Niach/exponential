@@ -1739,6 +1739,34 @@
               "overflow": "hidden",
               "width": "100%"
             },
+            "$template": {
+              "path": "{props.segments.path}",
+              "item": {
+                "part": "segment",
+                "component": "Box",
+                "style": {
+                  "height": "100%",
+                  "width": {
+                    "$percent": [
+                      {
+                        "path": "value"
+                      },
+                      "{props.max|100}"
+                    ]
+                  }
+                },
+                "$recipe": {
+                  "tone": {
+                    "$coalesce": [
+                      {
+                        "path": "tone"
+                      },
+                      "neutral"
+                    ]
+                  }
+                }
+              }
+            },
             "children": [
               {
                 "part": "segment",

@@ -248,7 +248,7 @@ export interface ComponentProps {
   Chip: { label: string | Dynamic; shape?: ChipShapeValue; selected?: boolean; tone?: ToneValue | Dynamic; dot?: string; icon?: IconName; image?: string; detail?: string | Dynamic; removable?: boolean; pressable?: boolean }
   EmptyState: { icon: IconName; title: string; description?: string; actionLabel?: string; size?: "page" | "list" }
   Progress: { value: number | Dynamic; max?: number; label?: string; tone?: ToneValue }
-  Meter: { segments: Shapes["segment"][]; max?: number; label?: string; value?: string }
+  Meter: { segments: Shapes["segment"][] | Dynamic; max?: number; label?: string; value?: string }
   Ring: { value: number | Dynamic; size?: ControlSizeValue; tone?: ToneValue; label?: string }
   Spinner: { size?: SpinnerSizeValue; label?: string }
   Skeleton: { width?: string; height?: string; rounded?: boolean; rows?: number; rowHeight?: number; dot?: boolean }

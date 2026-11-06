@@ -9795,10 +9795,20 @@
               "const": "Meter"
             },
             "segments": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/segment"
-              },
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/segment"
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
               "description": "The slices in order."
             },
             "max": {
