@@ -146,11 +146,17 @@ final class MarkdownHostTests: XCTestCase {
         guard Fixtures.available() else { return }
         let (f, _) = try fixture()
         for b in f["imageBoxes"]?.array ?? [] {
-            let size = b["size"].flatMap { s -> CGSize? in s.object == nil ? nil : CGSize(width: s["width"]?.number ?? 0, height: s["height"]?.number ?? 0) }
+            func pair(_ v: JSONValue?) -> CGSize? { v.flatMap { s -> CGSize? in s.object == nil ? nil : CGSize(width: s["width"]?.number ?? 0, height: s["height"]?.number ?? 0) } }
+            // `loaded`: an unknown (or invalid) host size takes the decoded one.
+            let size = Markdown.imageSize(host: pair(b["size"]), loaded: pair(b["loaded"]))
             let available = CGFloat(b["available"]?.number ?? 0)
             var block = MarkdownBlock(kind: .image(src: "x", alt: ""), inlines: [])
             block.imageSize = size.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil }
-            let laid = Markdown.layout([block], MarkdownStyles(body: MarkdownTextSpec(size: 14, lineHeight: 20, weight: 400, family: nil)), width: available, text: MarkdownShaper(mono: nil))
+            var styles = MarkdownStyles(body: MarkdownTextSpec(size: 14, lineHeight: 20, weight: 400, family: nil))
+            // `maxHeight`: absent = 160, null = none; `viewport`: absent = unknown.
+            if let cap = b.object?["maxHeight"] { styles.imageHeight = cap.number.map { CGFloat($0) } }
+            styles.viewportHeight = b["viewport"]?.number.map { CGFloat($0) }
+            let laid = Markdown.layout([block], styles, width: available, text: MarkdownShaper(mono: nil))
             let name = b["name"]?.string ?? "?"
             XCTAssertEqual(laid.blocks[0].width ?? available, CGFloat(b["box"]?["width"]?.number ?? -1), accuracy: 0.01, name)
             XCTAssertEqual(laid.blocks[0].height, CGFloat(b["box"]?["height"]?.number ?? -1), accuracy: 0.01, name)

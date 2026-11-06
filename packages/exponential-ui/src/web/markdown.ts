@@ -348,6 +348,9 @@ export interface MarkdownOptions {
   density?: `document` | `chat`
   selectable?: boolean
   streaming?: boolean
+  /** A block image's height cap in px; `null` = none (the available width
+   *  at the image's aspect, at most the viewport's height); unset = 160. */
+  imageMaxHeight?: number | null
 }
 
 /** From this many blocks on, gpui and Compose lay out only visible blocks. */
@@ -659,14 +662,74 @@ const validSize = (size: unknown): { width: number; height: number } | null => {
   return typeof width === `number` && typeof height === `number` && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 ? { width, height } : null
 }
 
+/** #VAPP-258 (catalog/host.json `markdown.options.imageMaxHeight`): the
+ *  height cap a host's options ask for: a positive number, `null` = none,
+ *  unset (or invalid) = the catalog's `imageMaxHeight`. */
+export function markdownImageCap(options?: MarkdownOptions): number | null {
+  const v = options?.imageMaxHeight
+  if (v === null) return null
+  return typeof v === `number` && Number.isFinite(v) && v > 0 ? v : MARKDOWN_IMAGE_MAX_HEIGHT
+}
+
+/** The aspect (height / width) an unsized image takes without a cap: 4:3. */
+export const MARKDOWN_UNSIZED_ASPECT = 3 / 4
+
 /** #VAPP-258 (fixtures/markdown-host.json `imageBoxes`): a block image's
- *  box in `available` px: the host's size at its natural size, scaled down
- *  to fit the width and `maxHeight`; no (valid) size = the fixed box. */
-export function markdownImageBox(size: { width: number; height: number } | null | undefined, available: number, maxHeight = MARKDOWN_IMAGE_MAX_HEIGHT): { width: number; height: number } {
+ *  box in `available` px. With a `maxHeight` cap: the host's size at its
+ *  natural size, scaled down to fit the width and the cap; no (valid) size
+ *  = the fixed box (available × cap). With `null` (no cap): the available
+ *  width at the size's aspect (4:3 unsized), scaled down to the `viewport`
+ *  height when it is taller (no viewport = no limit). */
+export function markdownImageBox(size: { width: number; height: number } | null | undefined, available: number, maxHeight: number | null = MARKDOWN_IMAGE_MAX_HEIGHT, viewport?: number | null): { width: number; height: number } {
   const s = validSize(size)
+  if (maxHeight === null) {
+    const ratio = s ? s.height / s.width : MARKDOWN_UNSIZED_ASPECT
+    const height = available * ratio
+    if (typeof viewport === `number` && Number.isFinite(viewport) && viewport > 0 && height > viewport) return { width: viewport / ratio, height: viewport }
+    return { width: available, height }
+  }
   if (!s) return { width: available, height: maxHeight }
   const scale = Math.min(1, available / s.width, maxHeight / s.height)
   return { width: s.width * scale, height: s.height * scale }
+}
+
+/** #VAPP-258 (fixtures/markdown-host.json `imageBoxes` `loaded`): the size
+ *  a block image's box uses: the host's, else the size it decoded at (an
+ *  unknown size takes the picture's real aspect once loaded: no gap under
+ *  it), else none (the placeholder box). */
+export function markdownImageSizeOf(size: { width: number; height: number } | null | undefined, loaded?: { width: number; height: number } | null): { width: number; height: number } | null {
+  return validSize(size) ?? validSize(loaded)
+}
+
+const LOADED_IMAGE_SIZES = new Map<string, { width: number; height: number }>()
+
+/** The decoded size of a block image src this page loaded before (the
+ *  media cache a remount or a re-measure asks first, so a known picture
+ *  never flashes the placeholder again). */
+export function loadedImageSize(src: string): { width: number; height: number } | undefined {
+  return LOADED_IMAGE_SIZES.get(src)
+}
+
+/** Remember the size `src` decoded at (an invalid size is ignored); bounded. */
+export function rememberImageSize(src: string, width: number, height: number): { width: number; height: number } | undefined {
+  const size = validSize({ width, height })
+  if (!size) return undefined
+  if (LOADED_IMAGE_SIZES.size >= 512 && !LOADED_IMAGE_SIZES.has(src)) LOADED_IMAGE_SIZES.delete(LOADED_IMAGE_SIZES.keys().next().value!)
+  LOADED_IMAGE_SIZES.set(src, size)
+  return size
+}
+
+/** #VAPP-258: the web renderers' box style of a block image (CSS property
+ *  names, kebab case) under `cap` ([markdownImageBox] in CSS: the viewport
+ *  is `100vh`); undefined = the stylesheet's fixed 160px box. */
+export function markdownImageStyle(width: number | undefined, height: number | undefined, cap: number | null): Record<string, string> | undefined {
+  const sized = width !== undefined && height !== undefined && width > 0 && height > 0
+  if (cap === null) {
+    if (sized) return { width: `100%`, "max-width": `calc(100vh * ${width} / ${height})`, height: `auto`, "aspect-ratio": `${width} / ${height}` }
+    return { width: `100%`, "max-width": `calc(100vh * 4 / 3)`, height: `auto`, "aspect-ratio": `4 / 3` }
+  }
+  if (sized) return { width: `${Math.min(width, (cap * width) / height)}px`, "max-width": `100%`, height: `auto`, "aspect-ratio": `${width} / ${height}` }
+  return cap === MARKDOWN_IMAGE_MAX_HEIGHT ? undefined : { height: `${cap}px` }
 }
 
 /** The hooks `hostMarkdown` applies (urls.ts `hostedMarkdown` builds them

@@ -314,6 +314,14 @@ public final class SurfaceModel {
         invalidate(structure: true)
     }
 
+    /// #VAPP-258: node `index`'s content changed size outside the tree (a
+    /// Markdown block image decoded at a size the host did not know):
+    /// measure it again.
+    func remeasure(_ index: Int) {
+        guard surface.markDirty(index: UInt32(index)) else { return }
+        invalidate(structure: false)
+    }
+
     /// Something changed in the core: relayout (a pass follows at once when
     /// the width is known). `structure` = the host replaced content.
     func invalidate(structure: Bool) {
@@ -394,7 +402,7 @@ public final class SurfaceModel {
                     MainActor.assumeIsolated { self.mediaRequest(src) != nil }
                 }, markdownBlocks: { [unowned self] text in
                     MainActor.assumeIsolated { MarkdownPainter.painted(text, model: self) }
-                }, markdownOptions: host.markdownOptions)
+                }, markdownOptions: host.markdownOptions, viewportHeight: viewportHeight > 0 ? viewportHeight : nil)
                 out = surface.layout(measurer: measurer)
                 calls += measurer.calls
             }

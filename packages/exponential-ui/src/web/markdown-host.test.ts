@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../../fixtures/markdown-host.json" with { type: "json" }
 import host from "../../catalog/host.json" with { type: "json" }
 import type { AnyHostPlugin, TextLinkSegment } from "./host-types"
-import { MARKDOWN_IMAGE_MAX_HEIGHT, markdownImageBox, parseMarkdown } from "./markdown"
+import { MARKDOWN_IMAGE_MAX_HEIGHT, markdownImageBox, markdownImageCap, markdownImageSizeOf, markdownImageStyle, parseMarkdown } from "./markdown"
 import { normalMarkdown, type NormalBlock, type NormalRun } from "./markdown-normal"
 import { linkHref } from "./urls"
 import { linkedMarkdown } from "./markdown-linked"
@@ -69,11 +69,21 @@ describe(`markdown-host.json (web)`, () => {
   }
   for (const entry of fixture.imageBoxes) {
     test(`imageBoxes: ${entry.name}`, () => {
-      const box = markdownImageBox(entry.size, entry.available)
+      const e = entry as typeof entry & { maxHeight?: number | null; viewport?: number; loaded?: { width: number; height: number } }
+      const box = markdownImageBox(markdownImageSizeOf(entry.size, e.loaded), entry.available, e.maxHeight === undefined ? undefined : e.maxHeight, e.viewport)
       expect(box.width).toBeCloseTo(entry.box.width, 2)
       expect(box.height).toBeCloseTo(entry.box.height, 2)
     })
   }
+  test(`imageMaxHeight: unset or invalid = the catalog's cap, null = none`, () => {
+    expect(markdownImageCap()).toBe(MARKDOWN_IMAGE_MAX_HEIGHT)
+    expect(markdownImageCap({ imageMaxHeight: 240 })).toBe(240)
+    expect(markdownImageCap({ imageMaxHeight: -1 })).toBe(MARKDOWN_IMAGE_MAX_HEIGHT)
+    expect(markdownImageCap({ imageMaxHeight: null })).toBeNull()
+    expect(host.markdown.options.imageMaxHeight.default).toBe(MARKDOWN_IMAGE_MAX_HEIGHT)
+    expect(markdownImageStyle(undefined, undefined, MARKDOWN_IMAGE_MAX_HEIGHT)).toBeUndefined()
+    expect(markdownImageStyle(1600, 900, null)?.[`aspect-ratio`]).toBe(`1600 / 900`)
+  })
   test(`no hooks = the tree as parsed`, () => {
     for (const entry of fixture.cases) {
       const tree = parseMarkdown(entry.text)

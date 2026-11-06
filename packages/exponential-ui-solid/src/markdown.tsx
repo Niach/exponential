@@ -13,9 +13,9 @@
 // a one-link paragraph the host's `attachment` classifies is the Video /
 // AudioPlayer native or the FileUpload file row (React's markdown.tsx).
 
-import { For, Show, createMemo, useContext, type JSX } from "solid-js"
+import { For, Show, createMemo, createSignal, useContext, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { linkedMarkdown, linkHref, markdownCodeLines, mediaRequestOf, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { linkedMarkdown, linkHref, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
@@ -28,13 +28,22 @@ import { css } from "./style"
 export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage, parseList } from "@exponential_app/eui/web"
 
 /** A block image through the media policy and loader (alt text while it
- *  loads or when it fails); a DENIED src is a paragraph of its alt text. */
-function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; width?: number; height?: number }): JSX.Element {
+ *  loads or when it fails; an unknown size takes the decoded aspect once
+ *  loaded); a DENIED src is a paragraph of its alt text. */
+function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; width?: number; height?: number; scope?: string }): JSX.Element {
   const media = createMediaSource(() => props.host, () => props.src)
-  // #VAPP-258: a host-sized image keeps its aspect at its natural size,
-  // capped by the width and the 160px max height (markdownImageBox: the
-  // height cap is a width cap at that aspect).
-  const sized = () => (props.width !== undefined && props.height !== undefined ? { width: `${Math.min(props.width, (160 * props.width) / props.height)}px`, "max-width": `100%`, height: `auto`, "aspect-ratio": `${props.width} / ${props.height}` } : undefined)
+  // #VAPP-258: a host-sized image keeps its aspect, capped by the width and
+  // the host's `imageMaxHeight` (markdownImageStyle; null = no cap, the
+  // width at its aspect up to the viewport's height).
+  // #VAPP-258 (markdown-host.json `loaded`): a size the host does not know
+  // is the decoded one once the picture loads (one relayout to its real
+  // aspect, remembered for the next mount); the placeholder box until then.
+  const [loaded, setLoaded] = createSignal<{ src: string; size?: { width: number; height: number } }>()
+  const size = () => {
+    const l = loaded()
+    return markdownImageSizeOf(props.width !== undefined && props.height !== undefined ? { width: props.width, height: props.height } : null, l?.src === props.src && l.size ? l.size : loadedImageSize(props.src))
+  }
+  const sized = () => markdownImageStyle(size()?.width, size()?.height, markdownImageCap(props.host.markdownOptions))
   const press = () => props.host.onImagePress
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== `Enter` && e.key !== ` `) return
@@ -47,7 +56,8 @@ function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; widt
       fallback={props.alt ? <p class="xui-Markdown-paragraph">{props.alt}</p> : null}
     >
       <div
-        class="xui-Markdown-image"
+        class={`${props.scope ?? ``} ${partClass(`Markdown`, `image`)}`.trim()}
+        data-xui-part="Markdown/image"
         role={press() ? `button` : `img`}
         tabIndex={press() ? 0 : undefined}
         data-pressable={press() ? `` : undefined}
@@ -57,7 +67,7 @@ function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; widt
         onKeyDown={press() ? onKeyDown : undefined}
         aria-label={props.alt}
       >
-        {media().url && !media().error ? <img alt="" src={media().url} /> : <span class="xui-Markdown-imageAlt">{props.alt}</span>}
+        {media().url && !media().error ? <img alt="" src={media().url} onLoad={(e) => setLoaded({ src: props.src, size: rememberImageSize(props.src, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) })} /> : <span class="xui-Markdown-imageAlt">{props.alt}</span>}
       </div>
     </Show>
   )
@@ -195,7 +205,7 @@ function block(b: MarkdownBlock, host: HostPlugin, scope: string, id: string, ke
     case `paragraph`:
       return <p class="xui-Markdown-paragraph">{inline(b.children, host, scope)}</p>
     case `image`:
-      return <MarkdownImage host={host} src={b.src} alt={b.alt} width={b.width} height={b.height} />
+      return <MarkdownImage host={host} src={b.src} alt={b.alt} width={b.width} height={b.height} scope={scope} />
     case `attachment`:
       return <MarkdownAttachment host={host} b={b} scope={scope} id={`${id}.attachment.${key}`} />
     case `codeBlock`:

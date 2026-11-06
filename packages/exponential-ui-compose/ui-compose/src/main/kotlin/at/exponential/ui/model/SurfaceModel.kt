@@ -226,6 +226,9 @@ class SurfaceModel(
     private var formatterKey: String? = null
     private var appliedSettings: FfiSettings? = null
 
+    /** The text scale the core applies to this surface's type (1 before the first settings). */
+    val textScale: Float get() = appliedSettings?.fontScale ?: 1f
+
     /** The built-in string table in effect (`{id: text}`, the host's overrides applied). */
     var strings: Map<String, String> = emptyMap()
         private set
@@ -586,6 +589,8 @@ class SurfaceModel(
             imageSize = ::markdownImageSize,
             textLinks = ::markdownTextLinks,
             options = host.markdownOptions,
+            // #VAPP-258: an image the host cannot size, at its decoded size once it loaded.
+            loadedSize = { at.exponential.ui.primitives.MarkdownImageSizes[it] },
         )
 
     /** #VAPP-258: a Markdown's blocks as measured and painted ([Markdown.resolve] through [markdownHooks]). */
@@ -690,6 +695,18 @@ class SurfaceModel(
      * Fonts or the shaper's density changed: the core's measure memo is
      * stale (a new measure identity), lay out again.
      */
+    /**
+     * #VAPP-258: node [index]'s content changed size outside the tree (a
+     * Markdown block image decoded at a size the host did not know):
+     * measure it again now.
+     */
+    fun remeasure(index: Int) {
+        if (surface.markDirty(index.toUInt())) {
+            layoutNeeded = true
+            pass()
+        }
+    }
+
     fun invalidateMeasures() {
         measureGeneration += 1
         paintFull = true
@@ -866,7 +883,7 @@ class SurfaceModel(
             val used: Map<String, String> = if (kinds.isEmpty()) emptyMap() else HashMap(kinds)
             var measurer: SurfaceMeasurer? = null
             out = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks, markdownOptions = host.markdownOptions) { mediaRequest(it) != null }.let {
+                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks, markdownOptions = host.markdownOptions, fontScale = textScale, viewportHeight = viewportHeight.takeIf { it > 0f }) { mediaRequest(it) != null }.let {
                     measurer = it
                     surface.layout(it)
                 }

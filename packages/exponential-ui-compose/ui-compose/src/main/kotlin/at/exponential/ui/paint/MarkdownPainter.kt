@@ -18,9 +18,14 @@ import at.exponential.ui.theme.ThemeHandle
 object MarkdownPainter {
     /**
      * From the theme's `Markdown` recipes (the root's own text style is the
-     * body); plain metrics in geometry mode.
+     * body); plain metrics in geometry mode. [fontScale] = the surface's
+     * text scale: [body] arrives scaled (the core scales a node's type), the
+     * recipe parts read here do not, so their sizes and line heights are
+     * multiplied by it (one rule for the measurer and the painter, so the
+     * measured height stays the painted one).
      */
-    fun styles(theme: ThemeHandle?, mode: Mode, body: ResolvedTextStyle, props: Props): MarkdownStyles {
+    fun styles(theme: ThemeHandle?, mode: Mode, body: ResolvedTextStyle, props: Props, fontScale: Float = 1f): MarkdownStyles {
+        val k = fontScale.takeIf { it.isFinite() && it > 0f } ?: 1f
         val bodySpec = MarkdownTextSpec(body.fontSize, body.lineHeight, body.fontWeight, body.fontFamily)
         val s = MarkdownStyles(bodySpec)
         s.mediaMaxWidth = CatalogConstants.MEDIA_INTRINSIC_WIDTH
@@ -28,8 +33,8 @@ object MarkdownPainter {
         if (theme == null) return s
         fun part(name: String): PartStyle = theme.part("Markdown", name, props, mode = mode)
         fun spec(p: PartStyle, base: MarkdownTextSpec): MarkdownTextSpec = MarkdownTextSpec(
-            size = p.px("fontSize") ?: base.size,
-            lineHeight = p.px("lineHeight") ?: base.lineHeight,
+            size = p.px("fontSize")?.times(k) ?: base.size,
+            lineHeight = p.px("lineHeight")?.times(k) ?: base.lineHeight,
             weight = p.props["fontWeight"]?.number?.toInt() ?: base.weight,
             family = p.fontFamily ?: base.family,
         )
@@ -45,12 +50,14 @@ object MarkdownPainter {
         val quote = part("quote")
         s.quoteBorder = quote.px("borderWidth") ?: s.quoteBorder
         s.quotePad = quote.px("paddingHorizontal") ?: s.quotePad
+        // #VAPP-258: a block image's corners (the `Markdown/image` recipe).
+        s.imageRadius = part("image").style.radius
         s.blockGap = root?.px("gap") ?: theme.spacing("sm")
         s.headingTop = theme.spacing("md")
         s.headingBottom = theme.spacing("xs")
         s.cellPadH = theme.spacing("sm")
         s.cellPadV = theme.spacing("xs")
-        hostParts(theme, mode, s)
+        hostParts(theme, mode, s, k)
         return s
     }
 
@@ -60,6 +67,19 @@ object MarkdownPainter {
      * recipe prop, `catalog/recipes.json`).
      */
     fun props(props: Props, chat: Boolean): Props = if (chat) props + ("density" to JsonValue.Str("chat")) else props
+
+    /**
+     * #VAPP-258: fenced blocks in CodeBlock's token colours under [theme]
+     * (`CodeBlock/token {kind}`), through the catalog's one tokenizer
+     * ([at.exponential.ui.compose.markdownCodeSpans]): what the `Markdown`
+     * leaf paints, for a host that draws the primitives' MarkdownView itself.
+     */
+    fun codeHighlighter(theme: ThemeHandle, mode: Mode): at.exponential.ui.primitives.MarkdownCodeHighlighter =
+        at.exponential.ui.primitives.MarkdownCodeHighlighter { text, lang ->
+            at.exponential.ui.compose.markdownCodeSpans(text, lang) { kind ->
+                theme.part("CodeBlock", "token", mapOf("kind" to JsonValue.Str(kind)), mode = mode).color
+            }
+        }
 
     /** #VAPP-258: the Chip props a Markdown chip resolves its look with (the catalog defaults). */
     val CHIP_PROPS: Props = mapOf("shape" to JsonValue.Str("pill"), "tone" to JsonValue.Str("neutral"), "selected" to JsonValue.Bool(false))
@@ -71,13 +91,13 @@ object MarkdownPainter {
      * row) and the file row (FileUpload `file`: min height, padding, the
      * icon or the name line).
      */
-    private fun hostParts(theme: ThemeHandle, mode: Mode, s: MarkdownStyles) {
+    private fun hostParts(theme: ThemeHandle, mode: Mode, s: MarkdownStyles, k: Float) {
         val caption = theme.part("Text", "root", mapOf("variant" to JsonValue.Str("caption")), mode = mode)
         val chipLabel = theme.part("Chip", "label", CHIP_PROPS, mode = mode)
         s.chip = MarkdownChipStyle(
             label = MarkdownTextSpec(
-                size = chipLabel.px("fontSize") ?: caption.px("fontSize") ?: 12f,
-                lineHeight = chipLabel.px("lineHeight") ?: caption.px("lineHeight") ?: 16f,
+                size = (chipLabel.px("fontSize") ?: caption.px("fontSize") ?: 12f) * k,
+                lineHeight = (chipLabel.px("lineHeight") ?: caption.px("lineHeight") ?: 16f) * k,
                 weight = (chipLabel.props["fontWeight"] ?: caption.props["fontWeight"])?.number?.toInt() ?: s.body.weight,
                 family = chipLabel.fontFamily ?: caption.fontFamily ?: s.body.family,
             ),
@@ -87,23 +107,23 @@ object MarkdownPainter {
             height = theme.control("badge", 20f),
         )
         val track = theme.part("AudioPlayer", "track", emptyMap(), mode = mode)
-        s.audioTitle = track.px("lineHeight") ?: s.body.lineHeight
+        s.audioTitle = track.px("lineHeight")?.times(k) ?: s.body.lineHeight
         s.audioGap = theme.spacing("xs")
         s.audioRow = theme.part("AudioPlayer", "controls", emptyMap(), mode = mode).px("height") ?: theme.control("row", 32f)
         val file = theme.part("FileUpload", "file", emptyMap(), mode = mode)
         val name = theme.part("FileUpload", "fileName", emptyMap(), mode = mode)
         val padV = file.px("paddingVertical") ?: file.px("padding") ?: 0f
-        val content = 2 * padV + maxOf(theme.control("iconSm", 16f), name.px("lineHeight") ?: s.body.lineHeight)
+        val content = 2 * padV + maxOf(theme.control("iconSm", 16f), name.px("lineHeight")?.times(k) ?: s.body.lineHeight)
         s.fileHeight = maxOf(file.px("minHeight") ?: file.px("height") ?: 0f, content)
     }
 
     /** #VAPP-258: an audio attachment's title style (the AudioPlayer `track` part over the body). */
-    fun audioTitle(theme: ThemeHandle?, mode: Mode, body: ResolvedTextStyle): ResolvedTextStyle {
+    fun audioTitle(theme: ThemeHandle?, mode: Mode, body: ResolvedTextStyle, fontScale: Float = 1f): ResolvedTextStyle {
         val track = theme?.part("AudioPlayer", "track", emptyMap(), mode = mode) ?: return body
         return ResolvedTextStyle(
-            track.px("fontSize") ?: body.fontSize,
+            track.px("fontSize")?.times(fontScale) ?: body.fontSize,
             track.props["fontWeight"]?.number?.toInt() ?: body.fontWeight,
-            track.px("lineHeight") ?: body.lineHeight,
+            track.px("lineHeight")?.times(fontScale) ?: body.lineHeight,
             track.fontFamily ?: body.fontFamily,
         )
     }

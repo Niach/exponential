@@ -503,7 +503,7 @@ final class SafeHostTests: XCTestCase {
         let styles = MarkdownPainter.styles(theme: m.theme, mode: m.mode, body: m.textStyle(root.index), props: root.props)
         let laid = Markdown.layout(blocks, styles, width: m.frame(root.index).width, text: MarkdownShaper(mono: m.theme?.monoFamily))
         XCTAssertEqual(m.frame(root.index).height, laid.height, accuracy: 1)
-        XCTAssertGreaterThan(laid.height, styles.imageHeight)
+        XCTAssertGreaterThan(laid.height, styles.imageHeight ?? 0)
     }
 
     func testMarkdownLinkHitTesting() {

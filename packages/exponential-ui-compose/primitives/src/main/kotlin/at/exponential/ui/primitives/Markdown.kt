@@ -72,6 +72,8 @@ class MarkdownHooks(
     val textLinks: ((String) -> List<MarkdownTextLink>?)? = null,
     /** #VAPP-258 step 5: the host's render options (hard breaks, a streamed prefix). */
     val options: MarkdownOptions = MarkdownOptions(),
+    /** #VAPP-258 (markdown-host.json `loaded`): the size a block image DECODED at (the media cache, [MarkdownImageSizes]): an image [imageSize] cannot size takes it. */
+    val loadedSize: ((String) -> MarkdownSize?)? = null,
 )
 
 /**
@@ -89,8 +91,19 @@ data class MarkdownOptions(
     val chat: Boolean = false,
     val selectable: Boolean? = null,
     val streaming: Boolean = false,
+    /** #VAPP-258: a block image's height cap (dp); null = none (the width at the image's aspect, at most the viewport's height). */
+    val imageMaxHeight: Float? = IMAGE_MAX_HEIGHT,
 ) {
+    /** [imageMaxHeight] as applied: null = none, an invalid number = [IMAGE_MAX_HEIGHT]. */
+    val imageCap: Float? get() = imageMaxHeight?.let { if (it.isFinite() && it > 0f) it else IMAGE_MAX_HEIGHT }
+
     companion object {
+        /** catalog/host.json `markdown.imageMaxHeight`: the default cap. */
+        const val IMAGE_MAX_HEIGHT = 160f
+
+        /** An unsized image's aspect (height / width) with no cap: 4:3. */
+        const val UNSIZED_ASPECT = 0.75f
+
         /** From this many blocks on a painter lays out only the visible ones (`markdown.lazyBlocks`). */
         const val LAZY_BLOCKS = 24
     }
@@ -200,8 +213,12 @@ data class MarkdownStyles(
     var listIndent: Float = roundHalfAway(body.size * 1.4f),
     var cellPadH: Float = 8f,
     var cellPadV: Float = 4f,
-    /** The height of a block image (loaded or not, so measure = paint). */
-    var imageHeight: Float = 160f,
+    /** The height cap of a block image (loaded or not, so measure = paint); null = none (`imageMaxHeight: null`). */
+    var imageHeight: Float? = 160f,
+    /** #VAPP-258: the viewport height an uncapped image stops at (null = unknown, no limit). */
+    var viewportHeight: Float? = null,
+    /** #VAPP-258: a block image's corner radius (the `Markdown/image` recipe's `borderRadius`; 0 without a theme). */
+    var imageRadius: Float = 0f,
     /** #VAPP-258: the inline chip. */
     var chip: MarkdownChipStyle = MarkdownChipStyle(),
     /** #VAPP-258: a video attachment's max width (`mediaIntrinsicWidth`) and aspect (`mediaAspectRatio`). */
@@ -984,14 +1001,43 @@ object Markdown {
     }
 
     /**
-     * #VAPP-258 (markdown-host.json `imageBoxes`): a block image's box: its
-     * natural size scaled by min(1, available / width, maxHeight / height),
-     * start-aligned; unknown = available × maxHeight.
+     * #VAPP-258 (markdown-host.json `imageBoxes` `loaded`): every block image
+     * the host could not size takes the size it decoded at ([loaded]; an
+     * invalid answer = none, the placeholder box). The same list when none did.
      */
-    fun imageBox(width: Float?, height: Float?, available: Float, maxHeight: Float): MarkdownSize {
+    fun sizeLoaded(blocks: List<MarkdownBlock>, loaded: (String) -> MarkdownSize?): List<MarkdownBlock> {
+        var changed = false
+        val out = blocks.map { b ->
+            val kind = b.kind
+            if (kind !is MarkdownBlockKind.Image || (kind.width != null && kind.height != null)) return@map b
+            val s = loaded(kind.src)?.takeIf { it.valid } ?: return@map b
+            changed = true
+            b.copy(kind = kind.copy(width = s.width, height = s.height))
+        }
+        return if (changed) out else blocks
+    }
+
+    /** The size a block image's box uses: the host's ([size]), else the decoded one ([loaded]), else none. */
+    fun imageSizeOf(size: MarkdownSize?, loaded: MarkdownSize?): MarkdownSize? = size?.takeIf { it.valid } ?: loaded?.takeIf { it.valid }
+
+    /**
+     * #VAPP-258 (markdown-host.json `imageBoxes`): a block image's box. With
+     * a [maxHeight] cap: its natural size scaled by min(1, available / width,
+     * maxHeight / height), start-aligned; unknown = available × maxHeight.
+     * With none (null): the available width at its aspect (4:3 unknown),
+     * scaled down to [viewport] when taller (null viewport = no limit).
+     */
+    fun imageBox(width: Float?, height: Float?, available: Float, maxHeight: Float?, viewport: Float? = null): MarkdownSize {
         val avail = max(available, 0f)
-        if (width == null || height == null || !MarkdownSize(width, height).valid) return MarkdownSize(avail, maxHeight)
-        val scale = minOf(1f, avail / width, maxHeight / height)
+        val sized = width != null && height != null && MarkdownSize(width, height).valid
+        if (maxHeight == null) {
+            val ratio = if (sized) height!! / width!! else MarkdownOptions.UNSIZED_ASPECT
+            val h = avail * ratio
+            if (viewport != null && viewport.isFinite() && viewport > 0f && h > viewport) return MarkdownSize(viewport / ratio, viewport)
+            return MarkdownSize(avail, h)
+        }
+        if (!sized) return MarkdownSize(avail, maxHeight)
+        val scale = minOf(1f, avail / width!!, maxHeight / height!!)
         return MarkdownSize(width * scale, height * scale)
     }
 
@@ -1001,6 +1047,7 @@ object Markdown {
         hooks.attachment?.let { blocks = resolveAttachments(blocks, hooks.linkPolicy, it) }
         hooks.imagePolicy?.let { blocks = resolveImages(blocks, it) }
         hooks.imageSize?.let { blocks = sizeImages(blocks, it) }
+        hooks.loadedSize?.let { blocks = sizeLoaded(blocks, it) }
         hooks.linkPolicy?.let { blocks = policeLinks(blocks, it) }
         return blocks
     }
@@ -1062,7 +1109,7 @@ object Markdown {
             val height: Float = when (val k = b.kind) {
                 MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.height(b.inlines, spec, max(width, 1f), s.chip)
                 is MarkdownBlockKind.ListItem -> text.height(b.inlines, spec, max(width - s.listInset(k.depth), 1f), s.chip)
-                is MarkdownBlockKind.Image -> imageBox(k.width, k.height, width, s.imageHeight).height
+                is MarkdownBlockKind.Image -> imageBox(k.width, k.height, width, s.imageHeight, s.viewportHeight).height
                 is MarkdownBlockKind.Attachment -> s.attachmentHeight(k, width)
                 MarkdownBlockKind.Quote -> text.height(b.inlines, spec, max(width - s.quoteBorder - s.quotePad, 1f), s.chip)
                 MarkdownBlockKind.CodeBlock -> text.height(b.inlines, spec, null) + 2 * s.codePad
@@ -1083,6 +1130,50 @@ object Markdown {
         return MarkdownLayout(out, y)
     }
 
+    /**
+     * #VAPP-258: the tallest height at most [limit] that ends on a whole line
+     * of [layout] (a fold that never cuts a line in half): a block that fits
+     * ends there; the first block that does not fit contributes its whole
+     * lines (text blocks: line boxes of their spec's line height, a code
+     * block inside its padding; a table its whole rows); anything else stops
+     * at the block above. Nothing fits = the first line's bottom (capped at
+     * [limit]); a document within [limit] = its height.
+     */
+    fun foldHeight(blocks: List<MarkdownBlock>, layout: MarkdownLayout, s: MarkdownStyles, limit: Float): Float {
+        if (layout.height <= limit) return layout.height
+        var best = 0f
+        for ((i, b) in blocks.withIndex()) {
+            val box = layout.blocks.getOrNull(i) ?: break
+            val bottom = box.y + box.height
+            if (bottom <= limit) {
+                best = bottom
+                continue
+            }
+            val lh = s.spec(b.kind).lineHeight
+            when (b.kind) {
+                MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading, is MarkdownBlockKind.ListItem, MarkdownBlockKind.Quote -> {
+                    val n = floor(((limit - box.y) / lh).toDouble()).toInt()
+                    if (n >= 1) best = box.y + n * lh else if (best == 0f) best = minOf(box.y + lh, limit)
+                }
+                MarkdownBlockKind.CodeBlock -> {
+                    val n = floor(((limit - box.y - s.codePad) / lh).toDouble()).toInt()
+                    if (n >= 1) best = box.y + s.codePad + n * lh
+                }
+                is MarkdownBlockKind.Table -> {
+                    var y = box.y
+                    for (r in box.rows) {
+                        if (y + r > limit) break
+                        y += r
+                    }
+                    if (y > box.y) best = y
+                }
+                else -> Unit
+            }
+            break
+        }
+        return if (best > 0f) best else limit
+    }
+
     /** An audio attachment's max-content width (the AudioPlayer's). */
     const val AUDIO_INTRINSIC_WIDTH = 300f
 
@@ -1096,7 +1187,7 @@ object Markdown {
             when (val k = b.kind) {
                 MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.width(b.inlines, spec, s.chip)
                 is MarkdownBlockKind.ListItem -> text.width(b.inlines, spec, s.chip) + s.listInset(k.depth)
-                is MarkdownBlockKind.Image -> if (k.width != null && k.height != null) imageBox(k.width, k.height, k.width, s.imageHeight).width else s.imageHeight
+                is MarkdownBlockKind.Image -> if (k.width != null && k.height != null) imageBox(k.width, k.height, k.width, s.imageHeight ?: k.height, s.viewportHeight).width else (s.imageHeight ?: MarkdownOptions.IMAGE_MAX_HEIGHT)
                 is MarkdownBlockKind.Attachment -> when (k.type) {
                     "video" -> s.mediaMaxWidth
                     "audio" -> AUDIO_INTRINSIC_WIDTH

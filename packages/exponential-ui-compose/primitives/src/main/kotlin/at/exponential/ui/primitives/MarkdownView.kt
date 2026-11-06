@@ -35,6 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.layout.boundsInWindow
@@ -335,6 +337,30 @@ fun markdownChipWidth(chip: MarkdownChip, chips: MarkdownChipStyle, cap: Float?,
 }
 
 /**
+ * #VAPP-258 (markdown-host.json `imageBoxes` `loaded`): the media cache of
+ * the sizes block images DECODED at, by src. An image painter reports its
+ * picture here once it loads ([remember]); a [MarkdownView] (and a
+ * measurer, [MarkdownHooks.loadedSize]) gives an image the host could not
+ * size that aspect: one relayout from the placeholder box, then measure =
+ * paint. Snapshot state: a view reading it recomposes when a size lands.
+ */
+object MarkdownImageSizes {
+    private val sizes = mutableStateMapOf<String, MarkdownSize>()
+
+    /** The size [src] decoded at, if it loaded before. */
+    operator fun get(src: String): MarkdownSize? = sizes[src]
+
+    /** Remember the size [src] decoded at (invalid = ignored; bounded). `true` = new (a re-measure is due). */
+    fun remember(src: String, width: Float, height: Float): Boolean {
+        val size = MarkdownSize(width, height)
+        if (!size.valid || sizes[src] == size) return false
+        if (sizes.size >= 512 && src !in sizes) sizes.clear()
+        sizes[src] = size
+        return true
+    }
+}
+
+/**
  * A read-only markdown document: [text] parsed by [Markdown.parse], laid
  * out by [Markdown.layout] at the available width, each block painted at
  * its box (paragraphs, headings, bullet / numbered / task lists, quotes
@@ -381,10 +407,17 @@ fun MarkdownView(
     chipIcon: (@Composable (name: String, size: Float, color: Color) -> Unit)? = null,
     attachmentView: (@Composable (attachment: MarkdownBlockKind.Attachment, width: Float, height: Float) -> Unit)? = null,
     options: MarkdownOptions = MarkdownOptions(),
+    /** #VAPP-258: the viewport height an uncapped image (`imageMaxHeight: null`) stops at; null = the window's. */
+    viewportHeight: Float? = null,
+    /** #VAPP-258: the laid-out document each time it lays out (a host folding it at whole lines, [MarkdownLaidOut.foldHeight]). */
+    onLayout: ((MarkdownLaidOut) -> Unit)? = null,
 ) {
-    val parsed = remember(text, linkPolicy, imagePolicy, attachments, imageSize, options.hardBreaks, options.streaming) {
+    val prepared = remember(text, linkPolicy, imagePolicy, attachments, imageSize, options.hardBreaks, options.streaming) {
         Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options))
     }
+    // #VAPP-258: an image the host could not size takes its decoded size
+    // once it loaded (the media cache; this read recomposes when one lands).
+    val parsed = Markdown.sizeLoaded(prepared) { MarkdownImageSizes[it] }
     // A host's text links read live, like a `hostLinks` Text's.
     val blocks = when {
         linkSegments != null -> Markdown.linkSegments(parsed, linkSegments)
@@ -399,9 +432,17 @@ fun MarkdownView(
         val shaper = remember(measurer, pinned.density, fonts, monoFamily) {
             MarkdownComposeText(measurer, pinned.density, fonts, monoFamily)
         }
+        val window = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.toFloat()
+        val viewport = viewportHeight ?: window.takeIf { it > 0f }
+        // #VAPP-258: the host's image cap (options) and the viewport an uncapped image stops at.
+        val styles = remember(styles, options.imageCap, viewport) { styles.copy(imageHeight = options.imageCap, viewportHeight = viewport) }
         BoxWithConstraints(modifier.fillMaxWidth()) {
             val width = if (constraints.hasBoundedWidth) constraints.maxWidth / pinned.density else 10_000f
             val layout = remember(blocks, styles, width, shaper) { Markdown.layout(blocks, styles, width, shaper) }
+            if (onLayout != null) {
+                val laid = remember(layout, blocks, styles) { MarkdownLaidOut(blocks, layout, styles) }
+                androidx.compose.runtime.SideEffect { onLayout(laid) }
+            }
             val lazy = blocks.size >= MarkdownOptions.LAZY_BLOCKS
             // The visible window in dp (clipped by every parent); before the
             // first placement, the first screenfuls.
@@ -449,6 +490,12 @@ fun MarkdownView(
     }
 }
 
+/** #VAPP-258: a [MarkdownView]'s laid-out document (dp). */
+class MarkdownLaidOut(val blocks: List<MarkdownBlock>, val layout: MarkdownLayout, val styles: MarkdownStyles) {
+    /** The tallest height at most [limit] that ends on a whole line ([Markdown.foldHeight]). */
+    fun foldHeight(limit: Float): Float = Markdown.foldHeight(blocks, layout, styles, limit)
+}
+
 /** #VAPP-258 step 5: a lazy document's block boxes carry this test tag. */
 const val MARKDOWN_BLOCK_TAG = "xui-markdown-block"
 
@@ -493,12 +540,14 @@ private fun MarkdownBlockView(
             inlineContent = chips(block.inlines, maxOf(width, 1f)),
         )
         is MarkdownBlockKind.Image -> {
-            val ib = Markdown.imageBox(kind.width, kind.height, width, styles.imageHeight)
+            val ib = Markdown.imageBox(kind.width, kind.height, width, styles.imageHeight, styles.viewportHeight)
             val press = hooks.onImagePress
             Box(
                 Modifier
                     .width(ib.width.dp)
                     .height(box.height.dp)
+                    // #VAPP-258: the `Markdown/image` recipe's corners.
+                    .then(if (styles.imageRadius > 0f) Modifier.clip(RoundedCornerShape(styles.imageRadius.dp)) else Modifier)
                     .then(if (press != null) Modifier.clickable(role = Role.Image) { press(kind.src) } else Modifier),
             ) {
                 val image = hooks.image

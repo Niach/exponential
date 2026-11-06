@@ -15,6 +15,16 @@ enum MarkdownPainter {
         return Markdown.resolveImages(Markdown.parse(text, hardBreaks: o.hardBreaks, streaming: o.streaming)) { model.mediaRequest($0) != nil }
     }
 
+    /// #VAPP-258 (`markdown.options.imageMaxHeight`): `styles` with the
+    /// host's image cap and the viewport (pt, 0 = unknown) an uncapped
+    /// image stops at: what the measurer and the painter both lay out with.
+    static func imaged(_ styles: MarkdownStyles, options: MarkdownOptions, viewport: CGFloat) -> MarkdownStyles {
+        var s = styles
+        s.imageHeight = options.imageCap
+        s.viewportHeight = viewport > 0 ? viewport : nil
+        return s
+    }
+
     /// #VAPP-258 step 5: the props a Markdown's recipes resolve with:
     /// `density: chat` added under the host's chat rhythm (a
     /// painter-supplied recipe prop, `catalog/recipes.json`).
@@ -37,7 +47,11 @@ enum MarkdownPainter {
         let attached = Markdown.resolveAttachments(blocks(text, model: model), href: model.linkHref) { raw in
             host.attachment(raw).map { (kind: $0.kind, name: $0.name) }
         }
-        let sized = Markdown.sizeImages(attached) { host.imageSize($0) }
+        // #VAPP-258 (markdown-host.json `loaded`): an image the host cannot
+        // size, at the size it decoded at once it loaded (the media cache).
+        let sized = Markdown.sizeImages(attached) { src in
+            Markdown.imageSize(host: host.imageSize(src), loaded: model.mediaRequest(src).flatMap { MediaLoader.shared.cached($0) }?.size)
+        }
         return Markdown.linkText(Markdown.mapLinks(sized, model.linkHref), chips: { piece in
             model.textLinkSegments(piece)?.map { s in
                 (text: s.text, href: s.href, chip: s.chip.map { MarkdownChip(kind: $0.kind, label: $0.label, icon: $0.icon) })
@@ -72,6 +86,7 @@ enum MarkdownPainter {
         let quote = part("quote")
         s.quoteBorder = quote.px("borderWidth") ?? s.quoteBorder
         s.quotePad = quote.px("paddingHorizontal") ?? s.quotePad
+        s.imageRadius = part("image").style.radius
         s.blockGap = root?.px("gap") ?? theme.spacing("sm")
         s.headingTop = theme.spacing("md")
         s.headingBottom = theme.spacing("xs")
@@ -141,6 +156,9 @@ struct MarkdownView: View {
     let ink: Color
     let model: SurfaceModel
     let props: Props
+    /// The leaf's node index (a block image that decodes at a size the host
+    /// did not know measures it again).
+    var node: Int? = nil
 
     /// The blocks as painted: images the media policy denies become their
     /// alt text (as the measurer saw them), links the URL policy denies
@@ -248,12 +266,18 @@ struct MarkdownView: View {
             linked(runs(block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: width), spec: spec, width: width)
         case let .image(src, alt):
             let boxWidth = box.width ?? width
+            let unsized = block.imageSize == nil
             let image = MediaImage(request: model.mediaRequest(src), options: model.mediaPolicy) { image in
                 image.resizable().scaledToFit().frame(maxWidth: boxWidth, maxHeight: box.height, alignment: .topLeading)
+                    // #VAPP-258: the picture decoded while its box was the
+                    // placeholder: the leaf measures again at its aspect.
+                    .onAppear { if unsized, let node { model.remeasure(node) } }
             } placeholder: {
                 Text(alt).font(.system(size: spec.size)).foregroundStyle(muted).lineLimit(2)
             }
             .frame(width: boxWidth, height: box.height, alignment: .topLeading)
+            // #VAPP-258: the `Markdown/image` recipe's corners.
+            .clipShape(RoundedRectangle(cornerRadius: styles.imageRadius))
             .accessibilityLabel(alt)
             // #VAPP-258: a press calls the host's `onImagePress` (raw src).
             if let press = model.host.onImagePress {

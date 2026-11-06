@@ -168,9 +168,12 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
 
     /// #VAPP-258 step 5: the host's Markdown options, as the painter reads them.
     let markdownOptions: MarkdownOptions
+    /// #VAPP-258: the viewport height an uncapped Markdown image stops at (nil = unknown).
+    let viewportHeight: CGFloat?
 
-    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil, markdownOptions: MarkdownOptions = MarkdownOptions()) {
+    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil, markdownOptions: MarkdownOptions = MarkdownOptions(), viewportHeight: CGFloat? = nil) {
         self.markdownOptions = markdownOptions
+        self.viewportHeight = viewportHeight
         self.mediaAllowed = mediaAllowed
         self.markdownBlocks = markdownBlocks
         self.memo = memo
@@ -504,7 +507,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let o = markdownOptions
         let blocks = markdownBlocks?(text) ?? Markdown.resolveImages(Markdown.parse(text, hardBreaks: o.hardBreaks, streaming: o.streaming), allowed: mediaAllowed)
         let ts = leaf.textStyle
-        let styles = MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: MarkdownPainter.props(leaf.props, chat: o.chat))
+        let styles = MarkdownPainter.imaged(MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: MarkdownPainter.props(leaf.props, chat: o.chat)), options: o, viewport: viewportHeight ?? 0)
         let shaper = MarkdownShaper(mono: theme?.monoFamily, chip: styles.chip)
         let width: CGFloat
         switch wrap {

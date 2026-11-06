@@ -220,6 +220,38 @@ impl Asset for MediaLoader {
     }
 }
 
+thread_local! {
+    /// #VAPP-258: the size each block image src decoded at (the media cache
+    /// the markdown measurer and painter ask for a size the host does not
+    /// know, so measure = paint after the load).
+    static LOADED_SIZES: std::cell::RefCell<std::collections::HashMap<String, (f32, f32)>> = Default::default();
+}
+
+/// The size `src` decoded at, if a block image of it loaded before.
+pub fn loaded_size(src: &str) -> Option<(f32, f32)> {
+    LOADED_SIZES.with(|m| m.borrow().get(src).copied())
+}
+
+/// Remember the size `src` decoded at (non-positive or non-finite =
+/// ignored; bounded). `true` = new to the cache (a re-measure is due).
+pub fn remember_size(src: &str, size: (f32, f32)) -> bool {
+    let (w, h) = size;
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return false;
+    }
+    LOADED_SIZES.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.get(src) == Some(&size) {
+            return false;
+        }
+        if m.len() >= 512 && !m.contains_key(src) {
+            m.clear();
+        }
+        m.insert(src.to_string(), size);
+        true
+    })
+}
+
 /// The source `img()` paints for a media `src` (`None` = nothing to load):
 /// the host's media request (policy + header rules), re-checked against its
 /// media schemes and hosts (a custom hook cannot widen them), fetched and
@@ -675,4 +707,14 @@ mod tests {
         std::fs::remove_file(log[1].trim_start_matches("file ")).ok();
     }
 
+    /// #VAPP-258: the decoded-size cache a markdown re-measure asks.
+    #[test]
+    fn loaded_sizes_are_remembered_once() {
+        let src = "https://x.example/vapp258-loaded.png";
+        assert_eq!(loaded_size(src), None);
+        assert!(!remember_size(src, (0.0, 10.0)), "an invalid size is ignored");
+        assert!(remember_size(src, (400.0, 100.0)));
+        assert!(!remember_size(src, (400.0, 100.0)), "the same size again: no re-measure");
+        assert_eq!(loaded_size(src), Some((400.0, 100.0)));
+    }
 }

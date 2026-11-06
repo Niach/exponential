@@ -125,6 +125,10 @@ class SurfaceMeasurer(
     val markdownBlocks: ((String) -> List<at.exponential.ui.primitives.MarkdownBlock>)? = null,
     /** #VAPP-258 step 5: the host's Markdown options, as the painter reads them. */
     val markdownOptions: at.exponential.ui.primitives.MarkdownOptions = at.exponential.ui.primitives.MarkdownOptions(),
+    /** The surface's text scale ([MarkdownPainter.styles]: a Markdown's recipe parts scale with it, as its body does). */
+    val fontScale: Float = 1f,
+    /** The surface's viewport height an uncapped Markdown image stops at (`imageMaxHeight: null`); null = unknown. */
+    val viewportHeight: Float? = null,
     /** Whether a markdown image's src passes the host's media policy (the painter asks the same question). */
     val mediaAllowed: (String) -> Boolean = { true },
 ) : Measurer {
@@ -390,7 +394,7 @@ class SurfaceMeasurer(
         val o = markdownOptions
         val blocks = markdownBlocks?.invoke(text) ?: Markdown.resolveImages(Markdown.parse(text, o.hardBreaks, o.streaming), mediaAllowed)
         val ts = leaf.textStyle
-        val styles = MarkdownPainter.styles(theme, mode, ts, MarkdownPainter.props(leaf.props, o.chat))
+        val styles = MarkdownPainter.styles(theme, mode, ts, MarkdownPainter.props(leaf.props, o.chat), fontScale).also { it.imageHeight = o.imageCap; it.viewportHeight = viewportHeight }
         val lineHeight = styles.body.lineHeight
         val md = MarkdownShaper(shaper, theme?.monoFamily)
         val clamp = leaf.props.num("lines")?.toInt()?.takeIf { it > 0 }

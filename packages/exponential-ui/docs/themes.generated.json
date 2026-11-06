@@ -2568,7 +2568,8 @@
         "codeBlock",
         "quote",
         "table",
-        "listItem"
+        "listItem",
+        "image"
       ],
       "props": [
         "density"

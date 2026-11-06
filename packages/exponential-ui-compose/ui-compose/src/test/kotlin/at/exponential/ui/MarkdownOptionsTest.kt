@@ -47,9 +47,10 @@ class MarkdownOptionsTest {
 
     private class OptionsHost(override val markdownOptions: MarkdownOptions) : HostPlugin
 
-    private fun model(options: MarkdownOptions, nested: String): SurfaceModel {
+    private fun model(options: MarkdownOptions, nested: String, fontScale: Float? = null): SurfaceModel {
         val shaper = robolectricShaper(FontResolver { null }, density)
         val m = SurfaceModel("md", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), OptionsHost(options), CoroutineScope(Dispatchers.Unconfined)) { shaper }
+        if (fontScale != null) m.setEnvironment(at.exponential.ui.model.SurfaceEnvironment(fontScale = fontScale))
         m.setNested(nested)
         m.setViewport(320f, 900f)
         return m
@@ -62,7 +63,7 @@ class MarkdownOptionsTest {
     private fun laidOut(m: SurfaceModel, text: String): Float {
         val i = m.indexOf("md")!!
         val node = m.node(i)!!
-        val styles = MarkdownPainter.styles(m.effectiveTheme, m.mode, m.textStyle(i), MarkdownPainter.props(node.props, m.host.markdownOptions.chat))
+        val styles = MarkdownPainter.styles(m.effectiveTheme, m.mode, m.textStyle(i), MarkdownPainter.props(node.props, m.host.markdownOptions.chat), m.textScale)
         return Markdown.layout(m.markdownBlocks(text), styles, m.frame(i).width, MarkdownShaper(m.textShaper(), m.effectiveTheme?.monoFamily)).height
     }
 
@@ -77,6 +78,28 @@ class MarkdownOptionsTest {
         val i = chat.indexOf("md")!!
         val styles = MarkdownPainter.styles(chat.effectiveTheme, chat.mode, chat.textStyle(i), MarkdownPainter.props(chat.node(i)!!.props, true))
         assertEquals(22f, styles.body.lineHeight)
+    }
+
+    @Test
+    fun fontScaleScalesEveryPartAndMeasuresAsItPaints() {
+        val text = "# Title\n\nOne paragraph with `code`.\n\n```ts\nconst a = 1\n```"
+        for (chat in listOf(false, true)) {
+            val one = model(MarkdownOptions(chat = chat), markdown(text))
+            val big = model(MarkdownOptions(chat = chat), markdown(text), fontScale = 1.5f)
+            assertEquals(1.5f, big.textScale)
+            assertEquals(laidOut(big, text), measured(big), 0.5f)
+            val s1 = MarkdownPainter.styles(one.effectiveTheme, one.mode, one.textStyle(0), MarkdownPainter.props(one.node(0)!!.props, chat), one.textScale)
+            val i = big.indexOf("md")!!
+            val s2 = MarkdownPainter.styles(big.effectiveTheme, big.mode, big.textStyle(i), MarkdownPainter.props(big.node(i)!!.props, chat), big.textScale)
+            val i1 = one.indexOf("md")!!
+            val b1 = MarkdownPainter.styles(one.effectiveTheme, one.mode, one.textStyle(i1), MarkdownPainter.props(one.node(i1)!!.props, chat), 1f)
+            assertEquals(b1.body.size * 1.5f, s2.body.size, 0.01f)
+            assertEquals(b1.heading.size * 1.5f, s2.heading.size, 0.01f)
+            assertEquals(b1.code.lineHeight * 1.5f, s2.code.lineHeight, 0.01f)
+            assertEquals(b1.chip.label.size * 1.5f, s2.chip.label.size, 0.01f)
+            assertTrue(measured(big) > measured(one))
+            assertTrue(s1.body.size > 0f)
+        }
     }
 
     @Test
