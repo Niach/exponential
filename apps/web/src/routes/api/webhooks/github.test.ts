@@ -85,6 +85,11 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   loadPullRequestByUrl: vi.fn(async (): Promise<{ id: string } | null> => null),
 }))
 vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge: vi.fn() }))
+vi.mock(`@/lib/merge-train/worker`, () => ({
+  mergeTrainEdge: vi.fn(),
+  mergeTrainOn: vi.fn(() => false),
+  onPullRequestPush: vi.fn(async () => null),
+}))
 vi.mock(`@/lib/merge-train/commit-checks`, async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/merge-train/commit-checks")>()
   return { isTrainBranch: real.isTrainBranch, writeCommitCheck: vi.fn(async () => 1) }
@@ -692,6 +697,23 @@ describe(`github webhook — merge train commit checks (EXP-1709)`, () => {
     })
     expect(checks.pullRequestsForCheck).not.toHaveBeenCalled()
     expect(checks.writePullRequestChecks).not.toHaveBeenCalled()
+    const worker = await import(`@/lib/merge-train/worker`)
+    expect(worker.mergeTrainEdge).toHaveBeenCalledWith({ repoFullName: `org/repo` })
+  })
+
+  it(`a push to a PR is the merge train's push while the switch is on`, async () => {
+    const worker = await import(`@/lib/merge-train/worker`)
+    vi.mocked(worker.mergeTrainOn).mockReturnValue(true)
+    prSyncMock.loadPullRequestByUrl.mockResolvedValueOnce({ id: PR_ID } as never)
+    await postHandler({
+      request: webhookRequest(`pull_request`, {
+        action: `synchronize`,
+        pull_request: { html_url: `https://github.com/org/repo/pull/7`, number: 7, head: { sha: `h2`, ref: `exp/a` }, base: { ref: `master` } },
+        repository: { full_name: `org/repo` },
+      }),
+    })
+    expect(worker.onPullRequestPush).toHaveBeenCalledWith(PR_ID)
+    vi.mocked(worker.mergeTrainOn).mockReturnValue(false)
   })
 
   it(`a commit status on a train ref is kept; on any other branch it is acked only`, async () => {

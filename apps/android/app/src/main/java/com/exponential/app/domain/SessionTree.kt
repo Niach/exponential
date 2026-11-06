@@ -215,6 +215,8 @@ object SessionTree {
             // EXP-1391: a refused merge the server posted into the root.
             "pr_merge_refused" to "Merge of PR {pr} refused",
             "pr_checks" to "CI on PR {pr}",
+            // EXP-1709: the merge train's line (#EXP-1710 renders it by mergeOutcome).
+            "pr_merge" to "Auto-merge of PR {pr}",
         )
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"

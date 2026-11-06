@@ -1,0 +1,1 @@
+ALTER TABLE "pull_requests" ADD COLUMN "merge_head_sha" varchar(64);

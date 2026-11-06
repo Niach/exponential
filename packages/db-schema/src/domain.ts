@@ -1084,6 +1084,11 @@ export const messageEventKindValues = [
   // EXP-1610: a PR's CI left pending (or a check sat queued too long),
   // posted into the PR's session as pending input (it wakes it).
   `pr_checks`,
+  // EXP-1709 (merge-train.json `texts`/`routing`): the merge train's ONE
+  // waking line about a PR (card `mergeOutcome` = merged | conflict |
+  // failing | held), posted to its opener while live, else the root, and
+  // the batch line into the starter's Assistant.
+  `pr_merge`,
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
@@ -1305,6 +1310,8 @@ export type MessageCard =
       /** EXP-1610 `pr_checks`: success | failure (CI left pending) or
        *  queued (a check sat queued too long). */
       checksState?: string | null
+      /** EXP-1709 `pr_merge`: merged | conflict | failing | held. */
+      mergeOutcome?: string | null
       sessionId?: string | null
       /** NEW-2 `trigger_fired`: the agent, its trigger, the event row (an
        *  event trigger) and the event's name. */

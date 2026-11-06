@@ -29,7 +29,7 @@ export function mcpServerInstructions(gates: {
   const paragraphs = [
     // NEW-4 → EXP-1657: 22 tools, one per noun (+ 2 verbs), each with an `op`; statuses change
     // AUTOMATICALLY on PR open/merge; set one only when asked.
-    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with PRs and results. 22 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, screenshots as results, exponential_pr {op: "open"}. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
+    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with PRs and results. 22 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, screenshots as results, exponential_pr {op: "open"}, then end your turn. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
     // S-3: a launched session (the header) also carries the runbook, which
     // says this at length; only an outside client needs the verb spelled out.
     ...(gates.inSession

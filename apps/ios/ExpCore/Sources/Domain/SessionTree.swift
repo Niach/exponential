@@ -1436,6 +1436,8 @@ public enum SessionTree {
             // EXP-1391: a refused merge the server posted into the root.
             "pr_merge_refused": "Merge of PR {pr} refused",
             "pr_checks": "CI on PR {pr}",
+            // EXP-1709: the merge train's line (#EXP-1710 renders it by mergeOutcome).
+            "pr_merge": "Auto-merge of PR {pr}",
         ]
         /// S-3: the lead of a `SessionXref` header, per kind.
         public static let xref: [String: String] = [

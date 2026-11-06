@@ -19,7 +19,8 @@
       "session_stuck": "{session} shows no sign of life",
       "trigger_fired": "Trigger fired: {name}",
       "pr_merge_refused": "Merge of PR {pr} refused",
-      "pr_checks": "CI on PR {pr}"
+      "pr_checks": "CI on PR {pr}",
+      "pr_merge": "Auto-merge of PR {pr}"
     },
     "stack": "Stack",
     "report": "Report from {session}",

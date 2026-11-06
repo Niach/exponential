@@ -70,6 +70,9 @@ export interface WatchdogRun {
   checksSwept: number
   /** EXP-1706: live PRs whose state the reconciler re-read. */
   prsReconciled: number
+  /** EXP-1709: repositories the merge train passed (0 while it is off). */
+  mergeTrainRepos: number
+  commitChecksPruned: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -671,6 +674,21 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     }),
     // EXP-1706 (issue-lifecycle.json `reconcile`): a lost `closed` delivery
     // never strands a merged PR (cloud too, not only GITHUB_POLLING).
+    // EXP-1709 (merge-train.json): the merge train's tick (inert unless
+    // MERGE_TRAIN=true) and the per-commit checks it no longer needs.
+    mergeTrainRepos: await import(`@/lib/merge-train/worker`)
+      .then((m) => m.runMergeTrainTick(now))
+      .catch((err) => {
+        console.error(`[watchdog] merge train failed`, err)
+        return 0
+      }),
+    commitChecksPruned: await import(`@/lib/merge-train/commit-checks`)
+      .then((m) => m.pruneCommitChecks(now))
+      .then(() => 1)
+      .catch((err) => {
+        console.error(`[watchdog] commit checks prune failed`, err)
+        return 0
+      }),
     prsReconciled: await import(`@/lib/integrations/pr-reconcile`)
       .then((m) => m.reconcileStaleLivePullRequests(now))
       .catch((err) => {

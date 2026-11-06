@@ -8,6 +8,7 @@ import { attributePush, pushedRepositoryIds, pushTime } from "@/lib/sessions/pus
 import { yoloEdge } from "@/lib/yolo-edge"
 import { checkFromGithubStatus } from "@/lib/ecode/github-status"
 import { isTrainBranch, writeCommitCheck } from "@/lib/merge-train/commit-checks"
+import { mergeTrainEdge, mergeTrainOn, onPullRequestPush } from "@/lib/merge-train/worker"
 import {
   adoptOutOfBandPullRequest,
   applyPullRequestBase,
@@ -220,6 +221,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       // EXP-1709: a check on a merge train ref is kept per COMMIT.
       if (run?.head_sha && fullName && check && isTrainBranch(run.check_suite?.head_branch)) {
         await writeCommitCheck({ repoFullName: fullName, sha: run.head_sha, check })
+        if (check.status === `completed`) mergeTrainEdge({ repoFullName: fullName })
         return jsonResponse(200, { ok: true })
       }
       if (run?.head_sha && fullName && check) {
@@ -238,6 +240,8 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
             ...(required ? { required } : {}),
           })
         }
+        // EXP-1709: a PR's own checks feed its merge readiness.
+        if (prs.length > 0 && check.status === `completed`) mergeTrainEdge({ repoFullName: fullName })
       }
       return jsonResponse(200, { ok: true })
     }
@@ -260,6 +264,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           sha: payload.sha,
           check: { name: payload.context, ...checkFromGithubStatus(payload.state), detailsUrl: payload.target_url ?? null },
         })
+        mergeTrainEdge({ repoFullName: fullName })
       }
       return jsonResponse(200, { ok: true })
     }
@@ -460,6 +465,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     // state `success` at the OLD head, which the watchdog sweep never
     // re-reads: read the new head now so its runs (pending) are swept.
     if (payload.action === `synchronize` && row && pr.head?.sha) {
+      // EXP-1709: a new head = merge-train `push` (checks again; a testing
+      // unit leaves its run).
+      if (mergeTrainOn()) await onPullRequestPush(row.id)
       await repairPullRequestChecks(row.id, Date.now(), { headSha: pr.head.sha })
       return jsonResponse(200, { ok: true })
     }

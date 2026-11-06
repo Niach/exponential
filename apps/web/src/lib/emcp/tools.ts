@@ -3172,7 +3172,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge an open PR (via the GitHub App). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging your own PR never ends your session. Merge a tree root first. When the server gates on CI, a red or running check refuses it; force: true merges anyway (only when a person says so).`,
+      description: `With auto-merge on (merge train): queue an open PR now and report where it stands (mergeQueue: state, position, testingWith); it lands by itself and pr_merge wakes you, so end your turn. Otherwise squash-merge it (via the GitHub App). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging your own PR never ends your session. When the server gates on CI, a red or running check refuses it; force: true merges anyway (only when a person says so).`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         ...prSelector,
@@ -3184,6 +3184,14 @@ export function registerExponentialTools(
       try {
         const { pr, callerSessionId } = await selectPr(selector)
         const checks = await prChecks(pr.id)
+        // EXP-1709: the merge train queues it (its stack with it) and
+        // reports the position; nothing merges here.
+        const train = await import(`@/lib/merge-train/worker`)
+        if (train.mergeTrainOn()) {
+          await train.approvePullRequest(pr.id)
+          await train.runRepository(pr.repositoryId)
+          return ok({ ...prRef(pr), merged: false, queued: true, mergeQueue: await train.queueReport(pr.id), checks })
+        }
         // EXP-1610: MERGE_CHECK_GATE (default off) refuses a red or
         // running gated check; force overrides.
         if (process.env.MERGE_CHECK_GATE === `true` && !force) {
@@ -3249,20 +3257,30 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_update`,
     {
-      description: `Rewrite an open PR's title or body, or flip draft. Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR.`,
+      description: `Rewrite an open PR's title or body, flip draft, or hold auto-merge (hold: true; false resumes it, only when a person asks). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR.`,
       inputSchema: strictInput({
         ...prSelector,
         title: z.string().min(1).max(255).optional(),
         body: z.string().max(60_000).optional(),
         draft: z.boolean().optional(),
+        hold: z.boolean().optional(),
       }),
     },
-    async ({ title, body, draft, ...selector }) => {
+    async ({ title, body, draft, hold, ...selector }) => {
       try {
-        if (title === undefined && body === undefined && draft === undefined) {
-          throw new Error(`Pass title, body or draft`)
+        if (title === undefined && body === undefined && draft === undefined && hold === undefined) {
+          throw new Error(`Pass title, body, draft or hold`)
         }
         const { pr } = await selectPr(selector)
+        // EXP-1709: hold / resume auto-merge (merge-train.json `hold`, `resume`).
+        if (hold !== undefined) {
+          const train = await import(`@/lib/merge-train/worker`)
+          if (!train.mergeTrainOn()) throw new Error(`Auto-merge is not on for this server`)
+          await (hold ? train.holdPullRequest : train.resumePullRequest)(pr.id)
+          if (title === undefined && body === undefined && draft === undefined) {
+            return ok({ ...prRef(pr), mergeQueue: await train.queueReport(pr.id), checks: await prChecks(pr.id) })
+          }
+        }
         const result = await updatePullRequest({
           userId: user.id,
           pullRequestId: pr.id,

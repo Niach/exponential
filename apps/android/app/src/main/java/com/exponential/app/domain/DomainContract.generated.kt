@@ -48,7 +48,7 @@ object DomainContract {
     val conversationKindValues: List<String> = listOf("dm", "channel", "session")
     val agentRoleValues: List<String> = listOf("assistant", "agent")
     val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface")
-    val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused", "pr_checks")
+    val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused", "pr_checks", "pr_merge")
     val codingAgentValues: List<String> = listOf("claude", "codex")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet", "haiku")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
@@ -310,4 +310,5 @@ object DomainContract {
     const val messageEventKindSessionInterrupted: String = "session_interrupted"
     const val messageEventKindPrMergeRefused: String = "pr_merge_refused"
     const val messageEventKindPrChecks: String = "pr_checks"
+    const val messageEventKindPrMerge: String = "pr_merge"
 }

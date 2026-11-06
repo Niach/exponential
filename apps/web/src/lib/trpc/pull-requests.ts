@@ -1,5 +1,10 @@
 import { z } from "zod"
+import { TRPCError } from "@trpc/server"
+import { eq } from "drizzle-orm"
+import { db } from "@/db/connection"
+import { pullRequests } from "@/db/schema"
 import { router, authedProcedure } from "@/lib/trpc"
+import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import { postMergeRefusal, withHandoff } from "@/lib/merge-refusal"
 import { isMergeRefusal, MergeRefusal } from "@/lib/trpc/pr-merge-error"
 import {
@@ -26,6 +31,16 @@ export const pullRequestsRouter = router({
         ctx,
         input,
       }): Promise<{ merged: boolean; queued?: boolean; error?: string; txid?: number }> => {
+        // EXP-1709: with the merge train on, a person's Merge (approval
+        // mode's Needs approval) queues the PR (its stack with it); it never
+        // merges directly.
+        if (await trainOn()) {
+          const pr = await prTeam(input.pullRequestId)
+          await assertTeamMember(ctx.session.user.id, pr.teamId)
+          const { approvePullRequest } = await import(`@/lib/merge-train/worker`)
+          await approvePullRequest(input.pullRequestId)
+          return { merged: false, queued: true }
+        }
         let result: Awaited<ReturnType<typeof mergePullRequestOrThrow>>
         try {
           result = await mergePullRequestOrThrow({
@@ -51,6 +66,28 @@ export const pullRequestsRouter = router({
       }
     ),
 
+  /** EXP-1709 (merge-train.json `menu`): an owner's Merge now: next, alone,
+   *  untested (a stack member lands its whole stack). */
+  mergeNow: authedProcedure.input(z.object({ pullRequestId: uuid })).mutation(async ({ ctx, input }) => {
+    const pr = await trainPr(input.pullRequestId)
+    await assertTeamOwner(ctx.session.user.id, pr.teamId)
+    const { mergeNowPullRequest } = await import(`@/lib/merge-train/worker`)
+    await mergeNowPullRequest(input.pullRequestId)
+    return { ok: true as const }
+  }),
+
+  /** EXP-1709: a member's Hold auto-merge (`hold: true`) or Resume
+   *  auto-merge / Needs you Retry (`hold: false`). */
+  hold: authedProcedure
+    .input(z.object({ pullRequestId: uuid, hold: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const pr = await trainPr(input.pullRequestId)
+      await assertTeamMember(ctx.session.user.id, pr.teamId)
+      const { holdPullRequest, resumePullRequest } = await import(`@/lib/merge-train/worker`)
+      await (input.hold ? holdPullRequest : resumePullRequest)(input.pullRequestId)
+      return { ok: true as const }
+    }),
+
   close: authedProcedure
     .input(z.object({ pullRequestId: uuid }))
     .mutation(async ({ ctx, input }): Promise<{ txid?: number }> =>
@@ -69,3 +106,19 @@ export const pullRequestsRouter = router({
       }> => pullRequestFiles({ userId: ctx.session.user.id, pullRequestId: input.pullRequestId })
     ),
 })
+
+async function trainOn(): Promise<boolean> {
+  return (await import(`@/lib/merge-train/worker`)).mergeTrainOn()
+}
+
+async function prTeam(pullRequestId: string): Promise<{ teamId: string }> {
+  const [pr] = await db.select({ teamId: pullRequests.teamId }).from(pullRequests).where(eq(pullRequests.id, pullRequestId)).limit(1)
+  if (!pr) throw new TRPCError({ code: `NOT_FOUND`, message: `Pull request not found` })
+  return pr
+}
+
+/** A PR the train's controls act on (the switch on). */
+async function trainPr(pullRequestId: string): Promise<{ teamId: string }> {
+  if (!(await trainOn())) throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Auto-merge is not on for this server` })
+  return prTeam(pullRequestId)
+}
