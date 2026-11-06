@@ -1,6 +1,10 @@
 import { useState } from "react"
 import { Button, conceptIcon, Menu } from "@exp/ui"
-import { PullRequestMergePill, usePullRequestClose } from "@/components/session-merge-button"
+import {
+  PullRequestStatusPill,
+  usePullRequestClose,
+  usePullRequestTrainRows,
+} from "@/components/session-merge-button"
 import { usePullRequestGuideEntries } from "@/hooks/use-pull-request-checks"
 import {
   guidePullRequest,
@@ -12,8 +16,8 @@ import {
 // `guidePullRequest` (session-thread.json, ×4). S-3: the
 // Guide TAB is gone (its body, Changes rows and StackRail with it); what
 // stays is the header's Merge pill on every form factor (phones included)
-// and the `…` (`guideMenuEntries`). EXP-1307: Close PR (EXP-1338: no
-// GitHub entry).
+// and the `…` (#EXP-1710: merge-train.json `mergeMenuEntries`). EXP-1307:
+// Close PR (EXP-1338: no GitHub entry).
 
 const MoreIcon = conceptIcon(`ui-more`)
 
@@ -33,22 +37,29 @@ export function threadGuidePullRequest(
   return picked ? (byId.get(picked.id) ?? null) : null
 }
 
-/** The thread header's `…` on the Guide (`guideMenuEntries`, ×4): #EXP-1611
- *  the Checks submenu whenever the PR has check rows (any viewer), then
- *  Close PR while the PR is open and the viewer is a member (EXP-1338: no
+/** The thread header's `…` on the Guide (#EXP-1710 `mergeMenuEntries`, ×4):
+ *  the Checks submenu whenever the PR has check rows (any viewer), Merge now
+ *  (owners), Hold | Resume auto-merge and Close PR (members; EXP-1338: no
  *  GitHub entry, only the agent opens PRs). */
 export function ThreadGuideMenu({
   pr,
   canClose,
+  isOwner = false,
   className,
 }: {
   pr: PullRequestRow
   canClose: boolean
+  isOwner?: boolean
   className?: string
 }) {
   const [open, setOpen] = useState(false)
   const close = usePullRequestClose(pr, canClose)
-  const entries = usePullRequestGuideEntries(pr, canClose, close.entry)
+  const train = usePullRequestTrainRows(pr)
+  const entries = usePullRequestGuideEntries(
+    pr,
+    { member: canClose, owner: isOwner && canClose },
+    { "close-pr": close.entry, "merge-now": train.mergeNow, hold: train.hold, resume: train.resume }
+  )
   if (entries.length === 0) return null
   return (
     <>
@@ -74,25 +85,27 @@ export function ThreadGuideMenu({
         }
       />
       {close.dialog}
+      {train.dialog}
     </>
   )
 }
 
-/** The header's Merge pill of the thread's open PR (S-3: every form
- *  factor; the phones' bottom capsule is gone). */
+/** #EXP-1710: the header's merge STATUS pill of the thread's PR (every form
+ *  factor, any viewer; a closed PR has none). */
 export function ThreadGuideMerge({
   pr,
   canMerge,
   className,
 }: {
   pr: PullRequestRow | null
+  /** A member (approves in `approval` mode). */
   canMerge: boolean
   className?: string
 }) {
-  if (!pr || pr.state !== `open` || !canMerge) return null
+  if (!pr || pr.state === `closed`) return null
   return (
     <div className={className ?? `flex shrink-0 items-center`} data-testid={THREAD_TEST_IDS.guideMerge}>
-      <PullRequestMergePill pr={pr} canMerge={canMerge} />
+      <PullRequestStatusPill pr={pr} member={canMerge} />
     </div>
   )
 }

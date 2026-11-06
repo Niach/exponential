@@ -5,6 +5,8 @@ import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import { TEAM_ZONE_COPY, TEAM_ZONE_TEST_IDS } from "@exp/domain-contract/team-zone"
 import { teamImageUploadPath } from "@exp/domain-contract/team-image"
 import contractJson from "@exp/domain-contract/contract"
+import { MERGE_TRAIN_COPY, MERGE_TRAIN_TEST_IDS } from "@exp/domain-contract/merge-train"
+import { teamMergeModeValues, type TeamMergeModeValue as TeamMergeMode } from "@exp/db-schema/domain"
 import {
   Button,
   FEEDBACK_ERRORS,
@@ -12,7 +14,6 @@ import {
   GlassGroup,
   GlassInputRow,
   GlassSectionHeader,
-  GlassToggleRow,
   InlineStatus,
   Picker,
   SkeletonRows,
@@ -154,18 +155,27 @@ export function TeamGeneralSection({ team }: { team: Team }) {
     }
   }
 
-  // EXP-1105: yolo mode — a synced team flag, owner-flipped like the rest of
-  // this page. Every PR an agent opens merges at once and Reviews leaves the
-  // nav; it comes back only while a PR is left open (a merge that failed).
-  const [yoloBusy, setYoloBusy] = useState(false)
-  const toggleYolo = async (yoloMode: boolean) => {
-    setYoloBusy(true)
+  // #EXP-1710 (merge-train.json `copy.settings`): the yolo switch is ONE
+  // Merge select row over the synced `teams.merge_mode`, owner-set like the
+  // rest of this page: Automatic (the train merges every ready PR) | After
+  // approval (a ready PR waits for a person's Needs approval).
+  const [mergeBusy, setMergeBusy] = useState(false)
+  const mergeItems = useMemo(
+    () =>
+      teamMergeModeValues.map((value) => ({
+        value,
+        label: MERGE_TRAIN_COPY.settings[value],
+      })),
+    []
+  )
+  const saveMergeMode = async (mergeMode: TeamMergeMode) => {
+    setMergeBusy(true)
     try {
-      await trpc.teams.update.mutate({ teamId: team.id, yoloMode }, SKIP_ERROR_TOAST)
+      await trpc.teams.update.mutate({ teamId: team.id, mergeMode }, SKIP_ERROR_TOAST)
     } catch (e) {
-      failedAction(`update`, `yolo mode`, e, { retry: () => void toggleYolo(yoloMode) })
+      failedAction(`save`, `the merge mode`, e, { retry: () => void saveMergeMode(mergeMode) })
     } finally {
-      setYoloBusy(false)
+      setMergeBusy(false)
     }
   }
 
@@ -368,12 +378,20 @@ export function TeamGeneralSection({ team }: { team: Team }) {
 
       <div>
         <GlassGroup>
-          <GlassToggleRow
-            id="team-yolo-mode"
-            label="Yolo mode"
-            checked={team.yoloMode}
-            disabled={yoloBusy}
-            onCheckedChange={(next) => void toggleYolo(next)}
+          <Picker
+            mode="single"
+            triggerVariant="row"
+            triggerLabel={MERGE_TRAIN_COPY.settings.label}
+            mobileTitle={MERGE_TRAIN_COPY.settings.label}
+            value={team.mergeMode ?? `auto`}
+            onChange={(picked) => {
+              if (picked === null || picked === team.mergeMode) return
+              void saveMergeMode(picked as TeamMergeMode)
+            }}
+            items={mergeItems}
+            width="md"
+            disabled={mergeBusy}
+            data-testid={MERGE_TRAIN_TEST_IDS.settingsRow}
           />
         </GlassGroup>
       </div>

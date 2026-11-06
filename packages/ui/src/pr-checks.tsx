@@ -1,16 +1,16 @@
 import type * as React from "react"
 import prChecksFixture from "@exp/domain-contract/fixtures/pr-checks.json"
+import mergeTrainFixture from "@exp/domain-contract/fixtures/merge-train.json"
 import {
   checksList,
   checksSummary,
-  mergePill,
   PR_CHECKS_COPY,
   PR_CHECKS_TEST_IDS,
   type CheckGlyph,
   type CheckTone,
-  type MergePillView,
   type PrCheckRowLike,
 } from "@exp/domain-contract/pr-checks"
+import { statusPill, type PillGlyph, type StatusPillInput, type StatusPillView } from "@exp/domain-contract/merge-train"
 
 import { cn } from "./cn"
 import { Spinner } from "./feedback"
@@ -18,11 +18,12 @@ import { conceptIcon } from "./icons.generated"
 import { MenuPanel, type MenuEntry, type MenuSubmenuEntry } from "./menu"
 import { Pill } from "./pill"
 
-// #EXP-1611 (fixtures/pr-checks.json MERGE PILL / CHECKS LIST): the PR's CI
-// on the thread header ×4. THE Merge pill in its check states and the `…`
-// menu's Checks submenu, both over the synced `pull_request_checks` rows;
-// the web app (session-merge-button.tsx, thread-guide.tsx) owns the data and
-// the confirms, this file only the faces.
+// #EXP-1611 (fixtures/pr-checks.json CHECKS LIST): the PR's CI on the thread
+// header ×4, the `…` menu's Checks submenu over the synced
+// `pull_request_checks` rows. #EXP-1710 (merge-train.json STATUS PILL): THE
+// header pill is the merge STATUS pill (`statusPill`); its tap opens the same
+// Checks list. The web app (session-merge-button.tsx, thread-guide.tsx) owns
+// the data and the confirms, this file only the faces.
 
 /** A check tone's glyph tint. */
 export const PR_CHECK_TONE_CLASS: Record<CheckTone, string> = {
@@ -38,7 +39,14 @@ const GLYPHS: Record<Exclude<CheckGlyph, `ci-running`>, ReturnType<typeof concep
   "ci-skipped": conceptIcon(`ci-skipped`),
 }
 
-const PrMergedIcon = conceptIcon(`pr-merged`)
+const PILL_GLYPHS: Record<Exclude<PillGlyph, `spinner`>, ReturnType<typeof conceptIcon>> = {
+  "pr-draft": conceptIcon(`pr-draft`),
+  "ci-queued": conceptIcon(`ci-queued`),
+  "pr-merged": conceptIcon(`pr-merged`),
+  "pr-conflict": conceptIcon(`pr-conflict`),
+  "ci-failed": conceptIcon(`ci-failed`),
+  "pr-hold": conceptIcon(`pr-hold`),
+}
 
 /** A check's status glyph tinted by its tone; `ci-running` = THE Spinner
  *  at the glyph slot's 16px (menu icon size, both densities; the Spinner's
@@ -95,34 +103,34 @@ export function prChecksMenuEntry(
   }
 }
 
-/** THE header Merge pill's face over `mergePill` (the web app wires the
- *  confirms): primary + pr-merged | primary + THE Spinner (pending) | plain
- *  + the red ci-failed glyph `Checks failing`. `merging` = the merge in
- *  flight (its own spinner). */
-export function PrMergePill({
+/** THE header merge STATUS pill's face over `statusPill` (merge-train.json):
+ *  THE Pill md, mode action (readonly when `tap` is null), primary only for
+ *  `Needs approval`; the glyph by concept, `spinner` = THE Spinner, tone red
+ *  tints the glyph only. `busy` = the approval in flight (its own spinner). */
+export function PrStatusPill({
   view,
-  merging = false,
+  busy = false,
   className,
   ...props
 }: Omit<React.ComponentProps<`button`>, `children`> & {
-  view: MergePillView
-  merging?: boolean
+  view: StatusPillView
+  busy?: boolean
 }) {
-  const glyph = merging ? (
-    <Spinner aria-hidden />
-  ) : view.glyph === `spinner` ? (
-    <Spinner aria-hidden size={16} className="text-current" />
-  ) : view.glyph === `ci-failed` ? (
-    <PrCheckGlyph glyph="ci-failed" tone="red" />
-  ) : (
-    <PrMergedIcon aria-hidden />
-  )
+  const tone = view.tone === `red` ? PR_CHECK_TONE_CLASS.red : undefined
+  const Glyph = view.glyph === `spinner` ? null : PILL_GLYPHS[view.glyph]
+  const glyph =
+    busy || !Glyph ? (
+      <Spinner aria-hidden size={16} className="text-current" />
+    ) : (
+      <Glyph aria-hidden data-glyph={view.glyph} className={tone} />
+    )
   return (
     <Pill
       size="md"
-      mode="action"
+      mode={view.tap === null ? `readonly` : `action`}
       primary={view.primary}
-      data-checks={view.confirm === `failing` ? `failure` : view.glyph === `spinner` ? `pending` : undefined}
+      data-glyph={view.glyph}
+      data-tone={view.tone}
       className={cn(`shrink-0`, className)}
       {...props}
     >
@@ -132,19 +140,22 @@ export function PrMergePill({
   )
 }
 
-const SPECIMEN_STATES = [`none`, `pending`, `success`, `failure`] as const
-
-/** #EXP-1611 (DEV-ONLY view `pr-checks`, the styleguide entry): the four
- *  Merge pills (none, pending, success, failure), then the open Checks
- *  submenu as a static panel over the fixture's `specimen`. */
+/** #EXP-1710 (DEV-ONLY view `pr-checks`, the styleguide entry): every
+ *  status pill of merge-train.json `statusPill` (case for case), then the
+ *  open Checks submenu as a static panel over pr-checks.json `specimen`. */
 export function PrChecksSpecimen() {
   const { checks, now } = prChecksFixture.specimen
   const entry = prChecksMenuEntry(checks, now, () => {})
   return (
     <div data-testid="pr-checks-specimen" className="flex max-w-full flex-col items-start gap-6">
-      <div className="flex flex-wrap items-center gap-2">
-        {SPECIMEN_STATES.map((state) => (
-          <PrMergePill key={state} view={mergePill({ state, stack: false })} data-state={state} />
+      <div className="flex max-w-xl flex-wrap items-center gap-2">
+        {mergeTrainFixture.statusPill.map((c) => (
+          <PrStatusPill
+            key={c.name}
+            view={statusPill(c.input as StatusPillInput)}
+            data-case={c.name}
+            tabIndex={-1}
+          />
         ))}
       </div>
       {entry && (

@@ -9,6 +9,7 @@ import type {
   selectSyncedSessionIssueSchema,
   selectSyncedSessionSchema,
 } from "@exp/db-schema/schema"
+import type { PrMergeState } from "@exp/domain-contract/merge-train"
 import { keyMessagesBySession } from "@exp/domain-contract/message-conversation"
 import { currentKeySource } from "@/lib/enet/current-key-holder"
 import { openMessageWith, openTitleWith, resolveSealedMirrors } from "@/lib/enet/sealed-open"
@@ -53,6 +54,16 @@ export type SyncedMessageRow = Omit<z.infer<typeof selectSyncedMessageSchema>, `
  *  fixture `message-conversation.json`): `sessionId` is the RESOLVED one. */
 export type MessageRow = SyncedMessageRow & { sessionId: string }
 export type PullRequestRow = z.infer<typeof selectPullRequestSchema>
+
+/** #EXP-1710: a PR's merge-train state as the status pill, the `…` menu and
+ *  Needs you read it (contract prMergeState; drizzle-zod infers the
+ *  contract-array enum loosely): a merged or draft PR is that, whatever the
+ *  train last wrote. */
+export function prMergeState(pr: Pick<PullRequestRow, `state` | `mergeState`>): PrMergeState {
+  if (pr.state === `merged`) return `merged`
+  if (pr.state === `draft`) return `draft`
+  return String(pr.mergeState) as PrMergeState
+}
 
 const iso = (value: Date | string | null | undefined): string | null =>
   value == null ? null : value instanceof Date ? value.toISOString() : value

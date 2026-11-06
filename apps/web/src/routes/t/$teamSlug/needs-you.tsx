@@ -3,7 +3,9 @@ import { NEEDS_YOU_COPY } from "@exp/domain-contract/needs-you"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { Button, conceptIcon, NeedsYouList, SkeletonRows, useIsMobile } from "@exp/ui"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
+import { NeedsYouStuckActions } from "@/components/needs-you-stuck-actions"
 import { useNeedsYou, useOpenNeedsYou } from "@/hooks/use-needs-you"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { pageTitle } from "@/lib/page-title"
@@ -33,7 +35,8 @@ function NeedsYouPage() {
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
   const me = authSession?.user?.id ?? null
-  const { rows, isReady } = useNeedsYou(team?.id, me)
+  const permissions = useTeamPermissions(team)
+  const { rows, isReady } = useNeedsYou(team?.id, me, permissions.isOwner)
   const open = useOpenNeedsYou(teamSlug, me)
   const back = () => {
     if (router.history.canGoBack()) router.history.back()
@@ -63,7 +66,9 @@ function NeedsYouPage() {
             }
           />
         )}
-        {!team || (!isReady && rows.length === 0) ? <SkeletonRows /> : <NeedsYouList rows={rows} onOpen={open} />}
+        {!team || (!isReady && rows.length === 0) ? <SkeletonRows /> : (
+          <NeedsYouList rows={rows} onOpen={open} actions={(row) => <NeedsYouStuckActions row={row} />} />
+        )}
       </div>
     </div>
   )
