@@ -54,7 +54,6 @@ import at.exponential.ui.primitives.MarkdownColors
 import at.exponential.ui.primitives.MarkdownFontResolver
 import at.exponential.ui.primitives.MarkdownImageAlt
 import at.exponential.ui.primitives.MarkdownView
-import at.exponential.ui.primitives.MarkdownBlockKind
 import androidx.compose.foundation.clickable
 import at.exponential.ui.theme.ResolvedTextStyle
 import kotlin.math.max
@@ -496,7 +495,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             imageSize = remember(model, model.host) { { src: String -> model.markdownImageSize(src) } },
             onImagePress = model.host.onImagePress,
             chipIcon = { name, size, color -> IconView(name, size, color, model, rtl = cx.rtl) },
-            attachmentView = { a, w, h -> MarkdownAttachmentView(cx, styles, a, w, h) },
+            attachmentView = { a, w, h -> MarkdownAttachmentView(cx, styles, a.type, a.name, a.href, w, h) },
             codeHighlighter = remember(model, model.effectiveTheme, model.mode) { markdownCodeHighlighter(model) },
             image = { src, alt ->
                 val picture = rememberPolicedImage(model, src)
@@ -523,13 +522,24 @@ internal fun MarkdownLeaf(cx: LeafContext) {
  * the href through the URL policy and the host's opener).
  */
 @Composable
-private fun MarkdownAttachmentView(cx: LeafContext, styles: at.exponential.ui.primitives.MarkdownStyles, a: MarkdownBlockKind.Attachment, w: Float, h: Float) {
+private fun MarkdownAttachmentView(
+    cx: LeafContext,
+    styles: at.exponential.ui.primitives.MarkdownStyles,
+    // The attachment's fields, not `MarkdownBlockKind.Attachment`: naming the
+    // primitives' sealed class here makes the release Dokka read its JVM 17
+    // PermittedSubclasses (ASM9) and fail the publish.
+    type: String,
+    attachmentName: String,
+    href: String,
+    w: Float,
+    h: Float,
+) {
     val model = cx.model
-    when (a.type) {
+    when (type) {
         "video" -> Box(Modifier.size(w.dp, h.dp)) {
             VideoView(
                 model,
-                src = a.href,
+                src = href,
                 poster = "",
                 autoplay = false,
                 durationMs = null,
@@ -539,7 +549,7 @@ private fun MarkdownAttachmentView(cx: LeafContext, styles: at.exponential.ui.pr
         "audio" -> Box(Modifier.size(w.dp, h.dp)) {
             val ts = MarkdownPainter.audioTitle(model.effectiveTheme, model.mode, cx.textStyle)
             val color = cx.part("AudioPlayer", "track", emptyMap()).color ?: cx.ink
-            AudioView(cx, src = a.href, title = a.name, durationMs = null, rowHeight = styles.audioRow) {
+            AudioView(cx, src = href, title = attachmentName, durationMs = null, rowHeight = styles.audioRow) {
                 BasicText(it, style = cx.composeTextStyle(ts = ts, color = color), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -557,14 +567,14 @@ private fun MarkdownAttachmentView(cx: LeafContext, styles: at.exponential.ui.pr
                 Modifier
                     .size(w.dp, h.dp)
                     .leafPartBox(file.style)
-                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { model.openHref(a.href) }
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { model.openHref(href) }
                     .padding(horizontal = padH.dp),
                 horizontalArrangement = Arrangement.spacedBy((file.px("gap") ?: cx.spacing("sm")).dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val iconSize = cx.control("iconSm", 16f)
                 IconView("ui-file", iconSize, icon.color ?: cx.ink, model, rtl = cx.rtl)
-                BasicText(a.name, style = cx.composeTextStyle(ts = ts, color = name.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                BasicText(attachmentName, style = cx.composeTextStyle(ts = ts, color = name.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
     }

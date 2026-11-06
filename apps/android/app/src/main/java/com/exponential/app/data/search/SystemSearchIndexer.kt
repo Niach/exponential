@@ -165,13 +165,17 @@ class SystemSearchIndexer @Inject constructor(
             .build()
     }
 
-    private suspend fun <T> withSession(accountId: String, block: suspend (AppSearchSession) -> T): T {
+    /** A session on the account's database; nothing below API 31 (platform
+     *  AppSearch storage: [start] never runs there, the guard keeps lint and
+     *  any other caller honest). */
+    private suspend fun withSession(accountId: String, block: suspend (AppSearchSession) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         val session = PlatformStorage.createSearchSessionAsync(
             PlatformStorage.SearchContext.Builder(context, SystemSearch.domain(accountId).replace('/', '_'))
                 .setWorkerExecutor(executor)
                 .build(),
         ).await()
-        return try {
+        try {
             block(session)
         } finally {
             session.close()
