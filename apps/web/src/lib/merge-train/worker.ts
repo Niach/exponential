@@ -57,7 +57,7 @@ import type { Tx } from "@/lib/sessions/tx"
 import { generateTxId } from "@/lib/trpc"
 
 /** The server switch (default off): production auto-lands only once the
- *  App is on the base ruleset's bypass list and has `workflows: write`. */
+ *  App is on the base ruleset's bypass list and has `workflows: write` + `actions: write` (the dispatch). */
 export const MERGE_TRAIN_ENV = `MERGE_TRAIN`
 /** #EXP-1711 (dogfood): with the switch on, `MERGE_TRAIN_REPOS` (comma-
  *  separated `owner/name`, case-insensitive) limits the train to those
