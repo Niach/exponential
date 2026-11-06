@@ -5,7 +5,7 @@
 // model (live getters), and hand the result to
 // `<ExponentialSurface surface={…}>`.
 
-import { createMemo, createSignal } from "solid-js"
+import { batch, createMemo, createSignal } from "solid-js"
 import { CORE_CATALOG_ID, reduceNested, reduceSurface } from "@exponential_app/eui"
 import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential_app/eui"
 import { setPointer } from "@exponential_app/eui/web"
@@ -51,6 +51,12 @@ export interface SurfaceState {
   readonly extensions: readonly ExtensionDef[]
   apply: (message: A2uiMessage) => void
   setData: (pointer: string, value: unknown) => void
+  /** #VAPP-288: the count of PROGRAMMATIC writes (`assign`); absent = 0. */
+  readonly writeEpoch?: number
+  /** #VAPP-288: a PROGRAMMATIC write (an action's `set` step): `setData`
+   *  plus a `writeEpoch` bump, so a focused field bound to `pointer` adopts
+   *  it. Absent = the surface counts its own (`setData` + its epoch). */
+  assign?: (pointer: string, value: unknown) => void
   /** Replace the tree with a nested authoring tree. */
   setNested: (tree: NestedNode) => void
   reset: () => void
@@ -71,6 +77,7 @@ export function createSurface(options: CreateSurfaceOptions = {}): SurfaceState 
   // The tree and the data are two signals: a data write never re-reduces.
   const [inner, setInner] = createSignal<Inner>(initial)
   const [data, setDataModel] = createSignal<DataModel>(initialData)
+  const [writeEpoch, setWriteEpoch] = createSignal(0)
 
   const apply = (message: A2uiMessage) => {
     if (message.createSurface) {
@@ -124,12 +131,20 @@ export function createSurface(options: CreateSurfaceOptions = {}): SurfaceState 
     get deleted() {
       return inner().deleted
     },
+    get writeEpoch() {
+      return writeEpoch()
+    },
     get components() {
       return inner().components
     },
     extensions,
     apply,
     setData: (pointer, value) => setDataModel((cur) => setPointer(cur, pointer, value)),
+    assign: (pointer, value) =>
+      batch(() => {
+        setDataModel((cur) => setPointer(cur, pointer, value))
+        setWriteEpoch((n) => n + 1)
+      }),
     setNested: (tree) => setInner((cur) => ({ ...cur, nested: tree, components: [], deleted: false })),
     reset: () => {
       setInner(initial)

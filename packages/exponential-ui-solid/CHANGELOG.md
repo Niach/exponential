@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A focused text field adopts an action's `set` of its bound value (#VAPP-288): `ctx.assignData` / `ctx.writeEpoch`, `createHostOwnedValue({epoch})`; echoes keep the typing rule.
 - Tree (#VAPP-285): a Tree row keeps `role=treeitem` and takes the WAI-ARIA tree keys (`treeKeyTarget`).
 - A foldable Row (#VAPP-284): a pressable Box with `on.toggle` and `aria-expanded` takes ArrowRight / ArrowLeft (`foldKey`, rtl-aware); a press target inside another fires only its own press.
 

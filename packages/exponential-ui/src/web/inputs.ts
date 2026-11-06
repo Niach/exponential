@@ -5,7 +5,14 @@
 // host (the data model, a new `value` prop) resets the local value only when
 // the field is not focused AND no revision is outstanding (the host
 // acknowledged everything it was sent). That is the VAPP-4 typing rule: a
-// stale echo can never clobber a key in flight. A renderer wraps
+// stale echo can never clobber a key in flight. #VAPP-288: a PROGRAMMATIC
+// write (an action's `set` step: a press's `functionCall set`, a package
+// action's `sets`) bumps the surface's write epoch; a push whose value
+// differs from the field's AND that comes with a moved epoch is adopted
+// even while focused (the outstanding edit dropped), so a form clears
+// itself after Save. Host data writes (updateDataModel, a bind, a server's
+// echo) never bump it and stay under the typing rule.
+// (fixtures/interactions-round1.json `fieldWrites`.) A renderer wraps
 // `HostOwnedController` in its reactivity (React: `useHostOwnedValue`).
 
 import { resolveRecipe } from "@exponential_app/eui"
@@ -34,6 +41,8 @@ export interface HostOwnedControllerOptions<T> {
   debounceMs?: number
   /** Called after every change of `value`, `pending` or `focused`. */
   onChange?: () => void
+  /** The surface's write epoch when the field mounts (#VAPP-288). */
+  epoch?: number
 }
 
 export class HostOwnedController<T> {
@@ -45,6 +54,8 @@ export class HostOwnedController<T> {
   pending = false
   focused = false
   private acked = 0
+  /** The surface write epoch this field last looked at (#VAPP-288). */
+  private seenEpoch: number | undefined
   private timer: ReturnType<typeof setTimeout> | null = null
   private live = true
   private send: HostOwnedSend<T>
@@ -58,6 +69,7 @@ export class HostOwnedController<T> {
     this.writeLocal = options.writeLocal
     this.debounceMs = options.debounceMs ?? DEBOUNCE_MS
     this.onChange = options.onChange
+    this.seenEpoch = options.epoch
   }
 
   /** The latest callbacks (a re-render may hand new closures). */
@@ -99,9 +111,23 @@ export class HostOwnedController<T> {
     this.commit()
   }
 
-  /** The host's push: adopted only when idle and fully acknowledged.
-   *  Returns whether it was adopted. */
-  push(external: T): boolean {
+  /** The host's push: adopted only when idle and fully acknowledged, or
+   *  (#VAPP-288) when `epoch`, the surface's write epoch, moved since the
+   *  last push and the value differs from the field's: a programmatic write
+   *  wins even while focused and drops the outstanding edit. Returns whether
+   *  it was adopted. */
+  push(external: T, epoch?: number): boolean {
+    if (epoch !== undefined && epoch !== this.seenEpoch) {
+      this.seenEpoch = epoch
+      if (!Object.is(external, this.value)) {
+        this.value = external
+        this.clearTimer()
+        this.acked = this.revision
+        this.pending = false
+        this.notify()
+        return true
+      }
+    }
     if (this.focused) return false
     if (this.revision > this.acked) return false
     if (Object.is(external, this.value)) return false

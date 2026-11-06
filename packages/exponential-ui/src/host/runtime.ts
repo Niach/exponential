@@ -168,6 +168,9 @@ export class SurfaceStore {
   private reduced: { root: UiNode | null; issues: ReduceIssue[]; templates?: Record<string, UiNode> } | null = null
   private listeners = new Set<Listener>()
   version = 0
+  /** #VAPP-288: bumped by every PROGRAMMATIC write (`assign`: an action's
+   *  `set` step); a focused field adopts a value that came with a move. */
+  writeEpoch = 0
 
   constructor(surfaceId: string, catalogId: string, private extensions: () => readonly ExtensionDef[]) {
     this.surfaceId = surfaceId
@@ -237,6 +240,19 @@ export class SurfaceStore {
     const written = writePointer(this.data, pointer, value)
     if (written.error) return written.error
     this.data = written.data as Record<string, unknown>
+    this.notify()
+    return undefined
+  }
+
+  /** #VAPP-288: a PROGRAMMATIC write (an action's `set` step): `setData`
+   *  that also bumps `writeEpoch` (one notify), so a focused field bound to
+   *  `pointer` adopts it. Host data writes (updateDataModel, a bind, a
+   *  record form) go through `setData` and stay under the echo rule. */
+  assign(pointer: string, value: unknown): string | undefined {
+    const written = writePointer(this.data, pointer, value)
+    if (written.error) return written.error
+    this.data = written.data as Record<string, unknown>
+    this.writeEpoch += 1
     this.notify()
     return undefined
   }
@@ -602,7 +618,7 @@ export class ExponentialHost {
       }
     }
     for (const s of plan.sets) {
-      const error = store.setData(s.path, s.value)
+      const error = store.assign(s.path, s.value)
       if (error) this.send(errorMessage(`VALIDATION_FAILED`, call.surfaceId, error, s.path || `/`))
     }
     for (const c of calls) {

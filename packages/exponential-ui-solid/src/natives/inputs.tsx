@@ -68,9 +68,10 @@ function autosize(el: HTMLTextAreaElement, rows: number, maxRows: number | null)
 
 function TextFieldNative(props: NativeProps & { multiline: boolean }): JSX.Element {
   const part = parts(props)
+  const ctx = useSurfaceContext()
   const id = createUniqueId()
   const { send, writeLocal } = createInputSender(props, `value`)
-  const field = createHostOwnedValue<string>({ external: () => str(props.props.value), send, writeLocal })
+  const field = createHostOwnedValue<string>({ external: () => str(props.props.value), send, writeLocal, epoch: () => ctx.writeEpoch })
   let el: HTMLInputElement | HTMLTextAreaElement | undefined
   const f = createField({ node: () => props.node, domId: () => props.domId, props: () => props.props, value: () => field.value, focusEl: () => el })
   const disabled = () => bool(props.props.disabled) || Boolean(f.form?.disabled)
@@ -768,7 +769,7 @@ export function ComposerNative(props: NativeProps): JSX.Element {
   const part = parts(props)
   const ctx = useSurfaceContext()
   const { send, writeLocal } = createInputSender(props, `value`)
-  const field = createHostOwnedValue<string>({ external: () => str(props.props.value), send, writeLocal })
+  const field = createHostOwnedValue<string>({ external: () => str(props.props.value), send, writeLocal, epoch: () => ctx.writeEpoch })
   const busy = () => bool(props.props.busy)
   let ref: HTMLTextAreaElement | undefined
   const grow = () => {
