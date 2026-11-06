@@ -305,11 +305,30 @@ running X11/Wayland session it nests instead; never pass `--udev` there,
 the other display server owns the GPU. The login screen entry is
 `exponential-session` (below).
 
-## Install as a login session (Mint/Ubuntu)
+## Install as a login session
+
+From the package repositories (#EDE-34; Ubuntu 24.04 + 26.04, Mint 22,
+Debian 13, Fedora, Arch; the docs' install page has the per-distro lines):
 
 ```bash
-apps/ede/packaging/build-deb.sh          # → apps/ede/target-deb/ede_<version>_amd64.deb
-sudo apt install ./apps/ede/target-deb/ede_*_amd64.deb
+curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh
+```
+
+The repositories are static and signed, built by `build-ede.yml` from an
+`ede-v*` tag: `packaging/stage.sh` builds once on Ubuntu 24.04,
+`pack-{deb,rpm,arch}.sh` pack that tree, `repo/publish.sh` writes the
+apt/dnf/pacman metadata and signs it (key `repo/exponential.asc`, its secret
+half the `PKG_SIGNING_KEY` secret), every distro of the matrix installs it in
+its container (`smoke.sh`), then the tree is rsynced to the package host (a
+Caddy container on the Hetzner host, Coolify service `exponential-pkg`,
+serving `/srv/exponential-pkg/www`). The host name lives in
+`packaging/repo.env` only; `exponential-repo` (installed alongside) owns
+each machine's source entry and key, so a new host or key arrives as an
+update. A local .deb:
+
+```bash
+apps/ede/packaging/build-deb.sh          # → apps/ede/target-deb/exponential-desktop_<version>-1~noble1_amd64.deb
+sudo apt install ./apps/ede/target-deb/exponential-desktop_*_amd64.deb
 ```
 
 The .deb bundles Xwayland 24.1 at `/usr/lib/exponential-desktop/bin/Xwayland`, because

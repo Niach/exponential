@@ -86,7 +86,15 @@ pub struct Nvidia {
     pub fbdev_param: Option<String>,
     /// `/proc/cmdline`.
     pub cmdline: String,
+    /// Whether the driver's GBM backend (`nvidia-drm_gbm.so`) is installed;
+    /// without it the compositor can't allocate buffers on the GPU.
+    pub gbm_backend: bool,
 }
+
+/// The driver that has explicit sync (no flicker in Xwayland games).
+pub const NVIDIA_EXPLICIT_SYNC: u32 = 555;
+/// Where Mesa's libgbm looks for backends (`$GBM_BACKENDS_PATH` first).
+pub const GBM_BACKEND_DIRS: &[&str] = &["/usr/lib/x86_64-linux-gnu/gbm", "/usr/lib/aarch64-linux-gnu/gbm", "/usr/lib64/gbm", "/usr/lib/gbm"];
 
 /// A boolean kernel parameter: the readable module parameter, else the
 /// command line, else the driver's default (on from 560).
@@ -122,6 +130,21 @@ pub fn check_nvidia(nv: Option<&Nvidia>) -> Option<Check> {
             _ => Some(Check { name, level: Level::Ok, detail: format!("{driver}nvidia-drm modeset on") }),
         },
     }
+}
+
+/// The rest of the NVIDIA stack once modeset is on: the GBM backend and a
+/// driver with explicit sync.
+pub fn check_nvidia_stack(nv: Option<&Nvidia>) -> Option<Check> {
+    let nv = nv?;
+    let name = "NVIDIA GBM";
+    let major: Option<u32> = nv.version.as_deref().and_then(|v| v.trim().split('.').next()?.parse().ok());
+    Some(if !nv.gbm_backend {
+        Check { name, level: Level::Fail, detail: "the driver's GBM library (nvidia-drm_gbm.so) is missing: install it with the driver (Ubuntu, Mint: libnvidia-egl-gbm1; Fedora (RPM Fusion): xorg-x11-drv-nvidia-libs; Arch: egl-gbm)".into() }
+    } else if major.is_some_and(|m| m < NVIDIA_EXPLICIT_SYNC) {
+        Check { name, level: Level::Warn, detail: format!("driver {} has no explicit sync: X11 games may flicker; driver {NVIDIA_EXPLICIT_SYNC} or newer fixes it", major.unwrap_or_default()) }
+    } else {
+        Check { name, level: Level::Ok, detail: "GBM backend installed, explicit sync".into() }
+    })
 }
 
 pub fn check_render_nodes(nodes: &[String]) -> Check {
@@ -349,8 +372,15 @@ pub fn run_checks() -> Vec<Check> {
         modeset_param: read("/sys/module/nvidia_drm/parameters/modeset"),
         fbdev_param: read("/sys/module/nvidia_drm/parameters/fbdev"),
         cmdline: read("/proc/cmdline").unwrap_or_default(),
+        gbm_backend: std::env::var_os("GBM_BACKENDS_PATH")
+            .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+            .unwrap_or_default()
+            .into_iter()
+            .chain(GBM_BACKEND_DIRS.iter().map(std::path::PathBuf::from))
+            .any(|dir| dir.join("nvidia-drm_gbm.so").exists()),
     });
     checks.extend(check_nvidia(nvidia.as_ref()));
+    checks.extend(check_nvidia_stack(nvidia.as_ref()));
     checks
 }
 
@@ -422,6 +452,7 @@ mod tests {
             modeset_param: modeset.map(Into::into),
             fbdev_param: fbdev.map(Into::into),
             cmdline: cmdline.into(),
+            gbm_backend: true,
         };
         let level = |n: Nvidia| check_nvidia(Some(&n)).unwrap().level;
         assert_eq!(check_nvidia(None), None, "no NVIDIA driver, no check");
@@ -435,6 +466,16 @@ mod tests {
         assert_eq!(level(nv(Some("550.1"), None, None, "quiet splash")), Level::Fail, "older drivers default to off");
         assert_eq!(level(nv(Some("595.99.02"), None, None, "nvidia-drm.modeset=0")), Level::Fail);
         assert_eq!(level(nv(None, None, None, "")), Level::Warn, "unknown");
+    }
+
+    #[test]
+    fn nvidia_needs_its_gbm_backend_and_wants_explicit_sync() {
+        let nv = |version: &str, gbm_backend: bool| Nvidia { version: Some(version.into()), gbm_backend, ..Nvidia::default() };
+        let level = |n: Nvidia| check_nvidia_stack(Some(&n)).unwrap().level;
+        assert_eq!(check_nvidia_stack(None), None);
+        assert_eq!(level(nv("595.99.02", false)), Level::Fail);
+        assert_eq!(level(nv("550.1", true)), Level::Warn);
+        assert_eq!(level(nv("555.42.02\n", true)), Level::Ok);
     }
 
     #[test]
