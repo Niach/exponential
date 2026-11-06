@@ -58,8 +58,41 @@ import { generateTxId } from "@/lib/trpc"
 /** The server switch (default off): production auto-lands only once the
  *  App is on the base ruleset's bypass list and has `workflows: write`. */
 export const MERGE_TRAIN_ENV = `MERGE_TRAIN`
-export function mergeTrainOn(): boolean {
-  return process.env[MERGE_TRAIN_ENV] === `true`
+/** #EXP-1711 (dogfood): with the switch on, `MERGE_TRAIN_REPOS` (comma-
+ *  separated `owner/name`, case-insensitive) limits the train to those
+ *  repositories; every other repository behaves as with the switch off
+ *  (TRAIN OFF). Unset or empty = every repository. */
+export const MERGE_TRAIN_REPOS_ENV = `MERGE_TRAIN_REPOS`
+function trainRepos(): Set<string> | null {
+  const names = (process.env[MERGE_TRAIN_REPOS_ENV] ?? ``)
+    .split(`,`)
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean)
+  return names.length > 0 ? new Set(names) : null
+}
+/** Whether the train runs for `repoFullName`. Without a name it answers
+ *  only for an unscoped switch (a scoped one is never on "everywhere"). */
+export function mergeTrainOn(repoFullName?: string | null): boolean {
+  if (process.env[MERGE_TRAIN_ENV] !== `true`) return false
+  const repos = trainRepos()
+  if (!repos) return true
+  return Boolean(repoFullName && repos.has(repoFullName.toLowerCase()))
+}
+/** The switch is on for SOME repositories only (yolo still runs elsewhere). */
+export function mergeTrainScoped(): boolean {
+  return process.env[MERGE_TRAIN_ENV] === `true` && trainRepos() !== null
+}
+/** `mergeTrainOn` for a pull request's repository. */
+export async function mergeTrainOnForPullRequest(pullRequestId: string): Promise<boolean> {
+  if (process.env[MERGE_TRAIN_ENV] !== `true`) return false
+  if (!trainRepos()) return true
+  const [row] = await db
+    .select({ fullName: repositories.fullName })
+    .from(pullRequests)
+    .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
+    .where(eq(pullRequests.id, pullRequestId))
+    .limit(1)
+  return mergeTrainOn(row?.fullName ?? null)
 }
 
 /** A run's report must arrive within this (else the run is an error). */
@@ -643,7 +676,7 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
     .limit(1)
   if (!repo) return
   const forge = await forgeFor(forgeRepo(repo))
-  if (!mergeTrainOn()) {
+  if (!mergeTrainOn(repo.fullName)) {
     await displayRepository(repo, forge, now)
     return
   }
@@ -811,12 +844,12 @@ export function onPullRequestPush(pullRequestId: string): Promise<StepOutcome | 
 /** A person's Hold (never a Needs you row). The switch off: the flag
  *  only (yolo skips a held PR), no `pr_merge` post. */
 export async function holdPullRequest(pullRequestId: string): Promise<StepOutcome | null> {
-  if (mergeTrainOn()) return personEvent(pullRequestId, { type: `hold` })
+  if (await mergeTrainOnForPullRequest(pullRequestId)) return personEvent(pullRequestId, { type: `hold` })
   return flagHold(pullRequestId, true)
 }
 /** Resume auto-merge / Needs you Retry: checks again, bounces and clock reset. */
 export async function resumePullRequest(pullRequestId: string): Promise<StepOutcome | null> {
-  if (mergeTrainOn()) return personEvent(pullRequestId, { type: `resume` })
+  if (await mergeTrainOnForPullRequest(pullRequestId)) return personEvent(pullRequestId, { type: `resume` })
   return flagHold(pullRequestId, false)
 }
 

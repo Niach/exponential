@@ -10,8 +10,10 @@ const pending = new Set<Promise<void>>()
 export function yoloEdge(rootId: string | null | undefined): void {
   if (!rootId) return
   // EXP-1709: with MERGE_TRAIN on, the same edges drive the merge train
-  // and yolo stays inert (both leave with the held deletion PR).
-  if (process.env.MERGE_TRAIN === `true`) {
+  // and yolo stays inert (both leave with the held deletion PR). Scoped to
+  // some repositories (#EXP-1711 MERGE_TRAIN_REPOS), the off path below
+  // runs: yolo for the others, and each repository's pass picks its mode.
+  if (process.env.MERGE_TRAIN === `true` && !(process.env.MERGE_TRAIN_REPOS ?? ``).trim()) {
     const edge: Promise<void> = import(`@/lib/merge-train/worker`)
       .then(({ mergeTrainEdge }) => mergeTrainEdge({ rootId }))
       .catch((err) => console.error(`[merge-train] thread ${rootId} edge failed`, err))
