@@ -27,6 +27,8 @@ object DomainContract {
     val prChecksStateValues: List<String> = listOf("none", "pending", "success", "failure")
     val prCheckStatusValues: List<String> = listOf("queued", "in_progress", "completed")
     val prCheckConclusionValues: List<String> = listOf("success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "startup_failure", "stale")
+    val prMergeStateValues: List<String> = listOf("draft", "checks", "queued", "testing", "merged", "conflict", "failing", "held")
+    val teamMergeModeValues: List<String> = listOf("auto", "approval")
     val prChecksFailingConclusions: List<String> = listOf("failure", "cancelled", "timed_out", "action_required", "startup_failure")
     val sessionKindValues: List<String> = listOf("thread", "agent")
     val sessionStatusValues: List<String> = listOf("queued", "running", "idle", "ended")
@@ -227,6 +229,16 @@ object DomainContract {
     const val prCheckConclusionActionRequired: String = "action_required"
     const val prCheckConclusionStartupFailure: String = "startup_failure"
     const val prCheckConclusionStale: String = "stale"
+    const val prMergeStateDraft: String = "draft"
+    const val prMergeStateChecks: String = "checks"
+    const val prMergeStateQueued: String = "queued"
+    const val prMergeStateTesting: String = "testing"
+    const val prMergeStateMerged: String = "merged"
+    const val prMergeStateConflict: String = "conflict"
+    const val prMergeStateFailing: String = "failing"
+    const val prMergeStateHeld: String = "held"
+    const val teamMergeModeAuto: String = "auto"
+    const val teamMergeModeApproval: String = "approval"
     const val sessionKindThread: String = "thread"
     const val sessionKindAgent: String = "agent"
     const val sessionStatusQueued: String = "queued"

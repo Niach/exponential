@@ -1796,6 +1796,63 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `circle-pause`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "circle-pause",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M10 15L10 9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M14 15L14 9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `circle-play`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "circle-play",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M9 9.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997A1 1 0 0 1 9 14.996z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `circle-question-mark`: ImageVector by lazy {
         ImageVector.Builder(
             name = "circle-question-mark",
@@ -3312,6 +3369,59 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M18 9a9 9 0 0 1-9 9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `git-compare-arrows`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "git-compare-arrows",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 6A3 3 0 1 0 8 6A3 3 0 1 0 2 6Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 6h5a2 2 0 0 1 2 2v7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m15 9-3-3 3-3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M16 18A3 3 0 1 0 22 18A3 3 0 1 0 16 18Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 18H7a2 2 0 0 1-2-2V9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m9 15 3 3-3 3"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -8930,6 +9040,8 @@ public object ExpIcons {
         "circle-check" -> `circle-check`
         "circle-dashed" -> `circle-dashed`
         "circle-dot" -> `circle-dot`
+        "circle-pause" -> `circle-pause`
+        "circle-play" -> `circle-play`
         "circle-question-mark" -> `circle-question-mark`
         "circle-slash" -> `circle-slash`
         "circle-stop" -> `circle-stop`
@@ -8975,6 +9087,7 @@ public object ExpIcons {
         "gem" -> `gem`
         "gift" -> `gift`
         "git-branch" -> `git-branch`
+        "git-compare-arrows" -> `git-compare-arrows`
         "git-merge" -> `git-merge`
         "git-pull-request" -> `git-pull-request`
         "github" -> `github`
@@ -9267,9 +9380,12 @@ public object ExpIcons {
         "notification-session-blocked" -> `hourglass`
         "pr-batch" -> `boxes`
         "pr-closed" -> `circle-x`
+        "pr-conflict" -> `git-compare-arrows`
         "pr-draft" -> `circle-dot`
+        "pr-hold" -> `circle-pause`
         "pr-merged" -> `git-merge`
         "pr-open" -> `git-pull-request`
+        "pr-resume" -> `circle-play`
         "pr-stack" -> `layers`
         "priority-high" -> `signal-high`
         "priority-low" -> `signal-low`
@@ -9695,12 +9811,18 @@ public object ExpIcons {
     public val prBatch: ImageVector get() = `boxes`
     /** Concept `pr-closed`. */
     public val prClosed: ImageVector get() = `circle-x`
+    /** Concept `pr-conflict`. */
+    public val prConflict: ImageVector get() = `git-compare-arrows`
     /** Concept `pr-draft`. */
     public val prDraft: ImageVector get() = `circle-dot`
+    /** Concept `pr-hold`. */
+    public val prHold: ImageVector get() = `circle-pause`
     /** Concept `pr-merged`. */
     public val prMerged: ImageVector get() = `git-merge`
     /** Concept `pr-open`. */
     public val prOpen: ImageVector get() = `git-pull-request`
+    /** Concept `pr-resume`. */
+    public val prResume: ImageVector get() = `circle-play`
     /** Concept `pr-stack`. */
     public val prStack: ImageVector get() = `layers`
     /** Concept `priority-high`. */

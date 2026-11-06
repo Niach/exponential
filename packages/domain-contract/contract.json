@@ -245,6 +245,14 @@
     "$comment": "EXP-1610: a completed check's conclusion (null while not completed).",
     "values": ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "startup_failure", "stale"]
   },
+  "prMergeState": {
+    "$comment": "EXP-1707 (merge-train.json, epic #EXP-1704): `pull_requests.merge_state`, the merge train's state of a live PR. draft = a draft PR (never queued); checks = not ready yet (its own checks running, its opener's subtree still working, or waiting for approval in `approval` mode); queued = ready, waiting for a train; testing = in the train being tested now; merged = landed (master fast-forwarded to the tested train commit); conflict = the train could not compose it (a conflict outside the generated-file policy); failing = its own checks are red, or the bisected train found it red; held = auto-merge stopped (a person's Hold, 3 bounces or 24 h): a person decides (Needs you).",
+    "values": ["draft", "checks", "queued", "testing", "merged", "conflict", "failing", "held"]
+  },
+  "teamMergeMode": {
+    "$comment": "EXP-1707 (merge-train.json): `teams.merge_mode`, replaces `teams.yolo_mode`. auto (default, every team incl. self-hosted) = a ready PR joins the train by itself; approval = a ready PR waits for a person's Needs approval, then joins the train.",
+    "values": ["auto", "approval"]
+  },
   "prChecks": {
     "$comment": "EXP-1610: failingConclusions = the conclusions that make a check (and the aggregate) red; queuedFlagMinutes = a check still queued this long is flagged once into the PR's session (no runner picked it up).",
     "failingConclusions": ["failure", "cancelled", "timed_out", "action_required", "startup_failure"],

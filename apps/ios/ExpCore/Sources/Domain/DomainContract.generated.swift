@@ -28,6 +28,8 @@ public enum DomainContract {
     public static let prChecksStateValues: [String] = ["none", "pending", "success", "failure"]
     public static let prCheckStatusValues: [String] = ["queued", "in_progress", "completed"]
     public static let prCheckConclusionValues: [String] = ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "startup_failure", "stale"]
+    public static let prMergeStateValues: [String] = ["draft", "checks", "queued", "testing", "merged", "conflict", "failing", "held"]
+    public static let teamMergeModeValues: [String] = ["auto", "approval"]
     public static let prChecksFailingConclusions: [String] = ["failure", "cancelled", "timed_out", "action_required", "startup_failure"]
     public static let sessionKindValues: [String] = ["thread", "agent"]
     public static let sessionStatusValues: [String] = ["queued", "running", "idle", "ended"]
@@ -228,6 +230,16 @@ public enum DomainContract {
     public static let prCheckConclusionActionRequired: String = "action_required"
     public static let prCheckConclusionStartupFailure: String = "startup_failure"
     public static let prCheckConclusionStale: String = "stale"
+    public static let prMergeStateDraft: String = "draft"
+    public static let prMergeStateChecks: String = "checks"
+    public static let prMergeStateQueued: String = "queued"
+    public static let prMergeStateTesting: String = "testing"
+    public static let prMergeStateMerged: String = "merged"
+    public static let prMergeStateConflict: String = "conflict"
+    public static let prMergeStateFailing: String = "failing"
+    public static let prMergeStateHeld: String = "held"
+    public static let teamMergeModeAuto: String = "auto"
+    public static let teamMergeModeApproval: String = "approval"
     public static let sessionKindThread: String = "thread"
     public static let sessionKindAgent: String = "agent"
     public static let sessionStatusQueued: String = "queued"

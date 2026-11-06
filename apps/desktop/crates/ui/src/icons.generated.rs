@@ -200,6 +200,8 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "circle-check" => ExpIcon::CircleCheck,
         "circle-dashed" => ExpIcon::CircleDashed,
         "circle-dot" => ExpIcon::CircleDot,
+        "circle-pause" => ExpIcon::CirclePause,
+        "circle-play" => ExpIcon::CirclePlay,
         "circle-question-mark" => ExpIcon::CircleQuestionMark,
         "circle-slash" => ExpIcon::CircleSlash,
         "circle-stop" => ExpIcon::CircleStop,
@@ -245,6 +247,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "gem" => ExpIcon::Gem,
         "gift" => ExpIcon::Gift,
         "git-branch" => ExpIcon::GitBranch,
+        "git-compare-arrows" => ExpIcon::GitCompareArrows,
         "git-merge" => ExpIcon::GitMerge,
         "git-pull-request" => ExpIcon::GitPullRequest,
         "github" => ExpIcon::Github,
@@ -653,12 +656,18 @@ pub const NOTIFICATION_SESSION_BLOCKED: ExpIcon = ExpIcon::Hourglass;
 pub const PR_BATCH: ExpIcon = ExpIcon::Boxes;
 /// Registry concept `pr-closed` -> Lucide `circle-x`.
 pub const PR_CLOSED: ExpIcon = ExpIcon::CircleX;
+/// Registry concept `pr-conflict` -> Lucide `git-compare-arrows`.
+pub const PR_CONFLICT: ExpIcon = ExpIcon::GitCompareArrows;
 /// Registry concept `pr-draft` -> Lucide `circle-dot`.
 pub const PR_DRAFT: ExpIcon = ExpIcon::CircleDot;
+/// Registry concept `pr-hold` -> Lucide `circle-pause`.
+pub const PR_HOLD: ExpIcon = ExpIcon::CirclePause;
 /// Registry concept `pr-merged` -> Lucide `git-merge`.
 pub const PR_MERGED: ExpIcon = ExpIcon::GitMerge;
 /// Registry concept `pr-open` -> Lucide `git-pull-request`.
 pub const PR_OPEN: ExpIcon = ExpIcon::GitPullRequest;
+/// Registry concept `pr-resume` -> Lucide `circle-play`.
+pub const PR_RESUME: ExpIcon = ExpIcon::CirclePlay;
 /// Registry concept `pr-stack` -> Lucide `layers`.
 pub const PR_STACK: ExpIcon = ExpIcon::Layers;
 /// Registry concept `priority-high` -> Lucide `signal-high`.
@@ -1160,9 +1169,12 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "notification-session-blocked" => NOTIFICATION_SESSION_BLOCKED,
         "pr-batch" => PR_BATCH,
         "pr-closed" => PR_CLOSED,
+        "pr-conflict" => PR_CONFLICT,
         "pr-draft" => PR_DRAFT,
+        "pr-hold" => PR_HOLD,
         "pr-merged" => PR_MERGED,
         "pr-open" => PR_OPEN,
+        "pr-resume" => PR_RESUME,
         "pr-stack" => PR_STACK,
         "priority-high" => PRIORITY_HIGH,
         "priority-low" => PRIORITY_LOW,
