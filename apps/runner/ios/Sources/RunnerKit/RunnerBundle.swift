@@ -6,9 +6,10 @@ import Foundation
 import ExponentialEngine
 
 /// Why the bundle cannot run (runner.json `failureCases`): painted with
-/// `runnerFailure(kind:)` in place of the app.
+/// `runnerFailure(kind:)` in place of the app. `busy` is the web's (another
+/// tab holds the store); the iOS runner never paints it.
 public enum RunnerFailureKind: String, CaseIterable, Error, Sendable {
-    case missing, config, signature, invalid
+    case missing, config, signature, invalid, busy
 }
 
 /// `runner.json` once `runnerConfig` passed it (runner.json `config.keys`).
