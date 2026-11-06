@@ -17,4 +17,20 @@ Inside this monorepo the workspace package is `@exp/eengine` (private, the same 
 | `providers.json` | the `HostConfig` (required and optional providers; no telemetry, no updates), identity kinds (local = "me"), the network policy |
 | `outbox.json` | a `$ref` to `domain-contract` `app-records.json` `outbox` (O1, not copied) plus when it applies (sync provider = queue, none = write through) |
 
+## Web capabilities
+
+`@exp/eengine/web` is the browser's host side of capabilities v1 (#VAPP-265): `webCapabilities(platform = browserPlatform(), { onTap })` answers the native providers the Engine's bridge calls, each `{ name, call(tool, args) }` returning an MCP call result that matches `capabilities.json` `nativeOutputSchema`. Every browser API sits behind the `WebPlatform` seam (tests use fakes). A capability the browser lacks is left out.
+
+| capability | tools | browser |
+|---|---|---|
+| `files` | `open`, `save` | `showOpenFilePicker` / `showSaveFilePicker` when present, else a hidden `<input type=file>` (cancel = its `cancel` event) and an `<a download>` blob URL (`saved: true`) |
+| `photos` | `pick`, `list`, `get` | the library is the app's OPFS `photos/` dir: `pick` = the image picker, each picked file copied in as `<lastModified>-<name>` (the id; takenAt = lastModified); `list` newest first, cursor = an offset; no OPFS = an empty library |
+| `share` | `send` | `navigator.share` (files only when `canShare({files})`); absent without `navigator.share` |
+| `print` | `print` | a hidden iframe on a blob URL, `contentWindow.print()`; always `printed: true` (browsers cannot tell) |
+| `notifications` | `post`, `cancel` | `Notification` (asks when `default`, `denied` = `failed: notifications blocked`); `tag` = the id; a tap calls `onTap(tap)` + `window.focus()`; absent without `Notification` |
+
+- **User activation:** pickers, the share sheet and print open only inside a user gesture. App UI must call through the broker within the click's task (no awaited round trip first); without one, the call answers `failed: …`.
+- **Scheduled notifications** are page timers: one fires only if the page is still open at `at` (no service worker, nothing survives a reload).
+- No permission strings: the browser prompts for notifications itself; the others need none.
+
 Licence: Apache-2.0
