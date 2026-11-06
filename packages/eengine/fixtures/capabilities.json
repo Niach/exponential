@@ -1,0 +1,295 @@
+{
+  "$comment": "VAPP-260 (Engine E0, epic VAPP-259, docs/spec/apps.md §13.1): THE CAPABILITY CATALOG AND THE ONE BROKER. A CAPABILITY is a native tool provider the HOST implements per platform (E5) and mounts on the Engine's in-process MCP Proxy hub (packages/emcp hub.json) under its `name` (a hub server name: `hubServerNameValid`, never a `reservedNames` entry, so no capability can shadow the package's own functions or the Engine's internals). It declares SCOPES (`scopes`): a scope id `<capability>.<scope>` (`scopePattern`) is what a package's capability manifest names (package format 5 `capabilities: [{id, why, origins?}]`) and what a grant is kept for; each scope lists its TOOLS and its CONSENT: `ask` = the Engine's consent sheet once, the answer persisted (consent.json); `picker` = the platform's own picker or sheet IS the consent, every call, so nothing persists and the call needs the app in the foreground; `hostOnly: true` = a scope of the host itself (eDE's `shell.edit`, editing its ede-ui documents), NEVER in a manifest (the validator refuses it) and never granted to an app. `origins: true` = the manifest entry must list `origins` (exact `https://host[:port]` origins) and a call's `url` must be on one. NAMES: an agent calls `<capability>__<tool>` (exposes.json's qualified name, server = capability); app UI calls the function `<capability>.<tool>` (it must be in the package's `functions` allowlist like any other function); BOTH parse to the same `{capability, tool}` (`parseCases`), anything else is `unknown`. THE BROKER (`decideCases`, `brokerDecide`) is ONE function for UI and agent calls: the FIRST of: `unknown` (no such capability or tool: the agent answer is MCP's unknown-tool error -32602, never a hint) · `denied/hostOnly` · `denied/notDeclared` (the manifest is the CEILING: no scope declared = no call, no sheet) · `unavailable` (this host does not provide the capability, e.g. `camera` on a desktop without one) · `denied/originNotDeclared` (an `origins` scope whose `url` argument is missing or off the list) · for `picker`: `denied/needsForeground` in the background, else `call` · for `ask`: the stored grant `granted` = `call`, `denied` = `denied/consentDenied`, undecided = `ask` in the foreground (the Engine shows the consent sheet; consent.json `consentAnswer` turns the answer into the call's verdict) and `denied/consentNeeded` in the background (never a sheet behind the user's back). An agent's tools/list (`listCases`, `agentToolList`) = every tool of a scope the manifest declares and the host provides, `hostOnly` excluded, sorted by qualified name; a denied scope stays listed (the call answers `consentDenied`, so the agent can tell the person). THE AUDIT (`auditCases`, `brokerAuditRow`): every call, refused ones included, writes ONE row in audit.json's shape to the host's sink: `appId` = the package id, `clientId` = `ui` for app UI or the run id for an agent, `tool` = the qualified name `<capability>__<tool>` for both, `status` = `denied` for every refusal and `unknown`/`unavailable`, else audit.json's status of the call's outcome (`ok`, `isError` -> failed, `invalidParams` -> invalid, `rpcError`/`unreachable`/`timeout` -> upstream), `error` = the refusal's reason (`unknownTool` for unknown, `unavailable`), null on ok and failed; `argsHash` = audit.json's hash of the arguments as received. No hub tool writes the package, the grants or the host config: a grant changes only in consent.json's `grantWrite`.",
+  "scopePattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$",
+  "reservedNames": ["app", "bind", "consent", "engine", "exponential", "records", "upstream"],
+  "capabilities": [
+    {
+      "name": "camera",
+      "label": "Camera",
+      "scopes": [{ "id": "camera.capture", "verb": "use your camera", "consent": "ask", "tools": ["capture"] }]
+    },
+    {
+      "name": "clipboard",
+      "label": "Clipboard",
+      "scopes": [
+        { "id": "clipboard.read", "verb": "read your clipboard", "consent": "ask", "tools": ["read"] },
+        { "id": "clipboard.write", "verb": "write to your clipboard", "consent": "ask", "tools": ["write"] }
+      ]
+    },
+    {
+      "name": "files",
+      "label": "Files",
+      "scopes": [
+        { "id": "files.read", "verb": "open files you pick", "consent": "picker", "tools": ["open"] },
+        { "id": "files.write", "verb": "save files where you pick", "consent": "picker", "tools": ["save"] }
+      ]
+    },
+    {
+      "name": "http",
+      "label": "Network",
+      "scopes": [{ "id": "http.fetch", "verb": "connect to {origins}", "consent": "ask", "origins": true, "tools": ["fetch"] }]
+    },
+    {
+      "name": "location",
+      "label": "Location",
+      "scopes": [{ "id": "location.read", "verb": "use your location", "consent": "ask", "tools": ["current"] }]
+    },
+    {
+      "name": "notifications",
+      "label": "Notifications",
+      "scopes": [{ "id": "notifications.post", "verb": "send you notifications", "consent": "ask", "tools": ["cancel", "post"] }]
+    },
+    {
+      "name": "photos",
+      "label": "Photos",
+      "scopes": [{ "id": "photos.read", "verb": "access your photos", "consent": "ask", "tools": ["get", "list", "pick"] }]
+    },
+    {
+      "name": "print",
+      "label": "Print",
+      "scopes": [{ "id": "print.pdf", "verb": "print and make PDFs", "consent": "picker", "tools": ["pdf"] }]
+    },
+    {
+      "name": "share",
+      "label": "Share",
+      "scopes": [{ "id": "share.send", "verb": "share with other apps", "consent": "picker", "tools": ["send"] }]
+    },
+    {
+      "name": "shell",
+      "label": "Desktop",
+      "scopes": [{ "id": "shell.edit", "verb": "change your desktop", "consent": "ask", "hostOnly": true, "tools": ["edit"] }]
+    }
+  ],
+  "parseCases": [
+    { "from": "agent", "name": "photos__pick", "expected": { "capability": "photos", "tool": "pick" } },
+    { "from": "ui", "name": "photos.pick", "expected": { "capability": "photos", "tool": "pick" } },
+    { "from": "agent", "name": "photos.pick", "expected": null },
+    { "from": "ui", "name": "photos__pick", "expected": null },
+    { "from": "ui", "name": "records.upsert", "expected": null },
+    { "from": "agent", "name": "app__navigate", "expected": null },
+    { "from": "agent", "name": "photos__", "expected": null },
+    { "from": "ui", "name": "photos", "expected": null },
+    { "from": "agent", "name": "Photos__pick", "expected": null }
+  ],
+  "decideCases": [
+    {
+      "name": "a granted ask scope calls",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos for an album." }],
+      "grants": { "photos.read": "granted" },
+      "provided": ["photos", "share"],
+      "foreground": true,
+      "call": { "from": "ui", "name": "photos.pick", "arguments": {} },
+      "expected": { "verdict": "call", "capability": "photos", "tool": "pick", "scope": "photos.read", "reason": null }
+    },
+    {
+      "name": "an agent reaches the same scope through the same broker",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos for an album." }],
+      "grants": { "photos.read": "granted" },
+      "provided": ["photos"],
+      "foreground": false,
+      "call": { "from": "agent", "name": "photos__list", "arguments": { "limit": 10 } },
+      "expected": { "verdict": "call", "capability": "photos", "tool": "list", "scope": "photos.read", "reason": null }
+    },
+    {
+      "name": "an undecided ask scope asks in the foreground",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos for an album." }],
+      "grants": {},
+      "provided": ["photos"],
+      "foreground": true,
+      "call": { "from": "agent", "name": "photos__pick", "arguments": {} },
+      "expected": { "verdict": "ask", "capability": "photos", "tool": "pick", "scope": "photos.read", "reason": null }
+    },
+    {
+      "name": "an undecided ask scope never asks in the background",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos for an album." }],
+      "grants": {},
+      "provided": ["photos"],
+      "foreground": false,
+      "call": { "from": "agent", "name": "photos__pick", "arguments": {} },
+      "expected": { "verdict": "denied", "capability": "photos", "tool": "pick", "scope": "photos.read", "reason": "consentNeeded" }
+    },
+    {
+      "name": "a denied scope stays denied without a sheet",
+      "manifest": [{ "id": "notifications.post", "why": "Remind you of due pages." }],
+      "grants": { "notifications.post": "denied" },
+      "provided": ["notifications"],
+      "foreground": true,
+      "call": { "from": "ui", "name": "notifications.post", "arguments": { "title": "Hi" } },
+      "expected": { "verdict": "denied", "capability": "notifications", "tool": "post", "scope": "notifications.post", "reason": "consentDenied" }
+    },
+    {
+      "name": "the manifest is the ceiling: an undeclared scope is denied, even with a stale grant",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos for an album." }],
+      "grants": { "camera.capture": "granted" },
+      "provided": ["photos", "camera"],
+      "foreground": true,
+      "call": { "from": "ui", "name": "camera.capture", "arguments": {} },
+      "expected": { "verdict": "denied", "capability": "camera", "tool": "capture", "scope": "camera.capture", "reason": "notDeclared" }
+    },
+    {
+      "name": "a declared capability the host lacks is unavailable",
+      "manifest": [{ "id": "camera.capture", "why": "Scan a receipt." }],
+      "grants": {},
+      "provided": ["photos"],
+      "foreground": true,
+      "call": { "from": "ui", "name": "camera.capture", "arguments": {} },
+      "expected": { "verdict": "unavailable", "capability": "camera", "tool": "capture", "scope": "camera.capture", "reason": "unavailable" }
+    },
+    {
+      "name": "a picker scope calls in the foreground with no stored grant",
+      "manifest": [{ "id": "share.send", "why": "Share a finished album." }],
+      "grants": {},
+      "provided": ["share"],
+      "foreground": true,
+      "call": { "from": "ui", "name": "share.send", "arguments": { "fileId": "f1" } },
+      "expected": { "verdict": "call", "capability": "share", "tool": "send", "scope": "share.send", "reason": null }
+    },
+    {
+      "name": "a picker scope needs the foreground",
+      "manifest": [{ "id": "print.pdf", "why": "Print an album." }],
+      "grants": {},
+      "provided": ["print"],
+      "foreground": false,
+      "call": { "from": "agent", "name": "print__pdf", "arguments": {} },
+      "expected": { "verdict": "denied", "capability": "print", "tool": "pdf", "scope": "print.pdf", "reason": "needsForeground" }
+    },
+    {
+      "name": "a host-only scope is never an app's",
+      "manifest": [{ "id": "shell.edit", "why": "Rearrange the panel." }],
+      "grants": { "shell.edit": "granted" },
+      "provided": ["shell"],
+      "foreground": true,
+      "call": { "from": "agent", "name": "shell__edit", "arguments": {} },
+      "expected": { "verdict": "denied", "capability": "shell", "tool": "edit", "scope": "shell.edit", "reason": "hostOnly" }
+    },
+    {
+      "name": "an unknown tool of a known capability is unknown",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos for an album." }],
+      "grants": { "photos.read": "granted" },
+      "provided": ["photos"],
+      "foreground": true,
+      "call": { "from": "agent", "name": "photos__delete", "arguments": {} },
+      "expected": { "verdict": "unknown", "capability": null, "tool": null, "scope": null, "reason": "unknownTool" }
+    },
+    {
+      "name": "an unknown capability is unknown",
+      "manifest": [],
+      "grants": {},
+      "provided": [],
+      "foreground": true,
+      "call": { "from": "ui", "name": "bluetooth.scan", "arguments": {} },
+      "expected": { "verdict": "unknown", "capability": null, "tool": null, "scope": null, "reason": "unknownTool" }
+    },
+    {
+      "name": "http calls a declared origin",
+      "manifest": [{ "id": "http.fetch", "why": "Load exchange rates.", "origins": ["https://api.example.com"] }],
+      "grants": { "http.fetch": "granted" },
+      "provided": ["http"],
+      "foreground": false,
+      "call": { "from": "ui", "name": "http.fetch", "arguments": { "url": "https://api.example.com/v1/rates?base=EUR" } },
+      "expected": { "verdict": "call", "capability": "http", "tool": "fetch", "scope": "http.fetch", "reason": null }
+    },
+    {
+      "name": "http refuses an origin the manifest does not list",
+      "manifest": [{ "id": "http.fetch", "why": "Load exchange rates.", "origins": ["https://api.example.com"] }],
+      "grants": { "http.fetch": "granted" },
+      "provided": ["http"],
+      "foreground": true,
+      "call": { "from": "agent", "name": "http__fetch", "arguments": { "url": "https://evil.example.net/x" } },
+      "expected": { "verdict": "denied", "capability": "http", "tool": "fetch", "scope": "http.fetch", "reason": "originNotDeclared" }
+    },
+    {
+      "name": "http compares the whole origin, port and scheme included",
+      "manifest": [{ "id": "http.fetch", "why": "Load exchange rates.", "origins": ["https://api.example.com"] }],
+      "grants": { "http.fetch": "granted" },
+      "provided": ["http"],
+      "foreground": true,
+      "call": { "from": "ui", "name": "http.fetch", "arguments": { "url": "http://api.example.com:8080/v1" } },
+      "expected": { "verdict": "denied", "capability": "http", "tool": "fetch", "scope": "http.fetch", "reason": "originNotDeclared" }
+    },
+    {
+      "name": "http without a url is refused before consent",
+      "manifest": [{ "id": "http.fetch", "why": "Load exchange rates.", "origins": ["https://api.example.com"] }],
+      "grants": {},
+      "provided": ["http"],
+      "foreground": true,
+      "call": { "from": "ui", "name": "http.fetch", "arguments": {} },
+      "expected": { "verdict": "denied", "capability": "http", "tool": "fetch", "scope": "http.fetch", "reason": "originNotDeclared" }
+    }
+  ],
+  "listCases": [
+    {
+      "name": "declared and provided scopes, host-only and undeclared ones left out",
+      "manifest": [
+        { "id": "photos.read", "why": "Pick the photos for an album." },
+        { "id": "share.send", "why": "Share a finished album." },
+        { "id": "camera.capture", "why": "Scan a receipt." },
+        { "id": "shell.edit", "why": "Rearrange the panel." }
+      ],
+      "provided": ["photos", "share", "shell", "notifications"],
+      "expected": ["photos__get", "photos__list", "photos__pick", "share__send"]
+    },
+    {
+      "name": "nothing declared lists nothing",
+      "manifest": [],
+      "provided": ["photos", "share"],
+      "expected": []
+    }
+  ],
+  "auditCases": [
+    {
+      "name": "a UI call that answered",
+      "appId": "at.exponential.photobook",
+      "client": null,
+      "call": { "from": "ui", "name": "photos.pick", "arguments": {} },
+      "verdict": { "verdict": "call", "capability": "photos", "tool": "pick", "scope": "photos.read", "reason": null },
+      "outcome": "ok",
+      "expected": { "appId": "at.exponential.photobook", "clientId": "ui", "tool": "photos__pick", "status": "ok", "error": null, "argsHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" }
+    },
+    {
+      "name": "an agent call refused in the background",
+      "appId": "at.exponential.photobook",
+      "client": "run-7",
+      "call": { "from": "agent", "name": "photos__pick", "arguments": {} },
+      "verdict": { "verdict": "denied", "capability": "photos", "tool": "pick", "scope": "photos.read", "reason": "consentNeeded" },
+      "outcome": null,
+      "expected": { "appId": "at.exponential.photobook", "clientId": "run-7", "tool": "photos__pick", "status": "denied", "error": "consentNeeded", "argsHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" }
+    },
+    {
+      "name": "an unknown tool is audited under its name as called",
+      "appId": "at.exponential.photobook",
+      "client": "run-7",
+      "call": { "from": "agent", "name": "photos__delete", "arguments": {} },
+      "verdict": { "verdict": "unknown", "capability": null, "tool": null, "scope": null, "reason": "unknownTool" },
+      "outcome": null,
+      "expected": { "appId": "at.exponential.photobook", "clientId": "run-7", "tool": "photos__delete", "status": "denied", "error": "unknownTool", "argsHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" }
+    },
+    {
+      "name": "a UI call to an unknown function is audited in the qualified spelling",
+      "appId": "at.exponential.photobook",
+      "client": null,
+      "call": { "from": "ui", "name": "bluetooth.scan", "arguments": {} },
+      "verdict": { "verdict": "unknown", "capability": null, "tool": null, "scope": null, "reason": "unknownTool" },
+      "outcome": null,
+      "expected": { "appId": "at.exponential.photobook", "clientId": "ui", "tool": "bluetooth__scan", "status": "denied", "error": "unknownTool", "argsHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" }
+    },
+    {
+      "name": "a call whose tool errored is failed",
+      "appId": "at.exponential.photobook",
+      "client": null,
+      "call": { "from": "ui", "name": "print.pdf", "arguments": { "albumId": "a1" } },
+      "verdict": { "verdict": "call", "capability": "print", "tool": "pdf", "scope": "print.pdf", "reason": null },
+      "outcome": "isError",
+      "expected": { "appId": "at.exponential.photobook", "clientId": "ui", "tool": "print__pdf", "status": "failed", "error": null, "argsHash": "sha256:ce39d0a61f73d8feae9df9f8d80691a8a8f891c473b2f9f9744ccb3003228468" }
+    },
+    {
+      "name": "an unavailable capability",
+      "appId": "at.exponential.photobook",
+      "client": null,
+      "call": { "from": "ui", "name": "camera.capture", "arguments": {} },
+      "verdict": { "verdict": "unavailable", "capability": "camera", "tool": "capture", "scope": "camera.capture", "reason": "unavailable" },
+      "outcome": null,
+      "expected": { "appId": "at.exponential.photobook", "clientId": "ui", "tool": "camera__capture", "status": "denied", "error": "unavailable", "argsHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" }
+    }
+  ]
+}

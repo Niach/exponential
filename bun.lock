@@ -229,6 +229,19 @@
         "typescript": "^5.7.2",
       },
     },
+    "packages/eengine": {
+      "name": "@exp/eengine",
+      "version": "0.0.0",
+      "dependencies": {
+        "@exp/domain-contract": "workspace:*",
+        "@exp/emcp": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.7.2",
+      },
+    },
     "packages/electric-protocol": {
       "name": "@exp/electric-protocol",
       "version": "0.0.0",
@@ -916,6 +929,8 @@
     "@exp/ecore": ["@exp/ecore@workspace:packages/ecore"],
 
     "@exp/ede": ["@exp/ede@workspace:packages/ede"],
+
+    "@exp/eengine": ["@exp/eengine@workspace:packages/eengine"],
 
     "@exp/electric-protocol": ["@exp/electric-protocol@workspace:packages/electric-protocol"],
 

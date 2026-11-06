@@ -1,6 +1,7 @@
 # Apps: spec
 
 > Status: **approved 2026-11-01** (Danny; decisions in §18). **General availability: §20 (Milestone G, released 2026-11-03).** Batch-1 readiness: §20.1. Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + MCP Proxy), `packages/emcp`, genUI 0.3.0, the time-tracker check (thread 2db0b7d0), ExponentialOS plan v5 (thread 196b5162), Spezl #YO-32.
+> **The Engine** (Danny, 2026-11-05, #VAPP-259): §13.1 replaces S2 to S4; hosts in §16.
 > Legend: ✅ exists · 🟡 partial · ❌ missing · 🆕 proposed here (no issue yet). The mocks are drawn with genUI (React harness, exponential theme, dark).
 
 ## 0. In one paragraph
@@ -20,7 +21,7 @@ The rest of this spec turns that rule into the missing pieces:
 - several screens per app;
 - triggers;
 - an offline outbox;
-- the `eapps` crate for Spezl and eDE.
+- the **Engine** (`eengine`): one runtime for Apps in every host (§13.1).
 
 ![Hours, one illustrative app built on the platform: a simple time tracker (genUI mock, web)](apps/time-tracker.webp)
 
@@ -131,7 +132,7 @@ Nothing here may become a workflow engine: "standalone automations" and "workflo
 
 ![Hours on a phone: the same package, phone navigation (genUI mock, web-mobile)](apps/time-tracker-phone.webp)
 
-Needs: C24 offline outbox, C25 the `eapps` crate, C26 widget templates + slots (#VAPP-64), C27 form-factor conditions.
+Needs: C24 offline outbox, C25 the Engine, C26 widget templates + slots (#VAPP-64), C27 form-factor conditions.
 
 ### 1.8 Sharing, templates, marketplace
 
@@ -182,7 +183,7 @@ Needs: C2, C13.
 | C22 | Inbound webhooks | ✅ A3 server (#VAPP-237) + Settings ×4 (#VAPP-238) | ✅ |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
 | C24 | Offline outbox for record writes | ✅ desktop, iOS, Android (#VAPP-235) | ✅ O1 |
-| C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in genUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
+| C25 | The Engine (`eengine`): app instances, lifecycle, sources, dispatch, outbox, consent, the capability broker, host providers (§13.1) | 🟡 the query + `RecordStore` live in genUI (S1 ✅ #VAPP-189); the contract `packages/eengine` ✅ (E0, #VAPP-260); the crate is open (E1, #VAPP-261) | #VAPP-259 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | ✅ `@media (form-factor: …)` (U1), `@media` sizes, `Sidebar.collapseBelow` | U1 |
 | C28 | Template gallery | ✅ #VAPP-234: `samples/apps/*.app.json`, signed by the pinned Exponential key; "Start from a template" in the import dialog and a draft's starters (`fixtures/app-templates.json`) | Leave, On-call |
@@ -230,6 +231,10 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 ### 2.2.1 What formatVersion 4 adds (✅ #EXP-1674)
 
 A screen's `nav: false` and `exposed` (§5.1). A version 3 package is a valid version 4 package, so migration `0251_eapps_format_v4` moved the stored ones (`apps.package`, `apps.draft_package`, `app_versions.package`) up, as `0237` did for version 3; a client that has not updated shows the update prompt below.
+
+### 2.2.2 What formatVersion 5 adds (🆕 #VAPP-260)
+
+`capabilities: [{id, why, origins?}]`: the package's **capability manifest** (§13.2). `id` is a scope of the Engine's catalog (`packages/eengine/fixtures/capabilities.json`, never a host-only one), at most once; `why` is the author's one line the consent sheet shows (≤ 200 characters); `origins` is required for `http.fetch` and only there (exact `https://host[:port]` origins). The manifest is the ceiling of what the app's UI and its agents may reach, and the bundler maps it onto platform permissions. Absent = no capabilities. Every Exponential host runs it through the same broker.
 
 A host refuses a newer `formatVersion` (✅ today), so old clients show "Update Exponential to open this app" instead of a broken screen.
 
@@ -802,13 +807,50 @@ Added here:
 
 ## 13. Runtime: where things run
 
-| Executor | Runs | When | Status |
-|---|---|---|---|
-| Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | ✅ |
-| Server broker | `exposes`, upstream reads (M1), automations (A1), webhooks (A3), public links (P1) | Always (the web server process) | ✅ for exposes and upstream reads, 🆕 for the rest |
-| Agent | Anything that needs judgement (`run.agent`) | On trigger | ✅ A2 |
-| Device | stdio/LAN upstreams (M2) | When the device is online | ✅ (#VAPP-239) |
-| Spezl (no server) | Everything above, in-app; automations only while the app runs (eagent-hub scheduler) | Local | #YO-32, 🆕 S3 |
+| Executor | Runs | When | Engine | Status |
+|---|---|---|---|---|
+| Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | web: the TS twin (`@exp/eengine`); desktop, iOS, Android: `eengine` (desktop first, then the phones' `AppHost` piece by piece) | ✅ / Engine 🆕 |
+| Server broker | `exposes`, upstream reads (M1), automations (A1), webhooks (A3), public links (P1) | Always (the web server process) | none: the server is a provider (records service, Postgres + RLS), never inside the Engine | ✅ for exposes and upstream reads, 🆕 for the rest |
+| Agent | Anything that needs judgement (`run.agent`) | On trigger | an `AgentProvider` (Agents) with a hub grant | ✅ A2 |
+| Device | stdio/LAN upstreams (M2) | When the device is online | capabilities and upstreams on the in-process hub | ✅ (#VAPP-239) |
+| Softcoded app, eDE, exported apps | Everything above, in-app; automations only while the app runs | Local | `eengine` with local identity and a SqliteRecordStore | 🆕 E1 to E8 (#VAPP-259) |
+| Spezl (no server) | Everything above, in-app; automations only while the app runs (eagent-hub scheduler) | Local | `eengine` with the P2P store | #YO-32 on the Engine |
+
+### 13.1 The Engine (✅ contract E0 #VAPP-260; crate 🆕 E1 #VAPP-261)
+
+The **Engine** (crate `eengine`, contract `packages/eengine`, tag `eengine-v*`) replaces the old S2 to S4 (the `eapps` crate). It is the stateful, I/O-bearing runtime around genUI. Today every host re-implements it: web TS, desktop Rust, iOS `AppHost.swift` and Android `AppHost.kt` each carry their own sources, outbox, action dispatch, consent and upstream calls. The Apps format and its pure logic (validation, query, CEL, policy, transitions, migrations, exposes) stay in genUI's host (`eui-core/src/host` + TS) and ship with genUI. There is no `eapps` crate.
+
+```
+ hosts:  Exponential web · desktop · iOS · Android │ softcoded app │ eDE │ Spezl │ exported apps
+            │ (web: TS twin)        └──────── eengine-ffi (UniFFI) / Rust ────────┘
+ ┌──────────────────────────── Engine (eengine) ────────────────────────────┐
+ │ AppInstance · lifecycle · screens/router · sources · action dispatch ·  │
+ │ outbox · consent · capability broker · HostConfig                       │
+ └──┬───────┬─────────┬────────────┬─────────────┬───────┬────────┬────────┘
+  Apps    genUI    MCP Proxy     Agents         Voice    P2P   Computer Use
+ (format, (eui-core, (emcp: hub,  (eagent: ACP  (etalk)  (enet) (epilot,
+  query,  Motion,    OAuth, Vault, CLIs + AgentProvider)          desktop only)
+  policy) eui-gen)   code mode)
+    └───────┴─────────┴──── Core (ecore: ids, grants, failures, envelope) ──┘
+ painters (per platform, unchanged): eui-gpui · Swift · Compose · React/Solid/element
+```
+
+- **Dependency rule:** modules never depend on the Engine. The Engine depends on the modules, each optional behind a cargo feature, so a photobook build carries no Voice, P2P or llama.cpp. Painters stay per platform: the Engine hands them a surface and never paints.
+- **Fixture-first, two twins:** `packages/eengine/fixtures` are the spec. The TS reference is the web's twin (no WASM for now), and the crate replays the same cases. Swift and Kotlin never re-implement it: they reach it through `eengine-ffi` (E3) and keep only painters and provider implementations.
+- **Lifecycle** (`lifecycle.json`): launch (the persisted screen, else the first in the navigation), foreground, background, terminate, `online`, deep links from outside (genUI's `crossAppTarget`: exposed screens only) and the app's own notification taps (`resolveScreen`). The effects are: open, outbox flush (launch, foreground, online), live sources (foreground only), automations (only while the instance runs), persist and refused.
+- **Providers** (`providers.json`), the `HostConfig`: required `host`, `storage` (`RecordStore`: query, write with `writeId`, history, subscribe), `blobs` (`BlobStore`), `identity`, `vault` (= `emcp::Vault`) and `window` (`WindowHost`). Optional `clock`, `zone`, `network` (`off`, `upstreamsOnly`, `any`), `sync` (`SyncTransport`), `agents` (`AgentProvider`), `capabilities` and `consent` (`ConsentUi`). **No telemetry and no update provider exist**, and a config naming one is refused. Exported runners compile diagnostics out, and a new package version means a rebundle (no OTA). Exponential keeps its own publish/versions flow (§2.3).
+- **Identity:** `member` (Exponential), `local` (one person on one device with no account: the viewer is the device uuid as owner, so every kind policy collapses to "me") and `peer` (a P2P key, Spezl).
+- **Storage:** Exponential = `SyncedRecordStore` (a local cache + the O1 outbox + Electric in, tRPC out; the server stays the authority). Softcoded, eDE and exported apps = `SqliteRecordStore`, which is the app-records table of `elocal` (#EDE-55), so Apps run offline in a Local desktop (#EDE-54). Spezl = sqlite + the P2P space. Without a `sync` provider, writes apply to the store directly and there is no outbox (`outbox.json`, which references O1's fixture rather than copying it).
+- **Agents** get their tools only as a hub grant. `AgentProvider` lives in Agents (E4, #VAPP-264) with three implementations: `AcpAgent` (Claude Code, Codex; local agent runs #EDE-58), `LocalModel` (llama.cpp via `eui-gen`, behind a feature; the offline fallback #EXP-1721) and `RemoteSession` (`sessions.send`, for phones and web inside Exponential).
+
+### 13.2 Capabilities and consent (✅ contract E0; broker 🆕 E2 #VAPP-262)
+
+- The Engine runs an `emcp` hub **in process**: an in-proc transport for in-process providers and the loopback + bearer token for spawned agents (`hub.json`). The same hub serves the `exponential` noun subset for local agent runs (#EDE-58).
+- A **capability** is a native tool provider with scopes, implemented per platform (E5), mounted under its name (`capabilities.json`): `camera.capture`, `clipboard.read`/`.write`, `files.read`/`.write`, `http.fetch` (declared origins only), `location.read`, `notifications.post`, `photos.read`, `print.pdf`, `share.send`. An `ask` scope shows the consent sheet once and persists the answer. A `picker` scope's platform picker is the consent on every call. `shell.edit` is eDE's own and host-only: it is never in a manifest and never granted to an app.
+- **The package's capability manifest** (format 5 `capabilities: [{id, why, origins?}]`, §2.2.2) is the **ceiling**: what the bundler maps onto platform permissions (E7) and what the broker allows at most.
+- **One broker** for app UI (`photos.pick`, a function in the allowlist) and agents (`photos__pick`): the ceiling first, the consent decision next, then one audit row (`mcp_calls`' shape, to the host's sink). An undecided scope asks only in the foreground and is never asked behind the person's back.
+- **The consent sheet** (`consent.json`) is a genUI surface made of existing components (Drawer, Text, ChoiceTiles, Button), the same on every platform: "Allow {app} to {verb}?", the author's `why`, then Allow / Allow once / Don't allow. The Permissions sheet is one Switch per declared `ask` scope; switching one off revokes it.
+- **Grants** persist in the Vault per app (`eengine/grants/<app>`) and change **only** through the ConsentUi after a gesture. No hub tool writes the package, the grants or the host config, so agents cannot change their shell. On every load they are reconciled: another signer drops all of them, an undeclared scope drops, and new `http.fetch` origins ask again.
 
 **Hosted apps (#VAPP-101) stay cancelled.** Code that must always run lives in an **upstream MCP server** the team deploys: a company's own MCP, a small Bun service, a Home Assistant add-on. The app calls it by name. That keeps Exponential free of a sandbox, of a per-app process model and of billing for compute (decided 2026-11-01: for good).
 
@@ -816,13 +858,14 @@ Self-hosted gets everything: the broker is the same image (`ghcr.io/niach/expone
 
 ## 14. Sync, offline, conflicts
 
-| Platform | Read | Write | Status |
-|---|---|---|---|
-| Web | Records on demand per app (`subsets`) | Online (tRPC) | ✅ / offline ❌ (banner) |
-| Desktop | Full shape | Outbox (O1) | ✅ |
-| iOS (GRDB), Android (Room) | Full shape | Outbox (O1) | ✅ |
-| Spezl | Local sqlite + P2P records space | Local first | #YO-32 |
-| eDE | Through the `eapps` crate (Exponential or Spezl store) | Same | 🆕 S4 |
+| Platform | Read | Write | Engine store | Status |
+|---|---|---|---|---|
+| Web | Records on demand per app (`subsets`) | Online (tRPC) | the TS twin over the server's records | ✅ / offline ❌ (banner) |
+| Desktop | Full shape | Outbox (O1) | `SyncedRecordStore` | ✅ |
+| iOS (GRDB), Android (Room) | Full shape | Outbox (O1) | `SyncedRecordStore` over `eengine-ffi` (later) | ✅ |
+| Spezl | Local sqlite + P2P records space | Local first | `SqliteRecordStore` + a P2P `SyncTransport` | #YO-32 |
+| eDE | Local desktop: `elocal`; connected: the account's shape | Local desktop: direct; connected: outbox | `SqliteRecordStore` (= `elocal`'s app-records, #EDE-55) or `SyncedRecordStore` | 🆕 #EDE-54 |
+| Softcoded app, exported apps | Local sqlite | Direct (no outbox) | `SqliteRecordStore`, local identity | 🆕 E1 |
 
 **✅ O1, the outbox** (#VAPP-235, fixture `app-records.json` `outbox`, TS reference `@exp/domain-contract/app-records` `outbox*`). On desktop and the natives, every record write an app makes (`records.upsert`, `records.delete`, `records.batch`) is applied locally at once and queued:
 
@@ -854,21 +897,32 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 | Webhooks | 256 KB body, 60 calls per minute per hook | 🆕 |
 | Import (`.app.json`) | 4 MB, 2,000 records | ✅ |
 
-## 16. Spezl and eDE: what they need
+## 16. Engine hosts
+
+Every host runs Apps on the Engine (§13.1) and fills in its providers (`packages/eengine/fixtures/providers.json` `hosts`).
+
+| Host | Identity | Storage | Agents | Capabilities | Network |
+|---|---|---|---|---|---|
+| Exponential (web, desktop, iOS, Android) | member | `SyncedRecordStore` (server authority) | `AcpAgent` on desktop, `RemoteSession` on phones and web | files, share, notifications | any |
+| Softcoded app (#SA-2) | local | `SqliteRecordStore` | `LocalModel` (#SA-12) | per package | upstreams only |
+| eDE (NEW-10) | local (Local desktop) or member (connected, #EDE-54) | `elocal` (#EDE-55) | `AcpAgent` (#EDE-58), `LocalModel` later (#EXP-1721) | files, notifications, `windows`/`launch` over `ede-protocol`; `shell.edit` stays host-only | any |
+| Spezl (#YO-32) | peer | sqlite + P2P space | `AcpAgent` | per package | any |
+| Exported apps (`exponential bundle`, E7) | local | `SqliteRecordStore` + `FsBlobStore` | none by default (`LocalModel` opt-in) | the manifest only | per `bundle.toml` (default off) |
 
 **Spezl** (#YO-1, #YO-4 shared format ✅, #YO-32):
 
-1. The records query and the persistent `RecordStore` trait **inside genUI**, not in Exponential's `domain-contract` (S1). Spezl's genUI 0.2.0 lacks `month/by/sum/user` and only has `MemoryRecordStore`.
-2. The **`eapps` crate** (S2, #EXP-1420): `AppHost` (package validation, bindings, policy), the query evaluator (eui-core), a `RecordStore` trait with sqlite and P2P implementations, the `exposes` executor on `emcp` (records/action/upstream), the migration runner.
-3. A keychain `Vault` and loopback serving (#YO-32).
-4. `exponential.*` actions become an **`exponential` upstream** (`ExponentialConnector`) when the person connects an Exponential account. Without one, the action is unavailable.
-5. Multi-user app state (#YO-27, parked) maps to P2P spaces later. Without it, Spezl apps are personal: the kind policy collapses to "me".
+1. The records query and the persistent `RecordStore` trait **inside genUI** (S1 ✅).
+2. The Engine with the P2P store, a keychain `Vault` and loopback serving.
+3. `exponential.*` actions become an **`exponential` upstream** (`ExponentialConnector`) when the person connects an Exponential account. Without one, the action is unavailable.
+4. Multi-user app state (#YO-27, parked) maps to P2P spaces later. Without it, Spezl apps are personal: the kind policy collapses to "me".
 
 **eDE** (NEW-10):
 
-1. Apps run through the same crate in eDE's shell process. genUI on disk (NEW-107) loads `~/.config/ede/apps/*.app.json` with the same validator.
+1. Apps run on the Engine in eDE's shell process. genUI on disk (NEW-107) loads `~/.config/ede/apps/*.app.json` with the same validator. `uicore-data` sources become Engine providers (#EDE-50). #EDE-2 (M1) is untouched until it ships.
 2. Widget templates (C26): `screens[].widget: {template, size: "s" | "m" | "l"}` are painted in the eDE panel and desktop. The same entry gives iOS/Android home-screen widgets later. It depends on the slots model (#VAPP-64).
-3. The MCP Proxy local hub (#EXP-1507) lists the apps' tools to on-device agents, using the same `exposes`.
+3. The in-process hub lists the apps' tools to on-device agents, using the same `exposes` and the same broker.
+
+**Exported apps:** a signed package bundled onto a prebuilt runner (macOS, Windows, Linux, Android, iOS, web PWA). No app code is compiled per app (iOS links only the declared capability modules), and there is no OTA channel.
 
 ---
 
@@ -919,9 +973,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 6: Everywhere**
 
 - ✅ **O1** Offline outbox for record writes (desktop, iOS, Android). (C24, #VAPP-235)
-- **S2 ★** `eapps` crate + release (`eapps-v*`). (C25)
-- **S3** Spezl runs Apps: #YO-32 on S2 (keychain vault, loopback, `exponential` upstream).
-- **S4** eDE widgets + apps on the crate. Depends on #VAPP-64 and NEW-107. (C26)
+- **The Engine** (#VAPP-259, replaces S2 to S4, decided 2026-11-05): E0 ✅ spec + `packages/eengine` + format 5 `capabilities` (#VAPP-260) · E1 core crate (#VAPP-261) · E2 broker + consent sheet (#VAPP-262) · E3 `eengine-ffi` + SDK products (#VAPP-263) · E4 `AgentProvider` (#VAPP-264) · E5 capabilities · E6 runners ×6 · E7 `exponential bundle` · E8 the Photobook sample. Later: Exponential, eDE (widgets: #VAPP-64, NEW-107, C26) and Spezl (#YO-32) move onto the Engine. (C25)
 - ✅ **U3** `Calendar` / `Timeline` (C29, #VAPP-232, design approved by Danny 2026-11-03): genUI macros (no new primitive, no new token) over the records query's calendar views: the month view's `weeks` (lanes, "+N more"), the selected day's `agenda`, `view=week`, `view=timeline` (columns, bands, rows, now); bars in the full chart colour (`tone=<field>`); phones get the compact month with dots and the agenda, and a Timeline whose columns keep a minimum width in one horizontal scroller with the label column pinned (#VAPP-250). The macro rule `$template` builds data-template items. Sample: the leave planner (`samples/apps/leave-planner.app.json`).
 
 **Phase 7: Sharing**
@@ -938,7 +990,7 @@ S1 ─ Q1 ─ Q2 ─ Q3 ─ Q4
             └─ U1 ─ U2 ─ R5/R6/R7 ─ V1 ─ R8
 R2 ─ X2 · U2 ─ T1
 V1 ─ A1 ─ A2 ─ A3 · Q4 ─ M1 ─ M2 · M3
-R3 ─ O1 · S1 ─ S2 ─ S3 / S4 · U3
+R3 ─ O1 · S1 ─ E0 ─ E1 ─ E2 ─ E3 ─ E4 ─ … ─ E8 · U3
 R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 ```
 

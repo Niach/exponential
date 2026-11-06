@@ -20,6 +20,7 @@ packages/domain-contract  contract.json → per-language enums + the fixtures (�
 packages/etalk            @exp/etalk: eTalk's contract (voice, voice-call, talk-listen, meeting fixtures ×4 + TS references); Rust = crates/etalk*
 packages/ecore            @exp/ecore: eCore's contract.json → Rust crate `ecore` + TS/Swift/Kotlin (ids, grants, verdicts, errors, envelope; types only, gated)
 packages/eagent           @exp/eagent: Agents' orchestration spec (tree, bus, wake-ups, reports, caps, watchdog fixtures + a pure TS reducer); the server (lib/sessions) and eagent-hub-core replay it
+packages/eengine          @exp/eengine: the Engine's contract (lifecycle, consent, capabilities, providers fixtures + the TS twin); Rust = crate eengine
 packages/emcp             @exp/emcp: eMCP's contract (exposes, access, audit, vault, upstream fixtures + TS references); server half = apps/web/src/lib/emcp, Rust = crate emcp
 packages/ui               @exp/ui: theme, shadcn set, shared primitives, islands
 packages/design-tokens · icons (icons.json → TS/Swift/Kotlin/Rust) · emoji · electric-protocol · steer-ticket · widget · view-catalog (views.json, drift-gated) · shots (capture pipeline) · store-shots (store + social pictures) · exponential-ui{,-react,-solid,-swift,-compose} (the SDK, guides/ = the guide apps CI compiles; `-solid` = the Solid renderer + `./primitives` on `src/behaviors/`, parity-gated against React; both web renderers take their classes from the shared recipes `@exponential_app/eui/web/primitives`)
@@ -27,7 +28,7 @@ shots/            COMMITTED webp store, <view>/<platform>.webp + index.json
 docs/             third-party-licences.md + licences/     selfhost/  pull-an-image compose + INSTALL.md
 ```
 
-Workspace names `@exp/<dir>`; `apps/desktop` = Cargo (shared `CARGO_TARGET_DIR`). **Brand:** one Exponential SDK; copy says genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, Agents, Core, Apps (ACP = only the Agent Client Protocol). Packages, crates, tags and code keep `e<lib>` (eui, etalk, enet, epilot, emcp, eagent, ecore; the planned apps runtime = `eapps`, tag `eapps-v*`).
+Workspace names `@exp/<dir>`; `apps/desktop` = Cargo (shared `CARGO_TARGET_DIR`). **Brand:** one Exponential SDK; copy says genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, Agents, Core, Apps, Engine (ACP = only the Agent Client Protocol). Packages, crates, tags and code keep `e<lib>` (eui, etalk, enet, epilot, emcp, eagent, ecore, eengine = the Engine, Apps' runtime, tag `eengine-v*`; no `eapps`).
 
 ## Commands
 

@@ -1,0 +1,125 @@
+{
+  "$comment": "VAPP-260 (Engine E0, epic VAPP-259, docs/spec/apps.md §13.1): AN APP INSTANCE'S LIFECYCLE, one pure reducer (`lifecycleStep(state, event, pkg)` -> `{state, effects}`) every host drives with its platform's events (the `WindowHost` reports them; the Engine never asks the OS). STATE = `{phase, screen, params}`: `phase` = `stopped` | `foreground` | `background`; `screen`/`params` = the open screen (null while stopped). EVENTS: `launch {screen?, params?}` (a plain start: the LAST screen the instance persisted, else the first in the navigation, via genUI's `resolveScreen`); `foreground`; `background`; `terminate`; `online` (the host's connection came back); `deepLink {screen, params}` (a URL from OUTSIDE the app: another app, the OS, a person's link in a standalone runner (`<bundle id>://<screen>?<params>`, parsed by the host); it opens only what genUI's `crossAppTarget` allows: an `exposed` screen with its declared params); `notificationTap {app, screen, params}` (a notification the app itself posted: `resolveScreen`, any declared screen, nav: false ones too; a tap carrying another app's id is refused `otherApp`). A deepLink or notificationTap while `stopped` is a COLD LAUNCH into its target. EFFECTS, in order: `{effect: open, screen, params}` (the WindowHost presents it); `{effect: flush}` (the outbox flushes: outbox.json; at launch, on foreground and on `online`, never in the background or stopped); `{effect: sources, live: true|false}` (live subscriptions of the open screen's bindings run only in the foreground; background pauses them); `{effect: automations, on: true|false}` (an app's automations run only while its instance runs, in the foreground and background: Spezl's rule; on at launch, off at terminate); `{effect: persist, screen, params}` (on background and terminate the instance stores its screen, which the next plain launch restores); `{effect: refused, reason}` (a link or tap that cannot open: the host shows the failed-action toast `copy.refused`; a running instance stays where it was, a cold launch opens its plain-launch screen after it). An event that does not apply (foreground while foreground, background while stopped, launch while running, …) is IGNORED: same state, no effects. A cold launch's effects: `automations on`, `open`, `sources live`, `flush`; going to the background: `persist`, `sources off`; foreground: `sources live`, `flush`; terminate: `persist` (if it ran), `sources off` (from the foreground), `automations off`. A deepLink or tap while RUNNING opens its target; from the background it also foregrounds (`open`, then `sources live`, `flush`).",
+  "copy": { "refused": "Couldn't open the link" },
+  "package": {
+    "id": "acme.album",
+    "screens": [
+      { "template": "albums", "title": "Albums", "icon": "ui-image" },
+      { "template": "pages", "title": "Pages", "icon": "ui-file", "exposed": { "description": "An album's pages", "params": { "album": { "required": true } } } },
+      { "template": "page", "title": "Page", "nav": false, "params": { "zoom": "fit" } }
+    ]
+  },
+  "cases": [
+    {
+      "name": "a plain cold launch opens the first navigation screen",
+      "lastScreen": null,
+      "steps": [
+        {
+          "event": { "type": "launch" },
+          "state": { "phase": "foreground", "screen": "albums", "params": {} },
+          "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }]
+        }
+      ]
+    },
+    {
+      "name": "a plain launch restores the persisted screen",
+      "lastScreen": { "screen": "page", "params": { "id": "p1" } },
+      "steps": [
+        {
+          "event": { "type": "launch" },
+          "state": { "phase": "foreground", "screen": "page", "params": { "id": "p1", "zoom": "fit" } },
+          "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "page", "params": { "id": "p1", "zoom": "fit" } }, { "effect": "sources", "live": true }, { "effect": "flush" }]
+        }
+      ]
+    },
+    {
+      "name": "a persisted screen the package no longer has falls back",
+      "lastScreen": { "screen": "gone", "params": {} },
+      "steps": [
+        {
+          "event": { "type": "launch" },
+          "state": { "phase": "foreground", "screen": "albums", "params": {} },
+          "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }]
+        }
+      ]
+    },
+    {
+      "name": "background, foreground, terminate",
+      "lastScreen": null,
+      "steps": [
+        { "event": { "type": "launch" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }] },
+        { "event": { "type": "background" }, "state": { "phase": "background", "screen": "albums", "params": {} }, "effects": [{ "effect": "persist", "screen": "albums", "params": {} }, { "effect": "sources", "live": false }] },
+        { "event": { "type": "online" }, "state": { "phase": "background", "screen": "albums", "params": {} }, "effects": [] },
+        { "event": { "type": "background" }, "state": { "phase": "background", "screen": "albums", "params": {} }, "effects": [] },
+        { "event": { "type": "foreground" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "sources", "live": true }, { "effect": "flush" }] },
+        { "event": { "type": "online" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "flush" }] },
+        { "event": { "type": "terminate" }, "state": { "phase": "stopped", "screen": null, "params": null }, "effects": [{ "effect": "persist", "screen": "albums", "params": {} }, { "effect": "sources", "live": false }, { "effect": "automations", "on": false }] },
+        { "event": { "type": "foreground" }, "state": { "phase": "stopped", "screen": null, "params": null }, "effects": [] }
+      ]
+    },
+    {
+      "name": "terminate from the background",
+      "lastScreen": null,
+      "steps": [
+        { "event": { "type": "launch" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }] },
+        { "event": { "type": "background" }, "state": { "phase": "background", "screen": "albums", "params": {} }, "effects": [{ "effect": "persist", "screen": "albums", "params": {} }, { "effect": "sources", "live": false }] },
+        { "event": { "type": "terminate" }, "state": { "phase": "stopped", "screen": null, "params": null }, "effects": [{ "effect": "persist", "screen": "albums", "params": {} }, { "effect": "automations", "on": false }] }
+      ]
+    },
+    {
+      "name": "a deep link cold-launches into an exposed screen with its declared params",
+      "lastScreen": null,
+      "steps": [
+        {
+          "event": { "type": "deepLink", "screen": "pages", "params": { "album": "a1", "secret": "x" } },
+          "state": { "phase": "foreground", "screen": "pages", "params": { "album": "a1" } },
+          "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "pages", "params": { "album": "a1" } }, { "effect": "sources", "live": true }, { "effect": "flush" }]
+        }
+      ]
+    },
+    {
+      "name": "a deep link to a screen that is not exposed is refused, the cold launch opens the plain screen",
+      "lastScreen": null,
+      "steps": [
+        {
+          "event": { "type": "deepLink", "screen": "page", "params": { "id": "p1" } },
+          "state": { "phase": "foreground", "screen": "albums", "params": {} },
+          "effects": [{ "effect": "refused", "reason": "page is not exposed" }, { "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }]
+        }
+      ]
+    },
+    {
+      "name": "a deep link missing a required param is refused while running",
+      "lastScreen": null,
+      "steps": [
+        { "event": { "type": "launch" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }] },
+        { "event": { "type": "deepLink", "screen": "pages", "params": {} }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "refused", "reason": "pages needs album" }] }
+      ]
+    },
+    {
+      "name": "a notification tap from the background opens a detail screen and foregrounds",
+      "lastScreen": null,
+      "steps": [
+        { "event": { "type": "launch" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }] },
+        { "event": { "type": "background" }, "state": { "phase": "background", "screen": "albums", "params": {} }, "effects": [{ "effect": "persist", "screen": "albums", "params": {} }, { "effect": "sources", "live": false }] },
+        { "event": { "type": "notificationTap", "app": "acme.album", "screen": "page", "params": { "id": "p2" } }, "state": { "phase": "foreground", "screen": "page", "params": { "id": "p2", "zoom": "fit" } }, "effects": [{ "effect": "open", "screen": "page", "params": { "id": "p2", "zoom": "fit" } }, { "effect": "sources", "live": true }, { "effect": "flush" }] }
+      ]
+    },
+    {
+      "name": "a notification tap of another app is refused",
+      "lastScreen": null,
+      "steps": [
+        { "event": { "type": "launch" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }] },
+        { "event": { "type": "notificationTap", "app": "acme.other", "screen": "page", "params": {} }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "refused", "reason": "otherApp" }] }
+      ]
+    },
+    {
+      "name": "a second launch while running is ignored",
+      "lastScreen": null,
+      "steps": [
+        { "event": { "type": "launch" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [{ "effect": "automations", "on": true }, { "effect": "open", "screen": "albums", "params": {} }, { "effect": "sources", "live": true }, { "effect": "flush" }] },
+        { "event": { "type": "launch" }, "state": { "phase": "foreground", "screen": "albums", "params": {} }, "effects": [] }
+      ]
+    }
+  ]
+}

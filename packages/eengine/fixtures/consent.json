@@ -1,0 +1,146 @@
+{
+  "$comment": "VAPP-260 (Engine E0, epic VAPP-259, docs/spec/apps.md §13.2): CONSENT. The package's capability manifest (format 5 `capabilities: [{id, why, origins?}]`) is the CEILING; the person's decision comes next (capabilities.json `brokerDecide`); the audit row last. GRANTS are per app: `{<scope id>: granted | denied}` (absent = undecided), kept ONLY for `ask` scopes (a `picker` scope's consent is the platform picker, every call). THE SHEET (`sheetCases`, `consentSheet`): when the broker answers `ask`, the Engine shows ONE genUI surface built from existing components only (Drawer + Text + ChoiceTiles + Button; no new primitive), the same on every platform and the default `ConsentUi` (a host may override the painter, never the rule): a bottom Drawer titled `Allow {app} to {verb}?` (`copy.title`; the scope's `verb`, an `origins` scope's `{origins}` = its origins joined with `, `), the manifest's `why` as a Text, ChoiceTiles `answer` (one column) with `copy.options` in order (`allow`, `once`, `deny`) starting on `allow`, and a Button `copy.confirm` (the default variant) whose press sends the event `consent.answer` with the picked value; closing the Drawer (Escape, the backdrop, a swipe) answers `dismiss`. THE ANSWER (`answerCases`, `consentAnswer`): `allow` = the call goes ahead and the grant is stored `granted`; `once` = the call goes ahead and nothing is stored (the next call asks again); `deny` = the call is refused `consentDenied` and `denied` is stored; `dismiss` = refused `consentDismissed`, nothing stored. MANAGE (`manageCases`, `manageSheet`): the app's Permissions surface (its … menu, the runner's app menu) = a Drawer `copy.manageTitle` with one Switch per DECLARED `ask` scope in manifest order (label = the capability's `label`, description = the `why`, checked = granted; event `consent.toggle` with the scope) and no Switch for `picker` scopes; flipping one is the gesture: on = `granted`, off = REVOKE = the grant removed (undecided, so the next call asks). WRITES (`writeCases`, `grantWrite`): a grant changes ONLY through the ConsentUi after a user gesture (`via: consentUi`, `gesture: true`); anything else (a hub tool, an agent, the package, the host config, a sync) is refused `onlyConsentUi`, a ConsentUi write without a gesture `noGesture`, an undeclared or `picker` or `hostOnly` scope `notAsk`. PERSISTENCE (`storeCases`, `grantsRecord` / `grantsOnPackage`): the Vault (emcp `Vault`: Keychain, Keystore, libsecret, the server's sealed column) holds key `vaultKey` with `{app}` = the package id, value = canonical JSON `{grants, origins, signer, v}`: `v` = `recordVersion`, `signer` = the package signature's public key, `origins` = the `http.fetch` origins the grant was given for (sorted). On every package load the Engine reconciles (`grantsOnPackage`): another signer = a different author, every grant dropped; a scope the new version no longer declares (or now declares as non-ask) is dropped; an `http.fetch` grant whose declared origins are no longer a subset of the granted ones is dropped (new origins ask again); an unreadable record or another `v` = no grants (ask again, never fail open).",
+  "recordVersion": 1,
+  "vaultKey": "eengine/grants/{app}",
+  "copy": {
+    "title": "Allow {app} to {verb}?",
+    "options": [
+      { "label": "Allow", "value": "allow" },
+      { "label": "Allow once", "value": "once" },
+      { "label": "Don't allow", "value": "deny" }
+    ],
+    "confirm": "Continue",
+    "manageTitle": "Permissions"
+  },
+  "answerCases": [
+    { "scope": "photos.read", "grants": {}, "answer": "allow", "expected": { "verdict": "call", "reason": null, "grants": { "photos.read": "granted" } } },
+    { "scope": "photos.read", "grants": {}, "answer": "once", "expected": { "verdict": "call", "reason": null, "grants": {} } },
+    { "scope": "photos.read", "grants": { "camera.capture": "granted" }, "answer": "deny", "expected": { "verdict": "denied", "reason": "consentDenied", "grants": { "camera.capture": "granted", "photos.read": "denied" } } },
+    { "scope": "photos.read", "grants": {}, "answer": "dismiss", "expected": { "verdict": "denied", "reason": "consentDismissed", "grants": {} } }
+  ],
+  "writeCases": [
+    { "name": "a switch flipped on grants", "manifest": [{ "id": "photos.read", "why": "Pick the photos." }], "grants": {}, "write": { "via": "consentUi", "gesture": true, "scope": "photos.read", "value": "granted" }, "expected": { "grants": { "photos.read": "granted" }, "refused": null } },
+    { "name": "a switch flipped off revokes", "manifest": [{ "id": "photos.read", "why": "Pick the photos." }], "grants": { "photos.read": "granted" }, "write": { "via": "consentUi", "gesture": true, "scope": "photos.read", "value": null }, "expected": { "grants": {}, "refused": null } },
+    { "name": "no gesture, no change", "manifest": [{ "id": "photos.read", "why": "Pick the photos." }], "grants": {}, "write": { "via": "consentUi", "gesture": false, "scope": "photos.read", "value": "granted" }, "expected": { "grants": {}, "refused": "noGesture" } },
+    { "name": "an agent cannot grant itself", "manifest": [{ "id": "photos.read", "why": "Pick the photos." }], "grants": {}, "write": { "via": "agent", "gesture": true, "scope": "photos.read", "value": "granted" }, "expected": { "grants": {}, "refused": "onlyConsentUi" } },
+    { "name": "a hub tool cannot grant", "manifest": [{ "id": "photos.read", "why": "Pick the photos." }], "grants": {}, "write": { "via": "hubTool", "gesture": false, "scope": "photos.read", "value": "granted" }, "expected": { "grants": {}, "refused": "onlyConsentUi" } },
+    { "name": "the package cannot grant", "manifest": [{ "id": "photos.read", "why": "Pick the photos." }], "grants": {}, "write": { "via": "package", "gesture": false, "scope": "photos.read", "value": "granted" }, "expected": { "grants": {}, "refused": "onlyConsentUi" } },
+    { "name": "the host config cannot grant", "manifest": [{ "id": "photos.read", "why": "Pick the photos." }], "grants": {}, "write": { "via": "hostConfig", "gesture": false, "scope": "photos.read", "value": "granted" }, "expected": { "grants": {}, "refused": "onlyConsentUi" } },
+    { "name": "an undeclared scope cannot be granted", "manifest": [{ "id": "photos.read", "why": "Pick the photos." }], "grants": {}, "write": { "via": "consentUi", "gesture": true, "scope": "camera.capture", "value": "granted" }, "expected": { "grants": {}, "refused": "notAsk" } },
+    { "name": "a picker scope keeps no grant", "manifest": [{ "id": "share.send", "why": "Share an album." }], "grants": {}, "write": { "via": "consentUi", "gesture": true, "scope": "share.send", "value": "granted" }, "expected": { "grants": {}, "refused": "notAsk" } },
+    { "name": "a host-only scope is never granted", "manifest": [{ "id": "shell.edit", "why": "Rearrange the panel." }], "grants": {}, "write": { "via": "consentUi", "gesture": true, "scope": "shell.edit", "value": "granted" }, "expected": { "grants": {}, "refused": "notAsk" } }
+  ],
+  "storeCases": [
+    {
+      "name": "the record round-trips as canonical JSON",
+      "app": "at.exponential.photobook",
+      "signer": "pk1",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos." }, { "id": "http.fetch", "why": "Rates.", "origins": ["https://b.example.com", "https://a.example.com"] }],
+      "grants": { "photos.read": "granted", "http.fetch": "granted" },
+      "expected": {
+        "key": "eengine/grants/at.exponential.photobook",
+        "value": "{\"grants\":{\"http.fetch\":\"granted\",\"photos.read\":\"granted\"},\"origins\":[\"https://a.example.com\",\"https://b.example.com\"],\"signer\":\"pk1\",\"v\":1}"
+      }
+    }
+  ],
+  "reconcileCases": [
+    {
+      "name": "the same signer keeps what is still declared",
+      "stored": "{\"grants\":{\"camera.capture\":\"granted\",\"photos.read\":\"denied\"},\"origins\":[],\"signer\":\"pk1\",\"v\":1}",
+      "signer": "pk1",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos." }],
+      "expected": { "photos.read": "denied" }
+    },
+    {
+      "name": "another signer drops every grant",
+      "stored": "{\"grants\":{\"photos.read\":\"granted\"},\"origins\":[],\"signer\":\"pk1\",\"v\":1}",
+      "signer": "pk2",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos." }],
+      "expected": {}
+    },
+    {
+      "name": "new origins ask again",
+      "stored": "{\"grants\":{\"http.fetch\":\"granted\"},\"origins\":[\"https://a.example.com\"],\"signer\":\"pk1\",\"v\":1}",
+      "signer": "pk1",
+      "manifest": [{ "id": "http.fetch", "why": "Rates.", "origins": ["https://a.example.com", "https://b.example.com"] }],
+      "expected": {}
+    },
+    {
+      "name": "fewer origins keep the grant",
+      "stored": "{\"grants\":{\"http.fetch\":\"granted\"},\"origins\":[\"https://a.example.com\",\"https://b.example.com\"],\"signer\":\"pk1\",\"v\":1}",
+      "signer": "pk1",
+      "manifest": [{ "id": "http.fetch", "why": "Rates.", "origins": ["https://b.example.com"] }],
+      "expected": { "http.fetch": "granted" }
+    },
+    {
+      "name": "a scope that became a picker scope is dropped",
+      "stored": "{\"grants\":{\"share.send\":\"granted\"},\"origins\":[],\"signer\":\"pk1\",\"v\":1}",
+      "signer": "pk1",
+      "manifest": [{ "id": "share.send", "why": "Share." }],
+      "expected": {}
+    },
+    {
+      "name": "another record version asks again",
+      "stored": "{\"grants\":{\"photos.read\":\"granted\"},\"origins\":[],\"signer\":\"pk1\",\"v\":2}",
+      "signer": "pk1",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos." }],
+      "expected": {}
+    },
+    {
+      "name": "an unreadable record asks again",
+      "stored": "not json",
+      "signer": "pk1",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos." }],
+      "expected": {}
+    },
+    {
+      "name": "no record yet",
+      "stored": null,
+      "signer": "pk1",
+      "manifest": [{ "id": "photos.read", "why": "Pick the photos." }],
+      "expected": {}
+    }
+  ],
+  "sheetCases": [
+    {
+      "name": "the photos sheet",
+      "app": "Photobook",
+      "entry": { "id": "photos.read", "why": "Pick the photos for an album." },
+      "expected": [
+        { "id": "root", "component": "Drawer", "title": "Allow Photobook to access your photos?", "open": true, "side": "bottom", "children": ["why", "answer"], "slots": { "footer": "confirm" }, "on": { "change": { "event": { "name": "consent.answer", "context": { "answer": "dismiss" } } } } },
+        { "id": "why", "component": "Text", "text": "Pick the photos for an album." },
+        { "id": "answer", "component": "ChoiceTiles", "name": "answer", "columns": 1, "value": { "path": "/answer" }, "options": [{ "label": "Allow", "value": "allow" }, { "label": "Allow once", "value": "once" }, { "label": "Don't allow", "value": "deny" }] },
+        { "id": "confirm", "component": "Button", "label": "Continue", "on": { "press": { "event": { "name": "consent.answer", "context": { "answer": { "path": "/answer" } } } } } }
+      ],
+      "data": { "answer": "allow" }
+    },
+    {
+      "name": "an origins scope names its origins",
+      "app": "Rates",
+      "entry": { "id": "http.fetch", "why": "Load exchange rates.", "origins": ["https://api.example.com", "https://backup.example.com"] },
+      "expected": [
+        { "id": "root", "component": "Drawer", "title": "Allow Rates to connect to https://api.example.com, https://backup.example.com?", "open": true, "side": "bottom", "children": ["why", "answer"], "slots": { "footer": "confirm" }, "on": { "change": { "event": { "name": "consent.answer", "context": { "answer": "dismiss" } } } } },
+        { "id": "why", "component": "Text", "text": "Load exchange rates." },
+        { "id": "answer", "component": "ChoiceTiles", "name": "answer", "columns": 1, "value": { "path": "/answer" }, "options": [{ "label": "Allow", "value": "allow" }, { "label": "Allow once", "value": "once" }, { "label": "Don't allow", "value": "deny" }] },
+        { "id": "confirm", "component": "Button", "label": "Continue", "on": { "press": { "event": { "name": "consent.answer", "context": { "answer": { "path": "/answer" } } } } } }
+      ],
+      "data": { "answer": "allow" }
+    }
+  ],
+  "manageCases": [
+    {
+      "name": "one switch per declared ask scope",
+      "manifest": [
+        { "id": "photos.read", "why": "Pick the photos for an album." },
+        { "id": "share.send", "why": "Share a finished album." },
+        { "id": "notifications.post", "why": "Remind you of due pages." }
+      ],
+      "grants": { "photos.read": "granted", "notifications.post": "denied" },
+      "expected": [
+        { "id": "root", "component": "Drawer", "title": "Permissions", "open": true, "side": "bottom", "children": ["scope-0", "scope-1"] },
+        { "id": "scope-0", "component": "Switch", "label": "Photos", "description": "Pick the photos for an album.", "checked": true, "on": { "change": { "event": { "name": "consent.toggle", "context": { "scope": "photos.read" } } } } },
+        { "id": "scope-1", "component": "Switch", "label": "Notifications", "description": "Remind you of due pages.", "checked": false, "on": { "change": { "event": { "name": "consent.toggle", "context": { "scope": "notifications.post" } } } } }
+      ]
+    }
+  ]
+}
