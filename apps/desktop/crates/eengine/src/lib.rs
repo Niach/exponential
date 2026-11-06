@@ -11,8 +11,11 @@
 //! ones behind features (`sqlite`, `hub`).
 
 pub mod broker;
+pub mod capability;
 pub mod consent;
 pub mod contract;
+#[cfg(feature = "hub")]
+pub mod hub;
 pub mod instance;
 pub mod lifecycle;
 pub mod outbox;
@@ -27,6 +30,7 @@ pub use lifecycle::{lifecycle_step, Effect, LifecycleContext, LifecycleEvent, Li
 pub use providers::{
     BlobStore, Clock, EngineIdentity, Failure, HostConfig, HostInfo, HostZone, Identity, NetworkPolicy, Presentation, RecordStore, RecordWrite, Subscription, SyncTransport, Vault, WindowHost, WriteAck, WriteBatch,
 };
+pub use capability::{Broker, BrokerAnswer, CallAudit, Capability, ConsentSheet, ConsentUi};
 pub use instance::{AppInstance, CallResult, LoadError};
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteRecordStore;

@@ -3,11 +3,14 @@
 
 use std::sync::{Arc, Mutex};
 
+use eengine::broker::GrantValue;
+use eengine::capability::{CallAudit, Capability};
+use eengine::consent::{ConsentAnswer, GrantVia};
 use eengine::instance::{screen_key, AppInstance, CallResult, LoadError};
 use eengine::lifecycle::{Effect, LifecycleEvent};
 use eengine::outbox::OutboxResult;
 use eengine::package::{verify_package_file, Verification};
-use eengine::providers::{Clock, HostConfig, HostInfo, NetworkPolicy, Presentation, RecordStore, SyncTransport, Vault, WindowHost};
+use eengine::providers::{Clock, Failure, HostConfig, HostInfo, NetworkPolicy, Presentation, RecordStore, SyncTransport, Vault, WindowHost};
 use eengine::stores::{FsBlobStore, LocalIdentity, MemoryRecordStore, MemoryVault};
 use serde_json::{json, Map, Value};
 
@@ -70,7 +73,9 @@ fn config(store: Arc<dyn RecordStore>, vault: Arc<dyn Vault>, windows: Arc<Windo
         zone: None,
         network: NetworkPolicy::Off,
         sync,
-        capabilities: vec!["photos".into()],
+        capabilities: vec![Arc::new(Photos)],
+        consent: None,
+        audit: Some(Arc::new(Audit::default())),
     }
 }
 
@@ -102,15 +107,55 @@ fn a_local_instance_runs_its_lifecycle_and_writes_through() {
     assert_eq!(windows.0.lock().unwrap().last().unwrap().0, "page");
 }
 
+struct Photos;
+
+impl Capability for Photos {
+    fn name(&self) -> &str {
+        "photos"
+    }
+
+    fn tools(&self) -> Vec<Value> {
+        vec![json!({"name": "pick", "inputSchema": {"type": "object"}})]
+    }
+
+    fn call(&self, tool: &str, _arguments: &Value) -> Result<Value, Failure> {
+        Ok(json!({"content": [{"type": "text", "text": format!("{tool}: p1")}]}))
+    }
+}
+
+#[derive(Default)]
+struct Audit(Mutex<Vec<eengine::broker::BrokerAuditRow>>);
+
+impl CallAudit for Audit {
+    fn record(&self, row: eengine::broker::BrokerAuditRow) {
+        self.0.lock().unwrap().push(row);
+    }
+}
+
 #[test]
 fn capability_calls_go_through_the_broker() {
     let windows = Arc::new(Windows::default());
-    let mut app = AppInstance::load(config(Arc::new(MemoryRecordStore::new()), Arc::new(MemoryVault::default()), windows, None), &package()).unwrap();
+    let vault: Arc<dyn Vault> = Arc::new(MemoryVault::default());
+    let mut app = AppInstance::load(config(Arc::new(MemoryRecordStore::new()), vault.clone(), windows, None), &package()).unwrap();
     app.event(&LifecycleEvent::Launch);
-    match app.call("photos.pick", &json!({}), &[]) {
-        CallResult::Ask(v) => assert_eq!(v.scope.as_deref(), Some("photos.read")),
+    let (verdict, sheet) = match app.call("photos.pick", &json!({}), &[]) {
+        CallResult::Ask(v, sheet) => (v, sheet),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(sheet.components[0]["title"], json!("Allow Album to access your photos?"));
+    match app.answer_consent("photos.pick", &json!({}), &verdict, ConsentAnswer::Allow) {
+        CallResult::Value(v) => assert_eq!(v["content"][0]["text"], json!("pick: p1")),
         other => panic!("{other:?}"),
     }
+    assert!(vault.read("eengine/grants/acme.album").unwrap().contains("\"photos.read\":\"granted\""));
+    assert!(matches!(app.call("photos.pick", &json!({}), &[]), CallResult::Value(_)), "granted: no second sheet");
+    // Only the ConsentUi after a gesture changes a grant.
+    assert_eq!(app.set_grant(GrantVia::Agent, true, "photos.read", None), Err("onlyConsentUi"));
+    assert_eq!(app.set_grant(GrantVia::ConsentUi, false, "photos.read", None), Err("noGesture"));
+    assert_eq!(app.set_grant(GrantVia::ConsentUi, true, "photos.read", None), Ok(()));
+    assert!(matches!(app.call("photos.pick", &json!({}), &[]), CallResult::Ask(..)), "revoked: asks again");
+    assert_eq!(app.set_grant(GrantVia::ConsentUi, true, "photos.read", Some(GrantValue::Denied)), Ok(()));
+    assert_eq!(app.permissions_sheet()[1]["checked"], json!(false));
     match app.call("camera.capture", &json!({}), &[]) {
         CallResult::Refused(f) => assert_eq!(f.message, "notDeclared"),
         other => panic!("{other:?}"),

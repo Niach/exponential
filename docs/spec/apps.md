@@ -816,7 +816,7 @@ Added here:
 | Softcoded app, eDE, exported apps | Everything above, in-app; automations only while the app runs | Local | `eengine` with local identity and a SqliteRecordStore | 🆕 E1 to E8 (#VAPP-259) |
 | Spezl (no server) | Everything above, in-app; automations only while the app runs (eagent-hub scheduler) | Local | `eengine` with the P2P store | #YO-32 on the Engine |
 
-### 13.1 The Engine (✅ contract E0 #VAPP-260; crate 🆕 E1 #VAPP-261)
+### 13.1 The Engine (✅ contract E0 #VAPP-260; ✅ crate E1 #VAPP-261)
 
 The **Engine** (crate `eengine`, contract `packages/eengine`, tag `eengine-v*`) replaces the old S2 to S4 (the `eapps` crate). It is the stateful, I/O-bearing runtime around genUI. Today every host re-implements it: web TS, desktop Rust, iOS `AppHost.swift` and Android `AppHost.kt` each carry their own sources, outbox, action dispatch, consent and upstream calls. The Apps format and its pure logic (validation, query, CEL, policy, transitions, migrations, exposes) stay in genUI's host (`eui-core/src/host` + TS) and ship with genUI. There is no `eapps` crate.
 
@@ -843,7 +843,7 @@ The **Engine** (crate `eengine`, contract `packages/eengine`, tag `eengine-v*`) 
 - **Storage:** Exponential = `SyncedRecordStore` (a local cache + the O1 outbox + Electric in, tRPC out; the server stays the authority). Softcoded, eDE and exported apps = `SqliteRecordStore`, which is the app-records table of `elocal` (#EDE-55), so Apps run offline in a Local desktop (#EDE-54). Spezl = sqlite + the P2P space. Without a `sync` provider, writes apply to the store directly and there is no outbox (`outbox.json`, which references O1's fixture rather than copying it).
 - **Agents** get their tools only as a hub grant. `AgentProvider` lives in Agents (E4, #VAPP-264) with three implementations: `AcpAgent` (Claude Code, Codex; local agent runs #EDE-58), `LocalModel` (llama.cpp via `eui-gen`, behind a feature; the offline fallback #EXP-1721) and `RemoteSession` (`sessions.send`, for phones and web inside Exponential).
 
-### 13.2 Capabilities and consent (✅ contract E0; broker 🆕 E2 #VAPP-262)
+### 13.2 Capabilities and consent (✅ contract E0; ✅ broker E2 #VAPP-262)
 
 - The Engine runs an `emcp` hub **in process**: an in-proc transport for in-process providers and the loopback + bearer token for spawned agents (`hub.json`). The same hub serves the `exponential` noun subset for local agent runs (#EDE-58).
 - A **capability** is a native tool provider with scopes, implemented per platform (E5), mounted under its name (`capabilities.json`): `camera.capture`, `clipboard.read`/`.write`, `files.read`/`.write`, `http.fetch` (declared origins only), `location.read`, `notifications.post`, `photos.read`, `print.pdf`, `share.send`. An `ask` scope shows the consent sheet once and persists the answer. A `picker` scope's platform picker is the consent on every call. `shell.edit` is eDE's own and host-only: it is never in a manifest and never granted to an app.

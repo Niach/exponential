@@ -260,8 +260,12 @@ pub struct HostConfig {
     pub zone: Option<Arc<dyn HostZone>>,
     pub network: NetworkPolicy,
     pub sync: Option<Arc<dyn SyncTransport>>,
-    /// The capability names this host mounts (E2 mounts their providers).
-    pub capabilities: Vec<String>,
+    /// The native capabilities this host provides (VAPP-262), each under its catalog name.
+    pub capabilities: Vec<Arc<dyn crate::capability::Capability>>,
+    /// Answers the consent sheet inline; `None` = the host paints it and answers later.
+    pub consent: Option<Arc<dyn crate::capability::ConsentUi>>,
+    /// Where the broker's audit rows go.
+    pub audit: Option<Arc<dyn crate::capability::CallAudit>>,
 }
 
 /// A host config problem (`validateCases`).

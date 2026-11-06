@@ -242,7 +242,7 @@ jobs:
       # #VAPP-261: the Engine's dependency gate and its fixture replay.
       - name: eCore and Engine gates
         working-directory: apps/desktop
-        run: cargo test --locked -p ecore && cargo test --locked -p eengine --features sqlite
+        run: cargo test --locked -p ecore && cargo test --locked -p eengine --features sqlite,hub
       # The suites that hold launch behaviour and the shared fixtures: the
       # full `cargo test` stays in release-suite.yml, and until this step a
       # red test here surfaced only when a release was tagged.
