@@ -1183,6 +1183,11 @@ pub struct MdStyles {
     /// #VAPP-258: a block image's corner radius (the `Markdown/image`
     /// recipe's `borderRadius`; 0 without a theme).
     pub image_radius: f32,
+    /// #VAPP-258: a block image's border (the `Markdown/image` recipe's
+    /// `borderWidth` + `borderColor`), drawn inside its corners: the box
+    /// never changes. 0 / None = none.
+    pub image_border_width: f32,
+    pub image_border_color: Option<gpui::Hsla>,
     pub cell_pad_h: f32,
     pub cell_pad_v: f32,
     /// #VAPP-258: the inline chip's metrics.
@@ -1267,6 +1272,8 @@ impl MdStyles {
             image_height: Some(160.0),
             viewport_height: None,
             image_radius: 0.0,
+            image_border_width: 0.0,
+            image_border_color: None,
             body,
             code_pad: 12.0,
             quote_border: 2.0,
@@ -1310,6 +1317,8 @@ impl MdStyles {
         s.quote_border = px_prop(&quote, "borderWidth").unwrap_or(s.quote_border);
         s.quote_pad = px_prop(&quote, "paddingHorizontal").unwrap_or(s.quote_pad);
         s.image_radius = px_prop(&part("image"), "borderRadius").unwrap_or(0.0);
+        s.image_border_width = px_prop(&part("image"), "borderWidth").unwrap_or(0.0);
+        s.image_border_color = color_of(part_visual(theme, mode, "Markdown", "image", owner_props, &[]).border_color.as_deref());
         s.block_gap = root.as_ref().and_then(|r| px_prop(r, "gap")).unwrap_or_else(|| spacing(theme, "sm"));
         s.heading_top = spacing(theme, "md");
         s.heading_bottom = spacing(theme, "xs");
@@ -2046,6 +2055,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                             .h(px(bh))
                             .rounded(px(s.image_radius))
                             .overflow_hidden()
+                            .when_some(s.image_border_color.filter(|_| s.image_border_width > 0.0), |d, c| d.border(px(s.image_border_width)).border_color(c))
                             .child(gpui::img(source).size_full().object_fit(gpui::ObjectFit::Contain).with_fallback(move || div().text_color(muted).child(fallback_alt.clone()).into_any_element()));
                         let frame: AnyElement = match &p.image_press {
                             Some(press) => {

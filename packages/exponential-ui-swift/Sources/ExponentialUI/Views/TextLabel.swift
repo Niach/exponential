@@ -55,6 +55,94 @@ struct TextLabel: UIViewRepresentable {
     }
 }
 
+/// #VAPP-258 (`markdown.options.selectable`): a text block that selects
+/// natively: a non-editable TextKit 1 `UITextView` over the same shaped
+/// runs (pinned line heights, the half-leading as a baseline offset, as on
+/// macOS), so it paints the measurer's lines. `wraps: false` = its lines
+/// never wrap (TextKit clips them; the caller hands it the measurer's
+/// breaks). `onTap` = a tap at a point (the links). Copy writes the plain
+/// text: an inline chip as its label, the forced line separators dropped.
+struct SelectableTextLabel: UIViewRepresentable {
+    let attributed: NSAttributedString
+    var lineHeight: CGFloat
+    var wraps: Bool = true
+    var onTap: ((CGPoint) -> Void)? = nil
+
+    final class View: UITextView, UIGestureRecognizerDelegate {
+        var onTap: ((CGPoint) -> Void)?
+
+        @objc func tapped(_ g: UITapGestureRecognizer) {
+            guard selectedRange.length == 0 else { return }
+            onTap?(g.location(in: self))
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        override func copy(_ sender: Any?) {
+            let range = selectedRange
+            guard range.length > 0, let text = attributedText, NSMaxRange(range) <= text.length else { return super.copy(sender) }
+            UIPasteboard.general.string = SelectableTextLabel.plain(text.attributedSubstring(from: range))
+        }
+    }
+
+    /// The copied text of `a`: chips as their labels, no line separators.
+    static func plain(_ a: NSAttributedString) -> String {
+        var out = ""
+        a.enumerateAttributes(in: NSRange(location: 0, length: a.length)) { attrs, range, _ in
+            if let run = attrs[TextShaper.chipKey] as? MarkdownChipRun {
+                out += run.chip.label
+            } else {
+                out += (a.string as NSString).substring(with: range).replacingOccurrences(of: "\u{2028}", with: "")
+            }
+        }
+        return out
+    }
+
+    func makeUIView(context: Context) -> View {
+        let view = View(usingTextLayoutManager: false)
+        view.isEditable = false
+        view.isSelectable = true
+        view.isScrollEnabled = false
+        view.backgroundColor = .clear
+        view.clipsToBounds = false
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.dataDetectorTypes = []
+        view.linkTextAttributes = [:]
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let tap = UITapGestureRecognizer(target: view, action: #selector(View.tapped(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delegate = view
+        view.addGestureRecognizer(tap)
+        return view
+    }
+
+    func updateUIView(_ view: View, context: Context) {
+        let rtl = context.environment.xuiRTL
+        let shaped = NSMutableAttributedString(attributedString: TextLabel.shaped(attributed, context.environment.xuiTextPaint, rtl: rtl))
+        let all = NSRange(location: 0, length: shaped.length)
+        if shaped.length > 0, let half = shaped.attribute(.init("ExponentialUI.halfLeading"), at: 0, effectiveRange: nil) as? CGFloat, half > 0 {
+            shaped.addAttribute(.baselineOffset, value: half, range: all)
+        }
+        if !wraps {
+            shaped.enumerateAttribute(.paragraphStyle, in: all) { value, range, _ in
+                let p = ((value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+                p.lineBreakMode = .byClipping
+                shaped.addAttribute(.paragraphStyle, value: p, range: range)
+            }
+        }
+        if view.attributedText != shaped { view.attributedText = shaped }
+        view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+        view.onTap = onTap
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: View, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? uiView.intrinsicContentSize.width, height: proposal.height ?? lineHeight)
+    }
+}
+
 #elseif canImport(AppKit)
 import AppKit
 

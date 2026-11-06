@@ -662,6 +662,65 @@ extension TextShaper {
         #endif
     }()
 
+    /// #VAPP-258: the lines of `a` at `wrap` as CoreText's typesetter breaks
+    /// them (the measurer's lines, hard breaks honoured), each without its
+    /// newline: a text with inline chips paints one label per line, so
+    /// TextKit can never break it elsewhere than the measurer and
+    /// `chipRects` did.
+    static func lineRanges(_ a: NSAttributedString, wrap: CGFloat) -> [NSRange] {
+        let ns = a.string as NSString
+        guard ns.length > 0 else { return [] }
+        let typesetter = CTTypesetterCreateWithAttributedString(a)
+        var out: [NSRange] = []
+        var start = 0
+        while start <= ns.length {
+            let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
+            let end = nl.location == NSNotFound ? ns.length : nl.location
+            var pos = start
+            repeat {
+                let n = end > pos ? min(max(CTTypesetterSuggestLineBreak(typesetter, pos, Double(max(wrap, 1) + 0.5)), 1), end - pos) : 0
+                out.append(NSRange(location: pos, length: n))
+                pos += n
+            } while pos < end
+            if nl.location == NSNotFound { break }
+            start = end + 1
+        }
+        return out
+    }
+
+    /// `a` with a LINE SEPARATOR (U+2028) at each soft break of
+    /// `lineRanges` (hard breaks kept): one selectable text that TextKit
+    /// lays out on exactly the measurer's lines.
+    static func withLineSeparators(_ a: NSAttributedString, wrap: CGFloat) -> NSAttributedString {
+        let ranges = lineRanges(a, wrap: wrap)
+        guard ranges.count > 1 else { return a }
+        let out = NSMutableAttributedString()
+        for (i, r) in ranges.enumerated() {
+            out.append(a.attributedSubstring(from: r))
+            guard i + 1 < ranges.count else { continue }
+            let next = ranges[i + 1].location
+            if next > NSMaxRange(r) {
+                out.append(a.attributedSubstring(from: NSRange(location: NSMaxRange(r), length: next - NSMaxRange(r))))
+            } else {
+                let at = max(NSMaxRange(r) - 1, 0)
+                var attrs = a.attributes(at: at, effectiveRange: nil)
+                attrs[chipKey] = nil
+                attrs[.attachment] = nil
+                attrs[NSAttributedString.Key(kCTRunDelegateAttributeName as String)] = nil
+                out.append(NSAttributedString(string: "\u{2028}", attributes: attrs))
+            }
+        }
+        return out
+    }
+
+    static func hasChips(_ a: NSAttributedString) -> Bool {
+        var found = false
+        a.enumerateAttribute(chipKey, in: NSRange(location: 0, length: a.length)) { v, _, stop in
+            if v != nil { found = true; stop.pointee = true }
+        }
+        return found
+    }
+
     /// #VAPP-258: each inline chip of `a` laid out as the label lays it out
     /// (CoreText lines at `wrap`, each `lineHeight` tall, flushed right under
     /// rtl): its box, vertically centred in its line.

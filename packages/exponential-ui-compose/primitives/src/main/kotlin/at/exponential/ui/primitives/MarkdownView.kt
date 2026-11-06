@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
@@ -108,6 +109,9 @@ data class MarkdownColors(
     val chipBorder: Color = Color.Unspecified,
     val chipBorderWidth: Float = 0f,
     val chipInk: Color = Color.Unspecified,
+    /** #VAPP-258: a block image's border = the `Markdown/image` recipe's (drawn inside its corners, the box unchanged; 0 = none). */
+    val imageBorder: Color = Color.Unspecified,
+    val imageBorderWidth: Float = 0f,
 ) {
     /** Factories over the tokens. */
     companion object {
@@ -548,6 +552,11 @@ private fun MarkdownBlockView(
                     .height(box.height.dp)
                     // #VAPP-258: the `Markdown/image` recipe's corners.
                     .then(if (styles.imageRadius > 0f) Modifier.clip(RoundedCornerShape(styles.imageRadius.dp)) else Modifier)
+                    .then(
+                        if (colors.imageBorderWidth > 0f && colors.imageBorder.isSpecified) {
+                            Modifier.border(colors.imageBorderWidth.dp, colors.imageBorder, RoundedCornerShape(styles.imageRadius.dp))
+                        } else Modifier,
+                    )
                     .then(if (press != null) Modifier.clickable(role = Role.Image) { press(kind.src) } else Modifier),
             ) {
                 val image = hooks.image

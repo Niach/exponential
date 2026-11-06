@@ -9,9 +9,9 @@ enum MarkdownPainter {
     /// The parsed document with its image blocks resolved against the media
     /// policy: ONE rule for the measurer and the painter.
     @MainActor
-    static func blocks(_ text: String, model: SurfaceModel) -> [MarkdownBlock] {
+    static func blocks(_ text: String, model: SurfaceModel, options: MarkdownOptions? = nil) -> [MarkdownBlock] {
         // #VAPP-258 step 5: the host's options (hard breaks, a streamed prefix).
-        let o = model.host.markdownOptions
+        let o = options ?? model.host.markdownOptions
         return Markdown.resolveImages(Markdown.parse(text, hardBreaks: o.hardBreaks, streaming: o.streaming)) { model.mediaRequest($0) != nil }
     }
 
@@ -42,9 +42,9 @@ enum MarkdownPainter {
     /// `textLinks` links is a link (a valid chip on an allowed href = an
     /// inline chip, whose width the measurer counts).
     @MainActor
-    static func painted(_ text: String, model: SurfaceModel) -> [MarkdownBlock] {
+    static func painted(_ text: String, model: SurfaceModel, options: MarkdownOptions? = nil) -> [MarkdownBlock] {
         let host = model.host
-        let attached = Markdown.resolveAttachments(blocks(text, model: model), href: model.linkHref) { raw in
+        let attached = Markdown.resolveAttachments(blocks(text, model: model, options: options), href: model.linkHref) { raw in
             host.attachment(raw).map { (kind: $0.kind, name: $0.name) }
         }
         // #VAPP-258 (markdown-host.json `loaded`): an image the host cannot
@@ -60,14 +60,19 @@ enum MarkdownPainter {
     }
 
     /// From the theme's `Markdown/*` recipes (the root's own text style is
-    /// the body); plain metrics in geometry mode.
-    static func styles(theme: ThemeHandle?, mode: Mode, body: TextStyle, props: Props) -> MarkdownStyles {
+    /// the body); plain metrics in geometry mode. #VAPP-258: `fontScale` =
+    /// the surface's type scale (Dynamic Type): `body` arrives scaled (the
+    /// core's text style), every part the recipes size here (the chat
+    /// body, headings, code, the chip label) scales by it too, so the
+    /// measurer and the painter agree at every text size.
+    static func styles(theme: ThemeHandle?, mode: Mode, body: TextStyle, props: Props, fontScale: CGFloat = 1) -> MarkdownStyles {
+        let k = fontScale.isFinite && fontScale > 0 ? fontScale : 1
         let bodySpec = MarkdownTextSpec(size: body.fontSize, lineHeight: body.lineHeight, weight: body.fontWeight, family: body.fontFamily)
         var s = MarkdownStyles(body: bodySpec)
         guard let theme else { return s }
         func part(_ name: String) -> PartStyle { theme.part("Markdown", name, props: props, mode: mode) }
         func spec(_ p: PartStyle, _ base: MarkdownTextSpec) -> MarkdownTextSpec {
-            MarkdownTextSpec(size: p.px("fontSize") ?? base.size, lineHeight: p.px("lineHeight") ?? base.lineHeight, weight: Int(p.props.num("fontWeight") ?? Double(base.weight)), family: p.fontFamily ?? base.family)
+            MarkdownTextSpec(size: p.px("fontSize").map { $0 * k } ?? base.size, lineHeight: p.px("lineHeight").map { $0 * k } ?? base.lineHeight, weight: Int(p.props.num("fontWeight") ?? Double(base.weight)), family: p.fontFamily ?? base.family)
         }
         // #VAPP-258 step 5: the chat rhythm re-resolves the root (the node's
         // text style knows no density): its type is the body, its gap the
@@ -95,8 +100,8 @@ enum MarkdownPainter {
         // #VAPP-258: the inline chip (Chip's geometry, the Text caption's
         // type) and the attachment blocks (the media natives' boxes).
         let caption = theme.part("Text", "root", props: ["variant": .string("caption")], mode: mode)
-        let captionSpec = MarkdownTextSpec(size: caption.px("fontSize") ?? 12, lineHeight: caption.px("lineHeight") ?? 16, weight: Int(caption.props.num("fontWeight") ?? Double(body.fontWeight)), family: caption.fontFamily ?? body.fontFamily)
-        s.chip = MarkdownChipStyle(label: captionSpec, paddingH: theme.spacing("sm"), gap: theme.spacing("xs"), icon: theme.control("iconSm", 16), height: theme.control("badge", 20))
+        let captionSpec = MarkdownTextSpec(size: (caption.px("fontSize") ?? 12) * k, lineHeight: (caption.px("lineHeight") ?? 16) * k, weight: Int(caption.props.num("fontWeight") ?? Double(body.fontWeight)), family: caption.fontFamily ?? body.fontFamily)
+        s.chip = MarkdownChipStyle(label: captionSpec, paddingH: theme.spacing("sm"), gap: theme.spacing("xs"), icon: theme.control("iconSm", 16) * k, height: theme.control("badge", 20) * k)
         s.audioTitleGap = theme.spacing("xs")
         s.audioControls = theme.control("row", SurfaceMeasurer.audioControlsHeight)
         s.fileIcon = theme.control("iconSm", 16)
@@ -131,6 +136,21 @@ enum MarkdownCode {
         return joined == text ? out : []
     }
 
+    /// `runs` split at its newlines (each line's attributes kept).
+    static func lines(_ runs: NSAttributedString) -> [NSAttributedString] {
+        let ns = runs.string as NSString
+        var out: [NSAttributedString] = []
+        var start = 0
+        while true {
+            let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
+            let end = nl.location == NSNotFound ? ns.length : nl.location
+            out.append(runs.attributedSubstring(from: NSRange(location: start, length: end - start)))
+            if nl.location == NSNotFound { break }
+            start = end + 1
+        }
+        return out
+    }
+
     /// `runs` with each token but `plain` in CodeBlock's colour for its
     /// kind (`color(kind)`, nil = the ink): colour only, so the shaped
     /// text and its measured height never change.
@@ -159,16 +179,34 @@ struct MarkdownView: View {
     /// The leaf's node index (a block image that decodes at a size the host
     /// did not know measures it again).
     var node: Int? = nil
+    /// #VAPP-258: the options it renders with (nil = the host's).
+    var options: MarkdownOptions? = nil
+    /// #VAPP-258: blocks and their layout at `width` already computed (a
+    /// `MarkdownText`'s, which measured them); nil = computed here.
+    var prepared: (blocks: [MarkdownBlock], layout: MarkdownLayout)? = nil
+    /// #VAPP-258: an unsized block image decoded (outside a surface: the
+    /// host view lays out again); nil = `node` remeasures.
+    var onImageLoaded: (() -> Void)? = nil
+
+    /// #VAPP-258: `selectable` (iOS): text blocks select natively.
+    @Environment(\.xuiTextPaint) private var paint
+
+    private var selects: Bool {
+        #if canImport(UIKit)
+        paint.userSelect == "text"
+        #else
+        false
+        #endif
+    }
 
     /// The blocks as painted: images the media policy denies become their
     /// alt text (as the measurer saw them), links the URL policy denies
     /// plain text, and the text a host's `textLinks` links is a link too.
-    private var blocks: [MarkdownBlock] { MarkdownPainter.painted(text, model: model) }
+    private var blocks: [MarkdownBlock] { MarkdownPainter.painted(text, model: model, options: options) }
 
     var body: some View {
-        let blocks = self.blocks
-        let shaper = MarkdownShaper(mono: model.theme?.monoFamily)
-        let layout = Markdown.layout(blocks, styles, width: width, text: shaper)
+        let blocks = prepared?.blocks ?? self.blocks
+        let layout = prepared?.layout ?? Markdown.layout(blocks, styles, width: width, text: MarkdownShaper(mono: model.theme?.monoFamily, chip: styles.chip))
         let link = model.part("Markdown", "link", props: props).color ?? model.color("primary") ?? ink
         let codePart = model.part("Markdown", "code", props: props)
         let codeBlockPart = model.part("Markdown", "codeBlock", props: props)
@@ -192,9 +230,11 @@ struct MarkdownView: View {
     /// paint over their reserved boxes (each opens its href).
     @ViewBuilder
     private func linked(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
-        let label = TextLabel(attributed: runs, lineHeight: spec.lineHeight)
+        let label = paragraph(runs, spec: spec, width: width)
         Group {
-            if TextShaper.hasLinks(runs) {
+            if selects {
+                label
+            } else if TextShaper.hasLinks(runs) {
                 label.contentShape(Rectangle()).onTapGesture(coordinateSpace: .local) { point in
                     if let href = TextShaper.link(in: runs, lineHeight: spec.lineHeight, wrap: width, at: point) { model.openLink(href) }
                 }
@@ -203,6 +243,56 @@ struct MarkdownView: View {
             }
         }
         .overlay(alignment: .topLeading) { chips(runs, spec: spec, width: width) }
+    }
+
+    /// A text block's label. #VAPP-258: one carrying inline chips paints
+    /// line by line at the typesetter's breaks (the measurer's, the chips'),
+    /// so TextKit never wraps it differently.
+    @ViewBuilder
+    private func paragraph(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
+        #if canImport(UIKit)
+        if selects {
+            // One selectable view per block; a chip text on the measurer's
+            // lines (forced separators, no re-wrap).
+            let chipped = TextShaper.hasChips(runs)
+            SelectableTextLabel(
+                attributed: chipped ? TextShaper.withLineSeparators(runs, wrap: width) : runs,
+                lineHeight: spec.lineHeight, wraps: !chipped,
+                onTap: TextShaper.hasLinks(runs) ? { point in
+                    if let href = TextShaper.link(in: runs, lineHeight: spec.lineHeight, wrap: width, at: point) { model.openLink(href) }
+                } : nil
+            )
+            .frame(width: width, alignment: .topLeading)
+        } else {
+            plainParagraph(runs, spec: spec, width: width)
+        }
+        #else
+        plainParagraph(runs, spec: spec, width: width)
+        #endif
+    }
+
+    @ViewBuilder
+    private func plainParagraph(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
+        if TextShaper.hasChips(runs) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(TextShaper.lineRanges(runs, wrap: width).enumerated()), id: \.offset) { _, range in
+                    TextLabel(attributed: runs.attributedSubstring(from: range), lineHeight: spec.lineHeight, wraps: false)
+                        .frame(width: width, height: spec.lineHeight)
+                }
+            }
+            .frame(width: width, alignment: .topLeading)
+        } else {
+            TextLabel(attributed: runs, lineHeight: spec.lineHeight)
+        }
+    }
+
+    private func codeLines(_ code: NSAttributedString, spec: MarkdownTextSpec) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(MarkdownCode.lines(code).enumerated()), id: \.offset) { _, line in
+                TextLabel(attributed: line, lineHeight: spec.lineHeight, wraps: false)
+                    .frame(height: spec.lineHeight)
+            }
+        }
     }
 
     /// The inline chips of `runs` at the boxes the typesetter laid out.
@@ -271,13 +361,23 @@ struct MarkdownView: View {
                 image.resizable().scaledToFit().frame(maxWidth: boxWidth, maxHeight: box.height, alignment: .topLeading)
                     // #VAPP-258: the picture decoded while its box was the
                     // placeholder: the leaf measures again at its aspect.
-                    .onAppear { if unsized, let node { model.remeasure(node) } }
+                    .onAppear {
+                        guard unsized else { return }
+                        if let onImageLoaded { onImageLoaded() } else if let node { model.remeasure(node) }
+                    }
             } placeholder: {
                 Text(alt).font(.system(size: spec.size)).foregroundStyle(muted).lineLimit(2)
             }
             .frame(width: boxWidth, height: box.height, alignment: .topLeading)
-            // #VAPP-258: the `Markdown/image` recipe's corners.
+            // #VAPP-258: the `Markdown/image` recipe's corners and border
+            // (drawn inside: the box never changes).
             .clipShape(RoundedRectangle(cornerRadius: styles.imageRadius))
+            .overlay {
+                let frame = model.part("Markdown", "image", props: props).style
+                if frame.borderWidth > 0, let color = frame.borderColor {
+                    RoundedRectangle(cornerRadius: styles.imageRadius).strokeBorder(color, lineWidth: frame.borderWidth)
+                }
+            }
             .accessibilityLabel(alt)
             // #VAPP-258: a press calls the host's `onImagePress` (raw src).
             if let press = model.host.onImagePress {
@@ -313,7 +413,22 @@ struct MarkdownView: View {
                 linked(runs(block.inlines, spec, ink: muted, link: link, codeBackground: nil, width: inner), spec: spec, width: inner)
             }
         case .codeBlock:
-            TextLabel(attributed: MarkdownCode.highlighted(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: nil), lang: block.lang) { kind in model.codeTokenLook(kind).color.map(platform) }, lineHeight: spec.lineHeight, wraps: false)
+            // One non-wrapping label per line (a single-line label would
+            // paint only the first): the measurer's height, clipped wide.
+            let code = MarkdownCode.highlighted(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: nil), lang: block.lang) { kind in model.codeTokenLook(kind).color.map(platform) }
+            Group {
+                #if canImport(UIKit)
+                if selects {
+                    SelectableTextLabel(attributed: code, lineHeight: spec.lineHeight, wraps: false)
+                } else {
+                    codeLines(code, spec: spec)
+                }
+                #else
+                codeLines(code, spec: spec)
+                #endif
+            }
+                .frame(width: max(width - 2 * styles.codePad, 1), alignment: .topLeading)
+                .clipped()
                 .padding(styles.codePad)
                 .frame(width: width, height: box.height, alignment: .topLeading)
                 .background(codeBlockBg ?? ink.opacity(0.06), in: RoundedRectangle(cornerRadius: model.theme?.radius("md") ?? 6))
@@ -331,7 +446,7 @@ struct MarkdownView: View {
                             let _ = { if r == 0 { cellSpec.weight = max(cellSpec.weight, 600) } }()
                             let cellText = max(cellW - 2 * styles.cellPadH, 1)
                             let cellRuns = runs(cell, cellSpec, ink: ink, link: link, codeBackground: codeBg, width: cellText)
-                            TextLabel(attributed: cellRuns, lineHeight: spec.lineHeight)
+                            paragraph(cellRuns, spec: spec, width: cellText)
                                 .overlay(alignment: .topLeading) { chips(cellRuns, spec: spec, width: cellText) }
                                 .padding(.horizontal, styles.cellPadH)
                                 .padding(.vertical, styles.cellPadV)

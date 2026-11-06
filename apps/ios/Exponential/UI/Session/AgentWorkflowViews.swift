@@ -344,7 +344,7 @@ struct CommentCallRow: View {
             if let bodyText {
                 // A comment is stored GFM, no narration: only a `#IDENT` chips
                 // (issue-refs.json `bare` = agent narration only).
-                AgentMarkdownText(text: bodyText, context: commentContext)
+                AgentMarkdownText(text: bodyText, context: commentContext, style: .document)
             }
         }
         .task(id: commentId) { await observe() }

@@ -955,7 +955,7 @@ struct AgentSessionView: View {
             switch item {
             case .question:
                 volatile = true
-            case .subagent, .thought:
+            case .subagent, .thought, .narration:
                 working = model.agentWorking
             case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _):
                 volatile = model.workflow(for: callId) != nil
@@ -1020,7 +1020,8 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 // EXP-1676: the run view's row on every form factor.
-                NarrationBubble(text: text, context: markdownContext)
+                // #VAPP-258: the live tail is the reply being written.
+                NarrationBubble(text: text, context: markdownContext, streaming: isLast && model?.agentWorking == true)
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(
@@ -1957,8 +1958,8 @@ struct AgentSessionView: View {
 /// `.subheadline`/`.caption` semantics it replaced did. `lineSpacing` is
 /// LEADING and SwiftUI has no line-height modifier, so it is the difference
 /// between the SCALED line box and the SCALED font — resolved per render,
-/// never precomputed. `AgentMarkdownText.chatCodePalette` carries the same two
-/// tokens into the markdown renderer, which resolves them the same way.
+/// never precomputed. (#VAPP-258: the read-only Markdown takes the theme's
+/// `Markdown/*` chat rhythm instead.)
 enum TranscriptType {
     static func bodyFont() -> Font { Font(bodyUIFont()) }
 
@@ -2049,6 +2050,8 @@ struct TranscriptLoadEarlierButton: View {
 struct NarrationBubble: View {
     let text: String
     let context: AgentMarkdownContext
+    /// #VAPP-258: the reply still being written (`streaming: true`).
+    var streaming = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -2063,7 +2066,7 @@ struct NarrationBubble: View {
             AgentMarkdownText(
                 text: text,
                 context: context,
-                options: [.autolinkBareURLs, .hardLineBreaks]
+                streaming: streaming
             )
         }
     }
@@ -2127,7 +2130,6 @@ struct UserMessageBubble: View {
                         AgentMarkdownText(
                             text: text,
                             context: context,
-                            options: [.autolinkBareURLs, .hardLineBreaks],
                             hugsWidth: true
                         )
                     } else if !parsed.text.isEmpty {
@@ -2135,7 +2137,6 @@ struct UserMessageBubble: View {
                             AgentMarkdownText(
                                 text: parsed.text,
                                 context: context,
-                                options: [.autolinkBareURLs, .hardLineBreaks],
                                 hugsWidth: true
                             )
                         } else {
@@ -2164,7 +2165,6 @@ struct UserMessageBubble: View {
                             text: "", attachmentIds: parsed.attachmentIds
                         ),
                         context: context,
-                        options: [.autolinkBareURLs, .hardLineBreaks],
                         hugsWidth: true
                     )
                     .padding(.top, parsed.text.isEmpty ? 0 : 4)
@@ -2883,10 +2883,7 @@ struct QuestionCard: View {
         AgentMarkdownText(
             text: question.text,
             context: markdownContext,
-            options: [.autolinkBareURLs],
-            imageMaxHeight: richBody ? nil : 280,
-            imageCornerRadius: richBody ? PlanCard.Card.pictureRadius : 8,
-            imageStroke: richBody ? PlanCard.Card.pictureStroke : nil
+            style: richBody ? .prompt.imageCap(nil).planCard : .prompt
         )
     }
 

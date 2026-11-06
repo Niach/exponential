@@ -34,16 +34,6 @@ struct MarkdownEditor: View {
     /// Caps embedded image blocks — compact contexts (the comment composer)
     /// would otherwise be dominated by a single image (EXP-246).
     var imageMaxHeight: CGFloat?
-    /// EXP-1280: an image block's corner radius and hairline (the plan card's
-    /// inline picture = `PlanCard.Card.pictureRadius` + `pictureStroke`).
-    var imageCornerRadius: CGFloat = 8
-    var imageStroke: CGFloat? = nil
-    /// Text blocks report their own IDEAL width (capped at the proposal)
-    /// instead of filling it — a chat bubble must hug a one-line message
-    /// rather than stretch across the feed (EXP-440).
-    var hugsContentWidth: Bool = false
-    /// EXP-1676: web's `.tiptap-chat` table cells (the chat renders).
-    var chatTables: Bool = false
     /// EXP-655: issue detail passes 200 (Android's `minHeight = 200.dp`), and
     /// the empty band below the content focuses the end of the description.
     /// The New issue page passes the same 200 (EXP-1170: it IS the issue
@@ -181,7 +171,6 @@ struct MarkdownEditor: View {
                                 placeholder: isSolePlaceholderBlock(id) ? placeholder : nil,
                                 toolbar: showsFormattingToolbar ? toolbar : nil,
                                 isReadOnly: isReadOnly,
-                                hugsContentWidth: hugsContentWidth,
                                 onPasteImage: { image in insert(uiImage: image) },
                                 onIssueRefTap: onIssueRefTap
                             )
@@ -199,8 +188,6 @@ struct MarkdownEditor: View {
                                 pendingImages: model.pendingImages,
                                 isReadOnly: isReadOnly,
                                 maxHeight: imageMaxHeight,
-                                cornerRadius: imageCornerRadius,
-                                stroke: imageStroke,
                                 onDelete: { model.deleteImageBlock(id: id) },
                                 onTapBelow: { focusBlock(after: id) },
                                 onRetry: { Task { await model.retryImage(blockId: id) } }
@@ -213,7 +200,6 @@ struct MarkdownEditor: View {
                                 blockId: id,
                                 table: table,
                                 isReadOnly: isReadOnly,
-                                chat: chatTables,
                                 onIssueRefTap: onIssueRefTap
                             )
                             .id(id)
@@ -694,8 +680,6 @@ struct BlockTextEditor: UIViewRepresentable {
     /// nil = no formatting accessory strip (the comment composer, EXP-246).
     let toolbar: MarkdownToolbar?
     var isReadOnly = false
-    /// See `MarkdownEditor.hugsContentWidth`.
-    var hugsContentWidth = false
     /// EXP-726 — table-cell mode: a cell is ONE inline paragraph, so Return
     /// leaves the cell instead of splitting it, pasted newlines collapse to
     /// spaces, the return key reads "next", and the representable measures
@@ -817,11 +801,6 @@ struct BlockTextEditor: UIViewRepresentable {
     // block column far beyond the screen. Adopt the proposed width and report
     // the wrapped text height for it instead.
     //
-    // `hugsContentWidth` reports the unwrapped ideal width instead — but still
-    // CAPPED at the proposal, which is what keeps the runaway-width hazard
-    // above fixed: past the cap the text wraps, so the height has to be
-    // measured at the capped width either way.
-    //
     // EXP-1238: every measurement goes through the coordinator's DETACHED
     // TextKit stack (`TextMeasurer`), never `tv.sizeThatFits`. Measuring the
     // live view at a width other than its bounds (the hugging bubble's
@@ -839,19 +818,11 @@ struct BlockTextEditor: UIViewRepresentable {
         context: Context
     ) -> CGSize? {
         let coord = context.coordinator
-        let key = Coordinator.MeasureKey(width: proposal.width ?? -1, hugs: hugsContentWidth)
+        let key = Coordinator.MeasureKey(width: proposal.width ?? -1)
         if let hit = coord.measurements[key] { return hit }
         let size: CGSize
         if let width = proposal.width, width.isFinite, width > 0 {
-            var targetWidth = width
-            if hugsContentWidth {
-                // An empty block (the separators normalize() puts around
-                // images) measures 0 wide — keep the proposal there rather
-                // than collapsing the whole column to nothing.
-                let ideal = coord.measure(tv, width: .greatestFiniteMagnitude)
-                if ideal.width > 0 { targetWidth = min(width, ideal.width) }
-            }
-            size = CGSize(width: targetWidth, height: coord.measure(tv, width: targetWidth).height)
+            size = CGSize(width: width, height: coord.measure(tv, width: width).height)
         } else {
             let ideal = coord.measure(tv, width: .greatestFiniteMagnitude)
             if singleLine {
@@ -995,7 +966,6 @@ struct BlockTextEditor: UIViewRepresentable {
         /// the storage changes (a revision apply, a keystroke, a chip pass).
         struct MeasureKey: Hashable {
             let width: CGFloat
-            let hugs: Bool
         }
         var measurements: [MeasureKey: CGSize] = [:]
         private var measurer = TextMeasurer()
@@ -1471,9 +1441,7 @@ private struct BlockImageView: View {
     /// Height cap for compact contexts (the comment composer) — the aspect-fit
     /// image shrinks to fit, leading-aligned.
     var maxHeight: CGFloat?
-    var cornerRadius: CGFloat = 8
-    /// A hairline around the picture (`strokeCard`); nil = none.
-    var stroke: CGFloat? = nil
+    private let cornerRadius: CGFloat = 8
     var onDelete: () -> Void
     var onTapBelow: () -> Void
     var onRetry: () -> Void
@@ -1507,12 +1475,6 @@ private struct BlockImageView: View {
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(maxHeight: maxHeight ?? .infinity, alignment: .leading)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-                    .overlay {
-                        if let stroke {
-                            RoundedRectangle(cornerRadius: cornerRadius)
-                                .strokeBorder(GlassTokens.strokeCard, lineWidth: stroke)
-                        }
-                    }
                     .animation(motion.fast, value: aspectRatio)
 
                 if !isReadOnly {

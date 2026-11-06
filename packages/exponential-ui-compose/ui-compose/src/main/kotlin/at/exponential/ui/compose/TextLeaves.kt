@@ -474,6 +474,9 @@ internal fun MarkdownLeaf(cx: LeafContext) {
         chipBorder = chipRoot.style.borderColor ?: border,
         chipBorderWidth = chipRoot.style.borderWidth,
         chipInk = cx.part("Chip", "label", MarkdownPainter.CHIP_PROPS).color ?: cx.ink,
+        // #VAPP-258: the `Markdown/image` recipe's border.
+        imageBorder = cx.part("Markdown", "image", props).style.borderColor ?: Color.Unspecified,
+        imageBorderWidth = cx.part("Markdown", "image", props).style.borderWidth,
     )
     val shaper = model.textShaper()
     val fonts = remember(shaper) { MarkdownFontResolver { name, mono -> if (mono) shaper.family(name ?: "ui-monospace") else shaper.family(name) } }
