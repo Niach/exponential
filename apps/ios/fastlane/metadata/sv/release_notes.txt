@@ -1,9 +1,3 @@
-- Claude-inloggningar använder webbläsarinloggningen igen
-- Behåll inloggning håller ett Claude-kontos körningar inloggade i ett år, utan att du skriver något
-- Livechattar ritas om mindre medan en agent arbetar, så att rullningen förblir smidig
-- Appars poster tillhör sin författare; teamägare kan lägga in poster åt andra
-- Agenter kan visa små animationer i sina kort
-- Inloggningar som startas från telefonen visar länk och kod igen, och en avvisad kod säger det
 - Ett kontos kort visar vilken inloggning som är aktiv
 - Stänger du en inloggning stoppas den på datorn
 - Lägg till en nyckel under Inställningar › Konto › Nycklar
@@ -46,3 +40,7 @@
 - En session på en offline-enhet säger det och erbjuder Flytta
 - Om Markera alla som lästa misslyckas får du ett meddelande med Försök igen
 - Ett nummerfält med ett startvärde markerar det när du trycker, så första Spara fungerar
+- iPad får sidofält, lista och detaljer sida vid sida
+- Pågående sessioner som Live Activity på låsskärmen och i Dynamic Island
+- Ärenden och chattar i Spotlight; Siri och Genvägar kan skapa ett ärende eller en chatt
+- Pull requests visar sin sammanslagningsstatus med Slå samman nu och Vänta

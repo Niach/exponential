@@ -1,0 +1,4 @@
+- Pull requests show their merge status with Merge now and Hold
+- Google Assistant can create an issue or a message
+- Issues and chats show up in the phone's search
+- Code blocks are highlighted

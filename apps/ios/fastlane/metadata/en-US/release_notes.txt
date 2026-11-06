@@ -1,9 +1,3 @@
-- Claude sign-ins use the browser login again
-- Persist login keeps a Claude account's runs signed in for a year, with nothing to type
-- Live chats redraw less while an agent works, so scrolling stays smooth
-- App records belong to their author; team owners can enter records for others
-- Agents can show small animations in their cards
-- Sign-ins started from your phone show their link and code again, and a rejected code says so
 - An account's card says which login is active
 - Closing a sign-in stops it on the machine
 - Add a passkey from Settings › Account › Passkeys
@@ -46,3 +40,7 @@
 - A session on an offline device says so and offers Move
 - If Mark all read fails, you get a message with Retry
 - A number field that starts with a value selects it when you tap in, so the first Save works
+- The iPad gets a sidebar, list and detail side by side
+- Running sessions show as a Live Activity on the Lock Screen and in the Dynamic Island
+- Issues and chats in Spotlight; Siri and Shortcuts can create an issue or start a chat
+- Pull requests show their merge status with Merge now and Hold

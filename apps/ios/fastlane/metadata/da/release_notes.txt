@@ -1,9 +1,3 @@
-- Claude-logins bruger igen browser-login
-- Bevar login holder en Claude-kontos kørsler logget ind i et år, uden at du skal skrive noget
-- Live-chats tegnes mindre om, mens en agent arbejder, så rulning forbliver jævn
-- App-poster tilhører deres forfatter; teamejere kan oprette poster for andre
-- Agenter kan vise små animationer i deres kort
-- Logins startet fra din telefon viser igen link og kode, og en afvist kode siger det
 - En kontos kort viser, hvilket login der er aktivt
 - Lukker du et login, stopper det på maskinen
 - Tilføj en adgangsnøgle under Indstillinger › Konto › Adgangsnøgler
@@ -46,3 +40,7 @@
 - En session på en offline enhed siger det og tilbyder at flytte den
 - Hvis Markér alle som læst fejler, vises en besked med Prøv igen
 - Et talfelt med en startværdi markerer den, når du trykker, så første Gem virker
+- iPad har sidepanel, liste og detaljer side om side
+- Kørende sessioner som Live Activity på låseskærmen og i Dynamic Island
+- Opgaver og chats i Spotlight; Siri og Genveje kan oprette en opgave eller chat
+- Pull requests viser flettestatus med Flet nu og Hold

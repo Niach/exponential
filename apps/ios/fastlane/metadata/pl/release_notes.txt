@@ -1,9 +1,3 @@
-- Logowanie do Claude znów odbywa się przez przeglądarkę
-- Zachowaj logowanie utrzymuje przebiegi konta Claude zalogowane przez rok, bez wpisywania czegokolwiek
-- Czaty na żywo rzadziej się przerysowują, gdy agent pracuje, więc przewijanie pozostaje płynne
-- Rekordy aplikacji należą do ich autora; właściciele zespołu mogą wprowadzać rekordy za innych
-- Agenci mogą pokazywać małe animacje na swoich kartach
-- Logowania rozpoczęte z telefonu znów pokazują link i kod, a odrzucony kod jest zgłaszany
 - Karta konta pokazuje, które logowanie jest aktywne
 - Zamknięcie logowania zatrzymuje je na komputerze
 - Dodaj klucz dostępu w Ustawienia › Konto › Klucze dostępu
@@ -46,3 +40,7 @@
 - Sesja na urządzeniu offline mówi o tym i proponuje przeniesienie
 - Gdy Oznacz wszystko jako przeczytane się nie uda, pojawi się komunikat z Ponów
 - Pole liczbowe z wartością początkową zaznacza ją po dotknięciu, więc pierwsze Zapisz działa
+- iPad ma pasek boczny, listę i szczegóły obok siebie
+- Trwające sesje jako aktywność na żywo na ekranie blokady i w Dynamic Island
+- Zadania i czaty w Spotlight; Siri i Skróty tworzą zadanie lub czat
+- Pull requesty pokazują stan scalania z opcjami Scal teraz i Wstrzymaj

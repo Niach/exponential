@@ -1,9 +1,3 @@
-- Les connexions Claude utilisent à nouveau la connexion par navigateur
-- Conserver la connexion garde les exécutions d'un compte Claude connectées pendant un an, sans rien saisir
-- Les chats en direct se redessinent moins pendant qu'un agent travaille, le défilement reste fluide
-- Les enregistrements des apps appartiennent à leur auteur ; les propriétaires de l'équipe peuvent en saisir pour d'autres
-- Les agents peuvent afficher de petites animations dans leurs cartes
-- Les connexions lancées depuis le téléphone affichent à nouveau le lien et le code, et un code refusé est signalé
 - La carte d'un compte indique quelle connexion est active
 - Fermer une connexion l'arrête sur la machine
 - Ajoutez une clé d'accès dans Réglages › Compte › Clés d'accès
@@ -46,3 +40,7 @@
 - Une session sur un appareil hors ligne le dit et propose Déplacer
 - Si Tout marquer comme lu échoue, un message propose Réessayer
 - Un champ numérique pré-rempli sélectionne sa valeur au toucher, le premier Enregistrer fonctionne
+- L'iPad affiche barre latérale, liste et détail côte à côte
+- Les sessions en cours en Activité en direct sur l'écran verrouillé et dans la Dynamic Island
+- Tickets et chats dans Spotlight ; Siri et Raccourcis créent un ticket ou un chat
+- Les pull requests affichent leur état de fusion avec Fusionner maintenant et Suspendre

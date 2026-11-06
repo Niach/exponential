@@ -5,12 +5,11 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.3 (2026-11-06)
+
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).
 - `HostPlugin.markdownOptions` / `HostPolicy.markdownOptions` (`MarkdownOptions`): hard breaks, the chat rhythm, selection (macOS label selection, an iOS Copy menu) and streamed text, measured as painted; `Markdown.parse(_:hardBreaks:streaming:)`.
 - #VAPP-258: Markdown host hooks (`fixtures/markdown-host.json`): `TextLinkSegment.chip` paints an inline Chip (measured, tappable), `imageSize(src)` sizes block images, `onImagePress` presses them, `attachment(href)` turns a one-link paragraph into a Video / AudioPlayer / file block. All optional on `HostPlugin` and `HostPolicy`.
-
-## 0.16.3 (2026-11-06)
-
 - Markdown parses the same on all five renderers (`markdown-render.json`, every golden case passes; VAPP-258), and a number field seeded with a value selects it on focus so Save runs once (VAPP-208).
 
 ## 0.16.2 (2026-11-06)

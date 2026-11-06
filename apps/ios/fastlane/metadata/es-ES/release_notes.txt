@@ -1,9 +1,3 @@
-- Los inicios de sesión de Claude vuelven a usar el navegador
-- Conservar sesión mantiene las ejecuciones de una cuenta de Claude conectadas durante un año, sin escribir nada
-- Los chats en directo se redibujan menos mientras un agente trabaja, así el desplazamiento sigue fluido
-- Los registros de las apps pertenecen a su autor; los propietarios del equipo pueden crear registros para otros
-- Los agentes pueden mostrar pequeñas animaciones en sus tarjetas
-- Los inicios de sesión desde el móvil vuelven a mostrar el enlace y el código, y un código rechazado lo indica
 - La tarjeta de una cuenta indica qué inicio de sesión está activo
 - Cerrar un inicio de sesión lo detiene en la máquina
 - Añade una llave de acceso en Ajustes › Cuenta › Llaves de acceso
@@ -46,3 +40,7 @@
 - Una sesión en un dispositivo sin conexión lo indica y ofrece Mover
 - Si Marcar todo como leído falla, aparece un mensaje con Reintentar
 - Un campo numérico con valor inicial lo selecciona al tocarlo, así el primer Guardar funciona
+- El iPad tiene barra lateral, lista y detalle uno al lado del otro
+- Las sesiones en curso como Actividad en vivo en la pantalla bloqueada y en la Dynamic Island
+- Incidencias y chats en Spotlight; Siri y Atajos crean una incidencia o un chat
+- Las pull requests muestran su estado de fusión con Fusionar ahora y Retener
