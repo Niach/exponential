@@ -46,8 +46,14 @@ APK's assets.
 | `versionName` / `versionCode` | `runner.json` `version` |
 | `manifestPlaceholders["runnerScheme"]` | `runner.json` `id` (the deep-link scheme) |
 | `res/values/strings.xml` `runner_label` | `runner.json` `name` |
-| `android:icon` / `android:roundIcon` | the package icon |
+| `res/mipmap*/ic_launcher` (`android:icon` / `android:roundIcon`; the template's is a placeholder vector) | the package icon, `mipmap/` + one PNG per density |
 | `AndroidManifest.xml` between `E7:PERMISSIONS` and `/E7:PERMISSIONS` | the permissions below, for the package's declared capabilities only |
+
+E7 compiles nothing: `scripts/runner-kits/android.sh` keeps this build's
+merged manifest, compiled resources, the ids of its resource table (so the
+relink keeps the ids R8 inlined into the dex), dex and native libs, and
+`exponential bundle` relinks them per app (`apps/desktop/crates/eengine-bundle`
+README, "Android").
 
 The template declares NO permissions, and the Engine AAR declares none
 either. E7 maps the capability manifest (E5, `eengine-ffi/README.md`

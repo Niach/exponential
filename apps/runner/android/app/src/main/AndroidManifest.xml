@@ -6,17 +6,20 @@
   package's capability manifest at the marked spot; see ../../../README.md.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- E7: android:icon / android:roundIcon = @mipmap/ic_launcher, overlaid with the package's icon. -->
 
-    <!-- E7:PERMISSIONS (the package's capabilities; nothing else, never INTERNET unless runner.json `network` is not `off`) -->
+    <!-- E7 writes the package's capabilities between the markers; nothing else, never INTERNET unless runner.json `network` is not `off`. -->
+    <!-- E7:PERMISSIONS -->
     <!-- /E7:PERMISSIONS -->
 
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/runner_label"
+        android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Runner">
 
-        <!-- E7: android:icon / android:roundIcon from the package's icon. -->
         <activity
             android:name=".RunnerActivity"
             android:exported="true"

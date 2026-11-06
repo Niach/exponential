@@ -6,6 +6,9 @@ name: check-eengine-runner-windows
 # gate is Linux-only, so this builds the runner on windows-latest, runs its
 # tests, then starts the release binary without a bundle (it paints the
 # `missing` failure surface) and checks it is still up after 20 s.
+# #VAPP-270 (E7): then the Windows kit from that binary, `--target windows` on
+# the web runner's sample (NSIS from the image, else choco), and the setup.exe installed
+# silently, checked (files, the URL protocol, a 20 s run) and uninstalled.
 # Informational: not part of `gate`. IME and real rendering need hardware.
 
 on:
@@ -16,6 +19,8 @@ on:
       - "apps/desktop/crates/eengine-desktop/**"
       - "apps/desktop/crates/eengine/**"
       - "apps/desktop/crates/eui-gpui/**"
+      - "apps/desktop/crates/eengine-bundle/**"
+      - "scripts/runner-kits/windows.sh"
   workflow_dispatch:
 
 permissions:
@@ -52,3 +57,39 @@ jobs:
           if ($p.HasExited) { Write-Error "exponential-runner exited with code $($p.ExitCode)"; exit 1 }
           Stop-Process -Id $p.Id
           Write-Output "exponential-runner ran 20 s"
+      - name: The windows kit and `--target windows` on the sample
+        shell: bash
+        run: |
+          # The notices lane commits the runner's NOTICES.txt; until then a stub.
+          notices=apps/desktop/crates/eengine-runner/NOTICES.txt
+          [ -f "$notices" ] || { notices="$RUNNER_TEMP/NOTICES.txt"; echo "stub notices (CI)" > "$notices"; }
+          if ! command -v makensis >/dev/null; then
+            [ -x "C:/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+            export MAKENSIS="C:/Program Files (x86)/NSIS/makensis.exe"
+          fi
+          EXP_RUNNER_EXE=apps/desktop/target/runner/exponential-runner.exe EXP_RUNNER_NOTICES="$notices" \
+            scripts/runner-kits.sh --out "$RUNNER_TEMP/kits" windows
+          EENGINE_BUNDLE_RUNNERS="$RUNNER_TEMP/kits" EENGINE_BUNDLE_REQUIRE=windows EENGINE_BUNDLE_OUT="$RUNNER_TEMP/dist" \
+            cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eengine-bundle --test linux_windows windows_
+          7z l "$RUNNER_TEMP/dist/windows/Album-1.0.0-setup.exe"
+      - name: The installer installs, registers the link scheme, runs and uninstalls
+        shell: pwsh
+        run: |
+          $setup = "$env:RUNNER_TEMP/dist/windows/Album-1.0.0-setup.exe"
+          Start-Process -FilePath $setup -ArgumentList "/S" -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\Album"
+          foreach ($f in "Album.exe", "app.ico", "NOTICES.txt", "uninstall.exe", "app\package.app.json", "app\runner.json") {
+            if (!(Test-Path "$dir\$f")) { Write-Error "not installed: $f"; exit 1 }
+          }
+          if (!(Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Album.lnk")) { Write-Error "no Start-menu shortcut"; exit 1 }
+          $cmd = (Get-ItemProperty "HKCU:\Software\Classes\at.acme.album\shell\open\command")."(default)"
+          if ($cmd -ne "`"$dir\Album.exe`" `"%1`"") { Write-Error "the protocol command is $cmd"; exit 1 }
+          $p = Start-Process -FilePath "$dir\Album.exe" -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { Write-Error "Album.exe exited with code $($p.ExitCode)"; exit 1 }
+          Stop-Process -Id $p.Id
+          Start-Process -FilePath "$dir\uninstall.exe" -ArgumentList "/S" -Wait
+          Start-Sleep -Seconds 5
+          if (Test-Path "$dir\Album.exe") { Write-Error "the uninstaller left Album.exe"; exit 1 }
+          if (Test-Path "HKCU:\Software\Classes\at.acme.album") { Write-Error "the uninstaller left the protocol key"; exit 1 }
+          Write-Output "installed, ran 20 s, uninstalled"
