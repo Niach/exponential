@@ -22,13 +22,13 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `MarkdownView (RefResolver.member_name)`,
-      file: `apps/desktop/crates/ui/src/markdown/editor.rs`,
+      symbol: `AppMarkdownHost`,
+      file: `apps/desktop/crates/ui/src/markdown/view.rs`,
     },
     ios: {
       state: `ok`,
-      symbol: `MentionRefs.decorateForDisplay`,
-      file: `apps/ios/ExpUI/Sources/MentionRefs.swift`,
+      symbol: `AppMarkdownHost`,
+      file: `apps/ios/Exponential/UI/Markdown/AppMarkdownHost.swift`,
     },
     android: {
       state: `ok`,
