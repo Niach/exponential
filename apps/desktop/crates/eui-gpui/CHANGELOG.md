@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.18.0 (2026-11-06)
+
 - Tree (#VAPP-285): the arrows, Home and End on a treeitem go to the core's tree keys.
 - A foldable Row (#VAPP-284): ArrowRight / ArrowLeft on a node with `expanded` go to the core's fold keys.
 
