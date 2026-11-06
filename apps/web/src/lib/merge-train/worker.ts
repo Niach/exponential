@@ -108,6 +108,8 @@ export async function mergeTrainOnForPullRequest(pullRequestId: string): Promise
 export const PIPELINE_REPORT_TIMEOUT_MS = 30 * 60_000
 /** A run's checks must settle within this (else the run is an error). */
 export const RUN_TIMEOUT_MS = 6 * 60 * 60_000
+/** #EXP-1711: a pipeline error (not a red check, not a conflict): wait. */
+export const PIPELINE_ERROR_BACKOFF_MS = 10 * 60_000
 /** The forge refused a fast-forward (the App off the bypass list): wait. */
 export const REFUSED_BACKOFF_MS = 30 * 60_000
 
@@ -438,7 +440,17 @@ async function pollRun(repo: RepoRow, run: RunRow, forge: Forge, now: Date): Pro
     if (!landed) return false
   }
   const state = verdict.state === `green` ? `landed` : verdict.state
-  await finishRun(run, state, { conflicts: Object.keys(conflicts).length > 0 ? conflicts : null })
+  // #EXP-1711: a pipeline error (infra: a fetch, a resolver) keeps its
+  // message and backs the repository off, so a broken compose never re-runs
+  // every pass.
+  if (state === `error`) {
+    console.error(`[merge-train] ${repo.fullName}: pipeline error: ${outcome.error ?? `the run timed out`}`)
+    backoff.set(repo.id, now.getTime() + PIPELINE_ERROR_BACKOFF_MS)
+  }
+  await finishRun(run, state, {
+    conflicts: Object.keys(conflicts).length > 0 ? conflicts : null,
+    ...(state === `error` ? { error: (outcome.error ?? `the run timed out`).slice(0, 2000) } : {}),
+  })
   if (decision.next) {
     await startRun(repo, forge, decision.next, { base: run.base, bisectOf: decision.next.bisect ? run.id : null, now })
     return true

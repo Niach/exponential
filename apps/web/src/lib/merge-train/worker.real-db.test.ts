@@ -76,7 +76,7 @@ class FakeForge {
   missingPipeline = false
   refuseFastForward = false
   /** Decides each run: which PR numbers conflict, and whether CI is red. */
-  judge: (prs: number[]) => { conflicts?: number[]; red?: boolean } = () => ({})
+  judge: (prs: number[]) => { conflicts?: number[]; red?: boolean; error?: string } = () => ({})
   private outcomes = new Map<string, TrainPipelineOutcome>()
   private checks = new Map<string, TrainCheck[]>()
 
@@ -111,6 +111,10 @@ class FakeForge {
         const verdict = this.judge(numbers)
         const conflicts = new Set(verdict.conflicts ?? [])
         const head = `train-${inputs.train_id.slice(0, 8)}`
+        if (verdict.error) {
+          this.outcomes.set(inputs.train_id, { train: inputs.train_id, base_sha: inputs.base_sha, head: null, checks: `none`, units: [], error: verdict.error })
+          return { ok: true, runRef: null }
+        }
         this.outcomes.set(inputs.train_id, {
           train: inputs.train_id,
           base_sha: inputs.base_sha,
@@ -315,6 +319,21 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await lines(w.children[101]!)).map((l) => l.body)).toEqual([`Merged #101 into main.`])
     const [run] = await db.select().from(mergeTrains).where(eq(mergeTrains.id, d!.inputs.train_id))
     expect(run!.state).toBe(`landed`)
+  })
+
+  it(`a pipeline error keeps its message and backs off: no re-run every pass (#EXP-1711)`, async () => {
+    const w = await world()
+    const a = await w.pr(231)
+    await w.idle()
+    fake.judge = () => ({ error: `git merge --squash: not our ref` })
+    await pass(w.repoId)
+    expect(fake.dispatches).toHaveLength(1)
+    await pass(w.repoId, 3)
+    const runs = await db.select().from(mergeTrains).where(eq(mergeTrains.repositoryId, w.repoId))
+    expect(runs.map((r) => [r.state, r.error])).toEqual([[`error`, `git merge --squash: not our ref`]])
+    expect(fake.dispatches).toHaveLength(1)
+    expect(await prRow(a)).toMatchObject({ mergeState: `queued`, mergeAttempts: 0 })
+    expect(await lines(w.children[231]!)).toEqual([])
   })
 
   it(`re-runs a red batch once, then bisects: the innocent half lands, the culprit bounces as failing`, async () => {
