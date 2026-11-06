@@ -16,6 +16,8 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 target="${CARGO_TARGET_DIR:-$here/target}"
+# The shell is its own workspace (its own target/ unless CARGO_TARGET_DIR is shared).
+shell_target="${CARGO_TARGET_DIR:-$here/shell/target}"
 headless=""
 dir="${EDE_UI_DIR:-}"
 while [ $# -gt 0 ]; do
@@ -37,4 +39,4 @@ args=(--no-xwayland)
 export EDE_FACTORY_DIR="$here/ui"
 export RUST_LOG="${RUST_LOG:-info,smithay=warn,wgpu_core=warn,wgpu_hal=warn}"
 echo "ede-ctl: WAYLAND_DISPLAY=<the socket logged below> $target/debug/ede-ctl capture --png /tmp/panel.png"
-exec "$target/debug/ede-compositor" "${args[@]}" -- "$target/debug/ede-ui" --dir "$dir" --factory "$here/ui" supervise -- "$target/debug/ede-shell"
+exec "$target/debug/ede-compositor" "${args[@]}" -- "$target/debug/ede-ui" --dir "$dir" --factory "$here/ui" supervise -- "$shell_target/debug/ede-shell"

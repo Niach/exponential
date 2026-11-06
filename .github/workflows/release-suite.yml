@@ -30,7 +30,12 @@ on:
       - 'cli-v*'
       - 'eui-v*'
       - 'v*.*.*'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      only:
+        description: Run just this one job (its id, e.g. ede-goldens); empty = the whole suite.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -61,12 +66,12 @@ jobs:
 
   web:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'web')
     uses: ./.github/workflows/web-tests.yml
 
   extras:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'extras')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +95,7 @@ jobs:
 
   ios:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ios')
     uses: ./.github/workflows/test-ios.yml
     secrets: inherit
 
@@ -98,19 +103,19 @@ jobs:
   # 2026-11-01): here it blocks the release, like everything in this suite.
   ios-core:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ios-core')
     uses: ./.github/workflows/ios-core.yml
     secrets: inherit
 
   exponential-ui:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'exponential-ui')
     uses: ./.github/workflows/exponential-ui.yml
     secrets: inherit
 
   push-relay-image:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'push-relay-image')
     # EXP-446: Dockerfile.push-relay is built by no publish workflow — Coolify
     # builds it from the repo at deploy time, so a broken edit's first
     # validation used to be the deploy itself. Build-only (push: false —
@@ -135,7 +140,7 @@ jobs:
 
   site:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'site')
     # exponential.at (apps/site): the same Astro build + Chromium paint check
     # as test.yml's `site` job, on every release regardless of paths — the
     # site deploys straight from Coolify, so this is its pre-deploy gate.
@@ -178,7 +183,7 @@ jobs:
   # with `bun run shots -- --platform ede --skip-seed`.
   ede-goldens:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ede-goldens')
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
@@ -216,7 +221,7 @@ jobs:
 
   migrations:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'migrations')
     # EXP-112: drizzle-kit can generate SQL that fails on every real DB
     # (e.g. DROP TABLE CASCADE before its referencing DROP CONSTRAINTs —
     # EXP-111's migration 0023), and nothing else in CI ever executes the
@@ -305,7 +310,7 @@ jobs:
 
   e2e:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'e2e')
     # NEW-85: the Playwright feedback-widget spec (settings UI, the public
     # cross-origin widget endpoints, the built widget on its demo page, the
     # issue on the board) against the dev stack the spec expects: compose
@@ -360,7 +365,7 @@ jobs:
 
   desktop:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'desktop')
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
@@ -399,7 +404,7 @@ jobs:
   # `iroh-relay --dev`: acked pings both ways, a foreign install refused.
   enet-wasm-smoke:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'enet-wasm-smoke')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -438,7 +443,7 @@ jobs:
   # eagent-hub-core` replay the same files).
   eagent-wasm-replay:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'eagent-wasm-replay')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -467,7 +472,7 @@ jobs:
   # tests on the Mac.
   desktop-macos:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'desktop-macos')
     runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     steps:
       - uses: actions/checkout@v4
@@ -488,7 +493,7 @@ jobs:
   # worktree removal past MAX_PATH) never run on the Linux or Mac jobs.
   desktop-windows:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'desktop-windows')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -503,7 +508,7 @@ jobs:
 
   desktop-fuzz:
     needs: dedupe
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'desktop-fuzz')
     # NEW-88: the call's untrusted audio (a caller's Opus packets off the
     # relay) and the local call's echo canceller, fuzzed briefly per release
     # (apps/desktop/fuzz; the long runs go through the heavy lane on mint).
@@ -544,7 +549,7 @@ jobs:
   # Kotlin suites replay packages/etalk/fixtures/voice-call.json through them.
   etalk-ffi:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'etalk-ffi')
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
@@ -575,7 +580,7 @@ jobs:
 
   etalk-ffi-swift:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'etalk-ffi-swift')
     runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     steps:
       - uses: actions/checkout@v4
@@ -595,7 +600,7 @@ jobs:
 
   android:
     needs: [dedupe, pick]
-    if: needs.dedupe.outputs.run == 'true'
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'android')
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
