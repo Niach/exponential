@@ -9,12 +9,12 @@ use std::{borrow::Cow, collections::HashMap, sync::OnceLock};
 use gpui::{AssetSource, Result, SharedString};
 
 #[derive(rust_embed::RustEmbed)]
-#[folder = "../../../../desktop/assets"]
+#[folder = "../../assets"]
 #[include = "fonts/**/*.ttf"]
 #[include = "icons/**/*.svg"]
 struct Embedded;
 
-const ICONS_JSON: &str = include_str!("../../../../../../packages/icons/icons.json");
+const ICONS_JSON: &str = include_str!("../../../../packages/icons/icons.json");
 
 pub struct Assets;
 

@@ -14,8 +14,9 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 target="${CARGO_TARGET_DIR:-$here/target}"
-# The shell is its own workspace (its own target/ unless CARGO_TARGET_DIR is shared).
-shell_target="${CARGO_TARGET_DIR:-$here/shell/target}"
+# The shell is a member of apps/desktop (#EDE-51): its own target/ unless CARGO_TARGET_DIR is shared.
+desktop="$(dirname "$here")/desktop"
+shell_target="${CARGO_TARGET_DIR:-$desktop/target}"
 out=""; popup=(); open=(); size="1280x720"; settle=1500; build=1
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -32,7 +33,7 @@ done
 [ -n "$out" ] || { echo "--out FILE is required" >&2; exit 2; }
 if [ "$build" = 1 ]; then
   (cd "$here" && cargo build -q -p ede-compositor -p ede-ui -p ede-ctl)
-  (cd "$here/shell" && cargo build -q -p ede-shell)
+  (cd "$desktop" && cargo build -q -p ede-shell)
 fi
 # A runtime dir of its own: the socket and token never collide with a
 # desktop's, and a CI runner has no /run/user.
