@@ -42,10 +42,13 @@ struct ChatMenuSheet: View {
 
     /// The pushed Checks page.
     @State private var checksOpen: Bool
+    /// #EXP-1710: opened by the status pill: the check rows ARE the menu
+    /// (no back row to the `…` entries).
+    private let checksOnly: Bool
     @Environment(\.motion) private var motion
 
-    /// `startOnChecks` (#EXP-1710): the status pill's tap opens the sheet ON
-    /// its Checks submenu.
+    /// `startOnChecks` (#EXP-1710): the status pill's tap opens the sheet as
+    /// the check rows alone.
     init(
         title: String?,
         entries: [Entry],
@@ -60,6 +63,7 @@ struct ChatMenuSheet: View {
         self.checkRows = checkRows
         self.onPick = onPick
         _checksOpen = State(initialValue: startOnChecks)
+        checksOnly = startOnChecks
     }
 
     var body: some View {
@@ -67,7 +71,9 @@ struct ChatMenuSheet: View {
             if checksOpen {
                 GlassSheetChrome(title: nil) {
                     VStack(spacing: 0) {
-                        PrChecksMenuBackRow { checksOpen = false }
+                        if !checksOnly {
+                            PrChecksMenuBackRow { checksOpen = false }
+                        }
                         PrChecksMenuRows(rows: checkRows)
                     }
                     .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)

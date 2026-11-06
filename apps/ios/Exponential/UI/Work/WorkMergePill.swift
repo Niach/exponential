@@ -45,14 +45,19 @@ struct WorkMergePill: View {
 
     /// THE view model, shared by every style.
     private var view: MergeTrain.StatusPill {
-        Self.statusPill(pullRequest, stack: stackConfirm != nil, checks: checks.count, batchSize: batchSize)
+        Self.statusPill(
+            pullRequest, stack: stackConfirm != nil, checks: checks.count, batchSize: batchSize, canApprove: canApprove
+        )
     }
 
+    /// The PR's own state wins (merged, draft), else its train state; a
+    /// viewer who may not approve sees Needs approval as a plain status.
+    /// The host mounts no pill on a closed PR (`MergeTrain.pillState` nil).
     static func statusPill(
-        _ pullRequest: PullRequestEntity, stack: Bool, checks: Int, batchSize: Int?
+        _ pullRequest: PullRequestEntity, stack: Bool, checks: Int, batchSize: Int?, canApprove: Bool
     ) -> MergeTrain.StatusPill {
-        MergeTrain.statusPill(
-            state: pullRequest.mergeState,
+        let pill = MergeTrain.statusPill(
+            state: MergeTrain.pillState(prState: pullRequest.state, mergeState: pullRequest.mergeState),
             wait: pullRequest.mergeWait,
             position: pullRequest.mergePosition,
             batchSize: batchSize,
@@ -60,6 +65,7 @@ struct WorkMergePill: View {
             stack: stack,
             checks: checks
         )
+        return MergeTrain.viewerPill(pill, canApprove: canApprove, checks: checks)
     }
 
     private var action: (() -> Void)? {
@@ -74,26 +80,10 @@ struct WorkMergePill: View {
         }
     }
 
-    /// The glyph slot: the merge in flight's spinner, THE spinner, else the
-    /// state's concept glyph (red tone = the glyph alone).
-    @ViewBuilder
     private func glyph(size: CGFloat, weight: Font.Weight? = .medium, spinnerTint: Color?, glyphColor: Color?) -> some View {
-        if merging || view.glyph == .spinner {
-            // THE spinner, dark on the white primary paint (a default-tinted
-            // one vanished into it).
-            InlineSpinner(size: size, color: spinnerTint ?? .white.opacity(TextOpacity.tertiary))
-        } else {
-            let icon = AppIcons.conceptOrName(view.glyph.rawValue) ?? AppIcons.prMerged
-            if view.tone == .red {
-                AppIcon(icon, size: size, weight: weight)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-            } else if let glyphColor {
-                AppIcon(icon, size: size, weight: weight)
-                    .foregroundStyle(glyphColor)
-            } else {
-                AppIcon(icon, size: size, weight: weight)
-            }
-        }
+        MergeStatusGlyph(
+            view: view, merging: merging, size: size, weight: weight, spinnerTint: spinnerTint, glyphColor: glyphColor
+        )
     }
 
     /// The plain merge confirm, or (EXP-1248) THE stack confirm, its copy
@@ -167,21 +157,7 @@ struct WorkMergePill: View {
     /// `PullRequestMergePill`, desktop, Android `MergePill(header = true)`),
     /// primary only for `Needs approval`.
     private var toolbarButton: some View {
-        GlassPill(
-            view.label,
-            size: .md,
-            mode: action.map { tap in GlassPillMode.action { tap() } } ?? GlassPillMode.readonly,
-            primary: view.primary,
-            enabled: view.tap != .approve || (canApprove && !merging)
-        ) {
-            glyph(
-                size: GlassPillSize.md.glyphSize, weight: nil,
-                spinnerTint: view.primary && !merging ? .black.opacity(0.6) : nil, glyphColor: nil
-            )
-        }
-        .fixedSize()
-        .accessibilityLabel(view.label)
-        .accessibilityIdentifier(identifier)
+        MergeStatusPill(view: view, merging: merging, action: action, identifier: identifier)
     }
 
     /// Needs approval: `pullRequests.merge` QUEUES it (the train is on). No
@@ -211,6 +187,64 @@ struct WorkMergePill: View {
                 )
             }
             state.merging = false
+        }
+    }
+}
+
+/// #EXP-1710: THE status pill's paint (the header's md `GlassPill`), over a
+/// `MergeTrain.StatusPill`: the thread header and the styleguide specimen.
+struct MergeStatusPill: View {
+    let view: MergeTrain.StatusPill
+    var merging = false
+    /// nil = readonly (no tap).
+    let action: (() -> Void)?
+    var identifier = MergeTrain.TestIds.statusPill
+
+    var body: some View {
+        GlassPill(
+            view.label,
+            size: .md,
+            mode: action.map { tap in GlassPillMode.action { tap() } } ?? GlassPillMode.readonly,
+            primary: view.primary,
+            enabled: view.tap != .approve || !merging
+        ) {
+            MergeStatusGlyph(
+                view: view, merging: merging, size: GlassPillSize.md.glyphSize, weight: nil,
+                spinnerTint: view.primary && !merging ? .black.opacity(0.6) : nil, glyphColor: nil
+            )
+        }
+        .fixedSize()
+        .accessibilityLabel(view.label)
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+/// The glyph slot: the merge in flight's spinner, THE spinner, else the
+/// state's concept glyph (red tone = the glyph alone).
+struct MergeStatusGlyph: View {
+    let view: MergeTrain.StatusPill
+    let merging: Bool
+    let size: CGFloat
+    var weight: Font.Weight? = .medium
+    var spinnerTint: Color?
+    var glyphColor: Color?
+
+    var body: some View {
+        if merging || view.glyph == .spinner {
+            // THE spinner, dark on the white primary paint (a default-tinted
+            // one vanished into it).
+            InlineSpinner(size: size, color: spinnerTint ?? .white.opacity(TextOpacity.tertiary))
+        } else {
+            let icon = AppIcons.conceptOrName(view.glyph.rawValue) ?? AppIcons.prMerged
+            if view.tone == .red {
+                AppIcon(icon, size: size, weight: weight)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            } else if let glyphColor {
+                AppIcon(icon, size: size, weight: weight)
+                    .foregroundStyle(glyphColor)
+            } else {
+                AppIcon(icon, size: size, weight: weight)
+            }
         }
     }
 }

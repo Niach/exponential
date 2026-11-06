@@ -1043,18 +1043,20 @@ struct ThreadScreen: View {
     // MARK: - The thread PR's status pill
 
     /// #EXP-1710 (merge-train.json STATUS PILL): THE status pill over the
-    /// thread PR (open, or merged: `Merged`); its tap opens the `…` sheet ON
-    /// the Checks submenu; `Needs approval` is the only action.
+    /// thread PR for ANY viewer (a closed PR = none); its tap opens the
+    /// check rows directly as the menu; `Needs approval` (members) is the
+    /// only action.
     @ViewBuilder
     private var headerMergePill: some View {
-        if editor == nil, canEdit, let rows,
-           let pullRequest = rows.guidePullRequest, pullRequest.state != DomainContract.prStateClosed {
+        if editor == nil, let rows, let pullRequest = rows.guidePullRequest,
+           MergeTrain.pillState(prState: pullRequest.state, mergeState: pullRequest.mergeState) != nil {
             WorkMergePill(
                 pullRequest: pullRequest,
                 issueCount: rows.pullRequestIssueIds[pullRequest.id]?.count ?? 0,
                 stackConfirm: rows.guideStackConfirm,
                 checks: rows.guideChecks,
                 batchSize: rows.guideBatchSize,
+                canApprove: canEdit,
                 onChecks: { openChecks() },
                 state: $mergeState,
                 identifier: MergeTrain.TestIds.statusPill,

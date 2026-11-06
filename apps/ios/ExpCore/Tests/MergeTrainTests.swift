@@ -115,6 +115,39 @@ final class MergeTrainTests: XCTestCase {
         }
     }
 
+    /// The styleguide specimen draws every `statusPill` case, in order.
+    func testSpecimenIsTheFixtureInputs() throws {
+        let inputs = try cases("statusPill").map { item -> MergeTrain.PillInput in
+            let input = try XCTUnwrap(item["input"] as? [String: Any])
+            return MergeTrain.PillInput(
+                state: try XCTUnwrap(input["state"] as? String),
+                wait: input["wait"] as? String,
+                position: input["position"] as? Int,
+                batchSize: input["batchSize"] as? Int,
+                holdReason: input["holdReason"] as? String,
+                stack: try XCTUnwrap(input["stack"] as? Bool),
+                checks: try XCTUnwrap(input["checks"] as? Int)
+            )
+        }
+        XCTAssertEqual(MergeTrain.specimen, inputs)
+    }
+
+    func testPillStateAndViewerPill() {
+        XCTAssertNil(MergeTrain.pillState(prState: "closed", mergeState: "queued"))
+        XCTAssertEqual(MergeTrain.pillState(prState: "merged", mergeState: "testing"), "merged")
+        XCTAssertEqual(MergeTrain.pillState(prState: "draft", mergeState: "queued"), "draft")
+        XCTAssertEqual(MergeTrain.pillState(prState: "open", mergeState: "queued"), "queued")
+        XCTAssertEqual(MergeTrain.pillState(prState: "open", mergeState: nil), "checks")
+        let approve = MergeTrain.statusPill(state: "checks", wait: "approval", stack: false, checks: 2)
+        let viewer = MergeTrain.viewerPill(approve, canApprove: false, checks: 2)
+        XCTAssertEqual(viewer.label, "Needs approval")
+        XCTAssertEqual(viewer.glyph, .prMerged)
+        XCTAssertFalse(viewer.primary)
+        XCTAssertEqual(viewer.tap, .checks)
+        XCTAssertNil(MergeTrain.viewerPill(approve, canApprove: false, checks: 0).tap)
+        XCTAssertEqual(MergeTrain.viewerPill(approve, canApprove: true, checks: 2), approve)
+    }
+
     func testMenuReplaysEveryCase() throws {
         for item in try cases("menu") {
             let name = item["name"] as? String ?? "?"

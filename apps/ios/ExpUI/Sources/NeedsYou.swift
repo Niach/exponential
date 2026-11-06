@@ -142,7 +142,8 @@ struct NeedsYouRowView: View {
 }
 
 /// #EXP-1710 (merge-train.json NEEDS YOU): THE Button sm row of a stuck PR,
-/// under the row's text column.
+/// OUTLINE for all three (web `variant="outline" size="sm"`), ONE wrapping
+/// row under the meta line (web `flex flex-wrap gap-2`).
 struct NeedsYouStuckActions: View {
     let row: NeedsYou.Row
     let onAction: (MergeTrain.StuckRow.Action) -> Void
@@ -156,11 +157,15 @@ struct NeedsYouStuckActions: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        FlowLayout(spacing: 8) {
             ForEach(row.actions, id: \.self) { action in
-                GlassPill(label(action), size: .sm, mode: .action { onAction(action) })
-                    .fixedSize()
-                    .accessibilityIdentifier("\(MergeTrain.TestIds.stuckRow)-\(action.rawValue)")
+                Button { onAction(action) } label: {
+                    GlassSubmitLabel(label(action), small: true, outline: true) { EmptyView() }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressScale)
+                .fixedSize()
+                .accessibilityIdentifier("\(MergeTrain.TestIds.stuckRow)-\(action.rawValue)")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

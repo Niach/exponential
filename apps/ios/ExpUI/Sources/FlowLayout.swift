@@ -4,20 +4,27 @@ import SwiftUI
 /// the create sheet, and team settings (moved out of IssueDetailView, EXP-240).
 /// A subview wider than the line is offered the line's width (so a chip's
 /// title truncates instead of running off the edge); everything else keeps
-/// its ideal size.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
+/// its ideal size. #EXP-1710: in ExpUI so the Needs you stuck row's
+/// buttons wrap (web `flex flex-wrap gap-2`).
+public struct FlowLayout: Layout {
+    public var spacing: CGFloat = 8
     /// The gap between wrapped lines; nil = `spacing` (web `gap-x-* gap-y-*`).
-    var lineSpacing: CGFloat?
+    public var lineSpacing: CGFloat?
     /// Centre each subview on its line (web `items-center`), else top-align.
-    var centersLines = false
+    public var centersLines = false
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    public init(spacing: CGFloat = 8, lineSpacing: CGFloat? = nil, centersLines: Bool = false) {
+        self.spacing = spacing
+        self.lineSpacing = lineSpacing
+        self.centersLines = centersLines
+    }
+
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let result = arrange(proposal: proposal, subviews: subviews)
         return result.size
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let result = arrange(proposal: proposal, subviews: subviews)
         for (index, position) in result.positions.enumerated() {
             subviews[index].place(

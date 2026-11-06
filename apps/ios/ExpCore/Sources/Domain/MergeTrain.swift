@@ -177,6 +177,82 @@ public enum MergeTrain {
         }
     }
 
+    /// #EXP-1710: the pill's state off the PR's OWN state first: closed =
+    /// no pill (nil); merged = `merged`; draft = `draft`; else the train's
+    /// `merge_state`.
+    public static func pillState(prState: String, mergeState: String?) -> String? {
+        switch prState {
+        case DomainContract.prStateClosed: return nil
+        case DomainContract.prStateMerged: return DomainContract.prMergeStateMerged
+        case "draft": return DomainContract.prMergeStateDraft
+        default: return normalizedState(mergeState)
+        }
+    }
+
+    /// #EXP-1710: a viewer who may not approve sees `Needs approval` as a
+    /// plain status: the same label and glyph, not primary, its tap the
+    /// Checks rows (readonly without rows).
+    public static func viewerPill(_ pill: StatusPill, canApprove: Bool, checks: Int) -> StatusPill {
+        guard pill.tap == .approve, !canApprove else { return pill }
+        return StatusPill(
+            label: pill.label, glyph: pill.glyph, tone: pill.tone, primary: false,
+            tap: checks > 0 ? .checks : nil, confirm: nil
+        )
+    }
+
+    /// One `statusPill` input (the fixture's `input`).
+    public struct PillInput: Equatable, Sendable {
+        public let state: String
+        public let wait: String?
+        public let position: Int?
+        public let batchSize: Int?
+        public let holdReason: String?
+        public let stack: Bool
+        public let checks: Int
+
+        public init(
+            state: String, wait: String? = nil, position: Int? = nil, batchSize: Int? = nil,
+            holdReason: String? = nil, stack: Bool = false, checks: Int = 3
+        ) {
+            self.state = state
+            self.wait = wait
+            self.position = position
+            self.batchSize = batchSize
+            self.holdReason = holdReason
+            self.stack = stack
+            self.checks = checks
+        }
+
+        public var pill: StatusPill {
+            MergeTrain.statusPill(
+                state: state, wait: wait, position: position, batchSize: batchSize,
+                holdReason: holdReason, stack: stack, checks: checks
+            )
+        }
+    }
+
+    /// The styleguide `pr-checks` specimen: EVERY merge-train.json
+    /// `statusPill` case's input, in fixture order (`MergeTrainTests` locks it).
+    public static let specimen: [PillInput] = [
+        PillInput(state: "draft", wait: "draft"),
+        PillInput(state: "checks", wait: "checks"),
+        PillInput(state: "checks", wait: "session"),
+        PillInput(state: "queued", position: 2),
+        PillInput(state: "queued", position: 1),
+        PillInput(state: "queued", position: 11),
+        PillInput(state: "queued", position: 23),
+        PillInput(state: "testing", batchSize: 4),
+        PillInput(state: "testing", batchSize: 1),
+        PillInput(state: "merged"),
+        PillInput(state: "conflict"),
+        PillInput(state: "failing", wait: "failing"),
+        PillInput(state: "held", holdReason: "person"),
+        PillInput(state: "held", holdReason: "bounces"),
+        PillInput(state: "queued", position: 3, checks: 0),
+        PillInput(state: "checks", wait: "approval", checks: 0),
+        PillInput(state: "checks", wait: "approval", stack: true),
+    ]
+
     // MARK: - The `…` menu
 
     public enum MenuEntry: String, Sendable, Equatable {
