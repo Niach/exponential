@@ -517,7 +517,7 @@ impl Ede {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(e) => return Err(format!("{}: {e}", path.display())),
         };
-        let mut config = crate::Config::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut config = crate::Config::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?.with_system_keyboard();
         config.xwayland = self.config.xwayland;
         let kb = config.keyboard.clone();
         self.config = config;

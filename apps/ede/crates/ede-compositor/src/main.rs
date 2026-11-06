@@ -14,12 +14,16 @@ use ede_compositor::{Config, Ede};
 use smithay::reexports::{calloop::EventLoop, wayland_server::Display};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut args = std::env::args().skip(1).peekable();
+    let doctor = args.peek().map(String::as_str) == Some("doctor");
+    // The doctor's table stands alone: smithay's renderer chatter (and its
+    // warning that a render node has no DRM master) stays behind RUST_LOG.
+    let default_log = if doctor { "error" } else { "info" };
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| default_log.into()))
         .init();
 
-    let mut args = std::env::args().skip(1).peekable();
-    if args.peek().map(String::as_str) == Some("doctor") {
+    if doctor {
         let ok = ede_compositor::doctor::report(&ede_compositor::doctor::run_checks());
         std::process::exit(if ok { 0 } else { 1 });
     }
@@ -65,7 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             config
         }
         None => Config::default(),
-    };
+    }
+    .with_system_keyboard();
     if no_xwayland {
         config.xwayland = false;
     }

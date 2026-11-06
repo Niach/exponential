@@ -15,7 +15,8 @@
 # documents in /usr/share/ede/ui, the session's systemd units
 # (ede-session.target starts ede-shell.service = `ede-ui supervise --
 # ede-shell` and ede-polkit-agent.service = `ede-sealed polkit`), the login
-# screen entries.
+# screen entries (GDM and LightDM read /usr/share/wayland-sessions) and the
+# lock screen's PAM service (/etc/pam.d/ede).
 set -euo pipefail
 bundle_xwayland=1
 profile=release
@@ -62,6 +63,8 @@ install -Dm755 "$shell_target/$profile/ede-sealed" "$stage/usr/bin/ede-sealed"
 for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/ede/ui/$(basename "$f")"; done
 for f in "$here"/wayland-sessions/*.desktop; do install -Dm644 "$f" "$stage/usr/share/wayland-sessions/$(basename "$f")"; done
 for f in "$here"/systemd/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/user/$(basename "$f")"; done
+# The lock screen's PAM service (#EDE-17); a conffile, so a local edit survives upgrades.
+install -Dm644 "$here/pam/ede" "$stage/etc/pam.d/ede"
 install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/doc/ede/copyright"
 
 # The compositor's, then the shell's (gpui on Wayland: Vulkan through the
@@ -83,6 +86,7 @@ else
 fi
 
 mkdir -p "$stage/DEBIAN"
+echo /etc/pam.d/ede > "$stage/DEBIAN/conffiles"
 cat > "$stage/DEBIAN/control" <<CONTROL
 Package: ede
 Version: $version

@@ -211,6 +211,8 @@ mod tests {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
         }
         assert!(deb.contains("/usr/share/ede/ui/"), "the factory documents ship");
+        // #EDE-17: the lock authenticates through its own PAM service, never the `login` fallback.
+        assert!(deb.contains("/etc/pam.d/ede") && root.join("pam/ede").exists(), "the lock's PAM service ships");
         let polkit = std::fs::read_to_string(root.join("systemd/ede-polkit-agent.service")).unwrap();
         assert!(polkit.contains("ExecStart=/usr/bin/ede-sealed polkit\n"), "#EDE-17: the sealed agent");
         // #EDE-19: the bridge runs before the shell, so the launcher's icon theme is set.

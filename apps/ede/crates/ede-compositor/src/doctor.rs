@@ -1,5 +1,7 @@
 //! `ede-compositor doctor`: what this machine needs for eDE, and what is
-//! missing. The checks are pure functions over what was read from the
+//! missing: the render nodes, the KMS driver and its connected displays,
+//! the seat (logind or seatd), what EGL renders with, the keyboard layout,
+//! Xwayland, NVIDIA. The checks are pure functions over what was read from the
 //! system, so they are tested without the hardware.
 
 use std::{
@@ -131,6 +133,171 @@ pub fn check_render_nodes(nodes: &[String]) -> Check {
     }
 }
 
+/// What logind (or seatd) says about the seat the real session takes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Seat {
+    /// `/run/systemd/seats/seat0`, when systemd-logind runs.
+    pub logind_seat0: Option<String>,
+    /// `/run/seatd.sock` exists.
+    pub seatd: bool,
+}
+
+/// The udev backend takes the GPU and the input devices through libseat:
+/// logind's seat0 with a graphical device on it, or a seatd socket.
+pub fn check_seat(seat: &Seat) -> Check {
+    let name = "seat";
+    if let Some(info) = &seat.logind_seat0 {
+        let flag = |key: &str| info.lines().any(|l| l.trim() == format!("{key}=1"));
+        if !flag("CAN_GRAPHICAL") {
+            return Check { name, level: Level::Fail, detail: "logind seat0 has no GPU attached (CAN_GRAPHICAL=0): the session can't take a display".into() };
+        }
+        let vt = if flag("CAN_TTY") { "" } else { ", no VT" };
+        return Check { name, level: Level::Ok, detail: format!("logind seat0, graphical{vt}") };
+    }
+    if seat.seatd {
+        return Check { name, level: Level::Ok, detail: "seatd at /run/seatd.sock".into() };
+    }
+    Check { name, level: Level::Fail, detail: "neither systemd-logind (seat0) nor seatd runs: the session can't take the GPU and the input devices".into() }
+}
+
+/// One `/dev/dri/cardN` as sysfs describes it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DrmCard {
+    pub name: String,
+    /// `DRIVER=` from `device/uevent`.
+    pub driver: Option<String>,
+    /// Connectors whose `status` is `connected`.
+    pub connected: Vec<String>,
+}
+
+/// Reads `sys` (`/sys/class/drm`): every `cardN` with its driver and its
+/// connected connectors (`cardN-<connector>/status`).
+pub fn read_drm_cards(sys: &Path) -> Vec<DrmCard> {
+    let Ok(entries) = std::fs::read_dir(sys) else { return Vec::new() };
+    let names: Vec<String> = entries.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    let mut cards: Vec<DrmCard> = names
+        .iter()
+        .filter(|n| n.strip_prefix("card").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())))
+        .map(|card| {
+            let uevent = std::fs::read_to_string(sys.join(card).join("device/uevent")).unwrap_or_default();
+            let driver = uevent.lines().find_map(|l| l.strip_prefix("DRIVER=")).map(|d| d.trim().to_string());
+            let prefix = format!("{card}-");
+            let mut connected: Vec<String> = names
+                .iter()
+                .filter_map(|n| n.strip_prefix(&prefix))
+                .filter(|c| std::fs::read_to_string(sys.join(format!("{prefix}{c}")).join("status")).is_ok_and(|s| s.trim() == "connected"))
+                .map(str::to_string)
+                .collect();
+            connected.sort();
+            DrmCard { name: card.clone(), driver, connected }
+        })
+        .collect();
+    cards.sort_by(|a, b| a.name.cmp(&b.name));
+    cards
+}
+
+/// Firmware framebuffers: KMS works on them, nothing accelerates.
+const FRAMEBUFFER_DRIVERS: [&str; 3] = ["simpledrm", "efifb", "vesafb"];
+
+/// Every display the real session can drive comes from a KMS driver; the
+/// known virtual ones get a word on what to expect.
+pub fn check_drm(cards: &[DrmCard]) -> Check {
+    let name = "DRM";
+    if cards.is_empty() {
+        return Check { name, level: Level::Fail, detail: "no /dev/dri/card*: no KMS driver loaded, eDE can't drive a display".into() };
+    }
+    let mut level = Level::Ok;
+    let parts: Vec<String> = cards
+        .iter()
+        .map(|c| {
+            let driver = c.driver.as_deref().unwrap_or("unknown driver");
+            let note = match driver {
+                "vmwgfx" => " (VMware SVGA / VirtualBox VMSVGA: software rendering unless the VM has 3D acceleration)",
+                "vboxvideo" => " (VirtualBox VBoxVGA/VBoxSVGA: software rendering; VMSVGA is the supported controller)",
+                "virtio_gpu" | "virtio-pci" => " (virtio-gpu)",
+                d if FRAMEBUFFER_DRIVERS.contains(&d) => " (firmware framebuffer, no GPU driver: works, slowly)",
+                _ => "",
+            };
+            let connectors = if c.connected.is_empty() { "nothing connected".to_string() } else { c.connected.join(", ") };
+            format!("{} {driver}{note}: {connectors}", c.name)
+        })
+        .collect();
+    if cards.iter().all(|c| c.driver.as_deref().is_some_and(|d| FRAMEBUFFER_DRIVERS.contains(&d))) {
+        level = Level::Warn;
+    }
+    let mut detail = parts.join("; ");
+    if cards.iter().all(|c| c.connected.is_empty()) {
+        level = Level::Warn;
+        detail.push_str(" (no display connected: the session would start with no output)");
+    }
+    Check { name, level, detail }
+}
+
+/// What the real session renders with: EGL + GLES on `render_node`, the
+/// same way the udev backend opens it (no seat needed, so it runs from
+/// inside another desktop). The GL renderer and version strings.
+#[cfg(feature = "udev")]
+pub fn probe_renderer(render_node: &Path) -> Result<(String, String), String> {
+    use smithay::{
+        backend::{
+            allocator::gbm::GbmDevice,
+            drm::DrmDeviceFd,
+            egl::{EGLContext, EGLDisplay},
+            renderer::gles::{ffi, GlesRenderer},
+        },
+        utils::DeviceFd,
+    };
+    use std::os::fd::OwnedFd;
+
+    unsafe fn gl_string(gl: &ffi::Gles2, which: ffi::types::GLenum) -> String {
+        let p = gl.GetString(which) as *const std::ffi::c_char;
+        if p.is_null() { String::new() } else { std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned() }
+    }
+
+    let file = std::fs::OpenOptions::new().read(true).write(true).open(render_node).map_err(|e| format!("{}: {e}", render_node.display()))?;
+    let fd = DrmDeviceFd::new(DeviceFd::from(OwnedFd::from(file)));
+    let gbm = GbmDevice::new(fd).map_err(|e| format!("gbm: {e}"))?;
+    let display = unsafe { EGLDisplay::new(gbm) }.map_err(|e| format!("EGL display: {e}"))?;
+    let context = EGLContext::new(&display).map_err(|e| format!("EGL context: {e}"))?;
+    let mut renderer = unsafe { GlesRenderer::new(context) }.map_err(|e| format!("GLES: {e}"))?;
+    renderer.with_context(|gl| unsafe { (gl_string(gl, ffi::RENDERER), gl_string(gl, ffi::VERSION)) }).map_err(|e| format!("GL: {e}"))
+}
+
+/// Software renderers Mesa falls back to (a VM without 3D, no GPU driver).
+const SOFTWARE_RENDERERS: [&str; 3] = ["llvmpipe", "softpipe", "swrast"];
+
+/// `None` = this binary has no udev backend, so nothing was probed.
+pub fn check_renderer(probe: Option<Result<(String, String), String>>) -> Check {
+    let name = "render";
+    match probe {
+        None => Check { name, level: Level::Warn, detail: "built without the udev backend: nested and headless only (cargo build --features udev)".into() },
+        Some(Err(e)) => Check { name, level: Level::Fail, detail: format!("EGL/GLES on the render node failed: {e}; the real session can't draw") },
+        Some(Ok((renderer, version))) => {
+            let software = SOFTWARE_RENDERERS.iter().any(|s| renderer.contains(s));
+            let note = if software { " (software rendering: expected in a VM, slow on a real GPU)" } else { "" };
+            Check { name, level: Level::Ok, detail: format!("{renderer}, {version}{note}") }
+        }
+    }
+}
+
+/// The layout the session starts with when `[keyboard]` is unset: the
+/// system's file, else xkb's `us`, which types the wrong password on any
+/// other keyboard.
+pub fn check_keyboard(system: Option<&crate::config::Keyboard>) -> Check {
+    let name = "keyboard";
+    match system {
+        Some(kb) => {
+            let variant = if kb.variant.is_empty() { String::new() } else { format!(" ({})", kb.variant) };
+            Check { name, level: Level::Ok, detail: format!("layout {}{variant} from {}", kb.layout, crate::config::SYSTEM_KEYBOARD) }
+        }
+        None => Check {
+            name,
+            level: Level::Warn,
+            detail: format!("no layout in {}: eDE starts with `us` unless ~/.config/ede/compositor.toml sets [keyboard] layout", crate::config::SYSTEM_KEYBOARD),
+        },
+    }
+}
+
 /// Reads the system and runs every check.
 pub fn run_checks() -> Vec<Check> {
     let path = xwayland_search_path(std::env::var_os("PATH").as_deref(), Path::new(BUNDLED_XWAYLAND_DIR));
@@ -145,7 +312,21 @@ pub fn run_checks() -> Vec<Check> {
         .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("renderD")).collect())
         .unwrap_or_default();
     nodes.sort();
-    let mut checks = vec![check_render_nodes(&nodes), check_xwayland(binary.as_deref(), xwayland.as_deref())];
+    let seat = Seat { logind_seat0: read("/run/systemd/seats/seat0"), seatd: Path::new("/run/seatd.sock").exists() };
+    let cards = read_drm_cards(Path::new("/sys/class/drm"));
+    #[cfg(feature = "udev")]
+    let probe = nodes.first().map(|n| probe_renderer(&Path::new("/dev/dri").join(n)));
+    #[cfg(not(feature = "udev"))]
+    let probe: Option<Result<(String, String), String>> = None;
+    let system_keyboard = read(crate::config::SYSTEM_KEYBOARD).and_then(|t| crate::config::parse_system_keyboard(&t));
+    let mut checks = vec![
+        check_render_nodes(&nodes),
+        check_drm(&cards),
+        check_seat(&seat),
+        check_renderer(probe),
+        check_keyboard(system_keyboard.as_ref()),
+        check_xwayland(binary.as_deref(), xwayland.as_deref()),
+    ];
     let nvidia = Path::new("/sys/module/nvidia_drm").exists().then(|| Nvidia {
         version: read("/sys/module/nvidia/version"),
         modeset_param: read("/sys/module/nvidia_drm/parameters/modeset"),
@@ -243,5 +424,74 @@ mod tests {
     fn no_render_node_fails() {
         assert_eq!(check_render_nodes(&[]).level, Level::Fail);
         assert_eq!(check_render_nodes(&["renderD128".into()]).level, Level::Ok);
+    }
+
+    #[test]
+    fn the_seat_comes_from_logind_or_seatd() {
+        let logind = |body: &str| Seat { logind_seat0: Some(body.into()), seatd: false };
+        let ok = check_seat(&logind("# private\nIS_SEAT0=1\nCAN_TTY=1\nCAN_GRAPHICAL=1\nACTIVE=2\n"));
+        assert_eq!((ok.level, ok.detail.as_str()), (Level::Ok, "logind seat0, graphical"));
+        assert_eq!(check_seat(&logind("IS_SEAT0=1\nCAN_GRAPHICAL=0\n")).level, Level::Fail, "no GPU on the seat");
+        assert_eq!(check_seat(&Seat { logind_seat0: None, seatd: true }).level, Level::Ok);
+        assert_eq!(check_seat(&Seat::default()).level, Level::Fail);
+    }
+
+    #[test]
+    fn drm_cards_are_read_from_sysfs() {
+        let sys = std::env::temp_dir().join(format!("ede-drm-{}", std::process::id()));
+        for (path, body) in [
+            ("card0/device/uevent", "DRIVER=vmwgfx\nPCI_CLASS=30000\n"),
+            ("card0-Virtual-1/status", "connected\n"),
+            ("card0-Virtual-2/status", "disconnected\n"),
+            ("card1/device/uevent", "DRIVER=simpledrm\n"),
+            ("renderD128/dev", "226:128\n"),
+        ] {
+            let p = sys.join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, body).unwrap();
+        }
+        let cards = read_drm_cards(&sys);
+        assert_eq!(
+            cards,
+            [
+                DrmCard { name: "card0".into(), driver: Some("vmwgfx".into()), connected: vec!["Virtual-1".into()] },
+                DrmCard { name: "card1".into(), driver: Some("simpledrm".into()), connected: vec![] },
+            ]
+        );
+        std::fs::remove_dir_all(&sys).unwrap();
+        assert_eq!(read_drm_cards(&sys), []);
+    }
+
+    #[test]
+    fn drm_check_names_the_virtual_gpus_and_warns_without_a_display() {
+        let vm = check_drm(&[DrmCard { name: "card0".into(), driver: Some("vmwgfx".into()), connected: vec!["Virtual-1".into()] }]);
+        assert_eq!(vm.level, Level::Ok);
+        assert!(vm.detail.contains("card0 vmwgfx") && vm.detail.contains("VirtualBox VMSVGA") && vm.detail.ends_with("Virtual-1"), "{}", vm.detail);
+        let fb = check_drm(&[DrmCard { name: "card0".into(), driver: Some("simpledrm".into()), connected: vec!["Unknown-1".into()] }]);
+        assert_eq!(fb.level, Level::Warn, "a firmware framebuffer only");
+        let dark = check_drm(&[DrmCard { name: "card0".into(), driver: Some("amdgpu".into()), connected: vec![] }]);
+        assert_eq!(dark.level, Level::Warn);
+        assert!(dark.detail.contains("no display connected"));
+        assert_eq!(check_drm(&[]).level, Level::Fail);
+    }
+
+    #[test]
+    fn the_keyboard_check_names_the_system_layout() {
+        let de = crate::config::Keyboard { layout: "de".into(), variant: "nodeadkeys".into(), ..Default::default() };
+        let check = check_keyboard(Some(&de));
+        assert_eq!(check.level, Level::Ok);
+        assert_eq!(check.detail, "layout de (nodeadkeys) from /etc/default/keyboard");
+        assert_eq!(check_keyboard(None).level, Level::Warn);
+    }
+
+    #[test]
+    fn the_renderer_check_tells_software_from_hardware() {
+        let sw = check_renderer(Some(Ok(("llvmpipe (LLVM 20.1.8, 256 bits)".into(), "OpenGL ES 3.2 Mesa 26.0.8".into()))));
+        assert_eq!(sw.level, Level::Ok);
+        assert!(sw.detail.contains("software rendering"), "{}", sw.detail);
+        let hw = check_renderer(Some(Ok(("AMD Radeon RX 7800 XT".into(), "OpenGL ES 3.2 Mesa 26.0.8".into()))));
+        assert!(!hw.detail.contains("software"));
+        assert_eq!(check_renderer(Some(Err("EGL display: no EGL".into()))).level, Level::Fail);
+        assert_eq!(check_renderer(None).level, Level::Warn, "a winit-only build");
     }
 }
