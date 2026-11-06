@@ -1,0 +1,19 @@
+# This machine as an Exponential device for the whole session: the
+# Exponential app (its launcher entry, the AppImage writes it where it was
+# started from) runs under this unit and comes back when it crashes, so the
+# device stays online while the person is logged in. `exponential-session
+# --device` does nothing when the CLI daemon's own unit
+# (`exponential daemon install`, exponential-daemon.service) runs already, or
+# when neither is installed.
+[Unit]
+Description=Exponential device (the Exponential app or daemon, online for the whole session)
+Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
+PartOf=graphical-session.target exponential-session.target
+After=graphical-session.target exponential-shell.service
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+ExecStart=/usr/bin/exponential-session --device
+Restart=on-failure
+RestartSec=5
+Slice=app.slice

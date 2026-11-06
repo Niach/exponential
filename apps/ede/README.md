@@ -6,7 +6,7 @@ libraries, never the other way round.
 
 | Crate | Role |
 |---|---|
-| `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
+| `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it. |
 | `exponential-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/exponential-desktop/ui` (factory copies in `/usr/share/exponential-desktop/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `exponential-ui` is its CLI. |
 | `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`. |
@@ -43,7 +43,11 @@ the clock), `menu.json` (the panel's popup: search, apps, the power row),
 hotkey and closes again), `notifications.json` (the toasts, top-right, on
 demand), `notification-center.json` (the bell's popup) and `tray-menu.json`
 (a tray item's menu as the tray's popup). A click outside an open popup, or
-Escape in it, closes it.
+Escape in it, closes it. A layer document's root is opaque (`$color.popover`
+for the panel, Settings, the OSD and the switcher): `$color.card` is a white
+glaze at 6% in the dark theme, right inside a window, see-through for a
+surface floating over other windows (#EDE-60; `crates/ede-ui/tests/factory.rs`
+checks every layer document).
 
 ### Notifications and the tray (#EDE-12)
 
@@ -244,7 +248,15 @@ and preferred one, make, model and physical size; `set_output {name, mode?,
 scale?, position?}` (`system`) applies a change live, the Displays page
 (#EDE-14) persists it to the file and `reload_config` re-applies the file.
 A modeset on udev goes through the DRM output (`use_mode`); nested and
-headless outputs resize. Every surface hears its output's preferred scale
+headless outputs resize. A connector that changes while connected (udev's
+hotplug: a VM window resized, a monitor re-reading its EDID) follows its
+new preferred mode unless `[[outputs]]` pins a mode it still offers; the
+scan runs 150 ms after the last change (VBoxDRMClient pushes a layout
+every 250 ms while the window is dragged), then the outputs without a
+configured position close ranks, layers re-arrange and tiled windows
+follow. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
+(the `virtualbox-guest-utils` system service, no session service needed)
+pushes the window size to `vmwgfx`, which lists it as the preferred mode. Every surface hears its output's preferred scale
 (fractional through wp-fractional-scale-v1; integer clients keep
 `wl_surface.set_buffer_scale`). Direct scanout: a fullscreen window alone
 on an output is the frame's only element, and smithay's DRM compositor
@@ -387,7 +399,9 @@ controller (the `vmwgfx` driver, its "unsupported hypervisor" kernel line
 is normal); 3D acceleration is not needed, eDE renders in software there
 like GNOME does: Mesa's EGL device is then a software device that names
 no render node, and the compositor renders through the card's own
-(`renderD128`). `exponential-compositor recovery --reason … --png out.png --size
+(`renderD128`). Such a plane has no `IN_FENCE_FD`, so a frame waits for
+llvmpipe before its flip (smithay's `needs_sync`); without the wait the
+host showed half-drawn buffers as flicker. `exponential-compositor recovery --reason … --png out.png --size
 1280x800` draws the message into a file for a look.
 
 ## ede-protocol

@@ -28,7 +28,7 @@
       "height": 40,
       "paddingLeft": "$spacing.sm",
       "paddingRight": "$spacing.md",
-      "backgroundColor": "$color.card",
+      "backgroundColor": "$color.popover",
       "borderBottomWidth": 1,
       "borderColor": "$color.border"
     },

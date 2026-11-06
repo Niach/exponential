@@ -116,6 +116,155 @@ impl Policy {
     }
 }
 
+/// What `exponential-session --device` runs (exponential-device.service) so
+/// this machine stays an online Exponential device for the whole session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceStart {
+    /// `exponential daemon install` made its own user unit
+    /// (`exponential-daemon.service`, WantedBy=default.target): it runs
+    /// already, nothing to start twice.
+    DaemonUnit,
+    /// The Exponential app's launcher entry (the AppImage writes
+    /// `at.exponential.desktop` for the path it runs from): its command.
+    App(Vec<String>),
+    /// Neither is installed.
+    Nothing,
+}
+
+/// The launcher entries that make a machine a device, in order.
+pub const DEVICE_DESKTOP_ENTRIES: &[&str] = &["at.exponential.desktop", "at.exponential.staging.desktop"];
+/// The CLI daemon's unit, under `$XDG_CONFIG_HOME/systemd/user`.
+pub const DAEMON_UNIT: &str = "exponential-daemon.service";
+
+/// Picks what to start: `daemon_unit` = the CLI daemon's unit exists;
+/// `entries` = the launcher entries found, in [`DEVICE_DESKTOP_ENTRIES`]
+/// order, each one's text.
+pub fn device_start(daemon_unit: bool, entries: &[String]) -> DeviceStart {
+    if daemon_unit {
+        return DeviceStart::DaemonUnit;
+    }
+    entries
+        .iter()
+        .find_map(|entry| desktop_exec(entry))
+        .filter(|argv| !argv.is_empty())
+        .map(DeviceStart::App)
+        .unwrap_or(DeviceStart::Nothing)
+}
+
+/// The `Exec=` command of a desktop entry's `[Desktop Entry]` group as
+/// argv, field codes (`%U`, `%f`, …) dropped, per the Desktop Entry spec:
+/// key-file escapes first (`\s`, `\n`, `\t`, `\\`), then the quoting
+/// rules (double quotes group; inside them `\"`, `` \` ``, `\$` and `\\`
+/// stand for the character).
+pub fn desktop_exec(entry: &str) -> Option<Vec<String>> {
+    let mut in_group = false;
+    let mut exec = None;
+    for line in entry.lines() {
+        let line = line.trim_start();
+        if line.starts_with('[') {
+            in_group = line.trim() == "[Desktop Entry]";
+            continue;
+        }
+        if in_group {
+            if let Some(value) = line.strip_prefix("Exec=") {
+                exec = Some(value.trim().to_string());
+                break;
+            }
+        }
+    }
+    let value = exec?;
+    // Key-file layer.
+    let mut unescaped = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            unescaped.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('s') => unescaped.push(' '),
+            Some('n') => unescaped.push('\n'),
+            Some('t') => unescaped.push('\t'),
+            Some('r') => unescaped.push('\r'),
+            Some('\\') => unescaped.push('\\'),
+            Some(other) => {
+                unescaped.push('\\');
+                unescaped.push(other);
+            }
+            None => unescaped.push('\\'),
+        }
+    }
+    // Quoting layer.
+    let mut argv: Vec<String> = Vec::new();
+    let mut arg = String::new();
+    let mut have_arg = false;
+    let mut quoted = false;
+    let mut chars = unescaped.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                have_arg = true;
+            }
+            '\\' if quoted => match chars.next() {
+                Some(e @ ('"' | '`' | '$' | '\\')) => arg.push(e),
+                Some(other) => {
+                    arg.push('\\');
+                    arg.push(other);
+                }
+                None => arg.push('\\'),
+            },
+            c if c.is_whitespace() && !quoted => {
+                if have_arg {
+                    argv.push(std::mem::take(&mut arg));
+                    have_arg = false;
+                }
+            }
+            '%' if !quoted => match chars.next() {
+                Some('%') => {
+                    arg.push('%');
+                    have_arg = true;
+                }
+                // A field code stands alone as an argument: dropped.
+                Some(_) => {
+                    if !arg.is_empty() {
+                        have_arg = true;
+                    } else {
+                        have_arg = false;
+                    }
+                }
+                None => {}
+            },
+            c => {
+                arg.push(c);
+                have_arg = true;
+            }
+        }
+    }
+    if have_arg {
+        argv.push(arg);
+    }
+    Some(argv)
+}
+
+/// Where the launcher entries live: `$XDG_DATA_HOME/applications` (default
+/// `~/.local/share/applications`, where the AppImage writes its own), then
+/// each `$XDG_DATA_DIRS` entry (default `/usr/local/share:/usr/share`).
+pub fn application_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    match std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
+        Some(home) => dirs.push(PathBuf::from(home)),
+        None => {
+            if let Some(home) = std::env::var_os("HOME") {
+                dirs.push(Path::new(&home).join(".local/share"));
+            }
+        }
+    }
+    let data_dirs = std::env::var("XDG_DATA_DIRS").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    dirs.extend(data_dirs.split(':').filter(|d| !d.is_empty()).map(PathBuf::from));
+    dirs.into_iter().map(|d| d.join("applications")).collect()
+}
+
 /// The directory under the XDG base directories (config, state, data, runtime).
 pub const DIR: &str = "exponential-desktop";
 /// What the 0.1.x `ede` package called it.
@@ -322,6 +471,45 @@ mod tests {
         assert_eq!(out[8], SHOW_BEFORE_LOGOUT.as_secs().to_string());
     }
 
+    #[test]
+    fn the_device_is_the_daemons_unit_else_the_apps_launcher_entry_else_nothing() {
+        let app = "[Desktop Entry]\nType=Application\nName=Exponential\nExec=/home/u/Downloads/Exponential-production-x86_64.AppImage %U\nIcon=at.exponential\n";
+        assert_eq!(device_start(true, &[app.into()]), DeviceStart::DaemonUnit, "the daemon's own unit already starts at login");
+        assert_eq!(device_start(false, &[app.into()]), DeviceStart::App(vec!["/home/u/Downloads/Exponential-production-x86_64.AppImage".into()]));
+        assert_eq!(device_start(false, &[]), DeviceStart::Nothing);
+        assert_eq!(device_start(false, &["[Desktop Entry]\nName=x\n".into()]), DeviceStart::Nothing, "an entry without Exec starts nothing");
+        // Production before staging.
+        let staging = "[Desktop Entry]\nExec=/opt/staging.AppImage %U\n";
+        assert_eq!(device_start(false, &[app.into(), staging.into()]), DeviceStart::App(vec!["/home/u/Downloads/Exponential-production-x86_64.AppImage".into()]));
+        assert_eq!(device_start(false, &[staging.into()]), DeviceStart::App(vec!["/opt/staging.AppImage".into()]));
+    }
+
+    #[test]
+    fn exec_lines_are_read_the_way_the_app_writes_them() {
+        // Plain, with a field code.
+        assert_eq!(desktop_exec("[Desktop Entry]\nExec=/usr/local/bin/exponential %U\n").unwrap(), vec!["/usr/local/bin/exponential"]);
+        // A path with spaces, quoted (the app's exec_escape).
+        assert_eq!(desktop_exec("[Desktop Entry]\nExec=\"/home/u/My Apps/Exponential.AppImage\" %U\n").unwrap(), vec!["/home/u/My Apps/Exponential.AppImage"]);
+        // `%%` is a percent; `$` and `"` double-escaped inside quotes.
+        assert_eq!(desktop_exec("[Desktop Entry]\nExec=/opt/100%%/app --flag\n").unwrap(), vec!["/opt/100%/app", "--flag"]);
+        assert_eq!(desktop_exec("[Desktop Entry]\nExec=\"/a/b\\\\\"c\\\\$d\"\n").unwrap(), vec!["/a/b\"c$d"]);
+        assert_eq!(desktop_exec("[Desktop Entry]\nExec=\"/a/b\\\\\\\\c d\"\n").unwrap(), vec!["/a/b\\c d"]);
+        // Key-file escapes and other groups.
+        // `\s` is a space at the key-file layer: a separator unquoted, part of the argument quoted.
+        assert_eq!(desktop_exec("[Desktop Entry]\nExec=/a/b\\sc %f %F %u\n[Desktop Action x]\nExec=/other\n").unwrap(), vec!["/a/b", "c"]);
+        assert_eq!(desktop_exec("[Desktop Entry]\nExec=\"/a/b\\sc\" %U\n").unwrap(), vec!["/a/b c"]);
+        assert_eq!(desktop_exec("[Desktop Action x]\nExec=/other\n"), None);
+        // `--icon %i` style: the code drops, the option stays (as the spec reads it).
+        assert_eq!(desktop_exec("[Desktop Entry]\nExec=app %i --name %c\n").unwrap(), vec!["app", "--name"]);
+    }
+
+    #[test]
+    fn launcher_entries_are_looked_up_in_the_xdg_data_dirs() {
+        let dirs = application_dirs();
+        assert!(dirs.iter().any(|d| d.ends_with("applications")));
+        assert!(dirs.len() >= 2, "the data home and at least one data dir: {dirs:?}");
+    }
+
     /// The files the .deb installs say what this crate expects.
     #[test]
     fn packaging_files_agree_with_the_session() {
@@ -332,9 +520,9 @@ mod tests {
         let safe = std::fs::read_to_string(root.join("wayland-sessions/exponential-safe.desktop")).unwrap();
         assert!(safe.contains("Exec=exponential-session --safe-mode\n"));
         let target = std::fs::read_to_string(root.join("systemd/exponential-session.target")).unwrap();
-        for unit in ["graphical-session.target", "xdg-desktop-autostart.target", "exponential-services.service", "exponential-shell.service", "exponential-polkit-agent.service", "exponential-keyring.service"] {
+        for unit in ["graphical-session.target", "xdg-desktop-autostart.target", "exponential-services.service", "exponential-shell.service", "exponential-polkit-agent.service", "exponential-keyring.service", "exponential-device.service"] {
             assert!(target.contains(unit), "{unit}");
-            if unit.starts_with("ede-") {
+            if unit.starts_with("exponential-") {
                 assert!(root.join("systemd").join(unit).exists(), "{unit} ships");
                 // #EDE-40: stopping the session target stops them too.
                 assert!(std::fs::read_to_string(root.join("systemd").join(unit)).unwrap().contains("PartOf=graphical-session.target exponential-session.target\n"), "{unit} is part of the session");
@@ -362,5 +550,9 @@ mod tests {
         let theme = std::fs::read_to_string(root.join("systemd/exponential-theme.service")).unwrap();
         assert!(theme.contains("ExecStart=/usr/bin/exponential-theme sync\n") && theme.contains("Before=exponential-shell.service\n"));
         assert!(std::fs::read_to_string(root.join("systemd/exponential-session.target")).unwrap().contains("exponential-theme.service"));
+        // The device unit: the app (or the daemon) stays up for the whole session, restarted when it crashes.
+        let device = std::fs::read_to_string(root.join("systemd/exponential-device.service")).unwrap();
+        assert!(device.contains("ExecStart=/usr/bin/exponential-session --device\n") && device.contains("Restart=on-failure\n"));
+        assert!(device.contains("After=graphical-session.target exponential-shell.service\n"), "the panel comes first");
     }
 }

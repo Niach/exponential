@@ -355,11 +355,20 @@ impl Ede {
             layer_map_for_output(&o).arrange();
             x += w;
         }
+        self.rehome_lost_windows(&on_it);
+    }
+
+    /// Windows in `also`, and any whose centre is on no output, reopen on
+    /// the first output (an output went away or shrank under them).
+    pub fn rehome_lost_windows(&mut self, also: &[Window]) {
+        let center = |space: &Space<Window>, w: &Window| {
+            space.element_geometry(w).map(|g| g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0))
+        };
         let Some(area) = self.space.outputs().next().and_then(|o| self.work_area(o)) else { return };
         let orphans: Vec<Window> = self
             .space
             .elements()
-            .filter(|w| on_it.contains(w) || center(&self.space, w).is_some_and(|c| self.space.output_under(c).next().is_none()))
+            .filter(|w| also.contains(w) || center(&self.space, w).is_some_and(|c| self.space.output_under(c).next().is_none()))
             .cloned()
             .collect();
         for w in orphans {

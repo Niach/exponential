@@ -1,5 +1,8 @@
 //! `exponential-session [--safe-mode]`: the session the login manager starts.
 //! `exponential-session --ready`: run by the compositor once it is up.
+//! `exponential-session --device`: exponential-device.service's command; it
+//! becomes the Exponential app (its launcher entry) so this machine is an
+//! online device for the whole session, unless the CLI daemon's own unit runs.
 
 use std::{
     process::{Child, Command, ExitCode, ExitStatus},
@@ -7,7 +10,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ede_session::{compositor_args, migrate_legacy_dirs, xdg_homes, failure_file, load_crashes, recovery_args, state_file, store_crashes, take_failure, Exit, Next, Policy, EXPORTED_ENV, FATAL_EXIT, SESSION_ENV};
+use ede_session::{
+    application_dirs, compositor_args, device_start, failure_file, load_crashes, migrate_legacy_dirs, recovery_args, state_file, store_crashes, take_failure, xdg_homes, DeviceStart, Exit, Next, Policy, DAEMON_UNIT, DEVICE_DESKTOP_ENTRIES,
+    EXPORTED_ENV, FATAL_EXIT, SESSION_ENV,
+};
 
 /// SIGTERM/SIGHUP/SIGINT arrived: the login manager ends the session.
 static TERMINATED: AtomicBool = AtomicBool::new(false);
@@ -23,9 +29,10 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--ready") => ready(),
+        Some("--device") => device(),
         None | Some("--safe-mode") => run(!args.is_empty()),
         Some(other) => {
-            eprintln!("unknown argument {other:?}; usage: exponential-session [--safe-mode]");
+            eprintln!("unknown argument {other:?}; usage: exponential-session [--safe-mode|--ready|--device]");
             ExitCode::FAILURE
         }
     }
@@ -44,6 +51,40 @@ fn ready() -> ExitCode {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         other => {
             tracing::error!("exponential-session.target did not start: {other:?}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// exponential-device.service: become the Exponential app so the machine
+/// stays online as a device (the unit restarts it when it crashes). The CLI
+/// daemon's own unit (`exponential daemon install`) already starts at login:
+/// nothing to do then, and nothing when neither is installed.
+fn device() -> ExitCode {
+    let daemon_unit = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".config")))
+        .is_some_and(|config| config.join("systemd/user").join(DAEMON_UNIT).exists());
+    let dirs = application_dirs();
+    let entries: Vec<String> = DEVICE_DESKTOP_ENTRIES
+        .iter()
+        .filter_map(|name| dirs.iter().find_map(|dir| std::fs::read_to_string(dir.join(name)).ok()))
+        .collect();
+    match device_start(daemon_unit, &entries) {
+        DeviceStart::DaemonUnit => {
+            tracing::info!("the exponential daemon runs as its own unit ({DAEMON_UNIT}); nothing to start");
+            ExitCode::SUCCESS
+        }
+        DeviceStart::Nothing => {
+            tracing::info!("no Exponential app or daemon is installed for this user; this machine is not a device");
+            ExitCode::SUCCESS
+        }
+        DeviceStart::App(argv) => {
+            use std::os::unix::process::CommandExt as _;
+            tracing::info!("starting the Exponential app: {}", argv.join(" "));
+            let err = Command::new(&argv[0]).args(&argv[1..]).exec();
+            tracing::error!("{}: {err}", argv[0]);
             ExitCode::FAILURE
         }
     }

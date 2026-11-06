@@ -226,6 +226,55 @@ fn alt_f4_asks_the_focused_window_to_close_and_focus_falls_to_the_next() {
     wait_for(&mut c, |c| c.state.toplevels[0].states.contains(&XdgState::Activated));
 }
 
+/// #EDE-60: a top layer (Settings, the switcher, a notification) is drawn
+/// above every window, also after the window repaints, is raised or gets
+/// the focus under it.
+#[test]
+fn a_top_layer_stays_above_the_windows_under_it() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let t = c.toplevel("calculator");
+    c.draw(&t, 1000, 600, RED);
+    wait_for(&mut c, |_| !windows(&h).is_empty());
+    assert_eq!(h.capture(0).at(640, 400), RED);
+
+    // Settings: a 600x400 top layer, centred (no anchor).
+    let settings = c.layer("settings", Anchor::empty(), (600, 400), 0);
+    c.draw_layer(&settings, GREEN);
+    wait_for(&mut c, |_| h.capture(0).at(640, 400) == GREEN);
+    let frame = h.capture(0);
+    assert_eq!(frame.at(340, 200), GREEN, "the layer's top-left corner");
+    assert_eq!(frame.at(939, 599), GREEN);
+    assert_eq!(frame.at(200, 150), RED, "the window shows around it");
+
+    // The window repaints under it (GTK redraws on focus loss): still below.
+    c.draw(&t, 1000, 600, BLUE);
+    wait_for(&mut c, |_| h.capture(0).at(200, 150) == BLUE);
+    assert_eq!(h.capture(0).at(640, 400), GREEN, "a repaint under the layer does not bring the window over it");
+
+    // A click on the window raises and focuses it: still below.
+    h.with(|ede| {
+        ede.pointer_motion_to((200.0, 150.0).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    c.draw(&t, 1000, 600, RED);
+    wait_for(&mut c, |_| h.capture(0).at(200, 150) == RED);
+    assert_eq!(h.capture(0).at(640, 400), GREEN, "focusing the window does not bring it over the layer");
+    assert_eq!(h.capture(0).at(939, 599), GREEN);
+
+    // A window that opens while the layer is up (Settings open, an app
+    // launched from it) maps below it too.
+    let later = c.toplevel("files");
+    c.draw(&later, 800, 500, BLUE);
+    wait_for(&mut c, |_| windows(&h).len() == 2);
+    eprintln!("windows: {:?}", windows(&h));
+    let frame = h.capture(0);
+    eprintln!("after mapping files: centre {:#x}, corner {:#x}, (300,250) {:#x}", frame.at(640, 400), frame.at(939, 599), frame.at(300, 250));
+    assert_eq!(frame.at(640, 400), GREEN, "a window opened under the layer stays under it");
+    assert_eq!(frame.at(939, 599), GREEN);
+}
+
 #[test]
 fn a_panel_layer_reserves_its_zone_and_windows_place_and_tile_around_it() {
     let h = harness(&[(1280, 800)]);
