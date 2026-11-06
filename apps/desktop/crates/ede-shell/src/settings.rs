@@ -8,6 +8,34 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
+/// `$XDG_CONFIG_HOME/exponential-desktop/shell.json`: what the shell keeps
+/// for itself (#EDE-50): the taskbar's pins, the rail.
+pub fn shell_path() -> PathBuf {
+    config_path().with_file_name("shell.json")
+}
+
+/// The shell's own file as JSON (an object; `{}` when there is none).
+pub fn shell_json() -> Value {
+    std::fs::read_to_string(shell_path()).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}))
+}
+
+/// Merges `changes` (an object) into the shell's own file.
+pub fn persist_shell(changes: Value) {
+    let mut current = shell_json();
+    if let (Some(cur), Some(ch)) = (current.as_object_mut(), changes.as_object()) {
+        for (k, v) in ch {
+            cur.insert(k.clone(), v.clone());
+        }
+    }
+    let path = shell_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(&current).unwrap_or_default()) {
+        tracing::warn!(path = %path.display(), "shell.json: {e}");
+    }
+}
+
 /// `$XDG_CONFIG_HOME/exponential-desktop/compositor.toml`.
 pub fn config_path() -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config"));

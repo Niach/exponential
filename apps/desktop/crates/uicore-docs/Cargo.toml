@@ -1,0 +1,13 @@
+[package]
+name = "uicore-docs"
+description = "The factory genUI documents of the shell both hosts draw (#EDE-50): apps/ede/ui/*.json compiled in, parsed and checked, so Exponential Desktop installs them and the IDE can embed them"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+eui-core = { path = "../eui-core" }

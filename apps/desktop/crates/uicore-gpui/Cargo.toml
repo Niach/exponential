@@ -1,0 +1,16 @@
+[package]
+name = "uicore-gpui"
+description = "The shell's gpui host (#EDE-50): the ShellHost trait with an Exponential Desktop implementation (one wlr-layer-shell surface per region, popup documents and hosted Popover/Menu layers as xdg_popups) and a windowed one (normal windows: --windowed, macOS, the IDE later); the surface windows eui-gpui paints the documents in, fed from uicore-data"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+eui-core = { path = "../eui-core" }
+eui-gpui = { path = "../eui-gpui", default-features = false }
+ede-ui = { path = "../../../ede/crates/ede-ui" }
+uicore-data = { path = "../uicore-data" }
+gpui.workspace = true
+serde_json = "1"
+tracing = "0.1"

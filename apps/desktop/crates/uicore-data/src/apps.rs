@@ -25,6 +25,9 @@ pub struct App {
     pub icon: Option<PathBuf>,
     /// Lowercase haystack for the search: name, generic name, keywords, id.
     pub keywords: String,
+    /// `Categories=` (freedesktop main and additional categories), for the
+    /// start menu's groups.
+    pub categories: Vec<String>,
 }
 
 impl App {
@@ -35,7 +38,13 @@ impl App {
             "comment": self.comment,
             "exec": self.exec,
             "icon": self.icon.as_ref().map(|p| format!("file://{}", p.display())).unwrap_or_default(),
+            "categories": self.categories,
         })
+    }
+
+    /// The entry as the shell reducer's start menu sees it.
+    pub fn start_menu_app(&self) -> uicore_model::StartMenuApp {
+        uicore_model::StartMenuApp { id: self.id.trim_end_matches(".desktop").to_string(), name: self.name.clone(), comment: self.comment.clone(), categories: self.categories.clone(), keywords: self.keywords.clone() }
     }
 }
 
@@ -81,7 +90,7 @@ pub fn scan() -> Vec<App> {
                     seen.insert(id, app);
                 }
                 Parsed::Hidden => {
-                    seen.insert(id, App { id: String::new(), name: String::new(), comment: String::new(), exec: String::new(), icon: None, keywords: String::new() });
+                    seen.insert(id, App { id: String::new(), name: String::new(), comment: String::new(), exec: String::new(), icon: None, keywords: String::new(), categories: Vec::new() });
                 }
                 Parsed::NotAnApp => {}
             }
@@ -96,14 +105,14 @@ pub fn scan() -> Vec<App> {
 /// the fallback glyph draws the same on every machine.
 pub fn demo() -> Vec<App> {
     [
-        ("org.gnome.Calculator", "Calculator", "Perform arithmetic, scientific or financial calculations", "gnome-calculator"),
-        ("nemo", "Files", "Access and organize files", "nemo"),
-        ("firefox", "Firefox", "Browse the web", "firefox"),
-        ("org.gnome.TextEditor", "Text Editor", "View and edit text files", "gnome-text-editor"),
-        ("terminal", "Terminal", "Use the command line", "x-terminal-emulator"),
+        ("org.gnome.Calculator", "Calculator", "Perform arithmetic, scientific or financial calculations", "gnome-calculator", "Utility"),
+        ("nemo", "Files", "Access and organize files", "nemo", "Utility"),
+        ("firefox", "Firefox", "Browse the web", "firefox", "Network"),
+        ("org.gnome.TextEditor", "Text Editor", "View and edit text files", "gnome-text-editor", "Utility"),
+        ("terminal", "Terminal", "Use the command line", "x-terminal-emulator", "System"),
     ]
     .into_iter()
-    .map(|(id, name, comment, exec)| App { id: format!("{id}.desktop"), name: name.into(), comment: comment.into(), exec: exec.into(), icon: None, keywords: format!("{name} {id}").to_lowercase() })
+    .map(|(id, name, comment, exec, category)| App { id: format!("{id}.desktop"), name: name.into(), comment: comment.into(), exec: exec.into(), icon: None, keywords: format!("{name} {id}").to_lowercase(), categories: vec![category.into()] })
     .collect()
 }
 
@@ -166,6 +175,7 @@ pub fn parse(id: &str, text: &str, desktop: &str) -> Parsed {
         exec,
         icon: Some(get("Icon")).filter(|i| !i.is_empty()).and_then(icon_file),
         keywords,
+        categories: list(get("Categories")).into_iter().map(String::from).collect(),
     })
 }
 

@@ -2793,6 +2793,9 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
+ "uicore-data",
+ "uicore-gpui",
+ "uicore-model",
  "zbus",
 ]
 
@@ -12179,6 +12182,47 @@ dependencies = [
  "url",
  "uuid",
  "x11rb",
+]
+
+[[package]]
+name = "uicore-data"
+version = "0.14.135"
+dependencies = [
+ "ede-protocol",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uicore-model",
+]
+
+[[package]]
+name = "uicore-docs"
+version = "0.14.135"
+dependencies = [
+ "eui-core",
+ "serde_json",
+]
+
+[[package]]
+name = "uicore-gpui"
+version = "0.14.135"
+dependencies = [
+ "ede-ui",
+ "eui-core",
+ "eui-gpui",
+ "gpui",
+ "serde_json",
+ "tracing",
+ "uicore-data",
+]
+
+[[package]]
+name = "uicore-model"
+version = "0.14.135"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
