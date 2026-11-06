@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "bun test ./src",
     "typecheck": "tsc --noEmit",
-    "capture": "bun run ./scripts/capture.ts"
+    "capture": "bun run ./scripts/capture.ts",
+    "flow": "bun run ./scripts/flow.ts"
   },
   "dependencies": {
     "@exp/eengine": "workspace:*",

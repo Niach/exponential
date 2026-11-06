@@ -5,7 +5,14 @@
   (eengine-ffi/README.md "Capabilities (Kotlin)"). E7 writes them from the
   package's capability manifest at the marked spot; see ../../../README.md.
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- An export declares only what its scopes ask for: genUI's video (media3)
+         merges these in; the player works without them (no wake mode, the
+         network type read is guarded). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="remove" />
+
     <!-- E7: android:icon / android:roundIcon = @mipmap/ic_launcher, overlaid with the package's icon. -->
 
     <!-- E7 writes the package's capabilities between the markers; nothing else, never INTERNET unless runner.json `network` is not `off`. -->

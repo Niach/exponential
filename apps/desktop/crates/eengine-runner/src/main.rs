@@ -21,7 +21,7 @@ use eengine_runner::{assets, storage, vault::RunnerVault};
 use eui_core::theme::{Mode, ResolvedTheme};
 use eui_gpui::host::HostPlugin;
 use eui_gpui::runtime::{Emit, ExponentialHost, HostFunction, HostOptions, SourceResolver};
-use gpui::{div, prelude::*, px, size, AnyWindowHandle, App, Bounds, Context, Entity, Hsla, SharedString, TitlebarOptions, Window, WindowAppearance, WindowBounds, WindowOptions};
+use gpui::{div, prelude::*, px, size, AnyWindowHandle, App, Bounds, Context, Entity, Hsla, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions};
 use serde_json::{json, Map, Value};
 
 type Reply = flume::Sender<Result<Value, String>>;
@@ -224,12 +224,9 @@ impl HostPlugin for Icons {
     }
 }
 
-fn mode_of(appearance: WindowAppearance) -> Mode {
-    match appearance {
-        WindowAppearance::Light | WindowAppearance::VibrantLight => Mode::Light,
-        WindowAppearance::Dark | WindowAppearance::VibrantDark => Mode::Dark,
-    }
-}
+/// #VAPP-271: every runner paints dark, whatever the system appearance (the
+/// web, iOS and Android runners do the same): one look on every platform.
+const MODE: Mode = Mode::Dark;
 
 fn platform_name(platform: Platform) -> &'static str {
     match platform {
@@ -344,7 +341,7 @@ fn main() {
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         let theme = theme_of(bundle.as_ref().ok().map(|b| &b.file));
-        let mode = mode_of(cx.window_appearance());
+        let mode = MODE;
         let fallback_title = exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
 
         // The Engine instance, or the failure painted in place of `app`.
@@ -502,11 +499,6 @@ fn main() {
                 let tx = ctx.tx.clone();
                 subs.push(cx.observe_window_activation(window, move |_, window, _| {
                     let _ = tx.send(Inbound::Activation(window.is_window_active()));
-                }));
-                subs.push(cx.observe_window_appearance(window, |this: &mut RunnerView, window, cx| {
-                    this.mode = mode_of(window.appearance());
-                    let mode = this.mode;
-                    this.ctx.host.update(cx, |h, cx| h.set_mode(mode, cx));
                 }));
                 RunnerView { ctx: ctx.clone(), theme, mode, form: None, _store: store, _subscriptions: subs }
             })
