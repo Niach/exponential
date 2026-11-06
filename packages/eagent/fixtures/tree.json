@@ -1,5 +1,5 @@
 {
-  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per thread: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED thread root REVIVES the same row (idle, nothing flagged, message pending); to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; `continuedFromId` = the ended row, the lineage a logical session walks (#EXP-1402); the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead. #EXP-1720 TEAMS OF A TREE (`treeTeams`): a root's own team, then its `scopeTeamIds` (the Assistant's conversation root: the teams picked for the turn ∩ the member's, emcp access.json `assistantScope`; null on every other root = its own team only). A new session of a tree (a child, or a root an acting-agent caller starts) takes `teamId` when given: one of its tree's teams, else refused (`forbidden`, copy.teamOutOfScope); none = the parent's / the caller's team. So a team agent's tree stays in its team and the Assistant's children spawn in their target team. A message's `scopeTeamIds` is the Assistant's turn pick: only into its conversation ROOT (an `assistant` agent's), else refused (`invalid`, copy.scopeAssistantOnly); it replaces the root's scope (deduplicated, its own team dropped).",
+  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per thread: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED thread root REVIVES the same row (idle, nothing flagged, message pending) and, as at its start, it is WATCHED again (#FEED-206: its report had dropped every watch): by its starter (the live session carrying its `thread_started` card, whoever revives it) and by a calling session outside its tree; to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; `continuedFromId` = the ended row, the lineage a logical session walks (#EXP-1402); the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead. #EXP-1720 TEAMS OF A TREE (`treeTeams`): a root's own team, then its `scopeTeamIds` (the Assistant's conversation root: the teams picked for the turn ∩ the member's, emcp access.json `assistantScope`; null on every other root = its own team only). A new session of a tree (a child, or a root an acting-agent caller starts) takes `teamId` when given: one of its tree's teams, else refused (`forbidden`, copy.teamOutOfScope); none = the parent's / the caller's team. So a team agent's tree stays in its team and the Assistant's children spawn in their target team. A message's `scopeTeamIds` is the Assistant's turn pick: only into its conversation ROOT (an `assistant` agent's), else refused (`invalid`, copy.scopeAssistantOnly); it replaces the root's scope (deduplicated, its own team dropped).",
   "cases": [
     {
       "name": "a person starts a root: queued, its first message pending",
@@ -778,6 +778,341 @@
             "busy": false,
             "needsInput": false,
             "blocked": null
+          }
+        }
+      }
+    },
+    {
+      "name": "#FEED-206: a thread an agent started, revived after its end, is watched by that agent again: its turns and its next report (explicit or automatic end) wake it, whoever revived it",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1",
+            "deviceId": "d9"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r2",
+              "callerId": "a1",
+              "text": "Fix EXP-12."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "a1",
+              "body": "Fix EXP-12.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "a1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "thread_started",
+                "sessionId": "r2"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 120000,
+            "data": {
+              "sessionId": "r2",
+              "summary": "Fixed EXP-12."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "r2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "r2"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "a1",
+              "authorKind": "agent",
+              "authorSessionId": "r2",
+              "body": "Fixed EXP-12.",
+              "card": {
+                "kind": "report",
+                "sessionId": "r2",
+                "summary": "Fixed EXP-12.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "r2"
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "endedIds": [
+              "r2"
+            ]
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 180000,
+            "data": {
+              "sessionId": "r2",
+              "userId": "u1",
+              "text": "Also cover the Windows path."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m5",
+              "to": "r2",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Also cover the Windows path.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m5"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 240000,
+            "data": {
+              "sessionId": "r2",
+              "body": "Windows path covered."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m6",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "Windows path covered.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m7",
+              "to": "a1",
+              "authorKind": "agent",
+              "authorSessionId": "r2",
+              "body": "Windows path covered.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m6"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 300000,
+            "data": {
+              "sessionId": "r2",
+              "deviceId": "d9",
+              "status": "ended"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m8",
+              "to": "r2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "r2"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m9",
+              "to": "a1",
+              "authorKind": "agent",
+              "authorSessionId": "r2",
+              "body": "Windows path covered.",
+              "card": {
+                "kind": "report",
+                "sessionId": "r2",
+                "summary": "Windows path covered.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "r2"
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "endedIds": [
+              "r2"
+            ]
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 360000,
+            "data": {
+              "sessionId": "r2",
+              "callerId": "a1",
+              "text": "One more: the docs."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m10",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "a1",
+              "body": "One more: the docs.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m10"
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 420000,
+            "data": {
+              "sessionId": "r2",
+              "summary": "Docs done."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m11",
+              "to": "r2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "r2"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m12",
+              "to": "a1",
+              "authorKind": "agent",
+              "authorSessionId": "r2",
+              "body": "Docs done.",
+              "card": {
+                "kind": "report",
+                "sessionId": "r2",
+                "summary": "Docs done.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "r2"
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "endedIds": [
+              "r2"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "a1": {
+            "wakeOn": []
+          },
+          "r2": {
+            "status": "ended",
+            "startedByAgentId": "ag1"
+          }
+        },
+        "messages": {
+          "m7": {
+            "sessionId": "a1",
+            "pending": true
+          },
+          "m9": {
+            "sessionId": "a1",
+            "pending": true
+          },
+          "m12": {
+            "sessionId": "a1",
+            "pending": true
           }
         }
       }

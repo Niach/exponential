@@ -420,6 +420,28 @@ fn watch_sessions(ctx: &mut Ctx, watcher_id: &str, ids: &[String]) -> Vec<String
     live
 }
 
+/// #FEED-206: a revived root is watched again, as at its start: by its starter (the live session carrying its
+/// `thread_started` card) and by the calling session outside its tree.
+fn rewatch_revived(ctx: &mut Ctx, root_id: &str, caller: Option<&HubSession>) {
+    let mut watchers: Vec<String> = ctx
+        .state
+        .messages
+        .iter()
+        .filter(|m| matches!(&m.card, Some(Card::ThreadStarted { session_id }) if session_id == root_id))
+        .filter_map(|m| ctx.state.sessions.get(&m.session_id))
+        .filter(|row| is_live(row) && row.root_id != root_id)
+        .map(|row| row.id.clone())
+        .collect();
+    if let Some(caller) = caller.filter(|caller| caller.root_id != root_id) {
+        watchers.push(caller.id.clone());
+    }
+    watchers.sort();
+    watchers.dedup();
+    for watcher in watchers {
+        watch_sessions(ctx, &watcher, &[root_id.to_string()]);
+    }
+}
+
 // ── the tree ─────────────────────────────────────────────────────────────────
 
 fn assert_tree_room(state: &HubState, root_id: &str, depth: i64) -> Step<()> {
@@ -720,6 +742,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
         row.needs_input = false;
         row.blocked = None;
         row.updated_at = now;
+        rewatch_revived(ctx, &target.id, caller);
         let message_id = post_send(ctx, &target.id, text_, sealed, caller)?;
         return Ok(sent(target.id, message_id));
     };

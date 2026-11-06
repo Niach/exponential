@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { boards, devices, messages, repositories, sessionReads, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, boards, devices, messages, repositories, sessionReads, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { inSession, messageWithSession } from "@/lib/sessions/messages"
 
@@ -42,7 +42,7 @@ const ready = await probeRealDb(`
 if (!ready.ok) console.info(`[bus.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
-const { endSession } = await import(`@/lib/sessions/lifecycle`)
+const { endHostedSessions, endSession } = await import(`@/lib/sessions/lifecycle`)
 const { BUS_COPY } = await import(`@/lib/sessions/bus`)
 const { buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
 const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
@@ -410,6 +410,61 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
     await endSession({ userId: w.owner, sessionId: spawned.sessionId, summary: `Nothing there.` })
     expect((await fromChild(starter, spawned.sessionId)).filter((m) => cardKind(m) === `report`)).toHaveLength(1)
     expect((await row(starter)).wakeOn).toEqual([])
+  })
+
+  it(`#FEED-206: a thread an agent started, revived after its end, reports to that agent again (explicit and automatic end)`, async () => {
+    const w = await world()
+    const [agent] = await db.insert(agents).values({ teamId: w.teamId, name: `Voicer`, deviceId: w.deviceId, ownerId: w.owner }).returning()
+    const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent!.id, text: `Hi.` } })).sessionId
+    const thread = (
+      await sendSession({
+        userId: w.owner,
+        callerSessionId: conversation,
+        viaMcp: true,
+        input: { teamId: w.teamId, deviceId: w.deviceId, text: `Fix the export.` },
+      })
+    ).sessionId
+    expect(await row(thread)).toMatchObject({ parentId: null, startedByAgentId: agent!.id })
+    const reports = async () => (await fromChild(conversation, thread)).filter((m) => cardKind(m) === `report`)
+    const turns = async () => (await fromChild(conversation, thread)).filter((m) => m.card === null)
+
+    // Round 1: its explicit end reports, then nobody watches it.
+    await w.host.claim({ sessionId: thread, deviceId: w.deviceId })
+    await endSession({ userId: w.owner, sessionId: thread, summary: `Export fixed.` })
+    expect(await reports()).toMatchObject([{ body: `Export fixed.`, consumedAt: null }])
+    expect((await row(conversation)).wakeOn).toEqual([])
+
+    // A PERSON revives it: the agent that started it watches it again.
+    await sendSession({ userId: w.owner, input: { sessionId: thread, text: `Also the CSV path.` } })
+    expect(await row(thread)).toMatchObject({ status: `idle`, endedAt: null })
+    expect((await row(conversation)).wakeOn).toEqual([thread])
+    // Its turns wake the agent (#FEED-194) ...
+    await w.host.reply({ sessionId: thread, body: `CSV path covered.` })
+    expect(await turns()).toMatchObject([{ body: `CSV path covered.`, consumedAt: null }])
+    // ... and an AUTOMATIC end (no summary: its last reply) reports to it.
+    expect(await endHostedSessions([thread])).toEqual([thread])
+    expect((await reports()).map((m) => [m.body, m.consumedAt])).toEqual([
+      [`Export fixed.`, null],
+      [`CSV path covered.`, null],
+    ])
+    expect((await row(conversation)).wakeOn).toEqual([])
+
+    // The AGENT revives it (the incident): its explicit end reports again.
+    await sendSession({
+      userId: w.owner,
+      callerSessionId: conversation,
+      viaMcp: true,
+      input: { sessionId: thread, text: `One more: the docs.` },
+    })
+    expect((await row(conversation)).wakeOn).toEqual([thread])
+    await w.host.reply({ sessionId: thread, body: `Docs drafted.` })
+    await endSession({ userId: w.owner, sessionId: thread, summary: `Docs done.` })
+    expect((await turns()).map((m) => [m.body, m.consumedAt])).toEqual([
+      [`CSV path covered.`, null],
+      [`Docs drafted.`, null],
+    ])
+    expect((await reports()).map((m) => m.body)).toEqual([`Export fixed.`, `CSV path covered.`, `Docs done.`])
+    expect((await reports()).every((m) => m.consumedAt === null)).toBe(true)
   })
 
   it(`sessions.send({answer}) answers the target's open card; the first answer wins`, async () => {
