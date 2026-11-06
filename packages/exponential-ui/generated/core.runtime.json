@@ -81,6 +81,11 @@
       "bottom",
       "left"
     ],
+    "overlayAlign": [
+      "start",
+      "center",
+      "end"
+    ],
     "inputType": [
       "text",
       "email",
@@ -2588,6 +2593,14 @@
           "enum": "side",
           "default": "bottom"
         },
+        "align": {
+          "type": "enum",
+          "enum": "overlayAlign",
+          "default": "center"
+        },
+        "anchor": {
+          "type": "string"
+        },
         "openOn": {
           "type": "enum",
           "enum": "openOn",
@@ -2634,6 +2647,19 @@
             "shape": "menuItem"
           },
           "required": true
+        },
+        "side": {
+          "type": "enum",
+          "enum": "side",
+          "default": "bottom"
+        },
+        "align": {
+          "type": "enum",
+          "enum": "overlayAlign",
+          "default": "start"
+        },
+        "anchor": {
+          "type": "string"
         },
         "openOn": {
           "type": "enum",

@@ -5,12 +5,14 @@
 // and the natives (through the FFI) behave like this renderer.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render } from "@testing-library/react"
+import { act, cleanup, fireEvent, render } from "@testing-library/react"
 import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
 import type { NestedNode } from "@exponential_app/eui"
 import fixture from "@exponential_app/eui/fixtures/interactions-round1.json"
 import stripFixture from "@exponential_app/eui/fixtures/tabs-strip.json"
+import { useEffect } from "react"
 import { ExponentialSurface } from "./surface"
+import { useSurface, type SurfaceState } from "./use-surface"
 import { sortRows, type TableColumn } from "./natives/table"
 import type { SurfaceActionEvent } from "./host"
 
@@ -366,5 +368,75 @@ describe(`fixtures/interactions-round1.json tree`, () => {
         expect(visible).toEqual(c.after.visible)
       }
     })
+  }
+})
+
+interface FieldWriteCase {
+  name: string
+  seed: string
+  pressPath?: string
+  pressValue?: unknown
+  steps: { op: `focus` | `type` | `hostWrite` | `press` | `blur`; text?: string; path?: string; value?: unknown }[]
+  expect: { text: string; data?: unknown }
+}
+
+/** #VAPP-288: an Input bound to /draft and a Button whose press `set`s,
+ *  on a `useSurface` state (so a host write is a real updateDataModel). */
+function FieldWrites({ c, onState }: { c: FieldWriteCase; onState: (s: SurfaceState) => void }) {
+  const surface = useSurface({
+    surfaceId: `fw`,
+    data: { draft: c.seed },
+    initial: {
+      id: `root`,
+      component: `Stack`,
+      children: [
+        { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { path: `/draft` } } },
+        { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { call: `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
+      ],
+    } as NestedNode,
+  })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="fw" />
+}
+
+describe(`fixtures/interactions-round1.json fieldWrites`, () => {
+  for (const c of (fixture as unknown as { fieldWrites: FieldWriteCase[] }).fieldWrites) {
+    it(`fieldWrites: ${c.name}`, () => {
+      let state!: SurfaceState
+      const { container } = render(<FieldWrites c={c} onState={(s) => (state = s)} />)
+      const input = () => container.querySelector(`[data-xui-id="draft"] input`) as HTMLInputElement
+      for (const step of c.steps) {
+        if (step.op === `focus`) fireEvent.focus(input())
+        else if (step.op === `type`) fireEvent.change(input(), { target: { value: step.text } })
+        else if (step.op === `hostWrite`) act(() => state.apply({ updateDataModel: { surfaceId: `fw`, path: step.path, value: step.value } }))
+        else if (step.op === `press`) fireEvent.click(container.querySelector(`[data-xui-id="save"]`)!)
+        else fireEvent.blur(input())
+      }
+      expect(input().value).toBe(c.expect.text)
+      if (`data` in c.expect) expect((state.data as Record<string, unknown>).draft).toBe(c.expect.data)
+    })
+    // The same on a surface over local data (a `data` prop, no state).
+    if (c.steps.every((s) => s.op !== `hostWrite`))
+      it(`fieldWrites (local data): ${c.name}`, () => {
+        const root = tree({
+          id: `root`,
+          component: `Stack`,
+          children: [
+            { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { path: `/draft` } } },
+            { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { call: `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
+          ],
+        } as NestedNode)
+        const { container } = render(<ExponentialSurface root={root} data={{ draft: c.seed }} theme="neutral" id="fwl" />)
+        const input = () => container.querySelector(`[data-xui-id="draft"] input`) as HTMLInputElement
+        for (const step of c.steps) {
+          if (step.op === `focus`) fireEvent.focus(input())
+          else if (step.op === `type`) fireEvent.change(input(), { target: { value: step.text } })
+          else if (step.op === `press`) fireEvent.click(container.querySelector(`[data-xui-id="save"]`)!)
+          else fireEvent.blur(input())
+        }
+        expect(input().value).toBe(c.expect.text)
+      })
   }
 })

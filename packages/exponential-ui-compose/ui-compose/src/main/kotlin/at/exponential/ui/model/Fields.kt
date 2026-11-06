@@ -16,10 +16,20 @@ import kotlinx.coroutines.launch
  * `Composer`). The CLIENT owns the string (a `BasicTextField` with its own
  * value, never a state the core re-writes per key: the VAPP-4 burst
  * finding); every edit carries a revision; a 150 ms debounce sends
- * `change`, blur / Enter send `commit`; an echo (a changed `value` prop) is
- * written in only while the field is idle and unfocused.
+ * `change`, blur / Enter send `commit`. An echo of the field's own edits
+ * (a changed `value` prop from the host: updateDataModel, a bind) is
+ * written in only while the field is idle and unfocused; a PROGRAMMATIC
+ * write (an action's `set`: a press's `functionCall set`, a package
+ * action's `sets` = `assignData`, both bump the surface's write epoch) is
+ * adopted even while focused, an outstanding edit dropped (#VAPP-288).
  */
-class FieldState internal constructor(val id: String, text: String, internal var external: JsonValue) {
+class FieldState internal constructor(
+    val id: String,
+    text: String,
+    internal var external: JsonValue,
+    /** The surface's write epoch the field last looked at. */
+    internal var seenEpoch: ULong = 0u,
+) {
     /** The field's text (what the view shows). */
     var text by mutableStateOf(text)
         internal set
@@ -60,7 +70,7 @@ fun SurfaceModel.field(index: Int): FieldState? {
     if (!n.isTextField) return null
     fieldsMap[n.id]?.let { return it }
     val external = fieldExternal(n)
-    val f = FieldState(n.id, external.displayText, external)
+    val f = FieldState(n.id, external.displayText, external, surface.writeEpoch())
     fieldsMap[n.id] = f
     return f
 }
@@ -200,16 +210,47 @@ fun SurfaceModel.composerSubmit(index: Int) {
     dispatch(events, inputRevision = f.revision)
 }
 
-/** After a pass: apply changed `value` props to idle, unfocused fields. */
+/**
+ * A press sends the focused field's outstanding edit first (a `change`), so
+ * the action sees the current text and a programmatic `set` back to the
+ * pre-edit value still reads as a change of the field's value.
+ */
+internal fun SurfaceModel.flushFocusedField() {
+    val id = focusedField ?: return
+    val f = fieldsMap[id] ?: return
+    if (!f.pendingChange) return
+    val index = indexOf(id) ?: return
+    f.debounce?.cancel()
+    flushField(f, index, commit = false)
+}
+
+/**
+ * After a pass: apply changed `value` props. An echo lands only in idle,
+ * unfocused fields; a programmatic write (the write epoch moved and the
+ * field's value changed) lands even while focused (#VAPP-288).
+ */
 internal fun SurfaceModel.echoFields() {
+    val epoch = runCatching { surface.writeEpoch() }.getOrDefault(0uL)
     for (n in nodes) {
         if (!n.isTextField) continue
         val f = fieldsMap[n.id] ?: continue
         val external = fieldExternal(n)
+        val programmatic = epoch != f.seenEpoch
+        f.seenEpoch = epoch
         if (external == f.external) continue
         f.external = external
-        if (f.focused || f.pendingChange) continue
         val text = external.displayText
+        if (programmatic && (f.focused || f.pendingChange)) {
+            f.debounce?.cancel()
+            f.debounce = null
+            f.pendingChange = false
+            if (text != f.text) {
+                f.text = text
+                f.writeGeneration += 1
+            }
+            continue
+        }
+        if (f.focused || f.pendingChange) continue
         if (text != f.text) {
             f.text = text
             f.writeGeneration += 1

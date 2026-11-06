@@ -29,6 +29,7 @@ COPY packages/tsconfig/package.json packages/tsconfig/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/widget/package.json packages/widget/package.json
 COPY apps/styleguide/package.json apps/styleguide/package.json
+COPY apps/runner/web/package.json apps/runner/web/package.json
 COPY packages/store-shots/package.json packages/store-shots/package.json
 COPY packages/view-catalog/package.json packages/view-catalog/package.json
 COPY packages/shots/package.json packages/shots/package.json
@@ -52,6 +53,7 @@ COPY --from=builder /app/apps/site/package.json apps/site/package.json
 COPY --from=builder /app/apps/push-relay/package.json apps/push-relay/package.json
 COPY --from=builder /app/apps/steer-relay/package.json apps/steer-relay/package.json
 COPY --from=builder /app/apps/styleguide/package.json apps/styleguide/package.json
+COPY --from=builder /app/apps/runner/web/package.json apps/runner/web/package.json
 COPY --from=builder /app/packages packages
 # EXP-380: scoped to @exp/web on purpose. Unfiltered, this reinstalled the ENTIRE
 # workspace into the published image, so every recipient would receive the other

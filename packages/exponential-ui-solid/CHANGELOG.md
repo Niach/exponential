@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A focused text field adopts an action's `set` of its bound value (#VAPP-288): `ctx.assignData` / `ctx.writeEpoch`, `createHostOwnedValue({epoch})`; echoes keep the typing rule.
 - Tree (#VAPP-285): a Tree row keeps `role=treeitem` and takes the WAI-ARIA tree keys (`treeKeyTarget`).
 - A foldable Row (#VAPP-284): a pressable Box with `on.toggle` and `aria-expanded` takes ArrowRight / ArrowLeft (`foldKey`, rtl-aware); a press target inside another fires only its own press.
 
@@ -22,6 +23,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 - DatePicker `inline` (the month grid in place), `marks` event dots, `today`, the `month` event; days carry the `isToday` / `outside` recipe props, parity-gated against React (VAPP-282).
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).
 - Slider `icon`, `endLabel`, `showValue` (#VAPP-286): a leading glyph, short muted text after the track (bindable) and `showValue: false` (no value above the track); the core lays the volume row out as a `row` part (gap sm: icon iconSm, the growing track, the end label at least buttonIcon wide). New parts `row`, `icon`, `end`; prompt budget 9,216 -> 9,237 (a named exception). Solid paints the row in the same DOM order.
+- `host.popupHost` (VAPP-281), as React.
+- Popover `align` + `anchor`, Menu `side` + `align` + `anchor` (VAPP-276): the popper's `align`; an `anchor`ed overlay is placed against that node, which gets the trigger's aria + toggle; Escape returns focus to it.
 - `host.markdownOptions` (`breaks`, `density`, `selectable`, `streaming`), as React: the blocks render keyed by object, so a streamed text keeps its finished blocks' DOM.
 - Markdown host hooks (`catalog/host.json` `markdown`): a `textLinks` chip paints the Chip look inline, `imageSize` / `onImagePress` size and press block images, `attachment` paints a one-link paragraph as the Video / AudioPlayer native or the FileUpload file row. `hostPlugin(host)` forwards the policy's hooks.
 - Markdown parses the same on all five renderers (`markdown-render.json`, every golden case passes; VAPP-258), and a number field seeded with a value selects it on focus so Save runs once (VAPP-208).

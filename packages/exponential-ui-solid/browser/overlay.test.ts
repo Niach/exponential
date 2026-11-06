@@ -12,7 +12,7 @@ import { placeOverlay } from "@exponential_app/eui"
 import overlays from "@exponential_app/eui/fixtures/overlay-geometry.json"
 import { bunHarness, launchChromium, openPage, type RunningHarness } from "../../exponential-ui/conformance/browser-page"
 
-type Case = { name: string; anchor: { x: number; y: number; width: number; height: number }; size: { width: number; height: number }; viewport: { width: number; height: number }; side: `top` | `right` | `bottom` | `left`; expected: { x: number; y: number; side: string; flipped: boolean } }
+type Case = { name: string; anchor: { x: number; y: number; width: number; height: number }; size: { width: number; height: number }; viewport: { width: number; height: number }; side: `top` | `right` | `bottom` | `left`; align?: `start` | `center` | `end`; expected: { x: number; y: number; side: string; flipped: boolean } }
 const cases = overlays.cases as Case[]
 const tolerance = overlays.tolerancePx as number
 
@@ -43,12 +43,12 @@ describe(`overlay-geometry.json in Chromium (Solid)`, () => {
       expect(got).not.toBeNull()
       // The content's own box (the child + the recipe's padding) is what
       // the popper placed; the rule is replayed with that measured size.
-      const want = placeOverlay(c.anchor, { width: got.w, height: got.h }, c.viewport, { side: c.side })
+      const want = placeOverlay(c.anchor, { width: got.w, height: got.h }, c.viewport, { side: c.side, align: c.align })
       expect(got.side).toBe(c.expected.side)
       expect(want.side).toBe(c.expected.side)
       expect(Math.abs(got.x - want.x), `x: solid ${got.x} rule ${want.x}`).toBeLessThanOrEqual(tolerance)
       expect(Math.abs(got.y - want.y), `y: solid ${got.y} rule ${want.y}`).toBeLessThanOrEqual(tolerance)
-      expect(placed).toEqual({ wrapper: true, position: `fixed`, inLayer: true, align: `center` })
+      expect(placed).toEqual({ wrapper: true, position: `fixed`, inLayer: true, align: c.align ?? `center` })
     })
   })
 })

@@ -18,6 +18,7 @@
 // keeps `merge_state` honest for the status pill and never dispatches,
 // composes, lands or posts; yolo and the direct merge keep merging.
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm"
+import { gatedChecksState } from "@exp/domain-contract/pr-checks"
 import {
   composeBatch,
   MERGE_TRAIN_LIMITS,
@@ -228,13 +229,32 @@ async function readinessInputs(prs: PrRow[]) {
     const [team] = await db.select({ mode: teams.mergeMode }).from(teams).where(eq(teams.id, teamId)).limit(1)
     modes.set(teamId, (team?.mode as TeamMergeMode | undefined) ?? `auto`)
   }
-  return { tree, modes }
+  // #EXP-1711: readiness reads the GATED checks (required when the base
+  // names any), never an informational leg.
+  const ids = prs.map((pr) => pr.id)
+  const rows =
+    ids.length === 0
+      ? []
+      : await db
+          .select({
+            pullRequestId: pullRequestChecks.pullRequestId,
+            name: pullRequestChecks.name,
+            status: pullRequestChecks.status,
+            conclusion: pullRequestChecks.conclusion,
+            required: pullRequestChecks.required,
+          })
+          .from(pullRequestChecks)
+          .where(inArray(pullRequestChecks.pullRequestId, ids))
+  const checks = new Map<string, typeof rows>()
+  for (const row of rows) checks.set(row.pullRequestId, [...(checks.get(row.pullRequestId) ?? []), row])
+  return { tree, modes, checks }
 }
 
-function waitOf(pr: PrRow, { tree, modes }: ReadinessInputs): MergeWait | null {
+function waitOf(pr: PrRow, { tree, modes, checks }: ReadinessInputs): MergeWait | null {
+  const rows = checks.get(pr.id)
   return mergeWait({
     draft: pr.state === `draft`,
-    checksState: pr.checksState,
+    checksState: rows && rows.length > 0 ? gatedChecksState(rows) : pr.checksState,
     subtreeIdle: subtreeIdle(
       pr.sessionId,
       tree.filter((s) => s.rootId === pr.rootSessionId)
@@ -484,7 +504,7 @@ async function landPullRequests(
   // Every PR is merged in Exponential BEFORE the forge closes any: a
   // stack's close (or its branch going) must find the rows above merged.
   for (const id of ids) {
-    await applyPullRequestMerged({ pullRequestId: id, mergedAt: now, base, actorUserId: null })
+    await applyPullRequestMerged({ pullRequestId: id, mergedAt: now, base, actorUserId: null, trainLanding: true })
     const result = await db.transaction(async (tx) => {
       const step = await stepPullRequestInTx(tx, id, { type: `train_landed` }, { base, now })
       const [pr] = await tx.select({ number: pullRequests.number }).from(pullRequests).where(eq(pullRequests.id, id)).limit(1)

@@ -26,8 +26,9 @@ pub const SHEET_MAX_HEIGHT: f32 = 0.9;
 pub const TOAST_MAX_WIDTH: f32 = 420.0;
 pub const TOAST_GAP: f32 = 8.0;
 
-/// One placed layer: its placement, position name and anchor frame.
-type Placed = (Option<OverlayPlacement>, String, Option<Frame>);
+/// One placed layer: its placement, position name, anchor frame, the
+/// physical alignment of an anchored one and whether it is hosted outside.
+type Placed = (Option<OverlayPlacement>, String, Option<Frame>, Option<OverlayAlign>, bool);
 
 /// A layout pass in progress (the step API).
 #[derive(Debug, Clone)]
@@ -82,6 +83,28 @@ struct View {
     y: f32,
     w: f32,
     h: f32,
+}
+
+/// Start / end follow the direction (RTL mirrors them).
+fn physical_align(align: OverlayAlign, rtl: bool) -> OverlayAlign {
+    match (align, rtl) {
+        (OverlayAlign::Start, true) => OverlayAlign::End,
+        (OverlayAlign::End, true) => OverlayAlign::Start,
+        (a, _) => a,
+    }
+}
+
+/// VAPP-281: a hosted popup lays out unclipped by the surface (its natural
+/// width; the clamp is the host's window system's).
+fn unbounded(view: View) -> View {
+    View { w: f32::INFINITY, ..view }
+}
+
+/// VAPP-281: a hosted popup against its anchor: no flip, no shift.
+fn hosted_place(a: Frame, size: OSize, side: OverlaySide, align: OverlayAlign) -> OverlayPlacement {
+    let anchor = ORect { x: a.x as f64, y: a.y as f64, width: a.w as f64, height: a.h as f64 };
+    let (x, y) = crate::overlay::anchor_position(&anchor, &size, side, align, crate::overlay::OVERLAY_OFFSET);
+    OverlayPlacement { x: (x * 1000.0).round() / 1000.0, y: (y * 1000.0).round() / 1000.0, side, flipped: false }
 }
 
 impl Surface {
@@ -401,6 +424,10 @@ impl Surface {
         let ins = self.settings.insets;
         let finite = vh.is_finite() && vh > 0.0;
         let body_shrinks = spec.scroll_body.is_some();
+        // VAPP-281: an anchored Popover / Menu (and its submenus) the host
+        // hosts outside the surface.
+        let hosted = self.settings.hosted_popups && matches!(spec.kind.as_str(), "Popover" | "Menu") && matches!(spec.placement, LayerPlacement::Anchored { .. } | LayerPlacement::AtPoint { .. });
+        let mut aligned = None;
         let (placement, position, anchor_frame, x, y) = match spec.placement {
             LayerPlacement::Centered => {
                 // EXP-1676: centred when it opens; from its first finished
@@ -473,15 +500,19 @@ impl Surface {
                 } else {
                     side
                 };
-                let size = self.shrink_to_content(root, view, pad, spec.match_anchor_width.then_some(a.w), guesses);
-                let p = self.anchor_place(a, size, view, side, align, rtl);
+                let size = self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses);
+                let physical = physical_align(align, rtl);
+                aligned = Some(physical);
+                let p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place(a, size, view, side, align, rtl) };
                 let pos = p.side.as_str().to_string();
                 (Some(p), pos, Some(a), p.x as f32, p.y as f32)
             }
             LayerPlacement::AtPoint { x, y } => {
                 let a = Frame { x, y, w: 0.0, h: 0.0 };
-                let size = self.shrink_to_content(root, view, pad, None, guesses);
-                let p = self.anchor_place(a, size, view, OverlaySide::Bottom, OverlayAlign::Start, rtl);
+                let size = self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, None, guesses);
+                let physical = physical_align(OverlayAlign::Start, rtl);
+                aligned = Some(physical);
+                let p = if hosted { hosted_place(a, size, OverlaySide::Bottom, physical) } else { self.anchor_place(a, size, view, OverlaySide::Bottom, OverlayAlign::Start, rtl) };
                 (Some(p), "point".to_string(), Some(a), p.x as f32, p.y as f32)
             }
             LayerPlacement::Toast { .. } => {
@@ -508,7 +539,7 @@ impl Surface {
             }
         };
         self.walk_frames(root, x, y, frames);
-        (placement, position, anchor_frame)
+        (placement, position, anchor_frame, aligned, hosted)
     }
 
     /// Lay a popup out at its natural width, clamped to the view (and at
@@ -532,11 +563,7 @@ impl Surface {
     /// `place_overlay` inside the safe area (align start/end follow the
     /// direction).
     fn anchor_place(&self, a: Frame, size: OSize, view: View, side: OverlaySide, align: OverlayAlign, rtl: bool) -> OverlayPlacement {
-        let align = match (align, rtl) {
-            (OverlayAlign::Start, true) => OverlayAlign::End,
-            (OverlayAlign::End, true) => OverlayAlign::Start,
-            (a, _) => a,
-        };
+        let align = physical_align(align, rtl);
         let anchor = ORect { x: (a.x - view.x) as f64, y: (a.y - view.y) as f64, width: a.w as f64, height: a.h as f64 };
         let vp = OSize { width: view.w as f64, height: if view.h > 0.0 { view.h as f64 } else { f64::INFINITY } };
         let mut p = place_overlay(&anchor, &size, &vp, &PlaceOptions { side, align, ..PlaceOptions::default() });
@@ -696,7 +723,7 @@ impl Surface {
             main.push(PlacedFrame { index: i, x: f.x, y: f.y, w: f.w, h: f.h });
         }
         let mut layers = Vec::new();
-        for (spec, (placement, position, anchor_frame)) in self.layers.clone().into_iter().zip(placed) {
+        for (spec, (placement, position, anchor_frame, align, hosted)) in self.layers.clone().into_iter().zip(placed) {
             let mut order = Vec::new();
             self.preorder(spec.root, &mut order);
             let lf = order.iter().map(|&i| {
@@ -705,7 +732,7 @@ impl Surface {
             });
             let frames_out: Vec<PlacedFrame> = lf.collect();
             drawn.extend(order);
-            layers.push(Layer { layer: spec.layer, kind: spec.kind.clone(), owner: spec.owner.clone(), root: spec.root, anchor_frame, placement, position, class: spec.class, modal: spec.modal, dismissible: spec.dismissible, frames: frames_out });
+            layers.push(Layer { layer: spec.layer, kind: spec.kind.clone(), owner: spec.owner.clone(), root: spec.root, anchor_frame, placement, align, hosted, position, class: spec.class, modal: spec.modal, dismissible: spec.dismissible, frames: frames_out });
         }
         // `%` radii against the laid-out boxes.
         for &i in &drawn {

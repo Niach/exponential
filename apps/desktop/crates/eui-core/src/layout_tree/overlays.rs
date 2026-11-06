@@ -48,11 +48,17 @@ impl Builder<'_, '_> {
         // is its ONE child (no `trigger` slot).
         let slot_trigger = if press_menu { node.children.first() } else { node.slots.as_ref().and_then(|s| s.get("trigger")) };
         let fills = slot_trigger.is_some_and(|t| !matches!(t.component.as_str(), "Button" | "Toggle"));
+        // VAPP-276: `anchor` names a node elsewhere in the surface: the
+        // overlay opens against THAT node, which becomes its trigger
+        // (`link_anchors` after the build). A press Menu with an anchor and
+        // no child draws no default trigger.
+        let anchor_id = if matches!(kind.as_str(), "Popover" | "Menu") && !context_menu { str_prop(&owner.props, "anchor").filter(|s| !s.is_empty()).map(str::to_string) } else { None };
+        let default_trigger = press_menu && anchor_id.is_none();
         if context_menu {
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
         } else if fills {
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignItems", json!("stretch"))]);
-        } else if slot_trigger.is_none() && !press_menu && kind != "Tooltip" {
+        } else if slot_trigger.is_none() && !default_trigger && kind != "Tooltip" {
             // No trigger at all (a DockCard's sheet, a controlled Dialog): the
             // wrapper lays out nothing, pinned to the start at zero size.
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignSelf", json!("flex-start"))]);
@@ -65,7 +71,7 @@ impl Builder<'_, '_> {
             if let Some(a) = anchor.filter(|_| fills) {
                 self.style_default(a, &[("flexGrow", json!(1)), ("minWidth", json!(0))]);
             }
-        } else if press_menu {
+        } else if default_trigger {
             // No child: the default outline Button from label / icon.
             let label = owner.props.get("label").cloned().unwrap_or_else(|| Value::String(self.string("menu")));
             let mut props = json!({"label": label, "variant": "outline"});
@@ -97,6 +103,9 @@ impl Builder<'_, '_> {
             self.add_state(a, "open");
         }
         if !open {
+            if let Some(target) = anchor_id {
+                self.anchor_links.push(super::AnchorLink { target, owner: owner.id.clone(), root: None, open: false, hover: open_on_hover });
+            }
             return;
         }
         let raw_side = self.responsive_prop(&owner.props, "side");
@@ -109,6 +118,8 @@ impl Builder<'_, '_> {
             Some("start") => Some(OverlaySide::Left),
             other => other.and_then(OverlaySide::parse),
         };
+        // VAPP-276: `align` along the side (Popover centre, Menu start).
+        let align = self.responsive_prop(&owner.props, "align").and_then(|v| v.as_str().and_then(OverlayAlign::parse));
         let point = self.ctx.local.context_point.get(&owner.id).copied();
         let placement = match kind.as_str() {
             "Dialog" => LayerPlacement::Centered,
@@ -118,8 +129,8 @@ impl Builder<'_, '_> {
                 Some((x, y)) => LayerPlacement::AtPoint { x, y },
                 None => LayerPlacement::Anchored { anchor: index, side: OverlaySide::Bottom, align: OverlayAlign::Start },
             },
-            "Menu" => LayerPlacement::Anchored { anchor: anchor.unwrap_or(index), side: OverlaySide::Bottom, align: OverlayAlign::Start },
-            _ => LayerPlacement::Anchored { anchor: anchor.unwrap_or(index), side: side.unwrap_or(OverlaySide::Bottom), align: OverlayAlign::Center },
+            "Menu" => LayerPlacement::Anchored { anchor: anchor.unwrap_or(index), side: side.unwrap_or(OverlaySide::Bottom), align: align.unwrap_or(OverlayAlign::Start) },
+            _ => LayerPlacement::Anchored { anchor: anchor.unwrap_or(index), side: side.unwrap_or(OverlaySide::Bottom), align: align.unwrap_or(OverlayAlign::Center) },
         };
         let content_style = match kind.as_str() {
             "Dialog" => json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "borderRadius": "$radius.xl", "width": "100%"}),
@@ -189,6 +200,9 @@ impl Builder<'_, '_> {
             if let Some(spec) = self.layers.last_mut() {
                 spec.mirror = true;
             }
+        }
+        if let Some(target) = anchor_id {
+            self.anchor_links.push(super::AnchorLink { target, owner: owner.id.clone(), root: Some(root), open: true, hover: open_on_hover });
         }
     }
 

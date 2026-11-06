@@ -160,14 +160,11 @@ fn copy(key: &str) -> Value {
 }
 
 /// The shell around one screen's template: its components and its extra data
-/// (`None` = no shell for this package).
+/// (always `Some`: without navigation or Permissions only the scrolling page box).
 fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormFactor) -> Option<(Vec<Value>, Option<Value>)> {
     let nav = eui_core::host::nav_screens(pkg);
     let permissions = runner_has_permissions(pkg);
     let tabs = nav.len() >= 2;
-    if !tabs && !permissions {
-        return None;
-    }
     let page = components.iter().map(|c| {
         if c.get("id").and_then(Value::as_str) == Some("root") {
             let mut c = c.clone();
@@ -177,6 +174,11 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
             c.clone()
         }
     });
+    if !tabs && !permissions {
+        let mut out = vec![json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "height": "100%", "overflowY": "auto"}, "children": ["runner-page"]})];
+        out.extend(page);
+        return Some((out, None));
+    }
     let title_of = |s: &Map<String, Value>| s.get("title").cloned().unwrap_or_else(|| s["template"].clone());
     let icon = shell("permissionsIcon");
     let mut out = Vec::new();
@@ -303,7 +305,8 @@ pub fn runner_failure(kind: RunnerFailure) -> Vec<Value> {
     vec![json!({"id": "root", "component": "EmptyState", "icon": shell("failureIcon"), "title": RUNNER["copy"]["failed"]["title"], "description": RUNNER["copy"]["failed"][key.as_str()]})]
 }
 
-/// The failed-action toast (surface `toast`).
+/// The failed-action toast (surface `toast`); a broker reason code reads as `copy.refusals`.
 pub fn runner_toast(message: &str) -> Vec<Value> {
-    vec![json!({"id": "root", "component": "Toast", "title": message, "type": "error"})]
+    let title = RUNNER["copy"]["refusals"].get(message).and_then(Value::as_str).unwrap_or(message);
+    vec![json!({"id": "root", "component": "Toast", "title": title, "type": "error"})]
 }

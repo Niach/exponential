@@ -287,6 +287,8 @@ impl Surface {
         if let Some((path, value)) = outcome.written {
             self.data = outcome.data;
             self.data_version += 1;
+            // #VAPP-288: an action's `set` is a programmatic write.
+            self.write_epoch += 1;
             self.needs_build = true;
             out.push(OutEvent::DataChanged { path, value });
         }

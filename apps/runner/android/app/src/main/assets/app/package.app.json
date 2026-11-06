@@ -1,0 +1,236 @@
+{
+  "formatVersion": 5,
+  "id": "at.exponential.runner.notes",
+  "name": "Notes",
+  "version": "1.0.0",
+  "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+  "description": "The runner template's placeholder bundle: E7 replaces this directory with the exported app.",
+  "functions": [
+    "records.*",
+    "app.navigate",
+    "photos.pick"
+  ],
+  "sources": [
+    "records:*"
+  ],
+  "records": {
+    "note": {
+      "title": "Note",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "capabilities": [
+    {
+      "id": "photos.read",
+      "why": "Attach a photo to a note."
+    }
+  ],
+  "screens": [
+    {
+      "template": "notes",
+      "title": "Notes",
+      "icon": "file-text"
+    },
+    {
+      "template": "photos",
+      "title": "Photos",
+      "icon": "image"
+    }
+  ],
+  "templates": {
+    "notes": {
+      "data": {
+        "notes": {
+          "rows": [],
+          "count": 0
+        },
+        "draft": ""
+      },
+      "bindings": [
+        {
+          "path": "/notes",
+          "source": "records:note?sort=createdAt&order=desc&limit=100"
+        }
+      ],
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Notes",
+          "children": [
+            "body"
+          ]
+        },
+        {
+          "id": "body",
+          "component": "Stack",
+          "gap": "md",
+          "children": [
+            "composer",
+            "list"
+          ]
+        },
+        {
+          "id": "composer",
+          "component": "Stack",
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "end",
+          "children": [
+            "draftBox",
+            "add"
+          ]
+        },
+        {
+          "id": "draftBox",
+          "component": "Box",
+          "style": {
+            "display": "flex",
+            "flexDirection": "column",
+            "flexGrow": 1,
+            "minWidth": 0
+          },
+          "children": [
+            "draft"
+          ]
+        },
+        {
+          "id": "draft",
+          "component": "Input",
+          "label": "New note",
+          "name": "draft",
+          "placeholder": "Write something",
+          "value": {
+            "path": "/draft"
+          }
+        },
+        {
+          "id": "add",
+          "component": "Button",
+          "label": "Add",
+          "icon": "ui-add",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "actions.add",
+                "args": {
+                  "text": {
+                    "path": "/draft"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "list",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "noteRow",
+            "path": "/notes/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "noteRow",
+          "component": "Row",
+          "title": {
+            "path": "text"
+          }
+        }
+      ]
+    },
+    "photos": {
+      "data": {},
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Photos",
+          "children": [
+            "body"
+          ]
+        },
+        {
+          "id": "body",
+          "component": "Stack",
+          "gap": "md",
+          "align": "center",
+          "children": [
+            "empty",
+            "pick"
+          ]
+        },
+        {
+          "id": "empty",
+          "component": "EmptyState",
+          "icon": "ui-photos",
+          "title": "No photos yet",
+          "description": "Pick one from your library."
+        },
+        {
+          "id": "pick",
+          "component": "Button",
+          "label": "Pick a photo",
+          "variant": "outline",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "photos.pick",
+                "args": {}
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "actions": {
+    "add": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "steps": [
+        {
+          "require": "size(params.text) > 0",
+          "message": "Write something first"
+        },
+        {
+          "records.upsert": {
+            "kind": "note",
+            "data": {
+              "text": "params.text"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/draft",
+            "value": "''"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -171,9 +171,12 @@ final class ActionsTests: XCTestCase {
     func testThePlanLandsOneBatchTheSetsThenTheCalls() async throws {
         let s = Surface(try Fixtures.json("actions.json"))
         XCTAssertNotNil(s.host.surface("s"))
+        let epoch = try XCTUnwrap(s.host.surface("s")).surface.writeEpoch()
         let out = await s.call("actions.log", ["date": .string("2026-11-03"), "hours": .number(2)])
         XCTAssertNil(out.error)
         XCTAssertEqual(s.batches, 1)
+        // #VAPP-288: the plan's sets are programmatic writes (assignData).
+        XCTAssertGreaterThan(try XCTUnwrap(s.host.surface("s")).surface.writeEpoch(), epoch, "the sets bump the write epoch")
         XCTAssertTrue(s.rows.contains { $0["data"] == .object(["date": .string("2026-11-03"), "hours": .number(2)]) })
         XCTAssertEqual(s.formHours, .number(0))
         XCTAssertEqual(s.toasts, ["Logged 2:00"])

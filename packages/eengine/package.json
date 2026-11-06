@@ -25,11 +25,15 @@
     "./tools": "./src/tools.ts",
     "./pdf": "./src/pdf.ts",
     "./runner": "./src/runner.ts",
+    "./broker": "./src/broker.ts",
+    "./stores": "./src/stores.ts",
+    "./instance": "./src/instance.ts",
     "./web": "./src/web/index.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "fake-indexeddb": "6.2.7",
     "typescript": "^5.7.2"
   }
 }

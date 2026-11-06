@@ -329,7 +329,7 @@ function sameBudget(a: TemplateBudget | undefined, b: TemplateBudget | undefined
   return true
 }
 
-type LiveMembers = Pick<SurfaceContextValue, `data` | `breakpoint` | `xq` | `mode`>
+type LiveMembers = Pick<SurfaceContextValue, `data` | `breakpoint` | `xq` | `mode` | `writeEpoch`>
 
 /** The context with its live members as getters over `live`. */
 function withLive(value: Omit<SurfaceContextValue, keyof LiveMembers>, live: { current: LiveMembers }): SurfaceContextValue {
@@ -338,6 +338,7 @@ function withLive(value: Omit<SurfaceContextValue, keyof LiveMembers>, live: { c
     breakpoint: { get: () => live.current.breakpoint, enumerable: true, configurable: true },
     xq: { get: () => live.current.xq, enumerable: true, configurable: true },
     mode: { get: () => live.current.mode, enumerable: true, configurable: true },
+    writeEpoch: { get: () => live.current.writeEpoch, enumerable: true, configurable: true },
   }) as SurfaceContextValue
 }
 
@@ -414,6 +415,18 @@ export function ExponentialSurface({
     const current = latestSurface.current
     if (current) current.setData(pointer, value)
     else setLocalData((cur) => setPointer(cur, pointer, value))
+  }, [])
+  // #VAPP-288: the write epoch = the surface state's (a host store's, whose
+  // package actions write programmatically too) + this surface's own count
+  // (a programmatic write on a state without `assign`, or local data).
+  const [ownEpoch, setOwnEpoch] = useState(0)
+  const writeEpoch = (surface?.writeEpoch ?? 0) + ownEpoch
+  const assignData = useCallback((pointer: string, value: unknown) => {
+    const current = latestSurface.current
+    if (current?.assign) return current.assign(pointer, value)
+    if (current) current.setData(pointer, value)
+    else setLocalData((cur) => setPointer(cur, pointer, value))
+    setOwnEpoch((n) => n + 1)
   }, [])
 
   // VAPP-141: a new tree shares every unchanged node with the last one
@@ -526,8 +539,8 @@ export function ExponentialSurface({
   // VAPP-141 + VAPP-130: data, breakpoint, xq and mode are LIVE members (getters over this
   // render's values); the context keeps its identity when only they change
   // and the layout effect below tells the subscribed nodes (`live.ts`).
-  const live = useRef({ data, breakpoint, xq, mode })
-  live.current = { data, breakpoint, xq, mode }
+  const live = useRef({ data, breakpoint, xq, mode, writeEpoch })
+  live.current = { data, breakpoint, xq, mode, writeEpoch }
   const listeners = useRef(new Set<() => void>()).current
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -538,7 +551,7 @@ export function ExponentialSurface({
   )
   useIsoLayoutEffect(() => {
     for (const listener of [...listeners]) listener()
-  }, [data, breakpoint, xq, mode, listeners])
+  }, [data, breakpoint, xq, mode, writeEpoch, listeners])
   const ctx: SurfaceContextValue = useMemo(
     () => withLive({
       surfaceId,
@@ -548,6 +561,7 @@ export function ExponentialSurface({
       extensions,
       extensionDefs,
       setData,
+      assignData,
       templateNode,
       templateBudget: budget,
       states,
@@ -570,7 +584,7 @@ export function ExponentialSurface({
       announce,
       subscribe,
     }, live),
-    [surfaceId, compiled, theme, hostValue, extensions, extensionDefs, setData, templateNode, budget, states, measure, portal, toastLayer, inlineOverlays, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
+    [surfaceId, compiled, theme, hostValue, extensions, extensionDefs, setData, assignData, templateNode, budget, states, measure, portal, toastLayer, inlineOverlays, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])

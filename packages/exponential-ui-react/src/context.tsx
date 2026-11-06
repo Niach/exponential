@@ -20,6 +20,13 @@ export interface SurfaceContextValue {
   extensionDefs: readonly ExtensionDef[]
   data: DataModel
   setData: (pointer: string, value: unknown) => void
+  /** #VAPP-288: a PROGRAMMATIC write (an action's `set` step): `setData`
+   *  that bumps `writeEpoch`, so a focused field bound there adopts it. A
+   *  field's own edits and host data writes use `setData`. */
+  assignData: (pointer: string, value: unknown) => void
+  /** #VAPP-288: the surface's write epoch (LIVE, like `data`: bumped by
+   *  every `assignData` and every host-side programmatic write). */
+  writeEpoch: number
   /** A template component id → its node (round 2: the reducer's LIFTED
    *  `templates`); `undefined` when absent. */
   templateNode: (componentId: string) => UiNode | undefined

@@ -122,6 +122,12 @@ data class SurfaceSettings(
      * width (`phone` below the theme's `$breakpoint.md`).
      */
     val formFactor: String? = null,
+    /**
+     * VAPP-281: the host shows anchored Popover / Menu layers OUTSIDE the surface
+     * (unclipped, no flip / shift; [LayerInfo.hosted]) through
+     * [at.exponential.ui.compose.LocalPopupHost].
+     */
+    val hostedPopups: Boolean = false,
 )
 
 /** Safe-area insets in dp. */
@@ -470,6 +476,7 @@ class SurfaceModel(
             timeZone = zone,
             readOnly = st.readOnly,
             formFactor = st.formFactor?.takeIf { it == "phone" || it == "wide" },
+            hostedPopups = st.hostedPopups,
         )
         val key = "$locale|$zone|${System.identityHashCode(st.formatter)}"
         var changed = false
@@ -654,6 +661,19 @@ class SurfaceModel(
         val json = value?.json
         benchCounters?.sent(path.length + (json?.length ?: 0))
         runCatching { surface.setData(path, json) }
+        invalidate(true)
+    }
+
+    /**
+     * A PROGRAMMATIC write at a JSON pointer (an action's `set`; null
+     * removes): bumps the surface's write epoch, so a bound field adopts it
+     * even while focused (#VAPP-288). Host data (updateDataModel, a bind)
+     * goes through [setData].
+     */
+    fun assignData(path: String, value: JsonValue?) {
+        val json = value?.json
+        benchCounters?.sent(path.length + (json?.length ?: 0))
+        runCatching { surface.assignData(path, json) }
         invalidate(true)
     }
 

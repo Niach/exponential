@@ -55,7 +55,9 @@ jobs:
       ede_shell: ${{ steps.f.outputs.ede_shell }}
       ios: ${{ steps.f.outputs.ios }}
       ios_app: ${{ steps.f.outputs.ios_app }}
+      ios_runner: ${{ steps.f.outputs.ios_runner }}
       android: ${{ steps.f.outputs.android }}
+      runner_android: ${{ steps.f.outputs.runner_android }}
       site: ${{ steps.f.outputs.site }}
       web_build: ${{ steps.f.outputs.web_build }}
       db: ${{ steps.f.outputs.db }}
@@ -63,6 +65,7 @@ jobs:
       workflows: ${{ steps.f.outputs.workflows }}
       gaps: ${{ steps.f.outputs.gaps }}
       merge_train: ${{ steps.f.outputs.merge_train }}
+      engine_ts: ${{ steps.f.outputs.engine_ts }}
     steps:
       # The train's diff: two shallow commits are enough for a name-only tree diff.
       - uses: actions/checkout@v4
@@ -81,7 +84,7 @@ jobs:
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
             printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
           else
-            printf 'desktop=true\neui=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\n' >> "$GITHUB_OUTPUT"
+            printf 'desktop=true\neui=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           desktop='^(apps/desktop/|packages/(domain-contract|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
@@ -101,12 +104,20 @@ jobs:
           # edit must not take a Mac for this.
           ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
           echo "ios_app=$(grep -qE "$ios_app" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #VAPP-268: the iOS runner, the Engine's Swift facade + capabilities, what it paints with.
+          ios_runner='^(apps/runner/ios/|apps/desktop/crates/(eengine|eengine-ffi|exponential-ui-ffi)/|packages/eengine/|packages/exponential-ui-swift/|scripts/lanes/runner-ios\.sh$|\.github/workflows/ios-runner\.yml$)'
+          echo "ios_runner=$(grep -qE "$ios_runner" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EXP-1544: the app, the Compose eUI modules it includes, every
           # generator that writes Kotlin into it, the fixtures and vectors its
           # unit tests read, the eNet / eUI facades (committed Kotlin bindings +
           # the host library the tests load through JNA).
           android='^(apps/android/|packages/(domain-contract|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
           echo "android=$(grep -qE "$android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #VAPP-267: the Android runner, the modules it builds from (eUI
+          # Compose, the Engine AAR + its facade and core) and the fixtures its
+          # JVM tests replay.
+          runner_android='^(apps/runner/android/|packages/(exponential-ui-compose|eengine|icons)/|apps/desktop/crates/(eengine|eengine-ffi|exponential-ui-ffi)/|apps/android/app/src/main/java/com/exponential/app/ui/icons/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
+          echo "runner_android=$(grep -qE "$runner_android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # exponential.at: the site, what it renders (eUI, Motion's WASM,
           # the shot store) and the repo markdown its reference pages read.
           site='^(apps/site/|shots/|docs/|INSTALL\.md$|packages/exponential-ui(-react)?/|apps/web/src/lib/(changelog\.ts|emcp/)|apps/desktop/crates/cli/src/main\.rs$|\.github/workflows/test\.yml$)'
@@ -131,6 +142,9 @@ jobs:
           echo "gaps=$(grep -qE "$gaps" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           merge_train='^(scripts/merge-train/|packages/domain-contract/(src/merge-train|fixtures/merge-train)|\.exponential/|\.github/workflows/(test|train)\.yml$)'
           echo "merge_train=$(grep -qE "$merge_train" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #VAPP-269: the Engine's TS twin and the web runner, with what they import.
+          engine_ts='^(packages/(eengine|emcp|domain-contract|exponential-ui|exponential-ui-react|icons)/|apps/runner/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
+          echo "engine_ts=$(grep -qE "$engine_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
@@ -321,6 +335,48 @@ jobs:
         working-directory: apps/android
         run: ./gradlew :app:compileProductionDebugKotlin :app:testProductionDebugUnitTest --no-daemon
 
+  # #VAPP-267: the Android runner template (apps/runner/android) compiles and
+  # its JVM unit tests pass: the bundle reading, deep links and the glue
+  # against the real Engine (eengine-ffi's host build through JNA). The
+  # emulator test (connectedDebugAndroidTest) stays local.
+  runner-android:
+    needs: [pick, changes]
+    if: needs.changes.outputs.runner_android == 'true'
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
+      - name: Build the Engine facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p eengine-ffi --release --features cli --locked
+      - name: Cache Gradle packages
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-runner-${{ hashFiles('apps/runner/android/**/*.gradle*', 'packages/exponential-ui-compose/gradle/libs.versions.toml', 'packages/exponential-ui-compose/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Compile + unit tests
+        working-directory: apps/runner/android
+        run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest --no-daemon
+
   # #EXP-1543: the iOS ExpCore suite (ios-core.yml) when the PR touches
   # ExpCore or a fixture it reads. INFORMATIONAL (2026-11-01): not in `gate`,
   # so a busy single Mac runner never blocks a merge; release-suite.yml runs
@@ -344,6 +400,15 @@ jobs:
     uses: ./.github/workflows/test-ios.yml
     with:
       compile_only: true
+    secrets: inherit
+
+  # #VAPP-268: the iOS runner (ios-runner.yml: the Swift capabilities, RunnerKit's
+  # swift test, the generated project's simulator build). INFORMATIONAL like
+  # ios-core: `gate` does not wait; release-suite.yml blocks on it.
+  ios-runner:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ios_runner == 'true' && vars.PR_MAC_LEGS != 'off'
+    uses: ./.github/workflows/ios-runner.yml
     secrets: inherit
 
   # eDE (#NEW-101): the compositor's own workspace. Its tests are headless
@@ -531,11 +596,27 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun run test:merge-train
 
+  # #VAPP-269: the Engine's TS twin (packages/eengine: the reducers, the
+  # AppInstance, the web stores with fakes) and the web runner (its
+  # controller's suite, its typecheck and its static export), ~1 min.
+  engine-ts:
+    needs: [pick, changes]
+    if: needs.changes.outputs.engine_ts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test ./src
+        working-directory: packages/eengine
+      - run: bun test ./src && bunx tsc --noEmit && bunx vite build
+        working-directory: apps/runner/web
+
   # EXP-1364: the ONE required status check on master (the "master: test
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -286,6 +286,16 @@ public final class SurfaceModel {
         invalidate(structure: false)
     }
 
+    /// A PROGRAMMATIC write at a JSON pointer (nil removes): an action's
+    /// `set`. Bumps the core's write epoch, so a bound field adopts it even
+    /// while focused (`setData` is a plain data-model update).
+    public func assignData(path: String, value: JSONValue?) {
+        let json = value?.wireJSON
+        if var c = Self.benchCounters { c.calls += 1; c.bytesIn += path.utf8.count + (json?.utf8.count ?? 0); Self.benchCounters = c }
+        try? surface.assignData(path: path, valueJson: json)
+        invalidate(structure: false)
+    }
+
     public var data: JSONValue { JSONValue.parse(surface.dataJson()) }
     public var issues: [JSONValue] { JSONValue.parse(surface.issuesJson()).array ?? [] }
 

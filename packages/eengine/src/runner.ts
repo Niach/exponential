@@ -89,8 +89,9 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
   const nav = navScreens(pkg)
   const permissions = runnerHasPermissions(pkg)
   const tabs = nav.length >= 2
-  if (!tabs && !permissions) return { components, data: null }
   const page = components.map((c) => (c.id === `root` ? { ...c, id: `runner-page` } : c))
+  if (!tabs && !permissions)
+    return { components: [{ id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, height: `100%`, overflowY: `auto` }, children: [`runner-page`] }, ...page], data: null }
   const S = fixture.shell
   if (formFactor === `wide`) {
     const nav_children = [`runner-title`, ...(tabs ? [`runner-screens`] : []), ...(permissions ? [`runner-permissions`] : [])]
@@ -176,7 +177,8 @@ export function runnerFailure(kind: RunnerFailure): SurfaceComponent[] {
   return [{ id: `root`, component: `EmptyState`, icon: fixture.shell.failureIcon, title: fixture.copy.failed.title, description: fixture.copy.failed[kind] }]
 }
 
-/** The failed-action toast (a refused call, a refused link): surface `toast`. */
+/** The failed-action toast (a refused call, a refused link): surface `toast`; a broker reason code reads as `copy.refusals`. */
 export function runnerToast(message: string): SurfaceComponent[] {
-  return [{ id: `root`, component: `Toast`, title: message, type: `error` }]
+  const refusals = fixture.copy.refusals as Record<string, string>
+  return [{ id: `root`, component: `Toast`, title: Object.hasOwn(refusals, message) ? refusals[message]! : message, type: `error` }]
 }

@@ -360,6 +360,8 @@ pub struct SurfaceView {
     open_layers: Vec<String>,
     layer_return: HashMap<String, String>,
     just_dismissed: Option<String>,
+    /// VAPP-281: the hosted popup layers the host last heard of.
+    hosted_popups: Vec<Layer>,
     unknown_version: Option<u64>,
     /// The host scroller's offset over the surface last given to the core.
     host_scroll: Option<(f32, f32)>,
@@ -599,6 +601,7 @@ impl SurfaceView {
             open_layers: Vec::new(),
             layer_return: HashMap::new(),
             just_dismissed: None,
+            hosted_popups: Vec::new(),
             unknown_version: None,
             host_scroll: None,
             drag: None,
@@ -729,6 +732,16 @@ impl SurfaceView {
     pub fn set_data(&mut self, path: &str, value: Option<serde_json::Value>, cx: &mut Context<Self>) -> Result<(), String> {
         self.changed = true;
         self.surface.set_data(path, value)?;
+        cx.notify();
+        Ok(())
+    }
+
+    /// #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+    /// [`SurfaceView::set_data`], and it bumps the surface's write epoch, so
+    /// a focused field bound to `path` adopts the value.
+    pub fn assign_data(&mut self, path: &str, value: Option<serde_json::Value>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.changed = true;
+        self.surface.assign_data(path, value)?;
         cx.notify();
         Ok(())
     }
@@ -1262,6 +1275,12 @@ impl SurfaceView {
         self.toasts = out.toasts.clone();
         let layers = out.layers;
         self.layers_changed(&layers, now, window, cx);
+        // VAPP-281: the host hears the hosted popups when they change.
+        let hosted: Vec<Layer> = layers.iter().filter(|l| l.hosted).cloned().collect();
+        if hosted != self.hosted_popups {
+            self.host.on_hosted_popups(&hosted);
+            self.hosted_popups = hosted;
+        }
         self.layers = layers;
         {
             let frames = &self.frames;
@@ -1689,6 +1708,9 @@ impl SurfaceView {
         let mut ghosts = std::mem::take(&mut self.exiting);
         let now = self.now_or_instant();
         for (k, g) in ghosts.iter_mut().enumerate() {
+            if g.layer.hosted {
+                continue;
+            }
             let t = now.saturating_duration_since(g.start).as_secs_f32() * 1000.0 / g.duration_ms;
             let fade = 1.0 - crate::paint::cubic_bezier(motion::EXIT_EASING, t.clamp(0.0, 1.0));
             self.swap_world(&mut g.world);
@@ -1705,6 +1727,10 @@ impl SurfaceView {
         self.exiting = ghosts;
         for k in 0..self.layers.len() {
             let layer = self.layers[k].clone();
+            // VAPP-281: the host shows it outside the surface.
+            if layer.hosted {
+                continue;
+            }
             let el = self.paint_layer(k, &layer, window, cx);
             let priority = match layer.class {
                 eui_core::layout_tree::LayerClass::Toast => 1000 + k,

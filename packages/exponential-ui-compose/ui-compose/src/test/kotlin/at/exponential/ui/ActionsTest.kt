@@ -164,9 +164,12 @@ class ActionsTest {
     fun thePlanLandsOneBatchTheSetsThenTheCalls() = runBlocking {
         val s = Surface(fixture())
         assertNotNull(s.host.surface("s"))
+        val epoch = s.host.surface("s")!!.surface.writeEpoch()
         val out = s.call("actions.log", logArgs(2.0))
         assertNull(out.error)
         assertEquals(1, s.batches)
+        // #VAPP-288: the plan's sets are programmatic writes (assignData).
+        assertTrue("the sets bump the write epoch", s.host.surface("s")!!.surface.writeEpoch() > epoch)
         val logged = JsonValue.Obj(mapOf("date" to JsonValue.Str("2026-11-03"), "hours" to JsonValue.Num(2.0)))
         assertTrue(s.rows.any { it["data"] == logged })
         assertEquals(JsonValue.Num(0.0), s.formHours)

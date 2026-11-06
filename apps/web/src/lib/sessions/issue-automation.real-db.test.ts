@@ -317,7 +317,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     expect(top.basePullRequestId).toBe(bottom.id)
 
     await applyPullRequestMerged({ pullRequestId: top.id, base: `main`, actorUserId: w.owner })
-    expect(await loadPullRequest(top.id)).toMatchObject({ state: `merged`, base: `main`, basePullRequestId: null })
+    expect(await loadPullRequest(top.id)).toMatchObject({ state: `merged`, mergeState: `merged`, base: `main`, basePullRequestId: null })
     expect(await w.status(topIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
     // The bottom PR is still open: its issue stays in review.
     expect(await w.status(bottomIssue.id)).toMatchObject({ status: `in_review` })

@@ -33,10 +33,12 @@ struct LayerView: View {
 struct PaintedLayers: View {
     let model: SurfaceModel
     var stage: LayerStage? = nil
+    @Environment(\.exponentialPopupHost) private var popupHost
 
-    /// The layers this painter owns, in paint order.
+    /// The layers this painter owns, in paint order (VAPP-281: not the ones
+    /// a popup host shows).
     private var shown: [LayerInfo] {
-        let all = PaintedLayers.stacked(model.layers)
+        let all = PaintedLayers.inSurface(model.layers, hosting: popupHost != nil)
         guard model.options.liftsLayers, let first = all.firstIndex(where: \.modal) else { return stage == nil ? all : [] }
         return stage == nil ? Array(all[..<first]) : Array(all[first...])
     }
@@ -76,6 +78,12 @@ struct PaintedLayers: View {
                     .transition(enter.map { .asymmetric(insertion: (layer.layerClass == "toast" ? AnyTransition.opacity.combined(with: .offset(y: 8)) : AnyTransition.opacity.combined(with: .scale(scale: from, anchor: layer.position == "top" ? .bottom : .top))).animation($0), removal: exit.map { AnyTransition.opacity.animation($0) } ?? .identity) } ?? .identity)
             }
         }
+    }
+
+    /// VAPP-281: the layers painted in the surface: all, less the hosted
+    /// ones while a popup host shows them.
+    static func inSurface(_ layers: [LayerInfo], hosting: Bool) -> [LayerInfo] {
+        stacked(hosting ? layers.filter { !$0.hosted } : layers)
     }
 
     /// Layers in paint order: the overlay class, then toasts (contract §5:

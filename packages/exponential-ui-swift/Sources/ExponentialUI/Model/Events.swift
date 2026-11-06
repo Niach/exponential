@@ -103,6 +103,8 @@ extension SurfaceModel {
 
     /// A full press of node `index` (a tap, Enter / Space).
     public func press(_ index: Int) {
+        // #VAPP-288: the focused field's outstanding edit goes out first.
+        flushFocusedField()
         guard !isDisabled(index), let n = node(index) else { return }
         if let target = n.triggerFor {
             if justDismissed == target {
