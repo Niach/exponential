@@ -1,0 +1,53 @@
+name: check-eengine-runner-windows
+
+# #VAPP-266: the desktop runner on Windows, the spike for eui-gpui's first
+# Windows run (gpui at our pin, fonts, the Credential Manager Vault). The
+# gate is Linux-only, so this builds the runner on windows-latest, runs its
+# tests, then starts the release binary without a bundle (it paints the
+# `missing` failure surface) and checks it is still up after 20 s.
+# Informational: not part of `gate`. IME and real rendering need hardware.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/check-eengine-runner-windows.yml"
+      - "apps/desktop/crates/eengine-runner/**"
+      - "apps/desktop/crates/eengine-desktop/**"
+      - "apps/desktop/crates/eengine/**"
+      - "apps/desktop/crates/eui-gpui/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-eengine-runner-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: windows-runner
+      - uses: ./.github/actions/cargo-fetch
+      - name: The runner's tests (bundle, vault, events, the Engine instance, the dependency gate)
+        shell: bash
+        run: cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eengine-runner -p eengine-desktop
+      - name: The release binary
+        shell: bash
+        run: cargo build --locked --manifest-path apps/desktop/Cargo.toml -p eengine-runner --profile runner
+      - name: It starts and keeps running (gpui, fonts, the failure surface)
+        shell: pwsh
+        run: |
+          $exe = "apps/desktop/target/runner/exponential-runner.exe"
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { Write-Error "exponential-runner exited with code $($p.ExitCode)"; exit 1 }
+          Stop-Process -Id $p.Id
+          Write-Output "exponential-runner ran 20 s"

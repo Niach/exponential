@@ -1,0 +1,57 @@
+[package]
+name = "eengine-runner"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "E6 (#VAPP-266): the desktop runner an exported app runs in (macOS, Windows, Linux). It loads the bundled package into one Engine instance and paints it with eui-gpui; every pixel is a genUI surface (packages/eengine/fixtures/runner.json)."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+
+[lib]
+name = "eengine_runner"
+
+[[bin]]
+name = "exponential-runner"
+path = "src/main.rs"
+
+# THE RULE (gated by `tests/dependency_gate.rs`): the Engine, its desktop
+# capabilities, genUI and gpui, nothing of the Exponential app (ui, app,
+# sync, theme, updater…), no log, crash or analytics sink. The non-UI glue
+# (bundle, config, storage, vault, events) lives in the lib, tested headless.
+[dependencies]
+eengine = { path = "../eengine", features = ["sqlite"] }
+eengine-desktop = { path = "../eengine-desktop" }
+eui-core = { path = "../eui-core" }
+# No `net`: the runner never reaches the network for its UI (file:/data: media only).
+eui-gpui = { path = "../eui-gpui", default-features = false }
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+gpui-component-assets.workspace = true
+serde_json = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+flume = { workspace = true }
+url = "2.5"
+# The IDE's fonts and Lucide icons, embedded (no runtime asset paths).
+rust-embed = { workspace = true }
+# Diagnostics compiled out: every `log` macro in the graph (gpui's included)
+# is a no-op in a release build, and nothing installs a logger.
+log = { version = "0.4", features = ["release_max_level_off"] }
+
+# The Vault in the platform keystore (runner.json `storage`).
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The Secret Service (gnome-keyring, KWallet) over the session bus.
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Credential Manager; windows 0.61 = gpui_windows' pin (already in the lock).
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials"] }
+
+[dev-dependencies]
+tempfile = "3"
+toml = "0.8"
