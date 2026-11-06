@@ -211,6 +211,27 @@ impl Builder<'_, '_> {
         self.search_fade(body, owner, suffix, &list_id, entries.len(), SEARCH_LIST_ROWS, row);
     }
 
+    /// EXP-1676: a plain Skeleton's `width` / `height` props ARE its box
+    /// (web: the inline `style={{ width, height }}`): a `"N%"` / `"Npx"`
+    /// string as written, so a `%` resolves against the parent in the
+    /// layout itself instead of reaching a host's measure (px only); no
+    /// `width` = `100%` (web's default). An authored style wins.
+    fn skeleton_box(&mut self, index: u32) {
+        let n = &mut self.nodes[index as usize];
+        for key in ["width", "height"] {
+            if n.base_style.contains_key(key) {
+                continue;
+            }
+            let v = match n.props.get(key) {
+                Some(Value::String(s)) if crate::style::percent_value(&Value::String(s.clone())).is_some() || s.trim().strip_suffix("px").is_some_and(|n| n.trim().parse::<f64>().is_ok()) => Value::String(s.trim().to_string()),
+                // The catalog's (and web's) default: the full width.
+                _ if key == "width" => Value::String("100%".into()),
+                _ => continue,
+            };
+            n.base_style.insert(key.to_string(), v);
+        }
+    }
+
     /// Skeleton with `rows`: the root holds `rows` placeholder rows (the
     /// row height, else `rowHeight`), each a `dot` (unless `dot: false`)
     /// and two `bar`s; the root paints nothing itself.
@@ -218,6 +239,7 @@ impl Builder<'_, '_> {
         let owner = self.nodes[index as usize].clone();
         let rows = owner.props.get("rows").and_then(Value::as_f64).filter(|n| n.is_finite() && *n >= 1.0).map(|n| n.floor().min(50.0) as usize).unwrap_or(0);
         if rows == 0 {
+            self.skeleton_box(index);
             return;
         }
         self.nodes[index as usize].kind = NodeKind::Container;

@@ -155,6 +155,8 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+        // EXP-1676: THE overlay scrim ×4 behind the sheet: dimmed AND blurred.
+        .background(SheetBackdropInstaller().allowsHitTesting(false))
         // N-6: the host rule — a picker inside this sheet opens INLINE in
         // the sheet's flow, never as a second sheet (`PickerPresentationKey`).
         .environment(\.pickerPresentation, .inline)

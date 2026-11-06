@@ -129,27 +129,71 @@ public final class SyncDebug: @unchecked Sendable {
 
     /// Whether a fresh failure starts a NEW streak instead of extending the
     /// current one (see errorStalenessWindow). Shared by both failure paths.
-    private static func streakBroken(previousErrorAt: Date?, streakStartedAt: Date?) -> Bool {
+    private static func streakBroken(previousErrorAt: Date?, streakStartedAt: Date?, now: Date) -> Bool {
         guard streakStartedAt != nil, let previousErrorAt else { return true }
-        return Date().timeIntervalSince(previousErrorAt) >= errorStalenessWindow
+        return now.timeIntervalSince(previousErrorAt) >= errorStalenessWindow
     }
 
     /// Health for one account's pipelines (the active account drives the
     /// banner). PURE READ off the raw stats — views observe `health` (the
     /// published answer); this is what the report* methods derive it from.
     public func health(forAccountId accountId: String?) -> Health {
-        guard let accountId, let h = accountHealth[accountId], let err = h.lastErrorAt else { return .ok }
+        guard let accountId else { return .ok }
+        return Self.health(of: accountHealth[accountId], at: Date())
+    }
+
+    /// The banner's answer for one account's stats at `now` (pure).
+    public nonisolated static func health(of health: AccountHealth?, at now: Date) -> Health {
+        guard let h = health, let err = h.lastErrorAt else { return .ok }
         // ANY success after the last failure clears instantly.
         if let ok = h.lastSuccessAt, ok > err { return .ok }
         // Staleness guard: an error that stopped repeating long ago (the retry
         // loops died with the app suspended) mustn't alarm on wake.
-        guard Date().timeIntervalSince(err) < Self.errorStalenessWindow else { return .ok }
+        guard now.timeIntervalSince(err) < errorStalenessWindow else { return .ok }
         // Alarm only once the failure streak has persisted through the grace
         // window — the wake-up burst resolves via a 2xx (streak cleared) well
         // inside it, while a genuine outage keeps the streak alive.
         guard let streakStart = h.failureStreakStartedAt,
-              Date().timeIntervalSince(streakStart) >= Self.failureStreakGrace else { return .ok }
+              now.timeIntervalSince(streakStart) >= failureStreakGrace else { return .ok }
         return h.lastErrorWasUnauthorized ? .unauthorized : .offline
+    }
+
+    /// Fold one shape response into an account's stats (pure). Nil = the
+    /// response says nothing about reachability (#EXP-1623's 404).
+    ///
+    /// EXP-1676: only ELECTRIC's 2xx proves the server is up: a 2xx without
+    /// Electric's headers (`fromElectric` false) is what a captive portal, a
+    /// maintenance page or a SPA fallback answers for a server that is DOWN,
+    /// and it must never clear the banner; it counts as a failure.
+    public nonisolated static func record(
+        _ health: AccountHealth, httpStatus: Int, fromElectric: Bool, at now: Date
+    ) -> AccountHealth? {
+        guard !isUnknownShape(httpStatus) else { return nil }
+        var h = health
+        if (200...299).contains(httpStatus), fromElectric {
+            h.lastSuccessAt = now
+            h.failureStreakStartedAt = nil // any 2xx clears the streak
+            return h
+        }
+        let previousErrorAt = h.lastErrorAt
+        h.lastErrorAt = now
+        h.lastErrorWasUnauthorized = httpStatus == 401
+        if streakBroken(previousErrorAt: previousErrorAt, streakStartedAt: h.failureStreakStartedAt, now: now) {
+            h.failureStreakStartedAt = now
+        }
+        return h
+    }
+
+    /// Fold a request that never produced an HTTP response into the stats (pure).
+    public nonisolated static func recordTransportError(_ health: AccountHealth, at now: Date) -> AccountHealth {
+        var h = health
+        let previousErrorAt = h.lastErrorAt
+        h.lastErrorAt = now
+        h.lastErrorWasUnauthorized = false
+        if streakBroken(previousErrorAt: previousErrorAt, streakStartedAt: h.failureStreakStartedAt, now: now) {
+            h.failureStreakStartedAt = now
+        }
+        return h
     }
 
     /// Record a hard failure that prevents sync from starting for an account.
@@ -178,7 +222,10 @@ public final class SyncDebug: @unchecked Sendable {
         }
     }
 
-    public func reportShape(name: String, httpStatus: Int, isLive: Bool, accountId: String) {
+    /// `fromElectric`: the response carried Electric's headers (see `record`).
+    public func reportShape(
+        name: String, httpStatus: Int, isLive: Bool, accountId: String, fromElectric: Bool = true
+    ) {
         Task { @MainActor in
             var status = self.shapes[name] ?? ShapeStatus()
             status.lastHttpStatus = httpStatus
@@ -192,19 +239,10 @@ public final class SyncDebug: @unchecked Sendable {
 
             // #EXP-1623: a 404 is one shape this (older) server does not
             // serve, never the account being unreachable.
-            guard !Self.isUnknownShape(httpStatus) else { return }
-            var h = self.accountHealth[accountId] ?? AccountHealth()
-            if (200...299).contains(httpStatus) {
-                h.lastSuccessAt = .now
-                h.failureStreakStartedAt = nil // any 2xx clears the streak
-            } else {
-                let previousErrorAt = h.lastErrorAt
-                h.lastErrorAt = .now
-                h.lastErrorWasUnauthorized = httpStatus == 401
-                if Self.streakBroken(previousErrorAt: previousErrorAt, streakStartedAt: h.failureStreakStartedAt) {
-                    h.failureStreakStartedAt = .now
-                }
-            }
+            guard let h = Self.record(
+                self.accountHealth[accountId] ?? AccountHealth(),
+                httpStatus: httpStatus, fromElectric: fromElectric, at: Date()
+            ) else { return }
             self.accountHealth[accountId] = h
             self.publishHealth(accountId: accountId)
         }
@@ -221,14 +259,9 @@ public final class SyncDebug: @unchecked Sendable {
     /// A request that never produced an HTTP response (network down, DNS, TLS).
     public func reportTransportError(name _: String, accountId: String) {
         Task { @MainActor in
-            var h = self.accountHealth[accountId] ?? AccountHealth()
-            let previousErrorAt = h.lastErrorAt
-            h.lastErrorAt = .now
-            h.lastErrorWasUnauthorized = false
-            if Self.streakBroken(previousErrorAt: previousErrorAt, streakStartedAt: h.failureStreakStartedAt) {
-                h.failureStreakStartedAt = .now
-            }
-            self.accountHealth[accountId] = h
+            self.accountHealth[accountId] = Self.recordTransportError(
+                self.accountHealth[accountId] ?? AccountHealth(), at: Date()
+            )
             self.publishHealth(accountId: accountId)
         }
     }

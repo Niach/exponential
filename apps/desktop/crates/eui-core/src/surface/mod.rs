@@ -511,6 +511,13 @@ pub struct Surface {
     viewport: (f32, f32),
     /// #VAPP-253: [`Surface::set_layer_viewport`].
     layer_viewport: Option<(f32, f32)>,
+    /// EXP-1676: an open Dialog's height at its first finished pass, by
+    /// its root id: from then on it HOLDS its bottom edge (`centre + h0/2`)
+    /// while its content grows or shrinks (an inline error under a field
+    /// never moves Save from under the pointer). Committed in `finish`;
+    /// `dialog_holds_next` collects the current pass's.
+    pub(crate) dialog_holds: HashMap<String, f32>,
+    pub(crate) dialog_holds_next: HashMap<String, f32>,
     max_height: Option<f32>,
     direction: Direction,
     rounding: bool,
@@ -613,6 +620,8 @@ impl Surface {
             last_measurer: None,
             viewport: (0.0, 0.0),
             layer_viewport: None,
+            dialog_holds: HashMap::new(),
+            dialog_holds_next: HashMap::new(),
             max_height: None,
             direction: Direction::Ltr,
             rounding: options.rounding,

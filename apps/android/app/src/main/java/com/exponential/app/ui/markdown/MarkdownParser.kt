@@ -483,7 +483,7 @@ object MarkdownParser {
                 // and a line is a paragraph boundary here, not a raw '\n':
                 // RichText's invariant is one ParagraphAttrs per '\n'-line.
                 is SoftLineBreak -> if (ctx.softBreaksAsNewlines && !ctx.inTableCell) {
-                    breakParaPreservingMarks(currentPara().attrs)
+                    breakParaPreservingMarks(currentPara().attrs.copy(lineBreak = true))
                 } else {
                     append(" ")
                 }

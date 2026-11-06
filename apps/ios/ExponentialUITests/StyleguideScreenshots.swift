@@ -551,9 +551,9 @@ final class StyleguideScreenshots: XCTestCase {
         // no subject) the other platforms photograph — after sg_chat-issues
         // it carried the Implement chips and the Temporary pick. EXP-1558:
         // the field is a block editor whose empty first line sits at the
-        // top, so tap the first line until the keyboard is up. The iOS menu
-        // is up only while the field is editing (`slashMenuVisible`), so the
-        // keyboard stays in frame. Nothing is picked.
+        // top, so tap the first line until the keyboard is up. EXP-1676: the
+        // menu follows the draft (web, Android), so the keyboard is put away
+        // like web's frame and the menu stays. Nothing is picked.
         if ScreenshotShots.isWanted("sg_composer-slash-menu") {
             let slashField = anyElement(app, identified: "agent-composer-field")
             expect(slashField, within: Wait.nav, "The home composer has no field")
@@ -568,9 +568,14 @@ final class StyleguideScreenshots: XCTestCase {
                 within: Wait.sync,
                 "Typing / opened no prompts menu — does the seed insert the team's prompts?"
             )
-            snapshot("sg_composer-slash-menu", settle: 2)
-            app.typeText(XCUIKeyboardKey.delete.rawValue)
             dismissKeyboard(app)
+            expect(
+                anyElement(app, identified: "agent-composer-slash-menu"),
+                within: Wait.nav,
+                "The / menu closed with the keyboard — it follows the draft"
+            )
+            snapshot("sg_composer-slash-menu", settle: 2)
+            clearSlashDraft(app, field: slashField)
         }
         // The dotted circle = Temporary session: today's launch, whose "+"
         // carries the runner and work rows.
@@ -730,9 +735,17 @@ final class StyleguideScreenshots: XCTestCase {
                     within: Wait.sync,
                     "Typing / in the thread composer listed no prompts — does the seed insert the team's prompts?"
                 )
-                snapshot("sg_session-slash-menu", settle: 2)
-                app.typeText(XCUIKeyboardKey.delete.rawValue)
+                // EXP-1676: web's frame has no keyboard; the menu follows the draft.
                 dismissKeyboard(app)
+                expect(
+                    app.descendants(matching: .any)
+                        .matching(NSPredicate(format: "identifier BEGINSWITH 'slash-prompt-'"))
+                        .firstMatch,
+                    within: Wait.nav,
+                    "The / menu closed with the keyboard — it follows the draft"
+                )
+                snapshot("sg_session-slash-menu", settle: 2)
+                clearSlashDraft(app, field: anyElement(app, identified: "thread-composer-field"))
             }
             // Thread → issue → board.
             goBack(app)

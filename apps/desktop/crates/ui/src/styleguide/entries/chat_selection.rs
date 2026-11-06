@@ -6,8 +6,8 @@
 //! `listCases[0]`'s rows in the issue row's selectable frame (the checkbox
 //! cell, two selected on the flat `list_active` fill, their lead discs one
 //! notch stronger), over THE bar (the issue
-//! list's bulk bar: capsule, bare count, labeled buttons, the hairline before
-//! Delete) holding `chat_selection_actions` for those two. #EXP-1553: the
+//! list's bulk bar: capsule, bare count; EXP-1676: web's specimen bar, full
+//! width with bare glyphs) holding `chat_selection_actions` for those two. #EXP-1553: the
 //! whole list like web's specimen: the Agents section
 //! (`agentRowCases[0]`), then the Chats section with the rows above.
 
@@ -17,15 +17,16 @@ use gpui_component::{v_flex, ActiveTheme as _};
 use domain::chats::{chat_sections, chat_selection_actions, ChatList, ChatSectionKey, ChatListView, ChatSelectionRow, CHATS};
 
 use crate::chat_list::{
-    agent_chat_row, chat_archived_row, chat_bar_label_min_width, chat_lead_disc, chat_row,
+    agent_chat_row, chat_archived_row, chat_lead_disc, chat_row,
     chat_section_header, chat_selectable, chat_selection_bar,
 };
 
 pub(crate) const ID: &str = "chat-selection";
 pub(crate) const OWNER: &str = "EXP-1388";
 
-/// The specimen column (the web island's 390px): the bar's labels follow the
-/// page's rule at this width, icons only.
+/// The specimen column (the web island's 390px). EXP-1676: its bar = web's
+/// specimen bar (`BulkBarCapsule iconOnly` at `w-full`): the full-width
+/// capsule, bare glyphs at the trailing edge.
 const COLUMN_W: f32 = 390.;
 
 const CHATS_JSON: &str = include_str!("../../../../../../../packages/domain-contract/fixtures/chats.json");
@@ -62,8 +63,6 @@ fn selection_rows(list: &ChatList, selected: &[String]) -> Vec<ChatSelectionRow>
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let (list, archived, selected) = model();
     let actions = chat_selection_actions(&selection_rows(&list, &selected), ChatListView::List);
-    // The page's rule at the specimen's width.
-    let labels = px(COLUMN_W) >= chat_bar_label_min_width(&actions.iter().map(|(action, _)| *action).collect::<Vec<_>>());
     let (_, agent_rows) = super::chat_list::model();
     // #FEED-191: the list's sections; the Archived entry heads the last one.
     let mut rows: Vec<AnyElement> = Vec::new();
@@ -118,7 +117,8 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                     selected.len(),
                     actions,
                     false,
-                    labels,
+                    false,
+                    true,
                     |_, _, _| {},
                     None,
                     cx,

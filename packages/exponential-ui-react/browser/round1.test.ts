@@ -86,6 +86,33 @@ describe(`audit bug C: breakpoints match inside overlays`, () => {
   })
 })
 
+describe(`EXP-1676: a Dialog holds its bottom edge`, () => {
+  it(`content that grows after it opened moves only the top edge`, async () => {
+    const tree = { id: `d`, component: `Dialog`, props: { title: `Edit`, open: true }, children: [{ id: `inner`, component: `Text`, props: { text: `Body` } }] }
+    const page = await openPage(h, { view: `tree`, tree: JSON.stringify(tree), width: 800, theme: `neutral`, mode: `light` }, { width: 840, height: 700 })
+    await page.waitForSelector(`[data-xui-overlay="Dialog"][data-xui-hold]`)
+    await page.waitForTimeout(400)
+    const box = () => page.evaluate(() => {
+      const r = document.querySelector(`[data-xui-overlay="Dialog"]`)!.getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom, height: r.height }
+    })
+    const before = await box()
+    // Inline errors arrive: the body grows by 120px.
+    await page.evaluate(() => {
+      const grow = document.createElement(`div`)
+      grow.style.height = `120px`
+      grow.style.flexShrink = `0`
+      document.querySelector(`[data-xui-overlay="Dialog"] .xui-overlay-body`)!.appendChild(grow)
+    })
+    await page.waitForTimeout(100)
+    const after = await box()
+    await page.context().close()
+    expect(Math.abs(before.top + before.height / 2 - 350), `opens centred: ${JSON.stringify(before)}`).toBeLessThanOrEqual(1)
+    expect(after.height).toBeGreaterThan(before.height + 100)
+    expect(Math.abs(after.bottom - before.bottom), `bottom held: ${before.bottom} → ${after.bottom}`).toBeLessThanOrEqual(1)
+  })
+})
+
 describe(`kitchen sink × themes × widths`, () => {
   for (const theme of BUILTIN_THEME_IDS) {
     for (const width of [390, 800, 1280]) {

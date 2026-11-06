@@ -314,7 +314,8 @@ struct AgentMarkdownText: View {
             imageMaxHeight: imageMaxHeight,
             imageCornerRadius: imageCornerRadius,
             imageStroke: imageStroke,
-            hugsContentWidth: hugsWidth
+            hugsContentWidth: hugsWidth,
+            chatTables: overrides.bodySize != nil
         )
         .environment(\.markdownLinkHandler, linkHandler)
         .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)

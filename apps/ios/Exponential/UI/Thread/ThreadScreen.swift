@@ -2102,8 +2102,9 @@ struct ThreadComposer: View {
         }
     }
 
+    /// EXP-1676: the menu follows the DRAFT, not the keyboard (web, Android).
     private func slashMenuVisible(_ draft: ThreadComposerDraft) -> Bool {
-        draft.draftEditor.isEditing && !slashMatches(draft).isEmpty
+        !slashMatches(draft).isEmpty
             && slashDismissedFor != draft.draftText
     }
 

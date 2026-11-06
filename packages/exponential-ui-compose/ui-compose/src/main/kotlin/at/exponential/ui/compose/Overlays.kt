@@ -29,6 +29,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.AbsoluteAlignment
@@ -205,6 +206,11 @@ private fun DialogLayer(model: SurfaceModel, layer: LayerInfo) {
             model.overlayViewportHeight(null)
         }
     }
+    // EXP-1676: the height it opened at (this composable is keyed by the
+    // owner, so a reopened Dialog starts over): from then on it holds its
+    // bottom edge, its content growing or shrinking upward (the core's rule).
+    val held = remember { floatArrayOf(0f) }
+    if (held[0] <= 0f && layer.frame.height > 0f) held[0] = layer.frame.height
     Dialog(
         onDismissRequest = { if (dismissible) model.dismissLayer(layer.owner) },
         properties = DialogProperties(
@@ -213,12 +219,38 @@ private fun DialogLayer(model: SurfaceModel, layer: LayerInfo) {
             usePlatformDefaultWidth = false,
         ),
     ) {
+        // The platform window stays centred (gravity CENTER); its y offset
+        // moves it up by half of what it grew, so its bottom edge holds.
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        val y = dialogHoldOffset(layer.frame.height, held[0], density, host.height / density)
+        SideEffect {
+            dialogWindow?.let { w ->
+                val attrs = w.attributes
+                if (attrs.y != y) {
+                    attrs.y = y
+                    w.attributes = attrs
+                }
+            }
+        }
         val bg = model.color("popover") ?: model.color("background") ?: Color.Transparent
         val r = model.boxStyle(layer.root).radius
         Box(Modifier.background(bg, RoundedCornerShape(r.dp))) {
             LayerView(layer)
         }
     }
+}
+
+/**
+ * EXP-1676: a centred dialog window's y offset (px, gravity CENTER) that
+ * holds its bottom edge: up by half of what it grew past `heldDp` (down by
+ * half of what it shrank), never past `OVERLAY_PADDING` below the top of a
+ * `frameDp`-tall frame (0 = unknown: no clamp).
+ */
+internal fun dialogHoldOffset(heightDp: Float, heldDp: Float, density: Float, frameDp: Float): Int {
+    if (heldDp <= 0f) return 0
+    var offset = -(heightDp - heldDp) / 2f
+    if (frameDp > 0f) offset = max(offset, 8f - (frameDp - heightDp) / 2f)
+    return (offset * density).roundToInt()
 }
 
 /**

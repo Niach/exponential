@@ -77,6 +77,10 @@ public final class SurfaceModel {
     public private(set) var inks: [Color] = []
     public private(set) var textStyles: [Int: TextStyle] = [:]
     public private(set) var layers: [LayerInfo] = []
+    /// EXP-1676: an open Dialog's first height by owner: a lifted Dialog
+    /// holds its bottom edge from then on (`LayerStage.origin`, the core's
+    /// rule for one it places itself).
+    public private(set) var dialogHolds: [String: CGFloat] = [:]
     public private(set) var lists: [String: ListInfo] = [:]
     /// Scroll containers by slot: the core's offsets and content sizes.
     public private(set) var scrolls: [Int: ScrollInfo] = [:]
@@ -457,6 +461,10 @@ public final class SurfaceModel {
         } else {
             layersSettled()
         }
+        let open = newLayers.filter { $0.modal && $0.position == "centered" && $0.frame.height > 0 }
+        var holds = dialogHolds.filter { held in open.contains { $0.owner == held.key } }
+        for l in open where holds[l.owner] == nil { holds[l.owner] = l.frame.height }
+        if holds != dialogHolds { dialogHolds = holds }
         syncToasts()
         reportUnknowns()
         echoFields()

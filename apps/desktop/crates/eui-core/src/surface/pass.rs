@@ -153,6 +153,7 @@ impl Surface {
     fn compute_all_now(&mut self) -> (Vec<Frame>, Vec<Placed>, Vec<HeightRequest>) {
         let (vw, vh) = self.viewport;
         let guesses = RefCell::new(Vec::<HeightRequest>::new());
+        self.dialog_holds_next.clear();
         let mut frames = vec![Frame::default(); self.nodes.len()];
         let mut placed = Vec::with_capacity(self.layers.len());
         if let Some(root) = self.main_root {
@@ -212,6 +213,9 @@ impl Surface {
         let (_, vh) = self.viewport;
         let bounded_h = if vh > 0.0 { Some(vh) } else { self.max_height };
         let layout_ns = state.started.elapsed().as_nanos() as u64;
+        // EXP-1676: only a FINISHED pass (real heights, never a round's
+        // guesses) fixes an open Dialog's held bottom; a closed one drops it.
+        self.dialog_holds = std::mem::take(&mut self.dialog_holds_next);
         self.output(frames, placed, bounded_h, state.rounds, state.upcalls, layout_ns)
     }
 
@@ -371,7 +375,15 @@ impl Surface {
         let body_shrinks = spec.scroll_body.is_some();
         let (placement, position, anchor_frame, x, y) = match spec.placement {
             LayerPlacement::Centered => {
-                let max_h = finite.then_some((view.h - 2.0 * pad).max(0.0));
+                // EXP-1676: centred when it opens; from its first finished
+                // pass on it HOLDS its bottom edge (`centre + h0/2`, web's
+                // `top: calc(50% + h0/2)` + `translateY(-100%)`), growing
+                // and shrinking upward, capped `pad` below the view's top.
+                let id = self.nodes[root as usize].id.clone();
+                let centre = view.y + view.h / 2.0;
+                let full = (view.h - 2.0 * pad).max(0.0);
+                let held = if finite { self.dialog_holds.get(&id).copied() } else { None };
+                let max_h = finite.then(|| held.map_or(full, |h0| (view.h / 2.0 + h0 / 2.0 - pad).clamp(0.0, full)));
                 self.layer_root_style(root, [0.0; 4], |s| {
                     if let (Some(h), true) = (max_h, body_shrinks) {
                         s.max_size.height = length(h);
@@ -381,7 +393,14 @@ impl Surface {
                 self.compute(root, Size { width: AvailableSpace::Definite(width), height: AvailableSpace::MaxContent }, guesses);
                 let size = self.engine.layout(root).size;
                 let x = view.x + ((view.w - size.width) / 2.0).max(pad);
-                let y = if finite { view.y + ((view.h - size.height) / 2.0).max(pad) } else { view.y + pad };
+                let y = match (finite, held) {
+                    (false, _) => view.y + pad,
+                    (true, Some(h0)) => (centre + h0 / 2.0 - size.height).max(view.y + pad),
+                    (true, None) => view.y + ((view.h - size.height) / 2.0).max(pad),
+                };
+                if finite {
+                    self.dialog_holds_next.insert(id, held.unwrap_or(size.height.min(full)));
+                }
                 (None, "centered".to_string(), None, x, y)
             }
             LayerPlacement::Edge(side) => {

@@ -39,13 +39,13 @@ import com.exponential.app.domain.AppRecords.DataCopy
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.FieldError
-import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
-import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.SubmitSize
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.theme.TextEmphasis
@@ -177,10 +177,12 @@ fun AppCsvImportSheet(
                     modifier = Modifier.fillMaxWidth().testTag(CsvTestIds.TEXT),
                 )
                 Row {
-                    GlassPill(
+                    // EXP-1676: web's outline `Button size="sm"` (h-8), not a chip.
+                    GlassSubmitButton(
                         CsvCopy.CHOOSE_FILE,
-                        size = PillSize.Sm,
                         onClick = { chooser.launch(CSV_MIMES) },
+                        size = SubmitSize.Small,
+                        outline = true,
                         modifier = Modifier.testTag(CsvTestIds.FILE),
                     )
                 }

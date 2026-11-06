@@ -81,10 +81,16 @@ struct AppCsvImportSheet: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 HStack {
-                    GlassPill(AppRecords.CsvImport.Copy.chooseFile, mode: .action {
+                    // EXP-1676: web's outline `Button size="sm"` (h-8), not a chip.
+                    Button {
                         UIApplication.endEditing()
                         choosing = true
-                    })
+                    } label: {
+                        GlassSubmitLabel(AppRecords.CsvImport.Copy.chooseFile, small: true, outline: true)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressScale)
+                    .fixedSize()
                     .accessibilityIdentifier(AppRecords.CsvImport.TestIds.file)
                     Spacer(minLength: 0)
                 }

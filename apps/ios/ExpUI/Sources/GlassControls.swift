@@ -100,10 +100,11 @@ public struct GlassSubmitLabel<Icon: View>: View {
 extension GlassSubmitLabel where Icon == EmptyView {
     public init(
         _ label: String, enabled: Bool = true, loading: Bool = false, pendingWord: String? = nil, compact: Bool = false,
-        small: Bool = false
+        small: Bool = false, outline: Bool = false
     ) {
         self.init(
-            label, enabled: enabled, loading: loading, pendingWord: pendingWord, compact: compact, small: small
+            label, enabled: enabled, loading: loading, pendingWord: pendingWord, compact: compact, small: small,
+            outline: outline
         ) { EmptyView() }
     }
 }

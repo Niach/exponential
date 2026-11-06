@@ -50,19 +50,9 @@ internal fun paraBands(
     paragraphs: List<ParagraphAttrs>,
     transform: IssueChipTransform,
 ): List<ParaBand> {
-    val lines = if (source.isEmpty()) listOf("") else source.split("\n")
-    val out = ArrayList<ParaBand>(lines.size)
-    var start = 0
-    for ((i, line) in lines.withIndex()) {
-        val end = start + line.length
-        val dStart = transform.originalToTransformed(start)
-        val dEnd =
-            if (i == lines.lastIndex) transform.display.length
-            else (transform.originalToTransformed(end + 1) - 1).coerceAtLeast(dStart)
-        out.add(ParaBand(paragraphs.getOrElse(i) { ParagraphAttrs.PLAIN }, dStart, dEnd))
-        start = end + 1
+    return transform.lineBounds().mapIndexed { i, (dStart, dEnd) ->
+        ParaBand(paragraphs.getOrElse(i) { ParagraphAttrs.PLAIN }, dStart, dEnd)
     }
-    return out
 }
 
 /**

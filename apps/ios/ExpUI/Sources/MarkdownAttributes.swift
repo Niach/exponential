@@ -156,6 +156,14 @@ public enum MarkdownStyle {
     /// off a phone before the horizontal scroller earns its keep.
     public static let tableCellMinWidth: CGFloat = 56
     public static let tableCellMaxWidth: CGFloat = 280
+    /// Web's `th, td` padding (0.3rem 0.6rem) and its `.tiptap-chat` variant
+    /// (0.2rem 0.45rem at 13px), Android `MdStyle.tableCellPad*` /
+    /// `chatTableCellPad*` (EXP-1676).
+    public static let tableCellPadX: CGFloat = 9.6
+    public static let tableCellPadY: CGFloat = 4.8
+    public static let chatTableCellPadX: CGFloat = 7.2
+    public static let chatTableCellPadY: CGFloat = 3.2
+    public static let chatTableFontSize: CGFloat = 13
     public nonisolated(unsafe) static let blockquoteTextColor = PlatformColor.white.withAlphaComponent(0.6)
     public nonisolated(unsafe) static let blockquoteBarColor = PlatformColor.white.withAlphaComponent(0.25)
     public nonisolated(unsafe) static let placeholderColor = PlatformColor.white.withAlphaComponent(0.3)
