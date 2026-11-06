@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-06-issues-reach-done`,
+    date: `2026-11-06`,
+    title: `Issues reach Done reliably`,
+    summary: `An issue moves when its pull request merges, even if a webhook was missed, and unlinking a PR keeps a reference to it.`,
+    body: `- **Issues reach Done reliably**: when a linked pull request merges, its issues move to Done even if GitHub's webhook never arrived; quiet open PRs are re-checked in the background.
+- **Links**: unlinking a pull request from an issue keeps a reference to it, and a parent issue rolls up its sub-issues' pull requests.`,
+  },
+  {
     id: `2026-11-06-plans-and-offline-devices`,
     date: `2026-11-06`,
     title: `Plans settle, offline devices say so`,
