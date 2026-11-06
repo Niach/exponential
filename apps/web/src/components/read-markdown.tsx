@@ -149,9 +149,10 @@ export function proseSegments(
     for (const s of splitIssueRefs(piece, { bare })) {
       const resolved = s.identifier ? issueRefs.resolve(s.identifier) : null
       if (resolved) {
+        // Today's issue chip: the status glyph, the mono identifier, the title.
         const title = resolved.title.trim()
-        const label = title ? `${resolved.identifier} ${title}` : resolved.identifier
-        hits.push({ start: at, end: at + s.text.length, segment: { text: s.text, href: `~/issues/${resolved.identifier}`, chip: { kind: `issue`, label, icon: `${STATUS_ICON}${resolved.statusIcon}|${resolved.statusColor}` } } })
+        const chip = title ? { kind: `issue` as const, ident: resolved.identifier, label: title } : { kind: `issue` as const, label: resolved.identifier }
+        hits.push({ start: at, end: at + s.text.length, segment: { text: s.text, href: `~/issues/${resolved.identifier}`, chip: { ...chip, icon: `${STATUS_ICON}${resolved.statusIcon}|${resolved.statusColor}` } } })
       }
       at += s.text.length
     }

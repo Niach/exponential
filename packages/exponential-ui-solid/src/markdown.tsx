@@ -114,9 +114,15 @@ function MarkdownChipLink(props: { host: HostPlugin; href: string; chip: Markdow
   const density = props.host.markdownOptions?.density
   const { "data-xui-part": _part, ...own } = markdownPartAttrs(props.scope, `chip`, density, { chip: props.chip.kind }).attrs
   const { "data-xui-part": _labelPart, ...ownLabel } = markdownPartAttrs(props.scope, `chipLabel`, density, { chip: props.chip.kind }).attrs
+  const ownIdent = markdownPartAttrs(props.scope, `chipIdent`, density, { chip: props.chip.kind }).attrs
   return (
     <a class={`xui-md-chip ${props.scope} ${partClass(`Chip`, `root`)} ${partClass(`Markdown`, `chip`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/root" data-chip={props.chip.kind} {...recipe} {...own} style={styleOf(markdownChipOverlay(ctx?.theme, `chip`, props.chip.kind, density))} href={props.href} target="_blank" rel="noreferrer" onClick={onClick}>
       {props.chip.icon ? <IconGlyph icons={props.host.icons} name={props.chip.icon} aria-hidden="true" /> : null}
+      {props.chip.ident ? (
+        <span class={`${props.scope} ${partClass(`Markdown`, `chipIdent`)}`.trim()} {...ownIdent} style={styleOf(markdownChipOverlay(ctx?.theme, `chipIdent`, props.chip.kind, density))}>
+          {props.chip.ident}
+        </span>
+      ) : null}
       <span class={`${props.scope} xui-Text-root ${partClass(`Chip`, `label`)} ${partClass(`Markdown`, `chipLabel`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/label" {...recipe} {...ownLabel} data-r-variant="caption" style={styleOf(markdownChipOverlay(ctx?.theme, `chipLabel`, props.chip.kind, density))}>
         {props.chip.label}
       </span>
@@ -253,7 +259,7 @@ function block(b: MarkdownBlock, host: HostPlugin, scope: string, id: string, ke
             <For each={b.rows}>
               {(r) => (
                 <tr>
-                  <For each={r}>{(cell, c) => <td style={css(b.align[c()] ? { textAlign: b.align[c()]! } : undefined)}>{inline(cell, host, scope)}</td>}</For>
+                  <For each={r}>{(cell, c) => <td {...mdPart(host, scope, `cell`)} style={css(b.align[c()] ? { textAlign: b.align[c()]! } : undefined)}>{inline(cell, host, scope)}</td>}</For>
                 </tr>
               )}
             </For>

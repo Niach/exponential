@@ -24,7 +24,7 @@ final class MarkdownHostTests: XCTestCase {
                 let v = raw[key]!
                 let chip = v["chip"].flatMap { c -> TextLinkChip? in
                     guard c.object != nil else { return nil }
-                    return TextLinkChip(kind: c["kind"]?.string ?? "", label: c["label"]?.string ?? "", icon: c["icon"]?.string)
+                    return TextLinkChip(kind: c["kind"]?.string ?? "", label: c["label"]?.string ?? "", icon: c["icon"]?.string, ident: c["ident"]?.string)
                 }
                 return (key, v["href"]?.string ?? "", chip)
             }
@@ -79,6 +79,7 @@ final class MarkdownHostTests: XCTestCase {
             if let chip = run.chip {
                 var c: [String: Any] = ["kind": chip.kind, "label": chip.label]
                 if let icon = chip.icon { c["icon"] = icon }
+                if let ident = chip.ident { c["ident"] = ident }
                 r["chip"] = c
             }
             out.append(r)
@@ -204,8 +205,10 @@ final class MarkdownHostTests: XCTestCase {
         let rects = TextShaper.chipRects(in: runs, lineHeight: styles.body.lineHeight, wrap: width)
         XCTAssertEqual(rects.count, 1)
         let rect = try XCTUnwrap(rects.first?.rect)
-        let label = TextShaper.width("ABC-1 Fix login", TextShaper.chipLabelStyle(styles.chip))
-        XCTAssertEqual(rect.width, 2 * styles.chip.paddingH + styles.chip.icon + styles.chip.gap + label, accuracy: 0.01)
+        // #VAPP-258: the theme's rules for the chip's kind (`Markdown/chip*`) first.
+        let k = styles.chip.resolved("issue")
+        let label = TextShaper.width("ABC-1 Fix login", TextShaper.chipLabelStyle(k))
+        XCTAssertEqual(rect.width, 2 * k.paddingH + k.icon + k.gap + label, accuracy: 0.01)
         XCTAssertEqual(rect.height, min(styles.chip.height, styles.body.lineHeight))
         XCTAssertEqual(rect.midY, styles.body.lineHeight / 2, accuracy: 0.01)
         XCTAssertGreaterThan(rect.minX, 0)

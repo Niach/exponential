@@ -42,7 +42,8 @@
             "chart5": "#fe9a00",
             "chart6": "#7c3aed",
             "chart7": "#db2777",
-            "chart8": "#0891b2"
+            "chart8": "#0891b2",
+            "link": "#171717"
           },
           "shadow": {
             "none": [],
@@ -139,7 +140,8 @@
             "chart5": "#ff2056",
             "chart6": "#a78bfa",
             "chart7": "#f472b6",
-            "chart8": "#22d3ee"
+            "chart8": "#22d3ee",
+            "link": "#e5e5e5"
           },
           "shadow": {
             "none": [],
@@ -7248,7 +7250,8 @@
             "chart5": "#fe9a00",
             "chart6": "#7c3aed",
             "chart7": "#db2777",
-            "chart8": "#0891b2"
+            "chart8": "#0891b2",
+            "link": "#2b59c8"
           },
           "shadow": {
             "none": [],
@@ -7324,7 +7327,8 @@
             "chart5": "#ff2056",
             "chart6": "#a78bfa",
             "chart7": "#f472b6",
-            "chart8": "#22d3ee"
+            "chart8": "#22d3ee",
+            "link": "#5f8bea"
           },
           "shadow": {
             "none": [],
@@ -7787,7 +7791,9 @@
             {
               "style": {
                 "fontSize": 17.6,
-                "lineHeight": 28.6
+                "lineHeight": 28.6,
+                "marginTop": 8,
+                "marginBottom": 4
               }
             },
             {
@@ -7796,7 +7802,9 @@
               },
               "style": {
                 "fontSize": 20,
-                "lineHeight": 32.5
+                "lineHeight": 32.5,
+                "marginTop": 8,
+                "marginBottom": 4
               }
             },
             {
@@ -7805,7 +7813,9 @@
               },
               "style": {
                 "fontSize": 17.6,
-                "lineHeight": 28.6
+                "lineHeight": 28.6,
+                "marginTop": 8,
+                "marginBottom": 4
               }
             },
             {
@@ -7814,7 +7824,9 @@
               },
               "style": {
                 "fontSize": 16,
-                "lineHeight": 26
+                "lineHeight": 26,
+                "marginTop": 6,
+                "marginBottom": 4
               }
             },
             {
@@ -7823,7 +7835,9 @@
               },
               "style": {
                 "fontSize": 14,
-                "lineHeight": 22.75
+                "lineHeight": 22.75,
+                "marginTop": 0,
+                "marginBottom": 0
               }
             },
             {
@@ -7832,7 +7846,9 @@
               },
               "style": {
                 "fontSize": 14,
-                "lineHeight": 22.75
+                "lineHeight": 22.75,
+                "marginTop": 0,
+                "marginBottom": 0
               }
             },
             {
@@ -7841,7 +7857,9 @@
               },
               "style": {
                 "fontSize": 14,
-                "lineHeight": 22.75
+                "lineHeight": 22.75,
+                "marginTop": 0,
+                "marginBottom": 0
               }
             },
             {
@@ -7922,7 +7940,7 @@
             },
             {
               "style": {
-                "color": "#5f8bea"
+                "color": "$color.link"
               }
             }
           ],
@@ -8004,7 +8022,8 @@
           "listItem": [
             {
               "style": {
-                "paddingVertical": 4
+                "marginTop": 8,
+                "marginBottom": 8
               }
             }
           ],
@@ -8012,7 +8031,35 @@
             {
               "style": {
                 "backgroundColor": "#fafafa0a",
-                "fontWeight": "$type.weight.semibold"
+                "fontWeight": "$type.weight.semibold",
+                "paddingVertical": 4.8,
+                "paddingHorizontal": 9.6
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "paddingVertical": 3.2,
+                "paddingHorizontal": 7.2
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "paddingVertical": 4.8,
+                "paddingHorizontal": 9.6
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "paddingVertical": 3.2,
+                "paddingHorizontal": 7.2
               }
             }
           ],
@@ -8083,6 +8130,30 @@
                 "color": "$color.accentForeground",
                 "fontSize": 13,
                 "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "chipIdent": [
+            {
+              "when": {
+                "chip": "issue"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": 12,
+                "lineHeight": 16,
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "chip": "entity"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": 12,
+                "lineHeight": 16,
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -15016,7 +15087,8 @@
             "chart5": "#0ea5e9",
             "chart6": "#a855f7",
             "chart7": "#ec4899",
-            "chart8": "#22c55e"
+            "chart8": "#22c55e",
+            "link": "#7c3aed"
           },
           "shadow": {
             "none": [],
@@ -15092,7 +15164,8 @@
             "chart5": "#7dd3fc",
             "chart6": "#d8b4fe",
             "chart7": "#f9a8d4",
-            "chart8": "#86efac"
+            "chart8": "#86efac",
+            "link": "#c4b5fd"
           },
           "shadow": {
             "none": [],
@@ -22867,7 +22940,8 @@
             "chart5": "#7c3aed",
             "chart6": "#0d9488",
             "chart7": "#db2777",
-            "chart8": "#65a30d"
+            "chart8": "#65a30d",
+            "link": "#2b59c8"
           },
           "shadow": {
             "none": [],
@@ -22943,7 +23017,8 @@
             "chart5": "#a78bfa",
             "chart6": "#2dd4bf",
             "chart7": "#f472b6",
-            "chart8": "#a3e635"
+            "chart8": "#a3e635",
+            "link": "#5f8bea"
           },
           "shadow": {
             "none": [],
@@ -23406,7 +23481,9 @@
             {
               "style": {
                 "fontSize": 17.6,
-                "lineHeight": 28.6
+                "lineHeight": 28.6,
+                "marginTop": 8,
+                "marginBottom": 4
               }
             },
             {
@@ -23415,7 +23492,9 @@
               },
               "style": {
                 "fontSize": 20,
-                "lineHeight": 32.5
+                "lineHeight": 32.5,
+                "marginTop": 8,
+                "marginBottom": 4
               }
             },
             {
@@ -23424,7 +23503,9 @@
               },
               "style": {
                 "fontSize": 17.6,
-                "lineHeight": 28.6
+                "lineHeight": 28.6,
+                "marginTop": 8,
+                "marginBottom": 4
               }
             },
             {
@@ -23433,7 +23514,9 @@
               },
               "style": {
                 "fontSize": 16,
-                "lineHeight": 26
+                "lineHeight": 26,
+                "marginTop": 6,
+                "marginBottom": 4
               }
             },
             {
@@ -23442,7 +23525,9 @@
               },
               "style": {
                 "fontSize": 14,
-                "lineHeight": 22.75
+                "lineHeight": 22.75,
+                "marginTop": 0,
+                "marginBottom": 0
               }
             },
             {
@@ -23451,7 +23536,9 @@
               },
               "style": {
                 "fontSize": 14,
-                "lineHeight": 22.75
+                "lineHeight": 22.75,
+                "marginTop": 0,
+                "marginBottom": 0
               }
             },
             {
@@ -23460,7 +23547,9 @@
               },
               "style": {
                 "fontSize": 14,
-                "lineHeight": 22.75
+                "lineHeight": 22.75,
+                "marginTop": 0,
+                "marginBottom": 0
               }
             },
             {
@@ -23541,7 +23630,7 @@
             },
             {
               "style": {
-                "color": "#5f8bea"
+                "color": "$color.link"
               }
             }
           ],
@@ -23623,7 +23712,8 @@
           "listItem": [
             {
               "style": {
-                "paddingVertical": 4
+                "marginTop": 8,
+                "marginBottom": 8
               }
             }
           ],
@@ -23631,7 +23721,35 @@
             {
               "style": {
                 "backgroundColor": "#fafafa0a",
-                "fontWeight": "$type.weight.semibold"
+                "fontWeight": "$type.weight.semibold",
+                "paddingVertical": 4.8,
+                "paddingHorizontal": 9.6
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "paddingVertical": 3.2,
+                "paddingHorizontal": 7.2
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "paddingVertical": 4.8,
+                "paddingHorizontal": 9.6
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "paddingVertical": 3.2,
+                "paddingHorizontal": 7.2
               }
             }
           ],
@@ -23702,6 +23820,30 @@
                 "color": "$color.accentForeground",
                 "fontSize": 13,
                 "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "chipIdent": [
+            {
+              "when": {
+                "chip": "issue"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": 12,
+                "lineHeight": 16,
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "chip": "entity"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": 12,
+                "lineHeight": 16,
+                "color": "$color.mutedForeground"
               }
             }
           ]

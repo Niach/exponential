@@ -39,14 +39,18 @@ public struct MarkdownChip: Equatable, Sendable, Hashable {
     public var label: String
     /// An icon registry name.
     public var icon: String?
+    /// #VAPP-258: an identifier (`ABC-1`) painted mono before the label
+    /// (nil when the host gave none or an empty one).
+    public var ident: String?
 
     /// `catalog/host.json` markdown `chipKinds`.
     public static let kinds: Set<String> = ["issue", "mention", "entity"]
 
-    public init(kind: String, label: String, icon: String? = nil) {
+    public init(kind: String, label: String, icon: String? = nil, ident: String? = nil) {
         self.kind = kind
         self.label = label
         self.icon = icon
+        self.ident = ident?.isEmpty == true ? nil : ident
     }
 
     /// A known kind and a non-empty label (else the chip is dropped, the
@@ -985,6 +989,19 @@ public struct MarkdownStyles: Equatable, Sendable {
     public var listIndent: CGFloat
     public var cellPadH: CGFloat
     public var cellPadV: CGFloat
+    /// #VAPP-258: a heading's type and margins per `level` (1...6; the
+    /// `Markdown/heading` rules with the painter-supplied `level`); a level
+    /// absent = `heading` / `headingTop` / `headingBottom`.
+    public var headingLevels: [Int: MarkdownTextSpec] = [:]
+    public var headingTops: [Int: CGFloat] = [:]
+    public var headingBottoms: [Int: CGFloat] = [:]
+    /// #VAPP-258: a list item's `Markdown/listItem` margins (they collapse
+    /// with each other and, at a list's end, with the block gap).
+    public var itemTop: CGFloat = 0
+    public var itemBottom: CGFloat = 0
+    /// #VAPP-258: a fenced block's border (`Markdown/codeBlock` borderWidth),
+    /// inside its box: the box grows by it on each side.
+    public var codeBorder: CGFloat = 0
     /// An image block's box height (the picture fits inside it); #VAPP-258:
     /// `imageMaxHeight`, the cap of a host-sized image; nil = no cap (the
     /// host's `markdown.options.imageMaxHeight: null`).
@@ -1045,24 +1062,31 @@ public struct MarkdownStyles: Equatable, Sendable {
         listIndent * CGFloat(block.depth + 1)
     }
 
+    /// A heading `level` clamped to 1...6.
+    static func levelSlot(_ level: Int) -> Int { min(max(level, 1), 6) }
+
     public func spec(of kind: MarkdownBlockKind) -> MarkdownTextSpec {
         switch kind {
-        case .heading: heading
+        case let .heading(level): headingLevels[Self.levelSlot(level)] ?? heading
         case .codeBlock: code
         default: body
         }
     }
 
     func margins(_ kind: MarkdownBlockKind) -> (CGFloat, CGFloat) {
-        if case .heading = kind { return (headingTop, headingBottom) }
-        return (0, blockGap)
+        switch kind {
+        case let .heading(level): return (headingTops[Self.levelSlot(level)] ?? headingTop, headingBottoms[Self.levelSlot(level)] ?? headingBottom)
+        case .listItem: return (itemTop, max(itemBottom, blockGap))
+        default: return (0, blockGap)
+        }
     }
 
-    /// The gap above block `i` (margins collapse; first/last margins drop).
+    /// The gap above block `i` (margins collapse; first/last margins drop;
+    /// inside a list, the items' own margins).
     public func gapBefore(_ blocks: [MarkdownBlock], _ i: Int) -> CGFloat {
         if i == 0 { return 0 }
         let prev = blocks[i - 1], cur = blocks[i]
-        if prev.listGroup != nil, prev.listGroup == cur.listGroup { return 0 }
+        if prev.listGroup != nil, prev.listGroup == cur.listGroup { return max(itemBottom, itemTop) }
         return max(margins(prev.kind).1, margins(cur.kind).0)
     }
 }
@@ -1077,6 +1101,14 @@ public struct MarkdownChipStyle: Equatable, Sendable {
     public var gap: CGFloat
     public var icon: CGFloat
     public var height: CGFloat
+    /// #VAPP-258: the `ident`'s type (`Markdown/chipIdent`; nil = the mono
+    /// family at the label's size).
+    public var ident: MarkdownTextSpec?
+    /// #VAPP-258: the box's corner radius (nil = a capsule).
+    public var radius: CGFloat?
+    /// #VAPP-258: a theme's `Markdown/chip*` rules per chip `kind` (the
+    /// metrics; the painter resolves the colours itself).
+    public var kinds: [String: MarkdownChipKindStyle] = [:]
 
     public init(label: MarkdownTextSpec = MarkdownTextSpec(size: 12, lineHeight: 16, weight: 400, family: nil), paddingH: CGFloat = 8, gap: CGFloat = 4, icon: CGFloat = 16, height: CGFloat = 20) {
         self.label = label
@@ -1086,14 +1118,47 @@ public struct MarkdownChipStyle: Equatable, Sendable {
         self.height = height
     }
 
-    /// The chip's width around a label `labelWidth` wide, capped at `wrap`.
-    public func width(_ chip: MarkdownChip, labelWidth: CGFloat, wrap: CGFloat?) -> CGFloat {
-        let w = 2 * paddingH + labelWidth + (chip.icon == nil ? 0 : icon + gap)
+    /// The style a chip of `kind` lays out with: its kind's overrides on top.
+    public func resolved(_ kind: String) -> MarkdownChipStyle {
+        guard let k = kinds[kind] else { return self }
+        var s = self
+        if let v = k.label { s.label = v }
+        if let v = k.ident { s.ident = v }
+        if let v = k.paddingH { s.paddingH = v }
+        if let v = k.radius { s.radius = v }
+        s.kinds = [:]
+        return s
+    }
+
+    /// The ident's type: its own, else the mono family at the label's size.
+    public var identSpec: MarkdownTextSpec {
+        ident ?? MarkdownTextSpec(size: label.size, lineHeight: label.lineHeight, weight: label.weight, family: "ui-monospace")
+    }
+
+    /// The chip's width around a label `labelWidth` wide (and an ident
+    /// `identWidth` wide), capped at `wrap`.
+    public func width(_ chip: MarkdownChip, labelWidth: CGFloat, identWidth: CGFloat = 0, wrap: CGFloat?) -> CGFloat {
+        let w = 2 * paddingH + labelWidth + (chip.icon == nil ? 0 : icon + gap) + (chip.ident == nil ? 0 : identWidth + gap)
         return wrap.map { min(w, max($0, 1)) } ?? w
     }
 
     /// Its height in a line `lineHeight` tall.
     public func height(lineHeight: CGFloat) -> CGFloat { min(height, lineHeight) }
+}
+
+/// #VAPP-258: one chip kind's `Markdown/chip*` metrics (nil = the base).
+public struct MarkdownChipKindStyle: Equatable, Sendable {
+    public var label: MarkdownTextSpec?
+    public var ident: MarkdownTextSpec?
+    public var paddingH: CGFloat?
+    public var radius: CGFloat?
+
+    public init(label: MarkdownTextSpec? = nil, ident: MarkdownTextSpec? = nil, paddingH: CGFloat? = nil, radius: CGFloat? = nil) {
+        self.label = label
+        self.ident = ident
+        self.paddingH = paddingH
+        self.radius = radius
+    }
 }
 
 /// What the layout asks the text system: heights of spans wrapped at a
@@ -1138,7 +1203,7 @@ public extension Markdown {
             case .quote:
                 height = text.height(b.inlines, spec, width: max(width - s.quoteBorder - s.quotePad, 1))
             case .codeBlock:
-                height = text.height(b.inlines, spec, width: nil) + 2 * s.codePad
+                height = text.height(b.inlines, spec, width: nil) + 2 * (s.codePad + s.codeBorder)
             case .rule:
                 height = 1
             case .image:
@@ -1183,7 +1248,7 @@ public extension Markdown {
                 }
             case .codeBlock:
                 let first = b.inlines.first ?? MarkdownInline(text: "", code: true)
-                return (first.text.components(separatedBy: "\n").map { text.width([MarkdownInline(text: $0, code: true)], spec) }.max() ?? 0) + 2 * s.codePad
+                return (first.text.components(separatedBy: "\n").map { text.width([MarkdownInline(text: $0, code: true)], spec) }.max() ?? 0) + 2 * (s.codePad + s.codeBorder)
             case .rule: return 0
             case let .table(header, rows):
                 let cols = CGFloat(max(header.count, 1))

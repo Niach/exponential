@@ -17,11 +17,11 @@ export function markdownPartAttrs(scope: string, part: string, density: Markdown
   return { class: scope ? `${scope} ${partClass(`Markdown`, part)}` : partClass(`Markdown`, part), attrs }
 }
 
-/** #VAPP-258: an inline chip's `Markdown/chip` / `Markdown/chipLabel` rules
+/** #VAPP-258: an inline chip's `Markdown/chip` / `chipLabel` / `chipIdent` rules
  *  for its `chip` kind (and the density), as CSS declarations painted OVER
  *  the catalog Chip's look (Chip/root, Chip/label): a theme restyles the
  *  Markdown chip without touching every Chip. No theme, or no rule, = none. */
-export function markdownChipOverlay(theme: ResolvedTheme | null | undefined, part: `chip` | `chipLabel`, kind: string, density: MarkdownDensity | undefined): [string, string][] {
+export function markdownChipOverlay(theme: ResolvedTheme | null | undefined, part: `chip` | `chipLabel` | `chipIdent`, kind: string, density: MarkdownDensity | undefined): [string, string][] {
   if (!theme?.recipes.Markdown?.[part]) return []
   const style = recipeStyle(theme, { component: `Markdown`, part, props: { chip: kind, density: density ?? `document` } })
   return Object.keys(style).length ? declarations(style as Record<string, unknown>, theme.fonts) : []

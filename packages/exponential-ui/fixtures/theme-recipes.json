@@ -1928,14 +1928,18 @@
             "default": {
               "fontWeight": 600,
               "fontSize": 17.6,
-              "lineHeight": 28.6
+              "lineHeight": 28.6,
+              "marginTop": 8,
+              "marginBottom": 4
             }
           },
           "dark": {
             "default": {
               "fontWeight": 600,
               "fontSize": 17.6,
-              "lineHeight": 28.6
+              "lineHeight": 28.6,
+              "marginTop": 8,
+              "marginBottom": 4
             }
           }
         },
@@ -1960,14 +1964,18 @@
             "default": {
               "fontWeight": 600,
               "fontSize": 17.6,
-              "lineHeight": 28.6
+              "lineHeight": 28.6,
+              "marginTop": 8,
+              "marginBottom": 4
             }
           },
           "dark": {
             "default": {
               "fontWeight": 600,
               "fontSize": 17.6,
-              "lineHeight": 28.6
+              "lineHeight": 28.6,
+              "marginTop": 8,
+              "marginBottom": 4
             }
           }
         }
@@ -1993,7 +2001,7 @@
         "exponential": {
           "light": {
             "default": {
-              "color": "#5f8bea"
+              "color": "#2b59c8"
             }
           },
           "dark": {
@@ -2017,7 +2025,7 @@
         "orange": {
           "light": {
             "default": {
-              "color": "#5f8bea"
+              "color": "#2b59c8"
             }
           },
           "dark": {
@@ -2392,12 +2400,14 @@
         "exponential": {
           "light": {
             "default": {
-              "paddingVertical": 4
+              "marginTop": 8,
+              "marginBottom": 8
             }
           },
           "dark": {
             "default": {
-              "paddingVertical": 4
+              "marginTop": 8,
+              "marginBottom": 8
             }
           }
         },
@@ -2412,12 +2422,14 @@
         "orange": {
           "light": {
             "default": {
-              "paddingVertical": 4
+              "marginTop": 8,
+              "marginBottom": 8
             }
           },
           "dark": {
             "default": {
-              "paddingVertical": 4
+              "marginTop": 8,
+              "marginBottom": 8
             }
           }
         }
@@ -2495,13 +2507,17 @@
           "light": {
             "default": {
               "backgroundColor": "#fafafa0a",
-              "fontWeight": 600
+              "fontWeight": 600,
+              "paddingVertical": 4.8,
+              "paddingHorizontal": 9.6
             }
           },
           "dark": {
             "default": {
               "backgroundColor": "#fafafa0a",
-              "fontWeight": 600
+              "fontWeight": 600,
+              "paddingVertical": 4.8,
+              "paddingHorizontal": 9.6
             }
           }
         },
@@ -2517,13 +2533,68 @@
           "light": {
             "default": {
               "backgroundColor": "#fafafa0a",
-              "fontWeight": 600
+              "fontWeight": 600,
+              "paddingVertical": 4.8,
+              "paddingHorizontal": 9.6
             }
           },
           "dark": {
             "default": {
               "backgroundColor": "#fafafa0a",
-              "fontWeight": 600
+              "fontWeight": 600,
+              "paddingVertical": 4.8,
+              "paddingHorizontal": 9.6
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Markdown",
+      "part": "cell",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "paddingVertical": 4.8,
+              "paddingHorizontal": 9.6
+            }
+          },
+          "dark": {
+            "default": {
+              "paddingVertical": 4.8,
+              "paddingHorizontal": 9.6
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "paddingVertical": 4.8,
+              "paddingHorizontal": 9.6
+            }
+          },
+          "dark": {
+            "default": {
+              "paddingVertical": 4.8,
+              "paddingHorizontal": 9.6
             }
           }
         }

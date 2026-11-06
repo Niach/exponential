@@ -477,6 +477,10 @@ internal fun MarkdownLeaf(cx: LeafContext) {
         // #VAPP-258: the `Markdown/image` recipe's border.
         imageBorder = cx.part("Markdown", "image", props).style.borderColor ?: Color.Unspecified,
         imageBorderWidth = cx.part("Markdown", "image", props).style.borderWidth,
+        // #VAPP-258: the fenced block's border, the header row's fill, each chip kind's colours.
+        codeBlockBorder = cx.part("Markdown", "codeBlock", props).style.borderColor ?: Color.Unspecified,
+        headerCellBackground = cx.part("Markdown", "headerCell", props).style.background ?: Color.Transparent,
+        chipLooks = theme?.let { MarkdownPainter.chipLooks(it, model.mode, props + ("density" to JsonValue.Str(if (options.chat) "chat" else "document"))) } ?: emptyMap(),
     )
     val shaper = model.textShaper()
     val fonts = remember(shaper) { MarkdownFontResolver { name, mono -> if (mono) shaper.family(name ?: "ui-monospace") else shaper.family(name) } }

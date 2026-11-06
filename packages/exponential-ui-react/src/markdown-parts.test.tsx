@@ -22,7 +22,7 @@ describe(`#VAPP-258 Markdown parts carry the theme scope and recipe props`, () =
   it(`every part has the scope class, its part name and a concrete density`, () => {
     const c = paint(TEXT, chipHost, `exponential`)
     const scope = [...c.querySelector(`[data-xui-c="Markdown"]`)!.classList].find((k) => k.startsWith(`xui-t-`))!
-    for (const part of [`heading`, `paragraph`, `link`, `code`, `listItem`, `table`, `headerCell`, `codeBlock`]) {
+    for (const part of [`heading`, `paragraph`, `link`, `code`, `listItem`, `table`, `headerCell`, `cell`, `codeBlock`]) {
       const el = c.querySelector(`.xui-Markdown-${part}`)!
       expect(el, part).toBeTruthy()
       expect(el.classList.contains(scope), part).toBe(true)
@@ -44,6 +44,12 @@ describe(`#VAPP-258 Markdown parts carry the theme scope and recipe props`, () =
     expect(chip.getAttribute(`data-r-chip`)).toBe(`issue`)
     expect(chip.style.borderRadius).toBe(`6px`)
     expect(exp.querySelector<HTMLElement>(`.xui-Markdown-chipLabel`)!.style.fontSize).toBe(`13px`)
+    // #VAPP-258: a chip's ident paints mono before its label (Markdown/chipIdent).
+    const ident = paint(`see IDT-5`, { textLinks: (t) => (t.includes(`IDT-5`) ? [{ text: `see ` }, { text: `IDT-5`, href: `https://exponential.at/i/IDT-5`, chip: { kind: `issue`, label: `Fix login`, ident: `IDT-5` } }] : null) }, `exponential`)
+    const identEl = ident.querySelector<HTMLElement>(`a[data-chip="issue"] .xui-Markdown-chipIdent`)!
+    expect(identEl.textContent).toBe(`IDT-5`)
+    expect(identEl.nextElementSibling!.textContent).toBe(`Fix login`)
+    expect(identEl.style.fontSize).toBe(`12px`)
     // The catalog theme has no Markdown chip rules: the Chip look alone.
     const neutral = paint(TEXT, chipHost, `neutral`)
     expect(neutral.querySelector<HTMLElement>(`a[data-chip="issue"]`)!.getAttribute(`style`)).toBeNull()

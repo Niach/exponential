@@ -68,6 +68,8 @@ export interface TextLinkChip {
   label: string
   /** An icon registry name. */
   icon?: string
+  /** #VAPP-258: an identifier (`ABC-1`) painted mono before the label. */
+  ident?: string
 }
 
 /** One piece of a host's `textLinks` answer. */

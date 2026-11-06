@@ -19,11 +19,16 @@
 
 html {
   font-size: 1.15625rem;
+  /* #VAPP-258: genUI's Markdown (`AppMarkdown`) lays out in px; it scales
+     with the app's rem like every other app text. Keep equal to the ratio
+     above. */
+  --exp-markdown-zoom: 1.15625;
 }
 
 @media (max-width: 767px) {
   html {
     font-size: 1rem;
+    --exp-markdown-zoom: 1;
   }
 }
 

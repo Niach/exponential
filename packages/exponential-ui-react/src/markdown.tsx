@@ -110,9 +110,11 @@ function MarkdownChipLink({ host, href, chip, scope }: { host: HostPlugin; href:
   const ownLabel = markdownPartAttrs(scope, `chipLabel`, density, { chip: chip.kind })
   const { "data-xui-part": _part, ...ownAttrs } = own.attrs
   const { "data-xui-part": _labelPart, ...ownLabelAttrs } = ownLabel.attrs
+  const ownIdentAttrs = markdownPartAttrs(scope, `chipIdent`, density, { chip: chip.kind }).attrs
   return (
     <a className={`xui-md-chip ${scope} ${partClass(`Chip`, `root`)} ${partClass(`Markdown`, `chip`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/root" data-chip={chip.kind} {...recipe} {...ownAttrs} style={camel(markdownChipOverlay(theme, `chip`, chip.kind, density))} href={href} target="_blank" rel="noreferrer" onClick={onClick}>
       {chip.icon ? <IconGlyph icons={host.icons} name={chip.icon} aria-hidden="true" /> : null}
+      {chip.ident ? <span className={`${scope} ${partClass(`Markdown`, `chipIdent`)}`.trim()} {...ownIdentAttrs} style={camel(markdownChipOverlay(theme, `chipIdent`, chip.kind, density))}>{chip.ident}</span> : null}
       <span className={`${scope} xui-Text-root ${partClass(`Chip`, `label`)} ${partClass(`Markdown`, `chipLabel`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/label" {...recipe} {...ownLabelAttrs} data-r-variant="caption" style={camel(markdownChipOverlay(theme, `chipLabel`, chip.kind, density))}>{chip.label}</span>
     </a>
   )
@@ -241,7 +243,7 @@ function block(b: MarkdownBlock, host: HostPlugin, key: number, scope: string, i
       return (
         <table key={key} {...mdPart(host, scope, `table`)}>
           <thead><tr>{b.head.map((h, c) => <th key={c} {...mdPart(host, scope, `headerCell`)} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(h, host, scope)}</th>)}</tr></thead>
-          <tbody>{b.rows.map((r, ri) => <tr key={ri}>{r.map((cell, c) => <td key={c} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(cell, host, scope)}</td>)}</tr>)}</tbody>
+          <tbody>{b.rows.map((r, ri) => <tr key={ri}>{r.map((cell, c) => <td key={c} {...mdPart(host, scope, `cell`)} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(cell, host, scope)}</td>)}</tr>)}</tbody>
         </table>
       )
     case `rule`:

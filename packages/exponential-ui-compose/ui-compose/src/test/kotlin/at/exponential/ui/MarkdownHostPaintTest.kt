@@ -104,7 +104,9 @@ class MarkdownHostPaintTest {
             // The measurer's own chip layout = the painter's placeholder widths.
             val styles = MarkdownPainter.styles(m.effectiveTheme, m.mode, at.exponential.ui.theme.ResolvedTextStyle(14f, 400, 20f, null), emptyMap())
             val md = MarkdownShaper(m.textShaper(), null)
-            val chipW = md.labelWidth("ABC-1 Fix login", styles.chip).let { styles.chip.padH * 2 + it + styles.chip.iconSize + styles.chip.gap }
+            // #VAPP-258: the theme's rules for the chip's kind (`Markdown/chip*`) first.
+            val k = styles.chip.resolved("issue")
+            val chipW = md.labelWidth("ABC-1 Fix login", k.label, styles.chip).let { k.padH * 2 + it + k.iconSize + k.gap }
             val rect = r.placeholderRects.filterNotNull().first()
             assertEquals("width $w: the chip's painted width", minOf(chipW, w), rect.width / density, 1f)
         }

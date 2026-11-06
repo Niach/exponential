@@ -1293,6 +1293,9 @@ impl SurfaceView {
             text_system: Some(self.fonts.text_system.clone()),
             chip_box: crate::paint::PaintStyle::from_visual(&crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "root", &serde_json::Map::new(), &[])),
             chip_label: crate::paint::color::color_of(crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "label", &serde_json::Map::new(), &[]).color.as_deref()),
+            chip_looks: markdown::ChipLook::of_kinds(lcx.theme, lcx.mode, &props),
+            code_block_border: crate::paint::color::color_of(crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Markdown", "codeBlock", &props, &[]).border_color.as_deref()),
+            header_bg: crate::paint::color::color_of(crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Markdown", "headerCell", &props, &[]).background_color.as_deref()),
             icon: {
                 let host = self.host.clone();
                 Rc::new(move |name, size, color| crate::paint::icons::concept(host.as_ref(), name, size, color))

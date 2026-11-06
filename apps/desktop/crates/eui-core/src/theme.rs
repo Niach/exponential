@@ -405,6 +405,9 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("transform", &[]),
     ("backdropBlur", &["blur"]),
     ("animation", &[]),
+    // #VAPP-258: Markdown heading / listItem margins.
+    ("marginTop", &["spacing"]),
+    ("marginBottom", &["spacing"]),
 ];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
 const TOKEN_ONLY_KEYS: [&str; 5] = ["fontFamily", "boxShadow", "transition", "transitionEasing", "backdropBlur"];
@@ -1042,11 +1045,26 @@ pub fn try_load_theme(source: &Value, options: &ThemeOptions) -> Result<Resolved
             }
         }
     }
+    derive_colors(&mut theme);
     let missing = completeness(&theme);
     if !missing.is_empty() {
         return Err(missing);
     }
     Ok(theme)
+}
+
+/// #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
+/// after themes shipped takes a sibling's value when the chain sets none, so
+/// every older theme stays complete: `link` = `primary`.
+fn derive_colors(theme: &mut ResolvedTheme) {
+    for mode in Mode::ALL {
+        let m = theme.modes.get_mut(mode);
+        if !m.color.contains_key("link") {
+            if let Some(primary) = m.color.get("primary").cloned() {
+                m.color.insert("link".to_string(), primary);
+            }
+        }
+    }
 }
 
 /// A theme file → the flat theme a painter uses, or ONE error listing every issue.

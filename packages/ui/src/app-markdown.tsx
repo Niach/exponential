@@ -29,6 +29,9 @@ function useAppMarkdownSheet() {
     document.head.appendChild(style)
   }, [])
 }
+/** The app's rem scale (styles.css `--exp-markdown-zoom`): the theme's px
+ *  sizes at the app's text size, as today's web text. */
+const ZOOM = { zoom: `var(--exp-markdown-zoom, 1)` } as const
 const DENSITY = propAttribute(false, `density`)
 const ROOT = `xui-el ${THEME.scope} ${partClass(`Markdown`, `root`)}`
 
@@ -53,7 +56,7 @@ export function AppMarkdown({
   useAppMarkdownSheet()
   const density = host?.markdownOptions?.density
   return (
-    <div className={cn(`xui-surface`, THEME.scope, `exp-markdown-view min-w-0`, className)} data-xui-mode="dark" data-xui-theme={RESOLVED.id} aria-label={ariaLabel}>
+    <div className={cn(`xui-surface`, THEME.scope, `exp-markdown-view min-w-0`, className)} style={ZOOM} data-xui-mode="dark" data-xui-theme={RESOLVED.id} aria-label={ariaLabel}>
       <div className={ROOT} data-xui-c="Markdown" data-xui-part="Markdown/root" {...(density ? { [DENSITY]: density } : {})}>
         <BuiltinMarkdown text={text} host={host} scope={THEME.scope} theme={RESOLVED} id={id} />
       </div>
