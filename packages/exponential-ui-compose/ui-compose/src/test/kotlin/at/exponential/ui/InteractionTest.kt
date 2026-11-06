@@ -1,5 +1,6 @@
 package at.exponential.ui
 
+import at.exponential.ui.compose.handleKey
 import at.exponential.ui.host.ClosureHost
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.InputKind
@@ -14,6 +15,7 @@ import at.exponential.ui.model.escape
 import at.exponential.ui.model.fieldEdited
 import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.fieldText
+import at.exponential.ui.model.focus
 import at.exponential.ui.model.modalLayers
 import at.exponential.ui.model.press
 import at.exponential.ui.model.pressDown
@@ -27,6 +29,8 @@ import at.exponential.ui.model.sliderValue
 import at.exponential.ui.model.segmentedSelect
 import at.exponential.ui.model.selectPick
 import at.exponential.ui.model.segmentedValues
+import at.exponential.ui.theme.Mode
+import at.exponential.ui.theme.ThemeHandle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -350,6 +354,50 @@ class InteractionTest {
             assertEquals(name, expect["changes"]?.array.orEmpty().map { it.string }, changes)
             assertEquals(name, expect["value"] ?: JsonValue.Null, m.data["v"] ?: JsonValue.Null)
             assertEquals(name, expect["shows"]?.string, m.node(m.idx("s.trigger"))?.props?.get("text")?.displayText)
+        }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `foldRow` (#VAPP-284): a foldable
+     * Row (children); a press on the head or its fold button, or
+     * ArrowRight / ArrowLeft through [handleKey] on the focused one
+     * (swapped in rtl); the events the host sees and the head's `expanded`.
+     */
+    @Test
+    fun foldRowCasesPressFoldAndTakeTheArrows() {
+        val fold = Fixtures.json("interactions-round1.json")["foldRow"]!!
+        val cases = fold["cases"]?.array.orEmpty()
+        assertEquals(12, cases.size)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            var row = fold["surface"]!!.obj!!
+            if (c["pressable"]?.bool == false) row = row + ("on" to JsonValue.Obj(row["on"]!!.obj!! - "press"))
+            val tree = buildMap<String, JsonValue> {
+                put("id", JsonValue.Str("root"))
+                put("component", JsonValue.Str("Box"))
+                put("children", JsonValue.Arr(listOf(JsonValue.Obj(row))))
+                if (c["rtl"]?.bool == true) put("style", JsonValue.Obj(mapOf("direction" to JsonValue.Str("rtl"))))
+            }
+            val host = RecordingHost()
+            val m = SurfaceModel("fold", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(JsonValue.Obj(tree).json)
+            m.setViewport(390f, 800f)
+            c["open"]?.takeUnless { it.isNull }?.let { m.setData("/open", it) }
+            val step = c["step"]!!
+            val part = (step["press"] ?: step["on"])?.string
+            val target = if (part == "head") "issues.head" else "issues.head.fold"
+            assertNotNull("$name: no $target", m.indexOf(target))
+            if (step["press"] != null) {
+                m.press(target)
+            } else {
+                m.focus(target, true, fromKeyboard = true)
+                val key = if (step["key"]?.string == "ArrowLeft") "left" else "right"
+                assertTrue("$name: the arrow is the fold's", handleKey(m, key))
+            }
+            assertEquals("$name: events", c["events"]?.array.orEmpty().map { it.string }, host.actions.map { it.name })
+            for (a in host.actions.filter { it.name == "fold" }) assertEquals("$name: fold context", c["after"]?.bool, a.context["open"]?.bool)
+            assertEquals("$name: expanded after", c["after"]?.bool, m.node(m.idx("issues.head"))?.accessibility?.get("expanded")?.bool)
         }
     }
 }

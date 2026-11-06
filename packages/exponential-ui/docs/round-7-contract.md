@@ -324,4 +324,5 @@ Renderers:
   (`event(i, "key")`); `tests/interaction.rs` replays `foldRow`.
 - [x] SwiftUI / Compose: the keyboard forwards ←/→ on a node with
   `expanded` to `nodeKey` (the core decides); the macro paints with no other
-  change.
+  change. `Round1ModelTests` / `InteractionTest` replay `foldRow` through
+  the model (`press`, `handleKey`); `Row/open=*` snapshots recorded.

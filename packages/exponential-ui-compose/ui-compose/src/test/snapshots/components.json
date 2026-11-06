@@ -25169,6 +25169,98 @@
       }
     ]
   },
+  "Row\/open=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "row",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          2,
+          286,
+          28
+        ],
+        "id" : "row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          6,
+          72,
+          20
+        ],
+        "id" : "row.meta"
+      }
+    ]
+  },
+  "Row\/open=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "row",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          2,
+          286,
+          28
+        ],
+        "id" : "row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          6,
+          72,
+          20
+        ],
+        "id" : "row.meta"
+      }
+    ]
+  },
   "Row\/pressable=false" : {
     "height" : 32,
     "nodes" : [
