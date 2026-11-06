@@ -1,5 +1,5 @@
 {
-  "id": "d3ea5393-da78-4096-9695-4277d7b934e5",
+  "id": "c83e3cbd-487e-4947-814d-e995185bc4f2",
   "prevId": "ca4c739f-4bc3-494a-92c6-973ce25e5a3a",
   "version": "7",
   "dialect": "postgresql",
@@ -8255,6 +8255,20 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "pending": {
+          "name": "pending",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "heads": {
+          "name": "heads",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
         "untested": {
           "name": "untested",

@@ -2980,7 +2980,8 @@ export const pullRequestChecks = pgTable(
 // composed on `base_sha` of `base`. `tested_sha` = the composed commit the
 // pipeline reports (null until composed); landing fast-forwards `base` to
 // it, expecting `base_sha`. `attempt` 0 = the first run, 1 = the re-run;
-// `bisect_of` = the red run this half was split from. state: dispatching →
+// `bisect_of` = the red run this half was split from; `pending` = the
+// halves still to test after it; `heads` = the PR heads it composed. state: dispatching →
 // composing → testing → green → landed | red | conflict | cancelled |
 // error. `conflicts` = the pipeline's unmatched files per PR number. The
 // clients read only `pull_requests.merge_train_id` (`Testing with N`).
@@ -3002,6 +3003,12 @@ export const mergeTrains = pgTable(
     bisectOf: uuid(`bisect_of`).references((): AnyPgColumn => mergeTrains.id, {
       onDelete: `set null`,
     }),
+    // The bisect halves still to test after this run, in order (each a list
+    // of units), carried from run to run until the batch is resolved.
+    pending: jsonb().$type<string[][][]>().notNull().default([]),
+    // PR id → the head sha this run composed: a PR pushed since never lands
+    // from it.
+    heads: jsonb().$type<Record<string, string>>().notNull().default({}),
     // Untested on purpose: a Merge now, or a repo without CI.
     untested: boolean().notNull().default(false),
     testedSha: varchar(`tested_sha`, { length: 64 }),

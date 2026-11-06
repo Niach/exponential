@@ -24,6 +24,8 @@ CREATE TABLE "merge_trains" (
 	"state" varchar(16) DEFAULT 'dispatching' NOT NULL,
 	"attempt" integer DEFAULT 0 NOT NULL,
 	"bisect_of" uuid,
+	"pending" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"heads" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"untested" boolean DEFAULT false NOT NULL,
 	"tested_sha" varchar(64),
 	"run_ref" text,
