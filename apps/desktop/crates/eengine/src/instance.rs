@@ -302,8 +302,9 @@ impl AppInstance {
 
 /// VAPP-271: app UI reads a capability's answer as its `structuredContent`
 /// (an action step's `results.<name>`); an `isError` result is the call's
-/// refusal, its text the toast.
-fn brokered(answer: BrokerAnswer) -> CallResult {
+/// refusal, its text the toast. Every host (the desktop runner, the FFI)
+/// maps a broker answer through this one function.
+pub fn brokered(answer: BrokerAnswer) -> CallResult {
     match answer {
         BrokerAnswer::Result(result) if result.get("isError").and_then(Value::as_bool) == Some(true) => {
             let text = result.pointer("/content/0/text").and_then(Value::as_str).unwrap_or("failed");

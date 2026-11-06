@@ -223,7 +223,12 @@ mod linux {
         fn with<T>(&self, f: impl FnOnce(&Session) -> zbus::Result<T>) -> Result<T, String> {
             let mut guard = self.session.lock().unwrap_or_else(|p| p.into_inner());
             if guard.is_none() {
-                let conn = Connection::session().map_err(|e| e.to_string())?;
+                // The Secret Service answers in milliseconds; one that never
+                // answers (a keyring activated outside a session) must not
+                // hold the launch: past the timeout the vault is unavailable.
+                let conn = zbus::blocking::connection::Builder::session()
+                    .and_then(|b| b.method_timeout(std::time::Duration::from_secs(5)).build())
+                    .map_err(|e| e.to_string())?;
                 let service = Proxy::new(&conn, DEST, "/org/freedesktop/secrets", SERVICE).map_err(|e| e.to_string())?;
                 let (_, path): (OwnedValue, OwnedObjectPath) = service.call("OpenSession", &("plain", Value::from(""))).map_err(|e| e.to_string())?;
                 *guard = Some(Session { conn, path });

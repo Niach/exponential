@@ -35,7 +35,7 @@ pub use providers::{
 };
 pub use capability::{Broker, BrokerAnswer, CallAudit, Capability, ConsentSheet, ConsentUi};
 pub use runner::{runner_config, runner_failure, runner_package, runner_toast, FormFactor, RunnerConfig, RunnerFailure};
-pub use instance::{AppInstance, CallResult, LoadError};
+pub use instance::{brokered, AppInstance, CallResult, LoadError};
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteRecordStore;
 pub use stores::{FsBlobStore, LocalIdentity, MemoryRecordStore, MemoryVault};

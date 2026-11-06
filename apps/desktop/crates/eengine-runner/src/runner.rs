@@ -365,11 +365,9 @@ pub fn function_names(pkg: &Value) -> Vec<String> {
 
 /// The broker's answer as a `CallResult` (what `AppInstance::call` answers).
 pub fn brokered(answer: eengine::BrokerAnswer) -> CallResult {
-    match answer {
-        eengine::BrokerAnswer::Result(v) => CallResult::Value(v),
-        eengine::BrokerAnswer::Ask(verdict, sheet) => CallResult::Ask(verdict, sheet),
-        eengine::BrokerAnswer::Refused(f) => CallResult::Refused(f),
-    }
+    // VAPP-271: the Engine's mapping (an action's `results.<name>` = the
+    // answer's `structuredContent`, `isError` = a refusal), never the raw MCP result.
+    eengine::brokered(answer)
 }
 
 #[cfg(test)]

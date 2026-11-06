@@ -19,7 +19,7 @@ impl Capability for Photos {
         vec![]
     }
     fn call(&self, _tool: &str, _arguments: &Value) -> Result<Value, Failure> {
-        Ok(json!({"structuredContent": {"photos": []}}))
+        Ok(json!({"content": [{"type": "text", "text": "{}"}], "structuredContent": {"photos": []}}))
     }
 }
 
@@ -157,7 +157,8 @@ fn an_ask_paints_consent_and_its_answer_settles_the_call() {
     assert_eq!(pending.ticket, 7);
     let result = brokered(broker.answer(CallFrom::Ui, None, &pending.name, &pending.args, &pending.verdict, answer));
     let (answer, _) = r.finish(pending.ticket, &pending.name, &pending.args, result);
-    assert!(answer.unwrap().is_ok());
+    // VAPP-271: genUI gets the structuredContent (an action's `results.picked.photos`).
+    assert_eq!(answer.unwrap().unwrap(), json!({"photos": []}));
     assert_eq!(r.instance().grants().get("photos.read"), Some(&GrantValue::Granted));
     assert!(r.pending().is_none());
 }
