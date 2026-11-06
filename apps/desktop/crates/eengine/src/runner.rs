@@ -226,7 +226,7 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
             out.push(json!({"id": "runner-separator", "component": "Separator"}));
             out.push(json!({"id": "runner-bar", "component": "Stack", "direction": "horizontal", "gap": "sm", "align": "center", "justify": "end", "style": {"padding": "$spacing.sm"}, "children": bar}));
             if tabs {
-                out.push(json!({"id": "runner-tabs-box", "component": "Box", "style": {"flexGrow": 1, "minWidth": 0}, "children": ["runner-tabs"]}));
+                out.push(json!({"id": "runner-tabs-box", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0}, "children": ["runner-tabs"]}));
                 let tab_list: Vec<Value> = nav
                     .iter()
                     .map(|s| {

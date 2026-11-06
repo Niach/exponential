@@ -126,7 +126,7 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
   ]
   if (tabs)
     shell.push(
-      { id: `runner-tabs-box`, component: `Box`, style: { flexGrow: 1, minWidth: 0 }, children: [`runner-tabs`] },
+      { id: `runner-tabs-box`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minWidth: 0 }, children: [`runner-tabs`] },
       {
         id: `runner-tabs`,
         component: `Tabs`,
