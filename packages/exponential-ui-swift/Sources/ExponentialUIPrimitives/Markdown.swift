@@ -51,12 +51,15 @@ public struct MarkdownBlock: Equatable, Sendable {
     /// A list item's nesting level (0 = top level): indented one
     /// `listIndent` per level.
     public var depth: Int
+    /// #VAPP-258: a code block's fence info string (` ```ts ` = `ts`).
+    public var lang: String?
 
-    public init(kind: MarkdownBlockKind, inlines: [MarkdownInline], listGroup: Int? = nil, depth: Int = 0) {
+    public init(kind: MarkdownBlockKind, inlines: [MarkdownInline], listGroup: Int? = nil, depth: Int = 0, lang: String? = nil) {
         self.kind = kind
         self.inlines = inlines
         self.listGroup = listGroup
         self.depth = depth
+        self.lang = lang
     }
 }
 
@@ -417,6 +420,7 @@ public enum Markdown {
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 flush()
                 let fence = String(trimmed.prefix(3))
+                let info = trimmed.drop(while: { $0 == "`" || $0 == "~" }).split(whereSeparator: \.isWhitespace).first.map(String.init)
                 var body: [String] = []
                 i += 1
                 while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix(fence) {
@@ -424,7 +428,7 @@ public enum Markdown {
                     i += 1
                 }
                 i += 1
-                blocks.append(MarkdownBlock(kind: .codeBlock, inlines: [MarkdownInline(text: body.joined(separator: "\n"), code: true)]))
+                blocks.append(MarkdownBlock(kind: .codeBlock, inlines: [MarkdownInline(text: body.joined(separator: "\n"), code: true)], lang: info))
                 continue
             }
             let hashes = trimmed.prefix(while: { $0 == "#" }).count

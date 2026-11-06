@@ -30,7 +30,7 @@ export { DEBOUNCE_MS, HostOwnedController, parseLocaleNumber, switchTravel } fro
 export type { HostOwnedControllerOptions, HostOwnedSend } from "./inputs"
 export { MEDIA_CACHE_IDLE_MAX, acquireMedia, releaseMedia, mediaCacheKey, mediaCacheStats, clearMediaCache, openMediaSource, streamEntry, fetchStream, fetchLimited } from "./media"
 export type { MediaKind, MediaCacheEntry, MediaSourcePlan } from "./media"
-export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, LIST_ITEM, linkAt, wholeImage, parseInline, parseList, parseMarkdown, linkMarkdownText } from "./markdown"
+export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, LIST_ITEM, linkAt, wholeImage, parseInline, parseList, parseMarkdown, linkMarkdownText, markdownCodeLines } from "./markdown"
 export type { MarkdownInline, MarkdownBlock, MarkdownList, MarkdownListItem } from "./markdown"
 export { FormRegistry, documentOrder, fieldErrorsVisible, validateOnDefault } from "./form"
 export type { FormField, FormError, FormCheck } from "./form"

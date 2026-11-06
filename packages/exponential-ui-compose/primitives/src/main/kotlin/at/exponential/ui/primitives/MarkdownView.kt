@@ -103,6 +103,20 @@ data class MarkdownColors(
     }
 }
 
+/** #VAPP-258: one coloured range `[start, end)` of a fenced block's text. */
+@Immutable
+data class MarkdownCodeSpan(val start: Int, val end: Int, val color: Color)
+
+/**
+ * #VAPP-258 (fixtures/markdown-render.json): colours a fenced block's text
+ * (its fence's info string as [lang]): the renderer's CodeBlock tokens in
+ * CodeBlock's colours. Colour only: the block's font, box and height stay.
+ */
+fun interface MarkdownCodeHighlighter {
+    /** The coloured ranges of [text] (empty = plain). */
+    fun spans(text: String, lang: String?): List<MarkdownCodeSpan>
+}
+
 /**
  * Resolves a [MarkdownTextSpec.family] name (or the mono family for code
  * spans) to a Compose family; null = the default family.
@@ -222,6 +236,8 @@ class MarkdownComposeText(
  * handler). [imagePolicy] polices every block image's src (refused = a
  * paragraph of its alt text, no box); [image] paints an allowed one inside
  * its box (null = the alt text) and falls back to the alt text itself.
+ * [codeHighlighter] colours a fenced block's text by its fence's language
+ * (#VAPP-258; null = plain).
  */
 @Composable
 fun MarkdownView(
@@ -237,6 +253,7 @@ fun MarkdownView(
     imagePolicy: ((String) -> Boolean)? = null,
     textLinks: ((String) -> List<Pair<String, String?>>?)? = null,
     image: (@Composable (src: String, alt: String) -> Unit)? = null,
+    codeHighlighter: MarkdownCodeHighlighter? = null,
 ) {
     val parsed = remember(text, linkPolicy, imagePolicy) {
         val parsed = Markdown.parse(text).let { if (imagePolicy == null) it else Markdown.resolveImages(it, imagePolicy) }
@@ -263,7 +280,7 @@ fun MarkdownView(
                             .width(width.dp)
                             .height(box.height.dp),
                     ) {
-                        MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, onLink, image)
+                        MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, onLink, image, codeHighlighter)
                     }
                 }
             }
@@ -282,6 +299,7 @@ private fun MarkdownBlockView(
     shaper: MarkdownComposeText,
     onLink: ((String) -> Unit)?,
     image: (@Composable (src: String, alt: String) -> Unit)?,
+    codeHighlighter: MarkdownCodeHighlighter?,
 ) {
     val spec = styles.spec(block.kind)
     fun runs(inlines: List<MarkdownInline>, ink: Color, code: Color?, boldFloor: Int? = null) =
@@ -333,7 +351,7 @@ private fun MarkdownBlockView(
                 .background(colors.codeBlockBackground, RoundedCornerShape(codeBlockRadius))
                 .padding(styles.codePad.dp),
         ) {
-            BasicText(runs(block.inlines, colors.ink, null), style = shaper.style(spec, colors.ink), softWrap = false)
+            BasicText(highlightedCode(runs(block.inlines, colors.ink, null), block.lang, codeHighlighter), style = shaper.style(spec, colors.ink), softWrap = false)
         }
         is MarkdownBlockKind.Rule -> Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
         is MarkdownBlockKind.Table -> {
@@ -434,4 +452,13 @@ private fun BulletDisc(fontSize: Float, indent: Float, color: Color) {
                 .background(color, CircleShape),
         )
     }
+}
+
+/** #VAPP-258: [runs] with [highlighter]'s colours over the block's text (colour only). */
+internal fun highlightedCode(runs: AnnotatedString, lang: String?, highlighter: MarkdownCodeHighlighter?): AnnotatedString {
+    val spans = highlighter?.spans(runs.text, lang).orEmpty().filter { it.start in 0 until it.end && it.end <= runs.length }
+    if (spans.isEmpty()) return runs
+    val b = AnnotatedString.Builder(runs)
+    for (span in spans) b.addStyle(SpanStyle(color = span.color), span.start, span.end)
+    return b.toAnnotatedString()
 }

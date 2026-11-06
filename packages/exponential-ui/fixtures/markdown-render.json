@@ -1,5 +1,5 @@
 {
- "$comment": "#VAPP-258 (owner 2026-11-06: genUI's renderer becomes THE Markdown of every client, the app moves onto it; code blocks highlighted everywhere). THE GOLDEN RENDER FIXTURE: markdown text → the block model in ONE normal form, replayed by every renderer's parser (web `src/web/markdown.ts` via `src/web/markdown-normal.ts` for React and Solid, Swift `ExponentialUIPrimitives/Markdown.swift`, Compose `primitives/Markdown.kt`, gpui `paint/markdown.rs`). THE NORMAL FORM: a flat list of blocks; `paragraph` / `quote` / `heading` (`level`) / `listItem` (`marker` = `•` or the item's own number + `.`, `task` only on a task item, `depth` 0 = top) carry `runs`; `codeBlock` its `text`; `table` `header` (cells of runs) and `rows`; `rule`; `image` (`src`, `alt`) = a paragraph that is exactly one image. A run is `{text}` plus only the TRUE flags of `bold`, `italic`, `code`, `strike` and `link` (the raw destination); adjacent runs with the same flags merge, empty runs drop. A quote's paragraphs join with one space into one quote block; a soft line break inside a paragraph is one space; a hard break (a trailing backslash) is a newline in the run. Entities and backslash escapes are decoded (`&nbsp;` = U+00A0). SEEDS: every `CONTRACT_FIXTURES` string (apps/desktop crates/ui markdown/serialize.rs, the stored-bytes contract ×4) by its name, so what the editors store is what the reader paints, then chat and plan samples. `pending` = the cases a renderer does not meet YET (the parser-fidelity step fixes them, then the list empties); a renderer skips exactly its own pending cases and FAILS on any other mismatch, or when a pending case starts to pass (the list must shrink).",
+ "$comment": "#VAPP-258 (owner 2026-11-06: genUI's renderer becomes THE Markdown of every client, the app moves onto it; code blocks highlighted everywhere). THE GOLDEN RENDER FIXTURE: markdown text → the block model in ONE normal form, replayed by every renderer's parser (web `src/web/markdown.ts` via `src/web/markdown-normal.ts` for React and Solid, Swift `ExponentialUIPrimitives/Markdown.swift`, Compose `primitives/Markdown.kt`, gpui `paint/markdown.rs`). THE NORMAL FORM: a flat list of blocks; `paragraph` / `quote` / `heading` (`level`) / `listItem` (`marker` = `•` or the item's own number + `.`, `task` only on a task item, `depth` 0 = top) carry `runs`; `codeBlock` its `text` and, when the fence has an info string, its `lang` (the info string as written: ` ```ts ` = `ts`); a renderer paints a codeBlock whose `lang` is a catalog/code.json language other than `plain` and `ansi` with the catalog's ONE tokenizer (`tokenizeCode`) in the COLOURS CodeBlock's `CodeBlock/token {kind}` recipe gives each token kind (colour only: the font, weight, style, padding, background and so the height stay the Markdown/codeBlock part's); an unknown or an empty `lang` (and `ansi`, whose escapes the tokenizer drops) = `plain` = no colours; `table` `header` (cells of runs) and `rows`; `rule`; `image` (`src`, `alt`) = a paragraph that is exactly one image. A run is `{text}` plus only the TRUE flags of `bold`, `italic`, `code`, `strike` and `link` (the raw destination); adjacent runs with the same flags merge, empty runs drop. A quote's paragraphs join with one space into one quote block; a soft line break inside a paragraph is one space; a hard break (a trailing backslash) is a newline in the run. Entities and backslash escapes are decoded (`&nbsp;` = U+00A0). SEEDS: every `CONTRACT_FIXTURES` string (apps/desktop crates/ui markdown/serialize.rs, the stored-bytes contract ×4) by its name, so what the editors store is what the reader paints, then chat and plan samples. `pending` = the cases a renderer does not meet YET (the parser-fidelity step fixes them, then the list empties); a renderer skips exactly its own pending cases and FAILS on any other mismatch, or when a pending case starts to pass (the list must shrink).",
  "pending": {},
  "cases": [
   {
@@ -373,6 +373,7 @@
    "blocks": [
     {
      "kind": "codeBlock",
+     "lang": "js",
      "text": "const x = 1"
     }
    ]
@@ -393,6 +394,7 @@
    "blocks": [
     {
      "kind": "codeBlock",
+     "lang": "kotlin",
      "text": "val a = 1\nval b = 2"
     }
    ]
@@ -1477,6 +1479,7 @@
    "blocks": [
     {
      "kind": "codeBlock",
+     "lang": "ts",
      "text": "const a = 1"
     },
     {

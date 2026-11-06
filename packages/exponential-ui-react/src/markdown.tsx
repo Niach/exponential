@@ -6,10 +6,14 @@
 // every href passes the URL policy (denied = the label as text), every
 // image the media policy. A paragraph that is one image is a BLOCK image
 // (denied = a paragraph of its alt text); an image inside running text is
-// its alt text, as on every renderer.
+// its alt text, as on every renderer. #VAPP-258: a fenced block whose fence
+// names a catalog language paints CodeBlock's tokens (`markdownCodeLines`)
+// in the `CodeBlock/token {kind}` recipe's colours (the surface's scope on
+// each span; base-css keeps it to the colour), the box as before.
 
-import { Fragment, createElement, useMemo, type MouseEvent, type ReactNode } from "react"
-import { linkedMarkdown, linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { Fragment, createElement, useContext, useMemo, type MouseEvent, type ReactNode } from "react"
+import { linkedMarkdown, linkHref, markdownCodeLines, mediaRequestOf, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
 import { useMediaSource } from "./media"
 
@@ -75,18 +79,32 @@ function renderList(list: MarkdownList, host: HostPlugin, key: number): ReactNod
   return list.ordered ? <ol key={key} start={list.start === 1 ? undefined : list.start}>{items}</ol> : <ul key={key}>{items}</ul>
 }
 
-function block(b: MarkdownBlock, host: HostPlugin, key: number): ReactNode {
+/** A fenced block's text: CodeBlock's token spans (`CodeBlock/token`
+ *  under the theme `scope`, `kind` as its recipe prop) when the fence names
+ *  a highlighted language, else the text as it is. */
+function codeRuns(b: { lang?: string; text: string }, scope: string): ReactNode {
+  const lines = markdownCodeLines(b)
+  if (!lines) return b.text
+  const token = `${scope} ${partClass(`CodeBlock`, `token`)}`.trim()
+  const kind = propAttribute(false, `kind`)
+  return lines.flatMap((tokens, i) => [
+    i ? `\n` : null,
+    ...tokens.map((t, j) => (t.kind === `plain` ? t.text : <span key={`${i}.${j}`} className={token} {...{ [kind]: t.kind }} data-token={t.kind}>{t.text}</span>)),
+  ])
+}
+
+function block(b: MarkdownBlock, host: HostPlugin, key: number, scope: string): ReactNode {
   switch (b.type) {
     case `paragraph`:
       return <p key={key} className="xui-Markdown-paragraph">{inline(b.children, host)}</p>
     case `image`:
       return <MarkdownImage key={key} host={host} src={b.src} alt={b.alt} />
     case `codeBlock`:
-      return <pre key={key} className="xui-Markdown-codeBlock" data-lang={b.lang}><code>{b.text}</code></pre>
+      return <pre key={key} className="xui-Markdown-codeBlock" data-lang={b.lang}><code>{codeRuns(b, scope)}</code></pre>
     case `heading`:
       return createElement(`h${Math.min(b.level, 6)}`, { key, className: `xui-Markdown-heading`, "data-level": b.level }, ...inline(b.children, host))
     case `quote`:
-      return <blockquote key={key} className="xui-Markdown-quote">{blocks(b.children, host)}</blockquote>
+      return <blockquote key={key} className="xui-Markdown-quote">{blocks(b.children, host, scope)}</blockquote>
     case `list`:
       return renderList(b.list, host, key)
     case `table`:
@@ -101,12 +119,13 @@ function block(b: MarkdownBlock, host: HostPlugin, key: number): ReactNode {
   }
 }
 
-function blocks(tree: readonly MarkdownBlock[], host: HostPlugin): ReactNode[] {
-  return tree.map((b, k) => <Fragment key={k}>{block(b, host, k)}</Fragment>)
+function blocks(tree: readonly MarkdownBlock[], host: HostPlugin, scope: string): ReactNode[] {
+  return tree.map((b, k) => <Fragment key={k}>{block(b, host, k, scope)}</Fragment>)
 }
 
-export function renderMarkdown(text: string, host: HostPlugin = {}): ReactNode[] {
-  return blocks(linkedMarkdown(host, parseMarkdown(text)), host)
+/** `scope` = the compiled theme's scope class (the code token colours). */
+export function renderMarkdown(text: string, host: HostPlugin = {}, scope = ``): ReactNode[] {
+  return blocks(linkedMarkdown(host, parseMarkdown(text)), host, scope)
 }
 
 const NO_HOST: HostPlugin = {}
@@ -115,5 +134,6 @@ export function BuiltinMarkdown({ text, className, host = NO_HOST }: { text: str
   // Parsed once per text, not on every parent render; the host's text links
   // read live, like a `hostLinks` Text's.
   const tree = useMemo(() => parseMarkdown(text), [text])
-  return <div className={className ? `xui-md ${className}` : `xui-md`}>{blocks(linkedMarkdown(host, tree), host)}</div>
+  const scope = useContext(SurfaceContext)?.compiled.scope ?? ``
+  return <div className={className ? `xui-md ${className}` : `xui-md`}>{blocks(linkedMarkdown(host, tree), host, scope)}</div>
 }

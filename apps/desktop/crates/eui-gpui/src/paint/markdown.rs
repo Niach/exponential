@@ -58,6 +58,8 @@ pub struct Block {
     pub inlines: Vec<Inline>,
     /// Consecutive list items share a group (no paragraph gap inside it).
     pub list_group: Option<usize>,
+    /// #VAPP-258: a code block's fence info string (` ```ts ` = `ts`).
+    pub lang: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +261,7 @@ pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, ima
                     if alt.is_empty() {
                         return None;
                     }
-                    b = Block { kind: BlockKind::Paragraph, inlines: vec![Inline { text: alt.clone(), ..Inline::default() }], list_group: None };
+                    b = Block { kind: BlockKind::Paragraph, inlines: vec![Inline { text: alt.clone(), ..Inline::default() }], list_group: None, lang: None };
                 }
             }
             strip(&mut b.inlines);
@@ -598,8 +600,8 @@ pub fn parse(text: &str) -> Vec<Block> {
         if !para.is_empty() {
             let joined = join_paragraph(para);
             match whole_image(joined.trim()) {
-                Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone() }, inlines: parse_inline(&alt), list_group: None }),
-                None => blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&joined), list_group: None }),
+                Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone() }, inlines: parse_inline(&alt), list_group: None, lang: None }),
+                None => blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&joined), list_group: None, lang: None }),
             }
             para.clear();
         }
@@ -611,6 +613,7 @@ pub fn parse(text: &str) -> Vec<Block> {
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             flush(&mut para, &mut blocks);
             let fence = &trimmed[..3];
+            let lang = trimmed.trim_start_matches(['`', '~']).split_whitespace().next().map(str::to_string);
             let mut body = Vec::new();
             i += 1;
             while i < lines.len() && !lines[i].trim().starts_with(fence) {
@@ -618,13 +621,13 @@ pub fn parse(text: &str) -> Vec<Block> {
                 i += 1;
             }
             i += 1;
-            blocks.push(Block { kind: BlockKind::CodeBlock, inlines: vec![Inline { text: body.join("\n"), code: true, ..Inline::default() }], list_group: None });
+            blocks.push(Block { kind: BlockKind::CodeBlock, inlines: vec![Inline { text: body.join("\n"), code: true, ..Inline::default() }], list_group: None, lang });
             continue;
         }
         let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
         if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
             flush(&mut para, &mut blocks);
-            blocks.push(Block { kind: BlockKind::Heading(hashes as u8), inlines: parse_inline(trimmed[hashes..].trim()), list_group: None });
+            blocks.push(Block { kind: BlockKind::Heading(hashes as u8), inlines: parse_inline(trimmed[hashes..].trim()), list_group: None, lang: None });
             i += 1;
             continue;
         }
@@ -637,11 +640,11 @@ pub fn parse(text: &str) -> Vec<Block> {
                 i += 1;
             }
             let joined: Vec<&str> = body.into_iter().filter(|l| !l.is_empty()).collect();
-            blocks.push(Block { kind: BlockKind::Quote, inlines: parse_inline(&joined.join(" ")), list_group: None });
+            blocks.push(Block { kind: BlockKind::Quote, inlines: parse_inline(&joined.join(" ")), list_group: None, lang: None });
             continue;
         }
         if is_rule(trimmed) && para.is_empty() {
-            blocks.push(Block { kind: BlockKind::Rule, inlines: Vec::new(), list_group: None });
+            blocks.push(Block { kind: BlockKind::Rule, inlines: Vec::new(), list_group: None, lang: None });
             i += 1;
             continue;
         }
@@ -684,7 +687,7 @@ pub fn parse(text: &str) -> Vec<Block> {
                     },
                 };
                 last_body = body.trim().to_string();
-                blocks.push(Block { kind: BlockKind::ListItem { marker, task, depth }, inlines: parse_inline(&last_body), list_group: Some(group) });
+                blocks.push(Block { kind: BlockKind::ListItem { marker, task, depth }, inlines: parse_inline(&last_body), list_group: Some(group), lang: None });
                 i += 1;
             }
             continue;
@@ -698,7 +701,7 @@ pub fn parse(text: &str) -> Vec<Block> {
                 rows.push(cells(lines[i]).iter().map(|c| parse_inline(c)).collect());
                 i += 1;
             }
-            blocks.push(Block { kind: BlockKind::Table { header, rows }, inlines: Vec::new(), list_group: None });
+            blocks.push(Block { kind: BlockKind::Table { header, rows }, inlines: Vec::new(), list_group: None, lang: None });
             continue;
         }
         if trimmed.is_empty() {
@@ -979,6 +982,36 @@ pub fn runs(inlines: &[Inline], family: &SharedString, mono: &SharedString, weig
     (text.into(), out)
 }
 
+/// #VAPP-258: a fenced block's runs in ONE font: CodeBlock's tokens (the
+/// catalog's ONE tokenizer, `eui_core::code::tokenize_code`) each in
+/// `token_color(kind)` when the fence names a highlighted language
+/// ([`eui_core::code::markdown_code_language`]), else one run in the ink.
+/// Colour only, so the shaped text (the measured height) never changes.
+pub fn code_block_runs(text: &str, lang: Option<&str>, font: &Font, ink: Hsla, token_color: &dyn Fn(&str) -> Option<Hsla>) -> Vec<TextRun> {
+    let run = |len: usize, color: Hsla| TextRun { len, font: font.clone(), color, background_color: None, underline: None, strikethrough: None };
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let Some(language) = eui_core::code::markdown_code_language(lang) else { return vec![run(text.len(), ink)] };
+    let mut out: Vec<TextRun> = Vec::new();
+    let mut push = |len: usize, color: Hsla| match out.last_mut() {
+        Some(last) if last.color == color => last.len += len,
+        _ => out.push(run(len, color)),
+    };
+    let mut cache: HashMap<String, Hsla> = HashMap::new();
+    for (i, line) in eui_core::code::tokenize_code(text, language).iter().enumerate() {
+        if i > 0 {
+            push(1, ink);
+        }
+        for t in line {
+            let color = if t.kind == "plain" { ink } else { *cache.entry(t.kind.clone()).or_insert_with(|| token_color(&t.kind).unwrap_or(ink)) };
+            push(t.text.len(), color);
+        }
+    }
+    // The tokens concatenate to the text; anything else paints it plain.
+    if out.iter().map(|r| r.len).sum::<usize>() == text.len() { out } else { vec![run(text.len(), ink)] }
+}
+
 // ---------------------------------------------------------------------------
 // Painting
 // ---------------------------------------------------------------------------
@@ -1087,9 +1120,15 @@ pub struct MdPaint {
     pub selection_bg: Hsla,
     /// A task item's box by its checked state (the theme's Checkbox `box`).
     pub task_box: TaskBox,
+    /// #VAPP-258: a code token kind → CodeBlock's colour for it
+    /// (`CodeBlock/token {kind}`; `None` = the ink).
+    pub code_token: CodeTokenColor,
     /// YO-30: spans are cut per cluster against it (`None` = as built).
     pub text_system: Option<std::sync::Arc<gpui::TextSystem>>,
 }
+
+/// A code token kind → its colour (`None` = the ink).
+pub type CodeTokenColor = Rc<dyn Fn(&str) -> Option<Hsla>>;
 
 /// Paints a task item's checkbox (`true` = checked).
 pub type TaskBox = Rc<dyn Fn(bool) -> AnyElement>;
@@ -1234,8 +1273,8 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
             BlockKind::CodeBlock => {
                 let text: SharedString = b.inlines.first().map(|i| i.text.clone()).unwrap_or_default().into();
                 let font = Font { family: p.mono.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(s.code.weight as f32), style: FontStyle::Normal };
-                let run = TextRun { len: text.len(), font, color: p.colors.ink, background_color: None, underline: None, strikethrough: None };
-                let runs = if text.is_empty() { Vec::new() } else { p.fallback(&text, vec![run]) };
+                let runs = code_block_runs(&text, b.lang.as_deref(), &font, p.colors.ink, &*p.code_token);
+                let runs = if text.is_empty() { Vec::new() } else { p.fallback(&text, runs) };
                 placed
                     .rounded(px(6.0))
                     .when_some(p.code_block_bg, |d, bg| d.bg(bg))
@@ -1573,7 +1612,11 @@ mod tests {
                             if let Some(task) = task { o["task"] = json!(task); }
                             o
                         }
-                        BlockKind::CodeBlock => json!({ "kind": "codeBlock", "text": b.inlines.iter().map(|i| i.text.as_str()).collect::<String>() }),
+                        BlockKind::CodeBlock => {
+                            let mut o = json!({ "kind": "codeBlock", "text": b.inlines.iter().map(|i| i.text.as_str()).collect::<String>() });
+                            if let Some(lang) = &b.lang { o["lang"] = json!(lang); }
+                            o
+                        }
                         BlockKind::Table { header, rows } => json!({
                             "kind": "table",
                             "header": header.iter().map(|c| runs(c)).collect::<Vec<_>>(),
@@ -1597,5 +1640,35 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// #VAPP-258: a `ts` fence paints CodeBlock's token kinds in the
+    /// CodeBlock/token recipe's colours (the neutral theme's), one font; an
+    /// unknown or empty language is one run in the ink.
+    #[test]
+    fn a_ts_fence_paints_code_block_token_colours() {
+        let blocks = parse("```ts\nconst a = 1 // one\n```");
+        assert_eq!(blocks[0].lang.as_deref(), Some("ts"));
+        let text = &blocks[0].inlines[0].text;
+        let theme = eui_core::themes::builtin_theme("neutral").expect("neutral");
+        let colour = |kind: &str| crate::paint::parts::code_token_look(Some(&*theme), Mode::Light, &Map::new(), kind).0;
+        let ink = gpui::black();
+        let font = Font { family: "mono".into(), features: Default::default(), fallbacks: None, weight: FontWeight(400.0), style: FontStyle::Normal };
+        let runs = code_block_runs(text, blocks[0].lang.as_deref(), &font, ink, &colour);
+        assert_eq!(runs.iter().map(|r| r.len).sum::<usize>(), text.len());
+        assert!(runs.iter().all(|r| r.font == font), "colour only: one font");
+        let tokens = eui_core::code::tokenize_code(text, "ts");
+        let kinds: Vec<&str> = tokens[0].iter().map(|t| t.kind.as_str()).collect();
+        for kind in ["keyword", "number", "comment"] {
+            assert!(kinds.contains(&kind), "{kind} in {kinds:?}");
+            let c = colour(kind).expect("the recipe colours it");
+            assert!(runs.iter().any(|r| r.color == c), "{kind} painted in its CodeBlock colour");
+        }
+        assert!(runs.len() >= 3);
+        for lang in [None, Some("klingon"), Some("plain"), Some("ansi")] {
+            let plain = code_block_runs(text, lang, &font, ink, &colour);
+            assert_eq!(plain.len(), 1);
+            assert_eq!(plain[0].color, ink);
+        }
     }
 }

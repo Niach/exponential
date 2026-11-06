@@ -275,7 +275,7 @@ struct CodeLineLeaf: View {
             let text = token["text"]?.string ?? ""
             if text.isEmpty { continue }
             let kind = token["kind"]?.string ?? "plain"
-            let look = looks[kind] ?? cx.model.part("CodeBlock", "token", props: base.merging(["kind": .string(kind)]) { $1 })
+            let look = looks[kind] ?? cx.model.codeTokenLook(kind, base: base)
             looks[kind] = look
             var ts = SurfaceMeasurer.codeStyle(cx.textStyle)
             if let w = look.props.num("fontWeight") { ts.fontWeight = Int(w) }
@@ -284,6 +284,15 @@ struct CodeLineLeaf: View {
             out.append(NSAttributedString(string: text, attributes: attrs))
         }
         return out
+    }
+}
+
+extension SurfaceModel {
+    /// A CodeBlock token's look by its `kind`: the `CodeBlock/token {kind}`
+    /// recipe under `base`. CodeBlock lines paint its colour, weight and
+    /// italic; a Markdown code block (#VAPP-258) its colour only.
+    func codeTokenLook(_ kind: String, base: Props = [:]) -> PartStyle {
+        part("CodeBlock", "token", props: base.merging(["kind": .string(kind)]) { $1 })
     }
 }
 

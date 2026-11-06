@@ -22,7 +22,7 @@ use crate::measure::{display_text, text_chrome, Shaper};
 use crate::paint::icons;
 use crate::paint::markdown::{self, MdPaint, MdStyles, TextSpec};
 use crate::paint::natives::{self, aligned, styled_box, LeafCx};
-use crate::paint::parts::{part_props, part_visual, px_prop, spacing, theme_color};
+use crate::paint::parts::{part_visual, px_prop, spacing, theme_color};
 use crate::paint::PaintStyle;
 use crate::text;
 
@@ -1200,13 +1200,7 @@ impl SurfaceView {
             }
             let (color, weight, italic) = cache
                 .entry(kind.clone())
-                .or_insert_with(|| {
-                    let mut props = lcx.owner_props.clone();
-                    props.insert("kind".into(), Value::String(kind.clone()));
-                    let p = part_props(theme.as_deref(), mode, "CodeBlock", "token", &props, &[]);
-                    let v = eui_core::style::visual(&p, eui_core::style::BoxKind::Leaf);
-                    (crate::paint::color::color_of(v.color.as_deref()), v.font_weight, v.font_style.as_deref() == Some("italic"))
-                })
+                .or_insert_with(|| crate::paint::parts::code_token_look(theme.as_deref(), mode, &lcx.owner_props, &kind))
                 .to_owned();
             text.push_str(s);
             let mut font = lcx.font.clone();
@@ -1272,6 +1266,11 @@ impl SurfaceView {
             selection: self.md_selection,
             selection_bg: lcx.theme_color("ring").or_else(|| lcx.theme_color("primary")).unwrap_or(gpui::blue()).opacity(0.3),
             task_box: natives::task_box_painter(lcx, self.host.clone()),
+            code_token: {
+                // #VAPP-258: CodeBlock's token colours, by kind.
+                let (theme, mode) = (self.surface.theme().cloned(), self.surface.mode());
+                Rc::new(move |kind| crate::paint::parts::code_token_look(theme.as_deref(), mode, &serde_json::Map::new(), kind).0)
+            },
             text_system: Some(self.fonts.text_system.clone()),
         };
         // Units commit once painted (their text layouts can hit-test then).

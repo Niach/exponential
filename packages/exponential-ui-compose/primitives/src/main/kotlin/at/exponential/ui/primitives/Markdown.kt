@@ -65,6 +65,8 @@ data class MarkdownBlock(
     val inlines: List<MarkdownInline>,
     /** Consecutive list items share a group (no paragraph gap inside it). */
     val listGroup: Int? = null,
+    /** #VAPP-258: a code block's fence info string (` ```ts ` = `ts`). */
+    val lang: String? = null,
 )
 
 /** Typography of one block kind (dp sizes, CSS weight, family NAME). */
@@ -471,6 +473,7 @@ object Markdown {
             if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
                 flush()
                 val fence = trimmed.substring(0, 3)
+                val info = trimmed.trimStart('`', '~').trim().split(Regex("\\s+")).firstOrNull()?.takeIf { it.isNotEmpty() }
                 val body = ArrayList<String>()
                 i += 1
                 while (i < lines.size && !lines[i].trim().startsWith(fence)) {
@@ -478,7 +481,7 @@ object Markdown {
                     i += 1
                 }
                 i += 1
-                blocks.add(MarkdownBlock(MarkdownBlockKind.CodeBlock, listOf(MarkdownInline(text = body.joinToString("\n"), code = true))))
+                blocks.add(MarkdownBlock(MarkdownBlockKind.CodeBlock, listOf(MarkdownInline(text = body.joinToString("\n"), code = true)), lang = info))
                 continue
             }
             val hashes = trimmed.takeWhile { it == '#' }.length

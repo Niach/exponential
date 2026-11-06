@@ -18,7 +18,7 @@ export type NormalBlock =
   | { kind: `paragraph` | `quote`; runs: NormalRun[] }
   | { kind: `heading`; level: number; runs: NormalRun[] }
   | { kind: `listItem`; marker: string; task?: boolean; depth: number; runs: NormalRun[] }
-  | { kind: `codeBlock`; text: string }
+  | { kind: `codeBlock`; lang?: string; text: string }
   | { kind: `table`; header: NormalRun[][]; rows: NormalRun[][][] }
   | { kind: `rule` }
   | { kind: `image`; src: string; alt: string }
@@ -87,7 +87,7 @@ export function normalMarkdown(tree: readonly MarkdownBlock[]): NormalBlock[] {
         listItems(block.list, 0, out)
         break
       case `codeBlock`:
-        out.push({ kind: `codeBlock`, text: block.text })
+        out.push(block.lang ? { kind: `codeBlock`, lang: block.lang, text: block.text } : { kind: `codeBlock`, text: block.text })
         break
       case `table`:
         out.push({ kind: `table`, header: block.head.map(merged), rows: block.rows.map((row) => row.map(merged)) })

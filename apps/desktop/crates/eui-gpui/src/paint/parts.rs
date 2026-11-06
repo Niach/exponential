@@ -24,6 +24,16 @@ pub fn part_visual(theme: Option<&ResolvedTheme>, mode: Mode, owner_component: &
     style::visual(&part_props(theme, mode, owner_component, part, owner_props, states), BoxKind::Leaf)
 }
 
+/// A CodeBlock token's look by its `kind`: the `CodeBlock/token {kind}`
+/// recipe under `owner_props` → (colour, weight, italic). CodeBlock lines
+/// paint all three; a Markdown code block (#VAPP-258) only the colour.
+pub fn code_token_look(theme: Option<&ResolvedTheme>, mode: Mode, owner_props: &Map<String, Value>, kind: &str) -> (Option<Hsla>, Option<u16>, bool) {
+    let mut props = owner_props.clone();
+    props.insert("kind".into(), Value::String(kind.to_string()));
+    let v = part_visual(theme, mode, "CodeBlock", "token", &props, &[]);
+    (super::color::color_of(v.color.as_deref()), v.font_weight, v.font_style.as_deref() == Some("italic"))
+}
+
 /// A px number of a resolved flat style (`width`, `height`, `borderWidth`…).
 pub fn px_prop(props: &Map<String, Value>, key: &str) -> Option<f32> {
     props.get(key).and_then(style::px)
