@@ -229,7 +229,7 @@ describe(`notifySessionAsk — a root's question pushes its owner`, () => {
     selectResults.push([{ ...root, agentRole: `assistant` }])
     delivered()
 
-    await notifySessionAsk({ sessionId: `conv-1`, card: question as never })
+    await notifySessionAsk({ sessionId: `conv-1`, messageId: `m-1`, card: question as never })
 
     expect(executeState.calls).toBe(1)
     expect(executeState.params).toContain(`conv-1`)
@@ -238,24 +238,40 @@ describe(`notifySessionAsk — a root's question pushes its owner`, () => {
     expect(executeState.params).toContain(`Question: Ship it today?`)
     const [recipients, payload] = vi.mocked(sendToUsers).mock.calls[0]!
     expect(recipients.map((r) => r.userId)).toEqual([`owner`])
-    expect(payload.data).toEqual({ type: `agent_message`, sessionId: `conv-1`, teamId: `team-1`, teamSlug: `acme`, rootId: `conv-1` })
+    expect(payload.data).toEqual({
+      type: `agent_message`,
+      sessionId: `conv-1`,
+      teamId: `team-1`,
+      teamSlug: `acme`,
+      rootId: `conv-1`,
+      // #EXP-1641: what the notification's actions answer.
+      messageId: `m-1`,
+      cardKind: `question`,
+      options: `["yes","no"]`,
+      custom: `1`,
+    })
   })
 
   it(`a thread root's plan: the session's title + needs you, the plan's first block`, async () => {
     selectResults.push([root])
     delivered()
 
-    await notifySessionAsk({ sessionId: `conv-1`, card: { kind: `plan`, plan: `## Migrate\n1. Add\n\nLater` } as never })
+    await notifySessionAsk({
+      sessionId: `conv-1`,
+      messageId: `m-1`,
+      card: { kind: `plan`, plan: `## Migrate\n1. Add\n\nLater` } as never,
+    })
 
     const [, payload] = vi.mocked(sendToUsers).mock.calls[0]!
     expect(payload.title).toBe(`Fix the login needs you`)
     expect(payload.body).toBe(`Plan: Migrate Add`)
+    expect(payload.data).toMatchObject({ messageId: `m-1`, cardKind: `plan`, planQuestions: `0` })
   })
 
   it(`a child's ask routes to its parent agent: no row, no push`, async () => {
     selectResults.push([{ ...root, id: `child`, parentId: `conv-1` }])
 
-    await notifySessionAsk({ sessionId: `child`, card: question as never })
+    await notifySessionAsk({ sessionId: `child`, messageId: `m-1`, card: question as never })
 
     expect(executeState.calls).toBe(0)
     expect(sendToUsers).not.toHaveBeenCalled()
@@ -276,7 +292,7 @@ describe(`notifySessionAsk — a root's question pushes its owner`, () => {
       selectResults.push([root])
       delivered()
 
-      await notifySessionAsk({ sessionId: `conv-1`, card: card as never, sealedAskText })
+      await notifySessionAsk({ sessionId: `conv-1`, messageId: `m-1`, card: card as never, sealedAskText })
 
       expect(JSON.stringify(executeState.params)).not.toContain(SECRET)
       expect(executeState.params).toContain(`New message in a session`)
@@ -285,6 +301,9 @@ describe(`notifySessionAsk — a root's question pushes its owner`, () => {
       expect(payload.body).toBe(`New message in a session`)
       expect(payload.data.sealedText).toBe(sealedAskText)
       expect(payload.data.rootId).toBe(`conv-1`)
+      // #EXP-1641: a sealed card names only its kind; no option leaves in clear.
+      expect(payload.data).toMatchObject({ messageId: `m-1`, cardKind: `question`, sealed: `1` })
+      expect(payload.data.options).toBeUndefined()
       expect(logged.join(`\n`)).not.toContain(SECRET)
       // The phone holding the tree key shows the question; without it, the push body.
       const keys = new Map([[1, tree.secret]])
@@ -300,7 +319,7 @@ describe(`notifySessionAsk — a root's question pushes its owner`, () => {
     selectResults.push([root])
     delivered()
 
-    await notifySessionAsk({ sessionId: `conv-1`, card: sealCard(tree.publicKey, 1, question) as never, sealedAskText: `plaintext!` })
+    await notifySessionAsk({ sessionId: `conv-1`, messageId: `m-1`, card: sealCard(tree.publicKey, 1, question) as never, sealedAskText: `plaintext!` })
 
     const [, payload] = vi.mocked(sendToUsers).mock.calls[0]!
     expect(payload.body).toBe(`New message in a session`)

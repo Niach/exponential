@@ -844,7 +844,7 @@ export async function postAskCard(args: {
     return messageId
   })
   // #VAPP-45: a root's ask pushes its owner (the question text sealed).
-  void notifySessionAsk({ sessionId: args.sessionId, card: args.card, sealedAskText: args.sealed?.askText })
+  void notifySessionAsk({ sessionId: args.sessionId, messageId, card: args.card, sealedAskText: args.sealed?.askText })
   return {
     messageId,
     // EXP-1458: a sealed card's clear `{label}` entries still to upload.

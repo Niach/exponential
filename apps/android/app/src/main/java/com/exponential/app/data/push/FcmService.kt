@@ -62,10 +62,16 @@ class FcmService : FirebaseMessagingService() {
         // #VAPP-45: a question push carries its tree-sealed text; opened
         // here with the tree keys this install holds, else the push's body.
         val body = payload.body ?: payload.data["body"]
+        val opened = QuestionPush.openedAskText(payload.data, ::treeKeys, SealedFfi)
+        // #EXP-1641: the actions; a sealed card's options come from the ask
+        // text opened above, a sealed chat's reply needs its tree key.
+        val keyHeld = payload.data[QuestionPush.ROOT_ID_KEY]?.takeIf { it.isNotEmpty() }
+            ?.let { runCatching { treeKeys(it) }.getOrNull()?.isNotEmpty() } == true
         showNotification(
             title = payload.title ?: payload.data["title"] ?: "Exponential",
-            body = QuestionPush.body(payload.data, ::treeKeys, SealedFfi, body),
+            body = QuestionPush.bodyOf(opened, body),
             data = payload.data,
+            actions = NotificationActions.notificationActions(payload.data, keyHeld, opened),
         )
     }
 
@@ -77,7 +83,12 @@ class FcmService : FirebaseMessagingService() {
     }
 
     /** The ONE notification an opened push shows: one channel, routing and ids. */
-    private fun showNotification(title: String, body: String?, data: Map<String, String>) {
+    private fun showNotification(
+        title: String,
+        body: String?,
+        data: Map<String, String>,
+        actions: List<NotificationActions.Action>,
+    ) {
         // Issue pushes carry an issueId (a reporter's reply too, SLOP-4);
         // issue-less agent_message / session_blocked pushes carrying a
         // sessionId (a decision, a mention, a wall) route to that session
@@ -121,16 +132,25 @@ class FcmService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(this, ExponentialApp.ISSUE_CHANNEL_ID)
+        val notificationId = target?.hashCode() ?: System.currentTimeMillis().toInt()
+        // #EXP-1641: the push's account (its userId, as a tap resolves it)
+        // runs the actions; none on this device = no actions.
+        val actionAccount = when (account) {
+            PushDeepLinks.Account.Active -> auth.activeAccountId.value
+                ?.takeIf { id -> auth.accounts.value.any { it.id == id && it.token != null } }
+            is PushDeepLinks.Account.Switch -> account.id
+            PushDeepLinks.Account.Unknown -> null
+        }
+        val builder = NotificationCompat.Builder(this, ExponentialApp.ISSUE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notification)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .build()
-
-        val notificationId = target?.hashCode() ?: System.currentTimeMillis().toInt()
+        NotificationActionReceiver.build(this, actions, data, actionAccount, notificationId, pendingIntent)
+            .forEach(builder::addAction)
+        val notification = builder.build()
         try {
             NotificationManagerCompat.from(this).notify(notificationId, notification)
         } catch (err: SecurityException) {

@@ -317,6 +317,21 @@ class SessionsApi @Inject constructor(
         return result
     }
 
+    /**
+     * #EXP-1641: [send] into the encrypted tree [rootId] named explicitly (a
+     * notification's reply); always sealed, refused when it cannot be.
+     */
+    suspend fun sendSealed(accountId: String, input: SessionsSendInput, rootId: String): SessionsSendResult {
+        val prepared = sealer.get().prepareSealedSend(accountId, input, rootId)
+        return trpc.mutation(
+            accountId,
+            path = "sessions.send",
+            input = prepared.input,
+            inputSerializer = SessionsSendInput.serializer(),
+            outputSerializer = SessionsSendResult.serializer(),
+        )
+    }
+
     /** Interrupt the current turn (the session stays live, goes idle). */
     suspend fun stop(accountId: String, sessionId: String): SessionStopResult {
         val raw = trpc.mutation(

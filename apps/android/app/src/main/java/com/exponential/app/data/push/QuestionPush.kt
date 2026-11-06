@@ -30,22 +30,37 @@ internal object QuestionPush {
     fun text(askText: String): String = clip(Chats.askTextPreview(askText).text)
 
     /**
-     * The body for a delivered push: `sealedText` opened with the keys of
-     * `rootId` ([keysFor], epoch → secret; null = none held), else [fallback].
-     * Never throws; nothing opened is logged.
+     * The push's `sealedText` opened with the keys of `rootId` ([keysFor],
+     * epoch → secret; null = none held): the full ask text, null when there is
+     * none or it does not open. Never throws; nothing opened is logged.
+     */
+    fun openedAskText(
+        data: Map<String, String>,
+        keysFor: (String) -> Map<Int, ByteArray>?,
+        crypto: SealedCrypto,
+    ): String? {
+        val sealed = data[SEALED_TEXT_KEY]?.takeIf { it.isNotEmpty() } ?: return null
+        val rootId = data[ROOT_ID_KEY]?.takeIf { it.isNotEmpty() } ?: return null
+        val keys = runCatching { keysFor(rootId) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
+        val opened = runCatching { crypto.openBody(sealed, keys) }.getOrNull() ?: return null
+        if (opened.status != SealStatus.Opened) return null
+        return opened.text
+    }
+
+    /**
+     * The body for a delivered push: [openedAskText] as THE chat ask
+     * preview, else [fallback]. Never throws; nothing opened is logged.
      */
     fun body(
         data: Map<String, String>,
         keysFor: (String) -> Map<Int, ByteArray>?,
         crypto: SealedCrypto,
         fallback: String?,
-    ): String? {
-        val sealed = data[SEALED_TEXT_KEY]?.takeIf { it.isNotEmpty() } ?: return fallback
-        val rootId = data[ROOT_ID_KEY]?.takeIf { it.isNotEmpty() } ?: return fallback
-        val keys = runCatching { keysFor(rootId) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return fallback
-        val opened = runCatching { crypto.openBody(sealed, keys) }.getOrNull() ?: return fallback
-        if (opened.status != SealStatus.Opened) return fallback
-        val shown = text(opened.text ?: return fallback)
+    ): String? = bodyOf(openedAskText(data, keysFor, crypto), fallback)
+
+    /** The shown body of an already opened ask text, else [fallback]. */
+    fun bodyOf(openedAskText: String?, fallback: String?): String? {
+        val shown = text(openedAskText ?: return fallback)
         return shown.ifBlank { fallback }
     }
 }
