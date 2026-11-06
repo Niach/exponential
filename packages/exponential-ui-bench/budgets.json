@@ -854,7 +854,7 @@
     "mint": {
       "core": {
         "cold-start": {
-          "allocations": 246009,
+          "allocations": 246151,
           "coldStartMs": 21.3,
           "firstPaintMs": 15.1,
           "memoryMb": 30.4,
