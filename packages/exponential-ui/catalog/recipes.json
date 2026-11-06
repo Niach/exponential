@@ -49,7 +49,7 @@
     "Radio": { "parts": ["root", "item", "dot", "label", "items"], "props": ["orientation"] },
     "ChoiceTiles": { "parts": ["root", "tile", "picture", "label", "description"], "props": ["type", "columns"] },
     "Switch": { "parts": ["root", "track", "thumb", "label", "description", "body"], "props": ["checked", "disabled", "size"] },
-    "Slider": { "parts": ["root", "track", "range", "thumb", "label", "value", "header"], "props": [] },
+    "Slider": { "parts": ["root", "track", "range", "thumb", "label", "value", "header", "row", "icon", "end"], "props": [] },
     "Select": { "parts": ["root", "label", "trigger", "placeholder", "content", "search", "item", "check", "empty"], "props": ["multiple", "searchable", "disabled"] },
     "SearchList": { "parts": ["root", "head", "search", "count", "list", "item", "icon", "identifier", "label", "check", "empty", "fade"], "props": [] },
     "ChipInput": { "parts": ["root", "label", "field", "chip", "chipLabel", "remove", "placeholder", "description", "error", "input"], "props": ["disabled"] },

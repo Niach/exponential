@@ -3008,6 +3008,25 @@
                 "color": "$color.mutedForeground"
               }
             }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "end": [
+            {
+              "style": {
+                "minWidth": "$control.buttonIcon",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
           ]
         },
         "Select": {
@@ -10670,6 +10689,25 @@
           "value": [
             {
               "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "end": [
+            {
+              "style": {
+                "minWidth": "$control.buttonIcon",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.mutedForeground"
@@ -18350,6 +18388,25 @@
           "value": [
             {
               "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "end": [
+            {
+              "style": {
+                "minWidth": "$control.buttonIcon",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.mutedForeground"
@@ -26360,6 +26417,25 @@
           "value": [
             {
               "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "end": [
+            {
+              "style": {
+                "minWidth": "$control.buttonIcon",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.mutedForeground"

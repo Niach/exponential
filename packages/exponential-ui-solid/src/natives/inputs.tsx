@@ -659,12 +659,12 @@ export function SliderNative(props: NativeProps): JSX.Element {
     s[startEdge()] = `calc(${percent()}% + ${offset()}px)`
     return s
   }
-  return (
-    <div {...props.rootProps}>
-      <div {...part(`header`)} class={`${part(`header`).class as string} xui-slider-head`}>
-        <TextPart part={part(`label`)} text={props.props.label} as="label" htmlFor={id} />
-        <span {...part(`value`)}>{ctx.formatter.number(value())}</span>
-      </div>
+  // #VAPP-286: `showValue: false` prints no value; a leading `icon` and/or an
+  // `endLabel` put the track in the `row` part (the core's volume row).
+  const showValue = () => props.props.showValue !== false
+  const icon = () => str(props.props.icon)
+  const endLabel = () => (props.props.endLabel == null ? `` : String(props.props.endLabel))
+  const sliderRoot = (
       <span
         ref={root}
         aria-disabled={false}
@@ -732,6 +732,30 @@ export function SliderNative(props: NativeProps): JSX.Element {
           </Show>
         </span>
       </span>
+  )
+  return (
+    <div {...props.rootProps}>
+      <Show when={str(props.props.label) || showValue()}>
+        <div {...part(`header`)} class={`${part(`header`).class as string} xui-slider-head`}>
+          <TextPart part={part(`label`)} text={props.props.label} as="label" htmlFor={id} />
+          <Show when={showValue()}>
+            <span {...part(`value`)}>{ctx.formatter.number(value())}</span>
+          </Show>
+        </div>
+      </Show>
+      <Show when={icon() || endLabel()} fallback={sliderRoot}>
+        <div {...part(`row`)} class={`${part(`row`).class as string} xui-slider-row`}>
+          <Show when={icon()}>
+            <span {...part(`icon`)} aria-hidden="true">
+              <IconGlyph icons={ctx.host.icons} name={icon()} />
+            </span>
+          </Show>
+          {sliderRoot}
+          <Show when={endLabel()}>
+            <span {...part(`end`)}>{endLabel()}</span>
+          </Show>
+        </div>
+      </Show>
     </div>
   )
 }

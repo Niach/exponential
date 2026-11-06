@@ -252,6 +252,7 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "loader" to lLoader,
     "log-out" to lLogOut,
     "mail" to lMail,
+    "media-volume-up" to lVolume2,
     "menu" to lMenu,
     "message-circle" to lMessageCircle,
     "message-square" to lMessageSquare,

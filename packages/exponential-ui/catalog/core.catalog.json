@@ -4831,7 +4831,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "A range slider between min and max; bind `value`.",
+      "description": "A slider from min to max.",
       "props": {
         "label": {
           "type": "string",
@@ -4858,6 +4858,20 @@
           "type": "number",
           "bindable": true,
           "description": "The current value; bind it."
+        },
+        "icon": {
+          "type": "icon",
+          "description": "Leading glyph."
+        },
+        "endLabel": {
+          "type": "string",
+          "bindable": true,
+          "description": "Text after the track."
+        },
+        "showValue": {
+          "type": "boolean",
+          "default": true,
+          "description": "false hides the value."
         }
       },
       "events": [

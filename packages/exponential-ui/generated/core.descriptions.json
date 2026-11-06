@@ -2089,9 +2089,18 @@
         },
         "value": {
           "description": "The current value; bind it."
+        },
+        "icon": {
+          "description": "Leading glyph."
+        },
+        "endLabel": {
+          "description": "Text after the track."
+        },
+        "showValue": {
+          "description": "false hides the value."
         }
       },
-      "description": "A range slider between min and max; bind `value`.",
+      "description": "A slider from min to max.",
       "example": {
         "label": "Volume",
         "min": 0,

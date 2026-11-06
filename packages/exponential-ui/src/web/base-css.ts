@@ -254,6 +254,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-slider-root{display:flex;align-items:center;width:100%;min-height:var(--xui-control-slider);touch-action:none;user-select:none;position:relative}
 .xui-Slider-range{position:absolute;height:100%;left:0;border-radius:inherit}
 .xui-Slider-thumb{display:block;cursor:grab;outline:none}
+.xui-slider-row{display:flex;align-items:center;gap:var(--xui-spacing-sm);width:100%;min-width:0}
+.xui-slider-row>.xui-slider-root{flex:1 1 0;width:auto;min-width:0}
+.xui-Slider-icon{display:inline-flex;flex-shrink:0}
+.xui-Slider-icon>svg{width:100%;height:100%}
+.xui-Slider-end{flex-shrink:0;text-align:end;white-space:nowrap}
 .xui-DatePicker-calendar,.xui-DateRangePicker-calendar{display:flex;flex-direction:column;gap:var(--xui-spacing-sm);padding:var(--xui-spacing-sm)}
 .xui-calendar-head{display:flex;align-items:center;justify-content:space-between;gap:var(--xui-spacing-sm);font-weight:var(--xui-type-weight-medium)}
 .xui-calendar-nav{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:var(--xui-radius-sm);cursor:pointer;padding:0}

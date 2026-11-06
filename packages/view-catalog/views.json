@@ -5110,7 +5110,7 @@
       "id": "exponential-ui-slider",
       "group": "exponential-ui-catalog",
       "title": "genUI · Slider",
-      "blurb": "A range slider between min and max; bind `value`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/slider/.",
+      "blurb": "A slider from min to max; bind `value`. #VAPP-286: the volume row (a leading `icon`, the track, an `endLabel`, `showValue: false`). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/slider/.",
       "order": 51,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-slider",
