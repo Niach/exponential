@@ -48,7 +48,10 @@ final class MarkdownRenderTests: XCTestCase {
                 var o: [String: Any] = ["kind": "listItem", "marker": marker, "depth": b.depth, "runs": runs(b.inlines)]
                 if let task { o["task"] = task }
                 return o
-            case .codeBlock: return ["kind": "codeBlock", "text": b.inlines.map(\.text).joined()]
+            case .codeBlock:
+                var o: [String: Any] = ["kind": "codeBlock", "text": b.inlines.map(\.text).joined()]
+                if let lang = b.lang { o["lang"] = lang }
+                return o
             case let .table(header, rows):
                 return ["kind": "table", "header": header.map(runs), "rows": rows.map { $0.map(runs) }]
             case .rule: return ["kind": "rule"]

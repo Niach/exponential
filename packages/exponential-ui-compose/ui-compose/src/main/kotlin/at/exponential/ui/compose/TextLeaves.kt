@@ -38,6 +38,10 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.graphics.Color
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
+import at.exponential.ui.model.SurfaceModel
+import at.exponential.ui.primitives.MarkdownCodeHighlighter
+import at.exponential.ui.primitives.MarkdownCodeSpan
+import at.exponential.ui.theme.PartStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.json.flag
@@ -299,6 +303,46 @@ internal fun BadgeCellLeaf(cx: LeafContext) {
     }
 }
 
+/**
+ * A CodeBlock token's look by its `kind`: the `CodeBlock/token {kind}`
+ * recipe under [base]. CodeBlock lines paint its colour, weight and italic;
+ * a Markdown code block (#VAPP-258) its colour only.
+ */
+internal fun SurfaceModel.codeTokenPart(kind: String, base: Props = emptyMap()): PartStyle =
+    part("CodeBlock", "token", base + ("kind" to JsonValue.Str(kind)))
+
+/**
+ * #VAPP-258 (fixtures/markdown-render.json): a fenced block's coloured
+ * ranges: the catalog's ONE tokenizer (`tokenizeCodeJson`, CodeBlock's
+ * tokens) over [text] as [lang], each token but `plain` in [color] of its
+ * kind. `plain` and `ansi` (whose escapes the tokenizer drops) never
+ * highlight; an unknown language tokenizes as all `plain`; tokens that do
+ * not concatenate back to the text colour nothing.
+ */
+internal fun markdownCodeSpans(text: String, lang: String?, color: (String) -> Color?): List<MarkdownCodeSpan> {
+    if (lang.isNullOrEmpty() || lang == "plain" || lang == "ansi" || text.isEmpty()) return emptyList()
+    val out = ArrayList<MarkdownCodeSpan>()
+    val joined = StringBuilder()
+    val cache = HashMap<String, Color?>()
+    val lines = JsonValue.parse(at.exponential.ui.ffi.tokenizeCodeJson(text, lang)).array ?: return emptyList()
+    lines.forEachIndexed { i, line ->
+        if (i > 0) joined.append('\n')
+        for (t in line.array ?: emptyList()) {
+            val piece = t["text"]?.string ?: ""
+            val kind = t["kind"]?.string ?: "plain"
+            val start = joined.length
+            joined.append(piece)
+            if (piece.isEmpty() || kind == "plain") continue
+            cache.getOrPut(kind) { color(kind) }?.let { out.add(MarkdownCodeSpan(start, joined.length, it)) }
+        }
+    }
+    return if (joined.toString() == text) out else emptyList()
+}
+
+/** Markdown's fenced blocks in CodeBlock's colours under [model]'s theme. */
+internal fun markdownCodeHighlighter(model: SurfaceModel): MarkdownCodeHighlighter =
+    MarkdownCodeHighlighter { text, lang -> markdownCodeSpans(text, lang) { model.codeTokenPart(it).color } }
+
 /** A CodeBlock line: the core tokenizer's tokens, each coloured / weighted by `CodeBlock/token {kind}`. */
 @Composable
 internal fun CodeLineLeaf(cx: LeafContext) {
@@ -312,7 +356,7 @@ internal fun CodeLineLeaf(cx: LeafContext) {
             if (s.isEmpty()) continue
             val kind = t["kind"]?.string ?: "plain"
             val span = cache.getOrPut(kind) {
-                val p = cx.part("CodeBlock", "token", cx.ownerProps + ("kind" to JsonValue.Str(kind)))
+                val p = model.codeTokenPart(kind, cx.ownerProps)
                 SpanStyle(
                     color = p.color ?: androidx.compose.ui.graphics.Color.Unspecified,
                     fontWeight = p.style.fontWeight?.let { FontWeight(it) },
@@ -435,6 +479,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             linkPolicy = remember(model, model.host) { { href: String -> model.href(href) } },
             imagePolicy = remember(model, model.host) { { src: String -> model.mediaRequest(src) != null } },
             textLinks = { piece -> model.textLinkSegments(piece)?.map { it.text to it.href } },
+            codeHighlighter = remember(model, model.effectiveTheme, model.mode) { markdownCodeHighlighter(model) },
             image = { src, alt ->
                 val picture = rememberPolicedImage(model, src)
                 if (picture != null) {

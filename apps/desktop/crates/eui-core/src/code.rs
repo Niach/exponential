@@ -85,6 +85,14 @@ pub fn language(name: &str) -> Option<&'static LanguageSpec> {
     CODE.languages.get(name)
 }
 
+/// #VAPP-258 (`fixtures/markdown-render.json`): the language a Markdown
+/// fence's info string (` ```ts `) is highlighted in: a catalog language
+/// other than `plain` and `ansi` (whose escapes the tokenizer drops), else
+/// `None` = plain text, no colours (src/code.ts `markdownCodeLanguage`).
+pub fn markdown_code_language(lang: Option<&str>) -> Option<&str> {
+    lang.filter(|l| *l != "plain" && language(l).is_some_and(|spec| !spec.ansi))
+}
+
 fn is_digit(c: Option<char>) -> bool {
     c.is_some_and(|c| c.is_ascii_digit())
 }

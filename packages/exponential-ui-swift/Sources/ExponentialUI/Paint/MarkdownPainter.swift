@@ -1,4 +1,5 @@
 import SwiftUI
+import ExponentialUICore
 import ExponentialUIPrimitives
 
 /// The markdown painter: resolves the `Markdown/*` recipe parts into
@@ -48,6 +49,49 @@ enum MarkdownPainter {
         s.cellPadH = theme.spacing("sm")
         s.cellPadV = theme.spacing("xs")
         return s
+    }
+}
+
+/// #VAPP-258 (fixtures/markdown-render.json): a fenced block's code
+/// tokens, the catalog's ONE tokenizer (`tokenizeCodeJson`, CodeBlock's
+/// tokens), as (UTF-16 range, kind) over the block's text, when its fence
+/// names a highlighted language: `plain` and `ansi` (whose escapes the
+/// tokenizer drops) never are, an unknown one tokenizes as all `plain`.
+/// Empty = plain text. Tokens that do not concatenate back to the text
+/// paint nothing.
+enum MarkdownCode {
+    static func tokens(_ text: String, lang: String?) -> [(range: NSRange, kind: String)] {
+        guard let lang, !lang.isEmpty, lang != "plain", lang != "ansi", !text.isEmpty else { return [] }
+        var out: [(range: NSRange, kind: String)] = []
+        var at = 0
+        var joined = ""
+        for (i, line) in (JSONValue.parse(tokenizeCodeJson(code: text, language: lang)).array ?? []).enumerated() {
+            if i > 0 { joined += "\n"; at += 1 }
+            for t in line.array ?? [] {
+                let piece = t["text"]?.string ?? ""
+                let n = (piece as NSString).length
+                if n > 0 { out.append((NSRange(location: at, length: n), t["kind"]?.string ?? "plain")) }
+                joined += piece
+                at += n
+            }
+        }
+        return joined == text ? out : []
+    }
+
+    /// `runs` with each token but `plain` in CodeBlock's colour for its
+    /// kind (`color(kind)`, nil = the ink): colour only, so the shaped
+    /// text and its measured height never change.
+    static func highlighted(_ runs: NSAttributedString, lang: String?, color: (String) -> PlatformColor?) -> NSAttributedString {
+        let tokens = tokens(runs.string, lang: lang)
+        if tokens.isEmpty { return runs }
+        let out = NSMutableAttributedString(attributedString: runs)
+        var cache: [String: PlatformColor?] = [:]
+        for (range, kind) in tokens where kind != "plain" {
+            let c = cache[kind] ?? color(kind)
+            cache[kind] = c
+            if let c { out.addAttribute(.foregroundColor, value: c, range: range) }
+        }
+        return out
     }
 }
 
@@ -169,7 +213,7 @@ struct MarkdownView: View {
                 linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(muted), link: platform(link), codeBackground: nil), spec: spec, width: max(width - styles.quoteBorder - styles.quotePad, 1))
             }
         case .codeBlock:
-            TextLabel(attributed: TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: nil), lineHeight: spec.lineHeight, wraps: false)
+            TextLabel(attributed: MarkdownCode.highlighted(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: nil), lang: block.lang) { kind in model.codeTokenLook(kind).color.map(platform) }, lineHeight: spec.lineHeight, wraps: false)
                 .padding(styles.codePad)
                 .frame(width: width, height: box.height, alignment: .topLeading)
                 .background(codeBlockBg ?? ink.opacity(0.06), in: RoundedRectangle(cornerRadius: model.theme?.radius("md") ?? 6))

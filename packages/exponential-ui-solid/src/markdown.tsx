@@ -3,11 +3,16 @@
 // through the theme's `Markdown/<part>` recipes. A host with a real
 // renderer passes it as `host.Markdown` and this one steps aside. Every
 // href passes the URL policy (denied = the label as text), every image the
-// media policy; a paragraph that is one image is a BLOCK image.
+// media policy; a paragraph that is one image is a BLOCK image. #VAPP-258:
+// a fenced block whose fence names a catalog language paints CodeBlock's
+// tokens (`markdownCodeLines`) in the `CodeBlock/token {kind}` recipe's
+// colours (the surface's scope on each span; base-css keeps it to the
+// colour), the box as before.
 
-import { For, Show, createMemo, type JSX } from "solid-js"
+import { For, Show, createMemo, useContext, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { linkedMarkdown, linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { linkedMarkdown, linkHref, markdownCodeLines, mediaRequestOf, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
 import { createMediaSource } from "./media"
 import { css } from "./style"
@@ -87,7 +92,21 @@ function renderList(list: MarkdownList, host: HostPlugin): JSX.Element {
   return list.ordered ? <ol start={list.start === 1 ? undefined : list.start}>{items}</ol> : <ul>{items}</ul>
 }
 
-function block(b: MarkdownBlock, host: HostPlugin): JSX.Element {
+/** A fenced block's text: CodeBlock's token spans (`CodeBlock/token`
+ *  under the theme `scope`, `kind` as its recipe prop) when the fence names
+ *  a highlighted language, else the text as it is. */
+function codeRuns(b: { lang?: string; text: string }, scope: string): JSX.Element {
+  const lines = markdownCodeLines(b)
+  if (!lines) return b.text
+  const token = `${scope} ${partClass(`CodeBlock`, `token`)}`.trim()
+  const kind = propAttribute(false, `kind`)
+  return lines.flatMap((tokens, i): JSX.Element[] => [
+    i ? `\n` : null,
+    ...tokens.map((t) => (t.kind === `plain` ? t.text : <span class={token} {...{ [kind]: t.kind }} data-token={t.kind}>{t.text}</span>)),
+  ])
+}
+
+function block(b: MarkdownBlock, host: HostPlugin, scope: string): JSX.Element {
   switch (b.type) {
     case `paragraph`:
       return <p class="xui-Markdown-paragraph">{inline(b.children, host)}</p>
@@ -96,7 +115,7 @@ function block(b: MarkdownBlock, host: HostPlugin): JSX.Element {
     case `codeBlock`:
       return (
         <pre class="xui-Markdown-codeBlock" data-lang={b.lang}>
-          <code>{b.text}</code>
+          <code>{codeRuns(b, scope)}</code>
         </pre>
       )
     case `heading`:
@@ -106,7 +125,7 @@ function block(b: MarkdownBlock, host: HostPlugin): JSX.Element {
         </Dynamic>
       )
     case `quote`:
-      return <blockquote class="xui-Markdown-quote">{blocks(b.children, host)}</blockquote>
+      return <blockquote class="xui-Markdown-quote">{blocks(b.children, host, scope)}</blockquote>
     case `list`:
       return renderList(b.list, host)
     case `table`:
@@ -134,17 +153,19 @@ function block(b: MarkdownBlock, host: HostPlugin): JSX.Element {
   return null
 }
 
-function blocks(tree: readonly MarkdownBlock[], host: HostPlugin): JSX.Element[] {
-  return tree.map((b) => block(b, host))
+function blocks(tree: readonly MarkdownBlock[], host: HostPlugin, scope: string): JSX.Element[] {
+  return tree.map((b) => block(b, host, scope))
 }
 
-/** The markdown tree of `text` as Solid elements. */
-export function renderMarkdown(text: string, host: HostPlugin = {}): JSX.Element[] {
-  return blocks(linkedMarkdown(host, parseMarkdown(text)), host)
+/** The markdown tree of `text` as Solid elements (`scope` = the compiled
+ *  theme's scope class: the code token colours). */
+export function renderMarkdown(text: string, host: HostPlugin = {}, scope = ``): JSX.Element[] {
+  return blocks(linkedMarkdown(host, parseMarkdown(text)), host, scope)
 }
 
 export function BuiltinMarkdown(props: { text: string; class?: string; host?: HostPlugin }): JSX.Element {
-  // Parsed once per text (and host).
-  const tree = createMemo(() => renderMarkdown(props.text, props.host))
+  const ctx = useContext(SurfaceContext)
+  // Parsed once per text (and host, and theme).
+  const tree = createMemo(() => renderMarkdown(props.text, props.host, ctx?.compiled.scope ?? ``))
   return <div class={props.class ? `xui-md ${props.class}` : `xui-md`}>{tree()}</div>
 }

@@ -56,7 +56,11 @@ class MarkdownRenderTest {
                 put("depth", k.depth)
                 put("runs", runs(b.inlines))
             }
-            MarkdownBlockKind.CodeBlock -> mapOf("kind" to "codeBlock", "text" to b.inlines.joinToString("") { it.text })
+            MarkdownBlockKind.CodeBlock -> buildMap {
+                put("kind", "codeBlock")
+                b.lang?.let { put("lang", it) }
+                put("text", b.inlines.joinToString("") { it.text })
+            }
             is MarkdownBlockKind.Table -> mapOf("kind" to "table", "header" to k.header.map(::runs), "rows" to k.rows.map { row -> row.map(::runs) })
             MarkdownBlockKind.Rule -> mapOf("kind" to "rule")
             is MarkdownBlockKind.Image -> mapOf("kind" to "image", "src" to k.src, "alt" to k.alt)

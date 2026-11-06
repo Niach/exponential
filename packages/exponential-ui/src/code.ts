@@ -327,6 +327,15 @@ export function codeText(source: string, language: string): string {
   return CODE_LANGUAGES[language]?.ansi ? ansiRuns(code).map((r) => r.text).join(``) : code
 }
 
+/** #VAPP-258 (fixtures/markdown-render.json): the language a Markdown
+ *  fence's info string (` ```ts `) is highlighted in: a catalog language
+ *  other than `plain` and `ansi` (whose escapes the tokenizer drops, so the
+ *  painted text would differ from the measured one), else null = plain
+ *  text, no colours. Every renderer applies the same rule. */
+export function markdownCodeLanguage(lang: string | null | undefined): string | null {
+  return lang && lang !== `plain` && Object.prototype.hasOwnProperty.call(CODE_LANGUAGES, lang) && !CODE_LANGUAGES[lang]!.ansi ? lang : null
+}
+
 /** The source tokenized per LINE: each line's tokens concatenate to exactly
  *  its text (no `\n`), adjacent tokens of one kind merged; an empty line is
  *  an empty list. An unknown language tokenizes as `plain`. */

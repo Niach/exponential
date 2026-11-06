@@ -333,6 +333,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Markdown-listItem>input[type=checkbox]:checked::before{content:"";width:14px;height:14px;background:var(--xui-color-primaryForeground);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat}
 .xui-Markdown-code{font-family:var(--xui-font-mono);font-size:.925em;padding:0 .3em;border-radius:4px;background:var(--xui-color-muted)}
 .xui-Markdown-codeBlock{display:block;font-family:var(--xui-font-mono);font-size:var(--xui-type-size-xs);white-space:pre;overflow:auto;padding:var(--xui-spacing-sm);margin:0 0 var(--xui-spacing-sm);border-radius:var(--xui-radius-sm);background:var(--xui-color-muted)}
+.xui-Markdown-codeBlock .xui-CodeBlock-token{font:inherit !important;letter-spacing:inherit !important;padding:0 !important;margin:0 !important;border:0 !important;background:none !important}
 .xui-Markdown-quote{margin:0 0 var(--xui-spacing-sm);padding-inline-start:var(--xui-spacing-md);border-inline-start:2px solid var(--xui-color-border);color:var(--xui-color-mutedForeground)}
 .xui-Markdown-link{color:var(--xui-color-primary);text-decoration:underline;text-underline-offset:3px}
 .xui-Markdown-table{border-collapse:collapse;margin:0 0 var(--xui-spacing-sm);width:100%}

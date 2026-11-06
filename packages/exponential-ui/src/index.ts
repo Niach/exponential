@@ -106,7 +106,7 @@ export type { DataScope, ResolveOptions, ActionOutcome, FunctionTable, PointerWr
 export { DEFAULT_STRINGS, STRING_IDS, parseStringRef, isStringRef, stringTable, formatString, resolveString } from "./strings"
 export { DEFAULT_LOCALE, parseLocale, localeRegion, weekStart, textDirection, RTL_MIRRORED_ICONS, mirrorsInRtl } from "./locale"
 export type { LocaleParts } from "./locale"
-export { tokenizeCode, codeText, ansiRuns, CODE_LANGUAGES, CODE_LANGUAGE_NAMES } from "./code"
+export { tokenizeCode, markdownCodeLanguage, codeText, ansiRuns, CODE_LANGUAGES, CODE_LANGUAGE_NAMES } from "./code"
 export type { AnsiRun } from "./code"
 export { textClusters, trackedClusters } from "./text-clusters"
 export { textShimmer, TEXT_SHIMMER } from "./text-shimmer"

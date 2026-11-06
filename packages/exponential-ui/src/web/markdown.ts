@@ -10,6 +10,8 @@
 // that is one image is a BLOCK image; an image inside running text is its
 // alt text, as on every renderer. Every pass is linear in its input.
 
+import { markdownCodeLanguage, tokenizeCode, type CodeToken } from "../code"
+
 /** Link labels nest at most this deep (×4): a link inside 32 enclosing link
  *  labels is its text. */
 export const MAX_LINK_NESTING = 32
@@ -300,6 +302,17 @@ function startsBlock(line: string): boolean {
 }
 
 /** Markdown text → its block tree. */
+/** #VAPP-258 (fixtures/markdown-render.json): a fenced block's lines as
+ *  the catalog's ONE tokenizer (`tokenizeCode`, CodeBlock's tokens) gives
+ *  them when the fence names a highlighted language
+ *  (`markdownCodeLanguage`), else null = the text as it is. A painter
+ *  colours each token but `plain` through `CodeBlock/token {kind}`, colour
+ *  only (base-css), so the block's box and height never change. */
+export function markdownCodeLines(block: { lang?: string; text: string }): CodeToken[][] | null {
+  const language = markdownCodeLanguage(block.lang)
+  return language ? tokenizeCode(block.text, language) : null
+}
+
 export function parseMarkdown(text: string): MarkdownBlock[] {
   return parseBlocks(text, 0)
 }
