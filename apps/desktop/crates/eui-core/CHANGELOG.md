@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.18.0 (2026-11-06)
+
 - Tree (#VAPP-285): `tree::tree_rows` / `tree_key`, `{treeRows(props)}`, per-item `$each` conditions, interpolated `$on`/`$set` event names; `Surface::event(index, "key")` on a treeitem answers a `Focus` event. `tree_rows` takes the rail Sidebar's `rail` (every row a tile, #VAPP-277).
 - A foldable Row (#VAPP-284): macro `alternatives` + `{childCount}`, `$on` routes with their own context (`MacroRoute`), `fold::fold_key` and `Surface::event(index, "key", {key})` firing `toggle` on a node that folds.
 - `SurfaceSettings::hosted_popups` (VAPP-281): anchored Popover / Menu layers unclipped, no flip / shift (`overlay::anchor_position`), `Layer.hosted` + `Layer.align`.
