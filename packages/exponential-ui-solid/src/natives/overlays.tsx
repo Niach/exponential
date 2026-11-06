@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, isBinding, overlayOpenFocus } from "@exponential_app/eui/web"
+import { absolutePath, holdDialogBottom, isBinding, overlayOpenFocus } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -183,6 +183,8 @@ function ModalNative(props: NativeProps & { kind: `Dialog` | `Drawer` }): JSX.El
       scope.attach(el)
       useFocusGuards()
       useModalEffects(el, false)
+      // EXP-1676: an open Dialog holds its bottom edge (the core's rule).
+      if (props.kind === `Dialog`) onCleanup(holdDialogBottom(el))
     })
     return el
   }

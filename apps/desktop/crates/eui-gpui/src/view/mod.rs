@@ -312,6 +312,10 @@ pub struct SurfaceView {
     inks: Vec<Hsla>,
     ink_base: Option<Hsla>,
     layers: Vec<Layer>,
+    /// EXP-1676: an open lifted Dialog's first height by owner id: it holds
+    /// its bottom edge in the window from then on ([`paint::window_layer_at`],
+    /// the core's rule for a Dialog it places itself).
+    dialog_holds: HashMap<String, f32>,
     lists: HashMap<u32, ListOutput>,
     scrolls: HashMap<u32, ScrollOutput>,
     /// EXP-1495: the page each Carousel thumbnail strip last scrolled to
@@ -545,6 +549,7 @@ impl SurfaceView {
             inks: Vec::new(),
             ink_base: None,
             layers: Vec::new(),
+            dialog_holds: HashMap::new(),
             lists: HashMap::new(),
             scrolls: HashMap::new(),
             thumbnail_pages: HashMap::new(),
@@ -1187,6 +1192,14 @@ impl SurfaceView {
         let layers = out.layers;
         self.layers_changed(&layers, now, window, cx);
         self.layers = layers;
+        {
+            let frames = &self.frames;
+            let open: Vec<(String, f32)> = self.layers.iter().filter(|l| l.modal && l.position == "centered").map(|l| (l.owner.clone(), frames.get(l.root as usize).map_or(0.0, |f| f.h))).collect();
+            self.dialog_holds.retain(|owner, _| open.iter().any(|(id, _)| id == owner));
+            for (id, h) in open.into_iter().filter(|(_, h)| *h > 0.0) {
+                self.dialog_holds.entry(id).or_insert(h);
+            }
+        }
         self.stats.nodes = self.cache.nodes.iter().filter(|x| !x.removed).count();
         self.stats.structure_version = out.structure_version;
         self.stats.upcalls = out.upcalls;

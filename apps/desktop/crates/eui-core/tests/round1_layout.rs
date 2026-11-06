@@ -338,6 +338,40 @@ fn layers_stay_inside_the_safe_area_and_a_tall_dialog_scrolls_its_body() {
     assert!(root.y + root.h - (text.y + text.h) >= 34.0, "content clear of the home indicator");
 }
 
+/// EXP-1676: a Dialog opens centred, then HOLDS its bottom edge while its
+/// content grows (a refused save's inline errors) or shrinks, so the action
+/// row never moves from under the pointer; it never rises past the view's
+/// top padding, and a reopened Dialog centres again.
+#[test]
+fn a_growing_dialog_holds_its_bottom_edge() {
+    let mut m = fixed();
+    let mut s = surface(dialog(3));
+    s.set_viewport(800.0, 600.0, None);
+    let first = s.layout(&mut m).layers[0].frames[0];
+    assert!(((first.y + first.h / 2.0) - 300.0).abs() < 0.01, "opens centred: {first:?}");
+    let bottom = first.y + first.h;
+    let grow = |s: &mut Surface, m: &mut FixedMeasure, lines: usize| {
+        let outcome = s.set_nested(serde_json::from_value(dialog(lines)).unwrap());
+        assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
+        s.layout(m).layers[0].frames[0]
+    };
+    let grown = grow(&mut s, &mut m, 8);
+    assert!(grown.h > first.h + 50.0, "it grew: {grown:?}");
+    assert!((grown.y + grown.h - bottom).abs() < 0.01, "the bottom edge holds: {grown:?} vs {bottom}");
+    let shrunk = grow(&mut s, &mut m, 2);
+    assert!((shrunk.y + shrunk.h - bottom).abs() < 0.01, "shrinking holds it too: {shrunk:?}");
+    let tall = grow(&mut s, &mut m, 80);
+    assert!(tall.y >= 8.0 - 0.01, "never above the top padding: {tall:?}");
+    assert!((tall.y + tall.h - bottom).abs() < 0.01, "a tall body scrolls under the held bottom: {tall:?}");
+    // Closed and opened again: centred on its new height.
+    let mut closed = dialog(80);
+    closed["children"][0]["props"]["open"] = json!(false);
+    s.set_nested(serde_json::from_value(closed).unwrap());
+    assert!(s.layout(&mut m).layers.is_empty());
+    let reopened = grow(&mut s, &mut m, 8);
+    assert!(((reopened.y + reopened.h / 2.0) - 300.0).abs() < 0.01, "reopened centred: {reopened:?}");
+}
+
 fn sheet(side: &str) -> Surface {
     surface(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Drawer", "props": {"open": true, "side": side}, "children": [{"id": "x", "component": "Text", "props": {"text": "Sheet"}}]}]}))
 }

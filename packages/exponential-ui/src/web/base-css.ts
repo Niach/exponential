@@ -179,6 +179,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Accordion-content[hidden]{display:none}
 .xui-Dialog-overlay,.xui-Drawer-overlay{position:fixed;inset:0;z-index:50}
 .xui-Dialog-content{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:51;display:flex;flex-direction:column;width:calc(100% - 32px);max-width:480px;max-height:calc(100% - 32px);overflow:auto;outline:none}
+.xui-Dialog-content[data-xui-hold]{top:calc(50% + var(--xui-dialog-h0) / 2);transform:translate(-50%,-100%);max-height:calc(50% + var(--xui-dialog-h0) / 2 - 16px)}
 .xui-Drawer-content{position:fixed;z-index:51;display:flex;flex-direction:column;overflow:auto;outline:none}
 .xui-Drawer-content[data-side="bottom"]{left:0;right:0;bottom:0;max-height:85%}
 .xui-Drawer-content[data-side="top"]{left:0;right:0;top:0;max-height:85%}

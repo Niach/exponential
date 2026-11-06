@@ -237,6 +237,9 @@ final class Round1PaintTests: XCTestCase {
         XCTAssertEqual(stage.origin(position: "left", layerSize: panel), .zero)
         XCTAssertEqual(stage.origin(position: "centered", layerSize: CGSize(width: 342, height: 200)), CGPoint(x: 24, y: 274))
         XCTAssertEqual(stage.origin(position: "centered", layerSize: CGSize(width: 342, height: 740)).y, 8, "a tall Dialog stays clear of the top")
+        // EXP-1676: a Dialog that grew holds its bottom edge where it opened.
+        XCTAssertEqual(stage.origin(position: "centered", layerSize: CGSize(width: 342, height: 260), held: 200), CGPoint(x: 24, y: 214))
+        XCTAssertEqual(stage.origin(position: "centered", layerSize: CGSize(width: 342, height: 740), held: 200).y, 8, "never above the top padding")
         let sheet = CGSize(width: 390, height: 200)
         XCTAssertEqual(stage.origin(position: "top", layerSize: sheet), .zero)
         XCTAssertEqual(stage.origin(position: "bottom", layerSize: sheet), CGPoint(x: 0, y: 582), "on the screen's edge")

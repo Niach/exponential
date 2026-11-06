@@ -72,7 +72,7 @@ struct PaintedLayers: View {
                         .onTapGesture { for l in owners.reversed() { model.dismissLayer(l.owner) } }
                         .accessibilityHidden(true)
                 }
-                PaintedLayer(layer: layer, model: model, shift: stage?.shift(of: layer, in: ordered, surfaceWidth: model.width) ?? .zero)
+                PaintedLayer(layer: layer, model: model, shift: stage?.shift(of: layer, in: ordered, surfaceWidth: model.width, holds: model.dialogHolds) ?? .zero)
                     .transition(enter.map { .asymmetric(insertion: (layer.layerClass == "toast" ? AnyTransition.opacity.combined(with: .offset(y: 8)) : AnyTransition.opacity.combined(with: .scale(scale: from, anchor: layer.position == "top" ? .bottom : .top))).animation($0), removal: exit.map { AnyTransition.opacity.animation($0) } ?? .identity) } ?? .identity)
             }
         }
@@ -114,7 +114,9 @@ struct LayerStage: Equatable {
     /// Where a modal of `layerSize` lands: a Dialog centred (`OVERLAY_PADDING`
     /// clear of the top when taller), a sheet on its edge; a top or bottom
     /// sheet is `size.width` wide, so centring it lands it at the stage's left.
-    func origin(position: String, layerSize: CGSize) -> CGPoint {
+    /// EXP-1676: `held` = the Dialog's first height: it HOLDS its bottom edge
+    /// at `centre + held/2` while its content grows or shrinks (the core's rule).
+    func origin(position: String, layerSize: CGSize, held: CGFloat? = nil) -> CGPoint {
         let centreX = (size.width - layerSize.width) / 2
         switch position {
         case "left": return .zero
@@ -123,18 +125,23 @@ struct LayerStage: Equatable {
         case "bottom":
             let edge = insets.bottom <= homeInset ? insets.bottom : 0
             return CGPoint(x: centreX, y: size.height - layerSize.height + edge)
-        default: return CGPoint(x: centreX, y: max((size.height - layerSize.height) / 2, 8))
+        default:
+            if let held {
+                let h0 = min(held, max(size.height - 16, 0))
+                return CGPoint(x: centreX, y: max(size.height / 2 + h0 / 2 - layerSize.height, 8))
+            }
+            return CGPoint(x: centreX, y: max((size.height - layerSize.height) / 2, 8))
         }
     }
 
     /// How far a layer moves from its core frame: a toast's bottom row
     /// centres under the window's width; the rest follow the modal at or
     /// below them.
-    func shift(of layer: LayerInfo, in ordered: [LayerInfo], surfaceWidth: CGFloat) -> CGPoint {
+    func shift(of layer: LayerInfo, in ordered: [LayerInfo], surfaceWidth: CGFloat, holds: [String: CGFloat] = [:]) -> CGPoint {
         if layer.isToast { return CGPoint(x: (size.width - surfaceWidth) / 2, y: 0) }
         let below = ordered.prefix { $0.id != layer.id }.last(where: \.modal)
         guard let modal = layer.modal ? layer : below else { return .zero }
-        let at = origin(position: modal.position, layerSize: modal.frame.size)
+        let at = origin(position: modal.position, layerSize: modal.frame.size, held: holds[modal.owner])
         return CGPoint(x: at.x - modal.frame.minX, y: at.y - modal.frame.minY)
     }
 }

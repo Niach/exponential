@@ -15,7 +15,7 @@ import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { isBinding, overlayOpenFocus } from "@exponential_app/eui/web"
+import { holdDialogBottom, isBinding, overlayOpenFocus } from "@exponential_app/eui/web"
 import { absolutePath } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -130,6 +130,18 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
   const description = str(props.description)
   const drag = useDragToDismiss(side, kind === `Drawer` && props.dragToDismiss !== false && dismissible, () => setOpen(false), ctx.reducedMotion)
   const close = useCallback(() => setOpen(false), [setOpen])
+  // EXP-1676: an open Dialog holds its bottom edge (`holdDialogBottom`, the
+  // core's rule); an inline (static) render stays in flow.
+  const unhold = useRef<(() => void) | null>(null)
+  const holds = kind === `Dialog` && !ctx.inlineOverlays
+  const panelRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      drag.panel.current = el
+      unhold.current?.()
+      unhold.current = el && holds ? holdDialogBottom(el) : null
+    },
+    [drag.panel, holds]
+  )
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => (next || dismissible ? setOpen(next) : undefined)}>
       <div {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
@@ -142,7 +154,7 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
       <OverlayPortal as={DialogPrimitive.Portal}>
         <DialogPrimitive.Overlay {...(part(`overlay`, open && `open`) as Record<string, string>)} data-xui-overlay-backdrop={kind} />
         <DialogPrimitive.Content
-          ref={drag.panel}
+          ref={panelRef}
           {...(part(`content`, open && `open`) as Record<string, string>)}
           data-side={kind === `Drawer` ? side : undefined}
           data-xui-overlay={kind}

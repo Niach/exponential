@@ -1568,7 +1568,7 @@ impl SurfaceView {
             let modal = if layer.modal { Some(layer) } else { self.layers.iter().take_while(|l| l.root != layer.root).filter(|l| l.modal).last() };
             if let Some(modal) = modal {
                 let f = self.frames.get(modal.root as usize).copied().unwrap_or_default();
-                let (x, y) = window_layer_at(&modal.position, (f.w, f.h), self.window_size);
+                let (x, y) = window_layer_at(&modal.position, (f.w, f.h), self.window_size, self.dialog_holds.get(&modal.owner).copied());
                 return (x - f32::from(self.origin.x) - f.x, y - f32::from(self.origin.y) - f.y);
             }
         }
@@ -1655,16 +1655,22 @@ impl SurfaceView {
 /// (`OVERLAY_PADDING` clear of the top when it is taller), a sheet on its
 /// edge; a top or bottom sheet is the window's width (#VAPP-253,
 /// `set_layer_viewport`), so centring it lands it on the window's left.
-fn window_layer_at(position: &str, size: (f32, f32), window: (f32, f32)) -> (f32, f32) {
+/// EXP-1676: `held` = the Dialog's first height: it HOLDS its bottom edge at
+/// `centre + held/2` while its content grows or shrinks (the core's rule).
+pub(crate) fn window_layer_at(position: &str, size: (f32, f32), window: (f32, f32), held: Option<f32>) -> (f32, f32) {
     let (w, h) = size;
     let (win_w, win_h) = window;
     let centre_x = (win_w - w) / 2.0;
+    let pad = eui_core::overlay::OVERLAY_PADDING as f32;
     match position {
         "left" => (0.0, 0.0),
         "right" => (win_w - w, 0.0),
         "top" => (centre_x, 0.0),
         "bottom" => (centre_x, win_h - h),
-        _ => (centre_x, ((win_h - h) / 2.0).max(eui_core::overlay::OVERLAY_PADDING as f32)),
+        _ => match held {
+            Some(h0) => (centre_x, (win_h / 2.0 + h0.min((win_h - 2.0 * pad).max(0.0)) / 2.0 - h).max(pad)),
+            None => (centre_x, ((win_h - h) / 2.0).max(pad)),
+        },
     }
 }
 
@@ -1714,12 +1720,24 @@ mod tests {
     #[test]
     fn a_lifted_modal_hangs_from_the_window() {
         let window = (1000.0, 600.0);
-        assert_eq!(window_layer_at("centered", (400.0, 200.0), window), (300.0, 200.0));
-        assert_eq!(window_layer_at("centered", (400.0, 590.0), window), (300.0, 8.0), "a tall Dialog stays clear of the top");
-        assert_eq!(window_layer_at("right", (448.0, 600.0), window), (552.0, 0.0));
-        assert_eq!(window_layer_at("left", (448.0, 600.0), window), (0.0, 0.0));
-        assert_eq!(window_layer_at("bottom", (1000.0, 300.0), window), (0.0, 300.0));
-        assert_eq!(window_layer_at("top", (1000.0, 300.0), window), (0.0, 0.0));
+        assert_eq!(window_layer_at("centered", (400.0, 200.0), window, None), (300.0, 200.0));
+        assert_eq!(window_layer_at("centered", (400.0, 590.0), window, None), (300.0, 8.0), "a tall Dialog stays clear of the top");
+        assert_eq!(window_layer_at("right", (448.0, 600.0), window, None), (552.0, 0.0));
+        assert_eq!(window_layer_at("left", (448.0, 600.0), window, None), (0.0, 0.0));
+        assert_eq!(window_layer_at("bottom", (1000.0, 300.0), window, None), (0.0, 300.0));
+        assert_eq!(window_layer_at("top", (1000.0, 300.0), window, None), (0.0, 0.0));
+    }
+
+    /// EXP-1676: a lifted Dialog that grew (a refused save's inline errors)
+    /// keeps its bottom edge where it opened; never above the top padding.
+    #[test]
+    fn a_lifted_dialog_holds_its_bottom_edge() {
+        let window = (1000.0, 600.0);
+        let opened = window_layer_at("centered", (400.0, 200.0), window, Some(200.0));
+        assert_eq!(opened, (300.0, 200.0), "as opened: centred");
+        let grown = window_layer_at("centered", (400.0, 260.0), window, Some(200.0));
+        assert_eq!(grown.1 + 260.0, 400.0, "the bottom edge holds");
+        assert_eq!(window_layer_at("centered", (400.0, 590.0), window, Some(200.0)).1, 8.0, "a tall one stops at the top padding");
     }
 
     #[test]
