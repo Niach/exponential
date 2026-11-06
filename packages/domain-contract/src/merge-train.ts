@@ -542,6 +542,23 @@ export interface StuckInput {
   owner: boolean
 }
 
+export interface OfflineSinceInput {
+  /** The PR has an opener (its `sessionId` session, else its root) with a device. */
+  opener: boolean
+  /** The opener's device row: presence + last heartbeat; null = none synced. */
+  device: { online: boolean; lastSeenAt: string | null } | null
+  /** The PR's `updatedAt`: its last write, the move to conflict/failing included. */
+  updatedAt: string
+}
+
+/** `stuckRow`'s `deviceOfflineSince`: null while the opener's device is
+ *  online (or there is none); else its last heartbeat, and an UNKNOWN
+ *  last-seen = offline since the PR went conflict/failing. */
+export function offlineSince(input: OfflineSinceInput): string | null {
+  if (!input.opener || input.device?.online) return null
+  return input.device?.lastSeenAt ?? input.updatedAt
+}
+
 export interface StuckRow {
   title: string
   meta: string

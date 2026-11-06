@@ -17,6 +17,7 @@ import {
   resolveConflicts,
   statusPill,
   stuckRow,
+  offlineSince,
   stuckText,
   trainRun,
   trainRef,
@@ -74,6 +75,9 @@ describe(`merge-train fixture`, () => {
   })
   it.each(fixture.stuckRow)(`needs you: $name`, ({ input, expected }) => {
     expect(stuckRow(input as never)).toEqual(expected as never)
+  })
+  it.each(fixture.offlineSince)(`offline since: $name`, ({ input, expected }) => {
+    expect(offlineSince(input as never)).toEqual(expected)
   })
   it.each(fixture.statusPill)(`pill: $name`, ({ input, expected }) => {
     expect(statusPill(input as never)).toEqual(expected as never)
