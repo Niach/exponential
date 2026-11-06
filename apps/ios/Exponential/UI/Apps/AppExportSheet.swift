@@ -193,10 +193,16 @@ struct AppImportStep: View {
                     .autocorrectionDisabled()
                     .keyboardType(.asciiCapable)
                     HStack {
-                        GlassPill(AppExport.Copy.chooseFile, mode: .action {
+                        // EXP-1676: web's outline `Button size="sm"` (h-8), not a chip.
+                        Button {
                             UIApplication.endEditing()
                             choosing = true
-                        })
+                        } label: {
+                            GlassSubmitLabel(AppExport.Copy.chooseFile, small: true, outline: true)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.pressScale)
+                        .fixedSize()
                         .accessibilityIdentifier(AppExport.TestIds.importFile)
                         Spacer(minLength: 0)
                     }

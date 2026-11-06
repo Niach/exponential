@@ -43,10 +43,12 @@ import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.SubmitSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.SwitchRow
@@ -292,10 +294,12 @@ fun AppImportStep(
             modifier = Modifier.fillMaxWidth().testTag("app-import-text"),
         )
         Row {
-            GlassPill(
+            // EXP-1676: web's outline `Button size="sm"` (h-8), not a chip.
+            GlassSubmitButton(
                 AppExport.Copy.CHOOSE_FILE,
-                size = PillSize.Sm,
                 onClick = { chooser.launch(arrayOf(AppExport.MIME)) },
+                size = SubmitSize.Small,
+                outline = true,
                 modifier = Modifier.testTag("app-import-file"),
             )
         }
