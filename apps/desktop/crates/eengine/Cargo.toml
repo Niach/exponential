@@ -1,0 +1,44 @@
+[package]
+name = "eengine"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Engine: the runtime that runs Apps in every host (Exponential, the softcoded app, eDE, Spezl, exported apps). App instances, lifecycle, sources, dispatch, the outbox, consent and the capability broker over host-provided storage, identity, vault and windows; replays packages/eengine."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+# VAPP-261: consumed as a GIT dependency on `eengine-v<version>`
+# (docs/libraries.md), never crates.io: the contract is compiled in with
+# include_str! from packages/eengine/fixtures and
+# packages/domain-contract/fixtures/app-records.json.
+publish = false
+
+# THE RULE (gated by `tests/dependency_gate.rs`): no Exponential app crate and
+# no path dependency. Modules come in through THEIR release tags (patched to
+# the local crates by the workspace), each optional behind a feature where it
+# is heavy, so a photobook build carries no Voice, P2P or llama.cpp. Modules
+# never depend on the Engine.
+[dependencies]
+# genUI's host: the Apps format and its pure logic (validation, screens,
+# the records query, policy). Themes are the painter's choice.
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.16.2", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+sha2 = "0.10"
+# The package file's Ed25519 (genUI leaves the crypto to its host): the ring
+# rustls already builds, no new crate.
+ring = "0.17"
+url = "2.5"
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
+# `sqlite`: SqliteRecordStore (VAPP-261), the app-records table elocal owns (#EDE-55).
+rusqlite = { workspace = true, optional = true }
+# `hub` (E2, VAPP-262): capabilities as MCP tools on an in-process MCP Proxy hub.
+emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.2.0", optional = true }
+
+[features]
+default = []
+sqlite = ["dep:rusqlite"]
+hub = ["dep:emcp"]
+
+[dev-dependencies]
+toml = "0.8"

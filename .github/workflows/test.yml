@@ -84,7 +84,7 @@ jobs:
             printf 'desktop=true\neui=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          desktop='^(apps/desktop/|packages/(domain-contract|ecore|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
+          desktop='^(apps/desktop/|packages/(domain-contract|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
@@ -238,10 +238,11 @@ jobs:
         # EXP-519: --locked is load-bearing (Cargo.lock is the one pin of the
         # floating zed git deps).
         run: cargo check --workspace --locked
-      # #EXP-1504: eCore's size/dependency gate and its fixture replay (seconds).
-      - name: eCore gate
+      # #EXP-1504: eCore's size/dependency gate and its fixture replay (seconds);
+      # #VAPP-261: the Engine's dependency gate and its fixture replay.
+      - name: eCore and Engine gates
         working-directory: apps/desktop
-        run: cargo test --locked -p ecore
+        run: cargo test --locked -p ecore && cargo test --locked -p eengine --features sqlite
       # The suites that hold launch behaviour and the shared fixtures: the
       # full `cargo test` stays in release-suite.yml, and until this step a
       # red test here surfaced only when a release was tagged.
