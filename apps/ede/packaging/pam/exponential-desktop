@@ -1,4 +1,4 @@
-# eDE's lock screen (#EDE-17, `ede-sealed lock`): the person's own password,
+# eDE's lock screen (#EDE-17, `exponential-sealed lock`): the person's own password,
 # checked the way the login screen checks it. Without this file the lock
 # falls back to the `login` service.
 @include common-auth

@@ -13,7 +13,7 @@ apps/web          TanStack Start app (src/lib/trpc = one file per router; routes
 apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTalk calls WS hub (Bun; no session content since VAPP-43: viewers reach the device over eNet)
 apps/site         exponential.at (Astro + Starlight: landing, docs, SDK docs, blog; README.md; ui.exponential.at 301s via scripts/ui-redirect.ts)   apps/styleguide   shot gallery + islands
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
-apps/ede          eDE (#NEW-10): own Cargo workspace; crates/ede-compositor = smithay compositor (winit nested for dev, headless pixman tests)
+apps/ede          Exponential Desktop (eDE internally, #NEW-10; package + binaries exponential-*): own Cargo workspace; crates/ede-compositor = smithay compositor (winit nested for dev, headless pixman tests)
 apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/eagent = Agents, the server-free agent core (EXP-1426/1505, never an app-crate dep; `exponential-agent-runtime` = its one-release shim); crates/eagent-hub-core = the pure orchestration reducer replaying packages/eagent's fixtures (+ `-wasm`, EXP-1509); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/eui-* + exponential-ui-ffi = the eUI SDK
 packages/db-schema        Drizzle schema + zod/domain types (authoritative; never mirrored here)
 packages/domain-contract  contract.json → per-language enums + the fixtures (×4 replay) + pure TS references

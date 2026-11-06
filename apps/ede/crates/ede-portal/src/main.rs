@@ -1,5 +1,5 @@
-//! `xdg-desktop-portal-ede`: D-Bus activated by the portal frontend inside
-//! an eDE session (`/usr/libexec/xdg-desktop-portal-ede`).
+//! `xdg-desktop-portal-exponential`: D-Bus activated by the portal frontend inside
+//! an eDE session (`/usr/libexec/xdg-desktop-portal-exponential`).
 
 use std::sync::Arc;
 

@@ -1,5 +1,5 @@
 {
-  "$comment": "eDE's factory window switcher (#EDE-12): Alt+Tab opens it as an overlay layer surface in the middle of the screen (onDemand: the shell opens and closes it on the compositor's switcher.* hotkeys), Tab moves the selection, releasing Alt focuses the selected window, Escape cancels, a click picks a tile. The shell feeds /switcher (the open windows, most recent first, with live thumbnails at about 5 fps captured over ede-protocol into Image; protected windows show no picture).",
+  "$comment": "Exponential Desktop's factory window switcher (#EDE-12): Alt+Tab opens it as an overlay layer surface in the middle of the screen (onDemand: the shell opens and closes it on the compositor's switcher.* hotkeys), Tab moves the selection, releasing Alt focuses the selected window, Escape cancels, a click picks a tile. The shell feeds /switcher (the open windows, most recent first, with live thumbnails at about 5 fps captured over ede-protocol into Image; protected windows show no picture).",
   "surface": {"layer": "overlay", "size": {"width": 760, "height": 196}, "onDemand": true, "functions": ["ede.select"]},
   "root": {
     "id": "switcher",

@@ -45,7 +45,7 @@ Exponential is built on the open Exponential SDK, whose modules it shares with o
 | **Agents** | The server-free agent core: run the user's own Claude Code or Codex, plus the orchestration spec (tree, bus, wake-ups) | `apps/desktop/crates/eagent`, `packages/eagent` | [exponential.at/sdk/agents](https://exponential.at/sdk/agents/) |
 | **Core** | The plain types the modules share, one contract for Rust, TS, Swift and Kotlin (unreleased) | `apps/desktop/crates/ecore`, `packages/ecore` | [exponential.at/sdk/core](https://exponential.at/sdk/core/) |
 
-In progress: **eDE**, the desktop of ExponentialOS (`apps/ede`, not released; [the vision](https://exponential.at/blog/exponentialos/)).
+In progress: **Exponential Desktop**, a Linux desktop environment (`apps/ede`; [the vision](https://exponential.at/blog/exponentialos/)).
 
 ## Self-host
 

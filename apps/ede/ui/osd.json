@@ -1,5 +1,5 @@
 {
-  "$comment": "eDE's factory on-screen display (#EDE-12): a small overlay near the bottom of the screen for the volume, microphone and brightness keys (onDemand: the shell opens it on the compositor's media hotkeys, feeds /osd and closes it again after a moment).",
+  "$comment": "Exponential Desktop's factory on-screen display (#EDE-12): a small overlay near the bottom of the screen for the volume, microphone and brightness keys (onDemand: the shell opens it on the compositor's media hotkeys, feeds /osd and closes it again after a moment).",
   "surface": {"layer": "overlay", "anchor": ["bottom"], "size": {"width": 280, "height": 56}, "margin": {"bottom": 96}, "onDemand": true},
   "root": {
     "id": "osd",

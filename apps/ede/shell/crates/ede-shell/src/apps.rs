@@ -76,7 +76,7 @@ pub fn scan() -> Vec<App> {
             }
             let Ok(text) = fs::read_to_string(&file) else { continue };
             // A hidden entry in a higher-priority directory hides the id entirely.
-            match parse(&id, &text, "eDE") {
+            match parse(&id, &text, "Exponential") {
                 Parsed::Shown(app) => {
                     seen.insert(id, app);
                 }
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn parses_an_application_and_strips_field_codes() {
-        let Parsed::Shown(app) = parse("org.gnome.Calculator.desktop", CALC, "eDE") else { panic!("shown") };
+        let Parsed::Shown(app) = parse("org.gnome.Calculator.desktop", CALC, "Exponential") else { panic!("shown") };
         assert_eq!(app.name, "Calculator");
         assert_eq!(app.exec, "gnome-calculator");
         assert!(app.keywords.contains("arithmetic") && app.keywords.contains("org.gnome.calculator"));
@@ -294,18 +294,18 @@ mod tests {
 
     #[test]
     fn hidden_and_foreign_entries_stay_out() {
-        assert!(matches!(parse("a.desktop", &format!("{CALC}NoDisplay=true\n"), "eDE"), Parsed::Hidden));
-        assert!(matches!(parse("a.desktop", &format!("{CALC}OnlyShowIn=GNOME;\n"), "eDE"), Parsed::Hidden));
-        assert!(matches!(parse("a.desktop", &format!("{CALC}OnlyShowIn=GNOME;eDE;\n"), "eDE"), Parsed::Shown(_)));
-        assert!(matches!(parse("a.desktop", &format!("{CALC}NotShowIn=eDE;\n"), "eDE"), Parsed::Hidden));
-        assert!(matches!(parse("a.desktop", "[Desktop Entry]\nType=Link\nURL=x\n", "eDE"), Parsed::NotAnApp));
-        let Parsed::Shown(term) = parse("t.desktop", &format!("{CALC}Terminal=true\n"), "eDE") else { panic!() };
+        assert!(matches!(parse("a.desktop", &format!("{CALC}NoDisplay=true\n"), "Exponential"), Parsed::Hidden));
+        assert!(matches!(parse("a.desktop", &format!("{CALC}OnlyShowIn=GNOME;\n"), "Exponential"), Parsed::Hidden));
+        assert!(matches!(parse("a.desktop", &format!("{CALC}OnlyShowIn=GNOME;Exponential;\n"), "Exponential"), Parsed::Shown(_)));
+        assert!(matches!(parse("a.desktop", &format!("{CALC}NotShowIn=Exponential;\n"), "Exponential"), Parsed::Hidden));
+        assert!(matches!(parse("a.desktop", "[Desktop Entry]\nType=Link\nURL=x\n", "Exponential"), Parsed::NotAnApp));
+        let Parsed::Shown(term) = parse("t.desktop", &format!("{CALC}Terminal=true\n"), "Exponential") else { panic!() };
         assert_eq!(term.exec, "x-terminal-emulator -e gnome-calculator");
     }
 
     #[test]
     fn the_search_wants_every_word() {
-        let Parsed::Shown(app) = parse("c.desktop", CALC, "eDE") else { panic!() };
+        let Parsed::Shown(app) = parse("c.desktop", CALC, "Exponential") else { panic!() };
         let apps = vec![app];
         assert_eq!(filter(&apps, "").len(), 1);
         assert_eq!(filter(&apps, "calc math").len(), 1);

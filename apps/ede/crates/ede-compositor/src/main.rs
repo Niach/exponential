@@ -1,13 +1,13 @@
-//! `ede-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--debug-captures] [-- command args…]`
+//! `exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--debug-captures] [-- command args…]`
 //! `--debug-captures`: ede-protocol captures show protected surfaces and the
 //! lock (pictures of them in a VM); refused with --udev, a real screen is
 //! never captured unredacted.
-//! `ede-compositor doctor`: what this machine is missing for eDE.
-//! `ede-compositor recovery --reason … [--next …]`: the message a failed
+//! `exponential-compositor doctor`: what this machine is missing for eDE.
+//! `exponential-compositor recovery --reason … [--next …]`: the message a failed
 //! session leaves on the displays, without a GPU ([`ede_compositor::fallback`]).
 //!
 //! A run that cannot drive the display ends with [`FATAL_EXIT`] and the
-//! reason in [`failure_file`] (#EDE-40), which ede-session shows; a crash
+//! reason in [`failure_file`] (#EDE-40), which exponential-session shows; a crash
 //! ends any other way.
 //!
 //! Inside a running X11 or Wayland session it nests in a window (winit);
@@ -23,16 +23,16 @@ use smithay::reexports::{calloop::EventLoop, wayland_server::Display};
 /// [`failure_file`], and the same start would fail the same way.
 pub const FATAL_EXIT: i32 = 3;
 
-/// `$XDG_RUNTIME_DIR/ede/failure`: why the last run could not drive the
-/// display (ede-session reads and removes it).
+/// `$XDG_RUNTIME_DIR/exponential-desktop/failure`: why the last run could not drive the
+/// display (exponential-session reads and removes it).
 #[cfg(feature = "udev")]
 fn failure_file() -> Option<std::path::PathBuf> {
-    Some(std::path::PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join("ede").join("failure"))
+    Some(std::path::PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join("exponential-desktop").join("failure"))
 }
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("ede-compositor: {e}");
+        eprintln!("exponential-compositor: {e}");
         std::process::exit(1);
     }
 }
@@ -72,14 +72,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--udev" => udev = true,
             "--no-xwayland" => no_xwayland = true,
-            // Stock settings: the config file is not read (ede-session's
+            // Stock settings: the config file is not read (exponential-session's
             // crash recovery, or the "safe mode" login entry).
             "--safe-mode" => safe_mode = true,
             "--debug-captures" => debug_captures = true,
             "--config" => config_path = Some(args.next().ok_or("--config needs a path")?.into()),
             "--" => command.extend(args.by_ref()),
             "-h" | "--help" => {
-                println!("usage: ede-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]\n       ede-compositor doctor\n       ede-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
+                println!("usage: exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]\n       exponential-compositor doctor\n       exponential-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
                 return Ok(());
             }
             other => return Err(format!("unknown argument {other:?} (try --help)").into()),

@@ -1,7 +1,7 @@
-//! `ede-theme sync|apply|remove|print [--files-only]` (#EDE-19).
+//! `exponential-theme sync|apply|remove|print [--files-only]` (#EDE-19).
 //!
 //! `sync` follows `[theme] bridge` in `compositor.toml` (the Theme page's
-//! switch): apply when on, remove when off. ede-theme.service runs it at
+//! switch): apply when on, remove when off. exponential-theme.service runs it at
 //! login before the shell; the shell runs it after the switch moves.
 
 use std::process::ExitCode;
@@ -19,7 +19,7 @@ fn main() -> ExitCode {
         "sync" => if overrides.bridge { "apply" } else { "remove" },
         "apply" | "remove" | "print" => command,
         other => {
-            eprintln!("unknown command {other:?}; usage: ede-theme sync|apply|remove|print [--files-only]");
+            eprintln!("unknown command {other:?}; usage: exponential-theme sync|apply|remove|print [--files-only]");
             return ExitCode::FAILURE;
         }
     };
@@ -47,7 +47,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("ede-theme {verb}: {e}");
+            eprintln!("exponential-theme {verb}: {e}");
             ExitCode::FAILURE
         }
     }

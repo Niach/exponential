@@ -1,4 +1,4 @@
-# eDE
+# Exponential Desktop (eDE internally)
 
 The Exponential Desktop Environment (#NEW-10): a Wayland compositor plus a
 shell drawn in genUI. This is its own Cargo workspace; it depends on the shared
@@ -6,16 +6,16 @@ libraries, never the other way round.
 
 | Crate | Role |
 |---|---|
-| `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
+| `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it. |
-| `ede-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/ede/ui` (factory copies in `/usr/share/ede/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `ede-ui` is its CLI. |
-| `ede-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`. |
-| `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
+| `exponential-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/exponential-desktop/ui` (factory copies in `/usr/share/exponential-desktop/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `exponential-ui` is its CLI. |
+| `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`. |
+| `exponential-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/exponential-desktop/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## The shell (`shell/`, a second workspace)
 
-`apps/ede/shell` is its own Cargo workspace (#EDE-10): `ede-shell` draws the
-shell from the genUI documents `ede-ui` serves (below) with gpui + eui-gpui
+`apps/ede/shell` is its own Cargo workspace (#EDE-10): `exponential-shell` draws the
+shell from the genUI documents `exponential-ui` serves (below) with gpui + eui-gpui
 at the SDK's pins (the painter README's "gpui revisions", gated by
 `check-gpui-revs.ts`), Wayland backend only. The compositor workspace never
 links gpui, and the shell is a separate process under the supervisor, so a
@@ -30,7 +30,7 @@ windows over ede-protocol), `/apps` + `/query` (the launcher: the desktop
 entries of the XDG data directories, filtered as the person types),
 `/switcher` (the open windows most recent first with live thumbnails),
 `/osd` (a level). Host functions, each only from a document whose
-`surface.functions` lists it (#EDE-8's Tier C rule, checked by `ede-ui` and
+`surface.functions` lists it (#EDE-8's Tier C rule, checked by `exponential-ui` and
 again by the shell): `ede.launch {command}`, `ede.focus {window}`,
 `ede.close {window}`, `ede.lock`, `ede.logout`, `ede.power {action:
 suspend|reboot|poweroff}`, `ede.select {window}` (the switcher).
@@ -73,22 +73,22 @@ and brightness keys** change the level (WirePlumber's `wpctl`, sysfs or
 `brightnessctl`) and show the OSD; play/next/previous go to `playerctl`.
 With no shell listening (dead, not started) the compositor falls back:
 Alt+Tab cycles focus itself, most recent first, and the media keys reach
-the app. `ede-ctl key <code> --bindings` sends a key as the person's (the
+the app. `exponential-ctl key <code> --bindings` sends a key as the person's (the
 root grant only), which is how the goldens and an agent in the VM drive
 them.
 
 ```bash
 apps/ede/scripts/ede-dev.sh                   # nested in the desktop around it: compositor + supervisor + shell
 apps/ede/scripts/ede-dev.sh --headless 1280x720
-WAYLAND_DISPLAY=wayland-1 target/debug/ede-ctl capture --png /tmp/panel.png --expect-drawn
-WAYLAND_DISPLAY=wayland-1 target/debug/ede-ctl pointer 40 20 --click   # the menu
+WAYLAND_DISPLAY=wayland-1 target/debug/exponential-ctl capture --png /tmp/panel.png --expect-drawn
+WAYLAND_DISPLAY=wayland-1 target/debug/exponential-ctl pointer 40 20 --click   # the menu
 ```
 
 The M0 demo (#EDE-1), in the `ubuntu-wayland` VM: edit the scratch
 directory's `panel.json` and the panel redraws within the watcher's
-debounce; break it and `ede-ui check` says why while the last good version
+debounce; break it and `exponential-ui check` says why while the last good version
 stays on screen; `git -C <dir> log` shows `Edit panel.json` commits after
-the factory ones. `ede-shell --windowed` opens normal windows instead
+the factory ones. `exponential-shell --windowed` opens normal windows instead
 (macOS, any desktop); `--popup` opens every popup document right away and
 `--exit-after <ms>` quits, for the headless check.
 
@@ -120,9 +120,9 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
   (never within 20 s of start, or gone for 8 s) every output shows what to
   do: Super+Shift+R, Ctrl+Alt+T (the compositor opens the terminal itself
   then), Super+Shift+E.
-- **Super+Shift+R**: `ede-ui reset` (every factory document back, as
+- **Super+Shift+R**: `exponential-ui reset` (every factory document back, as
   commits; the person's edits stay in the history) and `systemctl --user
-  restart ede-shell.service`; `EDE_RESTORE_COMMAND` replaces the command.
+  restart exponential-shell.service`; `EDE_RESTORE_COMMAND` replaces the command.
   It needs nothing from the shell.
 - Fallback focus cycling (Alt+Tab without a shell) is in [Hotkeys](#hotkeys-ede-12).
 - The consent shield and the takeover banner wait for the agent spaces (M2).
@@ -144,19 +144,19 @@ and `/user`; a control is two-way bound and calls `ede.service {domain,
 action, args}` with the new value. Users and printers management open the
 native tools until there is more to show.
 
-## The portal: `xdg-desktop-portal-ede` (#EDE-15)
+## The portal: `xdg-desktop-portal-exponential` (#EDE-15)
 
 `crates/ede-portal`, the xdg-desktop-portal backend the frontend routes
 ScreenCast, Screenshot, RemoteDesktop, GlobalShortcuts and Settings to
-(`ede-portals.conf`; the GTK backend keeps the file chooser and the rest),
-D-Bus activated in the session (`xdg-desktop-portal-ede.service`). Every
+(`exponential-portals.conf`; the GTK backend keeps the file chooser and the rest),
+D-Bus activated in the session (`xdg-desktop-portal-exponential.service`). Every
 call is an ede-protocol call under a grant minted for the portal
 (`capture`, `input:person`, `ui`), never the root token. A ScreenCast is
 a PipeWire node fed by captures polled at the stream's rate with `since`:
 when nothing was presented the compositor answers `unchanged` and draws
 nothing; the GPU (dmabuf) path for udev is still to come. What to share
-is the sealed chooser `ede-sealed share` (`[screencast] chooser` in
-`~/.config/ede/portal.toml` replaces it): screens and windows to pick,
+is the sealed chooser `exponential-sealed share` (`[screencast] chooser` in
+`~/.config/exponential-desktop/portal.toml` replaces it): screens and windows to pick,
 the remote-control switch, Share or Cancel; remote control is never
 granted silently (the switch, or `[remote_desktop] allow`). Global
 shortcuts follow the XDG spec (`CTRL+SHIFT+a`), never take a plain key or
@@ -164,7 +164,7 @@ a compositor binding, never fire on the lock or a protected surface.
 Settings serves `org.freedesktop.appearance` (dark, the accent). Tests
 run a private dbus-daemon, a private PipeWire and a headless compositor.
 
-## Services: `ede-services` (#EDE-13)
+## Services: `exponential-services` (#EDE-13)
 
 One service per domain over the daemons the distribution runs, each with
 two faces on one registry (`crates/ede-services`): `network`
@@ -178,45 +178,45 @@ off), `disks` (udisks2: drives, filesystems; mount, unmount), `updates`
 (fwupd), `about` (host, OS, kernel, CPU, memory). A missing daemon gives
 `{available: false, reason}`, so a page can say so.
 
-- **Data source**: `$XDG_RUNTIME_DIR/ede/services.sock`, ede-protocol
+- **Data source**: `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`, ede-protocol
   framing, `list`, `get {domain}`, `call {domain, action, args}` (every
   capability: the shell's own buttons), `subscribe` (`services.changed`
   per domain whose snapshot moved, polled every 2 s). The shell feeds
   every document `/services/<domain>`; the settings pages (#EDE-14) bind
-  it. `ede-services get sound`, `ede-services call sound set_volume
+  it. `exponential-services get sound`, `exponential-services call sound set_volume
   '{"percent": 40}'` from a terminal.
-- **MCP face**: eMCP's loopback server (`ede-services tools` lists them:
+- **MCP face**: eMCP's loopback server (`exponential-services tools` lists them:
   `<domain>_get` and `<domain>_<action>`), a bearer per agent session from
-  `ede-services grant <session> [label] [system,ui]` (over the socket;
+  `exponential-services grant <session> [label] [system,ui]` (over the socket;
   ede-tools wires it in M2), each action gated by the eCore capability its
   description names (`ui` for volume, `system` for the rest), a refusal
   answered as `isError` content, and an `mcp_calls`-shaped row per call in
-  `$XDG_STATE_HOME/ede/mcp-audit.jsonl` (audit.json's columns, the
+  `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl` (audit.json's columns, the
   canonical `args_hash`).
-- `ede-services.service` runs it in the session.
+- `exponential-services.service` runs it in the session.
 
-## Tier B: `ede-sealed` (#EDE-17)
+## Tier B: `exponential-sealed` (#EDE-17)
 
 The surfaces a document on disk must never be: compiled into
-`ede-sealed` (`apps/ede/sealed/*.json`, a second binary of the shell
+`exponential-sealed` (`apps/ede/sealed/*.json`, a second binary of the shell
 workspace, drawn with the same gpui + eui-gpui and tokens), each a
 full-screen overlay with the keyboard to itself. The compositor marks every
 layer surface of that executable as protected (black in captures, never
 driven, no input method), and trusts the lock client by the pid it spawned:
 
-- **Lock** (`ede-sealed lock`): with no `[lock] command` the compositor
+- **Lock** (`exponential-sealed lock`): with no `[lock] command` the compositor
   starts it on Super+L, idle and suspend; while locked only that process's
   surfaces show (black until one arrives), only they get input, bindings
   are off except VT switching. The password goes to PAM inside the binary
-  (`libpam.so.0` opened at run time; service `ede` when `/etc/pam.d/ede`
+  (`libpam.so.0` opened at run time; service `ede` when `/etc/pam.d/exponential-desktop`
   exists, else `login`), and the session opens only through the `unlock`
   op with the grant the compositor minted for that process (`EDE_TOKEN`).
   A lock client that dies keeps the session locked and is started again.
   `swaylock` still works through `[lock] command` (ext-session-lock).
-- **polkit** (`ede-sealed polkit`, `ede-polkit-agent.service`): the
+- **polkit** (`exponential-sealed polkit`, `exponential-polkit-agent.service`): the
   session's authentication agent; polkitd's request opens the prompt, the
   password goes to `polkit-agent-helper-1`.
-- **Consent** (`ede-sealed consent --title … --body … [--allow …] [--deny
+- **Consent** (`exponential-sealed consent --title … --body … [--allow …] [--deny
   …]`): a question to the person for an agent's privileged action; prints
   `allow` or `deny`, exits 0 or 1 (eMCP/ede-tools call it in M2).
 - Not done: a keyring prompt of our own (gnome-keyring unlocks at login
@@ -224,7 +224,7 @@ driven, no input method), and trusts the lock client by the pid it spawned:
 
 ## Outputs: mode, scale, position (#EDE-18)
 
-`~/.config/ede/compositor.toml` names each output by connector:
+`~/.config/exponential-desktop/compositor.toml` names each output by connector:
 
 ```toml
 [[outputs]]
@@ -294,7 +294,7 @@ switches back. Over ede-protocol: `list_workspaces`, `switch_workspace`,
 ```bash
 cargo build --release --features udev
 # switch to a free TTY (Ctrl+Alt+F3), log in, then:
-target/release/ede-compositor -- gnome-calculator
+target/release/exponential-compositor -- gnome-calculator
 ```
 
 With neither `DISPLAY` nor `WAYLAND_DISPLAY` set it takes the seat through
@@ -303,7 +303,7 @@ to right; plugging one in or out re-lays them and moves stranded windows to
 the first. `EDE_DRM_DEVICE=/dev/dri/cardN` picks the GPU. Started inside a
 running X11/Wayland session it nests instead; never pass `--udev` there,
 the other display server owns the GPU. The login screen entry is
-`ede-session` (below).
+`exponential-session` (below).
 
 ## Install as a login session (Mint/Ubuntu)
 
@@ -312,55 +312,55 @@ apps/ede/packaging/build-deb.sh          # → apps/ede/target-deb/ede_<version>
 sudo apt install ./apps/ede/target-deb/ede_*_amd64.deb
 ```
 
-The .deb bundles Xwayland 24.1 at `/usr/lib/ede/bin/Xwayland`, because
+The .deb bundles Xwayland 24.1 at `/usr/lib/exponential-desktop/bin/Xwayland`, because
 Mint 22 / Ubuntu noble ships 23.2.6, which has no explicit sync.
 `packaging/xwayland/build.sh` builds it: a pinned, sha256-checked tarball,
 built with meson against noble's own libraries. It runs in an
 `ubuntu:24.04` container when the host has no meson, and the result is
-reused until the script changes. The compositor puts `/usr/lib/ede/bin`
+reused until the script changes. The compositor puts `/usr/lib/exponential-desktop/bin`
 first on Xwayland's `PATH`. `--no-xwayland` skips the bundled build (quick
 local builds) and depends on the distro's `xwayland`. CI: `build-ede.yml`
 (`ede-v*` tags, by hand, PRs that touch `packaging/`).
 
-Check on the real machine after installing: `ede-compositor doctor` shows
-`ok Xwayland /usr/lib/ede/bin/Xwayland 24.1.x, explicit sync`. In the
+Check on the real machine after installing: `exponential-compositor doctor` shows
+`ok Xwayland /usr/lib/exponential-desktop/bin/Xwayland 24.1.x, explicit sync`. In the
 session, an X11 game (Steam/Proton) on NVIDIA no longer flickers, and
-`pgrep -a Xwayland` shows `/usr/lib/ede/bin/Xwayland`.
+`pgrep -a Xwayland` shows `/usr/lib/exponential-desktop/bin/Xwayland`.
 
-The package carries the compositor, `ede-session`, `ede-ui` and `ede-shell`
-in `/usr/bin`, the factory documents in `/usr/share/ede/ui`, and the
-session's user units (#EDE-2): once the compositor is up, `ede-session
---ready` hands `WAYLAND_DISPLAY` to systemd and starts `ede-session.target`,
-which wants `ede-shell.service` = `ede-ui supervise -- ede-shell`, so a
+The package carries the compositor, `exponential-session`, `exponential-ui` and `exponential-shell`
+in `/usr/bin`, the factory documents in `/usr/share/exponential-desktop/ui`, and the
+session's user units (#EDE-2): once the compositor is up, `exponential-session
+--ready` hands `WAYLAND_DISPLAY` to systemd and starts `exponential-session.target`,
+which wants `exponential-shell.service` = `exponential-ui supervise -- exponential-shell`, so a
 login gets the panel under the supervisor (a crashed shell restarts, a bad
-edit rolls back; `systemctl --user status ede-shell` and `journalctl --user
--u ede-shell` show it). `--dev` packages the dev profile's binaries for a
+edit rolls back; `systemctl --user status exponential-shell` and `journalctl --user
+-u exponential-shell` show it). `--dev` packages the dev profile's binaries for a
 quick check in a VM.
 
 Log out; the login screen's session menu (LightDM on Mint, GDM's gear icon
 on Ubuntu, both read `/usr/share/wayland-sessions`) now has **Exponential**
 and **Exponential (safe mode)** next to Cinnamon or Ubuntu. Safe mode
 starts with the stock settings (`--safe-mode`: the config file is not read;
-`EDE_SAFE_MODE=1` reaches the shell's unit, and `ede-ui` then supervises a
-scratch copy of the factory documents, leaving `~/.config/ede/ui`
+`EDE_SAFE_MODE=1` reaches the shell's unit, and `exponential-ui` then supervises a
+scratch copy of the factory documents, leaving `~/.config/exponential-desktop/ui`
 untouched). Super+Shift+E logs out; Ctrl+Alt+F1…F12 switch VTs. Logs:
-`journalctl --user -b` (the units) and `journalctl -b _COMM=ede-session
-_COMM=ede-compositor` (the session itself; LightDM also writes
+`journalctl --user -b` (the units) and `journalctl -b _COMM=exponential-session
+_COMM=exponential-compositor` (the session itself; LightDM also writes
 `~/.xsession-errors`). The lock screen authenticates through
-`/etc/pam.d/ede` (a conffile). Remove with `sudo apt remove ede`; Cinnamon
+`/etc/pam.d/exponential-desktop` (a conffile). Remove with `sudo apt remove ede`; Cinnamon
 and GNOME are untouched.
 
 If eDE does not come up, the screen says so (#EDE-40): a compositor that
 cannot drive the display stops itself (exit code 3, the reason in
-`$XDG_RUNTIME_DIR/ede/failure`, and one that never gets a frame out after
-20 attempts counts), and `ede-session` paints the reason and what happens
-next onto every display with `ede-compositor recovery` (a DRM dumb buffer
+`$XDG_RUNTIME_DIR/exponential-desktop/failure`, and one that never gets a frame out after
+20 attempts counts), and `exponential-session` paints the reason and what happens
+next onto every display with `exponential-compositor recovery` (a DRM dumb buffer
 and the Tier A canvas, no GPU involved), then falls back: a crash restarts
 the compositor, three quick crashes in a row (also across logins) land in
 safe mode, a fatal start gets safe mode once and then the login screen,
 where the previous session is still in the menu. Any key skips the wait.
-Ctrl+Alt+F3 gives a text login; `journalctl -b _COMM=ede-compositor
-_COMM=ede-session` has the details, `ede-compositor doctor` what EGL
+Ctrl+Alt+F3 gives a text login; `journalctl -b _COMM=exponential-compositor
+_COMM=exponential-session` has the details, `exponential-compositor doctor` what EGL
 renders with. Ending the session from the login manager (SIGTERM) stops
 the compositor and both session targets, so no unit keeps restarting the
 shell against a gone display. In a VirtualBox VM keep the VMSVGA graphics
@@ -368,12 +368,12 @@ controller (the `vmwgfx` driver, its "unsupported hypervisor" kernel line
 is normal); 3D acceleration is not needed, eDE renders in software there
 like GNOME does: Mesa's EGL device is then a software device that names
 no render node, and the compositor renders through the card's own
-(`renderD128`). `ede-compositor recovery --reason … --png out.png --size
+(`renderD128`). `exponential-compositor recovery --reason … --png out.png --size
 1280x800` draws the message into a file for a look.
 
 ## ede-protocol
 
-`$XDG_RUNTIME_DIR/ede/<wayland-N>.sock` (directory 0700): frames of a
+`$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.sock` (directory 0700): frames of a
 little-endian `u32` length plus JSON (`{"id": 1, "op": "list_windows"}`),
 the pixels of a capture as the frame after its reply. `hello` with a token
 first; each op needs the Core capability it names:
@@ -387,11 +387,11 @@ first; each op needs the Core capability it names:
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 
 The compositor writes the root token (every capability) to
-`$XDG_RUNTIME_DIR/ede/<wayland-N>.token` (0600) for the shell; `mint_grant`
+`$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600) for the shell; `mint_grant`
 hands narrower, expiring grants to agents (never more than the minting grant
 holds, never outliving it). Any process of the same user can read the token
 file, so the boundary is between the shell and the agents it mints for (an
-agent sandbox does not see `$XDG_RUNTIME_DIR/ede`). Agent spaces and window
+agent sandbox does not see `$XDG_RUNTIME_DIR/exponential-desktop`). Agent spaces and window
 lending come with their own issues; captures are drawn in software for now.
 
 ```rust
@@ -406,7 +406,7 @@ shell and settings, or rewrites as eApps packages once the `eapps` crate
 exists (#EXP-1420); Calculator, System Monitor and Software are parked
 there with what each needs first.
 
-## The theme bridge: `ede-theme` (#EDE-19)
+## The theme bridge: `exponential-theme` (#EDE-19)
 
 Foreign apps look like the shell: `crates/ede-theme` generates, from the
 same `packages/design-tokens/tokens.json` the web, the natives, the IDE and
@@ -424,21 +424,21 @@ fonts are the first installed of a short preference list (Adwaita-dark;
 Papirus-Dark, Yaru, Adwaita; Bibata, Adwaita; Inter, Ubuntu Sans,
 Cantarell), each overridable in `[theme]` (below).
 
-Every file it writes starts with a marker line; `ede-theme remove` deletes
+Every file it writes starts with a marker line; `exponential-theme remove` deletes
 only those, puts a person's own file back from `*.before-ede` (moved
 aside once on the first apply) and restores the previous gsettings
-(`$XDG_STATE_HOME/ede/theme-before.json`). `ede-theme sync` applies or
-removes as `[theme] bridge` says: ede-theme.service runs it at login
+(`$XDG_STATE_HOME/exponential-desktop/theme-before.json`). `exponential-theme sync` applies or
+removes as `[theme] bridge` says: exponential-theme.service runs it at login
 before the shell, the Theme page's switch runs it after `ede.config`
-wrote the key, and ede-session exports the environment file before the
-compositor starts so its cursor matches. `ede-theme print` shows the
+wrote the key, and exponential-session exports the environment file before the
+compositor starts so its cursor matches. `exponential-theme print` shows the
 choice and the files; `--files-only` skips the live environment and
 gsettings (CI, tests). Nemo stays the file manager and file dialogs stay
 GTK through the portal delegate (#EDE-15), both themed through this.
 
 ## Config
 
-`$XDG_CONFIG_HOME/ede/compositor.toml`, every key optional; a broken file is
+`$XDG_CONFIG_HOME/exponential-desktop/compositor.toml`, every key optional; a broken file is
 logged and ignored.
 
 ```toml
@@ -464,8 +464,8 @@ lock_after = 600      # seconds without input; 0 = never
 [protected]
 app_ids = ["org.example.Bank"]   # on top of the built-in list
 
-[theme]              # the bridge (#EDE-19), read by ede-theme, not the compositor
-bridge = true        # false: ede-theme sync removes what it wrote
+[theme]              # the bridge (#EDE-19), read by exponential-theme, not the compositor
+bridge = true        # false: exponential-theme sync removes what it wrote
 icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size likewise; unset = the first installed preference
 ```
 
@@ -500,13 +500,13 @@ XDG_RUNTIME_DIR=/run/user/$UID swaylock`) takes over; a video in Firefox
 holds off the idle lock; fcitx5 or ibus types into a GTK app but not into a
 polkit prompt (`pkexec true`).
 
-## genUI on disk (ede-ui)
+## genUI on disk (exponential-ui)
 
-`$XDG_CONFIG_HOME/ede/ui/` (default `~/.config/ede/ui/`; `$EDE_UI_DIR` wins)
+`$XDG_CONFIG_HOME/exponential-desktop/ui/` (default `~/.config/exponential-desktop/ui/`; `$EDE_UI_DIR` wins)
 holds the shell: one genUI surface per `<name>.json` (lowercase, digits, `-`,
 `_`) and the look in `theme.json` (the theme format of the SDK; `extends` may
 name a built-in theme; none = `exponential`). The factory copies live in
-`/usr/share/ede/ui` (`$EDE_FACTORY_DIR`; `apps/ede/ui` in this repo): a fresh
+`/usr/share/exponential-desktop/ui` (`$EDE_FACTORY_DIR`; `apps/ede/ui` in this repo): a fresh
 account gets them as the first commits, and a rollback always has somewhere
 to go. The contract is `packages/ede` (#EDE-8): its fixtures are the spec and
 `crates/ede-ui/tests/contract.rs` replays them.
@@ -543,14 +543,14 @@ cargo run -p ede-ui -- undo                     # revert the newest edit
 cargo run -p ede-ui -- discard panel            # drop a broken hand edit
 cargo run -p ede-ui -- log
 cargo run -p ede-ui -- watch                    # hot reload, one JSON change per line
-cargo run -p ede-ui -- supervise -- ede-shell   # run the shell under the watchdog
+cargo run -p ede-ui -- supervise -- exponential-shell   # run the shell under the watchdog
 ```
 
-**The supervisor** (`ede-ui supervise -- <shell command>`) owns the history
+**The supervisor** (`exponential-ui supervise -- <shell command>`) owns the history
 and runs the apply machine of `packages/ede/fixtures/apply.json`: it starts
 the shell with `EDE_UI_DIR`, commits hand edits, refuses broken ones, and
 expects the shell to print `{"frame": {"name": "panel", "digest": "…"}}`
-(`ede-ui digest FILE`, the content digest) on stdout once it drew a document.
+(`exponential-ui digest FILE`, the content digest) on stdout once it drew a document.
 No frame within 2 s of an edit = the edit is reverted (`Undo: Edit
 panel.json, rolled back`); the shell dying counts as a crash, it restarts
 after 500 ms, and three crashes after an edit revert it, three more put the
@@ -566,12 +566,12 @@ let _w = ede_ui::watch(ui.clone(), |changes| for c in changes { println!("{}", c
 ```
 
 Changes: `ui.applied`, `ui.rejected` (issues, whether a last good version
-stays), `ui.removed`, `theme.applied`, `theme.rejected`. Try it: `ede-ui
+stays), `ui.removed`, `theme.applied`, `theme.rejected`. Try it: `exponential-ui
 --factory apps/ede/ui check` on a fresh directory creates it with the
-factory commits; `ede-ui watch` in one terminal, edit `panel.json` in an
+factory commits; `exponential-ui watch` in one terminal, edit `panel.json` in an
 editor (gedit, vim: both save through a rename) and see `ui.applied`, break
-it and see `ui.rejected` with `"fallback": true`, then `ede-ui undo` and
-`git -C ~/.config/ede/ui log`.
+it and see `ui.rejected` with `"fallback": true`, then `exponential-ui undo` and
+`git -C ~/.config/exponential-desktop/ui log`.
 
 ## Tests
 

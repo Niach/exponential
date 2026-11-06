@@ -1,4 +1,4 @@
-//! `ede-ui`: the ui directory from a terminal.
+//! `exponential-ui`: the ui directory from a terminal.
 
 use std::{
     io::Read,
@@ -10,7 +10,7 @@ use std::{
 use ede_ui::{Change, EditError, Runtime, THEME};
 use serde_json::Value;
 
-const USAGE: &str = "usage: ede-ui [--dir DIR] [--factory DIR] <command>
+const USAGE: &str = "usage: exponential-ui [--dir DIR] [--factory DIR] <command>
   check                    load the directory; list what applies and what is refused
   validate FILE...         validate files without applying them (theme.json = the theme)
   set NAME FILE|-          validate, write NAME.json (NAME = theme: theme.json) and commit it
@@ -23,9 +23,9 @@ const USAGE: &str = "usage: ede-ui [--dir DIR] [--factory DIR] <command>
   supervise -- CMD ARGS…   run the shell: watch, commit, frame-ack watchdog, crash revert
   digest FILE              the content digest a shell reports with a frame
   dir                      print the ui directory
-DIR defaults to $EDE_UI_DIR, then $XDG_CONFIG_HOME/ede/ui (~/.config/ede/ui);
-the factory directory to $EDE_FACTORY_DIR, then /usr/share/ede/ui.
-EDE_SAFE_MODE=1 (ede-session's safe mode) supervises a scratch copy of the
+DIR defaults to $EDE_UI_DIR, then $XDG_CONFIG_HOME/exponential-desktop/ui (~/.config/exponential-desktop/ui);
+the factory directory to $EDE_FACTORY_DIR, then /usr/share/exponential-desktop/ui.
+EDE_SAFE_MODE=1 (exponential-session's safe mode) supervises a scratch copy of the
 factory documents instead of the person's directory, which stays untouched.";
 
 fn print_changes(changes: &[Change]) {
@@ -164,11 +164,11 @@ fn run(dir: PathBuf, factory: PathBuf, args: &[String]) -> Result<bool, String> 
 
 /// Safe mode (#EDE-2): the stock shell from a scratch directory under
 /// `$XDG_RUNTIME_DIR` (else the temp dir), seeded from the factory copies,
-/// so a broken ~/.config/ede/ui never keeps the person out and is never
+/// so a broken ~/.config/exponential-desktop/ui never keeps the person out and is never
 /// rewritten behind their back.
 fn safe_mode_dir() -> PathBuf {
     let base = std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    let dir = base.join("ede").join("safe-ui");
+    let dir = base.join("exponential-desktop").join("safe-ui");
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
@@ -187,7 +187,7 @@ fn main() -> ExitCode {
         args.drain(..2);
     }
     if safe_mode {
-        eprintln!("ede-ui: safe mode, the factory documents from {}", dir.display());
+        eprintln!("exponential-ui: safe mode, the factory documents from {}", dir.display());
     }
     if matches!(args.first().map(String::as_str), Some("-h" | "--help")) {
         println!("{USAGE}");
@@ -197,7 +197,7 @@ fn main() -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(e) => {
-            eprintln!("ede-ui: {e}");
+            eprintln!("exponential-ui: {e}");
             ExitCode::from(2)
         }
     }

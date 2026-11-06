@@ -49,7 +49,7 @@ fn hello_needs_a_known_token() {
     assert_eq!(code(h.ipc_with(bogus).err().unwrap()), ErrorCode::Unauthorized);
     let root = h.ipc();
     assert_eq!(root.hello.capabilities, Capability::ALL.to_vec());
-    assert_eq!(root.hello.session_id.as_str(), "ede-shell");
+    assert_eq!(root.hello.session_id.as_str(), "exponential-shell");
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn the_socket_lives_in_a_private_directory() {
     let r = runtime.path().to_path_buf();
     let socket = h.with(move |ede| ede.ipc_listen(&r, "wayland-9")).unwrap();
     let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode(&runtime.path().join("ede")), 0o700);
+    assert_eq!(mode(&runtime.path().join("exponential-desktop")), 0o700);
     let token_file = ede_protocol::token_path(runtime.path(), "wayland-9");
     assert_eq!(mode(&token_file), 0o600);
     let token = Token::new(std::fs::read_to_string(&token_file).unwrap()).unwrap();

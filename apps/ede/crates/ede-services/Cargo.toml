@@ -1,6 +1,7 @@
 [package]
+autobins = false
 name = "ede-services"
-description = "eDE's services (#EDE-13): one per domain over the daemons the distro runs (NetworkManager, BlueZ, PipeWire, UPower, logind, udisks2, apt, fwupd), each with two faces, a genUI data source over a unix socket and MCP tools on eMCP's loopback server, the same grants and audit"
+description = "Exponential Desktop's services (#EDE-13): one per domain over the daemons the distro runs (NetworkManager, BlueZ, PipeWire, UPower, logind, udisks2, apt, fwupd), each with two faces, a genUI data source over a unix socket and MCP tools on eMCP's loopback server, the same grants and audit"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -19,3 +20,8 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+
+# The installed name (Exponential Desktop); the crate keeps its ede- name.
+[[bin]]
+name = "exponential-services"
+path = "src/main.rs"

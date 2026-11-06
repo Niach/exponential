@@ -1,5 +1,5 @@
 {
-  "$comment": "eDE's sealed screen-share chooser (#EDE-15, Tier B): compiled into ede-sealed, run by the portal (`ede-sealed share`) when an app asks to capture the screen or drive it. The app's name, what it asks for, the outputs and windows to pick from; the choice is printed for the portal (output:NAME / window:ID lines, `allow` when remote control was granted). Never a document on disk.",
+  "$comment": "Exponential Desktop's sealed screen-share chooser (#EDE-15, Tier B): compiled into exponential-sealed, run by the portal (`exponential-sealed share`) when an app asks to capture the screen or drive it. The app's name, what it asks for, the outputs and windows to pick from; the choice is printed for the portal (output:NAME / window:ID lines, `allow` when remote control was granted). Never a document on disk.",
   "root": {
     "id": "share",
     "component": "Box",

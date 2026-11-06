@@ -10,7 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// The first commit of a fresh ui directory (never reverted).
-pub const INITIAL_MESSAGE: &str = "ede-ui: history starts";
+pub const INITIAL_MESSAGE: &str = "exponential-ui: history starts";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Commit {
@@ -49,7 +49,7 @@ impl Repo {
             .arg(&self.dir)
             // Commits work without a global identity, and a person's
             // signing or hooks setup never blocks a shell edit.
-            .args(["-c", "user.name=eDE", "-c", "user.email=ede@localhost", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
+            .args(["-c", "user.name=Exponential Desktop", "-c", "user.email=exponential-desktop@localhost", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
             .args(args)
             .env("GIT_TERMINAL_PROMPT", "0")
             .env_remove("GIT_DIR")

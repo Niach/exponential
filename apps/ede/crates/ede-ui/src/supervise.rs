@@ -124,7 +124,7 @@ impl Supervisor {
         let mut child = Command::new(&self.command[0]).args(&self.command[1..]).env("EDE_UI_DIR", &dir).stdout(Stdio::piped()).stdin(Stdio::null()).spawn()?;
         let stdout = child.stdout.take().expect("piped stdout");
         let tx = self.tx.clone();
-        std::thread::Builder::new().name("ede-ui-shell-out".into()).spawn(move || {
+        std::thread::Builder::new().name("exponential-ui-shell-out".into()).spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if tx.send(Msg::Line(line)).is_err() {
                     return;

@@ -1,5 +1,5 @@
 {
-  "$comment": "eDE's sealed polkit prompt (#EDE-17, Tier B): compiled into ede-sealed. polkitd asks the agent to authenticate an action; the person sees the action's message, who asks, and types the password of the identity polkit offers. `sealed.authenticate` runs polkit-agent-helper-1; `sealed.cancel` tells polkit no.",
+  "$comment": "Exponential Desktop's sealed polkit prompt (#EDE-17, Tier B): compiled into exponential-sealed. polkitd asks the agent to authenticate an action; the person sees the action's message, who asks, and types the password of the identity polkit offers. `sealed.authenticate` runs polkit-agent-helper-1; `sealed.cancel` tells polkit no.",
   "root": {
     "id": "polkit",
     "component": "Box",

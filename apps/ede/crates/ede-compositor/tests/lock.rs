@@ -296,7 +296,7 @@ fn idle_runs_the_lock_command_unless_inhibited() {
     drop(h);
 }
 
-/// #EDE-17: the sealed lock. The test's own process plays `ede-sealed`
+/// #EDE-17: the sealed lock. The test's own process plays `exponential-sealed`
 /// (the compositor trusts the pid it spawned): its overlay layer surface
 /// is the lock screen, windows vanish from the output and from captures,
 /// only the grant minted for the lock client unlocks.
@@ -325,7 +325,7 @@ fn the_sealed_lock_shows_only_the_lock_clients_surface_and_its_grant_unlocks() {
 
     // The lock client (this process) draws an overlay layer surface.
     let mut locker = Session::connect(h.connect());
-    let l = locker.layer("ede-sealed", Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 0), -1);
+    let l = locker.layer("exponential-sealed", Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 0), -1);
     locker.draw_layer(&l, BLUE);
     wait_for(&mut locker, |_| h.capture(0).at(cx, cy) == BLUE);
     assert_eq!(h.capture_shared(0).at(cx, cy), 0xff00_0000, "still black for captures");

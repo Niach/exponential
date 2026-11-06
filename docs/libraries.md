@@ -43,12 +43,12 @@ consumes them as dependencies.
 | **MCP Proxy** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; the local hub and code mode (feature `codemode`), #EXP-1507; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/sdk/mcp-proxy/ |
 | **Core** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | exponential.at/sdk/core/ |
 
-**eDE** (#NEW-10, ExponentialOS's desktop) is not an SDK module: its own Cargo
-workspaces in `apps/ede` (`ede-compositor`, `ede-session`, `ede-protocol` = the
-control plane every client links, `ede-ui` = the genUI-on-disk runtime and its
-supervisor, `ede-ctl`; `apps/ede/shell` = `ede-shell`, the gpui shell) and the
+**Exponential Desktop** (#NEW-10, `apps/ede`, internally eDE) is not an SDK module: its own Cargo
+workspaces in `apps/ede` (`exponential-compositor`, `exponential-session`, `ede-protocol` = the
+control plane every client links, `exponential-ui` = the genUI-on-disk runtime and its
+supervisor, `exponential-ctl`; `apps/ede/shell` = `exponential-shell`, the gpui shell) and the
 contract `@exp/ede` (`packages/ede`: the surface header, the Tier C rules and
-the apply machine as fixtures + a TS reference, replayed by `ede-ui`), in
+the apply machine as fixtures + a TS reference, replayed by `exponential-ui`), in
 progress, no release.
 
 Voice, Computer Use, MCP Proxy and Agents are git dependencies (`publish = false`: the

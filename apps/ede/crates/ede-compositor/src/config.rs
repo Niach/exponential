@@ -1,4 +1,4 @@
-//! `~/.config/ede/compositor.toml`: the compositor's own settings.
+//! `~/.config/exponential-desktop/compositor.toml`: the compositor's own settings.
 //!
 //! Every key is optional; a missing file is the defaults. A file that fails
 //! to parse is reported and ignored (the session still starts), so a typo
@@ -61,7 +61,7 @@ pub fn parse_mode(text: &str) -> Option<(i32, i32, i32)> {
 pub struct Lock {
     /// An ext-session-lock client for Super+L, idle and suspend, e.g.
     /// `["swaylock", "-f"]`. Empty (the default) = eDE's own sealed lock
-    /// screen, `ede-sealed lock` (#EDE-17).
+    /// screen, `exponential-sealed lock` (#EDE-17).
     pub command: Vec<String>,
     /// Lock before the machine suspends (logind PrepareForSleep) and on
     /// `loginctl lock-session` (udev backend).
@@ -201,13 +201,13 @@ impl Config {
         self
     }
 
-    /// `$XDG_CONFIG_HOME/ede/compositor.toml`, else `~/.config/ede/compositor.toml`.
+    /// `$XDG_CONFIG_HOME/exponential-desktop/compositor.toml`, else `~/.config/exponential-desktop/compositor.toml`.
     pub fn default_path() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .filter(|v| !v.is_empty())
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-        Some(base.join("ede").join("compositor.toml"))
+        Some(base.join("exponential-desktop").join("compositor.toml"))
     }
 
     pub fn parse(text: &str) -> Result<Self, String> {

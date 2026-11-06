@@ -1,5 +1,5 @@
 {
-  "$comment": "eDE's factory settings (#EDE-14): shell documents, not an eApps package. One on-demand top-layer surface in the middle of the screen (the menu's Settings row opens it with ede.open_document, the close button closes it), a Tabs strip with a page per domain. Pages bind what the shell feeds: /services/<domain> from ede-services (#EDE-13), /outputs from the compositor, /config from compositor.toml. Controls are two-way bound and call a host function with the new value: ede.service {domain, action, args} for a service action, ede.output {name, mode?, scale?} for a display (applied live and written to [[outputs]]), ede.config {keyboard} for the keyboard, ede.launch for the tools that stay native.",
+  "$comment": "Exponential Desktop's factory settings (#EDE-14): shell documents, not an eApps package. One on-demand top-layer surface in the middle of the screen (the menu's Settings row opens it with ede.open_document, the close button closes it), a Tabs strip with a page per domain. Pages bind what the shell feeds: /services/<domain> from exponential-services (#EDE-13), /outputs from the compositor, /config from compositor.toml. Controls are two-way bound and call a host function with the new value: ede.service {domain, action, args} for a service action, ede.output {name, mode?, scale?} for a display (applied live and written to [[outputs]]), ede.config {keyboard} for the keyboard, ede.launch for the tools that stay native.",
   "surface": {"layer": "top", "size": {"width": 960, "height": 640}, "keyboard": "on-demand", "onDemand": true, "functions": ["ede.service", "ede.output", "ede.config", "ede.launch", "ede.close_document"]},
   "root": {
     "id": "settings",
@@ -63,10 +63,10 @@
           {"id": "delay", "component": "Slider", "props": {"label": "Key repeat delay (ms)", "min": 150, "max": 1000, "step": 50, "value": {"path": "/config/keyboard/repeat_delay"}}, "on": {"change": {"functionCall": {"call": "ede.config", "args": {"keyboard": {"repeat_delay": {"path": "/config/keyboard/repeat_delay"}}}}}}}
         ]},
         {"id": "theme", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
-          {"id": "theme-mode", "component": "Text", "props": {"text": "Dark, from the design tokens the Exponential app uses. The shell's documents live in ~/.config/ede/ui; every edit is a commit there.", "variant": "body"}},
+          {"id": "theme-mode", "component": "Text", "props": {"text": "Dark, from the design tokens the Exponential app uses. The shell's documents live in ~/.config/exponential-desktop/ui; every edit is a commit there.", "variant": "body"}},
           {"id": "theme-bridge", "component": "Switch", "props": {"label": "Theme GTK and Qt apps to match", "name": "bridge", "checked": {"path": "/config/theme/bridge"}}, "on": {"change": {"functionCall": {"call": "ede.config", "args": {"theme": {"bridge": {"path": "/config/theme/bridge"}}}}}}},
           {"id": "theme-summary", "component": "Text", "props": {"text": {"path": "/config/theme/summary"}, "variant": "muted"}},
-          {"id": "theme-open", "component": "Button", "props": {"label": "Open the shell's documents", "variant": "outline", "icon": "ui-folder"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"command": "xdg-open ~/.config/ede/ui"}}}}}
+          {"id": "theme-open", "component": "Button", "props": {"label": "Open the shell's documents", "variant": "outline", "icon": "ui-folder"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"command": "xdg-open ~/.config/exponential-desktop/ui"}}}}}
         ]},
         {"id": "updates", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
           {"id": "updates-count", "component": "StatTile", "props": {"label": "Updates available", "value": {"path": "/services/updates/countText"}}},

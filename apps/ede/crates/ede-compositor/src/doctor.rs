@@ -1,4 +1,4 @@
-//! `ede-compositor doctor`: what this machine needs for eDE, and what is
+//! `exponential-compositor doctor`: what this machine needs for eDE, and what is
 //! missing: the render nodes, the KMS driver and its connected displays,
 //! the seat (logind or seatd), what EGL renders with, the keyboard layout,
 //! Xwayland, NVIDIA. The checks are pure functions over what was read from the
@@ -36,7 +36,7 @@ pub fn parse_xwayland_version(output: &str) -> Option<(u32, u32, u32)> {
 }
 
 /// Where the .deb puts its own Xwayland (#NEW-120): Ubuntu noble ships 23.2.
-pub const BUNDLED_XWAYLAND_DIR: &str = "/usr/lib/ede/bin";
+pub const BUNDLED_XWAYLAND_DIR: &str = "/usr/lib/exponential-desktop/bin";
 
 /// The `PATH` Xwayland is spawned with: the bundled directory first when it
 /// holds an Xwayland, so it wins over the distro's.
@@ -114,7 +114,7 @@ pub fn check_nvidia(nv: Option<&Nvidia>) -> Option<Check> {
         Some(false) => Some(Check {
             name,
             level: Level::Fail,
-            detail: format!("{driver}nvidia-drm.modeset is off: eDE can't drive the displays (add nvidia-drm.modeset=1 to the kernel command line)"),
+            detail: format!("{driver}nvidia-drm.modeset is off: Exponential Desktop can't drive the displays (add nvidia-drm.modeset=1 to the kernel command line)"),
         }),
         None => Some(Check { name, level: Level::Warn, detail: format!("{driver}can't tell whether nvidia-drm.modeset is on (run doctor as root)") }),
         Some(true) => match nvidia_flag(nv.fbdev_param.as_deref(), &nv.cmdline, "fbdev", version) {
@@ -204,7 +204,7 @@ const FRAMEBUFFER_DRIVERS: [&str; 3] = ["simpledrm", "efifb", "vesafb"];
 pub fn check_drm(cards: &[DrmCard]) -> Check {
     let name = "DRM";
     if cards.is_empty() {
-        return Check { name, level: Level::Fail, detail: "no /dev/dri/card*: no KMS driver loaded, eDE can't drive a display".into() };
+        return Check { name, level: Level::Fail, detail: "no /dev/dri/card*: no KMS driver loaded, Exponential Desktop can't drive a display".into() };
     }
     let mut level = Level::Ok;
     let parts: Vec<String> = cards
@@ -310,7 +310,7 @@ pub fn check_keyboard(system: Option<&crate::config::Keyboard>) -> Check {
         None => Check {
             name,
             level: Level::Warn,
-            detail: format!("no layout in {}: eDE starts with `us` unless ~/.config/ede/compositor.toml sets [keyboard] layout", crate::config::SYSTEM_KEYBOARD),
+            detail: format!("no layout in {}: Exponential Desktop starts with `us` unless ~/.config/exponential-desktop/compositor.toml sets [keyboard] layout", crate::config::SYSTEM_KEYBOARD),
         },
     }
 }
@@ -390,8 +390,8 @@ mod tests {
 
     #[test]
     fn doctor_names_the_xwayland_it_checked() {
-        let check = check_xwayland(Some(Path::new("/usr/lib/ede/bin/Xwayland")), Some("Xwayland Version 24.1.14"));
-        assert_eq!(check.detail, "/usr/lib/ede/bin/Xwayland 24.1.14, explicit sync");
+        let check = check_xwayland(Some(Path::new("/usr/lib/exponential-desktop/bin/Xwayland")), Some("Xwayland Version 24.1.14"));
+        assert_eq!(check.detail, "/usr/lib/exponential-desktop/bin/Xwayland 24.1.14, explicit sync");
     }
 
     #[test]

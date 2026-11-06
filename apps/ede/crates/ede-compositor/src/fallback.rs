@@ -1,10 +1,10 @@
 //! The message a failed session leaves on the screen (#EDE-40). When the
-//! compositor could not start or stopped itself, ede-session runs
-//! `ede-compositor recovery --reason … --next …`: it takes the seat, paints
+//! compositor could not start or stopped itself, exponential-session runs
+//! `exponential-compositor recovery --reason … --next …`: it takes the seat, paints
 //! the reason into a DRM dumb buffer on every connected display with the
 //! Tier A canvas (no GPU, no GLES: the one path that still works when
 //! rendering is what failed), and holds it until a key, a button or
-//! `--timeout` seconds; then ede-session falls back (safe mode once, the
+//! `--timeout` seconds; then exponential-session falls back (safe mode once, the
 //! login screen after that). `--png PATH --size WxH` draws the same frame
 //! into a file (pictures, tests) without touching a seat.
 
@@ -20,7 +20,7 @@ pub struct Message {
     pub next: String,
 }
 
-pub const HINT: &str = "Any key continues · logs: journalctl -b _COMM=ede-compositor _COMM=ede-session";
+pub const HINT: &str = "Any key continues · logs: journalctl -b _COMM=exponential-compositor _COMM=exponential-session";
 pub const DEFAULT_TITLE: &str = "Exponential could not start";
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -28,7 +28,7 @@ const WIDTH: i32 = 640;
 const PAD: f32 = 24.0;
 const MAX_REASON_LINES: usize = 4;
 
-/// `ede-compositor recovery …`, parsed.
+/// `exponential-compositor recovery …`, parsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
     pub message: Message,
@@ -59,7 +59,7 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
                 let (w, h) = v.split_once('x').ok_or("--size needs WxH")?;
                 size = (w.parse().map_err(|_| "--size needs WxH")?, h.parse().map_err(|_| "--size needs WxH")?);
             }
-            other => return Err(format!("unknown argument {other:?}; usage: ede-compositor recovery [--title T] --reason R [--next N] [--timeout SECS] [--png PATH --size WxH]")),
+            other => return Err(format!("unknown argument {other:?}; usage: exponential-compositor recovery [--title T] --reason R [--next N] [--timeout SECS] [--png PATH --size WxH]")),
         }
     }
     if o.message.reason.is_empty() {
@@ -170,7 +170,7 @@ pub fn write_png(path: &str, frame: &Canvas) -> Result<(), String> {
     writer.write_image_data(&frame.data).map_err(|e| e.to_string())
 }
 
-/// `ede-compositor recovery …`: the file, or the displays until a key or
+/// `exponential-compositor recovery …`: the file, or the displays until a key or
 /// the timeout.
 pub fn main(args: &[String]) -> Result<(), String> {
     let options = parse_args(args)?;

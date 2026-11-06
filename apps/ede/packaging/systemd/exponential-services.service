@@ -1,18 +1,18 @@
 # eDE's services (#EDE-13): one per domain over the daemons the distro runs
 # (NetworkManager, BlueZ, PipeWire, UPower, logind, udisks2, apt, fwupd),
 # the data source the shell and the settings pages bind
-# ($XDG_RUNTIME_DIR/ede/services.sock) and the MCP face agents call
+# ($XDG_RUNTIME_DIR/exponential-desktop/services.sock) and the MCP face agents call
 # (eMCP's loopback server, a bearer per agent session, an audit row per call
-# in $XDG_STATE_HOME/ede/mcp-audit.jsonl).
+# in $XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl).
 [Unit]
-Description=eDE services (data source + MCP face)
+Description=Exponential Desktop services (data source + MCP face)
 Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
-PartOf=graphical-session.target ede-session.target
+PartOf=graphical-session.target exponential-session.target
 After=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
-ExecStart=/usr/bin/ede-services serve
+ExecStart=/usr/bin/exponential-services serve
 Restart=on-failure
 RestartSec=2
 Slice=session.slice

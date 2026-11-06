@@ -52,7 +52,7 @@ fn a_fresh_directory_is_a_repository_with_the_builtin_theme() {
     let dir = tmp.path().join("ede/ui");
     let (ui, changes) = open(&dir);
     assert!(dir.join(".git").is_dir());
-    assert_eq!(summaries(&ui), ["ede-ui: history starts"]);
+    assert_eq!(summaries(&ui), ["exponential-ui: history starts"]);
     assert_eq!(changes, [Change::ThemeApplied { id: "exponential".into(), builtin: true, commit: None }]);
     assert_eq!(ui.theme().id, "exponential");
     assert_eq!(ui.documents().count(), 0);

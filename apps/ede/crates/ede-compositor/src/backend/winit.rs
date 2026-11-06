@@ -23,12 +23,12 @@ use crate::state::Ede;
 
 pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result<(), Box<dyn std::error::Error>> {
     let (mut backend, winit) = winit::init::<GlesRenderer>()?;
-    backend.window().set_title("eDE");
+    backend.window().set_title("Exponential Desktop");
 
     let mode = Mode { size: backend.window_size(), refresh: 60_000 };
     let output = Output::new(
         "winit".to_string(),
-        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "eDE nested".into() },
+        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (nested)".into() },
     );
     let _global = output.create_global::<Ede>(&state.display_handle);
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));

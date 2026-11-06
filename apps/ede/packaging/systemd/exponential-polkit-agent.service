@@ -1,14 +1,14 @@
 # The authentication prompt for admin actions (polkit): eDE's own sealed
-# agent (#EDE-17, `ede-sealed polkit`), registered with polkitd for the
+# agent (#EDE-17, `exponential-sealed polkit`), registered with polkitd for the
 # session; the password goes through polkit-agent-helper-1.
 [Unit]
-Description=eDE polkit authentication agent (ede-sealed)
-PartOf=graphical-session.target ede-session.target
+Description=Exponential Desktop polkit authentication agent (exponential-sealed)
+PartOf=graphical-session.target exponential-session.target
 After=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
-ExecStart=/usr/bin/ede-sealed polkit
+ExecStart=/usr/bin/exponential-sealed polkit
 Restart=on-failure
 RestartSec=2
 Slice=session.slice

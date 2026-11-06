@@ -1,5 +1,5 @@
-# The eDE .deb (#NEW-103, #NEW-120, #EDE-2): ede-compositor + ede-session +
-# ede-ui + ede-shell (the shell workspace, gpui) + the factory documents + the
+# The eDE .deb (#NEW-103, #NEW-120, #EDE-2): exponential-compositor + exponential-session +
+# exponential-ui + exponential-shell (the shell workspace, gpui) + the factory documents + the
 # Xwayland 24.1.x it bundles (noble ships 23.2.6, without explicit sync).
 # Built on ubuntu-24.04 because the .deb targets noble (Mint 22); the
 # Xwayland build is cached on its script's hash. Published on ede-v* tags
@@ -56,22 +56,22 @@ jobs:
       - name: Install and check
         run: |
           set -euo pipefail
-          deb="$(ls apps/ede/target-deb/ede_*.deb)"
+          deb="$(ls apps/ede/target-deb/exponential-desktop_*.deb)"
           dpkg-deb -f "$deb" Depends
           sudo apt-get install -y "./$deb"
-          /usr/lib/ede/bin/Xwayland -version 2>&1 | grep 'Xwayland Version 24\.1\.'
+          /usr/lib/exponential-desktop/bin/Xwayland -version 2>&1 | grep 'Xwayland Version 24\.1\.'
           # #EDE-2: the shell ships with its factory documents and its unit.
-          test -x /usr/bin/ede-shell && test -x /usr/bin/ede-ui
-          ede-ui --dir "$(mktemp -d)/ui" check
-          grep -q ede-shell.service /usr/lib/systemd/user/ede-session.target
+          test -x /usr/bin/exponential-shell && test -x /usr/bin/exponential-ui
+          exponential-ui --dir "$(mktemp -d)/ui" check
+          grep -q exponential-shell.service /usr/lib/systemd/user/exponential-session.target
           # verify needs a user manager the runner has none of: the unit's syntax through the system scope.
-          systemd-analyze verify /usr/lib/systemd/user/ede-shell.service || true
-          grep -q 'ExecStart=/usr/bin/ede-ui supervise -- /usr/bin/ede-shell' /usr/lib/systemd/user/ede-shell.service
+          systemd-analyze verify /usr/lib/systemd/user/exponential-shell.service || true
+          grep -q 'ExecStart=/usr/bin/exponential-ui supervise -- /usr/bin/exponential-shell' /usr/lib/systemd/user/exponential-shell.service
           # #EDE-19: the theme bridge resolves a choice on a bare runner and writes only marked files.
-          HOME="$(mktemp -d)" ede-theme apply --files-only | tee theme.txt
+          HOME="$(mktemp -d)" exponential-theme apply --files-only | tee theme.txt
           grep -q '^GTK ' theme.txt && grep -q 'gtk-4.0/gtk.css' theme.txt
-          ede-compositor doctor | tee doctor.txt || true
-          grep -E '^ok +Xwayland +/usr/lib/ede/bin/Xwayland 24\.1\.' doctor.txt
+          exponential-compositor doctor | tee doctor.txt || true
+          grep -E '^ok +Xwayland +/usr/lib/exponential-desktop/bin/Xwayland 24\.1\.' doctor.txt
       # Without the distro's xwayland this can only be the bundled one (the
       # test skips when it finds none: a failure here).
       - name: Headless Xwayland test against the bundled one
@@ -80,13 +80,13 @@ jobs:
           set -euo pipefail
           sudo apt-get remove -y xwayland || true
           if command -v Xwayland; then echo "a distro Xwayland is still on PATH" >&2; exit 1; fi
-          PATH="/usr/lib/ede/bin:$PATH" cargo test --locked -p ede-compositor an_x11_window_through_xwayland -- --nocapture 2>&1 | tee test.txt
+          PATH="/usr/lib/exponential-desktop/bin:$PATH" cargo test --locked -p ede-compositor an_x11_window_through_xwayland -- --nocapture 2>&1 | tee test.txt
           if grep -q 'skipped: no Xwayland' test.txt; then exit 1; fi
           grep -q '^test an_x11_window_through_xwayland.* ok$' test.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: ede-deb
-          path: apps/ede/target-deb/ede_*.deb
+          name: exponential-desktop-deb
+          path: apps/ede/target-deb/exponential-desktop_*.deb
           if-no-files-found: error
 
   release:
@@ -98,7 +98,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: ede-deb
+          name: exponential-desktop-deb
           path: dist
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

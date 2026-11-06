@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Xwayland eDE ships (#NEW-120): noble's 23.2.6 has no explicit
 # sync, so X11 games flicker on NVIDIA. Pinned 24.1.x, meson, linked against
-# Ubuntu 24.04's system libs, staged as <out>/usr/lib/ede/bin/Xwayland plus
+# Ubuntu 24.04's system libs, staged as <out>/usr/lib/exponential-desktop/bin/Xwayland plus
 # <out>/DEPENDS (the .deb's Depends for it, from dpkg-shlibdeps).
 #   apps/ede/packaging/xwayland/build.sh [--install-deps] [--docker] <out>
 #   --install-deps  apt-get the build deps (root or sudo; CI)
@@ -17,7 +17,7 @@ SHA256=4eb6b98d678299a4b96138d886345b294130695760345ef84596225a8224078a
 PROTO_VERSION=2024.1
 PROTO_SHA256=372225fd40815b8423547f5d890c5debc72e88b91088fbfb13158c20495ccb59
 ARCHIVE=https://xorg.freedesktop.org/archive/individual
-PREFIX=/usr/lib/ede
+PREFIX=/usr/lib/exponential-desktop
 BUILD_DEPS=(
   ca-certificates curl xz-utils build-essential meson ninja-build pkg-config dpkg-dev
   x11proto-dev xtrans-dev libxkbfile-dev libxfont-dev libxcvt-dev libxshmfence-dev
@@ -93,7 +93,7 @@ DESTDIR="$work/stage" ninja -C "$work/build" install
 rm -rf "$out/usr" "$out/STAMP"
 install -Dm755 "$work/stage$PREFIX/bin/Xwayland" "$out$PREFIX/bin/Xwayland"
 strip "$out$PREFIX/bin/Xwayland"
-install -Dm644 "$src/COPYING" "$out/usr/share/doc/ede/xwayland-copyright"
+install -Dm644 "$src/COPYING" "$out/usr/share/doc/exponential-desktop/xwayland-copyright"
 
 # dpkg-shlibdeps wants a debian/control next to it.
 mkdir -p "$work/shlibs/debian"

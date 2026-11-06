@@ -1,5 +1,5 @@
 //! wlr-layer-shell: the panel, wallpaper, OSD and notifications of the
-//! future `ede-shell` are layer surfaces; exclusive zones shrink the work
+//! future `exponential-shell` are layer surfaces; exclusive zones shrink the work
 //! area windows place and tile into.
 
 use smithay::{

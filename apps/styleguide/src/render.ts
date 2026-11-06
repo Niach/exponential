@@ -48,7 +48,7 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   ios: `iOS`,
   ipad: `iPad`,
   android: `Android`,
-  ede: `eDE`,
+  ede: `Exponential Desktop`,
 }
 
 /** The component table has no web-mobile column — a control is one control. */

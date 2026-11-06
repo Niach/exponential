@@ -1,16 +1,16 @@
-//! `ede-session`: what the login manager (GDM, LightDM) runs for the
+//! `exponential-session`: what the login manager (GDM, LightDM) runs for the
 //! "Exponential" session.
 //!
-//! It sets the session environment, starts `ede-compositor` on the seat,
+//! It sets the session environment, starts `exponential-compositor` on the seat,
 //! and once the compositor is up hands the environment to systemd and
-//! starts `ede-session.target` (autostart apps, polkit agent, keyring).
+//! starts `exponential-session.target` (autostart apps, polkit agent, keyring).
 //! When the compositor dies it restarts it; three quick crashes in a row
 //! and it comes back in safe mode (the stock settings), so a broken config
 //! never locks the person out. A compositor that stopped itself because it
 //! cannot drive the display (exit code [`FATAL_EXIT`], the reason in
 //! [`failure_file`]) gets one try in safe mode, then the login screen.
 //! Before every fallback the reason shows on the displays
-//! (`ede-compositor recovery`, no GPU needed), never plain black (#EDE-40).
+//! (`exponential-compositor recovery`, no GPU needed), never plain black (#EDE-40).
 //! SIGTERM (the login manager ending the session) stops the compositor and
 //! the session units, so the shell supervisor never outlives the display.
 
@@ -21,8 +21,8 @@ use std::{
 
 /// Variables every eDE session sets before the compositor starts.
 pub const SESSION_ENV: &[(&str, &str)] = &[
-    ("XDG_CURRENT_DESKTOP", "eDE"),
-    ("XDG_SESSION_DESKTOP", "ede"),
+    ("XDG_CURRENT_DESKTOP", "Exponential"),
+    ("XDG_SESSION_DESKTOP", "exponential"),
     ("XDG_SESSION_TYPE", "wayland"),
     // Toolkits that default to X11 unless told.
     ("MOZ_ENABLE_WAYLAND", "1"),
@@ -42,7 +42,7 @@ pub const CRASHES_FOR_SAFE_MODE: usize = 3;
 /// Never restart more often than this in one login.
 pub const MAX_RESTARTS: usize = 6;
 /// The compositor's exit code when it stopped itself: it cannot drive the
-/// display, and the same start would fail the same way (ede-compositor's
+/// display, and the same start would fail the same way (exponential-compositor's
 /// `FATAL_EXIT`).
 pub const FATAL_EXIT: i32 = 3;
 /// How long the reason shows before a restart, and before the login screen
@@ -116,14 +116,42 @@ impl Policy {
     }
 }
 
-/// `$XDG_STATE_HOME/ede/crashes`: the quick-crash count carried across
+/// The directory under the XDG base directories (config, state, data, runtime).
+pub const DIR: &str = "exponential-desktop";
+/// What the 0.1.x `ede` package called it.
+pub const LEGACY_DIR: &str = "ede";
+
+/// The XDG config, state and data homes (`$XDG_*_HOME`, else under `$HOME`).
+pub fn xdg_homes() -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    [("XDG_CONFIG_HOME", ".config"), ("XDG_STATE_HOME", ".local/state"), ("XDG_DATA_HOME", ".local/share")]
+        .iter()
+        .filter_map(|(var, rel)| std::env::var_os(var).filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| home.as_ref().map(|h| h.join(rel))))
+        .collect()
+}
+
+/// The upgrade from the `ede` package: each home's `ede` directory (the
+/// shell's documents with their git history, compositor.toml, the crash
+/// count, the MCP audit) becomes `exponential-desktop`, once, and only where
+/// the new one does not exist yet. Returns the directories that moved.
+pub fn migrate_legacy_dirs(homes: &[PathBuf]) -> Vec<PathBuf> {
+    homes
+        .iter()
+        .filter_map(|home| {
+            let (old, new) = (home.join(LEGACY_DIR), home.join(DIR));
+            (old.is_dir() && !new.exists() && std::fs::rename(&old, &new).is_ok()).then_some(new)
+        })
+        .collect()
+}
+
+/// `$XDG_STATE_HOME/exponential-desktop/crashes`: the quick-crash count carried across
 /// logins, so a compositor that dies at every login also lands in safe mode.
 pub fn state_file() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_STATE_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))?;
-    Some(base.join("ede").join("crashes"))
+    Some(base.join("exponential-desktop").join("crashes"))
 }
 
 pub fn load_crashes(path: &Path) -> usize {
@@ -137,10 +165,10 @@ pub fn store_crashes(path: &Path, count: usize) {
     let _ = std::fs::write(path, format!("{count}\n"));
 }
 
-/// `$XDG_RUNTIME_DIR/ede/failure`: the compositor's reason for a
+/// `$XDG_RUNTIME_DIR/exponential-desktop/failure`: the compositor's reason for a
 /// [`FATAL_EXIT`] (it writes the file, [`take_failure`] reads and removes it).
 pub fn failure_file() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join("ede").join("failure"))
+    Some(PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join("exponential-desktop").join("failure"))
 }
 
 pub fn take_failure(path: &Path) -> Option<String> {
@@ -162,7 +190,7 @@ pub fn compositor_args(safe_mode: bool, ready_hook: &str) -> Vec<String> {
 }
 
 /// What the displays say after `exit`, before `next` happens: the
-/// `ede-compositor recovery` command line. `detail` is the compositor's
+/// `exponential-compositor recovery` command line. `detail` is the compositor's
 /// reason (the failure file) or how it ended.
 pub fn recovery_args(exit: Exit, next: Next, detail: &str) -> Vec<String> {
     let title = match exit {
@@ -184,6 +212,24 @@ pub fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ede_directories_move_once() {
+        let root = std::env::temp_dir().join(format!("exponential-session-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (config, state, data) = (root.join("config"), root.join("state"), root.join("data"));
+        std::fs::create_dir_all(config.join("ede/ui")).unwrap();
+        std::fs::write(config.join("ede/ui/panel.json"), "{}").unwrap();
+        std::fs::create_dir_all(state.join("ede")).unwrap();
+        std::fs::create_dir_all(data.join("exponential-desktop")).unwrap();
+        std::fs::create_dir_all(data.join("ede")).unwrap();
+        let moved = migrate_legacy_dirs(&[config.clone(), state.clone(), data.clone()]);
+        assert_eq!(moved, [config.join(DIR), state.join(DIR)]);
+        assert!(config.join("exponential-desktop/ui/panel.json").exists() && !config.join("ede").exists());
+        assert!(data.join("ede").exists(), "an existing new directory wins; the old one stays put");
+        assert!(migrate_legacy_dirs(&[config.clone(), state, data]).is_empty(), "once");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     const QUICK: Exit = Exit::Crashed { ran: Duration::from_secs(5) };
     const LATE: Exit = Exit::Crashed { ran: Duration::from_secs(3600) };
@@ -258,7 +304,7 @@ mod tests {
 
     #[test]
     fn the_compositor_runs_on_the_seat_and_calls_back_when_ready() {
-        assert_eq!(compositor_args(false, "/usr/bin/ede-session"), ["--udev", "--", "/usr/bin/ede-session", "--ready"]);
+        assert_eq!(compositor_args(false, "/usr/bin/exponential-session"), ["--udev", "--", "/usr/bin/exponential-session", "--ready"]);
         assert_eq!(compositor_args(true, "x"), ["--udev", "--safe-mode", "--", "x", "--ready"]);
     }
 
@@ -270,7 +316,7 @@ mod tests {
         assert_eq!(args[3..5], ["--reason", "Virtual-1 never drew a frame"]);
         assert!(args[6].contains("safe mode"));
         assert_eq!(args[7..9], ["--timeout".to_string(), SHOW_BEFORE_RESTART.as_secs().to_string()]);
-        let out = recovery_args(LATE, Next::Logout, "ede-compositor ended: signal 11");
+        let out = recovery_args(LATE, Next::Logout, "exponential-compositor ended: signal 11");
         assert_eq!(out[2], "The Exponential session stopped");
         assert!(out[6].contains("login screen"));
         assert_eq!(out[8], SHOW_BEFORE_LOGOUT.as_secs().to_string());
@@ -280,41 +326,41 @@ mod tests {
     #[test]
     fn packaging_files_agree_with_the_session() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging");
-        let desktop = std::fs::read_to_string(root.join("wayland-sessions/ede.desktop")).unwrap();
-        assert!(desktop.contains("Exec=ede-session\n"));
-        assert!(desktop.contains("DesktopNames=eDE\n"), "matches XDG_CURRENT_DESKTOP");
-        let safe = std::fs::read_to_string(root.join("wayland-sessions/ede-safe.desktop")).unwrap();
-        assert!(safe.contains("Exec=ede-session --safe-mode\n"));
-        let target = std::fs::read_to_string(root.join("systemd/ede-session.target")).unwrap();
-        for unit in ["graphical-session.target", "xdg-desktop-autostart.target", "ede-services.service", "ede-shell.service", "ede-polkit-agent.service", "ede-keyring.service"] {
+        let desktop = std::fs::read_to_string(root.join("wayland-sessions/exponential.desktop")).unwrap();
+        assert!(desktop.contains("Exec=exponential-session\n"));
+        assert!(desktop.contains("DesktopNames=Exponential\n"), "matches XDG_CURRENT_DESKTOP");
+        let safe = std::fs::read_to_string(root.join("wayland-sessions/exponential-safe.desktop")).unwrap();
+        assert!(safe.contains("Exec=exponential-session --safe-mode\n"));
+        let target = std::fs::read_to_string(root.join("systemd/exponential-session.target")).unwrap();
+        for unit in ["graphical-session.target", "xdg-desktop-autostart.target", "exponential-services.service", "exponential-shell.service", "exponential-polkit-agent.service", "exponential-keyring.service"] {
             assert!(target.contains(unit), "{unit}");
             if unit.starts_with("ede-") {
                 assert!(root.join("systemd").join(unit).exists(), "{unit} ships");
                 // #EDE-40: stopping the session target stops them too.
-                assert!(std::fs::read_to_string(root.join("systemd").join(unit)).unwrap().contains("PartOf=graphical-session.target ede-session.target\n"), "{unit} is part of the session");
+                assert!(std::fs::read_to_string(root.join("systemd").join(unit)).unwrap().contains("PartOf=graphical-session.target exponential-session.target\n"), "{unit} is part of the session");
             }
         }
-        assert_eq!(SESSION_ENV.iter().find(|(k, _)| *k == "XDG_CURRENT_DESKTOP").unwrap().1, "eDE");
+        assert_eq!(SESSION_ENV.iter().find(|(k, _)| *k == "XDG_CURRENT_DESKTOP").unwrap().1, "Exponential");
         // #EDE-2: the shell runs under the supervisor, and only once the
-        // compositor's display reached systemd (`ede-session --ready`).
-        let shell = std::fs::read_to_string(root.join("systemd/ede-shell.service")).unwrap();
-        assert!(shell.contains("ExecStart=/usr/bin/ede-ui supervise -- /usr/bin/ede-shell\n"));
+        // compositor's display reached systemd (`exponential-session --ready`).
+        let shell = std::fs::read_to_string(root.join("systemd/exponential-shell.service")).unwrap();
+        assert!(shell.contains("ExecStart=/usr/bin/exponential-ui supervise -- /usr/bin/exponential-shell\n"));
         assert!(shell.contains("ConditionEnvironment=WAYLAND_DISPLAY\n"));
         assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE"));
         let deb = std::fs::read_to_string(root.join("build-deb.sh")).unwrap();
-        for bin in ["ede-compositor", "ede-session", "ede-ui", "ede-shell", "ede-sealed", "ede-services", "ede-theme"] {
+        for bin in ["exponential-compositor", "exponential-session", "exponential-ui", "exponential-shell", "exponential-sealed", "exponential-services", "exponential-theme"] {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
         }
-        assert!(deb.contains("/usr/share/ede/ui/"), "the factory documents ship");
-        // #EDE-40: the icon theme is whatever is installed (ede-theme picks); a 10-minute install is not recommended.
+        assert!(deb.contains("/usr/share/exponential-desktop/ui/"), "the factory documents ship");
+        // #EDE-40: the icon theme is whatever is installed (exponential-theme picks); a 10-minute install is not recommended.
         assert!(!deb.contains("papirus"), "no icon theme in Recommends");
         // #EDE-17: the lock authenticates through its own PAM service, never the `login` fallback.
-        assert!(deb.contains("/etc/pam.d/ede") && root.join("pam/ede").exists(), "the lock's PAM service ships");
-        let polkit = std::fs::read_to_string(root.join("systemd/ede-polkit-agent.service")).unwrap();
-        assert!(polkit.contains("ExecStart=/usr/bin/ede-sealed polkit\n"), "#EDE-17: the sealed agent");
+        assert!(deb.contains("/etc/pam.d/exponential-desktop") && root.join("pam/exponential-desktop").exists(), "the lock's PAM service ships");
+        let polkit = std::fs::read_to_string(root.join("systemd/exponential-polkit-agent.service")).unwrap();
+        assert!(polkit.contains("ExecStart=/usr/bin/exponential-sealed polkit\n"), "#EDE-17: the sealed agent");
         // #EDE-19: the bridge runs before the shell, so the launcher's icon theme is set.
-        let theme = std::fs::read_to_string(root.join("systemd/ede-theme.service")).unwrap();
-        assert!(theme.contains("ExecStart=/usr/bin/ede-theme sync\n") && theme.contains("Before=ede-shell.service\n"));
-        assert!(std::fs::read_to_string(root.join("systemd/ede-session.target")).unwrap().contains("ede-theme.service"));
+        let theme = std::fs::read_to_string(root.join("systemd/exponential-theme.service")).unwrap();
+        assert!(theme.contains("ExecStart=/usr/bin/exponential-theme sync\n") && theme.contains("Before=exponential-shell.service\n"));
+        assert!(std::fs::read_to_string(root.join("systemd/exponential-session.target")).unwrap().contains("exponential-theme.service"));
     }
 }

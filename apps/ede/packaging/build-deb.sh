@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds ede_<version>_<arch>.deb for Mint/Ubuntu into apps/ede/target-deb/.
+# Builds exponential-desktop_<version>_<arch>.deb for Mint/Ubuntu into apps/ede/target-deb/.
 #   apps/ede/packaging/build-deb.sh [--no-xwayland] [--dev]
 # Build deps: cargo, dpkg-deb, and the headers in apps/ede/README.md (udev
 # feature), plus the shell workspace's (gpui: libxkbcommon, wayland, vulkan
@@ -9,14 +9,14 @@
 # prebuilt one from EDE_XWAYLAND=<build.sh out>. --no-xwayland depends on the
 # distro's xwayland instead (quick local builds). --dev packages the dev
 # profile's binaries (a VM check in minutes; never a release).
-# Contents (#EDE-2): ede-compositor, ede-session, ede-ui, ede-shell and
-# ede-sealed (#EDE-17: lock, polkit, consent), ede-services (#EDE-13),
-# xdg-desktop-portal-ede (#EDE-15) and ede-theme (#EDE-19) in /usr/bin, the factory
-# documents in /usr/share/ede/ui, the session's systemd units
-# (ede-session.target starts ede-shell.service = `ede-ui supervise --
-# ede-shell` and ede-polkit-agent.service = `ede-sealed polkit`), the login
+# Contents (#EDE-2): exponential-compositor, exponential-session, exponential-ui, exponential-shell and
+# exponential-sealed (#EDE-17: lock, polkit, consent), exponential-services (#EDE-13),
+# xdg-desktop-portal-exponential (#EDE-15) and exponential-theme (#EDE-19) in /usr/bin, the factory
+# documents in /usr/share/exponential-desktop/ui, the session's systemd units
+# (exponential-session.target starts exponential-shell.service = `exponential-ui supervise --
+# exponential-shell` and exponential-polkit-agent.service = `exponential-sealed polkit`), the login
 # screen entries (GDM and LightDM read /usr/share/wayland-sessions) and the
-# lock screen's PAM service (/etc/pam.d/ede).
+# lock screen's PAM service (/etc/pam.d/exponential-desktop).
 set -euo pipefail
 bundle_xwayland=1
 profile=release
@@ -47,28 +47,28 @@ cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui 
 # The shell is its own workspace (gpui never enters the compositor's).
 (cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell --bins)
 
-for bin in ede-compositor ede-session ede-ui ede-services ede-theme; do
+for bin in exponential-compositor exponential-session exponential-ui exponential-services exponential-theme; do
   install -Dm755 "$target/$profile/$bin" "$stage/usr/bin/$bin"
 done
-install -Dm755 "$shell_target/$profile/ede-shell" "$stage/usr/bin/ede-shell"
+install -Dm755 "$shell_target/$profile/exponential-shell" "$stage/usr/bin/exponential-shell"
 # The portal backend (#EDE-15): ScreenCast, Screenshot, RemoteDesktop,
-# GlobalShortcuts, Settings; the frontend routes them here (ede-portals.conf).
-install -Dm755 "$target/$profile/xdg-desktop-portal-ede" "$stage/usr/libexec/xdg-desktop-portal-ede"
-install -Dm644 "$here/portal/ede.portal" "$stage/usr/share/xdg-desktop-portal/portals/ede.portal"
-install -Dm644 "$here/portal/ede-portals.conf" "$stage/usr/share/xdg-desktop-portal/ede-portals.conf"
-install -Dm644 "$here/portal/org.freedesktop.impl.portal.desktop.ede.service" "$stage/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ede.service"
-install -Dm644 "$here/portal/xdg-desktop-portal-ede.service" "$stage/usr/lib/systemd/user/xdg-desktop-portal-ede.service"
+# GlobalShortcuts, Settings; the frontend routes them here (exponential-portals.conf).
+install -Dm755 "$target/$profile/xdg-desktop-portal-exponential" "$stage/usr/libexec/xdg-desktop-portal-exponential"
+install -Dm644 "$here/portal/exponential.portal" "$stage/usr/share/xdg-desktop-portal/portals/exponential.portal"
+install -Dm644 "$here/portal/exponential-portals.conf" "$stage/usr/share/xdg-desktop-portal/exponential-portals.conf"
+install -Dm644 "$here/portal/org.freedesktop.impl.portal.desktop.exponential.service" "$stage/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.exponential.service"
+install -Dm644 "$here/portal/xdg-desktop-portal-exponential.service" "$stage/usr/lib/systemd/user/xdg-desktop-portal-exponential.service"
 # Tier B (#EDE-17): the lock screen, the polkit agent and consent.
-install -Dm755 "$shell_target/$profile/ede-sealed" "$stage/usr/bin/ede-sealed"
-for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/ede/ui/$(basename "$f")"; done
+install -Dm755 "$shell_target/$profile/exponential-sealed" "$stage/usr/bin/exponential-sealed"
+for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/exponential-desktop/ui/$(basename "$f")"; done
 for f in "$here"/wayland-sessions/*.desktop; do install -Dm644 "$f" "$stage/usr/share/wayland-sessions/$(basename "$f")"; done
 for f in "$here"/systemd/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/user/$(basename "$f")"; done
 # The lock screen's PAM service (#EDE-17); a conffile, so a local edit survives upgrades.
-install -Dm644 "$here/pam/ede" "$stage/etc/pam.d/ede"
-install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/doc/ede/copyright"
+install -Dm644 "$here/pam/exponential-desktop" "$stage/etc/pam.d/exponential-desktop"
+install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/doc/exponential-desktop/copyright"
 
 # The compositor's, then the shell's (gpui on Wayland: Vulkan through the
-# loader + a driver, fontconfig/freetype) and ede-ui's history (git).
+# loader + a driver, fontconfig/freetype) and exponential-ui's history (git).
 depends="libc6, libpipewire-0.3-0, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, git"
 if [ "$bundle_xwayland" = 1 ]; then
   xwl="${EDE_XWAYLAND:-$target/ede-xwayland}"
@@ -86,9 +86,25 @@ else
 fi
 
 mkdir -p "$stage/DEBIAN"
-echo /etc/pam.d/ede > "$stage/DEBIAN/conffiles"
+echo /etc/pam.d/exponential-desktop > "$stage/DEBIAN/conffiles"
+# The upgrade from 0.1.x (the `ede` package, session `ede`): login screens that
+# remember the last session (AccountsService for GDM and LightDM, LightDM's
+# dmrc cache) keep picking it under its new name. The person's own ede
+# directories move at their next login (exponential-session).
+cat > "$stage/DEBIAN/postinst" <<'POSTINST'
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+  for f in /var/lib/AccountsService/users/* /var/cache/lightdm/dmrc/*.dmrc; do
+    [ -f "$f" ] || continue
+    sed -i -e 's/^\(X\{0,1\}Session\)=ede$/\1=exponential/' -e 's/^\(X\{0,1\}Session\)=ede-safe$/\1=exponential-safe/' "$f" || true
+  done
+fi
+exit 0
+POSTINST
+chmod 755 "$stage/DEBIAN/postinst"
 cat > "$stage/DEBIAN/control" <<CONTROL
-Package: ede
+Package: exponential-desktop
 Version: $version
 Architecture: $arch
 Maintainer: Exponential <hello@exponential.at>
@@ -97,15 +113,18 @@ Priority: optional
 Homepage: https://exponential.at
 Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin, xdg-desktop-portal (>= 1.18), xdg-desktop-portal-gtk, pipewire
 Recommends: gnome-keyring, fonts-inter
-Description: eDE, the Exponential desktop
- A Wayland desktop session: the ede-compositor (floating windows with edge
- snapping, Xwayland 24.1+ with explicit sync) started by ede-session from the login
- screen as "Exponential", with crash recovery and a safe mode, and ede-shell, the
- panel drawn from genUI documents (/usr/share/ede/ui, a person's copies in
- ~/.config/ede/ui) under the ede-ui supervisor.
+Replaces: ede
+Conflicts: ede
+Provides: ede
+Description: Exponential Desktop
+ A Wayland desktop session, "Exponential" on the login screen: a compositor
+ with floating windows, edge snapping and Xwayland 24.1+ (explicit sync),
+ crash recovery and a safe mode, and a shell drawn from genUI documents
+ (/usr/share/exponential-desktop/ui; a person's copies in
+ ~/.config/exponential-desktop/ui, every edit a commit).
 CONTROL
 
 mkdir -p "$out"
-deb="$out/ede_${version}_${arch}.deb"
+deb="$out/exponential-desktop_${version}_${arch}.deb"
 dpkg-deb --root-owner-group --build "$stage" "$deb" >/dev/null
 echo "$deb"

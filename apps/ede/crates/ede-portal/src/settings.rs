@@ -1,6 +1,6 @@
 //! `org.freedesktop.impl.portal.Settings`: `org.freedesktop.appearance`
 //! from `[appearance]` (dark by default, Exponential's own look). The GTK
-//! backend serves the rest (`ede-portals.conf` lists both).
+//! backend serves the rest (`exponential-portals.conf` lists both).
 
 use std::{collections::HashMap, sync::Arc};
 

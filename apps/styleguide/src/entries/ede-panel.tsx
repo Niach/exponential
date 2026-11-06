@@ -12,7 +12,7 @@ import settings from "../../../ede/ui/settings.json"
 import type { StyleguideEntry } from "./types.ts"
 
 // #EDE-10 / #EDE-11 / #EDE-12: eDE's factory shell documents (apps/ede/ui),
-// the genUI trees ede-shell draws as layer-shell surfaces on ede-compositor.
+// the genUI trees exponential-shell draws as layer-shell surfaces on exponential-compositor.
 // The same JSON, the web renderer here, the gpui painter on desktop and in
 // eDE itself (shots/ede-panel, ede-panel-menu, ede-switcher, ede-osd are the
 // compositor's own captures). The `surface` header (where the shell puts it,
@@ -36,12 +36,12 @@ const SAMPLE_SERVICES = {
   printers: { available: true, printers: [{ name: `HP_LaserJet`, state: `idle`, default: true }] },
   about: { available: true, hostname: `ubuntu-wayland`, os: `Ubuntu 26.04 LTS`, kernel: `7.0.0-38-generic`, cpu: `13th Gen Intel Core i9-13900K`, memoryText: `7.2 GB`, ede: `0.1.0` },
 }
-const SAMPLE_OUTPUTS = [{ name: `HEADLESS-1`, summary: `Exponential eDE headless · 1280×720 at 1× (0, 0)`, current: `1280x720@60`, modeOptions: [{ label: `1280x720@60 (preferred)`, value: `1280x720@60` }], scale: 1, scaleText: `1` }]
+const SAMPLE_OUTPUTS = [{ name: `HEADLESS-1`, summary: `Exponential Desktop (headless) · 1280×720 at 1× (0, 0)`, current: `1280x720@60`, modeOptions: [{ label: `1280x720@60 (preferred)`, value: `1280x720@60` }], scale: 1, scaleText: `1` }]
 
 const SAMPLE_NOTIFICATIONS = {
-  toasts: [{ id: 1, app: `Thunderbird`, summary: `Release notes for 1.4`, body: `Danny: the eDE M1 demo runs on Friday, bring the VM.`, icon: ``, actions: [{ key: `open`, label: `Open` }, { key: `archive`, label: `Archive` }], urgency: 1, at: `11:58` }],
+  toasts: [{ id: 1, app: `Thunderbird`, summary: `Release notes for 1.4`, body: `Danny: the M1 demo runs on Friday, bring the VM.`, icon: ``, actions: [{ key: `open`, label: `Open` }, { key: `archive`, label: `Archive` }], urgency: 1, at: `11:58` }],
   list: [
-    { id: 1, app: `Thunderbird`, summary: `Release notes for 1.4`, body: `Danny: the eDE M1 demo runs on Friday, bring the VM.`, icon: ``, actions: [], urgency: 1, at: `11:58` },
+    { id: 1, app: `Thunderbird`, summary: `Release notes for 1.4`, body: `Danny: the M1 demo runs on Friday, bring the VM.`, icon: ``, actions: [], urgency: 1, at: `11:58` },
     { id: 2, app: `Software`, summary: `Updates installed`, body: `12 packages were updated.`, icon: ``, actions: [], urgency: 0, at: `11:40` },
   ],
   count: 2,
@@ -69,8 +69,8 @@ export const entry: StyleguideEntry = {
   id: `ede-panel`,
   section: `special`,
   owner: `EDE-10`,
-  title: `eDE panel`,
-  blurb: `The desktop environment's factory shell documents: the panel (apps/ede/ui/panel.json: the launcher button, the taskbar from the window list and the clock in a 40 px top layer-shell surface), the launcher menu (menu.json, the panel's own popup surface: search, the installed apps, the power row), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json), a tray item's dbusmenu (tray-menu.json) and the settings surface (settings.json, a page per domain over ede-services). Agents and people edit these files; ede-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
+  title: `Exponential Desktop panel`,
+  blurb: `The desktop environment's factory shell documents: the panel (apps/ede/ui/panel.json: the launcher button, the taskbar from the window list and the clock in a 40 px top layer-shell surface), the launcher menu (menu.json, the panel's own popup surface: search, the installed apps, the power row), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json), a tray item's dbusmenu (tray-menu.json) and the settings surface (settings.json, a page per domain over exponential-services). Agents and people edit these files; exponential-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
   status: {
     web: {
       state: `ok`,
@@ -78,9 +78,9 @@ export const entry: StyleguideEntry = {
       file: `packages/ui/src/exponential-ui-specimen.tsx`,
       note: `here only: the React renderer over apps/ede/ui/panel.json + menu.json (the app has no panel)`,
     },
-    desktop: { state: `ok`, symbol: `render`, file: `apps/desktop/crates/ui/src/styleguide/entries/ede_panel.rs`, note: `the styleguide twin; the real thing is ede-shell (apps/ede/shell) on ede-compositor` },
-    ios: { state: `n/a`, note: `eDE only: a desktop environment` },
-    android: { state: `n/a`, note: `eDE only: a desktop environment` },
+    desktop: { state: `ok`, symbol: `render`, file: `apps/desktop/crates/ui/src/styleguide/entries/ede_panel.rs`, note: `the styleguide twin; the real thing is exponential-shell (apps/ede/shell) on exponential-compositor` },
+    ios: { state: `n/a`, note: `Exponential Desktop only: a desktop environment` },
+    android: { state: `n/a`, note: `Exponential Desktop only: a desktop environment` },
   },
   island: () => (
     <div className="flex flex-col gap-3">
@@ -110,7 +110,7 @@ export const entry: StyleguideEntry = {
       <div style={{ width: 280 }}>
         <ExponentialUiTree id="ede-tray-menu" node={TRAY_MENU.root} data={{ traymenu: SAMPLE_TRAY_MENU }} formFactor="wide" />
       </div>
-      <span className="text-xs text-muted-foreground">settings.json · the settings surface, a page per domain over ede-services</span>
+      <span className="text-xs text-muted-foreground">settings.json · the settings surface, a page per domain over exponential-services</span>
       <div style={{ width: 960 }}>
         <ExponentialUiTree id="ede-settings" node={SETTINGS.root} data={{ ...SETTINGS.data, services: SAMPLE_SERVICES, outputs: SAMPLE_OUTPUTS, user: { name: `Danny`, login: `danny` } }} formFactor="wide" />
       </div>

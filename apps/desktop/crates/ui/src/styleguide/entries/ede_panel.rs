@@ -1,5 +1,5 @@
 //! #EDE-10 / #EDE-11 / #EDE-12: eDE's factory shell documents (apps/ede/ui)
-//! under the gpui painter, the way ede-shell draws them on ede-compositor
+//! under the gpui painter, the way exponential-shell draws them on exponential-compositor
 //! (the shots `ede-panel`, `ede-panel-menu`, `ede-switcher` and `ede-osd` are
 //! the compositor's own captures). The `surface` header (where the shell
 //! puts a document, which host functions it may call) is not part of the tree.
@@ -51,9 +51,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let (osd, _) = document(OSD);
     let level = json!({"osd": {"icon": "media-volume-down", "level": 45, "label": "45%"}});
     let sample_notifications = json!({"notifications": {
-        "toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the eDE M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}],
+        "toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}],
         "list": [
-            {"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the eDE M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"},
+            {"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"},
             {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}
         ],
         "count": 2
@@ -72,7 +72,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             "printers": {"available": true, "printers": [{"name": "HP_LaserJet", "state": "idle", "default": true}]},
             "about": {"available": true, "hostname": "ubuntu-wayland", "os": "Ubuntu 26.04 LTS", "kernel": "7.0.0-38-generic", "cpu": "13th Gen Intel Core i9-13900K", "memoryText": "7.2 GB", "ede": "0.1.0"}
         }));
-        d.insert("outputs".into(), json!([{"name": "HEADLESS-1", "summary": "Exponential eDE headless · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1, "scaleText": "1"}]));
+        d.insert("outputs".into(), json!([{"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1, "scaleText": "1"}]));
         d.insert("user".into(), json!({"name": "Danny", "login": "danny"}));
     }
     let sample_tray_menu = json!({"traymenu": {"service": "demo/network", "title": "Network", "items": [

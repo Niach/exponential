@@ -1,16 +1,16 @@
-//! `ede-services` (#EDE-13): the desktop's services, one per domain over
+//! `exponential-services` (#EDE-13): the desktop's services, one per domain over
 //! the daemons the distribution already runs. Each [`Service`] gives a
 //! JSON `snapshot` (what a settings page or the panel binds) and
 //! `actions` (what a page's button or an agent's tool calls), with the
 //! eCore capability each action needs. Two faces share one [`Registry`]:
 //!
-//! - the **data source** ([`socket`]): `$XDG_RUNTIME_DIR/ede/services.sock`,
+//! - the **data source** ([`socket`]): `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`,
 //!   ede-protocol framing, `get`, `call`, `subscribe` (a `services.changed`
 //!   event per domain whose snapshot moved; polled every 2 s);
 //! - the **MCP face** ([`mcp`]): eMCP's loopback server with one tool per
 //!   action plus `<domain>_get`, grants per agent session with the
 //!   capabilities they may use, and an `mcp_calls`-shaped audit row per
-//!   call in `$XDG_STATE_HOME/ede/mcp-audit.jsonl` (audit.json's columns).
+//!   call in `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl` (audit.json's columns).
 //!
 //! Behaviour follows what Cinnamon's applets and settings do with the same
 //! daemons; no code is shared with them.
@@ -140,10 +140,10 @@ fn required_missing(schema: &Value, args: &Value) -> Option<String> {
     schema["required"].as_array()?.iter().filter_map(Value::as_str).find(|k| args.get(k).is_none()).map(String::from)
 }
 
-/// `$XDG_RUNTIME_DIR/ede/services.sock`.
+/// `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`.
 pub fn socket_path() -> std::path::PathBuf {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    runtime.join("ede").join("services.sock")
+    runtime.join("exponential-desktop").join("services.sock")
 }
 
 /// A snapshot for a domain whose daemon is not there.

@@ -358,7 +358,7 @@ pub fn reconcile_primary<T: Copy + PartialEq>(primary: T, registered: &[T]) -> O
 /// Whether the outputs ever drew (udev, #EDE-40). A session whose outputs
 /// get no frame at all would stay black forever with the log filling up;
 /// after [`FATAL_FAILURES`] attempts without one frame it stops itself with
-/// the reason, and ede-session shows it and falls back.
+/// the reason, and exponential-session shows it and falls back.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FrameHealth {
     pub drawn: bool,
