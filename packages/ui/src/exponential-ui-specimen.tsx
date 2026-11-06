@@ -73,13 +73,14 @@ export function ExponentialUiTwin({
 
 /** EXP-1604: an inline Exponential UI tree (a styleguide entry's own
  *  specimens, e.g. apps/styleguide/src/entries/motion.specimens.json)
- *  through THE React renderer, with its data model. */
-export function ExponentialUiTree({ id, node, data, mode = `dark`, formFactor }: { id: string; node: NestedNode; data?: Record<string, unknown>; mode?: `light` | `dark`; formFactor?: `phone` | `wide` }) {
+ *  through THE React renderer, with its data model; `inlineOverlays` paints
+ *  an open Dialog / Drawer in place (EXP-1673). */
+export function ExponentialUiTree({ id, node, data, mode = `dark`, formFactor, inlineOverlays }: { id: string; node: NestedNode; data?: Record<string, unknown>; mode?: `light` | `dark`; formFactor?: `phone` | `wide`; inlineOverlays?: boolean }) {
   const surface = useSurface({ surfaceId: `sg-${id}`, catalogId: CORE_CATALOG_ID, initial: node, data })
   const host = useMemo(() => planCardHost(), [])
   return (
     <div data-slot="exponential-ui-tree" data-specimen={id}>
-      <ExponentialSurface surface={surface} host={host} theme={DEFAULT_THEME_ID} mode={mode} formFactor={formFactor} />
+      <ExponentialSurface surface={surface} host={host} theme={DEFAULT_THEME_ID} mode={mode} formFactor={formFactor} inlineOverlays={inlineOverlays} />
     </div>
   )
 }
