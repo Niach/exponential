@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The launcher activity's ONE shortcuts resource:
+     - #EXP-1640 (app-intents.json): the App Actions capabilities.
      - #EXP-1638 (app-shortcuts.json): the app icon's long-press statics, in
        fixture order. A tap launches MainActivity with the shortcut id in
        EXTRA_APP_SHORTCUT; the recent chats are dynamic (DirectShareShortcuts).
@@ -7,6 +8,33 @@
        dynamic sharing shortcuts DirectShareShortcuts publishes under this
        category. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- #EXP-1640 (app-intents.json): App Actions for Gemini / Assistant on
+         the active account (AppIntentRunner). The custom action names the
+         intent; the BII parameters arrive as the keyed extras. -->
+    <capability android:name="actions.intent.CREATE_THING">
+        <intent
+            android:action="com.exponential.app.action.CREATE_ISSUE"
+            android:targetPackage="@string/shortcut_target_package"
+            android:targetClass="com.exponential.app.MainActivity">
+            <parameter
+                android:name="thing.name"
+                android:key="title" />
+        </intent>
+    </capability>
+    <capability android:name="actions.intent.CREATE_MESSAGE">
+        <intent
+            android:action="com.exponential.app.action.ASK_AGENT"
+            android:targetPackage="@string/shortcut_target_package"
+            android:targetClass="com.exponential.app.MainActivity">
+            <parameter
+                android:name="message.recipient.name"
+                android:key="agent" />
+            <parameter
+                android:name="message.text"
+                android:key="text" />
+        </intent>
+    </capability>
+
     <shortcut
         android:shortcutId="new-issue"
         android:enabled="true"
