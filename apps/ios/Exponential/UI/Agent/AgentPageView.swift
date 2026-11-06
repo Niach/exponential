@@ -338,8 +338,10 @@ struct AgentPageView: View {
         .accessibilityIdentifier("agent-composer-slash-menu")
     }
 
+    /// EXP-1676: the menu follows the DRAFT, not the keyboard (web's
+    /// `useSlashCommandMenu`, Android): putting the keyboard away keeps it.
     private func slashMenuVisible(_ composer: AgentComposerModel) -> Bool {
-        composer.draftEditor.isEditing && !composer.slashPrompts.isEmpty
+        !composer.slashPrompts.isEmpty
     }
 
     private func ensureModels() {

@@ -583,6 +583,22 @@ extension XCTestCase {
         if keyboard.exists { NSLog("EXP-1558 dismissKeyboard: the keyboard stayed up") }
     }
 
+    /// EXP-1676: a `/` shot leaves its draft (the menu follows it with the
+    /// keyboard down): refocus the field, delete the `/`, put the keyboard away.
+    @MainActor
+    func clearSlashDraft(_ app: XCUIApplication, field: XCUIElement) {
+        for dy in [0.25, 0.5, 0.15] where !app.keyboards.firstMatch.exists {
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: dy)).tap()
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
+        }
+        if app.keyboards.firstMatch.exists {
+            app.typeText(XCUIKeyboardKey.delete.rawValue)
+        } else {
+            NSLog("EXP-1676 clearSlashDraft: the field never took focus")
+        }
+        dismissKeyboard(app)
+    }
+
     /// Opens an issue from the board by its title, scrolling the list until the
     /// row is on screen.
     ///

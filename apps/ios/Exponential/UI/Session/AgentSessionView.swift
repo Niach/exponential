@@ -1765,10 +1765,11 @@ struct AgentSessionView: View {
 
     // MARK: - Slash commands (EXP-724)
 
-    /// The menu is up while the field has focus, the draft matches something,
-    /// and it hasn't been dismissed at exactly this draft.
+    /// The menu is up while the draft matches something and it hasn't been
+    /// dismissed at exactly this draft; the keyboard going away keeps it
+    /// (EXP-1676: web's `useSlashCommandMenu`, Android).
     private func slashMenuVisible(_ model: AgentSessionModel) -> Bool {
-        model.draftEditor.isEditing && !slashCandidates(model).isEmpty
+        !slashCandidates(model).isEmpty
             && slashDismissedFor != model.draftText
     }
 
