@@ -49,7 +49,7 @@ public enum DomainContract {
     public static let conversationKindValues: [String] = ["dm", "channel", "session"]
     public static let agentRoleValues: [String] = ["assistant", "agent"]
     public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
-    public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused", "pr_checks"]
+    public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused", "pr_checks", "pr_merge"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet", "haiku"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
@@ -311,4 +311,5 @@ public enum DomainContract {
     public static let messageEventKindSessionInterrupted: String = "session_interrupted"
     public static let messageEventKindPrMergeRefused: String = "pr_merge_refused"
     public static let messageEventKindPrChecks: String = "pr_checks"
+    public static let messageEventKindPrMerge: String = "pr_merge"
 }
