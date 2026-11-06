@@ -1019,8 +1019,12 @@ function macroCases(all: ComponentCase[]) {
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
       if (result.issues.length > 0) throw new Error(`${c.name}: ${result.issues.map((i) => i.message).join(`; `)}`)
-      return { name: c.name, input: c.node, expected: result.root }
+      return { name: c.name, input: c.node, expected: result.root, templates: result.templates }
     })
+    // A case whose expansion builds data templates (VAPP-278: Meter/bound:segments)
+    // is locked in template-items.json `macro-template-*`, where `templates` replay.
+    .filter((c) => Object.keys(c.templates ?? {}).length === 0)
+    .map(({ templates: _, ...c }) => c)
 }
 
 interface BasicCaseFile {

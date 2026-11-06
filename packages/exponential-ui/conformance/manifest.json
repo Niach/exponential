@@ -18,7 +18,7 @@
         "fixtures/catalog-macros.json"
       ],
       "unit": "case",
-      "cases": 358,
+      "cases": 357,
       "check": "Expand the case: the tree equals `expanded` (JSON-equal, recipes included)."
     },
     {
@@ -181,7 +181,7 @@
         "fixtures/template-items.json"
       ],
       "unit": "case",
-      "cases": 29,
+      "cases": 30,
       "check": "Key the items / rows, list the template instances (path, key, accumulated suffix), reduce the surfaces (templates lifted): equal to `expected`."
     },
     {
