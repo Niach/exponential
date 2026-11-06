@@ -338,6 +338,15 @@ allocate scanout-able buffers. Hybrid GPUs: one render GPU (the primary),
 outputs on the other card render through it (smithay's multi-GPU
 renderer); a per-output render device is not done.
 
+## The parity gate (#EDE-45)
+
+`bun apps/ede/scripts/parity.ts --out /tmp/ede-parity.png` draws the contact
+sheet: every region of the IDE's shell (its committed desktop shots) next to
+Exponential Desktop's (the `ede-*` goldens), one row per region with the
+status `packages/uicore/parity.md` gives it, and prints the inventory's
+share of `same` or `close` rows (the gate wants ≥ 90 %). Danny signs the
+sheet off by eye; nothing in the IDE is replaced before that.
+
 ## Doctor
 
 ```bash
