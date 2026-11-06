@@ -11,7 +11,7 @@ import UserNotifications
 // a tampered or foreign payload) is delivered unchanged. A question push's
 // sealed text opens with the tree key in the shared keychain (#VAPP-45). No Firebase, no GRDB:
 // the extension's memory cap is ~24 MB.
-final class NotificationService: UNNotificationServiceExtension {
+final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestAttempt: UNMutableNotificationContent?
 
@@ -46,11 +46,37 @@ final class NotificationService: UNNotificationServiceExtension {
             // placeholder carries none.
             content.sound = .default
         }
-        deliver()
+        // #EXP-1641 (notification-actions.json): the push's own actions, as
+        // a category registered for this action set before it is drawn.
+        let actions = Self.actions(content.userInfo)
+        guard !actions.isEmpty else { return deliver() }
+        let labels = actions.filter { $0.id.hasPrefix(NotificationActions.optionPrefix) }
+        if !labels.isEmpty {
+            var info = content.userInfo
+            info[NotificationActions.optionLabelsKey] = Dictionary(uniqueKeysWithValues: labels.map { ($0.id, $0.title) })
+            content.userInfo = info
+        }
+        nonisolated(unsafe) let drawn = content
+        NotificationActions.register(actions) { [self] categoryId in
+            DispatchQueue.main.async {
+                drawn.categoryIdentifier = categoryId
+                self.deliver()
+            }
+        }
+    }
+
+    /// The actions of an (opened) push: a sealed card's options come from
+    /// the ask text opened with the tree key; `keyHeld` = a key for its root.
+    static func actions(_ userInfo: [AnyHashable: Any]) -> [NotificationActions.Action] {
+        let data = NotificationActions.data(userInfo)
+        let store = TreeKeyStore()
+        let keyHeld = data[QuestionPush.rootIdKey].flatMap { $0.isEmpty ? nil : store.keys(rootId: $0) } != nil
+        let opened = keyHeld ? QuestionPush.openedAskText(data: userInfo, keysFor: { store.keys(rootId: $0) }) : nil
+        return NotificationActions.notificationActions(data: data, keyHeld: keyHeld, openedAskText: opened)
     }
 
     override func serviceExtensionTimeWillExpire() {
-        deliver()
+        DispatchQueue.main.async { self.deliver() }
     }
 
     private func deliver() {

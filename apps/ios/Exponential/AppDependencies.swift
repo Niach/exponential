@@ -273,7 +273,11 @@ final class AppDependencies: @unchecked Sendable {
             db: db,
             userId: { accountId in auth.accounts.first { $0.id == accountId }?.userId }
         )
-        self.notificationDelegate = NotificationDelegate(pushTokenManager: pushTokenManager, deepLinkBus: deepLinkBus)
+        self.notificationDelegate = NotificationDelegate(
+            pushTokenManager: pushTokenManager,
+            deepLinkBus: deepLinkBus,
+            actions: NotificationActionRunner(auth: auth, db: db, sessionsApi: sessionsApi)
+        )
 
         self.timezoneClaimer = TimezoneClaimer(usersApi: usersApi, auth: auth)
 

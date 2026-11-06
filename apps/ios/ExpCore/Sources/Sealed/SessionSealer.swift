@@ -128,6 +128,27 @@ public final class SessionSealer: @unchecked Sendable {
         )
     }
 
+    /// #EXP-1641: a send into the ENCRYPTED tree `rootId` (a notification's
+    /// reply), sealed even when the session row is not local; nil = it could
+    /// not be sealed here (the caller sends nothing).
+    public func prepareSealed(accountId: String, _ input: SessionsSendInput, rootId: String) async -> PreparedSend? {
+        guard crypto.isAvailable, let text = input.text, !text.isEmpty else { return nil }
+        let local = root(accountId: accountId, for: input)
+        let target = local?.id == rootId ? local! : SealRoot(id: rootId, teamId: "", deviceId: "", shared: false, key: nil)
+        guard let key = await holder.sealKey(
+            accountId: accountId, rootId: target.id, known: target.key, teamId: target.teamId,
+            deviceIds: deviceIds(accountId: accountId, steerDeviceId: target.deviceId), shared: target.shared
+        ) else { return nil }
+        guard let sealed = try? crypto.sealBody(
+            treePublicKey: key.publicKey, epoch: key.epoch,
+            text: SealedAttachmentLines.withEmbeds(text, attachmentIds: input.attachmentIds, uploadOf: SealedAttachmentLines.upload)
+        ), SealedEnvelope.isSealedBody(sealed) else { return nil }
+        return PreparedSend(
+            input: SealedSendInput(input: input.with(text: sealed), mentionUserIds: mentionUserIds(accountId: accountId, text: text)),
+            newKey: nil
+        )
+    }
+
     /// The server answered a send: a root started with our key holds it now.
     public func completed(_ prepared: PreparedSend, result: SessionsSendResult) async {
         await sending.completed(prepared, result: result)
