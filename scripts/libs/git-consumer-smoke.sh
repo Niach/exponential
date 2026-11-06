@@ -10,12 +10,12 @@
 # both does, and the lock must hold ONE copy of every crate of this repo
 # (`cargo tree -d`).
 #
-#   scripts/libs/git-consumer-smoke.sh <etalk|epilot|emcp|eagent> [rev]
+#   scripts/libs/git-consumer-smoke.sh <etalk|epilot|emcp|eagent|eengine> [rev]
 #   (rev defaults to HEAD, which must be committed; the release workflows
 #   pass the tagged commit)
 set -euo pipefail
 
-lib="${1:?usage: git-consumer-smoke.sh <etalk|epilot|emcp|eagent> [rev]}"
+lib="${1:?usage: git-consumer-smoke.sh <etalk|epilot|emcp|eagent|eengine> [rev]}"
 repo="$(git rev-parse --show-toplevel)"
 rev="${2:-$(git -C "$repo" rev-parse HEAD)}"
 case "$lib" in
@@ -23,6 +23,7 @@ case "$lib" in
   epilot) crates="epilot epilot-screen" ;;
   emcp) crates="emcp" ;;
   eagent) crates="eagent exponential-agent-runtime" ;;
+  eengine) crates="eengine" ;;
   *) echo "unknown library: $lib" >&2; exit 2 ;;
 esac
 
@@ -31,6 +32,7 @@ esac
 case "$lib" in
   etalk) peers="eui:eui-core,eui-gpui epilot:epilot,epilot-screen" ;;
   epilot) peers="emcp:emcp" ;;
+  eengine) peers="eui:eui-core emcp:emcp" ;;
   *) peers="" ;;
 esac
 manifests="$(for c in $crates; do git -C "$repo" show "$rev:apps/desktop/crates/$c/Cargo.toml"; done)"
@@ -39,17 +41,19 @@ for p in $peers; do
   plib="${p%%:*}"
   tag="$(printf '%s\n' "$manifests" | grep -o "tag = \"$plib-v[^\"]*\"" | cut -d'"' -f2 | sort -u || true)"
   [ -n "$tag" ] || tag="$(git -C "$repo" tag -l "$plib-v*" --sort=-v:refname | head -1)"
-  [ "$(printf '%s\n' "$tag" | wc -l)" = 1 ] || { echo "$lib names more than one $plib tag: $tag" >&2; exit 1; }
+  [ "$(printf '%s\n' "$tag" | wc -l | tr -d ' ')" = 1 ] || { echo "$lib names more than one $plib tag: $tag" >&2; exit 1; }
   for c in $(printf %s "${p#*:}" | tr , " "); do
     tagged+="$c = { git = \"https://github.com/Niach/exponential\", tag = \"$tag\" }"$'\n'
   done
 done
 
-# EXP-1507: the optional parts a consumer turns on (emcp's code mode), so
+# EXP-1507: the optional parts a consumer turns on (emcp's code mode, the
+# Engine's SQLite store and hub, VAPP-263), so
 # the smoke builds them from the checkout too.
 features_of() {
   case "$1" in
     emcp) printf ', features = ["codemode"]' ;;
+    eengine) printf ', features = ["sqlite", "hub"]' ;;
   esac
 }
 
@@ -74,7 +78,7 @@ cd "$tmp"
 cat "$tmp/Cargo.toml"
 # One copy of every crate of this repo: two sources of eui-gpui (the etalk
 # tag's checkout + the eui tag) would build, but their types never unify.
-ours="$(cd "$repo/apps/desktop/crates" && ls -d */ | tr -d / | paste -sd'|')"
+ours="$(cd "$repo/apps/desktop/crates" && ls -d */ | tr -d / | paste -sd'|' -)"
 cargo tree --manifest-path "$tmp/Cargo.toml" --config 'net.git-fetch-with-cli=true' \
   -d --depth 0 --target all -e normal,build > "$tmp/dupes.txt"
 dupes="$(grep -E "^($ours) v" "$tmp/dupes.txt" || true)"

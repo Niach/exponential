@@ -20,7 +20,7 @@ the old npm packages, and `exponential-ui` 0.1.1 stays on crates.io, superseded.
 
 Kept on purpose: the UniFFI/wasm binding crates (`exponential-ui-ffi`,
 `exponential-net-ffi`, `exponential-net-wasm`; never published on their own;
-`etalk-ffi` follows the new scheme and is not published either).
+`etalk-ffi` and `eengine-ffi` follow the new scheme and are not published either).
 Their lib names are baked into the generated bindings and the native library
 files. Also kept: the Swift modules `ExponentialUI` / `ExponentialUIPrimitives`
 from the distribution repo `Niach/exponential-ui-swift`, the Kotlin packages
@@ -40,7 +40,7 @@ consumes them as dependencies.
 | **Computer Use** | `epilot`, `epilot-screen` (git dependencies on the tag) | none (desktop only) | none | none (desktop only) | `epilot-v*` → `release-epilot.yml` | exponential.at/sdk/computer-use/ |
 | **P2P** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/sdk/p2p/ |
 | **Apps** | inside `eui-core` (the format and its pure logic: validation, query, CEL, policy, transitions, migrations, exposes); no `eapps` crate (decided 2026-11-05, #VAPP-259) | inside `@exponential_app/eui/host` | inside `eui-compose` | inside `ExponentialUI` | rides `eui-v*` | exponential.at/sdk/apps/ |
-| **Engine** | `eengine` (#VAPP-261: AppInstance, lifecycle, sources, dispatch, outbox, stores, local identity; the capability broker on an in-process `emcp` hub, #VAPP-262; the modules behind cargo features; git dependency on the tag), `eengine-ffi` (UniFFI, #VAPP-263; not published, ships inside Swift/Kotlin) | `@exp/eengine` (the contract: fixtures + the pure TS twin, `packages/eengine`, #VAPP-260; private until it ships as `@exponential_app/engine`, #VAPP-263) | `engine` (planned) | `ExponentialEngine` (planned) | `eengine-v*` → `release-eengine.yml` (planned) | exponential.at/sdk/apps/ |
+| **Engine** | `eengine` (#VAPP-261: AppInstance, lifecycle, sources, dispatch, outbox, stores, local identity; the capability broker on an in-process `emcp` hub, #VAPP-262; the modules behind cargo features `sqlite` and `hub`; git dependency on the tag), `eengine-ffi` (UniFFI, #VAPP-263: `Engine` + `AppInstance`, the providers as foreign traits; not published, ships inside Swift/Kotlin) | `engine` (the contract, fixtures and pure TS twin, `packages/eengine`, #VAPP-260; the workspace package `@exp/eengine` stays private) | `engine` | `ExponentialEngine` (`Niach/exponential-engine-swift`) | `eengine-v*` → `release-eengine.yml` | exponential.at/sdk/apps/ |
 | **Agents** | `eagent` (from `coding` + `engine`, #EXP-1426; renamed from `exponential-agent-runtime` in #EXP-1505, which stays one release as a re-export shim; git dependency on the tag; `provider::AgentProvider` = one way to start a run: `AcpAgent`, `LocalModel` behind the `local-model` feature, `RemoteSession`, tools only as a hub grant, #VAPP-264) | `@exp/eagent` (the orchestration spec: fixtures + a pure TS reducer, `packages/eagent`, #EXP-1508; private for now; its Rust port `eagent-hub-core` + WASM `eagent-hub-core-wasm`, #EXP-1509, replay the same fixtures) | none | none | `eagent-v*` → `release-eagent.yml` (still accepts `agent-runtime-v*` for one release) | exponential.at/sdk/agents/ |
 | **MCP Proxy** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; the local hub and code mode (feature `codemode`), #EXP-1507; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/sdk/mcp-proxy/ |
 | **Core** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | exponential.at/sdk/core/ |
@@ -66,7 +66,7 @@ contract `@exp/ede` (`packages/ede`: the surface header, the Tier C rules and
 the apply machine as fixtures + a TS reference, replayed by `exponential-ui`), in
 progress, no release.
 
-Voice, Computer Use, MCP Proxy and Agents are git dependencies (`publish = false`: the
+Voice, Computer Use, MCP Proxy, Agents and the Engine are git dependencies (`publish = false`: the
 fixtures are compiled in with `include_str!` from outside the crate), so their
 release is the tag plus a GitHub release; no crates.io name is spent.
 
@@ -93,7 +93,8 @@ How spezl (or anyone) depends on the `publish = false` crates:
    **Another lib comes in through ITS release tag** (#EXP-1460): `etalk-gpui`
    takes `eui-core`/`eui-gpui` with `git = "https://github.com/Niach/exponential",
    tag = "eui-v…"` and `epilot`/`epilot-screen` at `epilot-v…`, and
-   `epilot`/`epilot-screen` take `emcp` at `emcp-v…` (#EXP-1492); a path
+   `epilot`/`epilot-screen` take `emcp` at `emcp-v…` (#EXP-1492), and
+   `eengine` takes `eui-core` and `emcp` at their tags (#VAPP-261); a path
    dependency would resolve inside the etalk tag's checkout and hand a
    consumer a second eui-gpui whose types never unify with its own. The one
    exception is Core (`ecore`, types only, no tag yet): `emcp` (#EXP-1517)
@@ -107,7 +108,7 @@ How spezl (or anyone) depends on the `publish = false` crates:
    reach its consumers): the ztracing patch and the zed pin, exactly as
    `apps/desktop/crates/eui-gpui/README.md` "gpui revisions" says. The
    non-gpui crates (`etalk`, `etalk-codec`, `etalk-engine`, `epilot`,
-   `epilot-screen`, `emcp`, `eagent`) need neither.
+   `epilot-screen`, `emcp`, `eagent`, `eengine`) need neither.
 6. **Proven per release.** Each lib's release workflow runs
    `scripts/libs/git-consumer-smoke.sh <lib> <commit>`: a scratch crate outside
    this workspace depends on every crate of the lib through `git` + the commit,
@@ -122,10 +123,12 @@ How spezl (or anyone) depends on the `publish = false` crates:
 | Computer Use | `epilot-v*` | `epilot`, `epilot-screen` | `release-epilot.yml` |
 | MCP Proxy | `emcp-v*` | `emcp` | `release-emcp.yml` |
 | Agents | `eagent-v*` (+ `agent-runtime-v*` for one release) | `eagent`, `exponential-agent-runtime` (the shim, one release) | `release-eagent.yml` |
+| Engine | `eengine-v*` | `eengine` (features `sqlite`, `hub`; + npm `@exponential_app/engine`, SwiftPM `ExponentialEngine`, Maven `at.exponential:engine`, all three from `eengine-ffi` and `packages/eengine`) | `release-eengine.yml` |
 
 Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 `enet-core`, `etalk`, `epilot`, and npm `@exponential_app/eui*`, `@exponential_app/enet`,
-`@exponential_app/etalk`.
+`@exponential_app/etalk`; and on 2026-11-06 npm `@exponential_app/engine`, Maven
+`at.exponential:engine` and the repo name `Niach/exponential-engine-swift`.
 
 ## Migrating: agent-runtime → Agents (#EXP-1505)
 
