@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- An app's own file as a src (#VAPP-271): `HostPlugin::app_files() -> Option<Arc<dyn AppFiles>>` (default `None`; `AppFiles::read(file_id) -> Option<Vec<u8>>`, any `Fn(&str) -> Option<Vec<u8>> + Send + Sync`); an `app-file:<fileId>` Image / Avatar / poster / Markdown image src reads it off the main thread under the image limits and the asset cache (`media::image_key`, `MediaKey::app_file`); no app files, a bad id or a missing file = the missing-image fallback.
+- A call's answer (#VAPP-271): `run_package_action` gates and runs a `call` step with a `result` when the plan reaches it (before the commit; a refusal or a failure is the action's failure, nothing lands) and runs the action again over the same snapshot with the answer as `results.<name>`.
+
 ## 0.18.0 (2026-11-06)
 
 - Tree (#VAPP-285): the arrows, Home and End on a treeitem go to the core's tree keys.

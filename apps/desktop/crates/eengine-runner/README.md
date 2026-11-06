@@ -39,11 +39,11 @@ The runner has no chrome of its own. It paints four genUI surfaces with eui-gpui
 
 `vault.rs` keeps the Vault in the platform keystore under the config id:
 
-- **macOS:** Keychain generic passwords (service = the id).
+- **macOS:** Keychain generic passwords (service = the id), with user interaction off: an item another build's ACL guards (a rebundled ad-hoc app) or a locked keychain never prompts.
 - **Linux:** the Secret Service over D-Bus (gnome-keyring, KWallet), `plain` session, default collection, attributes `application` + `key`.
 - **Windows:** Credential Manager generic credentials (`<id>/<key>`).
 
-If the keystore is unavailable (no Secret Service, or a locked collection that would prompt), the Vault falls back to `vault.json` (0600) in the app-data directory. A read tries the keystore first, then the file.
+If the keystore is unavailable (no Secret Service, or a locked collection or Keychain item that would prompt), the Vault falls back to `vault.json` (0600) in the app-data directory. A read tries the keystore first, then the file.
 
 ## Theme and mode
 

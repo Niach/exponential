@@ -56,7 +56,9 @@ relink keeps the ids R8 inlined into the dex), dex and native libs, and
 README, "Android").
 
 The template declares NO permissions, and the Engine AAR declares none
-either. E7 maps the capability manifest (E5, `eengine-ffi/README.md`
+either; the ones a library merges in (media3's `ACCESS_NETWORK_STATE` and
+`WAKE_LOCK`, for genUI's video) are removed with `tools:node="remove"`, so
+`aapt2 dump badging` on an export lists only what its scopes map to. E7 maps the capability manifest (E5, `eengine-ffi/README.md`
 "Capabilities (Kotlin)"):
 
 | capability | `<uses-permission>` |
@@ -68,6 +70,12 @@ either. E7 maps the capability manifest (E5, `eengine-ffi/README.md`
 
 The components the AAR merges in (`ShareFileProvider`, the notification
 receivers) need no patching: their authority derives from `applicationId`.
+
+The APK ships only the ABIs BOTH native libraries were built for
+(`ndk.abiFilters`, read from the two crates' `out/jniLibs/`): JNA's AAR alone
+carries seven. The universal APK is still ~31 MB for arm64-v8a + x86_64
+(the two Rust libraries, stored uncompressed for 16 KiB pages); the .aab
+splits per ABI on Play.
 
 ## Build and test
 

@@ -132,6 +132,13 @@ is the navigation manifest: the templates a person can open, in order.
   included, is one toast ("Not found or no access"). The link pushes, so back
   returns to the first app. `crossAppTarget(pkg, screen, params)` is the rule. A
   person's URL or an agent's chat link opens any declared screen.
+- **App files** (VAPP-271, `catalog/host.json` `media.appFile`): an image
+  `src` of the form `app-file:<fileId>` (the `fileId` a capability answered:
+  `photos.pick`, `print.pdf`, `files.open`) shows that file of the app. The
+  host resolves it from its own file store under the usual image limits; the
+  Engine's runners do (web, desktop, iOS, Android). A host without app files
+  (Exponential itself) loads nothing and paints the image's fallback. Bind it:
+  `{"src": {"call": "expr", "args": {"expr": "'app-file:' + f", "vars": {"f": {"path": ""}}, "default": ""}}}`.
 - **`@media (form-factor: phone|wide)`** is the style condition for a
   layout that truly differs on phones (the host's form factor; unset = the
   surface width against `$breakpoint.md`).
@@ -748,9 +755,10 @@ name under `actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`).
 `params` is a records schema (the call's args are checked against it). A
 step is ONE of `require` (+ `message`), `records.upsert {kind, data, id?}`,
 `records.delete {id}`, `set {path, value}` and `call` (a host function the
-package lists in `functions`, + `args`); at most 32 actions of 64 steps. A
+package lists in `functions`, + `args`, + `result`); at most 32 actions of 64 steps. A
 JSON string in a step is CEL over `params`, `data` (the surface data at the
-press) and `me` (the member's id); anything else is a literal. Install
+press), `me` (the member's id) and `results` (the answers named so far);
+anything else is a literal. Install
 checks every expression's type (a `require` is a bool, an upsert's fields
 are in the kind's schema with its types, a create names every required
 field). VAPP-204: a press's `actions.<name>` args are checked against
@@ -758,6 +766,33 @@ field). VAPP-204: a press's `actions.<name>` args are checked against
 out, a literal of another type; a dynamic arg is checked when it runs), and
 a press of `bind` with a literal `source` is checked like a template binding
 (a URI, in `sources`, a declared kind, a package query).
+
+**A call's answer** (VAPP-271). A `call` step may name what it answers,
+`result: <name>` (a letter, then letters, digits and `_`; once per action),
+and the steps after it read that answer as `results.<name>` (open: `dyn`):
+
+```jsonc
+"addPage": {
+  "params": { "type": "object", "properties": { "album": { "type": "string" } }, "required": ["album"] },
+  "steps": [
+    { "call": "photos.pick", "args": { "limit": 10 }, "result": "picked" },
+    { "require": "size(orElse(results.picked.photos, [])) > 0", "message": "No photos picked" },
+    { "records.upsert": { "kind": "page", "data": { "album": "params.album", "photos": "orElse(results.picked.photos, []).map(p, p.fileId)" } } }
+  ]
+}
+```
+
+Such a call runs WHEN THE PLAN REACHES IT, before the commit (the policy and
+consent first); a refusal or a failure discards the action, and nothing
+lands. Every other call still runs after the commit. Install refuses a
+`result` on a step that is no call, a bad or repeated name, and a step that
+reads `results.<name>` before the step naming it (`unknown field <name>`). A
+list of open items (an answer mapped) fits any list field; the kind's schema
+checks it when it runs. Every Engine capability (`photos.`, `files.`,
+`print.`, `share.`, `camera.`, `clipboard.`, `http.`, `location.`,
+`notifications.`) is a host function: a step may call it when `functions`
+lists it, a binding never. A package test gives the answers:
+`{"action": {"name": "addPage", "params": {…}, "results": {"picked": {"photos": [{"fileId": "f1"}]}}}}`.
 
 **Create or patch, and absent stays absent** (VAPP-206). One action can do
 both: `params` may name `id` (a param is no record), and a `records.upsert`
@@ -772,7 +807,9 @@ follows the same rules.
 
 **All or nothing.** `runAction` evaluates the steps in order against ONE
 snapshot (a `set` never changes what a later step reads) and returns the
-plan `{writes, sets, calls}`, or the one error that discards the action: a
+plan `{writes, sets, calls}`, `{pending}` (the first `result` call without
+an answer: the host runs it and runs the action again with
+`ctx.results`), or the one error that discards the action: a
 false `require` (its `message`, the toast), an evaluation error, a create
 the kind's schema refuses, or the run's budget of 100 000 evaluation steps
 (`step <i>: …`). The host then asks every call's policy and consent, commits
@@ -815,7 +852,9 @@ member may not read is not found). It runs exactly one of:
 - `expr: {expr, vars?}`: the CEL value (or `{error}`); a var
   `{source: "records:<kind>?…"}` is that binding's value over the store.
 - `query: {name, params?}`: the package query's records value.
-- `action: {name, params?, data?}`: the action's plan applied to the store:
+- `action: {name, params?, data?, results?}`: the action's plan applied to the store
+  (`results` = the answers of its `result` calls; one left out is the error
+  `step <i>: <call> has no result in the test`):
   `{records: {<kind>: [{…data, id, author}]}, sets, calls}` (new ids
   `new-<n>`), or `{error}`.
 

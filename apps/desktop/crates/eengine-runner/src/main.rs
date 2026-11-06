@@ -21,7 +21,7 @@ use eengine_runner::{assets, storage, vault::RunnerVault};
 use eui_core::theme::{Mode, ResolvedTheme};
 use eui_gpui::host::HostPlugin;
 use eui_gpui::runtime::{Emit, ExponentialHost, HostFunction, HostOptions, SourceResolver};
-use gpui::{div, prelude::*, px, size, AnyWindowHandle, App, Bounds, Context, Entity, Hsla, SharedString, TitlebarOptions, Window, WindowAppearance, WindowBounds, WindowOptions};
+use gpui::{div, prelude::*, px, size, AnyWindowHandle, App, Bounds, Context, Entity, Hsla, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions};
 use serde_json::{json, Map, Value};
 
 type Reply = flume::Sender<Result<Value, String>>;
@@ -208,21 +208,25 @@ impl Ctx {
     }
 }
 
-/// Icons by concept from the embedded set; everything else the painter's.
-struct Icons;
+/// Icons by concept from the embedded set; an `app-file:` src from the
+/// instance's BlobStore (VAPP-271); everything else the painter's.
+struct Icons {
+    files: Option<Arc<dyn eui_gpui::host::AppFiles>>,
+}
 
 impl HostPlugin for Icons {
     fn icon(&self, name: &str) -> Option<SharedString> {
         assets::icon_path(name)
     }
-}
 
-fn mode_of(appearance: WindowAppearance) -> Mode {
-    match appearance {
-        WindowAppearance::Light | WindowAppearance::VibrantLight => Mode::Light,
-        WindowAppearance::Dark | WindowAppearance::VibrantDark => Mode::Dark,
+    fn app_files(&self) -> Option<Arc<dyn eui_gpui::host::AppFiles>> {
+        self.files.clone()
     }
 }
+
+/// #VAPP-271: every runner paints dark, whatever the system appearance (the
+/// web, iOS and Android runners do the same): one look on every platform.
+const MODE: Mode = Mode::Dark;
 
 fn platform_name(platform: Platform) -> &'static str {
     match platform {
@@ -337,7 +341,7 @@ fn main() {
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         let theme = theme_of(bundle.as_ref().ok().map(|b| &b.file));
-        let mode = mode_of(cx.window_appearance());
+        let mode = MODE;
         let fallback_title = exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
 
         // The Engine instance, or the failure painted in place of `app`.
@@ -375,7 +379,7 @@ fn main() {
         // The genUI host: the app's functions and `records:` sources route to the instance.
         let bindings_next = Rc::new(Cell::new(0u64));
         let ctx_slot: Rc<RefCell<Option<Rc<Ctx>>>> = Rc::new(RefCell::new(None));
-        let mut options = HostOptions { theme: Some(theme.clone()), mode, plugin: Rc::new(Icons), lift_layers: true, ..Default::default() };
+        let mut options = HostOptions { theme: Some(theme.clone()), mode, plugin: Rc::new(Icons { files: booted.as_ref().ok().map(Runner::app_files) }), lift_layers: true, ..Default::default() };
         {
             let tx = tx.clone();
             options.on_send = Some(Rc::new(move |message: &Value| {
@@ -495,11 +499,6 @@ fn main() {
                 let tx = ctx.tx.clone();
                 subs.push(cx.observe_window_activation(window, move |_, window, _| {
                     let _ = tx.send(Inbound::Activation(window.is_window_active()));
-                }));
-                subs.push(cx.observe_window_appearance(window, |this: &mut RunnerView, window, cx| {
-                    this.mode = mode_of(window.appearance());
-                    let mode = this.mode;
-                    this.ctx.host.update(cx, |h, cx| h.set_mode(mode, cx));
                 }));
                 RunnerView { ctx: ctx.clone(), theme, mode, form: None, _store: store, _subscriptions: subs }
             })

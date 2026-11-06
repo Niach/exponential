@@ -18,7 +18,8 @@ public enum Actions {
         /// `set`, `records.upsert` / `.delete` / `.batch`.
         case write
         /// `openUrl`, `bind`, every `actions.` `harness.` `exponential.`
-        /// `tools.` `upstream.` name.
+        /// `tools.` `upstream.` name and every Engine capability's
+        /// (`photos.`, `files.`, `print.`, `share.`, …; VAPP-271).
         case host
     }
 
@@ -65,9 +66,25 @@ public enum Actions {
         }
     }
 
-    /// The plan, or the one error that discards the whole action.
+    /// VAPP-271: the first `call` step with a `result` the run reached
+    /// unanswered: the host gates and runs it (before any commit), then
+    /// runs the action again over the SAME snapshot with its answer under
+    /// `results[result]`.
+    public struct Pending: Equatable, Sendable {
+        /// The step's index in the action.
+        public let step: Int
+        /// The host function to call.
+        public let name: String
+        public let args: Props
+        /// The result name later steps read it as (`results.<result>`).
+        public let result: String
+    }
+
+    /// The plan, a result call still to answer (VAPP-271), or the one
+    /// error that discards the whole action.
     public enum Outcome: Equatable, Sendable {
         case plan(Plan)
+        case pending(Pending)
         case error(String)
     }
 
@@ -82,26 +99,35 @@ public enum Actions {
     /// snapshot: `data` (the surface data model), `me` (the member; nil =
     /// unknown), the clock in epoch ms (nil = the wall clock), `zone` (the
     /// team zone; nil = UTC), `maxSteps` (the run's budget; nil = the
-    /// contract's 100 000). Pure: nothing is written.
+    /// contract's 100 000), `results` (VAPP-271: the answers of the result
+    /// calls so far, by result name). Pure: nothing is written.
     public static func run(
         _ package: JSONValue, action name: String, params: JSONValue? = nil, data: JSONValue? = nil,
-        me: String? = nil, nowMs: Double? = nil, zone: HostZone? = nil, maxSteps: UInt32? = nil
+        me: String? = nil, nowMs: Double? = nil, zone: HostZone? = nil, maxSteps: UInt32? = nil,
+        results: [String: JSONValue] = [:]
     ) -> Outcome {
         guard let out = try? runPackageActionJson(
             packageJson: package.json, name: name, paramsJson: (params ?? .null).json, dataJson: (data ?? .null).json,
-            me: me, nowMs: nowMs, zone: zone, maxSteps: maxSteps
+            me: me, nowMs: nowMs, zone: zone, maxSteps: maxSteps,
+            resultsJson: results.isEmpty ? nil : JSONValue.object(results).json
         ) else { return .error("the package is JSON") }
         let v = JSONValue.parse(out)
         if let error = v["error"]?.string { return .error(error) }
+        if let p = v["pending"] {
+            return .pending(Pending(
+                step: Int(p["step"]?.number ?? 0), name: p["name"]?.string ?? "", args: p["args"]?.object ?? [:],
+                result: p["result"]?.string ?? ""
+            ))
+        }
         return .plan(Plan(json: v["plan"] ?? .null))
     }
 
     /// `run` at `now` in a Foundation `TimeZone`.
     public static func run(
         _ package: JSONValue, action name: String, params: JSONValue?, data: JSONValue?, me: String?, now: Date,
-        timeZone: TimeZone? = nil
+        timeZone: TimeZone? = nil, results: [String: JSONValue] = [:]
     ) -> Outcome {
-        run(package, action: name, params: params, data: data, me: me, nowMs: now.timeIntervalSince1970 * 1000, zone: timeZone.map(TimeZoneOffset.init))
+        run(package, action: name, params: params, data: data, me: me, nowMs: now.timeIntervalSince1970 * 1000, zone: timeZone.map(TimeZoneOffset.init), results: results)
     }
 
     /// Applies `writes` to `rows` (record rows as JSON: `{id, kind, data,

@@ -29,6 +29,8 @@ import at.exponential.ui.host.MediaRequest
 import at.exponential.ui.host.PaintError
 import at.exponential.ui.host.TextLinkSegment
 import at.exponential.ui.host.policedMediaRequest
+import at.exponential.ui.host.APP_FILE_SCHEME
+import at.exponential.ui.host.appFileId
 import at.exponential.ui.host.safeHref
 import at.exponential.ui.host.NoHost
 import at.exponential.ui.json.JsonValue
@@ -603,8 +605,15 @@ class SurfaceModel(
     /** #VAPP-258: a Markdown's blocks as measured and painted ([Markdown.resolve] through [markdownHooks]). */
     fun markdownBlocks(text: String): List<MarkdownBlock> = Markdown.resolve(text, markdownHooks)
 
-    /** The media request for `src` (the host's `resolveUrl`, then the media policy); null = nothing loads. */
-    fun mediaRequest(src: String): MediaRequest? = policedMediaRequest(host, src)
+    /**
+     * The media request for `src` (the host's `resolveUrl`, then the media policy); null = nothing loads.
+     * VAPP-271: an `app-file:<fileId>` src is resolved BEFORE the policy: an `app-file:` request the
+     * loader answers from the host's [HostPlugin.appFile]; null (the fallback) without app files.
+     */
+    fun mediaRequest(src: String): MediaRequest? {
+        appFileId(src)?.let { id -> return if (host.appFile == null) null else MediaRequest("$APP_FILE_SCHEME:$id") }
+        return policedMediaRequest(host, src)
+    }
 
     /**
      * Components whose painter failed → the message: they paint an empty box

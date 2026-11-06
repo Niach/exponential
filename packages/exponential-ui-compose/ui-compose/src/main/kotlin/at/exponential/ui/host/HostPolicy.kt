@@ -166,6 +166,26 @@ fun policedMediaRequest(src: String, options: MediaOptions?): MediaRequest? {
     return MediaRequest(url, v["headers"]?.obj?.mapValues { it.value.string ?: "" } ?: emptyMap())
 }
 
+/**
+ * VAPP-271 (catalog/host.json `media.appFile`): an app's own file as a src is
+ * `app-file:<fileId>`. It is no URL and no media scheme: a host with app files
+ * (the Engine's runners: their BlobStore) answers its bytes through
+ * [HostPlugin.appFile]; any other host leaves it unresolved (nothing loads,
+ * the missing-image fallback paints).
+ */
+const val APP_FILE_SCHEME = "app-file"
+private val APP_FILE_ID = Regex("^[A-Za-z0-9._-]{1,200}$")
+
+/** The file id of an `app-file:<fileId>` src (case-sensitive scheme), else null. Mirrors the TS `appFileId`. */
+fun appFileId(src: String): String? {
+    if (!src.startsWith("$APP_FILE_SCHEME:")) return null
+    val id = src.substring(APP_FILE_SCHEME.length + 1)
+    return if (APP_FILE_ID.matches(id)) id else null
+}
+
+/** The bytes of one app file (null = missing); called off the main thread. */
+typealias AppFileLoader = suspend (fileId: String) -> ByteArray?
+
 /** A call to a host function, as the policy hook and the handler see it. */
 data class FunctionCallInfo(
     val surfaceId: String,
@@ -201,6 +221,8 @@ data class HostPolicy(
     val attachment: ((String) -> HostAttachment?)? = null,
     /** #VAPP-258 step 5: the Markdown render options (default: the plugin's). */
     val markdownOptions: at.exponential.ui.primitives.MarkdownOptions? = null,
+    /** VAPP-271: an `app-file:<fileId>` src's bytes (default: the plugin's; neither = such a src loads nothing). */
+    val appFile: AppFileLoader? = null,
 )
 
 /** A binding source URI, parsed (`exp:issues?board=b1` → scheme `exp`, name `issues`, params). */

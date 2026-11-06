@@ -182,6 +182,14 @@ interface HostPlugin {
     fun resolveUrl(src: String): String = src
 
     /**
+     * VAPP-271 (`catalog/host.json` `media.appFile`): the bytes of an app
+     * file for an `app-file:<fileId>` src (the Engine's runners: their
+     * BlobStore), loaded once under the image limits and cached like any
+     * picture. null (the default) = such a src loads nothing (the fallback).
+     */
+    val appFile: AppFileLoader? get() = null
+
+    /**
      * `onPaintError` (`catalog/host.json` `paint`): a component's painter
      * failed; it paints an empty box. Called once per surface + component +
      * message.
@@ -237,6 +245,8 @@ class ClosureHost(
     var inputs: (SurfaceInputEvent) -> Unit = {},
     var urls: ((String) -> Unit)? = null,
     var unknowns: (String, String?, String) -> Unit = { _, _, _ -> },
+    /** VAPP-271: `app-file:<fileId>` bytes (null = such a src loads nothing). */
+    override val appFile: AppFileLoader? = null,
 ) : HostPlugin {
     override fun icon(name: String, size: Float): (@Composable () -> Unit)? = icons(name, size)
     override fun onAction(event: SurfaceActionEvent) = actions(event)

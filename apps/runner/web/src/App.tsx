@@ -10,8 +10,9 @@ const OVERLAYS = [`consent`, `permissions`, `toast`]
 
 /** `icons`: the export's glyphs (src/glyphs.ts). */
 export function App({ runner, icons }: { runner: Runner; icons: IconMap }) {
-  const plugin: HostPlugin = useMemo(() => ({ icons }), [icons])
   const ids = useHostSurfaceIds(runner.host)
+  // VAPP-271: `app-file:<fileId>` images come from the app's own files.
+  const plugin = useMemo<HostPlugin>(() => ({ icons, appFile: (id) => runner.appFile(id) }), [icons, runner])
   return (
     <>
       <HostSurface host={runner.host} surfaceId="app" plugin={plugin} theme="exponential" mode="dark" style={{ height: `100%` }} />

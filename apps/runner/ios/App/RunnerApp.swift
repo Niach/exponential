@@ -17,6 +17,7 @@ struct RunnerApp: App {
     var body: some Scene {
         WindowGroup {
             RunnerView(model: model)
+                .preferredColorScheme(.dark)
                 .onOpenURL { model.session.open(url: $0) }
         }
         .onChange(of: phase) { _, phase in
@@ -55,7 +56,6 @@ struct Viewport: Hashable {
 /// layer is open.
 struct RunnerView: View {
     let model: RunnerModel
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -74,7 +74,7 @@ struct RunnerView: View {
             }
             .ignoresSafeArea()
         }
-        .background((model.host.theme?.color("background", mode: scheme == .dark ? .dark : .light) ?? Color(.systemBackground)).ignoresSafeArea())
+        .background((model.host.theme?.color("background", mode: .dark) ?? Color.black).ignoresSafeArea())
     }
 
     @ViewBuilder

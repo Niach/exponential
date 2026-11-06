@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../../fixtures/actions.json"
 import host from "../../catalog/host.json"
 import { checkExpression, functionEffect, parseTimestamp } from "../cel"
-import { ACTION_CALL_PREFIX, ACTION_LIMITS, ACTION_NAME_PATTERN, ACTION_STEP_KINDS, RECORDS_BATCH_FUNCTION, applyRecordBatch, runAction } from "./actions"
+import { ACTION_CALL_PREFIX, ACTION_LIMITS, ACTION_NAME_PATTERN, ACTION_RESULT_PATTERN, ACTION_STEP_KINDS, RECORDS_BATCH_FUNCTION, applyRecordBatch, runAction } from "./actions"
 import type { ActionWrite } from "./actions"
 import { validatePackage } from "./package"
 import type { AppPackage } from "./package"
@@ -152,5 +152,52 @@ describe(`a package action on a host`, () => {
       expect(opened).toEqual(c.opened)
       expect(bound).toEqual(c.bound)
       if (c.bound) expect((h.surface(`s`)!.data as { rows: unknown }).rows).toEqual([`bound`])
+    })
+})
+
+// VAPP-271: a call's answer (`result`) feeds the later steps.
+describe(`actions.json results`, () => {
+  const r = fixture.results
+  const rpkg = r.package as unknown as Record<string, unknown>
+  test(`the host contract`, () => expect(host.package.actions.resultPattern).toBe(ACTION_RESULT_PATTERN.source))
+  for (const c of r.validate as unknown as { name: string; with: Record<string, unknown>; issues: unknown[] }[])
+    test(`validate: ${c.name}`, () => {
+      const { addActions, ...rest } = c.with as { addActions?: Record<string, unknown> }
+      const pkg = { ...rpkg, ...rest, ...(addActions ? { actions: { ...(rpkg.actions as Record<string, unknown>), ...addActions } } : {}) }
+      expect(validatePackage(pkg)).toEqual(c.issues as never)
+    })
+  for (const c of r.run as unknown as { name: string; action: string; params?: unknown; data?: unknown; results?: Record<string, unknown>; plan?: unknown; pending?: unknown; error?: string }[])
+    test(`run: ${c.name}`, () => {
+      const got = runAction(rpkg, c.action, c.params, { data: c.data, me: null, now, offset: () => fixture.env.offset, results: c.results })
+      expect(got).toEqual((c.error !== undefined ? { error: c.error } : c.pending !== undefined ? { pending: c.pending } : { plan: c.plan }) as never)
+    })
+  for (const c of r.host as unknown as { name: string; action: string; answers?: Record<string, unknown>; throws?: Record<string, string>; deny?: string[]; called: unknown[]; created: unknown[]; data: unknown; error?: string }[])
+    test(`host: ${c.name}`, async () => {
+      const pkg = rpkg as unknown as AppPackage
+      const store = new MemoryRecordStore({ me: `u1`, now: () => fixture.env.now })
+      const records = recordsHost(pkg, store)
+      const called: unknown[] = []
+      const fake = (name: string) => (args: Record<string, unknown>) => {
+        called.push({ name, args })
+        if (c.throws?.[name] !== undefined) throw new Error(c.throws[name])
+        return c.answers?.[name] ?? null
+      }
+      const h = new ExponentialHost({
+        packages: [pkg],
+        sources: records.sources,
+        functions: { ...records.functions, "photos.pick": fake(`photos.pick`), "print.pdf": fake(`print.pdf`), "harness.toast": fake(`harness.toast`) },
+        me: `u1`,
+        now: () => now,
+        zone: () => fixture.env.offset,
+        policy: { functions: { deny: c.deny ?? [] } },
+      })
+      h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, packageId: pkg.id, templateId: `main` } })
+      let rows: readonly RecordRow[] = []
+      store.subscribe((x) => (rows = x))
+      const out = await h.callFunction({ surfaceId: `s`, componentId: `add`, name: `actions.${c.action}`, args: {} })
+      expect(out.error).toBe(c.error as never)
+      expect(called).toEqual(c.called)
+      expect(rows.map((x) => x.data)).toEqual(c.created as never)
+      expect(h.surface(`s`)!.data).toEqual(c.data as never)
     })
 })

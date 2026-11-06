@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.ExponentialUICatalog
 import at.exponential.ui.host.A2UI_VERSION
+import at.exponential.ui.host.AppFileLoader
 import at.exponential.ui.host.ExponentialHost
 import at.exponential.ui.host.FunctionDecision
 import at.exponential.ui.host.FunctionPolicy
@@ -56,6 +57,9 @@ class ComposePainter(scope: CoroutineScope) : RunnerPainter {
         override fun onAction(event: SurfaceActionEvent) {
             controller.onEvent(event.name, event.context)
         }
+
+        // VAPP-271: `app-file:<fileId>` images are the app's own files.
+        override val appFile: AppFileLoader = { fileId -> controller.appFile(fileId) }
     }
 
     /** One Engine-backed function per name the runner hands genUI (the Engine's broker is the authority, so genUI's gate allows). */
@@ -71,7 +75,8 @@ class ComposePainter(scope: CoroutineScope) : RunnerPainter {
             mode = Mode.Dark,
             plugin = plugin,
             navigate = { target ->
-                controller.onEvent("runner.navigate", JsonValue.Obj(mapOf("screen" to JsonValue.Str(target.screen))))
+                val params = JsonValue.Obj(target.params.mapValues { JsonValue.Str(it.value) })
+                controller.onEvent("runner.navigate", JsonValue.Obj(mapOf("screen" to JsonValue.Str(target.screen), "params" to params)))
                 true
             },
         ),

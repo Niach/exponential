@@ -9,6 +9,9 @@ name: check-eengine-runner-windows
 # #VAPP-270 (E7): then the Windows kit from that binary, `--target windows` on
 # the web runner's sample (NSIS from the image, else choco), and the setup.exe installed
 # silently, checked (files, the URL protocol, a 20 s run) and uninstalled.
+# #VAPP-271 (E8): the bundled app is the SIGNED Photobook (samples/apps/photobook.*,
+# no --allow-unsigned); its setup.exe and a screenshot of its running window
+# (CopyFromScreen) are uploaded as artifacts for 7 days.
 # Informational: not part of `gate`. IME and real rendering need hardware.
 
 on:
@@ -21,6 +24,8 @@ on:
       - "apps/desktop/crates/eui-gpui/**"
       - "apps/desktop/crates/eengine-bundle/**"
       - "scripts/runner-kits/windows.sh"
+      - "scripts/runner-kits.sh"
+      - "samples/apps/photobook*"
   workflow_dispatch:
 
 permissions:
@@ -57,7 +62,7 @@ jobs:
           if ($p.HasExited) { Write-Error "exponential-runner exited with code $($p.ExitCode)"; exit 1 }
           Stop-Process -Id $p.Id
           Write-Output "exponential-runner ran 20 s"
-      - name: The windows kit and `--target windows` on the sample
+      - name: The windows kit and `--target windows` on the signed Photobook
         shell: bash
         run: |
           # The notices lane commits the runner's NOTICES.txt; until then a stub.
@@ -69,27 +74,55 @@ jobs:
           fi
           EXP_RUNNER_EXE=apps/desktop/target/runner/exponential-runner.exe EXP_RUNNER_NOTICES="$notices" \
             scripts/runner-kits.sh --out "$RUNNER_TEMP/kits" windows
+          # The CLI's `bundle` is eengine_bundle::run; its test drives that on the committed files.
           EENGINE_BUNDLE_RUNNERS="$RUNNER_TEMP/kits" EENGINE_BUNDLE_REQUIRE=windows EENGINE_BUNDLE_OUT="$RUNNER_TEMP/dist" \
-            cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eengine-bundle --test linux_windows windows_
-          7z l "$RUNNER_TEMP/dist/windows/Album-1.0.0-setup.exe"
-      - name: The installer installs, registers the link scheme, runs and uninstalls
+            cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eengine-bundle --test photobook the_signed_photobook_bundles_for_windows
+          7z l "$RUNNER_TEMP/dist/windows/Photobook-1.0.0-setup.exe"
+      - name: The installer installs, registers the link scheme, runs (a screenshot) and uninstalls
         shell: pwsh
         run: |
-          $setup = "$env:RUNNER_TEMP/dist/windows/Album-1.0.0-setup.exe"
+          $setup = "$env:RUNNER_TEMP/dist/windows/Photobook-1.0.0-setup.exe"
           Start-Process -FilePath $setup -ArgumentList "/S" -Wait
-          $dir = "$env:LOCALAPPDATA\Programs\Album"
-          foreach ($f in "Album.exe", "app.ico", "NOTICES.txt", "uninstall.exe", "app\package.app.json", "app\runner.json") {
+          $dir = "$env:LOCALAPPDATA\Programs\Photobook"
+          foreach ($f in "Photobook.exe", "app.ico", "NOTICES.txt", "uninstall.exe", "app\package.app.json", "app\runner.json") {
             if (!(Test-Path "$dir\$f")) { Write-Error "not installed: $f"; exit 1 }
           }
-          if (!(Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Album.lnk")) { Write-Error "no Start-menu shortcut"; exit 1 }
-          $cmd = (Get-ItemProperty "HKCU:\Software\Classes\at.acme.album\shell\open\command")."(default)"
-          if ($cmd -ne "`"$dir\Album.exe`" `"%1`"") { Write-Error "the protocol command is $cmd"; exit 1 }
-          $p = Start-Process -FilePath "$dir\Album.exe" -PassThru
+          if ((Get-FileHash "$dir\app\package.app.json").Hash -ne (Get-FileHash "samples/apps/photobook.app.json").Hash) { Write-Error "the installed package is not the signed Photobook byte for byte"; exit 1 }
+          if (!(Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Photobook.lnk")) { Write-Error "no Start-menu shortcut"; exit 1 }
+          $key = "HKCU:\Software\Classes\at.exponential.samples.photobook"
+          $cmd = (Get-ItemProperty "$key\shell\open\command")."(default)"
+          if ($cmd -ne "`"$dir\Photobook.exe`" `"%1`"") { Write-Error "the protocol command is $cmd"; exit 1 }
+          $p = Start-Process -FilePath "$dir\Photobook.exe" -PassThru
           Start-Sleep -Seconds 20
-          if ($p.HasExited) { Write-Error "Album.exe exited with code $($p.ExitCode)"; exit 1 }
+          if ($p.HasExited) { Write-Error "Photobook.exe exited with code $($p.ExitCode)"; exit 1 }
+          # The running window, from the screen (the hosted runner's desktop session).
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/shots" | Out-Null
+          $bmp.Save("$env:RUNNER_TEMP/shots/photobook-windows.png", [System.Drawing.Imaging.ImageFormat]::Png)
+          $g.Dispose(); $bmp.Dispose()
           Stop-Process -Id $p.Id
           Start-Process -FilePath "$dir\uninstall.exe" -ArgumentList "/S" -Wait
           Start-Sleep -Seconds 5
-          if (Test-Path "$dir\Album.exe") { Write-Error "the uninstaller left Album.exe"; exit 1 }
-          if (Test-Path "HKCU:\Software\Classes\at.acme.album") { Write-Error "the uninstaller left the protocol key"; exit 1 }
+          if (Test-Path "$dir\Photobook.exe") { Write-Error "the uninstaller left Photobook.exe"; exit 1 }
+          if (Test-Path $key) { Write-Error "the uninstaller left the protocol key"; exit 1 }
           Write-Output "installed, ran 20 s, uninstalled"
+      - name: The setup.exe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photobook-windows-setup
+          path: ${{ runner.temp }}/dist/windows/Photobook-1.0.0-setup.exe
+          retention-days: 7
+          if-no-files-found: warn
+      - name: The running window
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: photobook-windows-screenshot
+          path: ${{ runner.temp }}/shots/photobook-windows.png
+          retention-days: 7
+          if-no-files-found: warn

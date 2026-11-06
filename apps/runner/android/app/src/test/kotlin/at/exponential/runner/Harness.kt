@@ -68,6 +68,8 @@ class Harness {
     val painter = FakePainter()
     val vault = MemoryVault()
     val photos = FakePhotos()
+    /** VAPP-271: the app files the Engine writes and genUI's `app-file:` images read. */
+    val blobs = RunnerBlobs(null)
     private val worker = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     val scope = CoroutineScope(SupervisorJob() + worker)
     private var ids = 0
@@ -76,12 +78,12 @@ class Harness {
     fun engine(config: RunnerConfig): Engine = Engine(
         EngineHost("exported", "android", "phone", "en", null, config.network, null),
         EngineIdentity.Local(RunnerController.deviceId(vault)),
-        EngineProviders(vault, controller.window, capabilities = listOf(photos)),
+        EngineProviders(vault, controller.window, blobs = blobs, capabilities = listOf(photos)),
     )
 
     fun start(packageJson: String): Boolean {
         val config = RunnerConfig("at.acme.album", "Album", "1.0.0", at.exponential.engine.ffi.NetworkPolicy.OFF)
-        return controller.start(BundleLoad.Ready(config, packageJson), ::engine)
+        return controller.start(BundleLoad.Ready(config, packageJson), blobs, ::engine)
     }
 }
 

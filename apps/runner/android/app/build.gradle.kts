@@ -18,6 +18,20 @@ val repoRoot = rootDir.parentFile.parentFile.parentFile
 val cargoTarget = System.getenv("CARGO_TARGET_DIR")?.let(::File) ?: File(repoRoot, "apps/desktop/target")
 
 /**
+ * The ABIs the APK ships: those BOTH native libraries were built for
+ * (`build-android.sh` → `out/jniLibs/<abi>/`), else the three they build by
+ * default. JNA's AAR carries jnidispatch for seven ABIs; without the filter an
+ * ABI with jnidispatch alone would install and fail to load the Engine.
+ */
+val nativeAbis: List<String> = run {
+    val libs = listOf("eengine-ffi" to "libeengine_ffi.so", "exponential-ui-ffi" to "libexponential_ui_ffi.so")
+    val built = listOf("arm64-v8a", "armeabi-v7a", "x86_64").filter { abi ->
+        libs.all { (crate, so) -> File(repoRoot, "apps/desktop/crates/$crate/out/jniLibs/$abi/$so").isFile }
+    }
+    built.ifEmpty { listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+}
+
+/**
  * The icon registry (packages/icons → the Android app's generated Compose
  * ImageVectors, `com.exponential.app.ui.icons.ExpIcons`): ONE generated file,
  * copied into a source dir, so the runner draws the same glyphs as every
@@ -59,6 +73,7 @@ android {
         // E7: the deep-link scheme = runner.json `id` (`<id>://<screen>?<params>`).
         manifestPlaceholders["runnerScheme"] = "at.exponential.runner.template"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters += nativeAbis }
     }
 
     buildTypes {

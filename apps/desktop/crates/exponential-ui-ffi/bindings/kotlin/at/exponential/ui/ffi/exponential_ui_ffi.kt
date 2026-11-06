@@ -1636,7 +1636,7 @@ external fun uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(`packageJson`
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_run_package_action_json(`packageJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_exponential_ui_ffi_fn_func_run_package_action_json(`packageJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,`resultsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_run_package_tests_json(`packageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -11477,16 +11477,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
          * `package_json` with `params_json` against one snapshot: `data_json` (the
          * surface data), `me` (the member; `None` = null), `now_ms` (`None` = the
          * wall clock), `zone` (`None` = UTC), `max_steps` (the run's budget; `None`
-         * = 100 000) → `{"plan": {writes, sets, calls}}` or `{"error": "…"}`
-         * (`fixtures/actions.json` `run`). Named `run_package_action_json`
-         * because `run_action_json` is the bind-time press.
+         * = 100 000), `results_json` (VAPP-271: the answers of the `call` steps
+         * with a `result` so far, `{<name>: answer}`; `None` or empty = none) →
+         * `{"plan": {writes, sets, calls}}`, `{"pending": {step, name, args,
+         * result}}` (the first result call still unanswered: the host gates and
+         * runs it, then calls again with its answer added, same snapshot) or
+         * `{"error": "…"}` (`fixtures/actions.json` `run` and `results.run`).
+         * Named `run_package_action_json` because `run_action_json` is the
+         * bind-time press.
          */
-    @Throws(UiException::class) fun `runPackageActionJson`(`packageJson`: kotlin.String, `name`: kotlin.String, `paramsJson`: kotlin.String, `dataJson`: kotlin.String, `me`: kotlin.String?, `nowMs`: kotlin.Double?, `zone`: HostZone?, `maxSteps`: kotlin.UInt? = null): kotlin.String {
+    @Throws(UiException::class) fun `runPackageActionJson`(`packageJson`: kotlin.String, `name`: kotlin.String, `paramsJson`: kotlin.String, `dataJson`: kotlin.String, `me`: kotlin.String?, `nowMs`: kotlin.Double?, `zone`: HostZone?, `maxSteps`: kotlin.UInt? = null, `resultsJson`: kotlin.String? = null): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_package_action_json(
     
-        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`name`),FfiConverterString.lower(`paramsJson`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`me`),FfiConverterOptionalDouble.lower(`nowMs`),FfiConverterOptionalTypeHostZone.lower(`zone`),FfiConverterOptionalUInt.lower(`maxSteps`),_status)
+        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`name`),FfiConverterString.lower(`paramsJson`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`me`),FfiConverterOptionalDouble.lower(`nowMs`),FfiConverterOptionalTypeHostZone.lower(`zone`),FfiConverterOptionalUInt.lower(`maxSteps`),FfiConverterOptionalString.lower(`resultsJson`),_status)
 }
     )
     }

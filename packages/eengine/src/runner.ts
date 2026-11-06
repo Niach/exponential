@@ -140,7 +140,7 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
       },
     )
   if (permissions)
-    shell.push({ id: `runner-permissions`, component: `Button`, icon: S.permissionsIcon, size: `icon`, variant: `ghost`, on: { press: event(`runner.permissions`) } })
+    shell.push({ id: `runner-permissions`, component: `Button`, label: fixture.copy.permissions, icon: S.permissionsIcon, size: `icon`, variant: `ghost`, on: { press: event(`runner.permissions`) } })
   return { components: [...shell, ...page], data: tabs ? { runner: { screen } } : null }
 }
 

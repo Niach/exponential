@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- App files as images (#VAPP-271): an image `src` `app-file:<fileId>` (`catalog/host.json` `media.appFile`; `appFileId`, `APP_FILE_SCHEME`; `host-policy.json` `appFiles`) is resolved by the host from its file store: web `HostPlugin.appFile(fileId) → Promise<Blob | null>` (loaded once under the image limits, a cached blob url; React and Solid), gpui, SwiftUI and Compose hooks likewise. Without the hook nothing loads and the fallback paints.
+- A call's answer (#VAPP-271): a package action's `call` step may name it, `result: <name>` (`catalog/host.json` `package.actions.resultPattern`); it runs when the plan reaches it (before the commit, gated like any call) and later steps read `results.<name>`. `runAction` takes `ctx.results` and may answer `{pending: {step, name, args, result}}`; every `ExponentialHost` loops until the plan is whole. Package tests give `action.results`. The Engine capability names (`photos.`, `files.`, `print.`, `share.`, …) are host functions. A list of `dyn` items fits any list field at install. `fixtures/actions.json` `results`, `package-tests.json`; FFI `run_package_action_json(…, results_json?)`.
+
 ## 0.18.0 (2026-11-06)
 
 - gpui `SurfaceView::set_fill_height` (#VAPP-266): lays the surface out at its viewport height (`set_viewport_height`) instead of as tall as its content, so a full-height root fills a host that owns the whole window (the Engine's desktop runner). Default off.

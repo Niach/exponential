@@ -3727,6 +3727,7 @@
           "alignItems": "center",
           "gap": "$spacing.sm",
           "height": "$control.appBar",
+          "flexShrink": 0,
           "paddingHorizontal": "$spacing.md",
           "width": "100%"
         },
@@ -3815,6 +3816,7 @@
           "alignItems": "center",
           "gap": "$spacing.sm",
           "height": "$control.appBar",
+          "flexShrink": 0,
           "paddingHorizontal": "$spacing.md",
           "width": "100%"
         },
@@ -3887,6 +3889,7 @@
           "alignItems": "center",
           "gap": "$spacing.sm",
           "height": "$control.appBar",
+          "flexShrink": 0,
           "paddingHorizontal": "$spacing.md",
           "width": "100%"
         },
@@ -3989,6 +3992,7 @@
               "alignItems": "center",
               "gap": "$spacing.sm",
               "height": "$control.appBar",
+              "flexShrink": 0,
               "paddingHorizontal": "$spacing.md",
               "width": "100%"
             },
@@ -4137,6 +4141,7 @@
               "alignItems": "center",
               "gap": "$spacing.sm",
               "height": "$control.appBar",
+              "flexShrink": 0,
               "paddingHorizontal": "$spacing.md",
               "width": "100%"
             },
@@ -4269,6 +4274,7 @@
               "alignItems": "center",
               "gap": "$spacing.sm",
               "height": "$control.appBar",
+              "flexShrink": 0,
               "paddingHorizontal": "$spacing.md",
               "width": "100%"
             },
@@ -4418,6 +4424,7 @@
               "alignItems": "center",
               "gap": "$spacing.sm",
               "height": "$control.appBar",
+              "flexShrink": 0,
               "paddingHorizontal": "$spacing.md",
               "width": "100%"
             },
@@ -4567,6 +4574,7 @@
               "alignItems": "center",
               "gap": "$spacing.sm",
               "height": "$control.appBar",
+              "flexShrink": 0,
               "paddingHorizontal": "$spacing.md",
               "width": "100%"
             },
@@ -45732,6 +45740,7 @@
           "alignItems": "center",
           "gap": "$spacing.sm",
           "height": "$control.appBar",
+          "flexShrink": 0,
           "paddingHorizontal": "$spacing.md",
           "width": "100%"
         },
@@ -45843,6 +45852,7 @@
           "alignItems": "center",
           "gap": "$spacing.sm",
           "height": "$control.appBar",
+          "flexShrink": 0,
           "paddingHorizontal": "$spacing.md",
           "width": "100%"
         },
@@ -45949,6 +45959,7 @@
               "alignItems": "center",
               "gap": "$spacing.sm",
               "height": "$control.appBar",
+              "flexShrink": 0,
               "paddingHorizontal": "$spacing.md",
               "width": "100%"
             },
@@ -46120,6 +46131,7 @@
               "alignItems": "center",
               "gap": "$spacing.sm",
               "height": "$control.appBar",
+              "flexShrink": 0,
               "paddingHorizontal": "$spacing.md",
               "width": "100%"
             },
