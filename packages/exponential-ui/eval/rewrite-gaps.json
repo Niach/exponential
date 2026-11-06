@@ -176,6 +176,7 @@
     { "id": "ede-notifications", "class": "expressible", "with": "already a genUI document (apps/ede/ui/notifications.json): Stack + Box + Image + Text + Button over the shell's notification server data, an on-demand top-right surface" },
     { "id": "ede-notification-center", "class": "expressible", "with": "already a genUI document (apps/ede/ui/notification-center.json): Box + Heading + ScrollArea + List + Row + Image + Button, the panel's bell popup" },
     { "id": "ede-tray-menu", "class": "expressible", "with": "already a genUI document (apps/ede/ui/tray-menu.json): Box + Text + ScrollArea + List + Row + Separator over a dbusmenu layout, the panel's tray popup" },
-    { "id": "ede-settings", "class": "expressible", "with": "already a genUI document (apps/ede/ui/settings.json): Tabs + Section + Select + ChoiceTiles + Switch + Slider + StatTile + Alert + List + Row over ede-services' snapshots, an on-demand surface" }
+    { "id": "ede-settings", "class": "expressible", "with": "already a genUI document (apps/ede/ui/settings.json): Sidebar + Section + Row + SettingsRow + Select + ChoiceTiles + Switch + Slider + DatePicker + Meter + Alert + List over ede-services' snapshots and the shell's pages, an on-demand window with the IDE's settings nav" },
+    { "id": "ede-settings-team", "class": "expressible", "with": "already a genUI document (apps/ede/ui/settings.json): the Team group headed by the shell's switcher row with its entries as a hosted Popover; General, Agents and Apps for a Local desktop" }
   ]
 }
