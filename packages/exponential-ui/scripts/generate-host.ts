@@ -85,7 +85,7 @@ export function renderHost(): Record<string, string> {
   transport.jsonl = transport.jsonl.map((c: Case) => ({ ...c, expected: feed(new JsonlDecoder(), c.chunks as string[]) }))
   transport.sse = transport.sse.map((c: Case) => ({ ...c, expected: feed(new SseDecoder(), c.chunks as string[]) }))
   transport.mcp = transport.mcp.map((c: Case) => ({ ...c, expected: messagesFromMcpResult(c.result) }))
-  transport.mcpAction = transport.mcpAction.map((c: Case) => ({ ...c, expected: mcpActionCall(c.message as ClientMessage, c.tool as string | undefined) }))
+  transport.mcpAction = transport.mcpAction.map((c: Case) => ({ ...c, expected: mcpActionCall(c.message as ClientMessage, c.tool as string | undefined, c.metadata as Record<string, unknown> | undefined) }))
 
   const policy = read(`fixtures/host-policy.json`)
   policy.functions = policy.functions.map((c: Case) => ({ ...c, expected: decideFunction(c.policy as FunctionPolicy | undefined, c.fn as string, c.registered as boolean) }))
@@ -117,8 +117,9 @@ export function renderHost(): Record<string, string> {
     const installIssues: Record<string, unknown> = {}
     for (const id of (flow.packages as string[]) ?? []) installIssues[id] = r.installPackage(packages[id]!)
     const steps = (flow.steps as unknown[]).map((s) => {
-      const message = s && typeof s === `object` && `message` in (s as object) && `expected` in (s as object) ? (s as { message: unknown }).message : s
-      return { message, expected: r.route(message) }
+      const step = s && typeof s === `object` && `message` in (s as object) ? (s as { message: unknown; trusted?: boolean; acceptV09?: boolean }) : { message: s }
+      const options = { ...(step.trusted ? { trusted: true } : {}), ...(step.acceptV09 === false ? { acceptV09: false } : {}) }
+      return { message: step.message, ...options, expected: r.route(step.message, options) }
     })
     const out: Record<string, unknown> = { name: flow.name }
     if (flow.extensionIds) out.extensionIds = flow.extensionIds

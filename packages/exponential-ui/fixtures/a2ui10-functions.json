@@ -1,0 +1,1808 @@
+{
+  "$comment": "VAPP-289 (docs/round-9-contract.md §15; the spec of this file is §6): functions at A2UI 1.0, replayed by the TS reference (src/a2ui10.test.ts) and the Rust core. Inputs hand-written, `expected` from src/ by `bun run --filter @exponential_app/eui generate`; `sequences` (async) by `bun run scripts/generate-a2ui10.ts`. `coercion`: {value, expected: {boolean: coerceBoolean(value), present: present(value)}} (§6.7). `checks`: evaluateCheck(rule, data ?? {}, {catalogId: core}) → the ValidationResult (§6.6). `results`: checkResult(condition, message). `shown`: shownResult(results), the ONE result a field shows; null = all valid. `evaluations`: resolveWithFailure(value, data ?? {}, {catalogId ?? core, position ?? reactive, scope?, available?}) → {value, failure?}: failure = {code, message}, the first one (§6.8); `value` is what the position holds (null on failure). `routing`: decideRoute(input) (§6.5's table). `keys`: routedCallKey(catalogId, fn, args), RFC 8785 args. `sequences`: one host with a MemoryTransport (`agent`, `policy`, `consent`, `registered`, `data`, `sendDataModel`, `trusted` = the surface s was created by a trusted route, so it has no agent); steps in order: {read: call} = a reactive resolve (expected {value, failure?}), {press: name, args?} = await callFunction (expected FunctionOutcome), {pressAsync: name, args?} = the same, not awaited, {respond: body} = an agentFunctionResponse. `expectedSent` = every message that left in order ({message, metadata} when it has metadata), `expectedRan` = the registered functions' calls.",
+  "coercion": [
+    {
+      "value": true,
+      "expected": {
+        "boolean": true,
+        "present": true
+      }
+    },
+    {
+      "value": false,
+      "expected": {
+        "boolean": false,
+        "present": false
+      }
+    },
+    {
+      "value": "true",
+      "expected": {
+        "boolean": true,
+        "present": true
+      }
+    },
+    {
+      "value": "TRUE",
+      "expected": {
+        "boolean": true,
+        "present": true
+      }
+    },
+    {
+      "value": "True",
+      "expected": {
+        "boolean": true,
+        "present": true
+      }
+    },
+    {
+      "value": "false",
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": "FALSE",
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": "",
+      "expected": {
+        "boolean": false,
+        "present": false
+      }
+    },
+    {
+      "value": "hello",
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": 0,
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": 0,
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": 1,
+      "expected": {
+        "boolean": true,
+        "present": true
+      }
+    },
+    {
+      "value": -1,
+      "expected": {
+        "boolean": true,
+        "present": true
+      }
+    },
+    {
+      "value": 0.5,
+      "expected": {
+        "boolean": true,
+        "present": true
+      }
+    },
+    {
+      "value": null,
+      "expected": {
+        "boolean": false,
+        "present": false
+      }
+    },
+    {
+      "value": {},
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": {
+        "a": 1
+      },
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": [],
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": [
+        1
+      ],
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": {
+        "valid": true
+      },
+      "expected": {
+        "boolean": true,
+        "present": true
+      }
+    },
+    {
+      "value": {
+        "valid": false
+      },
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    },
+    {
+      "value": {
+        "valid": "yes"
+      },
+      "expected": {
+        "boolean": false,
+        "present": true
+      }
+    }
+  ],
+  "checks": [
+    {
+      "name": "true",
+      "rule": {
+        "condition": {
+          "@call": "eq",
+          "args": {
+            "a": 1,
+            "b": 1
+          }
+        },
+        "message": "m"
+      },
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "name": "false with a message",
+      "rule": {
+        "condition": {
+          "@call": "eq",
+          "args": {
+            "a": 1,
+            "b": 2
+          }
+        },
+        "message": "m"
+      },
+      "expected": {
+        "valid": false,
+        "message": "m",
+        "severity": "error"
+      }
+    },
+    {
+      "name": "false without one",
+      "rule": {
+        "condition": {
+          "@call": "eq",
+          "args": {
+            "a": 1,
+            "b": 2
+          }
+        }
+      },
+      "expected": {
+        "valid": false,
+        "severity": "error"
+      }
+    },
+    {
+      "name": "a validator true",
+      "rule": {
+        "condition": {
+          "@call": "required",
+          "args": {
+            "value": "x"
+          }
+        },
+        "message": "m"
+      },
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "name": "a validator false takes the rule's message",
+      "rule": {
+        "condition": {
+          "@call": "required",
+          "args": {
+            "value": ""
+          }
+        },
+        "message": "m"
+      },
+      "expected": {
+        "valid": false,
+        "message": "m",
+        "severity": "error"
+      }
+    },
+    {
+      "name": "a binding, a bound result object",
+      "rule": {
+        "condition": {
+          "@path": "/r"
+        },
+        "message": "m"
+      },
+      "data": {
+        "r": {
+          "valid": false,
+          "code": "X",
+          "severity": "warning",
+          "extra": 1
+        }
+      },
+      "expected": {
+        "valid": false,
+        "code": "X",
+        "severity": "warning",
+        "extra": 1,
+        "message": "m"
+      }
+    },
+    {
+      "name": "a bound result keeps its own message",
+      "rule": {
+        "condition": {
+          "@path": "/r"
+        },
+        "message": "m"
+      },
+      "data": {
+        "r": {
+          "valid": false,
+          "message": "own"
+        }
+      },
+      "expected": {
+        "valid": false,
+        "message": "own",
+        "severity": "error"
+      }
+    },
+    {
+      "name": "a bound valid result comes back as it is",
+      "rule": {
+        "condition": {
+          "@path": "/r"
+        },
+        "message": "m"
+      },
+      "data": {
+        "r": {
+          "valid": true,
+          "code": "X"
+        }
+      },
+      "expected": {
+        "valid": true,
+        "code": "X"
+      }
+    },
+    {
+      "name": "anything else coerces",
+      "rule": {
+        "condition": {
+          "@path": "/r"
+        },
+        "message": "m"
+      },
+      "data": {
+        "r": "true"
+      },
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "name": "zero is false",
+      "rule": {
+        "condition": {
+          "@path": "/r"
+        },
+        "message": "m"
+      },
+      "data": {
+        "r": 0
+      },
+      "expected": {
+        "valid": false,
+        "message": "m",
+        "severity": "error"
+      }
+    },
+    {
+      "name": "missing is false",
+      "rule": {
+        "condition": {
+          "@path": "/nope"
+        },
+        "message": "m"
+      },
+      "expected": {
+        "valid": false,
+        "message": "m",
+        "severity": "error"
+      }
+    },
+    {
+      "name": "a failed condition: the rule's message",
+      "rule": {
+        "condition": {
+          "@call": "regex",
+          "args": {
+            "value": "a",
+            "pattern": "("
+          }
+        },
+        "message": "m"
+      },
+      "expected": {
+        "valid": false,
+        "message": "m",
+        "severity": "error"
+      }
+    },
+    {
+      "name": "a failed condition: the failure's message",
+      "rule": {
+        "condition": {
+          "@call": "regex",
+          "args": {
+            "value": "a",
+            "pattern": "("
+          }
+        }
+      },
+      "expected": {
+        "valid": false,
+        "message": "regex: unmatched ( at 0",
+        "severity": "error"
+      }
+    },
+    {
+      "name": "an effect fails",
+      "rule": {
+        "condition": {
+          "@call": "set",
+          "args": {
+            "path": "/a",
+            "value": 1
+          }
+        }
+      },
+      "expected": {
+        "valid": false,
+        "message": "set cannot run in a binding",
+        "severity": "error"
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "object with extra keys",
+      "condition": {
+        "valid": false,
+        "weird": 1
+      },
+      "message": "m",
+      "expected": {
+        "valid": false,
+        "weird": 1,
+        "message": "m",
+        "severity": "error"
+      }
+    },
+    {
+      "name": "no message",
+      "condition": false,
+      "expected": {
+        "valid": false,
+        "severity": "error"
+      }
+    }
+  ],
+  "shown": [
+    {
+      "name": "all valid",
+      "results": [
+        {
+          "valid": true
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "error first",
+      "results": [
+        {
+          "valid": false,
+          "severity": "warning",
+          "message": "w"
+        },
+        {
+          "valid": false,
+          "severity": "error",
+          "message": "e"
+        },
+        {
+          "valid": false,
+          "severity": "info",
+          "message": "i"
+        }
+      ],
+      "expected": {
+        "valid": false,
+        "severity": "error",
+        "message": "e"
+      }
+    },
+    {
+      "name": "warning before info",
+      "results": [
+        {
+          "valid": false,
+          "severity": "info",
+          "message": "i"
+        },
+        {
+          "valid": false,
+          "severity": "warning",
+          "message": "w"
+        }
+      ],
+      "expected": {
+        "valid": false,
+        "severity": "warning",
+        "message": "w"
+      }
+    },
+    {
+      "name": "severity defaults to error",
+      "results": [
+        {
+          "valid": false,
+          "severity": "warning",
+          "message": "w"
+        },
+        {
+          "valid": false,
+          "message": "d"
+        }
+      ],
+      "expected": {
+        "valid": false,
+        "message": "d"
+      }
+    }
+  ],
+  "evaluations": [
+    {
+      "name": "@index in an item",
+      "value": {
+        "@call": "@index"
+      },
+      "scope": {
+        "base": "/rows/3",
+        "index": 3
+      },
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "@index from the base",
+      "value": {
+        "@call": "@index"
+      },
+      "scope": {
+        "base": "/rows/4"
+      },
+      "expected": {
+        "value": 4
+      }
+    },
+    {
+      "name": "@index offset",
+      "value": {
+        "@call": "@index",
+        "args": {
+          "offset": 1
+        }
+      },
+      "scope": {
+        "base": "/rows/3",
+        "index": 3
+      },
+      "expected": {
+        "value": 4
+      }
+    },
+    {
+      "name": "@index bound offset",
+      "value": {
+        "@call": "@index",
+        "args": {
+          "offset": {
+            "@path": "/o"
+          }
+        }
+      },
+      "data": {
+        "o": 2
+      },
+      "scope": {
+        "base": "/rows/3",
+        "index": 3
+      },
+      "expected": {
+        "value": 5
+      }
+    },
+    {
+      "name": "@index outside fails",
+      "value": {
+        "@call": "@index"
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "@index outside a template"
+        }
+      }
+    },
+    {
+      "name": "formatString @index",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "#${@index()} ${@index(offset: 1)}"
+        }
+      },
+      "scope": {
+        "base": "/rows/3",
+        "index": 3
+      },
+      "expected": {
+        "value": "#3 4"
+      }
+    },
+    {
+      "name": "formatString @index outside",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "#${@index()}"
+        }
+      },
+      "expected": {
+        "value": "#"
+      }
+    },
+    {
+      "name": "args literal: a wrong type fails",
+      "value": {
+        "@call": "add",
+        "args": {
+          "a": "x"
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "add: a is not a number"
+        }
+      }
+    },
+    {
+      "name": "args literal: an unknown arg fails",
+      "value": {
+        "@call": "add",
+        "args": {
+          "z": 1
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "add: z is not an argument"
+        }
+      }
+    },
+    {
+      "name": "a bound arg is not judged",
+      "value": {
+        "@call": "add",
+        "args": {
+          "a": {
+            "@path": "/s"
+          },
+          "b": 1
+        }
+      },
+      "data": {
+        "s": "x"
+      },
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "a failing arg fails the call",
+      "value": {
+        "@call": "not",
+        "args": {
+          "value": {
+            "@call": "regex",
+            "args": {
+              "value": "a",
+              "pattern": "("
+            }
+          }
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "regex: unmatched ( at 0"
+        }
+      }
+    },
+    {
+      "name": "a default survives a failure",
+      "value": {
+        "@call": "regex",
+        "args": {
+          "value": "a",
+          "pattern": "("
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "regex: unmatched ( at 0"
+        }
+      }
+    },
+    {
+      "name": "an action may name set",
+      "value": {
+        "@call": "set",
+        "args": {
+          "path": "/a",
+          "value": 1
+        }
+      },
+      "position": "action",
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "UNKNOWN_FUNCTION",
+          "message": "no function set"
+        }
+      }
+    },
+    {
+      "name": "literal objects: @@ loses one @",
+      "value": {
+        "@@type": "x",
+        "@@@y": {
+          "@path": "/a"
+        },
+        "plain": {
+          "path": "/a"
+        }
+      },
+      "data": {
+        "a": 1
+      },
+      "expected": {
+        "value": {
+          "@type": "x",
+          "@@y": 1,
+          "plain": {
+            "path": "/a"
+          }
+        }
+      }
+    },
+    {
+      "name": "validators answer exactly valid",
+      "value": [
+        {
+          "@call": "required",
+          "args": {
+            "value": 0
+          }
+        },
+        {
+          "@call": "required",
+          "args": {
+            "value": []
+          }
+        },
+        {
+          "@call": "regex",
+          "args": {
+            "value": "abc",
+            "pattern": "^a"
+          }
+        },
+        {
+          "@call": "length",
+          "args": {
+            "value": "abc",
+            "max": 2
+          }
+        },
+        {
+          "@call": "numeric",
+          "args": {
+            "value": "5",
+            "min": 1
+          }
+        },
+        {
+          "@call": "email",
+          "args": {
+            "value": "a@b.co"
+          }
+        }
+      ],
+      "expected": {
+        "value": [
+          {
+            "valid": true
+          },
+          {
+            "valid": false
+          },
+          {
+            "valid": true
+          },
+          {
+            "valid": false
+          },
+          null,
+          {
+            "valid": true
+          }
+        ],
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "numeric: value is not a number"
+        }
+      }
+    },
+    {
+      "name": "and/or/not coerce",
+      "value": [
+        {
+          "@call": "and",
+          "args": {
+            "values": [
+              1,
+              "true"
+            ]
+          }
+        },
+        {
+          "@call": "and",
+          "args": {
+            "values": [
+              0,
+              true
+            ]
+          }
+        },
+        {
+          "@call": "or",
+          "args": {
+            "values": [
+              "",
+              null,
+              {
+                "valid": true
+              }
+            ]
+          }
+        },
+        {
+          "@call": "not",
+          "args": {
+            "value": "hello"
+          }
+        }
+      ],
+      "expected": {
+        "value": [
+          true,
+          false,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "name": "cond and coalesce keep presence",
+      "value": [
+        {
+          "@call": "cond",
+          "args": {
+            "if": 0,
+            "then": "a",
+            "else": "b"
+          }
+        },
+        {
+          "@call": "cond",
+          "args": {
+            "if": "",
+            "then": "a",
+            "else": "b"
+          }
+        },
+        {
+          "@call": "coalesce",
+          "args": {
+            "values": [
+              null,
+              "",
+              0
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "value": [
+          "a",
+          "b",
+          0
+        ]
+      }
+    },
+    {
+      "name": "an unavailable catalog",
+      "value": {
+        "@call": "len",
+        "catalogId": "https://x.example/v1"
+      },
+      "available": [
+        "https://ui.exponential.at/catalogs/core/v1"
+      ],
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "catalog https://x.example/v1 is not available"
+        }
+      }
+    }
+  ],
+  "routing": [
+    {
+      "name": "@index is local",
+      "input": {
+        "name": "@index",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "index"
+      }
+    },
+    {
+      "name": "no catalog fails",
+      "input": {
+        "name": "len",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false
+      },
+      "expected": {
+        "route": "fail",
+        "code": "EXPRESSION_ERROR",
+        "message": "no catalog for this call"
+      }
+    },
+    {
+      "name": "an unavailable catalog fails",
+      "input": {
+        "name": "len",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "catalogId": "https://x.example/v1"
+      },
+      "expected": {
+        "route": "fail",
+        "code": "EXPRESSION_ERROR",
+        "message": "catalog https://x.example/v1 is not available"
+      }
+    },
+    {
+      "name": "a catalog function runs",
+      "input": {
+        "name": "len",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "catalog",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "a call's own catalog wins",
+      "input": {
+        "name": "required",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://x.example/v1",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+      },
+      "expected": {
+        "route": "catalog",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+      }
+    },
+    {
+      "name": "basic has no core functions: routed",
+      "input": {
+        "name": "len",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": true,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+      },
+      "expected": {
+        "route": "agent",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+      }
+    },
+    {
+      "name": "set never runs in a reactive position",
+      "input": {
+        "name": "set",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "fail",
+        "code": "EXPRESSION_ERROR",
+        "message": "set cannot run in a binding"
+      }
+    },
+    {
+      "name": "openUrl neither",
+      "input": {
+        "name": "openUrl",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "fail",
+        "code": "EXPRESSION_ERROR",
+        "message": "openUrl cannot run in a binding"
+      }
+    },
+    {
+      "name": "bind neither",
+      "input": {
+        "name": "bind",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "fail",
+        "code": "EXPRESSION_ERROR",
+        "message": "bind cannot run in a binding"
+      }
+    },
+    {
+      "name": "set in an action",
+      "input": {
+        "name": "set",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "action",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "catalog",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "openUrl in an action",
+      "input": {
+        "name": "openUrl",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "action",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "catalog",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "a host-prefixed name fails reactive, before the policy",
+      "input": {
+        "name": "harness_toast",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": true,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "policy": {
+          "deny": [
+            "*"
+          ]
+        }
+      },
+      "expected": {
+        "route": "fail",
+        "code": "EXPRESSION_ERROR",
+        "message": "harness_toast cannot run in a binding"
+      }
+    },
+    {
+      "name": "an app host name too",
+      "input": {
+        "name": "app_toast",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "fail",
+        "code": "EXPRESSION_ERROR",
+        "message": "app_toast cannot run in a binding"
+      }
+    },
+    {
+      "name": "policy deny in front of the agent",
+      "input": {
+        "name": "lookup",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": true,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "policy": {
+          "deny": [
+            "lookup"
+          ]
+        }
+      },
+      "expected": {
+        "route": "fail",
+        "code": "INVALID_FUNCTION_CALL",
+        "message": "lookup was not allowed"
+      }
+    },
+    {
+      "name": "policy deny in front of a registered function",
+      "input": {
+        "name": "harness_toast",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "action",
+        "registered": true,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "policy": {
+          "deny": [
+            "harness_*"
+          ]
+        }
+      },
+      "expected": {
+        "route": "fail",
+        "code": "INVALID_FUNCTION_CALL",
+        "message": "harness_toast was not allowed"
+      }
+    },
+    {
+      "name": "a package allowlist denies the rest",
+      "input": {
+        "name": "harness_toast",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "action",
+        "registered": true,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "packageFunctions": [
+          "harness_mcp"
+        ]
+      },
+      "expected": {
+        "route": "fail",
+        "code": "INVALID_FUNCTION_CALL",
+        "message": "harness_toast was not allowed"
+      }
+    },
+    {
+      "name": "a package allowlist admits a pattern",
+      "input": {
+        "name": "harness_toast",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "action",
+        "registered": true,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "packageFunctions": [
+          "harness_*"
+        ]
+      },
+      "expected": {
+        "route": "local",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "ask",
+      "input": {
+        "name": "harness_toast",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "action",
+        "registered": true,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "policy": {
+          "ask": [
+            "harness_*"
+          ]
+        }
+      },
+      "expected": {
+        "route": "ask",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "ask before the agent",
+      "input": {
+        "name": "lookup",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": true,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "policy": {
+          "ask": [
+            "lookup"
+          ]
+        }
+      },
+      "expected": {
+        "route": "ask",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "ask with nothing behind it",
+      "input": {
+        "name": "lookup",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "policy": {
+          "ask": [
+            "lookup"
+          ]
+        }
+      },
+      "expected": {
+        "route": "fail",
+        "code": "UNKNOWN_FUNCTION",
+        "message": "no function lookup"
+      }
+    },
+    {
+      "name": "a registered function",
+      "input": {
+        "name": "harness_toast",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "action",
+        "registered": true,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "local",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "an unknown un-prefixed name routes to the agent",
+      "input": {
+        "name": "lookup",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": true,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "agent",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "an action routes to the agent too",
+      "input": {
+        "name": "harness_foo",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "action",
+        "registered": false,
+        "agent": true,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "agent",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+      }
+    },
+    {
+      "name": "no agent: unknown",
+      "input": {
+        "name": "lookup",
+        "available": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        ],
+        "position": "reactive",
+        "registered": false,
+        "agent": false,
+        "surfaceCatalogId": "https://ui.exponential.at/catalogs/core/v1"
+      },
+      "expected": {
+        "route": "fail",
+        "code": "UNKNOWN_FUNCTION",
+        "message": "no function lookup"
+      }
+    }
+  ],
+  "keys": [
+    {
+      "name": "canonical args",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "fn": "lookup",
+      "args": {
+        "b": 1,
+        "a": [
+          1,
+          {
+            "d": 2,
+            "c": 3
+          }
+        ]
+      },
+      "expected": "https://ui.exponential.at/catalogs/core/v1\u0000lookup\u0000{\"a\":[1,{\"c\":3,\"d\":2}],\"b\":1}"
+    }
+  ],
+  "sequences": [
+    {
+      "name": "reactive: pending null, one callAgentFunction, shared, the answer stays",
+      "agent": true,
+      "steps": [
+        {
+          "read": {
+            "@call": "lookup",
+            "args": {
+              "q": "a"
+            }
+          },
+          "expected": {
+            "value": null
+          }
+        },
+        {
+          "read": {
+            "@call": "lookup",
+            "args": {
+              "q": "a"
+            }
+          },
+          "expected": {
+            "value": null
+          }
+        },
+        {
+          "respond": {
+            "functionCallId": "s:1",
+            "value": 7
+          }
+        },
+        {
+          "read": {
+            "@call": "lookup",
+            "args": {
+              "q": "a"
+            }
+          },
+          "expected": {
+            "value": 7
+          }
+        },
+        {
+          "read": {
+            "@call": "lookup",
+            "args": {
+              "q": "b"
+            }
+          },
+          "expected": {
+            "value": null
+          }
+        }
+      ],
+      "expectedSent": [
+        {
+          "version": "1.0",
+          "callAgentFunction": {
+            "surfaceId": "s",
+            "functionCallId": "s:1",
+            "callFunction": {
+              "@call": "lookup",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "args": {
+                "q": "a"
+              }
+            }
+          }
+        },
+        {
+          "version": "1.0",
+          "callAgentFunction": {
+            "surfaceId": "s",
+            "functionCallId": "s:2",
+            "callFunction": {
+              "@call": "lookup",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "args": {
+                "q": "b"
+              }
+            }
+          }
+        }
+      ],
+      "expectedRan": []
+    },
+    {
+      "name": "reactive: an agent error fails the read, once",
+      "agent": true,
+      "steps": [
+        {
+          "read": {
+            "@call": "lookup"
+          },
+          "expected": {
+            "value": null
+          }
+        },
+        {
+          "respond": {
+            "functionCallId": "s:1",
+            "error": {
+              "code": "UNKNOWN_FUNCTION",
+              "message": "no"
+            }
+          }
+        },
+        {
+          "read": {
+            "@call": "lookup"
+          },
+          "expected": {
+            "value": null,
+            "failure": {
+              "code": "EXPRESSION_ERROR",
+              "message": "no",
+              "functionCallId": "s:1"
+            }
+          }
+        }
+      ],
+      "expectedSent": [
+        {
+          "version": "1.0",
+          "callAgentFunction": {
+            "surfaceId": "s",
+            "functionCallId": "s:1",
+            "callFunction": {
+              "@call": "lookup",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "args": {}
+            }
+          }
+        },
+        {
+          "version": "1.0",
+          "error": {
+            "code": "EXPRESSION_ERROR",
+            "functionCallId": "s:1",
+            "message": "no"
+          }
+        }
+      ],
+      "expectedRan": []
+    },
+    {
+      "name": "a response for no call is a host issue, never sent",
+      "agent": true,
+      "steps": [
+        {
+          "respond": {
+            "functionCallId": "zz",
+            "value": 1
+          }
+        }
+      ],
+      "expectedSent": [],
+      "expectedRan": []
+    },
+    {
+      "name": "actions are never shared: a new id every press",
+      "agent": true,
+      "steps": [
+        {
+          "pressAsync": "lookup",
+          "args": {
+            "q": "a"
+          }
+        },
+        {
+          "pressAsync": "lookup",
+          "args": {
+            "q": "a"
+          }
+        },
+        {
+          "respond": {
+            "functionCallId": "s:1",
+            "value": 1
+          }
+        },
+        {
+          "respond": {
+            "functionCallId": "s:2",
+            "value": 2
+          }
+        }
+      ],
+      "expectedSent": [
+        {
+          "version": "1.0",
+          "callAgentFunction": {
+            "surfaceId": "s",
+            "functionCallId": "s:1",
+            "callFunction": {
+              "@call": "lookup",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "args": {
+                "q": "a"
+              }
+            }
+          }
+        },
+        {
+          "version": "1.0",
+          "callAgentFunction": {
+            "surfaceId": "s",
+            "functionCallId": "s:2",
+            "callFunction": {
+              "@call": "lookup",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "args": {
+                "q": "a"
+              }
+            }
+          }
+        }
+      ],
+      "expectedRan": []
+    },
+    {
+      "name": "a template surface has no agent",
+      "agent": true,
+      "trusted": true,
+      "steps": [
+        {
+          "read": {
+            "@call": "lookup"
+          },
+          "expected": {
+            "value": null,
+            "failure": {
+              "code": "UNKNOWN_FUNCTION",
+              "message": "no function lookup"
+            }
+          }
+        },
+        {
+          "press": "lookup",
+          "expected": {
+            "decision": "not_found"
+          }
+        }
+      ],
+      "expectedSent": [
+        {
+          "version": "1.0",
+          "error": {
+            "code": "UNKNOWN_FUNCTION",
+            "surfaceId": "s",
+            "message": "no function lookup"
+          }
+        },
+        {
+          "version": "1.0",
+          "error": {
+            "code": "UNKNOWN_FUNCTION",
+            "surfaceId": "s",
+            "message": "no function lookup"
+          }
+        }
+      ],
+      "expectedRan": []
+    },
+    {
+      "name": "no agent channel: UNKNOWN_FUNCTION",
+      "steps": [
+        {
+          "press": "lookup",
+          "expected": {
+            "decision": "not_found"
+          }
+        }
+      ],
+      "expectedSent": [
+        {
+          "version": "1.0",
+          "error": {
+            "code": "UNKNOWN_FUNCTION",
+            "surfaceId": "s",
+            "message": "no function lookup"
+          }
+        }
+      ],
+      "expectedRan": []
+    },
+    {
+      "name": "policy deny: INVALID_FUNCTION_CALL, no call",
+      "agent": true,
+      "policy": {
+        "deny": [
+          "lookup"
+        ]
+      },
+      "steps": [
+        {
+          "press": "lookup",
+          "expected": {
+            "decision": "deny"
+          }
+        }
+      ],
+      "expectedSent": [
+        {
+          "version": "1.0",
+          "error": {
+            "code": "INVALID_FUNCTION_CALL",
+            "surfaceId": "s",
+            "message": "lookup was not allowed"
+          }
+        }
+      ],
+      "expectedRan": []
+    },
+    {
+      "name": "consent refused",
+      "agent": true,
+      "policy": {
+        "ask": [
+          "lookup"
+        ]
+      },
+      "consent": false,
+      "steps": [
+        {
+          "press": "lookup",
+          "expected": {
+            "decision": "deny"
+          }
+        }
+      ],
+      "expectedSent": [
+        {
+          "version": "1.0",
+          "error": {
+            "code": "INVALID_FUNCTION_CALL",
+            "surfaceId": "s",
+            "message": "lookup was not allowed"
+          }
+        }
+      ],
+      "expectedRan": []
+    },
+    {
+      "name": "a registered function runs, consent or not asked",
+      "registered": [
+        "harness_toast"
+      ],
+      "steps": [
+        {
+          "press": "harness_toast",
+          "args": {
+            "message": "x"
+          },
+          "expected": {
+            "decision": "allow"
+          }
+        }
+      ],
+      "expectedSent": [],
+      "expectedRan": [
+        {
+          "name": "harness_toast",
+          "args": {
+            "message": "x"
+          }
+        }
+      ]
+    },
+    {
+      "name": "sendDataModel rides beside the message",
+      "agent": true,
+      "sendDataModel": true,
+      "data": {
+        "a": 1
+      },
+      "steps": [
+        {
+          "pressAsync": "lookup"
+        }
+      ],
+      "expectedSent": [],
+      "expectedRan": []
+    }
+  ]
+}

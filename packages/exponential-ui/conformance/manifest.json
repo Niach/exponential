@@ -118,7 +118,7 @@
         "fixtures/host-transport.json"
       ],
       "unit": "case",
-      "cases": 20,
+      "cases": 22,
       "check": "Feed the chunks through ONE decoder (JSONL / SSE), or decode the MCP result, or build the MCP action call: messages + issues equal `expected`."
     },
     {

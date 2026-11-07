@@ -7,7 +7,6 @@
 import { evaluateCall, writePointer } from "../dynamic"
 import type { Failure, RouteAnswer, RoutedCall } from "../dynamic"
 import { declaredFunction } from "../functions"
-import { canonicalJson } from "./signature"
 import { newSurfaceBridge, surfaceUpdates } from "../surface-updates"
 import type { SurfaceBridge, SurfaceRefusal } from "../surface-updates"
 import { reduceSurface } from "../reducer"
@@ -19,7 +18,7 @@ import { RENDER_FAILED, actionMessage, callAgentFunctionMessage, errorMessage, r
 import type { ClientMessage, HostOp } from "./contract"
 import { availableExtensions, rendererCapabilities } from "./package"
 import type { PackageIssue, AppPackage } from "./package"
-import { BUILTIN_FUNCTIONS, combineDecisions, decideFunction, decideUrl, mediaRequest, packagePolicy } from "./policy"
+import { BUILTIN_FUNCTIONS, combineDecisions, decideFunction, decideRoute, decideUrl, mediaRequest, packagePolicy, routedCallKey } from "./policy"
 import type { FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, UrlPolicy } from "./policy"
 import { recordFormTargets } from "./record-macros"
 import { HostRouter } from "./router"
@@ -684,44 +683,44 @@ export class ExponentialHost {
   }
 
   /** Round 9 §6.5: `ResolveOptions.route` for one surface's REACTIVE
-   *  positions. A host-prefixed name failed before this (§6.4). The policy
-   *  is in front; identical calls share one in-flight call and a settled
-   *  answer stays for the surface's lifetime; while pending the position
-   *  reads its `previous` value (else null). */
+   *  positions (`decideRoute`). Identical calls share one in-flight call and
+   *  a settled answer stays for the surface's lifetime; while pending the
+   *  position reads its previous value, else null. */
   reactiveRoute(surfaceId: string): (call: RoutedCall) => RouteAnswer {
     return (call) => {
       const store = this.stores.get(surfaceId)
       if (!store) return { failure: { code: `UNKNOWN_FUNCTION`, message: `no function ${call.name}` } }
-      const key = `${call.catalogId}\u0000${call.name}\u0000${canonicalJson(call.args)}`
+      const key = routedCallKey(call.catalogId, call.name, call.args)
       const known = store.routes.get(key)
       if (known) return known.state === `value` ? { value: known.value } : known.state === `failure` ? { failure: known.failure } : { value: known.previous }
-      const decision = this.decidePolicy(surfaceId, call.name)
-      if (decision === `deny`) return { failure: { code: `INVALID_FUNCTION_CALL`, message: `${call.name} was not allowed` } }
-      if (Object.prototype.hasOwnProperty.call(this.functions, call.name) && decision === `allow`) {
-        const fn = this.functions[call.name]!
-        const settle = (route: ReactiveRoute) => {
-          store.routes.set(key, route)
-          store.notify()
-        }
-        store.routes.set(key, { state: `pending`, previous: null })
-        void (async () => {
-          try {
-            settle({ state: `value`, value: (await fn(call.args, { surfaceId, componentId: ``, name: call.name, args: call.args })) ?? null })
-          } catch (e) {
-            settle({ state: `failure`, failure: { code: `EXPRESSION_ERROR`, message: e instanceof Error ? e.message : String(e) } })
-          }
-        })()
-        return { value: null }
-      }
-      if (!this.hasAgent(surfaceId)) return { failure: { code: `UNKNOWN_FUNCTION`, message: `no function ${call.name}` } }
+      const registered = Object.prototype.hasOwnProperty.call(this.functions, call.name)
+      const route = decideRoute({ name: call.name, catalogId: call.catalogId, available: this.router.availableCatalogIds, position: `reactive`, policy: this.options.policy?.functions, packageFunctions: this.packageOf(store)?.functions ?? (store.packageId ? [] : undefined), registered, agent: this.hasAgent(surfaceId) })
+      if (route.route === `fail`) return { failure: { code: route.code, message: route.message } }
       store.routes.set(key, { state: `pending`, previous: null })
-      void this.callAgent(store, call.name, call.catalogId, call.args).then((answer) => {
-        store.routes.set(key, `failure` in answer ? { state: `failure`, failure: answer.failure } : { state: `value`, value: answer.value })
-        if (`failure` in answer) this.reportFailure(surfaceId, answer.failure)
-        store.notify()
-      })
+      void this.settleReactive(store, key, call, route.route === `ask`, registered)
       return { value: null }
     }
+  }
+
+  private packageOf(store: SurfaceStore): AppPackage | undefined {
+    return store.packageId ? this.router.package(store.packageId) : undefined
+  }
+
+  /** The pending reactive call: consent, then the local function or the agent. */
+  private async settleReactive(store: SurfaceStore, key: string, call: RoutedCall, ask: boolean, registered: boolean): Promise<void> {
+    const info: FunctionCallInfo = { surfaceId: store.surfaceId, componentId: ``, name: call.name, args: call.args, catalogId: call.catalogId }
+    let answer: RouteAnswer
+    try {
+      const allowed = !ask || (await this.options.policy?.onFunctionCall?.(info)) === true
+      if (!allowed) answer = { failure: { code: `INVALID_FUNCTION_CALL`, message: `${call.name} was not allowed` } }
+      else if (registered) answer = { value: (await this.functions[call.name]!(call.args, info)) ?? null }
+      else answer = await this.callAgent(store, call.name, call.catalogId, call.args)
+    } catch (e) {
+      answer = { failure: { code: `EXPRESSION_ERROR`, message: e instanceof Error ? e.message : String(e) } }
+    }
+    store.routes.set(key, `failure` in answer ? { state: `failure`, failure: answer.failure } : { state: `value`, value: answer.value })
+    if (`failure` in answer) this.reportFailure(store.surfaceId, answer.failure)
+    store.notify()
   }
 
   /** The policy decision for a call, before any consent hook: `not_found`

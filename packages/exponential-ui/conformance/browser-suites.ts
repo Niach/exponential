@@ -341,7 +341,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         record(`host-router`, `flow: ${flow.name}`, () => {
           const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
           for (const id of flow.packages ?? []) if (canon(router.installPackage(packages[id]!)) !== canon(flow.installIssues![id])) return `install ${id}`
-          for (const [i, s] of flow.steps.entries()) if (canon(router.route(s.message)) !== canon(s.expected)) return `step ${i}`
+          for (const [i, s] of flow.steps.entries()) if (canon(router.route(s.message, { trusted: (s as { trusted?: boolean }).trusted })) !== canon(s.expected)) return `step ${i}`
           return true
         })
     })

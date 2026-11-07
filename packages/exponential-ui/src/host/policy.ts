@@ -4,6 +4,9 @@
 
 import { DEFAULT_MEDIA_SCHEMES, DEFAULT_URL_SCHEMES, MEDIA_LIMITS } from "./contract"
 import { coreCatalog } from "../catalog"
+import { EFFECT_FUNCTIONS, catalogFunctionNames, isHostFunctionName } from "../dynamic"
+import { INDEX_FUNCTION } from "../functions"
+import { canonicalJson } from "./signature"
 
 /** The catalog's built-in client functions: the basic 14 + round 1's 15
  *  core ones (`functions.names`). */
@@ -43,6 +46,56 @@ export function combineDecisions(a: FunctionDecision, b: FunctionDecision): Func
   const rank: Record<FunctionDecision, number> = { allow: 0, ask: 1, deny: 2, not_found: 3 }
   return rank[a] >= rank[b] ? a : b
 }
+
+/** Round 9 §6.5: what routing one call needs to know. */
+export interface RouteDecisionInput {
+  name: string
+  /** The call's own `catalogId`. */
+  catalogId?: string
+  /** The surface default (`createSurface.catalogId`). */
+  surfaceCatalogId?: string
+  /** The router's available set (§5.5). */
+  available: readonly string[]
+  position: `reactive` | `action`
+  policy?: FunctionPolicy
+  /** The surface's package `functions`, when it has a package. */
+  packageFunctions?: readonly string[]
+  /** A function the host registered under this name. */
+  registered: boolean
+  /** The surface has an agent (§6.5). */
+  agent: boolean
+}
+
+/** `index` = §6.2; `catalog` = a catalog function runs locally; `local` = a
+ *  registered host function; `ask` = the consent hook decides, then as
+ *  allowed; `agent` = callAgentFunction; `fail` = the failure of §6.8. */
+export type RouteDecision = { route: `index` | `catalog` | `local` | `ask` | `agent`; catalogId?: string } | { route: `fail`; code: `EXPRESSION_ERROR` | `INVALID_FUNCTION_CALL` | `UNKNOWN_FUNCTION`; message: string }
+
+/** Round 9 §6.5's table, the first rule that applies decides. Pure: the
+ *  runtime and the Rust core follow it, fixtures/a2ui10-functions.json
+ *  `routing` locks it. */
+export function decideRoute(input: RouteDecisionInput): RouteDecision {
+  const { name, position } = input
+  const reactive = position === `reactive`
+  if (name === INDEX_FUNCTION) return { route: `index` }
+  const catalogId = input.catalogId ?? input.surfaceCatalogId
+  if (catalogId === undefined) return { route: `fail`, code: `EXPRESSION_ERROR`, message: `no catalog for this call` }
+  if (!input.available.includes(catalogId)) return { route: `fail`, code: `EXPRESSION_ERROR`, message: `catalog ${catalogId} is not available` }
+  if (catalogFunctionNames(catalogId).has(name)) {
+    if (reactive && EFFECT_FUNCTIONS.has(name)) return { route: `fail`, code: `EXPRESSION_ERROR`, message: `${name} cannot run in a binding` }
+    return { route: `catalog`, catalogId }
+  }
+  if (reactive && isHostFunctionName(name)) return { route: `fail`, code: `EXPRESSION_ERROR`, message: `${name} cannot run in a binding` }
+  let decision = decideFunction(input.policy, name, true)
+  if (input.packageFunctions) decision = combineDecisions(decision, decideFunction(packagePolicy(input.packageFunctions), name, true))
+  if (decision === `deny`) return { route: `fail`, code: `INVALID_FUNCTION_CALL`, message: `${name} was not allowed` }
+  if (!input.registered && !input.agent) return { route: `fail`, code: `UNKNOWN_FUNCTION`, message: `no function ${name}` }
+  if (decision === `ask`) return { route: `ask`, catalogId }
+  return input.registered ? { route: `local`, catalogId } : { route: `agent`, catalogId }
+}
+
+/** Round 9 §6.5: what identical reactive routed calls share. */
+export const routedCallKey = (catalogId: string, name: string, args: unknown): string => `${catalogId}\u0000${name}\u0000${canonicalJson(args)}`
 
 /** A declarative package's `functions` list as a policy: listed = allow,
  *  anything else = deny. */

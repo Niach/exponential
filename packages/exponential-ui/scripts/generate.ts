@@ -54,6 +54,7 @@ import { qrMatrix } from "../src/qr-code"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
 import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
+import { renderA2ui10 } from "./generate-a2ui10"
 import { renderHost } from "./generate-host"
 import { renderXid } from "./generate-xid"
 import { renderRound2 } from "./generate-round2"
@@ -1853,6 +1854,7 @@ function renderFiles(): Record<string, string> {
     ...renderXid(),
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).
     ...renderHost(),
+    ...renderA2ui10(),
     // Round 2: the contract fixtures (inputs in scripts/generate-round2.ts).
     ...renderRound2(),
     // Round 4: the styling + semantics contract (inputs in scripts/generate-round4.ts).

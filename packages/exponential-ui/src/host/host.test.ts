@@ -106,7 +106,7 @@ describe(`host-router.json`, () => {
     test(`flow: ${flow.name}`, () => {
       const r = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
       for (const id of flow.packages ?? []) expect(r.installPackage(packages[id]!)).toEqual(flow.installIssues![id] as never)
-      for (const step of flow.steps) expect(r.route(step.message)).toEqual(step.expected as never)
+      for (const step of flow.steps) expect(r.route(step.message, { trusted: (step as { trusted?: boolean }).trusted })).toEqual(step.expected as never)
     })
   test(`every error code the router emits is in the contract`, () => {
     const codes = new Set<string>()

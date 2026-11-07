@@ -16,6 +16,7 @@ import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID } from "./catalog"
 import { FUNCTION_NAMES } from "./catalog.generated"
 import { basicMap } from "./basic-map"
 import { CORE_FUNCTIONS, coerceBoolean, isBinding, isCall, isDynamic, present } from "./expr"
+import { checkArgs, declaredFunction } from "./functions"
 import { regexCheck } from "./regex"
 import { ENGLISH_FORMAT_FUNCTIONS, FORMAT_FUNCTION_NAMES, englishFormatter, formatFunctions, type Formatter, type ZoneOffset } from "./format"
 import { EXPRESSION_BIND_FUNCTIONS, EXPRESSION_CALL_NAMES, callExpressionFunction, type ExpressionEnv } from "./cel"
@@ -373,6 +374,13 @@ const fail = (box: FailBox, failure: Failure, args?: Record<string, unknown>): u
   return null
 }
 
+/** A call's args with every binding and call out: what a schema can judge. */
+function literalArgs(args: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(isPlainObject(args) ? args : {})) out[k] = isDynamic(v) ? null : v
+  return out
+}
+
 /** Round 9 §6.5: one call evaluated (local `@index`, a catalog function of
  *  the resolved catalog, else the host's route): its value, or `null` plus
  *  the failure. `position` defaults to `reactive`. */
@@ -388,8 +396,9 @@ function evaluateCallIn(call: FunctionCall, data: unknown, options: ResolveOptio
   // 1. `@index`: the innermost template item's index + offset.
   if (name === `@index`) {
     const offset = isPlainObject(call.args) && call.args.offset !== undefined ? resolveIn(call.args.offset, data, options, box) : 0
-    if (options.scope?.index === undefined) return fail(box, { code: `EXPRESSION_ERROR`, message: `@index outside a template` })
-    return options.scope.index + (typeof offset === `number` ? offset : Number(offset) || 0)
+    const at = scopeIndex(options.scope)
+    if (at === undefined) return fail(box, { code: `EXPRESSION_ERROR`, message: `@index outside a template` })
+    return at + (typeof offset === `number` ? offset : Number(offset) || 0)
   }
   // 2. The call's catalog: its own, else the surface default.
   const catalogId = typeof call.catalogId === `string` ? call.catalogId : (options.catalogId ?? CORE_CATALOG_ID)
@@ -406,6 +415,11 @@ function evaluateCallIn(call: FunctionCall, data: unknown, options: ResolveOptio
   // 4. A catalog function of the resolved catalog.
   if (catalogFunctionNames(catalogId).has(name)) {
     if (reactive && EFFECT_FUNCTIONS.has(name)) return fail(box, { code: `EXPRESSION_ERROR`, message: `${name} cannot run in a binding` })
+    // §6.5 step 4: the wire args against the declared schema (a binding or
+    // call matches any Dynamic*).
+    const signature = declaredFunction(catalogId, name)
+    const issue = signature ? checkArgs(signature, literalArgs(call.args)) : undefined
+    if (issue !== undefined) return fail(box, { code: `EXPRESSION_ERROR`, message: `${name}: ${issue}` }, args)
     if (name === `formatString`) return formatStringValue(args.value, data, options)
     const run = (fn: (args: Record<string, unknown>) => unknown): unknown => {
       try {
@@ -441,13 +455,23 @@ function evaluateCallIn(call: FunctionCall, data: unknown, options: ResolveOptio
   return fail(box, { code: `UNKNOWN_FUNCTION`, message: `no function ${name}` }, args)
 }
 
+/** §6.2: the innermost item's index: the scope's, else the last index of its base. */
+function scopeIndex(scope: DataScope | undefined): number | undefined {
+  if (scope?.index !== undefined) return scope.index
+  const m = scope?.base === undefined ? null : /\/(\d+)$/.exec(scope.base)
+  return m ? Number(m[1]) : undefined
+}
+
 /** The basic `formatString`: `${<pointer>}` (absolute, or relative to the
  *  scope) and `${@index()}` / `${@index(offset: <number literal>)}` (§6.2). */
 function formatStringValue(template: unknown, data: unknown, options: ResolveOptions): string {
   return textOf(template).replace(/\$\{([^}]*)\}/g, (_, raw: string) => {
     const expr = raw.trim()
     const index = /^@index\(\s*(?:offset\s*:\s*(-?\d+(?:\.\d+)?)\s*)?\)$/.exec(expr)
-    if (index) return options.scope?.index === undefined ? `` : String(options.scope.index + (index[1] ? Number(index[1]) : 0))
+    if (index) {
+      const at = scopeIndex(options.scope)
+      return at === undefined ? `` : String(at + (index[1] ? Number(index[1]) : 0))
+    }
     return displayString(readPath(data, expr, options.scope))
   })
 }
