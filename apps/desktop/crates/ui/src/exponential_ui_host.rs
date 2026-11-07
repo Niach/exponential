@@ -74,7 +74,7 @@ use gpui::{
 use gpui_component::IconNamed as _;
 use serde_json::{json, Value};
 
-use domain::app_records::{OutboxCall, OutboxEntry, OutboxRow, OutboxState};
+use domain::app_records::{OutboxCall, OutboxEntry, OutboxRow};
 use eengine::Submitted;
 use domain::via_app::ViaAppClaim;
 
@@ -1501,18 +1501,7 @@ fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, form
         }
         return Task::ready(Err("No app to keep records for".to_string()));
     };
-    let new_ids: Vec<String> = (0..domain::app_records::outbox_new_id_count(call, &args))
-        .map(|_| uuid::Uuid::new_v4().to_string())
-        .collect();
-    let entry = OutboxEntry {
-        write_id: uuid::Uuid::new_v4().to_string(),
-        app_id: scope.app_id.clone(),
-        call,
-        writes: domain::app_records::outbox_writes(call, &args, &new_ids),
-        at: now_iso(),
-        state: OutboxState::Pending,
-        acked_at: None,
-    };
+    let entry = records.store.entry(&scope.app_id, call, &args);
     let online = sync::Store::try_global(cx).is_some_and(|s| s.sync_status(cx).health == sync::SyncHealth::Ok);
     let awaits = match records.store.enqueue(entry.clone(), online) {
         Ok(awaits) => awaits,

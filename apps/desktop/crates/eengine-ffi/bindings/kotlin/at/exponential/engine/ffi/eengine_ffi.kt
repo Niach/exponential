@@ -1063,7 +1063,7 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_set_rows(
     ): Short
-    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit(
+    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit_call(
     ): Short
     external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_visible_rows_json(
     ): Short
@@ -1270,7 +1270,7 @@ external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_prune(`ptr`: Long,un
 ): Unit
 external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(`ptr`: Long,`app`: RustBuffer.ByValue,`rowsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_submit(`ptr`: Long,`entryJson`: RustBuffer.ByValue,`online`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_submit_call(`ptr`: Long,`app`: RustBuffer.ByValue,`function`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`online`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_visible_rows_json(`ptr`: Long,`app`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -6315,10 +6315,12 @@ public interface SyncedRecordStoreInterface {
     fun `setRows`(`app`: kotlin.String, `rowsJson`: kotlin.String)
     
     /**
-     * Persist a host call's entry; alone and `online` it replays now and
-     * answers its first outcome, otherwise `Queued` (then call `flush`).
+     * A record write of an app (`records_upsert`, `records_delete`,
+     * `records_batch`) as ONE entry: client ids, persisted; alone and
+     * `online` it replays now and answers its first outcome, otherwise
+     * `Queued` with the answer from the entry (then call `flush`).
      */
-    fun `submit`(`entryJson`: kotlin.String, `online`: kotlin.Boolean): Submitted
+    fun `submitCall`(`app`: kotlin.String, `function`: kotlin.String, `argsJson`: kotlin.String, `online`: kotlin.Boolean): Submitted
     
     /**
      * `app`'s synced rows with its entries laid over them, as a JSON array.
@@ -6518,16 +6520,18 @@ open class SyncedRecordStore: Disposable, AutoCloseable, SyncedRecordStoreInterf
 
     
     /**
-     * Persist a host call's entry; alone and `online` it replays now and
-     * answers its first outcome, otherwise `Queued` (then call `flush`).
+     * A record write of an app (`records_upsert`, `records_delete`,
+     * `records_batch`) as ONE entry: client ids, persisted; alone and
+     * `online` it replays now and answers its first outcome, otherwise
+     * `Queued` with the answer from the entry (then call `flush`).
      */
-    @Throws(EngineException::class)override fun `submit`(`entryJson`: kotlin.String, `online`: kotlin.Boolean): Submitted {
+    @Throws(EngineException::class)override fun `submitCall`(`app`: kotlin.String, `function`: kotlin.String, `argsJson`: kotlin.String, `online`: kotlin.Boolean): Submitted {
             return FfiConverterTypeSubmitted.lift(
     callWithHandle {
     uniffiRustCallWithError(EngineException) { _status ->
-    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_submit(
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_submit_call(
         it,
-        FfiConverterString.lower(`entryJson`),FfiConverterBoolean.lower(`online`),_status)
+        FfiConverterString.lower(`app`),FfiConverterString.lower(`function`),FfiConverterString.lower(`argsJson`),FfiConverterBoolean.lower(`online`),_status)
 }
     }
     )
@@ -8189,10 +8193,16 @@ sealed class Submitted {
     }
     
     /**
-     * Offline, behind others, a retry or a drop: answer from the entry.
+     * Offline, behind others, a retry or a drop: the answer from the entry.
      */
-    object Queued : Submitted()
-    
+    data class Queued(
+        val `answerJson`: kotlin.String) : Submitted()
+        
+    {
+        
+
+        companion object
+    }
     
 
     
@@ -8217,7 +8227,9 @@ public object FfiConverterTypeSubmitted : FfiConverterRustBuffer<Submitted>{
                 FfiConverterOptionalString.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
-            3 -> Submitted.Queued
+            3 -> Submitted.Queued(
+                FfiConverterString.read(buf),
+                )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
     }
@@ -8242,6 +8254,7 @@ public object FfiConverterTypeSubmitted : FfiConverterRustBuffer<Submitted>{
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
+                + FfiConverterString.allocationSize(value.`answerJson`)
             )
         }
     }
@@ -8261,6 +8274,7 @@ public object FfiConverterTypeSubmitted : FfiConverterRustBuffer<Submitted>{
             }
             is Submitted.Queued -> {
                 buf.putInt(3)
+                FfiConverterString.write(value.`answerJson`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
