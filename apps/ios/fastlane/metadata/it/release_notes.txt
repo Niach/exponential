@@ -48,3 +48,4 @@
 - Il tuo Assistente funziona in tutti i tuoi team
 - I proprietari possono scegliere un agente Coordinatore
 - Le app possono disegnare su una tela e rispondere a tocchi e trascinamenti
+- Salvare un record nel modulo di un'app funziona di nuovo

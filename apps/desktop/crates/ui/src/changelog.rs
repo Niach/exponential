@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-07-app-forms-save-on-phones",
+    date: "2026-11-07",
+    title: "App forms save again on phones",
+    summary: "Saving a record in an app works again on iPhone and Android.",
+    body: r#"- **App forms on phones**: on iPhone and Android, saving a record in an app form was silently refused; it saves again, and no half-sent change stays stuck in the outbox."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_223: ChangelogEntry = ChangelogEntry {
     id: "2026-11-07-canvas-and-a2ui",
     date: "2026-11-07",
     title: "Drawing in apps, and the next app format",

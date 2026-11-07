@@ -48,3 +48,4 @@
 - Tvoj Asistent radi u svim tvojim timovima
 - Vlasnici tima mogu odrediti agenta Koordinatora
 - Aplikacije mogu crtati na platnu i reagirati na dodire i povlačenja
+- Spremanje zapisa u obrascu aplikacije ponovno radi
