@@ -1785,7 +1785,11 @@
         {
           "template": "pipeline",
           "title": "Pipeline",
-          "icon": "square-kanban"
+          "icon": "square-kanban",
+          "widget": {
+            "template": "tile",
+            "size": "s"
+          }
         },
         {
           "template": "deals",
@@ -1816,6 +1820,22 @@
         }
       },
       "templates": {
+        "tile": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "Pipeline tile"
+            }
+          ]
+        },
         "companies": {
           "components": [
             {
@@ -1919,15 +1939,24 @@
         {
           "template": "a",
           "title": "A",
-          "icon": "not-an-icon"
+          "icon": "not-an-icon",
+          "widget": "b"
         },
         {
           "template": "a",
-          "title": "A again"
+          "title": "A again",
+          "widget": {
+            "template": "missing",
+            "size": "xl",
+            "slot": "home"
+          }
         },
         {
           "template": "missing",
-          "title": "Missing"
+          "title": "Missing",
+          "widget": {
+            "size": "m"
+          }
         },
         {
           "template": "b",
@@ -4640,12 +4669,32 @@
           "message": "icon not-an-icon is not a genUI icon"
         },
         {
+          "path": "/screens/0/widget",
+          "message": "widget is {template, size: s | m | l}"
+        },
+        {
           "path": "/screens/1/template",
           "message": "duplicate screen a"
         },
         {
+          "path": "/screens/1/widget/slot",
+          "message": "unknown widget key slot"
+        },
+        {
+          "path": "/screens/1/widget/template",
+          "message": "widget template missing names no package template"
+        },
+        {
+          "path": "/screens/1/widget/size",
+          "message": "widget.size is one of s, m, l"
+        },
+        {
           "path": "/screens/2/template",
           "message": "template missing names no package template"
+        },
+        {
+          "path": "/screens/2/widget/template",
+          "message": "widget.template is a required string"
         },
         {
           "path": "/screens/3/route",
@@ -4665,7 +4714,7 @@
         },
         {
           "path": "/screens/5",
-          "message": "a screen is {template, title, icon?, params?, nav?, exposed?}"
+          "message": "a screen is {template, title, icon?, params?, nav?, exposed?, widget?}"
         },
         {
           "path": "/templates/a/components/2/on/press/functionCall/args/screen",
@@ -4682,7 +4731,7 @@
       "expected": [
         {
           "path": "/screens",
-          "message": "screens is a non-empty list of {template, title, icon?, params?, nav?, exposed?}"
+          "message": "screens is a non-empty list of {template, title, icon?, params?, nav?, exposed?, widget?}"
         }
       ]
     },
