@@ -14,10 +14,22 @@ import {
   mergePullRequest,
   resolvePrBaseState,
   retargetPullRequest,
+  unstack,
   updatePullRequest,
   GitHubMergeError,
   PullAlreadyExistsError,
 } from "@/lib/integrations/github-pr"
+
+describe(`unstack (#EXP-1711)`, () => {
+  it(`POSTs the stack's unstack; the dissolved stack's 204 is no error`, async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 204, json: async () => { throw new Error(`no body`) } }))
+    await unstack({ repo: `o/r`, stackNumber: 3, token: `tok`, fetchImpl: fetchImpl as unknown as GitHubFetch })
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `https://api.github.com/repos/o/r/stacks/3/unstack`,
+      expect.objectContaining({ method: `POST` })
+    )
+  })
+})
 
 function jsonResponse(status: number, body: unknown) {
   return {

@@ -697,6 +697,36 @@ function unitsOf(prs: PrRow[]): { units: PrRow[][]; train: TrainUnit[] } {
   return { units, train }
 }
 
+/** #EXP-1711 (merge-train.json CHILDREN): a live PR whose parent already
+ *  landed and that still sits on the parent's branch (a move that failed, a
+ *  stack from before the train). Moved onto the base here, and it rides no
+ *  batch meanwhile: nothing ever lands onto a landed branch. → their ids. */
+async function repairStranded(repo: RepoRow, prs: PrRow[]): Promise<Set<string>> {
+  const live = new Set(prs.map((pr) => pr.id))
+  const target = repo.defaultBranchOverride ?? repo.defaultBranch
+  const bottoms = prs.filter((pr) => !(pr.basePullRequestId && live.has(pr.basePullRequestId)) && pr.base !== target)
+  if (bottoms.length === 0) return new Set()
+  const landed = await db
+    .select({ id: pullRequests.id, head: pullRequests.head })
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.repositoryId, repo.id),
+        eq(pullRequests.state, `merged`),
+        inArray(pullRequests.head, [...new Set(bottoms.map((pr) => pr.base))])
+      )
+    )
+  if (landed.length === 0) return new Set()
+  const { retargetChildrenOfMergedPr } = await import(`@/lib/integrations/pr-sync`)
+  for (const { id, head } of new Map(landed.map((row) => [row.head, row])).values()) {
+    await retargetChildrenOfMergedPr(id, { trainLanding: true }).catch((err) => {
+      console.error(`[merge-train] ${repo.fullName}: moving the PRs on ${head} failed`, err)
+    })
+  }
+  const heads = new Set(landed.map((row) => row.head))
+  return new Set(bottoms.filter((pr) => heads.has(pr.base)).map((pr) => pr.id))
+}
+
 async function livePrs(repositoryId: string): Promise<PrRow[]> {
   return db
     .select()
@@ -745,7 +775,11 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
   if (!busy && (until === undefined || until <= now.getTime())) {
     backoff.delete(repo.id)
     const prs = await livePrs(repo.id)
-    const { units, train } = unitsOf(prs)
+    const stranded = await repairStranded(repo, prs)
+    const all = unitsOf(prs)
+    const rides = all.units.map((unit) => !stranded.has(unit[0]!.id))
+    const units = all.units.filter((_, i) => rides[i])
+    const train = all.train.filter((_, i) => rides[i])
     const queue = trainQueue(train)
     const first = queue[0]
     if (first) {

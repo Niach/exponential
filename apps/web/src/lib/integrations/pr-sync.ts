@@ -34,6 +34,7 @@ import {
   fetchPullStack,
   listOpenPullsByBase,
   retargetPullRequest,
+  unstack,
 } from "@/lib/integrations/github-pr"
 import {
   githubAppConfigured,
@@ -1153,6 +1154,7 @@ export async function applyPullRequestMerged(opts: {
     pullRequestId: result.pr.id,
     token: opts.deleteHead?.token ?? null,
     anyBranch: opts.deleteHead?.anyBranch ?? false,
+    trainLanding: opts.trainLanding === true,
   })
   return { applied: true, txid: result.txid }
 }
@@ -1184,9 +1186,11 @@ export async function deleteMergedHeadBranch(opts: {
   pullRequestId: string
   token?: string | null
   anyBranch?: boolean
+  /** #EXP-1711: the train landed it (see `retargetChildrenOfMergedPr`). */
+  trainLanding?: boolean
 }): Promise<`deleted` | `gone` | `kept` | `failed`> {
   try {
-    await retargetChildrenOfMergedPr(opts.pullRequestId)
+    await retargetChildrenOfMergedPr(opts.pullRequestId, { trainLanding: opts.trainLanding === true })
   } catch (err) {
     console.error(`retargetChildrenOfMergedPr failed:`, err)
   }
@@ -1356,8 +1360,13 @@ export async function applyPullRequestBase(opts: {
  * is silent, one failed child never blocks the rest. EXP-1248: a child
  * GitHub holds in a native stack is skipped (GitHub restacks it itself, and
  * our PATCH could unstack it); its new base arrives as an `edited` webhook.
+ * #EXP-1711 (`trainLanding`): the train CLOSES a landed PR, so GitHub never
+ * restacks and refuses a member's new base: the child is unstacked first.
  */
-export async function retargetChildrenOfMergedPr(pullRequestId: string): Promise<void> {
+export async function retargetChildrenOfMergedPr(
+  pullRequestId: string,
+  opts: { trainLanding?: boolean } = {}
+): Promise<void> {
   const merged = await loadPullRequest(pullRequestId)
   if (!merged) return
   const repo = repoFromPrUrl(merged.url)
@@ -1394,7 +1403,8 @@ export async function retargetChildrenOfMergedPr(pullRequestId: string): Promise
   const children = await listOpenPullsByBase(repo, merged.head, resolved.token)
   for (const child of children) {
     try {
-      if (await inNativeStack(repo, child.number, resolved.token)) continue
+      if (opts.trainLanding) await leaveGithubStack({ repo, prNumber: child.number, token: resolved.token })
+      else if (await inNativeStack(repo, child.number, resolved.token)) continue
       await retargetPullRequest({ repo, prNumber: child.number, base: target, token: resolved.token })
       const row = await loadPullRequestByUrl(child.url)
       if (row) await applyPullRequestBase({ pullRequestId: row.id, base: target })
@@ -1402,6 +1412,12 @@ export async function retargetChildrenOfMergedPr(pullRequestId: string): Promise
       console.error(`retarget of ${repo}#${child.number} onto ${target} failed:`, err)
     }
   }
+}
+
+/** #EXP-1711: take a PR out of its native stack, when it is in one. */
+export async function leaveGithubStack(opts: { repo: string; prNumber: number; token: string }): Promise<void> {
+  const stack = await fetchPullStack(opts)
+  if (stack) await unstack({ repo: opts.repo, stackNumber: stack.number, token: opts.token })
 }
 
 /** Read live (the webhook's `stack` is not stored). An unreadable PR counts
