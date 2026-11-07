@@ -38,7 +38,7 @@ final class Round2PainterTests: XCTestCase {
         m.setSettings(SurfaceSettings(locale: "de-DE", mode: .dark, timeZone: "Europe/Berlin"))
         XCTAssertEqual(m.formatter?.locale(), "de-DE")
         XCTAssertEqual(m.formatter?.number(value: 1234.5, decimals: 2, grouping: true), "1.234,50")
-        try m.setNested(json: #"{"id":"t","component":"Text","props":{"text":{"call":"formatNumber","args":{"value":1234.5,"decimals":1}}}}"#)
+        try m.setNested(json: #"{"id":"t","component":"Text","props":{"text":{"@call":"formatNumber","args":{"value":1234.5,"decimals":1}}}}"#)
         XCTAssertEqual(m.node(id: "t")?.props.text("text"), "1.234,5", "\(m.node(id: "t")?.props.json ?? "-") \(m.issues)")
     }
 

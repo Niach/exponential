@@ -524,7 +524,7 @@ class InteractionTest {
         val m = SurfaceModel("fw", SurfaceOptions(), host, backgroundScope, noShaper)
         m.fixedMeasure = true
         m.setNested(
-            """{"id":"root","component":"Box","children":[{"id":"draft","component":"Input","props":{"label":"Draft","value":{"@path":"/draft"}}},{"id":"save","component":"Button","props":{"label":"Save"},"on":{"press":{"functionCall":{"call":"set","args":{"@path":"/draft","value":"x"}}}}}]}""",
+            """{"id":"root","component":"Box","children":[{"id":"draft","component":"Input","props":{"label":"Draft","value":{"@path":"/draft"}}},{"id":"save","component":"Button","props":{"label":"Save"},"on":{"press":{"functionCall":{"@call":"set","args":{"path":"/draft","value":"x"}}}}}]}""",
         )
         m.setData("/draft", JsonValue.Str("x"))
         m.setViewport(390f, 800f)

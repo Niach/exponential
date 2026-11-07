@@ -146,7 +146,7 @@ final class Round6Tests: XCTestCase {
 
     /// A bound `value`: a row press writes the id back, the bar follows.
     func testOutlineBoundValueMovesTheBar() throws {
-        let m = try model(#"{"id":"o","component":"Outline","props":{"value":{"path":"/value"},"items":[{"id":"current","title":"Current state"},{"id":"part-a","title":"Part A"}]}}"#, host: RecordingHost())
+        let m = try model(#"{"id":"o","component":"Outline","props":{"value":{"@path":"/value"},"items":[{"id":"current","title":"Current state"},{"id":"part-a","title":"Part A"}]}}"#, host: RecordingHost())
         m.setData(path: "/value", value: .string("part-a"))
         XCTAssertNotNil(m.node(id: "o.row.1.bar"))
         m.press(try node(m, "o.row.0").index)

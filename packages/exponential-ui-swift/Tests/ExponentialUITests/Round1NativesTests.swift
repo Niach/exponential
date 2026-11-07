@@ -151,7 +151,7 @@ final class Round1NativesTests: XCTestCase {
         m.setOpen(sheet.id, true)
         let drawer = try XCTUnwrap(m.layers.first { $0.kind == "Drawer" })
         XCTAssertEqual(drawer.position, "bottom")
-        let footer = try XCTUnwrap(m.nodes.first { $0.id == "dock_card-yes" })
+        let footer = try XCTUnwrap(m.nodes.first { $0.id == "dock_card_yes" })
         XCTAssertGreaterThan(footer.layer, 0)
         XCTAssertGreaterThan(m.frame(footer.index).height, 0)
     }
