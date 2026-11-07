@@ -34,7 +34,7 @@ import { ExponentialSurface, createSurface } from "@exponential_app/eui-solid"
 
 function Chat(props: { messages: A2uiMessage[] }) {
   const surface = createSurface({ surfaceId: "main" })
-  createEffect(() => props.messages.forEach(surface.apply))   // A2UI v0.9 server messages
+  createEffect(() => props.messages.forEach(surface.apply))   // A2UI 1.0 agent messages
   return (
     <ExponentialSurface
       surface={surface}

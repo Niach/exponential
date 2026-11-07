@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A2UI 1.0 flag day (#VAPP-289): `ACCEPT_V09` is false: `HostRouter::route`, `Surface::apply`, cards and `validate_package` refuse 0.9 and format 5. `upgrade09` remains for a Local desktop's store-open pass.
 - An app's own file as a src (#VAPP-271): `host::app_file_id(src)` (the id of an `app-file:<fileId>` src, else `None`), `APP_FILE_SCHEME` / `APP_FILE_ID_PATTERN` (`catalog/host.json` `media.appFile`); no URL or media scheme, a host with app files resolves it before the media policy. Locked by `fixtures/host-policy.json` `appFiles`.
 - A call's answer (#VAPP-271): a package action's `call` step may name its answer, `result: <name>` (`ACTION_RESULT_PATTERN`, `catalog/host.json` `package.actions.resultPattern`), read by the later steps as `results.<name>`; `run_action` now answers `Result<ActionRun, String>` (`ActionRun::Plan` | `ActionRun::Pending(PendingCall {step, name, args, result})`), `ActionContext.results` carries the answers so far; a list of dyn items fits any list field at install; every Engine capability name (`camera.` … `share.`) is a host function; a package test's action takes `results` (`step <i>: <call> has no result in the test`).
 

@@ -31,7 +31,7 @@ A2UI messages (JSON) ─▶ reducer ─▶ UiNode tree ─▶ bind pass + layout
 1. **Reducer** (`reducer`, `macros`, `basic_map`, `validate`, `extension`,
    `expr`): a flat `updateComponents` list or the nested authoring form →
    ONE normalized `UiNode` tree in the core vocabulary. Macros expand
-   through `macros.json`; a macro input that is BOUND (`{path}` or a call)
+   through `macros.json`; a macro input that is BOUND (`{"@path"}` or a call)
    is never evaluated at expansion: the expander emits a core-function call
    (`percent`, `concat`, `fallback`, `cond`, `eq`, …) the bind pass
    evaluates, a bound `$if`/`$any` becomes the part's `visible`, `$set`
@@ -75,7 +75,7 @@ A2UI messages (JSON) ─▶ reducer ─▶ UiNode tree ─▶ bind pass + layout
    like the web — raises `OutEvent::HoverTimer {owner, delay_ms}` and
    closes on `hover_timeout(owner)` unless the pointer came back),
    Menu (checkbox / label / separator entries, one level of submenus
-   whose rows may be a bound `{path}`; `openOn: press` = its ONE child is
+   whose rows may be a bound `{"@path"}`; `openOn: press` = its ONE child is
    the trigger, no child = a default outline Button; `openOn: contextmenu`
    = the child is the target region and the menu opens at the pointer), the
    Select combobox
@@ -150,8 +150,8 @@ unchanged text.
 
 ```rust
 let mut s = Surface::new("s1", SurfaceOptions { catalog_id: CORE_CATALOG_ID.into(), ..Default::default() });
-s.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s1", "components": [...]}}))?;
-s.apply(&json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/rows", "value": [...]}}))?;
+s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s1", "components": [...]}}))?;
+s.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "s1", "path": "/rows", "value": [...]}}))?;
 s.set_viewport(390.0, 844.0, None);            // height ≤ 0 = as tall as the content; Some(max) bounds a card
 s.set_insets(Insets { top: 47.0, bottom: 34.0, ..Default::default() });
 s.set_mode_setting(ModeSetting::System, true); // or set_settings(SurfaceSettings { locale, strings, density, contrast, font_scale, hover, reduced_motion, today, .. })
@@ -207,7 +207,7 @@ direction.
 | area | API |
 |---|---|
 | templates | `ReduceResult::templates`: template nodes are LIFTED out of the tree; items instantiate them. Keys `#<index>` for missing / empty / duplicate (`list::template_item_keys`, `table_row_keys`); instance suffixes accumulate (`issue.title.ops.1`; `.`/`~` in keys escape as `~1`/`~0`); a template that would instantiate itself stays in place with an issue |
-| props | layout resolves props along their schema (`data::resolve_node_props`: a literal Table `rows` holding `{path}` is data); a bound number or boolean in a text prop shows its `format::display_string` |
+| props | layout resolves props along their schema (`data::resolve_node_props`: a literal Table `rows` holding `{"@path"}` is data); a bound number or boolean in a text prop shows its `format::display_string` |
 | formatting | `format::Formatter` (number, currency, percent, date, relative time, plural, `bytes`); `EnglishFormatter` default (UTC), `ZonedEnglishFormatter::new(offset)` = the fallback at the host's UTC offset per instant; `Surface::set_formatter`, `set_clock`, `tick`, `uses_clock` (tick once a minute while true); the zone reaches the core ONLY through the formatter (no zone database, no `time_zone` setting). The core parses and decides; the formatter localizes. Table cells, NumberField (display and typed text: `format::parse_number`), chart `tickLabels` + `valueLabels`, picker text, calendar names and day labels, FileUpload sizes go through it |
 | style | `position: sticky` (`LayoutOutput::sticky` = `{index, dx, dy}` paint offsets inside the nearest scroller, else the host viewport), `backdropBlur` (`Visual::backdrop_blur`), `animation` + `animationDuration` (`Visual::animation` = name + resolved timing; sample with `animation::frame_with_timing`), `direction` on any node (`Visual::direction` + physical `text_align` on leaves) |
 | Resizable | parts `panel` / `handle` / `grip`; `event(handle, "drag", {phase: start\|move\|end, delta})` from the start sizes, `event(handle, "key", {key})` (`resizable::RESIZE_KEYS`; others are ignored); a bound `sizes` writes and `change {sizes}` fires on a drag end or key that changed the sizes. Arithmetic: `resizable::*` |
@@ -221,7 +221,7 @@ direction.
 | vocabulary | natives `Segmented` (ToggleGroup renamed; `variant` segmented \| toggles \| outline \| `bar`, content-sized unless `fill` or `bar`) and `Menu` (DropdownMenu + ContextMenu, `openOn` press \| contextmenu, glyphs `Menu.check` / `Menu.submenuIndicator`); macros `Row`, `Section`, `Chip` |
 | removed names | round 4 (VAPP-103) removed the folded names outright: no aliases; `is_offered()` = not hidden (`catalog::component_names` lists only offered ones) |
 | tree guides | `tree_guides::tree_guides(depths)` (the ×4 app rule) and `apply_tree_guides(root)`, run at the end of `macros::expand_macros`: every Row root's `guides` part (a hidden `TreeGuides`) gets `{depth, elbowAt?, tee, passThrough}` from its siblings; `layout::TREE_GUIDE_COLUMN` 14, `TREE_GUIDE_RADIUS` 3, `TREE_GUIDE_BRIDGE` 1 (paint only) |
-| bindable submenus | `menuItem.items` resolves along its schema: a `{path}` there becomes the submenu's rows |
+| bindable submenus | `menuItem.items` resolves along its schema: a `{"@path"}` there becomes the submenu's rows |
 
 `tests/round3_fixtures.rs` replays `tree-guides.json` and the `Row/tree:*`
 macro cases; `tests/round3_layout.rs` covers the Menu triggers, a bound
@@ -246,7 +246,7 @@ The pure half of the host API, JSON-equal to the TS reference
 `mcp_action_call`, `decide_function` / `combine_decisions` /
 `package_policy`, `decide_url`, `media_request`, `parse_source`,
 `supported_catalog_ids` / `client_capabilities`, `validate_package` /
-`validate_package_with` (package format v2: `formatVersion`, `records:<kind>`
+`validate_package_with` (package format 6: `formatVersion`, `records:<kind>`
 bindings, tools, versioned extensions) / `template_messages`,
 `validate_record_schema` / `validate_record`, `parse_records_source` /
 `source_with_params`, `validate_tools` / `tool_consent` / `tool_consent_key` /
