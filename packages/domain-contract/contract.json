@@ -514,8 +514,8 @@
     "catchUpHours": 24
   },
   "agentRole": {
-    "$comment": "S-3 (owner 2026-10-28): agents.role. `assistant` = a member's ONE personal Assistant per team (unique (team_id, owner_id) where role = assistant): owned and edited by that member only, avatar = the Exponential brand mark (never a stored icon), triggers = at most ONE schedule preset (agent-settings.json `assistant.schedules`), created on first use, its device = the member's voice device. `agent` = a team agent (owner-written, triggers + prompt).",
-    "values": ["assistant", "agent"]
+    "$comment": "S-3 (owner 2026-10-28): agents.role. `assistant` = a member's ONE personal Assistant per team (unique (team_id, owner_id) where role = assistant): owned and edited by that member only, avatar = the Exponential brand mark (never a stored icon), triggers = at most ONE schedule preset (agent-settings.json `assistant.schedules`), created on first use, its device = the member's voice device. `agent` = a team agent (owner-written, triggers + prompt). `coordinator` (#EXP-1717, agent-settings.json `coordinator`) = the team agent its owners made the team's coordinator (at most one per team), a team agent in every other respect.",
+    "values": ["assistant", "agent", "coordinator"]
   },
   "timeZones": {
     "$comment": "NEW-2: the ONE time-zone list every schedule picker offers (`schedule-picker.json`): UTC, then ICU's canonical IANA zones (Intl.supportedValuesOf('timeZone'), sorted). The server validates a trigger's tz with the same ICU (`timeZoneSchema`), so every row here saves; a stored zone off the list is offered as its own row.",

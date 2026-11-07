@@ -201,6 +201,23 @@ private struct AgentIdInput: Encodable {
     let id: String
 }
 
+/// #EXP-1717 `agents.setCoordinator`: the team's ONE coordinator; a nil
+/// `agentId` (an explicit JSON null) clears it. Owner-only server-side.
+struct SetCoordinatorInput: Encodable {
+    let teamId: String
+    let agentId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case teamId, agentId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(teamId, forKey: .teamId)
+        try c.encode(agentId, forKey: .agentId)
+    }
+}
+
 public final class AgentsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -241,6 +258,16 @@ public final class AgentsApi: Sendable {
     public func update(accountId: String, id: String, patch: AgentPatch) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "agents.update", input: UpdateAgentInput(id: id, patch: patch)
+        )
+    }
+
+    /// #EXP-1717 (agent-settings.json `coordinator`): set the team's
+    /// coordinator (nil = none); the previous one goes back to `agent` in the
+    /// same write. The row change arrives over the agents shape.
+    public func setCoordinator(accountId: String, teamId: String, agentId: String?) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "agents.setCoordinator",
+            input: SetCoordinatorInput(teamId: teamId, agentId: agentId)
         )
     }
 

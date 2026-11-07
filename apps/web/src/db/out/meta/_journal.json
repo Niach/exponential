@@ -1828,6 +1828,20 @@
       "when": 1794006658334,
       "tag": "0260_global_assistant_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 261,
+      "version": "7",
+      "when": 1794010223328,
+      "tag": "0261_agent_role_coordinator",
+      "breakpoints": true
+    },
+    {
+      "idx": 262,
+      "version": "7",
+      "when": 1794010828331,
+      "tag": "0262_assistant_prompt_v3",
+      "breakpoints": true
     }
   ]
 }

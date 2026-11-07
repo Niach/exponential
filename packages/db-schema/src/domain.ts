@@ -1038,7 +1038,8 @@ export const conversationKindSchema = z.enum(conversationKindValues)
 
 /** S-3: agents.role (contract `agentRole`): a member's ONE personal
  *  Assistant per team, or a team agent. */
-export const agentRoleValues = [`assistant`, `agent`] as const
+// #EXP-1717: `coordinator` = the team agent its owners made the team's coordinator.
+export const agentRoleValues = [`assistant`, `agent`, `coordinator`] as const
 export type AgentRole = (typeof agentRoleValues)[number]
 export const agentRoleSchema = z.enum(agentRoleValues)
 

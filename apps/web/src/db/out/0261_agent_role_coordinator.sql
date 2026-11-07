@@ -1,0 +1,1 @@
+ALTER TYPE "public"."agent_role" ADD VALUE 'coordinator';

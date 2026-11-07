@@ -233,3 +233,31 @@ export function agentsInTeam<T extends TeamAgentLike>(
   )
   return global ? [global, ...own] : own
 }
+
+export const COORDINATOR = fixture.coordinator
+export const COORDINATOR_COPY = fixture.coordinator.copy
+/** The option id of "no coordinator". */
+export const COORDINATOR_NONE = `none`
+
+export function isCoordinator(agent: { role?: string | null }): boolean {
+  return agent.role === `coordinator`
+}
+
+/** #EXP-1717 (`coordinator.optionCases`): the Coordinator row's options:
+ *  `none`, then the team agents (never an Assistant) by sortOrder, then name. */
+export function coordinatorOptions<T extends { id: string; name: string; role?: string | null; sortOrder: number }>(
+  agents: readonly T[]
+): (T | typeof COORDINATOR_NONE)[] {
+  const team = agents
+    .filter((agent) => !isAssistant(agent))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+  return [COORDINATOR_NONE, ...team]
+}
+
+/** #EXP-1717 (`coordinator.valueCases`): the team's coordinator, or null. */
+export function coordinatorOf(
+  agents: readonly { id: string; teamId: string; role?: string | null }[],
+  teamId: string
+): string | null {
+  return agents.find((agent) => agent.teamId === teamId && isCoordinator(agent))?.id ?? null
+}

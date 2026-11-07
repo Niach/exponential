@@ -836,12 +836,23 @@ private struct TeamAgentsPage: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
     @State private var data = Data()
     @State private var agentTarget: AgentPageTarget?
     @State private var showAssistant = false
+    /// #EXP-1717: the Coordinator pick (an option id) while its write is in
+    /// flight.
+    @State private var coordinatorPending: String?
 
     var body: some View {
         TeamSettingsPageChrome(section: .agents) {
+            // #EXP-1717 (agent-settings.json `coordinator`): ONE settings
+            // Picker row above the agents list, owners pick, members read.
+            coordinatorRow
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .glassSection()
+                .accessibilityIdentifier(AgentSettings.coordinatorRowTestId)
             TeamAgentsSection(
                 agents: data.agents,
                 isOwner: data.isOwner,
@@ -889,7 +900,53 @@ private struct TeamAgentsPage: View {
                     ),
                     users: try UserEntity.fetchAll(db)
                 )
-            }, apply: { data = $0 })
+            }, apply: { next in
+                data = next
+                if let pending = coordinatorPending, currentCoordinator(next.agents) == pending {
+                    coordinatorPending = nil
+                }
+            })
+        }
+    }
+
+    /// The team's coordinator as an option id (`coordinatorNone` = none).
+    private func currentCoordinator(_ agents: [AgentDefinitionEntity]) -> String {
+        AgentSettings.coordinatorOf(agents, teamId: teamId) ?? AgentSettings.coordinatorNone
+    }
+
+    /// #EXP-1717: THE select row (the merge-mode row's look): Coordinator,
+    /// None or a team agent; an owner's pick saves at once.
+    private var coordinatorRow: some View {
+        let names = Dictionary(data.agents.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        return GlassPickerRow(
+            AgentSettings.CoordinatorCopy.label,
+            selection: Binding(
+                get: { coordinatorPending ?? currentCoordinator(data.agents) },
+                set: { saveCoordinator($0) }
+            ),
+            options: AgentSettings.coordinatorOptions(data.agents),
+            label: { id in
+                id == AgentSettings.coordinatorNone ? AgentSettings.CoordinatorCopy.none : names[id] ?? id
+            },
+            enabled: data.isOwner && coordinatorPending == nil
+        )
+    }
+
+    /// #EXP-1717: `agents.setCoordinator {teamId, agentId | null}`, owner-only.
+    private func saveCoordinator(_ next: String) {
+        guard data.isOwner, next != currentCoordinator(data.agents) else { return }
+        coordinatorPending = next
+        let agentId = next == AgentSettings.coordinatorNone ? nil : next
+        Task {
+            do {
+                try await deps.agentsApi.setCoordinator(accountId: accountId, teamId: teamId, agentId: agentId)
+            } catch {
+                coordinatorPending = nil
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "update", thing: "the coordinator"),
+                    description: error.trpcUserMessage
+                )
+            }
         }
     }
 }

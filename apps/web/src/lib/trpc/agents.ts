@@ -21,6 +21,7 @@ import {
   messages,
   sessionIssues,
   sessions,
+  teams,
   type Agent,
   type DeviceAgentAccounts,
 } from "@/db/schema"
@@ -30,7 +31,7 @@ import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import { assertRunnerVocabulary, resolveSessionDevice, resolveSessionDeviceInTx } from "@/lib/sessions/send"
-import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
+import { ASSISTANT_COPY, COORDINATOR_COPY } from "@exp/domain-contract/agent-settings"
 import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
@@ -142,6 +143,47 @@ export const agentsRouter = router({
     const { triggerState: _state, ...rest } = agent
     return { agent: rest }
   }),
+
+  /** #EXP-1717 (agent-settings.json `coordinator`): the team's owners make
+   *  one team agent its coordinator (null = none); the previous one goes
+   *  back to a team agent in the same write. */
+  setCoordinator: authedProcedure
+    .input(z.object({ teamId: uuid, agentId: uuid.nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await assertTeamOwner(ctx.session.user.id, input.teamId)
+      } catch {
+        throw new TRPCError({ code: `FORBIDDEN`, message: COORDINATOR_COPY.refusedOwner })
+      }
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        // One coordinator per team: concurrent picks serialize on the team row
+        // (no partial unique index: an enum value added by a migration can't
+        // be used in the same migration transaction).
+        await tx.select({ id: teams.id }).from(teams).where(eq(teams.id, input.teamId)).for(`update`)
+        if (input.agentId) {
+          const [agent] = await tx
+            .select({ teamId: agents.teamId, role: agents.role })
+            .from(agents)
+            .where(eq(agents.id, input.agentId))
+            .limit(1)
+          if (!agent || agent.teamId !== input.teamId || agent.role === `assistant`) {
+            throw new TRPCError({ code: `BAD_REQUEST`, message: COORDINATOR_COPY.refusedAgent })
+          }
+        }
+        await tx
+          .update(agents)
+          .set({ role: `agent`, updatedAt: new Date() })
+          .where(and(eq(agents.teamId, input.teamId), eq(agents.role, `coordinator`)))
+        if (input.agentId) {
+          await tx
+            .update(agents)
+            .set({ role: `coordinator`, updatedAt: new Date() })
+            .where(eq(agents.id, input.agentId))
+        }
+        return { txid }
+      })
+    }),
 
   /** Member read: the row with its server-only instructions. */
   get: authedProcedure.input(z.object({ id: uuid })).query(async ({ ctx, input }) => {

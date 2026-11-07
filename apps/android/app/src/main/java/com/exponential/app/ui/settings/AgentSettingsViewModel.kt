@@ -97,6 +97,35 @@ class AgentSettingsViewModel @Inject constructor(
         if (team == null) emptyList() else SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me, teams.map { it.id })
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #EXP-1717: the Coordinator row: its options (null id = None) and value. */
+    data class CoordinatorState(val options: List<Pair<String?, String>>, val value: String?)
+
+    val coordinator: StateFlow<CoordinatorState> = combine(
+        dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
+        teamId,
+    ) { defs, team ->
+        if (team == null) {
+            CoordinatorState(listOf(null to AgentSettings.Coordinator.NONE_LABEL), null)
+        } else {
+            val own = defs.filter { it.teamId == team }
+            val options = AgentSettings.Coordinator.coordinatorOptions(own) {
+                AgentSettings.Coordinator.OptionLike(it.id, it.name, it.role, it.sortOrder)
+            }.map { row -> (row?.id) to (row?.name ?: AgentSettings.Coordinator.NONE_LABEL) }
+            CoordinatorState(options, AgentSettings.Coordinator.coordinatorOf(own, team, { it.id }, { it.teamId }, { it.role }))
+        }
+    }.flowOn(Dispatchers.Default).stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        CoordinatorState(listOf(null to AgentSettings.Coordinator.NONE_LABEL), null),
+    )
+
+    /** #EXP-1717: owner-only `agents.setCoordinator` (null = none). */
+    fun setCoordinator(agentId: String?) {
+        val team = teamId.value ?: return
+        if (agentId == coordinator.value.value) return
+        write("set", "the coordinator") { accountId -> agentsApi.setCoordinator(accountId, team, agentId) }
+    }
+
     /**
      * NEW-2: the selected team's Events band (web `AgentEventsBand`): newest
      * first, capped at [AgentSettings.EVENTS_CAP], each with who emitted it

@@ -250,7 +250,8 @@ final class AgentSettingsTests: XCTestCase {
         let prompt = try XCTUnwrap(block["prompt"] as? [String: Any])
         XCTAssertEqual(prompt["version"] as? Int, AgentSettings.assistantPromptVersion)
         XCTAssertEqual(prompt["text"] as? String, AgentSettings.assistantPrompt)
-        XCTAssertEqual(DomainContract.agentRoleValues, ["assistant", "agent"])
+        // #EXP-1717: the coordinator role joined the contract.
+        XCTAssertEqual(DomainContract.agentRoleValues, ["assistant", "agent", "coordinator"])
     }
 
     func testAssistantModelValueReplaysEveryCase() throws {
@@ -392,6 +393,68 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertEqual(AgentSettings.lookupTeamId("p-me", teamIds: ["t-a", "t-b"], activeTeamId: "t-a"), "t-a")
         XCTAssertEqual(AgentSettings.lookupTeamId("p-me", teamIds: [], activeTeamId: "t-a"), "p-me")
         XCTAssertEqual(AgentSettings.lookupTeamId(nil, teamIds: ["t-a"], activeTeamId: "t-a"), "t-a")
+    }
+
+    /// #EXP-1717: the `coordinator` block (copy, test id, both case lists).
+    private func coordinatorBlock() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["coordinator"] as? [String: Any])
+    }
+
+    func testCoordinatorCopyAndTestId() throws {
+        let block = try coordinatorBlock()
+        let copy = try XCTUnwrap(block["copy"] as? [String: String])
+        XCTAssertEqual(AgentSettings.CoordinatorCopy.label, copy["label"])
+        XCTAssertEqual(AgentSettings.CoordinatorCopy.none, copy["none"])
+        XCTAssertEqual(AgentSettings.CoordinatorCopy.refusedOwner, copy["refusedOwner"])
+        XCTAssertEqual(AgentSettings.CoordinatorCopy.refusedAgent, copy["refusedAgent"])
+        XCTAssertEqual(AgentSettings.coordinatorRowTestId, (block["testIds"] as? [String: String])?["row"])
+    }
+
+    func testCoordinatorOptionsReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try coordinatorBlock()["optionCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let agents = try XCTUnwrap(testCase["agents"] as? [[String: Any]]).map { row in
+                AgentLike(
+                    id: try XCTUnwrap(row["id"] as? String),
+                    teamId: "t",
+                    name: try XCTUnwrap(row["name"] as? String),
+                    icon: nil,
+                    color: nil,
+                    sortOrder: try XCTUnwrap((row["sortOrder"] as? NSNumber)?.doubleValue),
+                    role: row["role"] as? String,
+                    ownerId: row["ownerId"] as? String
+                )
+            }
+            XCTAssertEqual(AgentSettings.coordinatorOptions(agents), testCase["expected"] as? [String], name)
+        }
+    }
+
+    func testCoordinatorOfReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try coordinatorBlock()["valueCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let agents = try XCTUnwrap(testCase["agents"] as? [[String: Any]]).map { row in
+                AgentLike(
+                    id: try XCTUnwrap(row["id"] as? String),
+                    teamId: try XCTUnwrap(row["teamId"] as? String),
+                    name: "",
+                    icon: nil,
+                    color: nil,
+                    sortOrder: 0,
+                    role: row["role"] as? String
+                )
+            }
+            XCTAssertEqual(
+                AgentSettings.coordinatorOf(
+                    agents, teamId: try XCTUnwrap(testCase["teamId"] as? String), teamOf: \.teamId
+                ),
+                testCase["expected"] as? String,
+                name
+            )
+        }
     }
 
     func testOrderedAgentsReplaysEveryCase() throws {

@@ -147,6 +147,23 @@ class AgentsApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     /**
+     * #EXP-1717 (agent-settings.json `coordinator`): owner-only, the team's
+     * Coordinator = [agentId] (a team agent of [teamId]); null = none. The
+     * previous coordinator goes back to `agent` in the same write.
+     */
+    suspend fun setCoordinator(accountId: String, teamId: String, agentId: String?) {
+        trpc.mutationUnit(
+            accountId,
+            path = "agents.setCoordinator",
+            input = kotlinx.serialization.json.buildJsonObject {
+                put("teamId", kotlinx.serialization.json.JsonPrimitive(teamId))
+                put("agentId", agentId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: JsonNull)
+            },
+            inputSerializer = JsonObject.serializer(),
+        )
+    }
+
+    /**
      * S-3: the caller's Assistant in [teamId], created on first use on their
      * newest own desktop (null = no device yet). The composer home, the
      * chats list and the settings Agents group call it on mount; the row

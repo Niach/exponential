@@ -545,8 +545,8 @@
     ],
     "defaultSchedule": "1h",
     "prompt": {
-      "version": 2,
-      "text": "You are this member's Assistant in this team: the main agent that manages every other chat, agent and pull request they have here. They talk to you; you run the rest.\n\nYour job: know at all times what each of their chats and agents is doing (progressing, stuck, waiting on them, done). Start, steer, nudge, move and end their chats to get the work done. Answer a chat's question yourself when what they told you settles it; escalate only real decisions.\n\nYour status card: keep ONE live status card (a genUI surface via exponential_show): in progress (chat, PR, state), shipped since they last wrote, stuck, decisions needed. Every surface you show updates that card in place. Keep it short: one row per chat, newest first; drop finished items once they have seen them.\n\nWhen to speak: write a message only (a) to answer the member after they write, or (b) when a decision needs them: then use exponential_show ask with clear options (it notifies them). Scheduled check-ins, a PR opened, still running, a child's routine reply: update the card and end your turn silently. Never repeat what the card already says.\n\nScope: only this team exists for you: its boards, people, devices and sessions. Never use a device or account of another team.\n\nStyle: short, concrete, no filler. Name issues as #IDENT."
+      "version": 3,
+      "text": "You are this member's Assistant in this team: the main agent that manages every other chat, agent and pull request they have here. They talk to you; you run the rest.\n\nYour job: know at all times what each of their chats and agents is doing (progressing, stuck, waiting on them, done). Start, steer, nudge, move and end their chats to get the work done. Answer a chat's question yourself when what they told you settles it; escalate only real decisions.\n\nYour status card: keep ONE live status card (a genUI surface via exponential_show): in progress (chat, PR, state), shipped since they last wrote, stuck, decisions needed. Every surface you show updates that card in place. Keep it short: one row per chat, newest first; drop finished items once they have seen them.\n\nWhen to speak: write a message only (a) to answer the member after they write, or (b) when a decision needs them: then use exponential_show ask with clear options (it notifies them). Scheduled check-ins, a PR opened, still running, a child's routine reply: update the card and end your turn silently. Never repeat what the card already says.\n\nScope: only this team exists for you: its boards, people, devices and sessions. Never use a device or account of another team.\n\nCoordinator: when this team has one (exponential_agents list: role coordinator), hand the work you would start as a thread in the team to it instead (exponential_sessions_send {agentId, text}) and follow its replies; only this team's work, the rest stays yours.\n\nStyle: short, concrete, no filler. Name issues as #IDENT."
     },
     "scheduleCases": [
       {
@@ -775,5 +775,114 @@
         "session_claimed"
       ]
     }
+  },
+  "coordinator": {
+    "$comment": "#EXP-1717 (owner 2026-11-06, Masterplan thread d6b83b10): THE TEAM COORDINATOR ×4. A ROLE on one team agent (`agents.role = coordinator`, contract `agentRole`; at most one per team: `agents.setCoordinator` serializes on the team row); a coordinator IS a team agent everywhere else (listed, messaged, assigned and edited exactly like one; old clients read it as one). Set by the team's OWNERS only in Team settings › Agents: ONE settings Picker row (THE single-select Picker in its `row` trigger, the merge-mode row's look) `copy.label` above the agents list, value = the coordinator's name or `copy.none`; options = `coordinatorOptions(agents)` (`optionCases`): `none` first, then the team agents (never an Assistant) by sortOrder, then name; members see the row read-only. A pick = `agents.setCoordinator {teamId, agentId | null}`: the previous coordinator goes back to `agent` in the same write; a non-owner is refused, an Assistant or another team's agent is refused. Deleting the coordinator agent leaves the team without one. ROUTING: every member's global Assistant routes work that concerns THIS team to its coordinator (`exponential_sessions_send {agentId}`: the member's own conversation with it, the gate's usual team scope) instead of starting threads in the team itself, and only that team's work; a team without one gets threads as before. `coordinatorOf(agents, teamId)` (`valueCases`) = the team's coordinator id or null.",
+    "copy": {
+      "label": "Coordinator",
+      "none": "None",
+      "refusedOwner": "Only the team's owners set its coordinator",
+      "refusedAgent": "Only a team agent of this team can be its coordinator"
+    },
+    "testIds": {
+      "row": "settings-agents-coordinator"
+    },
+    "optionCases": [
+      {
+        "name": "none first, then team agents by sortOrder then name; never an Assistant",
+        "agents": [
+          {
+            "id": "as1",
+            "name": "Assistant",
+            "role": "assistant",
+            "sortOrder": 0,
+            "ownerId": "u-own"
+          },
+          {
+            "id": "a2",
+            "name": "Triage",
+            "role": "agent",
+            "sortOrder": 2,
+            "ownerId": "u-own"
+          },
+          {
+            "id": "a1",
+            "name": "Release",
+            "role": "agent",
+            "sortOrder": 1,
+            "ownerId": "u-own"
+          },
+          {
+            "id": "a3",
+            "name": "Designer",
+            "role": "coordinator",
+            "sortOrder": 2,
+            "ownerId": "u-own"
+          }
+        ],
+        "expected": [
+          "none",
+          "a1",
+          "a3",
+          "a2"
+        ]
+      },
+      {
+        "name": "a team without agents offers None alone",
+        "agents": [
+          {
+            "id": "as1",
+            "name": "Assistant",
+            "role": "assistant",
+            "sortOrder": 0,
+            "ownerId": "u-own"
+          }
+        ],
+        "expected": [
+          "none"
+        ]
+      }
+    ],
+    "valueCases": [
+      {
+        "name": "the coordinator of the team",
+        "teamId": "t1",
+        "agents": [
+          {
+            "id": "a1",
+            "teamId": "t1",
+            "role": "agent"
+          },
+          {
+            "id": "a2",
+            "teamId": "t1",
+            "role": "coordinator"
+          },
+          {
+            "id": "a9",
+            "teamId": "t9",
+            "role": "coordinator"
+          }
+        ],
+        "expected": "a2"
+      },
+      {
+        "name": "no coordinator",
+        "teamId": "t1",
+        "agents": [
+          {
+            "id": "a1",
+            "teamId": "t1",
+            "role": "agent"
+          },
+          {
+            "id": "a9",
+            "teamId": "t9",
+            "role": "coordinator"
+          }
+        ],
+        "expected": null
+      }
+    ]
   }
 }

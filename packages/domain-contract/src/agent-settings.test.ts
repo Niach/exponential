@@ -4,6 +4,8 @@ import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
 import {
   agentsInTeam,
+  coordinatorOf,
+  coordinatorOptions,
   assistantModelValue,
   agentAccountValue,
   ASSISTANT_SCHEDULES,
@@ -90,4 +92,17 @@ describe(`agent-settings.json assistant`, () => {
       expect(assistantScheduleOf(assistantScheduleTriggers(schedule.id))).toBe(schedule.id)
     }
   })
+})
+
+describe(`coordinator (#EXP-1717)`, () => {
+  for (const c of fixture.coordinator.optionCases) {
+    it(`optionCases: ${c.name}`, () => {
+      expect(coordinatorOptions(c.agents).map((option) => (typeof option === `string` ? option : option.id))).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.coordinator.valueCases) {
+    it(`valueCases: ${c.name}`, () => {
+      expect(coordinatorOf(c.agents, c.teamId)).toBe(c.expected)
+    })
+  }
 })

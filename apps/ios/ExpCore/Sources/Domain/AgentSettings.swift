@@ -426,6 +426,48 @@ public enum AgentSettings {
         guard let agent, let me else { return false }
         return isAssistant(role: agent.role) && agent.ownerId == me
     }
+
+    // MARK: - Coordinator (#EXP-1717, `coordinator`)
+
+    public enum CoordinatorCopy {
+        public static let label = "Coordinator"
+        public static let none = "None"
+        public static let refusedOwner = "Only the team's owners set its coordinator"
+        public static let refusedAgent = "Only a team agent of this team can be its coordinator"
+    }
+
+    /// The Team settings › Agents Coordinator row.
+    public static let coordinatorRowTestId = "settings-agents-coordinator"
+    /// The option id of "no coordinator".
+    public static let coordinatorNone = "none"
+
+    public static func isCoordinator(role: String?) -> Bool {
+        role == DomainContract.agentRoleCoordinator
+    }
+
+    /// `coordinator.optionCases`: the Coordinator row's option ids:
+    /// `coordinatorNone`, then the team agents (never an Assistant) by
+    /// sortOrder, then name.
+    public static func coordinatorOptions<T: AgentRoleOrdered>(_ agents: [T]) -> [String] {
+        let team = agents
+            .filter { !isAssistant(role: $0.agentRole) }
+            .sorted { a, b in
+                if a.agentSortOrder != b.agentSortOrder { return a.agentSortOrder < b.agentSortOrder }
+                return a.agentName.localizedCompare(b.agentName) == .orderedAscending
+            }
+        return [coordinatorNone] + team.map(\.agentId)
+    }
+
+    /// `coordinator.valueCases`: the team's coordinator id, or nil.
+    public static func coordinatorOf<T: AgentRoleOrdered>(
+        _ agents: [T], teamId: String, teamOf: (T) -> String
+    ) -> String? {
+        agents.first { teamOf($0) == teamId && isCoordinator(role: $0.agentRole) }?.agentId
+    }
+
+    public static func coordinatorOf(_ agents: [AgentDefinitionEntity], teamId: String) -> String? {
+        coordinatorOf(agents, teamId: teamId, teamOf: \.teamId)
+    }
 }
 
 extension AgentDefinitionEntity: AgentTeamScoped {
