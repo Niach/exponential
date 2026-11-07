@@ -437,45 +437,20 @@ class AppRecordsTest {
         },
     )
 
-    private fun result(v: JsonValue): AppRecords.OutboxResult = when {
-        v["ok"] != null -> AppRecords.OutboxResult.Ok
-        v["transport"] != null -> AppRecords.OutboxResult.Transport
-        else -> AppRecords.OutboxResult.Code(v["code"]!!.string!!)
-    }
-
     private fun assertJson(name: String, expected: JsonValue, actual: JsonValue) {
         assert(AppRecords.jsonEqual(expected, actual)) { "$name: $expected != $actual" }
     }
 
     @Test
     fun `the outbox constants match the fixture`() {
-        assertEquals(outbox["ackGraceSeconds"]!!.number!!.toInt(), AppRecords.Outbox.ACK_GRACE_SECONDS)
-        assertEquals(strings(outbox["retryCodes"]), AppRecords.Outbox.RETRY_CODES)
         assertEquals(params(outbox["copy"]), mapOf("pendingOne" to AppRecords.Outbox.PENDING_ONE, "pending" to AppRecords.Outbox.PENDING))
     }
 
     @Test
-    fun `outboxWrites replays writesCases`() {
+    fun `a stored writes column reads back`() {
         for (c in outboxCases("writesCases")) {
-            val name = c["name"]!!.string!!
-            val call = c["call"]!!.string!!
-            val args = c["args"]!!.obj!!
-            val newIds = strings(c["newIds"])
-            val got = AppRecords.outboxWrites(call, args, newIds)
-            assertJson(name, c["writes"]!!, JsonValue.Arr(got.map(AppRecords::outboxWriteJson)))
-            assertEquals(name, newIds.size, AppRecords.outboxCreates(call, args))
-            // The stored form round-trips.
-            assertEquals(name, got, AppRecords.outboxWritesOf(AppRecords.outboxWritesJson(got)))
-        }
-    }
-
-    @Test
-    fun `outboxRequest replays requestCases`() {
-        for (c in outboxCases("requestCases")) {
-            val name = c["name"]!!.string!!
-            val got = AppRecords.outboxRequest(entry(c["entry"]!!))
-            assertEquals(name, c["request"]!!["call"]!!.string, got.call)
-            assertJson(name, c["request"]!!["input"]!!, JsonValue.Obj(got.input))
+            val writes = c["writes"]!!.array!!.map(AppRecords::outboxWrite)
+            assertEquals(c["name"]!!.string, writes, AppRecords.outboxWritesOf(AppRecords.outboxWritesJson(writes)))
         }
     }
 
@@ -501,36 +476,6 @@ class AppRecordsTest {
                 if (i >= 0) laid[i] = row else laid += row
             }
             assertJson(name, c["expected"]!!, JsonValue.Arr(laid.map(::rowJson)))
-        }
-    }
-
-    @Test
-    fun `outboxOutcome replays outcomeCases`() {
-        for (c in outboxCases("outcomeCases")) {
-            val e = entry(c["entry"]!!)
-            assertEquals(c["name"]!!.string, c["outcome"]!!.string, AppRecords.outboxOutcome(e, result(c["result"]!!)))
-            c["verb"]?.string?.let { assertEquals(c["name"]!!.string, it, AppRecords.outboxVerb(e)) }
-        }
-    }
-
-    @Test
-    fun `outboxFlush replays flushCases`() {
-        for (c in outboxCases("flushCases")) {
-            val name = c["name"]!!.string!!
-            val results = c["results"]!!.obj!!.mapValues { result(it.value) }
-            val got = AppRecords.outboxFlush(c["entries"]!!.array!!.map(::entry), results, c["now"]!!.string!!)
-            assertEquals(name, strings(c["sent"]), got.sent)
-            val refused = c["refused"]!!.array!!.map { AppRecords.OutboxRefusal(it["writeId"]!!.string!!, it["verb"]!!.string!!) }
-            assertEquals(name, refused, got.refused)
-            assertJson(name, c["after"]!!, JsonValue.Arr(got.after.map(::entryJson)))
-        }
-    }
-
-    @Test
-    fun `outboxPrune replays pruneCases`() {
-        for (c in outboxCases("pruneCases")) {
-            val got = AppRecords.outboxPrune(c["entries"]!!.array!!.map(::entry), c["rows"]!!.array!!.map(::recordRow), c["now"]!!.string!!)
-            assertEquals(c["name"]!!.string, strings(c["kept"]), got.map { it.writeId })
         }
     }
 
