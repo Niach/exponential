@@ -40,7 +40,6 @@ import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
   agentFacetsSchema,
   agentTriggersSchema,
-  hexColorSchema,
   SKILL_BODY_MAX,
   SKILLS_PER_SESSION_MAX,
   SKILL_DESCRIPTION_MAX,
