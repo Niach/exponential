@@ -185,3 +185,4 @@ export type { TreeRow, TreeRowKind, TreeKeyRow, TreeKeyResult } from "./tree"
 // Round 8: the Canvas node's pure core and the Checkbox press rule.
 export * from "./canvas"
 export * from "./checkbox"
+export * from "./upgrade09"

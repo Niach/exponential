@@ -1248,14 +1248,23 @@ In the repo, drafts, samples (`samples/exponential-ui`, the site playground, `ev
 upgradeMessage09(message, state): { messages: unknown[]; state: Upgrade09State }  // agent→renderer and host-internal
 upgradeClientMessage09(message): unknown                                       // renderer→agent (action, error)
 upgradeCard09(surface): unknown                                                 // nested {root, data}
-upgradePackage09(file, verify): { package: unknown; status: "unsigned" | "valid" | "invalid"; author?: unknown }
+upgradePackage09(file, verify = verifyPackageFile): Promise<{ package: unknown; status: "unsigned" | "valid" | "invalid"; author?: unknown }>  // package null when invalid
+upgradePackageBody09(pkg): unknown                                              // a package OBJECT, steps 2–5 of Packages, no signature handling (the router's install path)
+upgradeComponents09(components, catalogId, state, surfaceId): { components; state } // one flat list as one surface
+rename09(name) / renamePattern09(pattern) / emptyUpgrade09State()
 ```
 
-`Upgrade09State = {surfaces: {[surfaceId]: {[oldId]: newId}}}`. It
-threads id maps across the messages of a stream. A single message, card
-or package starts from `{surfaces: {}}`. Each 0.9 message yields exactly
-one 1.0 message. Output key order follows the input's, with renamed keys
-in the renamed key's place and added keys at the end of their object.
+`Upgrade09State = {surfaces: {[surfaceId]: {[oldId]: newId}}, catalogs:
+{[surfaceId]: catalogId}}`. It threads id maps across the messages of a
+stream: every id seen is recorded, a kept id mapping to itself. `catalogs`
+records a `createSurface`'s catalogId (after the basic rewrite), so a later
+`updateComponents` of a basic surface gets the basic rules. A single
+message, card or package starts from `{surfaces: {}, catalogs: {}}`. The
+state passed in is never mutated. Each 0.9 message yields exactly one 1.0
+message. Output key order follows the input's, with renamed keys in the
+renamed key's place and added keys at the end of their object; `version`
+is always the FIRST key of a message or card. A package that does not name
+`formatVersion` 5 is returned unchanged by `upgradePackageBody09`.
 
 ### 14.3 Rules
 
@@ -1266,7 +1275,7 @@ in the renamed key's place and added keys at the end of their object.
 | `createSurface.theme` | removed; its value goes to `metadata.extensions.at_exponential_theme` (merged into an existing `metadata.extensions`, `theme` wins) |
 | `createSurface.catalogId` = either 0.9 basic id | the 1.0 basic id |
 | `updateDataModel` without `value` | `value: null` |
-| client `action.payload` | removed; → `metadata.extensions.at_exponential_payload` (omitted when empty) |
+| client `action.payload` | removed; → `metadata.extensions.at_exponential_payload` (omitted when absent, null, `false`, `""` or `{}`); the extensions are added in the order payload, instance |
 | client `action.sourceComponentId` | `mangle(prefix before the first ".")`; when that differs from the original, the original goes to `metadata.extensions.at_exponential_instance` |
 | client `error.code` | FUNCTION_NOT_FOUND → UNKNOWN_FUNCTION, FUNCTION_DENIED → INVALID_FUNCTION_CALL, ACTION_FAILED → EXECUTION_ERROR; others kept |
 | `applyTemplate`, `bindDataModel` | only `version` changes |
@@ -1280,8 +1289,9 @@ call args. Recursively:
 - An object whose ONLY key is `path`, holding a string, →
   `{"@path": path}`.
 - Else an object with a string `call` → `{"@call": rename(call)}`
-  followed by `"args": dyn(args)` when `args` is an object. `returnType`
-  and every other key are dropped.
+  followed by `"args"` when `args` is an object: the same keys (arg names,
+  never escaped) with each value `dyn`'d. `returnType` and every other key
+  are dropped.
 - Else an object → a literal: each key starting with `@` gets one more
   `@` prepended, and each value gets `dyn`.
 - An array → element-wise.
@@ -1313,7 +1323,10 @@ catalog, before `dyn`):
   `{"@path": <the ORIGINAL id>}` (the 0.9 transform's relative path; data
   keys are never re-keyed). The pattern is not validated (a bad one fails
   at run time, §9.3).
-- `TextField` without `value` → `"value": ""`.
+- `TextField` without `value` → `"value": ""` (added after a new `checks`).
+- Event `context` keys are not escaped (they are data keys); their values
+  are `dyn`'d. Props of a component with no catalog definition are all
+  dynamic.
 
 **Host function rename** `rename(name)`: `app.`/`records.`/`actions.`/
 `harness.`/`exponential.`/`camera.`/`clipboard.`/`files.`/`http.`/
@@ -1323,7 +1336,10 @@ catalog, before `dyn`):
 `upstream.<server>.<rest>` → `upstream_<mangle(server)>__<mangle(rest)>`
 (server = up to the second `.`). Any other name is unchanged. Patterns
 (`functions` lists, policies) apply the same function to the part before
-`*`, keeping the `*`. A `tools.x.*` prefix becomes `tools_x__*`.
+`*`, keeping the `*`. A part ending in `.` renames without that `.` and
+then takes the separator back: `harness.*` → `harness_*`, `tools.*` →
+`tools_*`, `exponential.issues.*` → `exponential_issues_*`, and
+`tools.x.*` / `upstream.x.*` → `tools_x__*` / `upstream_x__*`.
 
 **Id re-key**. `mangle(s)`:
 
@@ -1369,11 +1385,14 @@ then the card gets `"version": "1.0"` as its first key.
 3. `functions[]`, the `actions.*.steps[]` keys `records.upsert`/
    `records.delete` → `records_upsert`/`records_delete`, the `call`
    values, `exposes[].run.action`, and every string in `tests[*].expect`
-   equal to a 0.9 host function name all go through `rename`.
+   shaped like a dotted function name (`^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)+$`)
+   all go through `rename`.
 4. `tools` keys → `mangle` with the `_2` collision rule (ids are tested
    against the v6 `idPattern` after mangling; a leading or trailing `_` is
    stripped, and a `__` collapses to `_` before the collision suffix).
-   Their references move with them.
+   An id already matching the v6 `idPattern` is kept; the others, in key
+   order, take the first free candidate. Their references move with them:
+   `tools.<id>…` names everywhere in the package use the re-keyed id.
 5. `formatVersion` → 6. `signature` is DROPPED. `author` is kept as an
    unverified claim. `status` = the original's (`valid` keeps its
    `author`).
