@@ -95,7 +95,7 @@
         {"id": "work", "label": "Work", "count": 28},
         {"id": "tracker", "label": "Tracker", "count": 19},
         {"id": "team", "label": "Team", "count": 13},
-        {"id": "agents", "label": "Agents", "count": 15},
+        {"id": "agents", "label": "Agents", "count": 18},
         {"id": "sessions", "label": "Sessions", "count": 10},
         {"id": "apps", "label": "Apps", "count": 12},
         {"id": "activity", "label": "Activity", "count": 4}
@@ -120,7 +120,7 @@
       "name": "the wire name matches",
       "query": "exponential_agents",
       "expected": [
-        {"id": "agents", "label": "Agents", "count": 2, "rows": ["exponential_agents_list", "exponential_agents_get"]}
+        {"id": "agents", "label": "Agents", "count": 5, "rows": ["exponential_agents_list", "exponential_agents_get", "exponential_agents_create", "exponential_agents_update", "exponential_agents_delete"]}
       ]
     },
     {

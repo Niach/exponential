@@ -133,6 +133,9 @@ async function seedAll(s: Seed) {
 describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
   it(`a dry run counts and changes nothing`, async () => {
     await inRollback(async (tx) => {
+      // The walk covers every row and CI runs the real-DB files side by side,
+      // so one snapshot keeps their commits out of the delta below.
+      await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`)
       // The throwaway database's own rows count too.
       const base = await runA2ui10Migration(tx as Client, { apply: false })
       const s = await seed(tx)

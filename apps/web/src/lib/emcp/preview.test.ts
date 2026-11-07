@@ -97,6 +97,10 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_agents_list: [`list`, `agent`],
   // EXP-1657
   exponential_agents_get: [`agent`],
+  // #FEED-195
+  exponential_agents_create: [`agent`],
+  exponential_agents_update: [`agent`],
+  exponential_agents_delete: [],
   exponential_events_emit: [],
   exponential_events_list: [`list`, `event`],
   exponential_attachments_delete: [],

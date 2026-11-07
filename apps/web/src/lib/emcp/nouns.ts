@@ -200,8 +200,14 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `agents`,
     group: `agents`,
-    blurb: `A team's agents (message one with exponential_sessions_send {agentId}): list, get.`,
-    ops: { list: `agents_list`, get: `agents_get` },
+    blurb: `A team's agents (message one with exponential_sessions_send {agentId}): list, get, create, update, delete (owners write).`,
+    ops: {
+      list: `agents_list`,
+      get: `agents_get`,
+      create: `agents_create`,
+      update: `agents_update`,
+      delete: `agents_delete`,
+    },
   },
   {
     name: `prompts`,
