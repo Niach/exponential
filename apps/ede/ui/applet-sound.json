@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sound applet (#EDE-43): the taskbar's sound button opens it as a popup surface. Cinnamon's content in the IDE's language: one card per MPRIS player (/services/media/players: the art, the title and artist, previous / play-pause / next, a seek slider over the track), the output volume with its mute switch, the output device (/services/sound/sinkOptions → set_default), then Applications: one slider and mute per playback stream (/services/sound/streams), and the Sound settings link. Every action is ede.service on the sound or media domain.",
+  "$comment": "Exponential Desktop's factory sound applet (#EDE-43): the taskbar's sound button opens it as a popup surface. Cinnamon's content in the IDE's language: one card per MPRIS player (/services/media/players: the art, the title and artist, previous / play-pause / next, a seek slider over the track), the output volume with its mute switch, the output device (/services/sound/sinkOptions → set_default), then Applications: one slider and mute per playback stream (/services/sound/streams), and the Sound settings link. Every action is ede_service on the sound or media domain.",
   "surface": {
     "popup": {
       "parent": "taskbar",
@@ -11,8 +11,8 @@
       }
     },
     "functions": [
-      "ede.service",
-      "ede.open_document"
+      "ede_service",
+      "ede_open_document"
     ]
   },
   "root": {
