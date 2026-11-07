@@ -4,6 +4,7 @@
 //! genUI message, pause or resume the sources, settle a function call).
 //! The gpui half (`main.rs`) only turns window events into these calls.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use eengine::broker::{GrantValue, Verdict};
@@ -16,6 +17,7 @@ use eengine::{
 use serde_json::{json, Map, Value};
 
 use crate::events::{refused_link_copy, RunnerEvent};
+use eui_core::upgrade09::{upgrade_components09, Upgrade09State};
 
 /// The surfaces a runner layers, bottom to top (runner.json SURFACES).
 pub const APP: &str = "app";
@@ -24,7 +26,7 @@ pub const PERMISSIONS: &str = "permissions";
 pub const TOAST: &str = "toast";
 pub const SURFACES: [&str; 4] = [APP, CONSENT, PERMISSIONS, TOAST];
 
-const VERSION: &str = "v0.9";
+const VERSION: &str = eui_core::catalog::A2UI_VERSION;
 
 /// What the painter does.
 #[derive(Clone, Debug, PartialEq)]
@@ -40,15 +42,63 @@ pub enum Paint {
 }
 
 /// A surface made of `components` (+ its data), replacing any earlier one.
+/// The Engine's sheets are still 0.9 components (`packages/eengine` is not
+/// flat yet): they go through `upgrade09` so the host's entry check reads 1.0.
 pub fn surface_messages(surface_id: &str, components: &[Value], data: Option<&Value>) -> Vec<Value> {
+    let catalog = json!(eui_core::catalog::CORE_CATALOG_ID);
+    let (components, _) = upgrade_components09(&Value::Array(components.to_vec()), Some(&catalog), &Upgrade09State::default(), surface_id);
     let mut out = vec![
-        json!({"version": VERSION, "createSurface": {"surfaceId": surface_id, "catalogId": eui_core::catalog::CORE_CATALOG_ID}}),
+        json!({"version": VERSION, "createSurface": {"surfaceId": surface_id, "catalogId": catalog}}),
         json!({"version": VERSION, "updateComponents": {"surfaceId": surface_id, "components": components}}),
     ];
     if let Some(data) = data {
         out.push(json!({"version": VERSION, "updateDataModel": {"surfaceId": surface_id, "path": "/", "value": data}}));
     }
     out
+}
+
+/// Round 9 §1.4: surface ids are unique for the router's lifetime, so a
+/// runner surface painted again gets a minted id; `SURFACES` stay the names
+/// the runner speaks. [`Self::rewrite`] maps a message onto the live id.
+#[derive(Default)]
+pub struct LiveSurfaces {
+    live: HashMap<String, String>,
+    created: HashSet<String>,
+}
+
+impl LiveSurfaces {
+    /// The live id behind a runner surface.
+    pub fn live<'a>(&'a self, surface: &'a str) -> &'a str {
+        self.live.get(surface).map_or(surface, String::as_str)
+    }
+
+    /// `message` on the live id; a surface opened again = a minted id, and
+    /// the second message (delete the old one) runs right after it.
+    pub fn rewrite(&mut self, message: &Value, mint: impl FnOnce(&str) -> String) -> (Value, Option<Value>) {
+        let Some((kind, id)) = surface_of(message) else { return (message.clone(), None) };
+        let (target, replaced) = match kind.as_str() {
+            "createSurface" | "applyTemplate" => {
+                if self.created.insert(id.clone()) {
+                    self.live.insert(id.clone(), id.clone());
+                    (id, None)
+                } else {
+                    let minted = mint(&id);
+                    let old = self.live.insert(id, minted.clone());
+                    (minted, old)
+                }
+            }
+            "deleteSurface" => (self.live.remove(&id).unwrap_or(id), None),
+            _ => (self.live(&id).to_string(), None),
+        };
+        let mut out = message.clone();
+        out[kind.as_str()]["surfaceId"] = Value::String(target);
+        (out, replaced.map(|old| delete_message(&old)))
+    }
+}
+
+fn surface_of(message: &Value) -> Option<(String, String)> {
+    let (kind, body) = message.as_object()?.iter().find(|(k, _)| *k != "version")?;
+    Some((kind.clone(), body.get("surfaceId")?.as_str()?.to_string()))
 }
 
 pub fn delete_message(surface_id: &str) -> Value {

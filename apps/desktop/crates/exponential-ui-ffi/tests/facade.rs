@@ -187,10 +187,10 @@ fn the_layout_and_overlay_fixtures_replay_through_the_facade() {
 #[test]
 fn messages_events_and_overlays_cross_the_facade_as_json() {
     let surface = Surface::new("s".into(), core_catalog_id(), None, "dark".into()).unwrap();
-    surface.apply(json!({"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [
+    surface.apply(json!({"version": "1.0", "updateComponents": {"surfaceId": "s", "components": [
         {"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": ["dlg", "t"]},
-        {"id": "t", "component": "Text", "text": {"path": "/title"}},
-        {"id": "dlg", "component": "Dialog", "title": "Hi", "open": {"path": "/open"}, "slots": {"trigger": "b"}, "children": ["body"]},
+        {"id": "t", "component": "Text", "text": {"@path": "/title"}},
+        {"id": "dlg", "component": "Dialog", "title": "Hi", "open": {"@path": "/open"}, "slots": {"trigger": "b"}, "children": ["body"]},
         {"id": "b", "component": "Button", "label": "Open", "on": {"press": {"event": {"name": "opened"}}}},
         {"id": "body", "component": "Text", "text": "Body"}
     ]}}).to_string()).unwrap();
@@ -617,7 +617,7 @@ fn the_host_policy_fixture_replays_through_the_facade() {
     for c in f["negotiation"].as_array().unwrap() {
         let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
         assert_eq!(json!(supported_catalog_ids_for(ids.clone())), c["expected"]["supportedCatalogIds"]);
-        eq(&client_capabilities_json(ids), &c["expected"]["clientCapabilities"], "clientCapabilities");
+        eq(&renderer_capabilities_json(ids, None).unwrap(), &c["expected"]["clientCapabilities"], "clientCapabilities");
     }
     assert!(combine_decisions("allow".into(), "maybe".into()).is_err());
     eq(&package_policy_json(Some("[\"harness.toast\"]".into())).unwrap(), &json!({"allow": ["harness.toast"], "default": "deny"}), "packagePolicy");
@@ -649,18 +649,18 @@ fn the_host_router_fixture_replays_through_the_facade() {
             eq(&router.install_package(packages[id].to_string()).unwrap(), &flow["installIssues"][id], &format!("{name}: install {id}"));
         }
         for (i, step) in flow["steps"].as_array().unwrap().iter().enumerate() {
-            eq(&router.route(step["message"].to_string()), &step["expected"], &format!("{name}: step {i}"));
+            eq(&router.route_json(step["message"].to_string(), step["trusted"] == json!(true)), &step["expected"], &format!("{name}: step {i}"));
         }
     }
     // State + the client messages.
     let router = HostRouter::new(vec![]);
     router.install_package(packages["acme.devices"].to_string()).unwrap();
-    router.route(json!({"version": "v0.9", "applyTemplate": {"surfaceId": "d", "templateId": "list"}}).to_string());
+    router.route_json(json!({"version": a2ui_version(), "applyTemplate": {"surfaceId": "d", "templateId": "list"}}).to_string(), true);
     assert_eq!(router.surface_ids(), ["d"]);
     assert_eq!(router.package_id_of("d".into()).as_deref(), Some("acme.devices"));
     router.register_extension("https://acme.example/catalog/v1".into());
     assert_eq!(router.supported_catalog_ids().len(), 4);
-    let ops: Value = serde_json::from_str(&router.route("not json".into())).unwrap();
+    let ops: Value = serde_json::from_str(&router.route_json("not json".into(), false)).unwrap();
     assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
     let msgs = template_messages_json(packages["acme.devices"].to_string(), "list".into(), "x".into(), Some("{\"filter\":\"online\"}".into())).unwrap().unwrap();
     let msgs: Value = serde_json::from_str(&msgs).unwrap();
@@ -669,10 +669,10 @@ fn the_host_router_fixture_replays_through_the_facade() {
     assert!(template_messages_json(packages["acme.devices"].to_string(), "nope".into(), "x".into(), None).unwrap().is_none());
     eq(
         &action_message_json("s".into(), "btn".into(), "save".into(), "{\"id\":1}".into(), Some("{\"value\":\"a\"}".into()), "t".into()).unwrap(),
-        &json!({"version": "v0.9", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {"id": 1}, "payload": {"value": "a"}}}),
+        &json!({"version": "1.0", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {"id": 1}, "metadata": {"extensions": {"at_exponential_payload": {"value": "a"}}}}}),
         "actionMessage",
     );
-    eq(&error_message_json("FUNCTION_DENIED".into(), "s".into(), "m".into(), None), &json!({"version": "v0.9", "error": {"code": "FUNCTION_DENIED", "surfaceId": "s", "message": "m"}}), "errorMessage");
+    eq(&error_message_json("INVALID_FUNCTION_CALL".into(), "s".into(), "m".into(), None), &json!({"version": "1.0", "error": {"code": "INVALID_FUNCTION_CALL", "surfaceId": "s", "message": "m"}}), "errorMessage");
     let contract: Value = serde_json::from_str(&host_contract_json()).unwrap();
     assert_eq!(contract["transport"]["mcpActionTool"], "a2ui_event");
 }
@@ -1151,8 +1151,8 @@ fn contract_heights_and_a_loaded_markdown_cross_the_facade() {
 #[test]
 fn the_facade_refuses_oversized_messages_and_bad_writes() {
     let router = HostRouter::new(vec![]);
-    let big = format!(r#"{{"version":"v0.9","updateComponents":{{"surfaceId":"s","components":[{{"id":"root","component":"Text","text":"{}"}}]}}}}"#, "x".repeat(4_194_304));
-    let ops: Value = serde_json::from_str(&router.route(big)).unwrap();
+    let big = format!(r#"{{"version":"1.0","updateComponents":{{"surfaceId":"s","components":[{{"id":"root","component":"Text","text":"{}"}}]}}}}"#, "x".repeat(4_194_304));
+    let ops: Value = serde_json::from_str(&router.route_json(big, false)).unwrap();
     assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
     assert_eq!(ops[0]["message"]["error"]["message"], "message larger than 4194304 bytes");
     let surface = Surface::new("s".into(), core_catalog_id(), None, "light".into()).unwrap();
@@ -1561,4 +1561,47 @@ fn the_package_tests_fixture_replays_through_the_facade() {
     bad.insert("tests".into(), json!([{"name": ""}]));
     assert_eq!(run_package_tests_json(Value::Object(bad).to_string()).unwrap(), "[]");
     assert!(run_package_tests_json("{".into()).is_err());
+}
+
+/// Round 9: the wire constants, the host-internal gate, the id mint, the two
+/// `call` / `respond` ops and the 0.9 bridge reach the bindings.
+#[test]
+fn round_9_crosses_the_facade() {
+    assert_eq!(a2ui_version(), "1.0");
+    assert!(accept_v09() || !accept_v09());
+    let router = HostRouter::new(vec![]);
+    let core = core_catalog_id();
+    let ops = |json: &str| serde_json::from_str::<Value>(json).unwrap();
+    let bound = json!({"version": "1.0", "bindDataModel": {"surfaceId": "x", "path": "/a", "source": "exp:devices"}}).to_string();
+    assert_eq!(ops(&router.route_json(bound, false))[0]["message"]["error"]["message"], "bindDataModel is host-internal");
+    let created = json!({"version": "1.0", "createSurface": {"surfaceId": "s", "catalogId": core}}).to_string();
+    assert_eq!(ops(&router.route_json(created.clone(), false))[0]["op"], "create");
+    assert_eq!(ops(&router.route_json(created, false))[0]["message"]["error"]["code"], "INTEGRITY_ERROR");
+    assert_eq!(router.mint_surface_id("s".into()), "s#1");
+    let called = json!({"version": "1.0", "callRendererFunction": {"functionCallId": "c1", "callFunction": {"@call": "formatString", "catalogId": core, "args": {"value": "x"}}}}).to_string();
+    let called = ops(&router.route_json(called, false));
+    assert_eq!((called[0]["op"].as_str(), called[0]["functionCallId"].as_str()), (Some("call"), Some("c1")));
+    let answered = json!({"version": "1.0", "agentFunctionResponse": {"functionCallId": "s:1", "value": 3}}).to_string();
+    assert_eq!(ops(&router.route_json(answered, false))[0], json!({"op": "respond", "functionCallId": "s:1", "value": 3}));
+    router.register_inline_catalog("https://acme.example/inline".into());
+    assert!(router.available_catalog_ids().contains(&"https://acme.example/inline".to_string()));
+
+    let caps = ops(&renderer_capabilities_json(vec![], Some("[{\"catalogId\": \"x\"}]".into())).unwrap());
+    assert_eq!(caps["1.0"]["inlineCatalogs"], json!([{"catalogId": "x"}]));
+    assert!(caps["1.0"]["supportedCatalogIds"].as_array().unwrap().contains(&json!(core)));
+    eq(&function_error_message_json("EXPRESSION_ERROR".into(), "s:1".into(), "m".into(), None), &json!({"version": "1.0", "error": {"code": "EXPRESSION_ERROR", "functionCallId": "s:1", "message": "m"}}), "functionError");
+    eq(&call_agent_function_message_json("s".into(), "s:1".into(), "lookup".into(), core.clone(), "{}".into()).unwrap(), &json!({"version": "1.0", "callAgentFunction": {"surfaceId": "s", "functionCallId": "s:1", "callFunction": {"@call": "lookup", "catalogId": core, "args": {}}}}), "callAgentFunction");
+    eq(&renderer_function_value_json("c".into(), None).unwrap(), &json!({"version": "1.0", "rendererFunctionResponse": {"functionCallId": "c", "value": null}}), "value");
+    eq(&renderer_function_error_json("c".into(), "EXECUTION_ERROR".into(), "m".into()), &json!({"version": "1.0", "rendererFunctionResponse": {"functionCallId": "c", "error": {"code": "EXECUTION_ERROR", "message": "m"}}}), "error");
+    eq(&action_message_with_user_message_json("s".into(), "b".into(), "go".into(), "{}".into(), None, "t".into(), Some("hi".into())).unwrap(), &json!({"version": "1.0", "action": {"name": "go", "surfaceId": "s", "sourceComponentId": "b", "timestamp": "t", "context": {}, "userMessage": "hi"}}), "userMessage");
+
+    // The two smoke cases the Swift and Kotlin suites replay too (§15).
+    let fixture = fixture("upgrade09.json");
+    let case = |name: &str| fixture["cases"].as_array().unwrap().iter().find(|c| c["name"] == name).cloned().unwrap_or_else(|| panic!("{name}"));
+    let client = case("client action: payload → extensions, instance id → sourceComponentId + at_exponential_instance");
+    let request = json!({"kind": "client", "input": client["input"]});
+    assert_eq!(upgrade09_json(request.to_string()).unwrap(), client["expected"].to_string());
+    let card = fixture["cases"].as_array().unwrap().iter().find(|c| c["kind"] == "card").unwrap();
+    assert_eq!(upgrade_card09(card["input"].to_string()).unwrap(), card["expected"].to_string());
+    assert!(upgrade_card09("not json".into()).is_err());
 }

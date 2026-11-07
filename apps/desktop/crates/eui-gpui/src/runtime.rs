@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use eui_core::host::{
     action_message, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
-    action_call_name, navigate_target, run_action, ActionContext, ActionRun, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
+    action_call_name, navigate_target, run_action, ActionContext, ActionRun, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, RouteOptions, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
     FUNCTION_NOT_FOUND, NAVIGATE_FUNCTION, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
 use eui_core::measure::TextStyle;
@@ -632,12 +632,27 @@ impl ExponentialHost {
         }
     }
 
-    /// One server message (a transport delivers here; tests and local hosts
-    /// may call it directly). Returns the ops performed.
+    /// One agent message, UNTRUSTED (a transport delivers here; round 9 §2:
+    /// `applyTemplate` / `bindDataModel` answer INVALID_MESSAGE). Returns the
+    /// ops performed.
     pub fn receive(&mut self, message: &Value, cx: &mut Context<Self>) -> Vec<Value> {
+        self.route(message, RouteOptions::default(), cx)
+    }
+
+    /// One message from HOST code (round 9 §2): the host-internal kinds pass.
+    pub fn receive_trusted(&mut self, message: &Value, cx: &mut Context<Self>) -> Vec<Value> {
+        self.route(message, RouteOptions::trusted(), cx)
+    }
+
+    /// Round 9 §1.4: a fresh id for a re-opened surface.
+    pub fn mint_surface_id(&mut self, base: &str) -> String {
+        self.router.mint_surface_id(base)
+    }
+
+    fn route(&mut self, message: &Value, options: RouteOptions, cx: &mut Context<Self>) -> Vec<Value> {
         // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
         let params = eui_core::host::host_params(self.now.as_ref().map(|f| f()), self.zone.as_deref());
-        let ops = self.router.route(&eui_core::host::with_host_params(message, &params));
+        let ops = self.router.route(&eui_core::host::with_host_params(message, &params), options);
         for op in &ops {
             self.perform(op, cx);
         }
@@ -673,7 +688,7 @@ impl ExponentialHost {
                 let surface_theme = match op.get("theme").filter(|t| !t.is_null()).map(resolve_surface_theme) {
                     Some(Ok(theme)) => Some(theme),
                     Some(Err(issues)) => {
-                        let msg = error_message(VALIDATION_FAILED, &sid, &format!("createSurface.theme is unusable: {}", issues.join("; ")), Some("/createSurface/theme"));
+                        let msg = error_message(VALIDATION_FAILED, &sid, &format!("createSurface.metadata.extensions.at_exponential_theme is unusable: {}", issues.join("; ")), Some("/createSurface/metadata/extensions/at_exponential_theme"));
                         self.send(msg);
                         None
                     }
@@ -1058,7 +1073,7 @@ impl ExponentialHost {
             "version": eui_core::catalog::A2UI_VERSION,
             "bindDataModel": {"surfaceId": surface_id, "path": path, "source": source_with_params(source, params)},
         });
-        self.receive(&message, cx).iter().any(|op| op["op"].as_str() == Some("bind"))
+        self.receive_trusted(&message, cx).iter().any(|op| op["op"].as_str() == Some("bind"))
     }
 
     /// `openUrl` / `Link` through the URL policy (relative urls against the

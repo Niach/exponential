@@ -241,7 +241,7 @@ pub(crate) fn app_tab_title(app: &str, cx: &App) -> SharedString {
 pub(crate) fn apply_template_message(pkg: &Value, picked: Option<&str>) -> Option<Value> {
     let template = preview_template(Some(pkg), picked)?;
     Some(json!({
-        "version": "v0.9",
+        "version": eui_core::catalog::A2UI_VERSION,
         "applyTemplate": {
             "surfaceId": APPS.preview.surface_id,
             "templateId": template,
@@ -254,7 +254,7 @@ pub(crate) fn apply_template_message(pkg: &Value, picked: Option<&str>) -> Optio
 /// the data `{params}` (eUI `screenData`).
 pub(crate) fn apply_screen_message(pkg: &Value, screen: &ResolvedScreen) -> Value {
     json!({
-        "version": "v0.9",
+        "version": eui_core::catalog::A2UI_VERSION,
         "applyTemplate": {
             "surfaceId": APPS.preview.surface_id,
             "templateId": screen.screen,
@@ -742,7 +742,7 @@ impl AppScreenView {
         };
         if let Some(message) = message {
             ide.host.update(cx, |host, cx| {
-                host.receive(&message, cx);
+                host.receive_trusted(&message, cx);
             });
         }
         let observe = cx.observe(&ide.host, |_, _, cx| cx.notify());
@@ -1700,7 +1700,7 @@ mod tests {
         let ide = cx.update(|cx| IdeHost::with_packages(Mode::Dark, std::slice::from_ref(&pkg), None, None, cx));
         let host = ide.host.clone();
         let issues = host.update(cx, |host, cx| {
-            let ops = host.receive(&apply_template_message(&pkg, None).unwrap(), cx);
+            let ops = host.receive_trusted(&apply_template_message(&pkg, None).unwrap(), cx);
             (ops.len(), format!("{:?}", host.issues()))
         });
         cx.run_until_parked();

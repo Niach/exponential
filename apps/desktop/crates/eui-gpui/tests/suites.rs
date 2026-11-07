@@ -21,7 +21,7 @@ use eui_core::catalog::{component_def, CatalogView};
 use eui_core::extension::define_extension;
 use eui_core::host::{
     client_capabilities, combine_decisions, decide_function, decide_url, mcp_action_call, media_request, messages_from_mcp_result, parse_source,
-    source_with_params, supported_catalog_ids, validate_package, validate_record, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, SseDecoder, UrlPolicy,
+    source_with_params, supported_catalog_ids, validate_package, validate_record, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, RouteOptions, SseDecoder, UrlPolicy,
 };
 use eui_core::json;
 use eui_core::measure::FixedMeasure;
@@ -661,7 +661,8 @@ fn host_suite(id: &str) -> Vec<Case> {
                     result = result.and_then(|_| same(&to_value(&got), &flow["installIssues"][id]).map_err(|e| format!("install {id}: {e}")));
                 }
                 for (i, step) in list(flow, "steps").iter().enumerate() {
-                    let got = Value::Array(router.route(&step["message"]));
+                    let options = if step["trusted"] == json!(true) { RouteOptions::trusted() } else { RouteOptions::default() };
+                    let got = Value::Array(router.route(&step["message"], options));
                     result = result.and_then(|_| same(&got, &step["expected"]).map_err(|e| format!("step {i}: {e}")));
                 }
                 out.push((format!("flow: {}", flow["name"].as_str().unwrap()), result));

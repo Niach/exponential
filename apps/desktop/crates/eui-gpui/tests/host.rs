@@ -17,6 +17,7 @@ use eui_gpui::view::SurfaceView;
 use gpui::{div, prelude::*, App, Entity, Task, TestAppContext, Window};
 use serde_json::{json, Value};
 
+const VERSION: &str = eui_core::catalog::A2UI_VERSION;
 const CORE: &str = "https://ui.exponential.at/catalogs/core/v1";
 
 fn fixture(name: &str) -> Value {
@@ -29,11 +30,11 @@ fn init(cx: &mut TestAppContext) {
 }
 
 fn create(sid: &str) -> Value {
-    json!({"version": "v0.9", "createSurface": {"surfaceId": sid, "catalogId": CORE}})
+    json!({"version": VERSION, "createSurface": {"surfaceId": sid, "catalogId": CORE}})
 }
 
 fn components(sid: &str, list: Value) -> Value {
-    json!({"version": "v0.9", "updateComponents": {"surfaceId": sid, "components": list}})
+    json!({"version": VERSION, "updateComponents": {"surfaceId": sid, "components": list}})
 }
 
 fn host_with(cx: &mut TestAppContext, options: HostOptions) -> Entity<ExponentialHost> {
@@ -62,7 +63,7 @@ fn router_ops_reach_surfaces_through_the_memory_transport(cx: &mut TestAppContex
     assert_eq!(host.read_with(cx, |h, _| h.status()), TransportStatus::Open);
     assert_eq!(host.read_with(cx, |h, _| h.surface_ids()), vec!["s1".to_string()]);
 
-    t.feed([json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/b", "value": "B"}})]);
+    t.feed([json!({"version": VERSION, "updateDataModel": {"surfaceId": "s1", "path": "/b", "value": "B"}})]);
     cx.run_until_parked();
     assert_eq!(data(&host, "s1", cx), json!({"b": "B"}));
 
@@ -74,10 +75,10 @@ fn router_ops_reach_surfaces_through_the_memory_transport(cx: &mut TestAppContex
     assert!(ids.contains(&"root".to_string()) && ids.contains(&"a".to_string()) && ids.contains(&"b".to_string()), "{ids:?}");
 
     // No value = remove the path; path "/" = the whole model.
-    t.feed([json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/b"}})]);
+    t.feed([json!({"version": VERSION, "updateDataModel": {"surfaceId": "s1", "path": "/b", "value": null}})]);
     cx.run_until_parked();
     assert_eq!(data(&host, "s1", cx), json!({}));
-    t.feed([json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/", "value": {"x": 1}}})]);
+    t.feed([json!({"version": VERSION, "updateDataModel": {"surfaceId": "s1", "path": "/", "value": {"x": 1}}})]);
     cx.run_until_parked();
     assert_eq!(data(&host, "s1", cx), json!({"x": 1}));
 
@@ -86,7 +87,7 @@ fn router_ops_reach_surfaces_through_the_memory_transport(cx: &mut TestAppContex
     cx.run_until_parked();
     assert_eq!(sent_errors(&t), vec![("SURFACE_NOT_FOUND".to_string(), "no surface nope; send createSurface first".to_string())]);
 
-    t.feed([json!({"version": "v0.9", "deleteSurface": {"surfaceId": "s1"}})]);
+    t.feed([json!({"version": VERSION, "deleteSurface": {"surfaceId": "s1"}})]);
     cx.run_until_parked();
     assert!(host.read_with(cx, |h, _| h.surface("s1")).is_none());
 
@@ -103,7 +104,7 @@ fn unsupported_catalogs_are_recorded_and_reported(cx: &mut TestAppContext) {
     let t = MemoryTransport::new();
     let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
     host.update(cx, |h, cx| h.connect(cx));
-    t.feed([json!({"version": "v0.9", "createSurface": {"surfaceId": "x", "catalogId": "https://example.com/catalogs/other/v1"}})]);
+    t.feed([json!({"version": VERSION, "createSurface": {"surfaceId": "x", "catalogId": "https://example.com/catalogs/other/v1"}})]);
     cx.run_until_parked();
     assert_eq!(host.read_with(cx, |h, _| h.unsupported_catalog().map(str::to_string)), Some("https://example.com/catalogs/other/v1".to_string()));
     assert_eq!(sent_errors(&t)[0].0, "UNSUPPORTED_CATALOG");
@@ -139,7 +140,11 @@ fn sources_bind_emit_and_cancel(cx: &mut TestAppContext) {
     let t = MemoryTransport::new();
     let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), sources: HashMap::from([("EXP".to_string(), resolver)]), ..Default::default() });
     host.update(cx, |h, cx| h.connect(cx));
-    t.feed([create("s"), json!({"version": "v0.9", "bindDataModel": {"surfaceId": "s", "path": "/devices", "source": "exp:devices?board=b1"}})]);
+    t.feed([create("s")]);
+    cx.run_until_parked();
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "bindDataModel": {"surfaceId": "s", "path": "/devices", "source": "exp:devices?board=b1"}}), cx);
+    });
     cx.run_until_parked();
     assert_eq!(*probe.params.lock().unwrap(), vec!["exp:devices {\"board\": \"b1\"}".to_string()]);
     assert_eq!(data(&host, "s", cx), json!({"devices": ["first"]}));
@@ -155,13 +160,15 @@ fn sources_bind_emit_and_cancel(cx: &mut TestAppContext) {
     assert_eq!(data(&host, "s", cx), json!({"devices": ["second"]}));
 
     // An unknown scheme is a VALIDATION_FAILED error naming the path.
-    t.feed([json!({"version": "v0.9", "bindDataModel": {"surfaceId": "s", "path": "/x", "source": "nope:thing"}})]);
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "bindDataModel": {"surfaceId": "s", "path": "/x", "source": "nope:thing"}}), cx);
+    });
     cx.run_until_parked();
     let err = t.sent().into_iter().find_map(|m| m.get("error").cloned()).unwrap();
     assert_eq!(err, json!({"code": "VALIDATION_FAILED", "surfaceId": "s", "message": "no resolver for the source scheme nope", "path": "/x"}));
 
     // Deleting the surface cancels; a late emit is dropped.
-    t.feed([json!({"version": "v0.9", "deleteSurface": {"surfaceId": "s"}})]);
+    t.feed([json!({"version": VERSION, "deleteSurface": {"surfaceId": "s"}})]);
     cx.run_until_parked();
     assert_eq!(probe.cancels.load(Ordering::SeqCst), 1);
     t.feed([create("s")]);
@@ -234,7 +241,9 @@ fn the_function_gate_consent_and_package_narrowing(cx: &mut TestAppContext) {
     );
 
     // A template's surface carries its package: `functions` narrows the gate.
-    t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "pkg", "templateId": "list"}})]);
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "pkg", "templateId": "list"}}), cx);
+    });
     cx.run_until_parked();
     assert_eq!(host.read_with(cx, |h, _| h.package_id_of("pkg").map(str::to_string)), Some("acme.devices".to_string()));
     assert_eq!(data(&host, "pkg", cx)["title"], json!("Devices"));
@@ -352,7 +361,7 @@ fn painter_presses_become_client_messages_and_function_calls(cx: &mut TestAppCon
                 {"id": "toast", "component": "Button", "label": "Toast", "on": {"press": {"functionCall": {"call": "harness.toast", "args": {"text": {"path": "/title"}}}}}}
             ]),
         ),
-        json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s", "value": {"title": "Hello"}}}),
+        json!({"version": VERSION, "updateDataModel": {"surfaceId": "s", "value": {"title": "Hello"}}}),
     ]);
     cx.run_until_parked();
     let view = host.read_with(cx, |h, _| h.surface("s")).unwrap();
@@ -387,7 +396,7 @@ fn create_surface_theme_applies_a_builtin_or_a_theme_json_and_an_unusable_one_is
     let path = format!("{}/../../../../packages/exponential-ui/themes/neutral.theme.json", env!("CARGO_MANIFEST_DIR"));
     let mut acme: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     acme["id"] = json!("acme");
-    let with_theme = |sid: &str, theme: Value| json!({"version": "v0.9", "createSurface": {"surfaceId": sid, "catalogId": CORE, "theme": theme}});
+    let with_theme = |sid: &str, theme: Value| json!({"version": VERSION, "createSurface": {"surfaceId": sid, "catalogId": CORE, "metadata": {"extensions": {"at_exponential_theme": theme}}}});
     t.feed([with_theme("a", json!("neutral")), with_theme("b", acme), create("c"), with_theme("d", json!("nope")), with_theme("e", json!({"id": "broken"}))]);
     cx.run_until_parked();
     let theme_id = |sid: &str, cx: &mut TestAppContext| host.read_with(cx, |h, _| h.surface_theme(sid).map(|t| t.id.clone()));
@@ -413,7 +422,7 @@ fn host_issues_record_sent_errors_and_package_problems_without_a_transport(cx: &
     let host = host_with(cx, HostOptions { on_issue: Some(Rc::new(move |i: &HostIssue| s.borrow_mut().push(i.clone()))), ..Default::default() });
     assert!(!host.read_with(cx, |h, _| h.has_transport()));
     host.update(cx, |h, cx| {
-        h.receive(&json!({"version": "v0.9", "applyTemplate": {"surfaceId": "x", "templateId": "missing"}}), cx);
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "x", "templateId": "missing"}}), cx);
     });
     let issues = host.read_with(cx, |h, _| h.issues().to_vec());
     assert_eq!(issues.len(), 1);
@@ -509,7 +518,9 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
         },
     );
     host.update(cx, |h, cx| h.connect(cx));
-    t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": "acme.hours", "templateId": "month"}})]);
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": "acme.hours", "templateId": "month"}}), cx);
+    });
     cx.run_until_parked();
     let press = |name: &str, args: Value, cx: &mut TestAppContext| {
         let call = FunctionCallEvent { surface_id: "s".into(), component_id: "log".into(), name: name.into(), args };
@@ -620,7 +631,9 @@ fn a_result_call_runs_before_the_commit_and_feeds_the_later_steps(cx: &mut TestA
             },
         );
         host.update(cx, |h, cx| h.connect(cx));
-        t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}})]);
+        host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}}), cx);
+    });
         cx.run_until_parked();
         let call = FunctionCallEvent { surface_id: "s".into(), component_id: "add".into(), name: format!("actions.{}", c["action"].as_str().unwrap()), args: json!({}) };
         let task = host.update(cx, |h, cx| h.call_function(call, cx));
@@ -663,7 +676,9 @@ fn an_action_step_runs_bind_and_open_url(cx: &mut TestAppContext) {
             },
         );
         host.update(cx, |h, cx| h.connect(cx));
-        t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}})]);
+        host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}}), cx);
+    });
         cx.run_until_parked();
         let call = FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: format!("actions.{}", c["action"].as_str().unwrap()), args: c["args"].clone() };
         let task = host.update(cx, |h, cx| h.call_function(call, cx));
@@ -705,7 +720,9 @@ fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
     let issues = host.read_with(cx, |h, _| format!("{:?}", h.issues()));
     assert_eq!(issues, "[]", "the screens package installs");
     host.update(cx, |h, cx| h.connect(cx));
-    t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg_id, "templateId": "pipeline"}})]);
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": pkg_id, "templateId": "pipeline"}}), cx);
+    });
     cx.run_until_parked();
     let call = |args: Value, cx: &mut TestAppContext| {
         let task = host.update(cx, |h, cx| h.call_function(FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: "app.navigate".into(), args }, cx));

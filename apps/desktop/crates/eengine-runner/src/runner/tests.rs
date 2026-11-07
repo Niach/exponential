@@ -190,6 +190,24 @@ fn crossing_md_reinstalls_and_reapplies() {
 }
 
 #[test]
+fn a_surface_painted_again_gets_a_minted_id() {
+    let mut s = LiveSurfaces::default();
+    let [create, update] = &surface_messages(TOAST, &[json!({"id": "root", "component": "Text", "text": "x"})], None)[..] else { panic!() };
+    assert_eq!(create["version"], eui_core::catalog::A2UI_VERSION);
+    let never = |_: &str| -> String { panic!("a first paint keeps its id") };
+    assert_eq!(s.rewrite(create, never), (create.clone(), None));
+    let (again, delete) = s.rewrite(create, |base| format!("{base}#1"));
+    assert_eq!(again["createSurface"]["surfaceId"], "toast#1");
+    assert_eq!(delete, Some(delete_message("toast")));
+    assert_eq!(s.rewrite(update, never).0["updateComponents"]["surfaceId"], "toast#1");
+    assert_eq!(s.live(TOAST), "toast#1");
+    assert_eq!(s.rewrite(&delete_message(TOAST), never).0, delete_message("toast#1"));
+    assert_eq!(s.live(TOAST), TOAST);
+    let (third, delete) = s.rewrite(create, |base| format!("{base}#2"));
+    assert_eq!((third["createSurface"]["surfaceId"].as_str(), delete), (Some("toast#2"), None));
+}
+
+#[test]
 fn the_functions_a_package_reaches() {
     let names = function_names(&package());
     for n in ["records.upsert", "records.delete", "records.batch", "photos.get", "photos.list", "photos.pick"] {

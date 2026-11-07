@@ -263,10 +263,10 @@ check(bestLayout < 2.0, "bench: warm pass \(bestLayout) ms")
 
 // --- events + overlays ---------------------------------------------------------
 let s = try! Surface(surfaceId: "s", catalogId: coreCatalogId(), themeId: nil, mode: "dark")
-_ = try! s.apply(messageJson: text(["version": "v0.9", "updateComponents": ["surfaceId": "s", "components": [
+_ = try! s.apply(messageJson: text(["version": a2uiVersion(), "updateComponents": ["surfaceId": "s", "components": [
     ["id": "root", "component": "Box", "style": ["display": "flex", "flexDirection": "column"], "children": ["dlg", "t"]],
-    ["id": "t", "component": "Text", "text": ["path": "/title"]],
-    ["id": "dlg", "component": "Dialog", "title": "Hi", "open": ["path": "/open"], "slots": ["trigger": "b"], "children": ["body"]],
+    ["id": "t", "component": "Text", "text": ["@path": "/title"]],
+    ["id": "dlg", "component": "Dialog", "title": "Hi", "open": ["@path": "/open"], "slots": ["trigger": "b"], "children": ["body"]],
     ["id": "b", "component": "Button", "label": "Open", "on": ["press": ["event": ["name": "opened"]]]],
     ["id": "body", "component": "Text", "text": "Body"],
 ]]]))
@@ -396,7 +396,7 @@ for c in policy["negotiation"] as! [[String: Any]] {
     let ids = c["extensionIds"] as! [String]
     let expected = c["expected"] as! [String: Any]
     check(supportedCatalogIdsFor(extensionIds: ids) == expected["supportedCatalogIds"] as! [String], "negotiation \(ids)")
-    equal(clientCapabilitiesJson(extensionIds: ids), expected["clientCapabilities"]!, "capabilities \(ids)")
+    equal(try! rendererCapabilitiesJson(extensionIds: ids, inlineCatalogsJson: nil), expected["clientCapabilities"]!, "capabilities \(ids)")
 }
 let routerFixture = load("host-router.json") as! [String: Any]
 let hostPackages = routerFixture["packages"] as! [String: Any]
@@ -411,15 +411,23 @@ for flow in routerFixture["flows"] as! [[String: Any]] {
         equal(try! router.installPackage(packageJson: text(hostPackages[id]!)), (flow["installIssues"] as! [String: Any])[id]!, "\(name): install \(id)")
     }
     for (i, step) in (flow["steps"] as! [[String: Any]]).enumerated() {
-        equal(router.route(messageJson: text(step["message"]!)), step["expected"]!, "\(name): step \(i)")
+        equal(router.routeJson(messageJson: text(step["message"]!), trusted: step["trusted"] as? Bool ?? false), step["expected"]!, "\(name): step \(i)")
     }
 }
 let hostRouter = HostRouter(extensionIds: [])
 _ = try! hostRouter.installPackage(packageJson: text(hostPackages["acme.devices"]!))
-_ = hostRouter.route(messageJson: text(["version": "v0.9", "applyTemplate": ["surfaceId": "d", "templateId": "list"]]))
+_ = hostRouter.routeJson(messageJson: text(["version": a2uiVersion(), "applyTemplate": ["surfaceId": "d", "templateId": "list"]]), trusted: true)
 check(hostRouter.surfaceIds() == ["d"] && hostRouter.packageIdOf(surfaceId: "d") == "acme.devices", "router state")
-equal(errorMessageJson(code: "FUNCTION_DENIED", surfaceId: "s", message: "m", path: nil), ["version": "v0.9", "error": ["code": "FUNCTION_DENIED", "surfaceId": "s", "message": "m"]], "errorMessage")
-equal(try! actionMessageJson(surfaceId: "s", componentId: "b", name: "go", contextJson: "{}", payloadJson: nil, timestamp: "t"), ["version": "v0.9", "action": ["name": "go", "surfaceId": "s", "sourceComponentId": "b", "timestamp": "t", "context": [String: Any]()]], "actionMessage")
+equal(errorMessageJson(code: "INVALID_FUNCTION_CALL", surfaceId: "s", message: "m", path: nil), ["version": "1.0", "error": ["code": "INVALID_FUNCTION_CALL", "surfaceId": "s", "message": "m"]], "errorMessage")
+equal(try! actionMessageJson(surfaceId: "s", componentId: "b", name: "go", contextJson: "{}", payloadJson: nil, timestamp: "t"), ["version": "1.0", "action": ["name": "go", "surfaceId": "s", "sourceComponentId": "b", "timestamp": "t", "context": [String: Any]()]], "actionMessage")
+// Round 9 (§15): the upgrade09 smoke cases, the id mint.
+check(a2uiVersion() == "1.0", "a2uiVersion")
+check(hostRouter.mintSurfaceId(base: "d") == "d#1", "mintSurfaceId")
+let upgradeCases = (load("upgrade09.json") as! [String: Any])["cases"] as! [[String: Any]]
+let upgradeClient = upgradeCases.first { $0["kind"] as? String == "client" }!
+equal(try! upgrade09Json(requestJson: text(["kind": "client", "input": upgradeClient["input"]!])), upgradeClient["expected"]!, "upgrade09 client")
+let upgradeCard = upgradeCases.first { $0["kind"] as? String == "card" }!
+equal(try! upgradeCard09(cardJson: text(upgradeCard["input"]!)), upgradeCard["expected"]!, "upgrade09 card")
 check(try! templateMessagesJson(packageJson: text(hostPackages["acme.devices"]!), templateId: "nope", surfaceId: "x", dataJson: nil) == nil, "missing template")
 let fnSurface = try! Surface(surfaceId: "f", catalogId: coreCatalogId(), themeId: nil, mode: "light")
 _ = try! fnSurface.setNested(nestedJson: text(["id": "root", "component": "Box", "children": [["id": "b", "component": "Button", "props": ["label": "Go"], "on": ["press": ["functionCall": ["call": "harness.toast", "args": ["message": ["path": "/m"]]]]]]]]))

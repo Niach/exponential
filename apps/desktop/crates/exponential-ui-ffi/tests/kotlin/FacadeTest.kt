@@ -186,7 +186,7 @@ fun main(args: Array<String>) {
     check(bestLayout < 2.0) { "bench: warm pass $bestLayout ms" }
 
     val s = Surface("s", coreCatalogId(), null, "dark")
-    s.apply(Json.write(mapOf("version" to "v0.9", "updateComponents" to mapOf("surfaceId" to "s", "components" to listOf(
+    s.apply(Json.write(mapOf("version" to a2uiVersion(), "updateComponents" to mapOf("surfaceId" to "s", "components" to listOf(
         mapOf("id" to "root", "component" to "Box", "style" to mapOf("display" to "flex", "flexDirection" to "column"), "children" to listOf("dlg", "t")),
         mapOf("id" to "t", "component" to "Text", "text" to mapOf("path" to "/title")),
         mapOf("id" to "dlg", "component" to "Dialog", "title" to "Hi", "open" to mapOf("path" to "/open"), "slots" to mapOf("trigger" to "b"), "children" to listOf("body")),
@@ -286,7 +286,7 @@ fun main(args: Array<String>) {
         val ids = list(c["extensionIds"]).map { it as String }
         val expected = obj(c["expected"])
         check(supportedCatalogIdsFor(ids) == list(expected["supportedCatalogIds"])) { "negotiation $ids" }
-        equal(clientCapabilitiesJson(ids), expected["clientCapabilities"], "capabilities $ids")
+        equal(rendererCapabilitiesJson(ids, null), expected["clientCapabilities"], "capabilities $ids")
     }
     val routerFixture = load("host-router.json")
     val hostPackages = obj(routerFixture["packages"])
@@ -295,14 +295,22 @@ fun main(args: Array<String>) {
         val name = flow["name"] as String
         val router = HostRouter((flow["extensionIds"] as List<String>?) ?: emptyList())
         for (id in (flow["packages"] as List<String>?) ?: emptyList()) equal(router.installPackage(Json.write(hostPackages[id])), obj(flow["installIssues"])[id], "$name: install $id")
-        for ((i, step) in list(flow["steps"]).map(::obj).withIndex()) equal(router.route(Json.write(step["message"])), step["expected"], "$name: step $i")
+        for ((i, step) in list(flow["steps"]).map(::obj).withIndex()) equal(router.routeJson(Json.write(step["message"]), step["trusted"] == true), step["expected"], "$name: step $i")
     }
     val hostRouter = HostRouter(emptyList())
     hostRouter.installPackage(Json.write(hostPackages["acme.devices"]))
-    hostRouter.route(Json.write(mapOf("version" to "v0.9", "applyTemplate" to mapOf("surfaceId" to "d", "templateId" to "list"))))
+    hostRouter.routeJson(Json.write(mapOf("version" to a2uiVersion(), "applyTemplate" to mapOf("surfaceId" to "d", "templateId" to "list"))), true)
     check(hostRouter.surfaceIds() == listOf("d") && hostRouter.packageIdOf("d") == "acme.devices") { "router state" }
-    equal(errorMessageJson("FUNCTION_DENIED", "s", "m", null), mapOf("version" to "v0.9", "error" to mapOf("code" to "FUNCTION_DENIED", "surfaceId" to "s", "message" to "m")), "errorMessage")
-    equal(actionMessageJson("s", "b", "go", "{}", null, "t"), mapOf("version" to "v0.9", "action" to mapOf("name" to "go", "surfaceId" to "s", "sourceComponentId" to "b", "timestamp" to "t", "context" to emptyMap<String, Any>())), "actionMessage")
+    equal(errorMessageJson("INVALID_FUNCTION_CALL", "s", "m", null), mapOf("version" to "1.0", "error" to mapOf("code" to "INVALID_FUNCTION_CALL", "surfaceId" to "s", "message" to "m")), "errorMessage")
+    equal(actionMessageJson("s", "b", "go", "{}", null, "t"), mapOf("version" to "1.0", "action" to mapOf("name" to "go", "surfaceId" to "s", "sourceComponentId" to "b", "timestamp" to "t", "context" to emptyMap<String, Any>())), "actionMessage")
+    // Round 9 (§15): the upgrade09 smoke cases, the id mint.
+    check(a2uiVersion() == "1.0") { "a2uiVersion" }
+    check(hostRouter.mintSurfaceId("d") == "d#1") { "mintSurfaceId" }
+    val upgradeCases = list(obj(load("upgrade09.json"))["cases"]).map(::obj)
+    val upgradeClient = upgradeCases.first { it["kind"] == "client" }
+    equal(upgrade09Json(Json.write(mapOf("kind" to "client", "input" to upgradeClient["input"]))), upgradeClient["expected"], "upgrade09 client")
+    val upgradeCard = upgradeCases.first { it["kind"] == "card" }
+    equal(upgradeCard09(Json.write(upgradeCard["input"])), upgradeCard["expected"], "upgrade09 card")
     check(templateMessagesJson(Json.write(hostPackages["acme.devices"]), "nope", "x", null) == null) { "missing template" }
     val fnSurface = Surface("f", coreCatalogId(), null, "light")
     fnSurface.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "b", "component" to "Button", "props" to mapOf("label" to "Go"), "on" to mapOf("press" to mapOf("functionCall" to mapOf("call" to "harness.toast", "args" to mapOf("message" to mapOf("path" to "/m"))))))))))

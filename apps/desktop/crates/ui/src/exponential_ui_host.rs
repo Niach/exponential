@@ -3,7 +3,7 @@
 //! PUBLIC gpui host API (`eui_gpui::runtime::ExponentialHost`),
 //! like a third party's host would; no private hook:
 //!
-//! - functions: `harness.toast` (the IDE toast stack), `harness.mcp` (a
+//! - functions: `harness_toast` (the IDE toast stack), `harness_mcp` (a
 //!   `tools/call` on the instance's own `/api/mcp` with the signed-in account's
 //!   credentials, `api::TrpcClient::post_json`); a link goes through the URL
 //!   policy (`~/` = the app's team) and THE opener ([`crate::links`]);
@@ -15,14 +15,14 @@
 //!   VAPP-122 `records:<kind>?…` → eUI's one evaluator (VAPP-189:
 //!   `eui_core::host::records_value`, fixtures/records-query.json) over the
 //!   hosting app's synced `app_records` rows, [`HostScope`]);
-//! - VAPP-122 `records.upsert {kind, data, id?}` and `records.delete {id}`
+//! - VAPP-122 `records_upsert {kind, data, id?}` and `records_delete {id}`
 //!   (tRPC `apps.records.*` as the viewer, no consent card: the app's own
 //!   rows; a refusal = a failed-action toast);
-//! - VAPP-194 `records.batch {writes}`: a package action's writes as ONE
+//! - VAPP-194 `records_batch {writes}`: a package action's writes as ONE
 //!   tRPC `apps.records.batch` (one transaction); a press of
 //!   `actions.<name>` runs as the viewer (`me`) in the local zone, and an
 //!   action that lands nothing toasts the failed action with its reason;
-//! - VAPP-235 (O1) the OFFLINE OUTBOX: every `records.*` call is one entry
+//! - VAPP-235 (O1) the OFFLINE OUTBOX: every `records_*` call is one entry
 //!   of the account's outbox (the sync sqlite's `app_record_outbox`), laid
 //!   over the synced rows the `records:` bindings read and replayed FIFO
 //!   with its write id ([`RecordOutbox`], app-records.json `outbox`);
@@ -32,15 +32,15 @@
 //!   refusal or offline emits nothing (the binding keeps its default); a read
 //!   answering `upstreamDisconnected` raises the host's `Connect <server>`
 //!   banner ([`IdeHost::upstream_banners`], the web's `HostBanner`);
-//! - VAPP-120 typed host actions: every `exponential.<noun>.<op>` of
+//! - VAPP-120 typed host actions: every `exponential_<noun>_<op>` of
 //!   `domain::app_actions::APP_ACTIONS`, the same `tools/call` as
-//!   `harness.mcp` with `{op, …args}` (no `op` for `exponential.sessions.send`);
+//!   `harness_mcp` with `{op, …args}` (no `op` for `exponential_sessions_send`);
 //! - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
 //!   with gpui painters for its `IconDisc` and `LiveDot` natives and
 //!   (VAPP-110) a team app's own package ([`IdeHost::with_packages`], the
 //!   editor's preview); no package is preinstalled (Exponential ships no
 //!   built-in apps, a team app may still bind `exp:devices`);
-//! - policy: `harness.mcp` and `exponential.*` ASK first, through a native
+//! - policy: `harness_mcp` and `exponential_*` ASK first, through a native
 //!   confirm window (`crate::native_dialog`), Deny on Return; a typed action
 //!   the hosting app's `granted_tools` names runs without the window.
 //!
@@ -52,7 +52,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::{Rc, Weak};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use eui_core::extension::parse_extension;
@@ -60,6 +60,7 @@ use eui_core::host::{FunctionPolicy, MediaOptions, ParsedSource, UrlPolicy};
 use eui_core::measure::LeafRequest;
 use eui_core::surface::PlacedNode;
 use eui_core::theme::{Mode, ResolvedTheme};
+use eui_core::upgrade09::rename09;
 use eui_gpui::extension::{ExtensionPainter, PaintContext};
 use eui_gpui::host::HostPlugin;
 use eui_gpui::runtime::{
@@ -900,7 +901,7 @@ impl RecordFormTarget {
     }
 }
 
-/// VAPP-122 `records.upsert {kind, data, id?}`; VAPP-235: through the
+/// VAPP-122 `records_upsert {kind, data, id?}`; VAPP-235: through the
 /// outbox ([`records_enqueue`]). VAPP-245: `author` = an owner's on-behalf
 /// pick, online only (the outbox replays as the writer): straight to the
 /// server.
@@ -948,7 +949,7 @@ fn records_upsert_fn(scope: Option<HostScope>, host: Rc<RefCell<Option<gpui::Wea
     })
 }
 
-/// VAPP-194: `records.batch {writes}` = ONE `apps.records.batch`. A
+/// VAPP-194: `records_batch {writes}` = ONE `apps.records.batch`. A
 /// refusal fails the package action, whose failure toasts
 /// ([`action_failed_hook`]); VAPP-215: writes that landed toast Undo for
 /// 10 s (app-records.json `history`, title `undoBatch`, via `app`).
@@ -991,7 +992,7 @@ fn local_offset_minutes(ms: f64) -> i32 {
         .map_or(0, |t| t.offset().fix().local_minus_utc() / 60)
 }
 
-/// VAPP-122 `records.delete {id}`; VAPP-235: through the outbox.
+/// VAPP-122 `records_delete {id}`; VAPP-235: through the outbox.
 fn records_delete_fn(scope: Option<HostScope>) -> HostFunction {
     Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
         records_enqueue(OutboxCall::Delete, args, scope.clone(), None, cx)
@@ -1060,12 +1061,25 @@ fn action_fn(target: domain::app_actions::ActionTarget, app_id: Option<String>) 
 }
 
 /// VAPP-120: a typed action the app's grants name runs without asking
-/// (the web's `onFunctionCall`); `harness.mcp` and anything untyped always
+/// (the web's `onFunctionCall`); `harness_mcp` and anything untyped always
 /// ask.
 pub(crate) fn call_granted(name: &str, args: &Value, granted: &[String]) -> bool {
     let empty = serde_json::Map::new();
     let args = args.as_object().unwrap_or(&empty);
+    let name = action_name(name);
     domain::app_actions::parse_action_name(name).is_some() && domain::app_actions::grant_allows(granted, name, args)
+}
+
+/// Round 9 §6.3: a call's flat name (`exponential_issues_update_status`) →
+/// the name `domain::app_actions` keys and stored grants use until the flag
+/// day. The domain contract parses only through its own table, never by
+/// splitting on `_`; once its names are flat this is the identity.
+fn action_name(name: &str) -> &str {
+    static NAMES: LazyLock<HashMap<String, &'static str>> = LazyLock::new(|| {
+        let aliases = domain::app_actions::APP_ACTION_ALIASES.keys();
+        domain::app_actions::APP_ACTIONS.iter().chain(aliases).map(|n| (rename09(n), n.as_str())).collect()
+    });
+    NAMES.get(name).copied().unwrap_or(name)
 }
 
 /// The hosting app's live `granted_tools` (no scope / no row = none).
@@ -1106,7 +1120,7 @@ pub(crate) fn own_private_hosts(instance_url: &str) -> Vec<String> {
 
 /// VAPP-107 (the consent prompt's `slot`): what the window shows of a call,
 /// derived exactly as the web's `consentWords`: the tool it names (a
-/// `harness.mcp` call's MCP tool, else the function's own name), its
+/// `harness_mcp` call's MCP tool, else the function's own name), its
 /// arguments as compact JSON (the MCP `arguments`, else the function's
 /// args; an empty object = none) and whether it sounds destructive.
 pub(crate) struct ConsentWords {
@@ -1126,7 +1140,7 @@ pub(crate) fn consent_words(call: &FunctionCallInfo) -> ConsentWords {
     // VAPP-120: a typed action is worded for its operation (the contract's rows).
     let empty = serde_json::Map::new();
     let given = call.args.as_object().unwrap_or(&empty);
-    if let Some(typed) = domain::app_actions::action_consent(&call.name, given) {
+    if let Some(typed) = domain::app_actions::action_consent(action_name(&call.name), given) {
         return ConsentWords {
             tool: typed.tool,
             args: typed.args,
@@ -1134,7 +1148,7 @@ pub(crate) fn consent_words(call: &FunctionCallInfo) -> ConsentWords {
             title: Some(typed.title),
         };
     }
-    let mcp = call.name == "harness.mcp";
+    let mcp = call.name == "harness_mcp";
     let tool = if mcp { arg_str(&call.args, "tool") } else { call.name.clone() };
     let raw = if mcp { call.args.get("arguments") } else { Some(&call.args) };
     let raw = raw.filter(|v| v.is_object());
@@ -1144,7 +1158,7 @@ pub(crate) fn consent_words(call: &FunctionCallInfo) -> ConsentWords {
 }
 
 /// What the consent window asks (`prompts.json` `exponential-ui-consent`,
-/// Deny focused so Return denies): the tool a `harness.mcp` call runs, else
+/// Deny focused so Return denies): the tool a `harness_mcp` call runs, else
 /// the function's own name (the web's `ConsentCard`); a destructive-sounding
 /// call takes the `exponential-ui-consent-destructive` entry. VAPP-120: a
 /// typed action's title (`action_consent`) replaces the entry's.
@@ -1226,7 +1240,7 @@ pub(crate) fn dev_open_consent(cx: &mut App) {
     let call = FunctionCallInfo {
         surface_id: "dev-app-consent".into(),
         component_id: "dev-app-consent".into(),
-        name: "exponential.comments.create".into(),
+        name: "exponential_comments_create".into(),
         args: serde_json::json!({"body": "Logged 8 h: docs, admin", "issueId": "APP-15"}),
     };
     consent_hook(None)(&call, cx).detach();
@@ -1979,25 +1993,25 @@ impl IdeHost {
         let media_origin = instance.as_deref().map(instance_origin).unwrap_or_default();
         let uploads = app_uploads(scope.as_ref());
         let mut functions: HashMap<String, HostFunction> = HashMap::new();
-        functions.insert("harness.toast".into(), toast_fn());
+        functions.insert("harness_toast".into(), toast_fn());
         let claim_app = scope.as_ref().map(|s| s.app_id.clone());
-        functions.insert("harness.mcp".into(), mcp_fn(claim_app.clone()));
+        functions.insert("harness_mcp".into(), mcp_fn(claim_app.clone()));
         let form_host = Rc::new(RefCell::new(None));
-        functions.insert("records.upsert".into(), records_upsert_fn(scope.clone(), form_host.clone()));
-        functions.insert("records.delete".into(), records_delete_fn(scope.clone()));
-        functions.insert("records.batch".into(), records_batch_fn(scope.clone()));
+        functions.insert("records_upsert".into(), records_upsert_fn(scope.clone(), form_host.clone()));
+        functions.insert("records_delete".into(), records_delete_fn(scope.clone()));
+        functions.insert("records_batch".into(), records_batch_fn(scope.clone()));
         // VAPP-120: every MCP operation as a typed function (+ EXP-1657's
         // aliases, so a package published before the split keeps working).
         let aliases = domain::app_actions::APP_ACTION_ALIASES.keys();
         for name in domain::app_actions::APP_ACTIONS.iter().chain(aliases) {
             if let Some(target) = domain::app_actions::parse_action_name(name) {
-                functions.insert(name.clone(), action_fn(target, claim_app.clone()));
+                functions.insert(rename09(name), action_fn(target, claim_app.clone()));
             }
         }
         // VAPP-198: under Run as only the toast runs.
         if let Some(run_as) = scope.as_ref().and_then(|s| s.run_as.clone()) {
             for (name, function) in functions.iter_mut() {
-                if name != "harness.toast" {
+                if name != "harness_toast" {
                     *function = run_as_refused_fn(run_as.name.clone());
                 }
             }
@@ -2028,7 +2042,7 @@ impl IdeHost {
             ],
             policy: HostPolicy {
                 functions: Some(FunctionPolicy {
-                    ask: Some(vec!["harness.mcp".into(), "exponential.*".into()]),
+                    ask: Some(vec!["harness_mcp".into(), "exponential_*".into()]),
                     ..Default::default()
                 }),
                 on_function_call: Some(consent_hook(scope.clone())),
@@ -2561,7 +2575,7 @@ mod tests {
             let ide = IdeHost::with_packages(Mode::Dark, &[pkg], None, None, cx);
             ide.host.update(cx, |h, _| {
                 h.register_function(
-                    "harness.toast",
+                    "harness_toast",
                     eui_gpui::runtime::sync_function(move |args, _, _| {
                         c.borrow_mut().push(args);
                         Ok(Value::Null)
@@ -2573,7 +2587,7 @@ mod tests {
             host
         });
         host.update(cx, |h, cx| {
-            h.receive(&json!({"version": "v0.9", "applyTemplate": {"surfaceId": "devices", "templateId": "devices"}}), cx);
+            h.receive_trusted(&json!({"version": eui_core::catalog::A2UI_VERSION, "applyTemplate": {"surfaceId": "devices", "templateId": "devices"}}), cx);
         });
         cx.run_until_parked();
         let view = host.read_with(cx, |h, _| h.surface("devices")).expect("the surface");
@@ -2625,13 +2639,13 @@ mod tests {
         let call = FunctionCallInfo {
             surface_id: "s".into(),
             component_id: "c".into(),
-            name: "harness.mcp".into(),
+            name: "harness_mcp".into(),
             args: json!({"tool": "exponential_issues_list"}),
         };
         let prompt = consent_prompt(&call);
         assert_eq!(prompt, domain::prompts::exponential_ui_consent("exponential_issues_list"));
         // VAPP-107: the arguments as compact JSON, a destructive op picks the destructive entry.
-        let get = FunctionCallInfo { surface_id: "s".into(), component_id: "b".into(), name: "harness.mcp".into(), args: json!({"tool": "exponential_issues", "arguments": {"op": "get", "id": "EXP-12"}}) };
+        let get = FunctionCallInfo { surface_id: "s".into(), component_id: "b".into(), name: "harness_mcp".into(), args: json!({"tool": "exponential_issues", "arguments": {"op": "get", "id": "EXP-12"}}) };
         let words = consent_words(&get);
         assert_eq!((words.tool.as_str(), words.args.as_deref(), words.destructive), ("exponential_issues", Some(r#"{"op":"get","id":"EXP-12"}"#), false));
         let delete = FunctionCallInfo { args: json!({"tool": "exponential_issues", "arguments": {"op": "delete", "id": "EXP-12"}}), ..get.clone() };
@@ -2639,7 +2653,7 @@ mod tests {
         assert_eq!(consent_prompt(&delete), domain::prompts::exponential_ui_consent_destructive("exponential_issues"));
         let none = FunctionCallInfo { args: json!({"tool": "exponential_devices"}), ..get.clone() };
         assert_eq!(consent_words(&none).args, None);
-        let own = FunctionCallInfo { name: "harness.toast".into(), args: json!({"message": "EXP-1"}), ..get.clone() };
+        let own = FunctionCallInfo { name: "harness_toast".into(), args: json!({"message": "EXP-1"}), ..get.clone() };
         assert_eq!(consent_words(&own).args.as_deref(), Some(r#"{"message":"EXP-1"}"#));
         let long = "x".repeat(400);
         assert_eq!(consent_args_preview(&long), format!("{}…", "x".repeat(160)));
@@ -2650,8 +2664,8 @@ mod tests {
         assert_eq!(prompt.focused().label, "Deny");
         assert_eq!(prompt.focused().role, domain::prompts::Role::Cancel);
         assert_eq!(prompt.action("allow").role, domain::prompts::Role::Default);
-        let named = FunctionCallInfo { name: "harness.toast".into(), args: json!({}), ..call };
-        assert_eq!(consent_prompt(&named).title, "Allow this surface to run harness.toast?");
+        let named = FunctionCallInfo { name: "harness_toast".into(), args: json!({}), ..call };
+        assert_eq!(consent_prompt(&named).title, "Allow this surface to run harness_toast?");
     }
 
     #[test]
@@ -2673,19 +2687,19 @@ mod tests {
         // A grant lets a typed action run without asking; harness.mcp never.
         let granted = vec!["exponential.issues.update_status".to_string(), "harness.mcp".to_string()];
         let none = Value::Null;
-        assert!(call_granted("exponential.issues.update_status", &none, &granted));
-        assert!(!call_granted("exponential.issues.delete", &none, &granted));
-        assert!(!call_granted("harness.mcp", &none, &granted));
-        assert!(!call_granted("exponential.issues.update_status", &none, &[]));
+        assert!(call_granted("exponential_issues_update_status", &none, &granted));
+        assert!(!call_granted("exponential_issues_delete", &none, &granted));
+        assert!(!call_granted("harness_mcp", &none, &granted));
+        assert!(!call_granted("exponential_issues_update_status", &none, &[]));
         // A granted send never stops a session without the window (stop-run).
         let send = vec!["exponential.sessions.send".to_string()];
-        assert!(call_granted("exponential.sessions.send", &json!({"text": "hi"}), &send));
-        assert!(!call_granted("exponential.sessions.send", &json!({"sessionId": "s1", "stop": true}), &send));
+        assert!(call_granted("exponential_sessions_send", &json!({"text": "hi"}), &send));
+        assert!(!call_granted("exponential_sessions_send", &json!({"sessionId": "s1", "stop": true}), &send));
         // The card's words: the action's title, its args, its destructive flag.
         let call = FunctionCallInfo {
             surface_id: "s".into(),
             component_id: "c".into(),
-            name: "exponential.issues.update_status".into(),
+            name: "exponential_issues_update_status".into(),
             args: json!({"id": "APP-5", "status": "done"}),
         };
         let words = consent_words(&call);
@@ -2694,12 +2708,12 @@ mod tests {
         let prompt = consent_prompt(&call);
         assert_eq!(prompt.title, "Allow this surface to set issue status APP-5?");
         assert_eq!(prompt.action("allow").role, domain::prompts::Role::Default);
-        let delete = FunctionCallInfo { name: "exponential.issues.delete".into(), args: json!({"id": "APP-5"}), ..call.clone() };
+        let delete = FunctionCallInfo { name: "exponential_issues_delete".into(), args: json!({"id": "APP-5"}), ..call.clone() };
         let prompt = consent_prompt(&delete);
         assert_eq!(prompt.title, "Allow this surface to delete issue APP-5?");
         assert_eq!(prompt.action("allow").role, domain::prompts::Role::Destructive);
         assert_eq!(prompt.focused().label, "Deny");
-        let list = FunctionCallInfo { name: "exponential.boards.list".into(), args: json!({}), ..call };
+        let list = FunctionCallInfo { name: "exponential_boards_list".into(), args: json!({}), ..call };
         assert_eq!(consent_words(&list).args, None);
         assert_eq!(consent_prompt(&list).title, "Allow this surface to list boards?");
     }

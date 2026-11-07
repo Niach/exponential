@@ -24,6 +24,8 @@ use gpui::{div, prelude::*, px, AnyElement, App, Entity, TestAppContext, VisualT
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+const VERSION: &str = eui_core::catalog::A2UI_VERSION;
+
 fn fixture(name: &str) -> Value {
     let path = format!("{}/../../../../packages/exponential-ui/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
@@ -208,7 +210,7 @@ fn every_basic_catalog_case_paints(cx: &mut TestAppContext) {
     let cases: Vec<BasicCase> = serde_json::from_value(fixture("catalog-basic-map.json")["cases"].clone()).unwrap();
     for c in cases {
         view.update(cx, |v, cx| {
-            v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
+            v.apply(&json!({"version": VERSION, "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
         });
         draw(cx);
         assert!(nodes(&view, cx) > 0, "{}", c.name);
@@ -228,7 +230,7 @@ fn every_extension_case_paints_with_a_registered_painter(cx: &mut TestAppContext
         let (view, vcx) = open(cx, options);
         view.update(vcx, |v, cx| {
             v.register_painter("TrendLine", Box::new(TrendLine));
-            v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
+            v.apply(&json!({"version": VERSION, "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
         });
         draw(vcx);
         draw(vcx);
@@ -634,7 +636,7 @@ fn a_panicking_painter_paints_nothing_and_reaches_the_host(cx: &mut TestAppConte
     let components = c.components.clone();
     view.update(vcx, |v, cx| {
         v.register_painter("TrendLine", Box::new(Broken(calls.clone())));
-        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": components}}), cx).unwrap();
+        v.apply(&json!({"version": VERSION, "updateComponents": {"surfaceId": "surface", "components": components}}), cx).unwrap();
     });
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
@@ -653,7 +655,7 @@ fn a_panicking_painter_paints_nothing_and_reaches_the_host(cx: &mut TestAppConte
     let mut changed = serde_json::to_value(&c.components).unwrap();
     changed[0]["values"] = json!([1, 2]);
     view.update(vcx, |v, cx| {
-        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": changed}}), cx).unwrap();
+        v.apply(&json!({"version": VERSION, "updateComponents": {"surfaceId": "surface", "components": changed}}), cx).unwrap();
     });
     for _ in 0..3 {
         draw(vcx);

@@ -854,7 +854,7 @@ mod net {
             }
         }
 
-        const LINE: &str = "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"s1\",\"catalogId\":\"c\"}}\n";
+        const LINE: &str = "{\"version\":\"1.0\",\"createSurface\":{\"surfaceId\":\"s1\",\"catalogId\":\"c\"}}\n";
 
         #[test]
         fn a_clean_end_of_stream_closes_the_transport_without_reconnecting() {
