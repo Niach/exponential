@@ -7,3 +7,9 @@ cdylib_name = "eengine_ffi"
 # Binding and .so ship together (one AAR, one build-android.sh run), as in
 # exponential-ui-ffi: skip the per-call checksum probes at load.
 omit_checksums = true
+# The binding ships in the Android app (minSdk 26): pick the cleaner by
+# SDK_INT (java.lang.ref.Cleaner is API 33+, JNA's below) instead of probing
+# for the class, which lint refuses as NewApi. The host Kotlin suite compiles
+# against tests/kotlin/android-stubs (run-binding-tests.sh).
+android = true
+android_cleaner = true
