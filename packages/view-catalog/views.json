@@ -8677,6 +8677,29 @@
         "ios": "Exponential Desktop only.",
         "android": "Exponential Desktop only."
       }
+    },
+    {
+      "id": "record-form-field-states",
+      "group": "coding",
+      "title": "Record form field states",
+      "blurb": "Round 9 §6.6: one Input per check severity with its message showing, under the record form: the error's invalid border, the warning's and the info's advisory line, each announced.",
+      "order": 88,
+      "ios": {
+        "shot": "sg_record-form-field-states",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_record-form-field-states",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "ios": "The record-form specimen in ThreadCardsScreen (capture only, -uiTestingStyleguide record-form-field-states), the KitchenSink's field states.",
+        "android": "See ios: RecordFormFieldStatesSpecimenScreen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "web": "No capture of its own: the styleguide's record-form entry draws ExponentialUiFieldStates, the same three Inputs.",
+        "web-mobile": "No capture of its own: see web.",
+        "desktop": "No capture of its own: the desktop styleguide's record-form entry draws the same three Inputs.",
+        "ipad": "No capture: the iPhone specimen stands for the iPad."
+      }
     }
   ]
 }

@@ -27,7 +27,7 @@ import XCTest
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
-///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
+///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header · sg_chat-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_device-readiness ·
@@ -1144,6 +1144,10 @@ final class StyleguideScreenshots: XCTestCase {
         // card, a banner with its action, the pile, the fan, the sheet frame.
         openThreadCards(app, "dock-card")
         snapshot("sg_dock-card", settle: 2)
+        // ── sg_record-form-field-states: Round 9 §6.6, one Input per check
+        // severity with its message showing.
+        openThreadCards(app, "record-form-field-states")
+        snapshot("sg_record-form-field-states", settle: 2)
         // ── sg_plan-card: THE rich plan / question card (EXP-1280,
         // fixtures/plan-card.json): a pending plan with a picture-tile
         // question, a multiple one and the inline surface; an answered
