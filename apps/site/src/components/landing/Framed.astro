@@ -10,8 +10,10 @@ interface Props {
   height: number
   alt: string
   title?: string
+  /** Tall pictures (dialogs, phones) stay this wide at most. */
+  max?: string
 }
-const { id, src, width, height, alt, title } = Astro.props
+const { id, src, width, height, alt, title, max } = Astro.props
 const tree = {
   id: `w_${id.replaceAll(`-`, `_`)}`,
   component: `Window`,
@@ -20,4 +22,4 @@ const tree = {
 }
 ---
 
-<div class="exp-framed exp-reveal"><EuiSurface id={`framed-${id}`} tree={tree} origin={Astro.url.origin} /></div>
+<div class="exp-framed exp-reveal" style={max ? `max-width:${max};margin-inline:auto` : undefined}><EuiSurface id={`framed-${id}`} tree={tree} origin={Astro.url.origin} /></div>

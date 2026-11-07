@@ -1,5 +1,5 @@
 /* The home page's hero: a team app painting itself under a typed prompt,
-   all genUI. The build renders the finished app (the HTML a crawler and a
+   all genUI, in genUI's Window. The build renders the finished app (the HTML a crawler and a
    no-JS reader get); hydrated on view, it replays: the prompt types, the
    send turns into a stop, the bars grow day by day, the rows land, the
    send comes back. Reduced motion keeps the finished state. */
@@ -20,12 +20,14 @@ const ROWS = [
 
 const TREE: NestedNode = {
   id: `hours`,
-  component: `Card`,
+  component: `Window`,
+  props: { title: `app.exponential.at` },
   children: [
     {
       id: `body`,
       component: `Stack`,
       props: { gap: `lg` },
+      style: { padding: `$spacing.lg` },
       children: [
         {
           id: `head`,
