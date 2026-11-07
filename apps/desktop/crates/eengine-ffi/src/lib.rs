@@ -210,7 +210,7 @@ pub trait SyncTransport: Send + Sync {
 /// Where an account's outbox persists (GRDB, Room), oldest entry first.
 #[uniffi::export(with_foreign)]
 pub trait OutboxLog: Send + Sync {
-    /// The entries as a JSON array; a row that no longer parses is left out.
+    /// The entries as a JSON array (a row the Engine cannot read is skipped).
     fn entries_json(&self) -> Result<String, EngineError>;
     fn push(&self, entry_json: String) -> Result<(), EngineError>;
     fn ack(&self, write_id: String, at: String) -> Result<(), EngineError>;
@@ -414,7 +414,9 @@ struct Log(Arc<dyn OutboxLog>);
 impl eengine::OutboxLog for Log {
     fn entries(&self) -> Result<Vec<eengine::outbox::OutboxEntry>, core::Failure> {
         let entries = self.0.entries_json().map_err(core::Failure::from)?;
-        serde_json::from_str(&entries).map_err(|e| core::Failure::new("BAD_REQUEST", e.to_string()))
+        let rows: Vec<Value> = serde_json::from_str(&entries).map_err(|e| core::Failure::new("BAD_REQUEST", e.to_string()))?;
+        // One unreadable row must not stop the account's queue.
+        Ok(rows.into_iter().filter_map(|row| serde_json::from_value(row).ok()).collect())
     }
 
     fn push(&self, entry: &eengine::outbox::OutboxEntry) -> Result<(), core::Failure> {
