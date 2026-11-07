@@ -9,12 +9,15 @@ import {
 } from "@exp/domain-contract/agent-settings"
 import type { AgentTrigger } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
-import { agents, devices, userVoiceSettings, type Agent } from "@/db/schema"
+import { createHash } from "node:crypto"
+import { agents, devices, teams, userVoiceSettings, type Agent } from "@/db/schema"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { getTeamMember } from "@/lib/auth/membership"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
-// S-3 (agent-settings.json `assistant`): every member's ONE Assistant per
-// team (`agents.role = assistant`, unique on (team_id, owner_id)). Created
+// S-3 / #EXP-1714 (agent-settings.json `assistant`): every member's ONE
+// Assistant across their teams (`agents.role = assistant`), stored in their
+// hidden personal team (`teams.kind = personal`, created with it). Created
 // on first use on the member's own newest desktop (else their newest
 // device); owned and edited by that member only; never deleted. Its device
 // is the member's VOICE device: `user_voice_settings.voice_device_id` /
@@ -22,6 +25,34 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // clients, the heartbeat and the voice runtime read them unchanged).
 
 type Exec = Pick<typeof db, `select` | `insert` | `update`>
+
+/** #EXP-1720: the member's hidden personal team, created on first use. */
+export async function ensurePersonalTeam(exec: Exec, userId: string): Promise<string> {
+  const mine = () =>
+    exec
+      .select({ id: teams.id })
+      .from(teams)
+      .where(and(eq(teams.ownerId, userId), eq(teams.kind, `personal`)))
+      .limit(1)
+  const [found] = await mine()
+  if (found) return found.id
+  await exec
+    .insert(teams)
+    .values({ name: PERSONAL_TEAM_NAME, slug: personalTeamSlug(userId), kind: `personal`, ownerId: userId })
+    .onConflictDoNothing()
+  const [created] = await mine()
+  if (!created) throw new TRPCError({ code: `CONFLICT`, message: `Your Assistant's space just changed; try again.` })
+  // The shapes' team list (getUserTeamIds) now holds it.
+  invalidateMembershipCaches()
+  return created.id
+}
+
+/** A personal team's slug: unique, never a person's word (teams never show it). */
+export function personalTeamSlug(userId: string): string {
+  return `personal-${createHash(`sha256`).update(userId).digest(`hex`).slice(0, 24)}`
+}
+
+const PERSONAL_TEAM_NAME = `Personal`
 
 /** The member's Assistant in a team, if it exists. */
 export async function findAssistant(exec: Exec, teamId: string, ownerId: string): Promise<Agent | null> {
@@ -44,20 +75,22 @@ async function assistantDevice(exec: Exec, userId: string): Promise<string | nul
   return (own.find((row) => row.kind === `desktop`) ?? own[0])?.deviceId ?? null
 }
 
-/** The member's Assistant, created on first use. Null while they have no
- *  device to run it on. */
-export async function ensureAssistant(userId: string, teamId: string, exec: Exec = db): Promise<Agent | null> {
-  if (!(await getTeamMember(userId, teamId))) {
+/** The member's ONE Assistant (#EXP-1714: in their personal team), created
+ *  on first use. Null while they have no device to run it on. `teamId` =
+ *  the team the caller is in (old clients send it): a membership check only. */
+export async function ensureAssistant(userId: string, teamId?: string | null, exec: Exec = db): Promise<Agent | null> {
+  if (teamId && !(await getTeamMember(userId, teamId))) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })
   }
-  const existing = await findAssistant(exec, teamId, userId)
+  const personal = await ensurePersonalTeam(exec, userId)
+  const existing = await findAssistant(exec, personal, userId)
   if (existing) return existing
   const deviceId = await assistantDevice(exec, userId)
   if (!deviceId) return null
   const [created] = await exec
     .insert(agents)
     .values({
-      teamId,
+      teamId: personal,
       name: ASSISTANT_COPY.name,
       icon: null,
       color: null,
@@ -75,7 +108,7 @@ export async function ensureAssistant(userId: string, teamId: string, exec: Exec
     .onConflictDoNothing()
     .returning()
   // Two first uses raced: the other one's row is the Assistant.
-  const assistant = created ?? (await findAssistant(exec, teamId, userId))
+  const assistant = created ?? (await findAssistant(exec, personal, userId))
   if (assistant) await syncVoiceMirror(exec, userId)
   return assistant
 }

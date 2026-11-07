@@ -33,7 +33,7 @@ const ready = await probeRealDb(`
 `)
 if (!ready.ok) console.info(`[assistant.real-db] skipped: ${ready.reason}`)
 
-const { ensureAssistant } = await import(`@/lib/agents/assistant`)
+const { ensureAssistant, personalTeamSlug } = await import(`@/lib/agents/assistant`)
 const { agentsRouter } = await import(`@/lib/trpc/agents`)
 const { conversationInTx } = await import(`@/lib/agents/conversation`)
 const { assertAgentInTeam, onIssueAssignedInTx } = await import(`@/lib/agents/assignment`)
@@ -86,11 +86,10 @@ afterAll(async () => {
 })
 
 const person = (userId: string) => ({ session: { user: { id: userId } }, db, request: new Request(`http://x.test`) })
-const assistantsOf = (teamId: string, ownerId: string) =>
-  db
-    .select()
-    .from(agents)
-    .where(and(eq(agents.teamId, teamId), eq(agents.ownerId, ownerId), eq(agents.role, `assistant`)))
+// #EXP-1714: ONE Assistant per member, wherever it lives (their personal
+// team); `_teamId` = the team the call came from.
+const assistantsOf = (_teamId: string, ownerId: string) =>
+  db.select().from(agents).where(and(eq(agents.ownerId, ownerId), eq(agents.role, `assistant`)))
 
 describe.skipIf(!ready.ok)(`ensureAssistant (S-3)`, () => {
   it(`creates ONE Assistant on the newest own desktop, even when two first uses race`, async () => {
@@ -116,6 +115,21 @@ describe.skipIf(!ready.ok)(`ensureAssistant (S-3)`, () => {
     // The voice mirror follows the Assistant.
     const [voice] = await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, w.mate))
     expect(voice).toMatchObject({ agentId: a!.id, voiceDeviceId: desktop })
+  })
+
+  it(`#EXP-1714: ONE Assistant across the member's teams, in their hidden personal team`, async () => {
+    const w = await world()
+    await w.device(w.owner, `desktop`, 1)
+    const [other] = await db.insert(teams).values({ name: `Second`, slug: `assistant-${id8()}` }).returning({ id: teams.id })
+    made.teams.push(other!.id)
+    await db.insert(teamMembers).values({ teamId: other!.id, userId: w.owner, role: `owner` })
+    const a = (await ensureAssistant(w.owner, w.teamId))!
+    const b = (await ensureAssistant(w.owner, other!.id))!
+    const c = (await ensureAssistant(w.owner))!
+    expect([b.id, c.id]).toEqual([a.id, a.id])
+    const [team] = await db.select().from(teams).where(eq(teams.id, a.teamId))
+    expect(team).toMatchObject({ kind: `personal`, ownerId: w.owner, slug: personalTeamSlug(w.owner) })
+    made.teams.push(team!.id)
   })
 
   it(`falls back to the newest device, and answers null without one`, async () => {
