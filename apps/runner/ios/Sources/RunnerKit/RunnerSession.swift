@@ -268,7 +268,7 @@ public final class RunnerSession: @unchecked Sendable {
 
     // MARK: the app's function calls
 
-    /// Every function call of the app (`records.*`, `app.navigate`, the
+    /// Every function call of the app (`records_*`, `app_navigate`, the
     /// capabilities): the instance answers; an `ask` paints `consent` and
     /// waits for `consent.answer`; a refusal paints `toast`.
     public func call(name: String, argsJson: String) async -> RunnerCallOutcome {
@@ -288,7 +288,7 @@ public final class RunnerSession: @unchecked Sendable {
         }
         switch result {
         case let .success(.value(json)):
-            if name.hasPrefix("records.") { deliver { [weak self] in self?.painter?.recordsChanged() } }
+            if name.hasPrefix("records_") { deliver { [weak self] in self?.painter?.recordsChanged() } }
             return .value(json)
         case let .success(.refused(_, message)):
             toast(message)

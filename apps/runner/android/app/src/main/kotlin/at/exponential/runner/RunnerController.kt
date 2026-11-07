@@ -173,7 +173,7 @@ class RunnerController(
 
     /**
      * Step 4: one of the app's function calls through the instance:
-     * `records.*`, `app.navigate`, capabilities through the broker. `Ask`
+     * `records_*`, `app_navigate`, capabilities through the broker. `Ask`
      * paints `consent` and waits for its `consent.answer`; `Refused` paints
      * `toast`. The value, or null when refused.
      */
@@ -195,7 +195,7 @@ class RunnerController(
         }
         return when (result) {
             is CallResult.Value -> {
-                if (name.startsWith("records.")) withContext(worker) { refreshSources() }
+                if (name.startsWith("records_")) withContext(worker) { refreshSources() }
                 runCatching { JsonValue.parse(result.json) }.getOrNull() ?: JsonValue.Null
             }
             is CallResult.Refused -> {

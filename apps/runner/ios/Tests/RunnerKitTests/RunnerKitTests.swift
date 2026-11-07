@@ -44,9 +44,9 @@ final class FakePhotos: Capability, @unchecked Sendable {
 }
 
 let samplePackage: [String: Any] = [
-    "formatVersion": 5, "id": "acme.album", "name": "Album", "version": "1.0.0",
+    "formatVersion": 6, "id": "acme.album", "name": "Album", "version": "1.0.0",
     "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-    "functions": ["records.*", "app_navigate", "photos_pick"], "sources": ["records:*"],
+    "functions": ["records_*", "app_navigate", "photos_pick"], "sources": ["records:*"],
     "records": ["note": ["title": "Note", "schema": ["type": "object", "properties": ["text": ["type": "string"]]]]],
     "capabilities": [["id": "photos.read", "why": "Pick the photos for an album."]],
     "screens": [["template": "albums", "title": "Albums", "icon": "image"], ["template": "pages", "title": "Pages"],
