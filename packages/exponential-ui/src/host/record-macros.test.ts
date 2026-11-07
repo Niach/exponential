@@ -54,7 +54,7 @@ describe(`record macros: the host fill (fixtures/record-macros.json)`, () => {
         },
       },
     } as never)
-    host.receive({ version: `1.0`, applyTemplate: { surfaceId: `s`, templateId: `main`, packageId: (pkg as { id: string }).id } } as never)
+    host.applyTemplate({ surfaceId: `s`, templateId: `main`, packageId: (pkg as { id: string }).id })
     const call = { surfaceId: `s`, componentId: `f`, name: `records_upsert`, args: { form: { error: `/e`, close: `/open` } } }
     host.surface(`s`)!.setData(`/open`, true)
     await host.callFunction(call)
@@ -74,7 +74,7 @@ describe(`record macros: the host fill (fixtures/record-macros.json)`, () => {
   test(`templateMessages sends the filled components and the rows binding`, () => {
     const pkg = fixture.install[0]!.package as never
     const messages = templateMessages(pkg, `main`, `s`) ?? []
-    const components = (messages[1] as { updateComponents: { components: { id: string; cols?: unknown }[] } }).updateComponents.components
+    const components = (messages[0] as { createSurface: { components: { id: string; cols?: unknown }[] } }).createSurface.components
     expect(components.map((c) => c.id)).toEqual([`root`, `m`, `m__row`, `m__rowDelete`])
     expect(messages.some((m) => (m as { bindDataModel?: { path: string; source: string } }).bindDataModel?.source === `records:deal?sort=updatedAt&order=desc`)).toBe(true)
   })

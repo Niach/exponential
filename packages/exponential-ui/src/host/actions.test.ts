@@ -147,7 +147,7 @@ describe(`a package action on a host`, () => {
         policy: { openUrl: (url) => void opened.push(url) },
       })
       h.applyTemplate({ surfaceId: `s`, packageId: pkg.id, templateId: `main` })
-      const out = await h.callFunction({ surfaceId: `s`, componentId: `b`, name: `actions.${c.action}`, args: c.args })
+      const out = await h.callFunction({ surfaceId: `s`, componentId: `b`, name: `actions_${c.action}`, args: c.args })
       expect(out.error).toBe(c.error as never)
       expect(opened).toEqual(c.opened)
       expect(bound).toEqual(c.bound)
@@ -185,7 +185,7 @@ describe(`actions.json results`, () => {
       const h = new ExponentialHost({
         packages: [pkg],
         sources: records.sources,
-        functions: { ...records.functions, "photos.pick": fake(`photos.pick`), "print.pdf": fake(`print.pdf`), "harness_toast": fake(`harness_toast`) },
+        functions: { ...records.functions, photos_pick: fake(`photos_pick`), print_pdf: fake(`print_pdf`), "harness_toast": fake(`harness_toast`) },
         me: `u1`,
         now: () => now,
         zone: () => fixture.env.offset,
@@ -194,7 +194,7 @@ describe(`actions.json results`, () => {
       h.applyTemplate({ surfaceId: `s`, packageId: pkg.id, templateId: `main` })
       let rows: readonly RecordRow[] = []
       store.subscribe((x) => (rows = x))
-      const out = await h.callFunction({ surfaceId: `s`, componentId: `add`, name: `actions.${c.action}`, args: {} })
+      const out = await h.callFunction({ surfaceId: `s`, componentId: `add`, name: `actions_${c.action}`, args: {} })
       expect(out.error).toBe(c.error as never)
       expect(called).toEqual(c.called)
       expect(rows.map((x) => x.data)).toEqual(c.created as never)

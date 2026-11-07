@@ -15,7 +15,7 @@ describe(`defineSurface`, () => {
 
   test(`the flat list has root first, generated ids, a template child and the slots`, () => {
     const flat = flattenSurface(devices)
-    expect(flat.map((c) => c.id)).toEqual([`root`, `section-1`, `list-1`, `row-1`, `emptyState-1`])
+    expect(flat.map((c) => c.id)).toEqual([`root`, `section_1`, `list_1`, `row_1`, `emptyState_1`])
     expect(flat[0]).toEqual({ id: `root`, component: `Stack`, gap: `md`, children: [`section-1`, `list-1`, `emptyState-1`] })
     expect(flat[2].children).toEqual({ componentId: `row-1`, path: `/devices/rows`, key: `id` })
     expect(flat[3].on).toEqual({ press: { functionCall: { "@call": `harness_toast`, args: { id: { "@path": `id` } } } } })
@@ -40,7 +40,7 @@ describe(`defineSurface`, () => {
     expect(flattenSurface(tree)[1].style).toEqual({ opacity: 0.5 })
     const flatDialog = flattenSurface(dialog)
     expect(flatDialog[0].slots).toEqual({ footer: `ok` })
-    expect(flatDialog.map((c) => c.id)).toEqual([`root`, `text-1`, `ok`])
+    expect(flatDialog.map((c) => c.id)).toEqual([`root`, `text_1`, `ok`])
     expect(() => flattenSurface(ui.Stack({}, [ui.Text({ text: `a` }, undefined, { id: `x` }), ui.Text({ text: `b` }, undefined, { id: `x` })]))).toThrow(`duplicate id "x"`)
   })
 

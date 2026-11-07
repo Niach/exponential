@@ -65,7 +65,7 @@ describe(`Sidebar rail (#VAPP-277)`, () => {
     expect(find(rail, `lead`)).toBeUndefined()
     expect(find(rail, `trail`)).toBeUndefined()
     const bound = slotted({ "@path": `/c` })
-    expect(find(bound, `lead`)?.visible).toEqual({ "@call": `not`, args: { value: { "@path": `/c` } } })
+    expect(find(bound, `lead`)?.visible).toEqual({ "@call": `not`, args: { value: { "@call": `cond`, args: { if: { "@path": `/c` }, then: true, else: false } } } })
     expect(find(bound, `trail`)?.visible).toEqual({ "@call": `and`, args: { values: [{ "@path": `/show` }, { "@call": `not`, args: { value: { "@path": `/c` } } }] } })
   })
 

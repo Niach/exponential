@@ -145,12 +145,7 @@
           ]
         }
       ],
-      "expected": [
-        {
-          "path": "/formatVersion",
-          "message": "format version 5 is no longer read; 6 is required"
-        }
-      ]
+      "expected": []
     },
     {
       "name": "a lower minor does not satisfy",
@@ -170,10 +165,6 @@
         }
       ],
       "expected": [
-        {
-          "path": "/formatVersion",
-          "message": "format version 5 is no longer read; 6 is required"
-        },
         {
           "path": "/extensions/0/version",
           "message": "extension https://acme.example/catalogs/charts/v1 1.3.9 does not satisfy ^1.4.0"
@@ -198,10 +189,6 @@
         }
       ],
       "expected": [
-        {
-          "path": "/formatVersion",
-          "message": "format version 5 is no longer read; 6 is required"
-        },
         {
           "path": "/extensions/0/version",
           "message": "extension https://acme.example/catalogs/charts/v1 2.0.0 does not satisfy ^1.4.0"
@@ -233,10 +220,6 @@
       ],
       "expected": [
         {
-          "path": "/formatVersion",
-          "message": "format version 5 is no longer read; 6 is required"
-        },
-        {
           "path": "/extensions/0/components/1",
           "message": "extension https://acme.example/catalogs/charts/v1 has no component Pie"
         }
@@ -256,12 +239,7 @@
       "extensionIds": [
         "https://acme.example/catalogs/charts/v1"
       ],
-      "expected": [
-        {
-          "path": "/formatVersion",
-          "message": "format version 5 is no longer read; 6 is required"
-        }
-      ]
+      "expected": []
     },
     {
       "name": "not registered",
@@ -274,10 +252,6 @@
       "extensionIds": [],
       "available": [],
       "expected": [
-        {
-          "path": "/formatVersion",
-          "message": "format version 5 is no longer read; 6 is required"
-        },
         {
           "path": "/extensions/0/id",
           "message": "extension https://acme.example/catalogs/charts/v1 is not available on this host"

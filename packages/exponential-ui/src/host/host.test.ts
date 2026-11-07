@@ -15,7 +15,7 @@ import {
   JsonlDecoder,
   MemoryTransport,
   SseDecoder,
-  clientCapabilities,
+  rendererCapabilities,
   combineDecisions,
   decideFunction,
   decideUrl,
@@ -112,11 +112,11 @@ describe(`host-router.json`, () => {
     const codes = new Set<string>()
     for (const flow of routerFixture.flows) for (const s of flow.steps) for (const op of s.expected as { op: string; message?: { error?: { code: string } } }[]) if (op.message?.error) codes.add(op.message.error.code)
     for (const code of codes) expect(HOST_ERROR_CODES).toContain(code)
-    expect(hostContract.ops.kinds.sort()).toEqual([`bind`, `components`, `create`, `data`, `delete`, `send`])
+    expect(hostContract.ops.kinds.sort()).toEqual([`bind`, `call`, `components`, `create`, `data`, `delete`, `respond`, `send`])
   })
 
   test(`the surface section matches the Formatter and the a11y commands`, () => {
-    expect(hostContract.version).toBe(3)
+    expect(hostContract.version).toBe(4)
     expect([...FORMATTER_METHODS].sort()).toEqual(Object.keys(englishFormatter()).filter((k) => k !== `locale` && k !== `offsetMinutes`).sort())
     expect(SURFACE_COMMANDS).toEqual(Object.keys(A11Y_COMMANDS))
     for (const key of [`locale`, `timeZone`]) expect(SURFACE_SETTING_KEYS).toContain(key)
@@ -181,7 +181,7 @@ describe(`ExponentialHost`, () => {
     const sent: ClientMessage[] = []
     const host = new ExponentialHost({ onSend: (m) => sent.push(m) })
     host.receive({ version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
-    host.receive({ version: `1.0`, bindDataModel: { surfaceId: `s`, path: `/x`, source: `acme:things` } })
+    host.receive({ version: `1.0`, bindDataModel: { surfaceId: `s`, path: `/x`, source: `acme:things` } }, { trusted: true })
     expect(sent).toEqual([{ version: `1.0`, error: { code: `VALIDATION_FAILED`, surfaceId: `s`, message: `no resolver for the source scheme acme`, path: `/x` } }])
   })
 
@@ -222,14 +222,14 @@ describe(`ExponentialHost`, () => {
     expect(opened).toEqual([`https://exponential.at/x`, `https://exponential.at/y`])
     host.connect()
     host.action({ surfaceId: `s`, componentId: `btn`, name: `save`, context: { id: 1 }, payload: { value: `a` }, timestamp: `2026-10-08T00:00:00.000Z` })
-    expect(transport.sent).toEqual([{ version: `1.0`, action: { name: `save`, surfaceId: `s`, sourceComponentId: `btn`, timestamp: `2026-10-08T00:00:00.000Z`, context: { id: 1 }, payload: { value: `a` } } }])
+    expect(transport.sent).toEqual([{ version: `1.0`, action: { name: `save`, surfaceId: `s`, sourceComponentId: `btn`, timestamp: `2026-10-08T00:00:00.000Z`, context: { id: 1 }, metadata: { extensions: { at_exponential_payload: { value: `a` } } } } }])
   })
 
   test(`negotiation follows registered extensions`, () => {
     const host = new ExponentialHost()
     host.registerExtension({ id: `https://acme.example/catalog/v1`, name: `Acme`, extends: CORE_CATALOG_ID, components: {} })
     expect(host.supportedCatalogIds.at(-1)).toBe(`https://acme.example/catalog/v1`)
-    expect(host.clientCapabilities()[`v0.9`].supportedCatalogIds).toEqual(host.supportedCatalogIds)
+    expect(host.rendererCapabilities()[`1.0`].supportedCatalogIds).toEqual(host.supportedCatalogIds)
   })
 
   test(`media requests carry the auth rules`, () => {
@@ -277,20 +277,20 @@ describe(`review fixes`, () => {
   test(`createSurface.theme: a built-in id or a theme JSON lands on the store; an unusable one is an issue`, () => {
     const sent: ClientMessage[] = []
     const host = new ExponentialHost({ onSend: (m) => sent.push(m) })
-    host.receive({ version: `1.0`, createSurface: { surfaceId: `a`, catalogId: CORE_CATALOG_ID, theme: `neutral` } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `a`, catalogId: CORE_CATALOG_ID, metadata: { extensions: { at_exponential_theme: `neutral` } } } })
     expect(host.surface(`a`)!.theme?.id).toBe(`neutral`)
-    host.receive({ version: `1.0`, createSurface: { surfaceId: `b`, catalogId: CORE_CATALOG_ID, theme: { ...neutralTheme, id: `acme` } } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `b`, catalogId: CORE_CATALOG_ID, metadata: { extensions: { at_exponential_theme: { ...neutralTheme, id: `acme` } } } } })
     expect(host.surface(`b`)!.theme?.id).toBe(`acme`)
     host.receive({ version: `1.0`, createSurface: { surfaceId: `c`, catalogId: CORE_CATALOG_ID } })
     expect(host.surface(`c`)!.theme).toBeUndefined()
     expect(sent).toEqual([])
-    host.receive({ version: `1.0`, createSurface: { surfaceId: `d`, catalogId: CORE_CATALOG_ID, theme: `nope` } })
-    host.receive({ version: `1.0`, createSurface: { surfaceId: `e`, catalogId: CORE_CATALOG_ID, theme: { id: `broken` } } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `d`, catalogId: CORE_CATALOG_ID, metadata: { extensions: { at_exponential_theme: `nope` } } } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `e`, catalogId: CORE_CATALOG_ID, metadata: { extensions: { at_exponential_theme: { id: `broken` } } } } })
     expect(host.surface(`d`)!.theme).toBeUndefined()
     expect(host.surface(`e`)!.theme).toBeUndefined()
     expect(sent.map((m) => (`error` in m ? [m.error.code, m.error.surfaceId, m.error.path] : null))).toEqual([
-      [`VALIDATION_FAILED`, `d`, `/createSurface/theme`],
-      [`VALIDATION_FAILED`, `e`, `/createSurface/theme`],
+      [`VALIDATION_FAILED`, `d`, `/createSurface/metadata/extensions/at_exponential_theme`],
+      [`VALIDATION_FAILED`, `e`, `/createSurface/metadata/extensions/at_exponential_theme`],
     ])
     expect(host.issues.map((i) => [i.code, i.surfaceId])).toEqual([
       [`VALIDATION_FAILED`, `d`],

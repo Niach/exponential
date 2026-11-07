@@ -9,6 +9,7 @@
 // Rust core mirrors it (`host/exposes.rs`); fixtures/host-router.json
 // (validation) replays it.
 
+import { HOST_FUNCTION_PREFIXES } from "../cel"
 import host from "../../generated/host.runtime.json" with { type: "json" }
 import type { PackageIssue } from "./package"
 
@@ -50,6 +51,8 @@ export interface ExposeIssue extends PackageIssue {
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
 const NAME = new RegExp(EXPOSES_LIMITS.namePattern)
 const ACTION = new RegExp(host.package.exposes.actionPattern)
+/** Round 9 §12: a flat host function name whose first word + `_` is a reserved host prefix. */
+const isActionName = (name: string): boolean => ACTION.test(name) && HOST_FUNCTION_PREFIXES.includes(`${name.slice(0, name.indexOf(`_`))}_`)
 const TEMPLATE = /\$\{input\.([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\}/g
 
 /** The input paths a run's templates name (`${input.a.b}` → `a.b`), in
@@ -141,7 +144,7 @@ export function exposeIssues(exposes: unknown, records: unknown, upstreams: unkn
       level = READ_RECORD_OPS.includes(op) ? `read` : `write`
     } else if (`action` in run) {
       const action = run.action
-      if (typeof action !== `string` || !ACTION.test(action)) return fail(`action`, `/run/action`, `action is a function name like namespace.function`)
+      if (typeof action !== `string` || !isActionName(action)) return fail(`action`, `/run/action`, `action is a function name like namespace_function`)
       if (exposeNameDestructive(action)) return fail(`destructive`, `/run/action`, `a destructive action is never exposed`)
       level = exposeActionAccess(action)
     } else if (`agent` in run) {

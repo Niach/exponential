@@ -222,7 +222,7 @@ function renderPackageFixture(f: Record<string, any>): Record<string, unknown> {
     return { name, expected: toolCall(name) }
   })
   f.extensions = f.extensions.map((c: Case) => {
-    const pkg = { formatVersion: 5, id: `x`, name: `X`, version: `1.0.0`, catalogId: supportedCatalogIds()[0]!, templates: { t: { components: [{ id: `root`, component: `Text`, text: `Hi` }] } }, extensions: c.extensions }
+    const pkg = { formatVersion: 6, id: `x`, name: `X`, version: `1.0.0`, catalogId: supportedCatalogIds()[0]!, templates: { t: { components: [{ id: `root`, component: `Text`, text: `Hi` }] } }, extensions: c.extensions }
     return { ...c, expected: validatePackage(pkg, supportedCatalogIds(c.extensionIds as string[]), c.available as AvailableExtension[] | undefined) }
   })
   f.canonical = f.canonical.map((c: Case) => ({ text: c.text, expected: canonicalJson(JSON.parse(c.text as string)) }))

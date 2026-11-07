@@ -48,24 +48,24 @@ describe(`app_navigate`, () => {
       name: `Open`,
       version: `1.0.0`,
       catalogId: CORE_CATALOG_ID,
-      functions: [`app.record`],
+      functions: [`app_record`],
       screens: [{ template: `deal`, title: `Deal`, exposed: { description: `A deal`, params: { run: {} } } }],
       templates: {
         deal: {
           components: [
             { id: `root`, component: `Stack`, children: [`go`] },
-            { id: `go`, component: `Button`, label: { "@path": `/params/run` }, on: { press: { functionCall: { "@call": `app.record`, args: { what: `wipe` } } } } },
+            { id: `go`, component: `Button`, label: { "@path": `/params/run` }, on: { press: { functionCall: { "@call": `app_record`, args: { what: `wipe` } } } } },
           ],
         },
       },
     } as unknown as AppPackage
-    const h = new ExponentialHost({ packages: [opened], functions: { "app.record": ({ what }) => void called.push(String(what)) } })
-    const target = crossAppTarget(opened, `deal`, { run: `app.record` })
+    const h = new ExponentialHost({ packages: [opened], functions: { "app_record": ({ what }) => void called.push(String(what)) } })
+    const target = crossAppTarget(opened, `deal`, { run: `app_record` })
     if (`error` in target) throw new Error(target.error)
     const screen = resolveScreen(opened, target.screen, target.params)!
     h.applyTemplate({ surfaceId: `o`, packageId: opened.id, templateId: screen.screen, data: screenData(screen) })
     await Promise.resolve()
-    expect(h.surface(`o`)!.data).toEqual({ params: { run: `app.record` } })
+    expect(h.surface(`o`)!.data).toEqual({ params: { run: `app_record` } })
     expect(called).toEqual([])
   })
   test(`a screen's params land under /params`, () => {

@@ -653,7 +653,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/text/call",
+          "path": "/templates/month/components/1/text/@call",
           "message": "records_upsert writes: a binding is pure, name an action in on.press"
         }
       ]
@@ -687,7 +687,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/text/call",
+          "path": "/templates/month/components/1/text/@call",
           "message": "harness_toast is a host function: a binding is pure, name an action in on.press"
         }
       ]
@@ -733,7 +733,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/on/press/functionCall/args/hours/call",
+          "path": "/templates/month/components/1/on/press/functionCall/args/hours/@call",
           "message": "set writes: a binding is pure, name an action in on.press"
         }
       ]
@@ -769,7 +769,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/on/press/functionCall/call",
+          "path": "/templates/month/components/1/on/press/functionCall/@call",
           "message": "action nope names no package action"
         }
       ]
@@ -937,27 +937,27 @@
           "message": "message is the text shown when the requirement fails"
         },
         {
-          "path": "/actions/bad/steps/2/records.upsert/kind",
+          "path": "/actions/bad/steps/2/records_upsert/kind",
           "message": "records:nope names no declared kind"
         },
         {
-          "path": "/actions/bad/steps/3/records.upsert/data/hours",
+          "path": "/actions/bad/steps/3/records_upsert/data/hours",
           "message": "hours is number, got string"
         },
         {
-          "path": "/actions/bad/steps/3/records.upsert/data/when",
+          "path": "/actions/bad/steps/3/records_upsert/data/when",
           "message": "when is not in the schema of entry"
         },
         {
-          "path": "/actions/bad/steps/4/records.upsert/data",
+          "path": "/actions/bad/steps/4/records_upsert/data",
           "message": "date is required by entry"
         },
         {
-          "path": "/actions/bad/steps/4/records.upsert/data",
+          "path": "/actions/bad/steps/4/records_upsert/data",
           "message": "hours is required by entry"
         },
         {
-          "path": "/actions/bad/steps/5/records.delete/id",
+          "path": "/actions/bad/steps/5/records_delete/id",
           "message": "id is a string, got number"
         },
         {
@@ -1108,7 +1108,8 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "@call": "actions_log"
+                      "@call": "actions_log",
+                      "args": 3
                     }
                   }
                 }
@@ -1244,11 +1245,11 @@
       },
       "issues": [
         {
-          "path": "/actions/half/steps/0/records.upsert/data",
+          "path": "/actions/half/steps/0/records_upsert/data",
           "message": "date is required by entry"
         },
         {
-          "path": "/actions/half/steps/0/records.upsert/data",
+          "path": "/actions/half/steps/0/records_upsert/data",
           "message": "hours is required by entry"
         }
       ]
@@ -1285,7 +1286,7 @@
       },
       "issues": [
         {
-          "path": "/actions/badId/steps/0/records.upsert/id",
+          "path": "/actions/badId/steps/0/records_upsert/id",
           "message": "id is a string, got number"
         }
       ]
@@ -2719,7 +2720,7 @@
         },
         "issues": [
           {
-            "path": "/templates/main/components/1/text/call",
+            "path": "/templates/main/components/1/text/@call",
             "message": "photos_pick is a host function: a binding is pure, name an action in on.press"
           }
         ]

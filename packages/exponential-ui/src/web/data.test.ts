@@ -40,19 +40,19 @@ describe(`resolveValue`, () => {
   const ctx = { data: { draft: { title: `Hello`, n: 3 }, ok: true, flags: [true, false] } }
   it(`bindings, calls, nested objects and arrays`, () => {
     expect(resolveValue({ "@path": `/draft/title` }, ctx)).toBe(`Hello`)
-    expect(resolveValue({ "@call": `required`, args: { value: { "@path": `/draft/title` } } }, ctx)).toBe(true)
-    expect(resolveValue({ "@call": `required`, args: { value: { "@path": `/draft/missing` } } }, ctx)).toBe(false)
+    expect(resolveValue({ "@call": `required`, args: { value: { "@path": `/draft/title` } } }, ctx)).toEqual({ valid: true })
+    expect(resolveValue({ "@call": `required`, args: { value: { "@path": `/draft/missing` } } }, ctx)).toEqual({ valid: false })
     expect(resolveValue([{ "@path": `/ok` }, 1], ctx)).toEqual([true, 1])
     expect(resolveValue({ label: { "@path": `/draft/title` }, value: `x` }, ctx)).toEqual({ label: `Hello`, value: `x` })
   })
   it(`the catalog's 14 functions`, () => {
-    const call = (name: string, args: Record<string, unknown>) => resolveValue({ call: name, args }, ctx)
-    expect(call(`regex`, { value: `abc`, pattern: `^a` })).toBe(true)
-    expect(call(`length`, { value: `abc`, min: 2, max: 3 })).toBe(true)
-    expect(call(`length`, { value: `abcd`, max: 3 })).toBe(false)
-    expect(call(`numeric`, { value: 5, min: 1, max: 10 })).toBe(true)
-    expect(call(`email`, { value: `a@b.co` })).toBe(true)
-    expect(call(`email`, { value: `nope` })).toBe(false)
+    const call = (name: string, args: Record<string, unknown>) => resolveValue({ "@call": name, args }, ctx)
+    expect(call(`regex`, { value: `abc`, pattern: `^a` })).toEqual({ valid: true })
+    expect(call(`length`, { value: `abc`, min: 2, max: 3 })).toEqual({ valid: true })
+    expect(call(`length`, { value: `abcd`, max: 3 })).toEqual({ valid: false })
+    expect(call(`numeric`, { value: 5, min: 1, max: 10 })).toEqual({ valid: true })
+    expect(call(`email`, { value: `a@b.co` })).toEqual({ valid: true })
+    expect(call(`email`, { value: `nope` })).toEqual({ valid: false })
     expect(call(`formatString`, { value: `Hi \${/draft/title}!` })).toBe(`Hi Hello!`)
     expect(call(`formatNumber`, { value: 1234.5, decimals: 1 })).toMatch(/1.?234[.,]5/)
     expect(call(`formatCurrency`, { value: 12, currency: `EUR`, decimals: 0 })).toMatch(/12/)
@@ -62,9 +62,10 @@ describe(`resolveValue`, () => {
     expect(call(`and`, { values: [{ "@path": `/ok` }, true] })).toBe(true)
     expect(call(`or`, { values: [false, { "@path": `/ok` }] })).toBe(true)
     expect(call(`not`, { value: { "@path": `/ok` } })).toBe(false)
+    // Round 9 §6.4: an effect never runs in a reactive position.
     let opened = ``
-    resolveValue({ "@call": `openUrl`, args: { url: `https://x.y` } }, { ...ctx, openUrl: (u) => (opened = u) })
-    expect(opened).toBe(`https://x.y`)
+    expect(resolveValue({ "@call": `openUrl`, args: { url: `https://x.y` } }, { ...ctx, openUrl: (u) => (opened = u) })).toBeNull()
+    expect(opened).toBe(``)
   })
   it(`a host function overrides a catalog one and an unknown call is undefined`, () => {
     expect(resolveValue({ "@call": `required`, args: { value: `` } }, { ...ctx, functions: { required: () => `host` } })).toBe(`host`)

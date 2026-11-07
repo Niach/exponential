@@ -11,7 +11,8 @@ import { mangle } from "../ids"
 
 /** Round 9 §12: a tool's id: `_`-separated words (no `-`, no `__`, no
  *  leading or trailing `_`), at most 32 characters. */
-export const TOOL_ID_PATTERN = /^(?=.{1,32}$)[a-z][a-z0-9]*(_[a-z0-9]+)*$/
+export const TOOL_ID_PATTERN = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/
+export const isToolId = (id: string): boolean => id.length <= 32 && TOOL_ID_PATTERN.test(id)
 export const TOOL_KINDS: readonly string[] = [`mcp`, `script`]
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -59,7 +60,7 @@ export function validateTools(tools: unknown): PackageIssue[] {
   for (const id of Object.keys(tools).sort()) {
     const tool = tools[id]
     const at = `/tools/${id}`
-    if (!TOOL_ID_PATTERN.test(id)) issues.push({ path: at, message: `a tool id is lowercase letters, digits, - and _` })
+    if (!isToolId(id)) issues.push({ path: at, message: `a tool id is lowercase letters and digits in _-separated words` })
     if (!isObject(tool)) {
       issues.push({ path: at, message: `a tool is {kind, title, url | command}` })
       continue
@@ -116,7 +117,7 @@ export function toolCall(name: string): { toolId: string; tool: string | null } 
   const at = rest.indexOf(`__`)
   const id = at < 0 ? rest : rest.slice(0, at)
   const tool = at < 0 ? null : rest.slice(at + 2)
-  if (tool === `` || !TOOL_ID_PATTERN.test(id)) return null
+  if (tool === `` || !isToolId(id)) return null
   return { toolId: id, tool }
 }
 

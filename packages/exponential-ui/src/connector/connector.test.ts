@@ -82,9 +82,9 @@ describe(`ExponentialConnector`, () => {
       id: `acme.triage`,
       name: `Triage`,
       version: `1.0.0`,
-      formatVersion: 5,
+      formatVersion: 6,
       catalogId: CORE_CATALOG_ID,
-      functions: [`exponential.mcp`],
+      functions: [`exponential_mcp`],
       templates: {
         board: {
           components: [
@@ -102,7 +102,7 @@ describe(`ExponentialConnector`, () => {
     expect(app.host.surface(`triage`)!.data).toEqual({ issues: { rows: [{ id: `i1`, identifier: `ACME-1`, title: `First` }], count: 1 } })
     const rpc = JSON.parse(instance.calls.find((x) => x.url.endsWith(`/api/mcp`))!.body!)
     expect(rpc.params).toEqual({ name: `exponential_issues_list`, arguments: { limit: 10, boardId: `b1` } })
-    // the package lists exponential.mcp, nothing else
-    expect(app.host.decide(`triage`, `exponential.mcp`)).toBe(`allow`)
+    // the package lists exponential_mcp, nothing else
+    expect(app.host.decide(`triage`, `exponential_mcp`)).toBe(`allow`)
   })
 })
