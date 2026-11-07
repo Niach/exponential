@@ -59,7 +59,16 @@ let exponentialUiFfiPath = URL(fileURLWithPath: #filePath)
     .appendingPathComponent("../../packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework")
     .standardizedFileURL.path
 let hasExponentialUi = FileManager.default.fileExists(atPath: exponentialUiFfiPath)
-let surfaceDependencies: [TargetDependency] = hasExponentialUi ? [.external(name: "ExponentialUI")] : []
+// #VAPP-272: the Engine holds the apps' record outbox (`SyncedRecordStore`). Like
+// eUI, `ExponentialEngineFFI.xcframework` is gitignored (`bash
+// apps/desktop/crates/eengine-ffi/build-ios.sh`); without it the app builds and
+// an app's writes fail (`canImport(ExponentialEngine)`).
+let hasEngine = FileManager.default.fileExists(atPath: URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("../desktop/crates/eengine-ffi/out/ExponentialEngineFFI.xcframework")
+    .standardizedFileURL.path)
+let surfaceDependencies: [TargetDependency] = (hasExponentialUi ? [.external(name: "ExponentialUI")] : [])
+    + (hasEngine ? [.external(name: "ExponentialEngine")] : [])
 // Tuist vends the SwiftPM `ExponentialUI` target as a static
 // `ExponentialUIWrapper.framework` whose module is `ExponentialUI`: a
 // framework search finds modules by FRAMEWORK name, so the app adds its

@@ -112,6 +112,47 @@ if engineFeatures().contains("sqlite") {
     try? FileManager.default.removeItem(atPath: dir)
 }
 
+// The synced store (#VAPP-272): the host's log and transport in Swift.
+final class MemoryLog: OutboxLog, @unchecked Sendable {
+    var entries: [String] = []
+    func entriesJson() throws -> String { "[" + entries.joined(separator: ",") + "]" }
+    func push(entryJson: String) throws { entries.append(entryJson) }
+    func ack(writeId: String, at: String) throws {}
+    func remove(writeIds: [String]) throws { entries.removeAll { e in writeIds.contains { e.contains($0) } } }
+}
+
+final class Replies: SyncTransport, @unchecked Sendable {
+    var replies: [String]
+    var sent = 0
+    init(_ replies: [String]) { self.replies = replies }
+    func push(app: String, call: String, inputJson: String) -> String {
+        sent += 1
+        return replies.isEmpty ? #"{"transport":true}"# : replies.removeFirst()
+    }
+}
+
+final class Heard: SyncedListener, @unchecked Sendable {
+    var refused: [String] = []
+    func changed() {}
+    func refused(entryJson: String, verb: String, message: String?) { refused.append("\(verb): \(message ?? "")") }
+}
+
+do {
+    let log = MemoryLog()
+    let heard = Heard()
+    let replies = Replies([#"{"ok":true,"answer":{"id":"r1"}}"#, #"{"code":"BAD_REQUEST","message":"title","invalid":true}"#, #"{"code":"FORBIDDEN","message":"no"}"#])
+    let store = try! SyncedRecordStore(log: log, transport: replies, listener: heard, clock: nil)
+    let create = #"{"kind":"note","data":{"title":"t"}}"#
+    check(try! store.submitCall(app: "a", function: "records_upsert", argsJson: create, online: true) == .done(answerJson: #"{"id":"r1"}"#), "the server's answer")
+    check(try! store.submitCall(app: "a", function: "records_upsert", argsJson: create, online: true) == .refused(message: "title", invalid: true), "an awaited refusal")
+    guard case let .queued(answerJson) = try! store.submitCall(app: "a", function: "records_delete", argsJson: #"{"id":"r9"}"#, online: false) else { fatalError("queued") }
+    check(answerJson == "null", "a delete answers null from its entry")
+    check(store.pendingLabel(app: "a") == "1 change waiting to sync", "pending")
+    store.flush()
+    check(heard.refused == ["delete: no"], "a later refusal reaches the listener: \(heard.refused)")
+    check(replies.sent == 3 && store.pendingLabel(app: "a") == nil, "the queue drained")
+}
+
 // providers.json validateCases.
 if CommandLine.arguments.count > 1, let fixtureText = try? String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8) {
     let fixture = json(fixtureText) as! [String: Any]

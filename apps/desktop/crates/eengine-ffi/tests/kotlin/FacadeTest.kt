@@ -154,6 +154,36 @@ fun main(args: Array<String>) {
     }
 
     // providers.json validateCases.
+    // The synced store (#VAPP-272): the host's log and transport in Kotlin.
+    val log = object : OutboxLog {
+        val entries = mutableListOf<String>()
+        override fun `entriesJson`() = entries.joinToString(",", "[", "]")
+        override fun `push`(`entryJson`: String) { entries.add(entryJson) }
+        override fun `ack`(`writeId`: String, `at`: String) {}
+        override fun `remove`(`writeIds`: List<String>) { entries.removeAll { e -> writeIds.any { it in e } } }
+    }
+    val replies = ArrayDeque(listOf("""{"ok":true,"answer":{"id":"r1"}}""", """{"code":"BAD_REQUEST","message":"title","invalid":true}""", """{"code":"FORBIDDEN","message":"no"}"""))
+    val refusals = mutableListOf<String>()
+    val synced = SyncedRecordStore(
+        log,
+        object : SyncTransport {
+            override fun `push`(`app`: String, `call`: String, `inputJson`: String) = replies.removeFirstOrNull() ?: """{"transport":true}"""
+        },
+        object : SyncedListener {
+            override fun `changed`() {}
+            override fun `refused`(`entryJson`: String, `verb`: String, `message`: String?) { refusals.add("$verb: $message") }
+        },
+        null,
+    )
+    val create = """{"kind":"note","data":{"title":"t"}}"""
+    check(synced.submitCall("a", "records_upsert", create, true) == Submitted.Done("""{"id":"r1"}""")) { "the server's answer" }
+    check(synced.submitCall("a", "records_upsert", create, true) == Submitted.Refused("title", true)) { "an awaited refusal" }
+    check(synced.submitCall("a", "records_delete", """{"id":"r9"}""", false) == Submitted.Queued("null")) { "a delete answers null from its entry" }
+    check(synced.pendingLabel("a") == "1 change waiting to sync") { "pending" }
+    synced.flush()
+    check(refusals == listOf("delete: no")) { "a later refusal reaches the listener: $refusals" }
+    check(synced.pendingLabel("a") == null) { "the queue drained" }
+
     if (args.isNotEmpty()) {
         val fixture = Json.parse(File(args[0]).readText()) as Map<*, *>
         for (c in fixture["validateCases"] as List<*>) {
