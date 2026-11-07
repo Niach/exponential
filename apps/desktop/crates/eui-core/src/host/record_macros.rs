@@ -451,7 +451,7 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         if editable {
             extra.push(json!({"id": format!("{id}__rowDelete"), "component": "Button", "icon": "ui-delete", "variant": "ghost", "size": "icon", "accessibility": {"label": "$string.delete"}, "on": {"press": delete_action}}));
         }
-        binds.push(json!({"@path": format!("{base}/rows"), "source": format!("records:{kind_name}?{query}")}));
+        binds.push(json!({"path": format!("{base}/rows"), "source": format!("records:{kind_name}?{query}")}));
     }
     out.extend(extra);
     (out, binds)
@@ -478,10 +478,10 @@ pub fn record_macro_issues(pkg: &Map<String, Value>) -> Vec<(String, String)> {
             let at = format!("/templates/{id}/components/{i}");
             let writes = if component == "RecordForm" { c.get("readOnly") != Some(&Value::Bool(true)) } else { c.get("editable") != Some(&Value::Bool(false)) };
             if writes && !allows("records_upsert") {
-                issues.push((at.clone(), format!("{component} writes with records.upsert: list it in functions")));
+                issues.push((at.clone(), format!("{component} writes with records_upsert: list it in functions")));
             }
             if component == "RecordTable" && writes && !allows("records_delete") {
-                issues.push((at.clone(), "RecordTable deletes with records.delete: list it in functions".into()));
+                issues.push((at.clone(), "RecordTable deletes with records_delete: list it in functions".into()));
             }
             if component == "RecordTable" {
                 if let (Some(kind), Some(list)) = (c.get("kind").and_then(Value::as_str), sources.as_deref()) {

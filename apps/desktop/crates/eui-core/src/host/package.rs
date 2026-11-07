@@ -188,10 +188,11 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                     None => issues.push(issue(format!("{at}/components"), "components is a non-empty array")),
                     Some(components) => {
                         let mut ids: HashSet<&str> = HashSet::new();
-                        let basic = p.get("catalogId").and_then(Value::as_str).is_some_and(crate::functions::is_basic_catalog);
+                        let catalog_id = p.get("catalogId").and_then(Value::as_str);
+                        let view = crate::catalog::CatalogView::core();
                         for (i, c) in components.iter().enumerate() {
                             // Round 9 §12: the §5.2 entry check is an install issue.
-                            if let Some((below, message)) = super::router::check_entry(c, basic) {
+                            if let Some((below, message)) = super::router::check_entry(c, catalog_id, &view) {
                                 issues.push(issue(format!("{at}/components/{i}{below}"), message));
                                 continue;
                             }

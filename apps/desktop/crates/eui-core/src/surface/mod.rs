@@ -1367,8 +1367,7 @@ impl Surface {
         let mut list = Vec::new();
         let mut issues = Vec::new();
         for (i, entry) in components.iter().enumerate() {
-            let catalog = entry.get("catalogId").and_then(Value::as_str).unwrap_or(&self.catalog_id);
-            if let Some((at, message)) = crate::host::check_entry(entry, crate::functions::is_basic_catalog(catalog)) {
+            if let Some((at, message)) = crate::host::check_entry(entry, Some(&self.catalog_id), &self.view) {
                 let path = format!("/{kind}/components/{i}{at}");
                 issues.push(ReduceIssue { id: path.clone(), message, code: "INVALID_MESSAGE".into(), path });
                 continue;

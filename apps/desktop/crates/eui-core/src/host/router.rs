@@ -186,6 +186,14 @@ fn esc(token: &str) -> String {
     token.replace('~', "~0").replace('/', "~1")
 }
 
+fn quoted(v: &str) -> String {
+    Value::String(v.to_string()).to_string()
+}
+
+fn not_id(what: &str, v: &str) -> String {
+    format!("{what}{} is not an identifier (UAX #31)", quoted(v))
+}
+
 /// §5.1: a `metadata` object (`{extensions?: {<identifier>: any}}`); the
 /// first problem as `(pointer below metadata, message)`.
 pub fn check_metadata(metadata: &Value) -> Option<(String, String)> {
@@ -195,33 +203,79 @@ pub fn check_metadata(metadata: &Value) -> Option<(String, String)> {
     }
     match m.get("extensions") {
         None => None,
-        Some(Value::Object(ext)) => ext
-            .keys()
-            .find(|k| !crate::ident::is_identifier(k))
-            .map(|k| (format!("/extensions/{}", esc(k)), format!("extension \"{k}\" is not an identifier (UAX #31)"))),
+        Some(Value::Object(ext)) => ext.keys().find(|k| !crate::ident::is_identifier(k)).map(|k| (format!("/extensions/{}", esc(k)), not_id("extension ", k))),
         Some(_) => Some(("/extensions".into(), "metadata.extensions is an object".into())),
     }
 }
 
-/// Round 9 §5.2 `check_entry`: why a component entry is refused, as
-/// `(pointer below the entry, message)`; `None` = it passes. `basic` = the
-/// entry's catalog is the basic one (its `child`/`trigger`/`content`/
-/// `tabs[].child` props are id references).
-pub fn check_entry(entry: &Value, basic: bool) -> Option<(String, String)> {
-    let not_ident = |what: &str, v: &str| format!("{what} \"{v}\" is not an identifier (UAX #31)");
-    let Some(o) = entry.as_object() else { return Some((String::new(), "a component is a JSON object".into())) };
-    match o.get("id") {
-        None => return Some(("/id".into(), "id is required".into())),
-        Some(Value::String(id)) if !crate::ident::is_identifier(id) => return Some(("/id".into(), not_ident("id", id))),
-        Some(Value::String(_)) => {}
-        Some(_) => return Some(("/id".into(), "id is a string".into())),
+/// An Action (`on.<event>`, basic `action`): its event context and
+/// userMessage are dynamic, its functionCall is a call.
+fn check_action(value: &Value, at: &str) -> Option<(String, String)> {
+    let dynamic = |v: &Value, at: &str| crate::expr::malformed_directive(v).map(|(below, message)| (format!("{at}{below}"), message));
+    let Some(action) = value.as_object() else { return dynamic(value, at) };
+    for (k, v) in action {
+        let here = format!("{at}/{}", esc(k));
+        let hit = if k == "functionCall" {
+            match v.as_object().filter(|o| o.contains_key("@call")) {
+                None => Some((here, "functionCall is a call ({\"@call\": …})".to_string())),
+                Some(_) => dynamic(v, &here),
+            }
+        } else if let ("event", Value::Object(event)) = (k.as_str(), v) {
+            event.iter().filter(|(ek, _)| *ek == "context" || *ek == "userMessage").find_map(|(ek, ev)| dynamic(ev, &format!("{here}/{ek}")))
+        } else {
+            dynamic(v, &here)
+        };
+        if hit.is_some() {
+            return hit;
+        }
     }
-    match o.get("component") {
-        None => return Some(("/component".into(), "component is required".into())),
-        Some(Value::String(c)) if !crate::ident::is_identifier(c) => return Some(("/component".into(), not_ident("component", c))),
-        Some(Value::String(c)) if c == "Surface" => return Some(("/component".into(), "Surface is reserved".into())),
-        Some(Value::String(_)) => {}
-        Some(_) => return Some(("/component".into(), "component is a string".into())),
+    None
+}
+
+/// The basic catalog's component-id fields (§14.3): `child`,
+/// `Tabs.tabs[].child`, `Modal.trigger`/`content`, as `(pointer, value)`.
+fn basic_id_refs<'a>(component: &str, entry: &'a Map<String, Value>) -> Vec<(String, &'a Value)> {
+    let mut out = Vec::new();
+    if let Some(v) = entry.get("child") {
+        out.push(("/child".to_string(), v));
+    }
+    if component == "Modal" {
+        for k in ["trigger", "content"] {
+            if let Some(v) = entry.get(k) {
+                out.push((format!("/{k}"), v));
+            }
+        }
+    }
+    if component == "Tabs" {
+        for (i, t) in entry.get("tabs").and_then(Value::as_array).into_iter().flatten().enumerate() {
+            if let Some(v) = t.as_object().and_then(|t| t.get("child")) {
+                out.push((format!("/tabs/{i}/child"), v));
+            }
+        }
+    }
+    out
+}
+
+/// Round 9 §5.2 `check_entry`: why a component entry is refused, as
+/// `(pointer below the entry, message)`; `None` = it passes. `catalog_id` =
+/// the surface default (the entry's own wins), `view` = the catalogs that
+/// decide its DATA positions and `componentId` props (basic = none). Check
+/// order: the entry is an object, `/id`, `/component`, `/catalogId`,
+/// `/metadata…`, then the other keys in key order. `src/entry.ts checkEntry`.
+pub fn check_entry(entry: &Value, catalog_id: Option<&str>, view: &crate::catalog::CatalogView) -> Option<(String, String)> {
+    let Some(o) = entry.as_object() else { return Some((String::new(), "a component is a JSON object".into())) };
+    let Some(id_value) = o.get("id") else { return Some(("/id".into(), "id is required".into())) };
+    let Some(id) = id_value.as_str() else { return Some(("/id".into(), "id is a string".into())) };
+    if !crate::ident::is_identifier(id) {
+        return Some(("/id".into(), not_id("id ", id)));
+    }
+    let Some(component_value) = o.get("component") else { return Some(("/component".into(), "component is required".into())) };
+    let Some(component) = component_value.as_str() else { return Some(("/component".into(), "component is a string".into())) };
+    if !crate::ident::is_identifier(component) {
+        return Some(("/component".into(), not_id("component ", component)));
+    }
+    if component == crate::catalog::SURFACE_COMPONENT {
+        return Some(("/component".into(), "Surface is reserved".into()));
     }
     if o.get("catalogId").is_some_and(|c| !c.is_string()) {
         return Some(("/catalogId".into(), "catalogId is a string".into()));
@@ -229,11 +283,16 @@ pub fn check_entry(entry: &Value, basic: bool) -> Option<(String, String)> {
     if let Some((at, message)) = o.get("metadata").and_then(check_metadata) {
         return Some((format!("/metadata{at}"), message));
     }
+    let catalog = o.get("catalogId").and_then(Value::as_str).or(catalog_id).unwrap_or("");
+    let basic = crate::functions::is_basic_catalog(catalog);
+    let def = if basic { None } else { view.catalog_component(catalog, component) };
+    let refs = if basic { basic_id_refs(component, o) } else { Vec::new() };
+    // §4.2: an id reference is a string and an identifier.
     let id_ref = |v: &Value, at: String| -> Option<(String, String)> {
-        match v {
-            Value::String(s) if !crate::ident::is_identifier(s) => Some((at, not_ident("id", s))),
-            Value::String(_) => None,
-            _ => Some((at, "a component id is a string".into())),
+        match v.as_str() {
+            None => Some((at, "a component id is a string".into())),
+            Some(s) if !crate::ident::is_identifier(s) => Some((at, not_id("id ", s))),
+            Some(_) => None,
         }
     };
     for (k, v) in o {
@@ -241,36 +300,81 @@ pub fn check_entry(entry: &Value, basic: bool) -> Option<(String, String)> {
             continue;
         }
         let at = format!("/{}", esc(k));
-        if k != "accessibility" && !crate::ident::is_identifier(k) {
-            return Some((at, not_ident("prop", k)));
+        if !crate::ident::is_identifier(k) {
+            return Some((at, not_id("prop ", k)));
         }
-        let hit = match k.as_str() {
-            "style" => None,
-            "children" => match v {
-                Value::Array(items) => items.iter().enumerate().find_map(|(i, c)| id_ref(c, format!("{at}/{i}"))),
-                Value::Object(t) => t.get("componentId").and_then(|c| id_ref(c, format!("{at}/componentId"))),
-                _ => None,
-            },
-            "slots" => v.as_object().and_then(|slots| slots.iter().find_map(|(name, c)| id_ref(c, format!("{at}/{}", esc(name))))),
-            "for" | "anchor" => id_ref(v, at.clone()),
-            "child" | "trigger" | "content" if basic => id_ref(v, at.clone()),
-            "tabs" if basic => v.as_array().and_then(|tabs| {
-                tabs.iter().enumerate().find_map(|(i, t)| t.get("child").and_then(|c| id_ref(c, format!("{at}/{i}/child"))))
-            }),
-            _ => None,
-        };
-        if hit.is_some() {
-            return hit;
+        let dynamic = |v: &Value, at: &str| crate::expr::malformed_directive(v).map(|(below, message)| (format!("{at}{below}"), message));
+        match k.as_str() {
+            "accessibility" => {
+                if let Some(a) = v.as_object() {
+                    if let Some(hit) = ["label", "description", "hidden"].iter().find_map(|key| a.get(*key).and_then(|x| dynamic(x, &format!("{at}/{key}")))) {
+                        return Some(hit);
+                    }
+                }
+                continue;
+            }
+            "children" => {
+                match v {
+                    Value::Array(items) => {
+                        if let Some(hit) = items.iter().enumerate().find_map(|(i, c)| id_ref(c, format!("{at}/{i}"))) {
+                            return Some(hit);
+                        }
+                    }
+                    Value::Object(t) => {
+                        if let Some(hit) = t.get("componentId").and_then(|c| id_ref(c, format!("{at}/componentId"))) {
+                            return Some(hit);
+                        }
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            "slots" => {
+                if let Some(slots) = v.as_object() {
+                    if let Some(hit) = slots.iter().find_map(|(slot, c)| id_ref(c, format!("{at}/{}", esc(slot)))) {
+                        return Some(hit);
+                    }
+                }
+                continue;
+            }
+            "style" => continue,
+            "on" => {
+                if let Some(on) = v.as_object() {
+                    if let Some(hit) = on.iter().find_map(|(event, action)| check_action(action, &format!("{at}/{}", esc(event)))) {
+                        return Some(hit);
+                    }
+                }
+                continue;
+            }
+            "action" if basic => {
+                if let Some(hit) = check_action(v, &at) {
+                    return Some(hit);
+                }
+                continue;
+            }
+            _ => {}
         }
-        // Dynamic positions: the directive forms (§3.3) at any depth.
-        if matches!(k.as_str(), "children" | "slots") {
+        if basic {
+            let mine: Vec<&(String, &Value)> = refs.iter().filter(|(p, _)| *p == at || p.starts_with(&format!("{at}/"))).collect();
+            if let Some(hit) = mine.iter().find_map(|(p, c)| id_ref(c, p.clone())) {
+                return Some(hit);
+            }
+            if mine.iter().any(|(p, _)| *p == at) {
+                continue;
+            }
+        }
+        let schema = def.and_then(|d| d.props.get(k.as_str()));
+        if schema.is_some_and(|s| s.type_ == "componentId") {
+            if let Some(hit) = id_ref(v, at) {
+                return Some(hit);
+            }
             continue;
         }
-        if crate::catalog::is_data_prop(o.get("component").and_then(Value::as_str).unwrap_or(""), k) {
+        if crate::data::is_data_schema(schema) {
             continue;
         }
-        if let Some((below, message)) = crate::expr::malformed_directive(v) {
-            return Some((format!("{at}{below}"), message));
+        if let Some(hit) = dynamic(v, &at) {
+            return Some(hit);
         }
     }
     None
@@ -346,6 +450,12 @@ impl HostRouter {
     /// The package whose template created the surface.
     pub fn package_id_of(&self, surface_id: &str) -> Option<String> {
         self.surfaces.get(surface_id).and_then(|s| s.package_id.clone())
+    }
+
+    /// The catalogs an entry check reads: the core; the router knows
+    /// extensions by id (their definitions stay with the surface).
+    fn view(&self) -> std::sync::Arc<crate::catalog::CatalogView> {
+        crate::catalog::CatalogView::core()
     }
 
     /// §5.5: the AVAILABLE set: the supported ids then the inline catalogs.
@@ -450,7 +560,8 @@ impl HostRouter {
                     return vec![missing(sid)];
                 };
                 let default_catalog = info.catalog_id.clone();
-                components_ops(sid, "updateComponents", components, &default_catalog)
+                let default_catalog = (!default_catalog.is_empty()).then_some(default_catalog.as_str());
+                components_ops(sid, "updateComponents", components, default_catalog, &self.view())
             }
             "updateDataModel" => {
                 if !self.surfaces.contains_key(sid) {
@@ -593,7 +704,7 @@ impl HostRouter {
             ops.push(json!({"op": "data", "surfaceId": sid, "path": "", "value": data}));
         }
         if let Some(components) = components {
-            ops.extend(components_ops(sid, "createSurface", components, catalog_id.unwrap_or("")));
+            ops.extend(components_ops(sid, "createSurface", components, catalog_id, &self.view()));
         }
         ops
     }
@@ -690,12 +801,11 @@ fn agent_function_response(body: &Map<String, Value>) -> Vec<Value> {
 
 /// §1.2 / §5.2: every entry through [`check_entry`]: one INVALID_MESSAGE per
 /// refused entry (in order), then the `components` op of the accepted ones.
-fn components_ops(sid: &str, kind: &str, components: &[Value], default_catalog: &str) -> Vec<Value> {
+fn components_ops(sid: &str, kind: &str, components: &[Value], default_catalog: Option<&str>, view: &crate::catalog::CatalogView) -> Vec<Value> {
     let mut ops = Vec::new();
     let mut accepted = Vec::new();
     for (i, entry) in components.iter().enumerate() {
-        let catalog = entry.get("catalogId").and_then(Value::as_str).unwrap_or(default_catalog);
-        match check_entry(entry, crate::functions::is_basic_catalog(catalog)) {
+        match check_entry(entry, default_catalog, view) {
             Some((at, message)) => ops.push(invalid_at(sid, &message, &format!("/{kind}/components/{i}{at}"))),
             None => accepted.push(entry.clone()),
         }

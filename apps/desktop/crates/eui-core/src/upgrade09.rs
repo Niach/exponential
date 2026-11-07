@@ -442,6 +442,11 @@ fn basic_before(entry: &Obj, ctx: &Ctx) -> (Obj, Option<Value>) {
 }
 
 /// One component's props (flat entry keys, or a card node's `props`).
+/// A 0.9 binding or call.
+fn is_directive09(value: &Value) -> bool {
+    value.as_object().is_some_and(|o| (o.len() == 1 && o.get("path").is_some_and(Value::is_string)) || o.get("call").is_some_and(Value::is_string))
+}
+
 fn upgrade_prop(key: &str, value: &Value, component: Option<&Value>, basic: bool, rekey: &mut Rekey, ctx: &Ctx) -> Value {
     if key == "checks" {
         return upgrade_checks(value, ctx);
@@ -476,8 +481,9 @@ fn upgrade_prop(key: &str, value: &Value, component: Option<&Value>, basic: bool
     if is_core_id_prop(component, key) {
         return rekey.reference(value);
     }
+    // A binding or call AT a data prop converts; a literal's inside stays data.
     if crate::data::is_data_schema(core_prop_schema(component, key)) {
-        return value.clone();
+        return if is_directive09(value) { dyn_(value, ctx) } else { value.clone() };
     }
     dyn_(value, ctx)
 }

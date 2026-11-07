@@ -377,7 +377,7 @@ fn validate_step(step: &Value, at: &str, types: &Map<String, Value>, records: &M
             let Some(name) = body.as_str().filter(|n| !n.is_empty()) else { return vec![issue(&here, "call names a host function")] };
             let effect = function_effect(name);
             if effect == FunctionEffect::Write {
-                issues.push(issue(&here, format!("{}: use a records.upsert, records.delete or set step", effect_words(name, effect))));
+                issues.push(issue(&here, format!("{}: use a records_upsert, records_delete or set step", effect_words(name, effect))));
             } else if effect == FunctionEffect::Pure {
                 issues.push(issue(&here, format!("{name} is pure: compute it in an expression")));
             } else if action_call_name(name).is_some() {

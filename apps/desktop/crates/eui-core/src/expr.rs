@@ -124,7 +124,7 @@ pub fn malformed_directive(value: &Value) -> Option<(String, String)> {
                     return Some((format!("{at}/@call"), "@call is a string".into()));
                 };
                 if name != "@index" && !crate::ident::is_identifier(name) {
-                    return Some((format!("{at}/@call"), format!("function \"{name}\" is not an identifier (UAX #31)")));
+                    return Some((format!("{at}/@call"), format!("function {} is not an identifier (UAX #31)", Value::String(name.to_string()))));
                 }
                 if let Some(k) = o.keys().find(|k| !matches!(k.as_str(), CALL_KEY | "args" | "catalogId")) {
                     return Some((format!("{at}/{}", esc(k)), format!("a call has only @call, args and catalogId (not {k})")));
@@ -136,7 +136,7 @@ pub fn malformed_directive(value: &Value) -> Option<(String, String)> {
                     None => None,
                     Some(Value::Object(args)) => args.iter().find_map(|(k, v)| {
                         if !crate::ident::is_identifier(k) {
-                            return Some((format!("{at}/args/{}", esc(k)), format!("arg \"{k}\" is not an identifier (UAX #31)")));
+                            return Some((format!("{at}/args/{}", esc(k)), format!("arg {} is not an identifier (UAX #31)", Value::String(k.clone()))));
                         }
                         walk(v, &format!("{at}/args/{}", esc(k)))
                     }),

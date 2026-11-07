@@ -176,9 +176,10 @@ fn a_router_with_extensions_checks_versions_and_components_of_registered_ones() 
     let f = fixture("host-router.json");
     let charts = &f["packages"]["acme.charts"];
     let id = charts["extensions"][0]["id"].as_str().unwrap();
-    // Ids only: registered = installs.
+    // Ids only: the extension is registered, but no definition makes its
+    // catalog available to the template's reduce (fixture `validation`).
     let mut ids_only = host::HostRouter::new(&[id]);
-    assert!(ids_only.install_package(charts).is_empty());
+    assert_eq!(ids_only.install_package(charts).len(), 1);
     // With availability: a registration without a version satisfies any, its components are checked.
     let mut router = host::HostRouter::with_extensions::<&str>(&[], Some(Vec::new()));
     router.register_extension_with(id, Some(host::AvailableExtension { id: id.into(), version: Some("1.3.0".into()), components: Some(vec![]) }));
@@ -187,7 +188,7 @@ fn a_router_with_extensions_checks_versions_and_components_of_registered_ones() 
     assert!(issues.iter().any(|i| i.path == "/extensions/0/components/0"), "{issues:?}");
     let mut bare = host::HostRouter::with_extensions::<&str>(&[], Some(Vec::new()));
     bare.register_extension(id);
-    assert!(bare.install_package(charts).is_empty());
+    assert_eq!(bare.install_package(charts).len(), 1, "the same catalog issue");
     assert!(host::version_satisfies("1.6.2", "1.4.0") && !host::version_satisfies("2.0.0", "1.4.0") && !host::version_satisfies("1.4", "1.4.0") && !host::version_satisfies("01.4.0", "1.4.0"));
 }
 
