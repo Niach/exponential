@@ -45,3 +45,5 @@
 - Opgaver og chats i Spotlight; Siri og Genveje kan oprette en opgave eller chat
 - Pull requests viser flettestatus med Flet nu og Hold
 - Markdown i opgaver, kommentarer og chats ser ens ud i alle apps
+- Din Assistent virker på tværs af alle dine teams
+- Teamejere kan vælge en Koordinator-agent

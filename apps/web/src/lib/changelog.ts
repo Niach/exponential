@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-07-assistant-in-every-team`,
+    date: `2026-11-07`,
+    title: `Your Assistant in every team, and team Coordinators`,
+    summary: `Your Assistant works across all your teams, each team's owners can name a Coordinator agent that the team's work goes to, and plans on desktop no longer overlap.`,
+    body: `- **One Assistant across teams**: your Assistant is found in every team you are in, and the composer's + menu lets you pick which teams it works with.
+- **Coordinator**: in Team settings › Agents, owners pick one team agent as the team's Coordinator; members' Assistants hand that team's work to it.
+- **Threads report back**: a thread an agent started reports to that agent again after it is revived.
+- **Plans on desktop**: each plan block is as tall as its content, so blocks no longer overlap.
+- **Picks marked**: Teams, MCP servers and Skills picks show a check on iPhone and Android, like on the web and desktop.`,
+  },
+  {
     id: `2026-11-06-trees-popovers-and-folding-rows`,
     date: `2026-11-06`,
     title: `Trees, popovers and folding rows in apps`,

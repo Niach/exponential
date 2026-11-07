@@ -45,3 +45,5 @@
 - Saker og chatter i Spotlight; Siri og Snarveier kan opprette en sak eller chat
 - Pull requests viser flettestatus med Flett nå og Hold
 - Markdown i saker, kommentarer og chatter ser likt ut i alle appene
+- Assistenten din fungerer i alle teamene dine
+- Teameiere kan velge en Koordinator-agent

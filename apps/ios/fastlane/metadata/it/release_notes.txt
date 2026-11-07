@@ -45,3 +45,5 @@
 - Issue e chat in Spotlight; Siri e Comandi rapidi creano una issue o una chat
 - Le pull request mostrano lo stato di merge con Unisci ora e Trattieni
 - Il Markdown di issue, commenti e chat è identico su ogni app
+- Il tuo Assistente funziona in tutti i tuoi team
+- I proprietari possono scegliere un agente Coordinatore

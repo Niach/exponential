@@ -45,3 +45,5 @@
 - Issues and chats in Spotlight; Siri and Shortcuts can create an issue or start a chat
 - Pull requests show their merge status with Merge now and Hold
 - Markdown in issues, comments and chats looks the same on every app
+- Your Assistant works across all your teams
+- Team owners can name a Coordinator agent

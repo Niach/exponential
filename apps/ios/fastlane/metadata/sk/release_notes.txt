@@ -45,3 +45,5 @@
 - Úlohy a chaty v Spotlighte; Siri a Skratky vytvoria úlohu alebo chat
 - Pull requesty ukazujú stav zlúčenia s možnosťami Zlúčiť teraz a Pozdržať
 - Markdown v úlohách, komentároch a chatoch vyzerá rovnako vo všetkých aplikáciách
+- Váš Asistent funguje vo všetkých vašich tímoch
+- Vlastníci tímu môžu určiť agenta Koordinátora

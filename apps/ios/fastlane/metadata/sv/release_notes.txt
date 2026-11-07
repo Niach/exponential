@@ -45,3 +45,5 @@
 - Ärenden och chattar i Spotlight; Siri och Genvägar kan skapa ett ärende eller en chatt
 - Pull requests visar sin sammanslagningsstatus med Slå samman nu och Vänta
 - Markdown i ärenden, kommentarer och chattar ser likadant ut i alla appar
+- Din Assistent fungerar i alla dina team
+- Teamägare kan välja en Koordinator-agent

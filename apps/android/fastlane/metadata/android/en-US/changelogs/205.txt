@@ -1,0 +1,3 @@
+- Your Assistant works across all your teams
+- Team owners can name a Coordinator agent
+- Teams, MCP servers and Skills picks show a check
