@@ -613,12 +613,11 @@ pub fn viewing_label(number: i64) -> String {
 /// `Restored v{n} as v{m}` (the restore toast).
 /// #FEED-204 (fixture `editorDeviceCases`, EDITOR DEVICE): the device an app
 /// editor's composer shows and sends on (`device_id`; `None` = none online
-/// and no root to fall back on), `locked` on a live root's, `moves` when an
-/// ended root's next send goes to another device.
+/// and no root to fall back on), `moves` when an ended root's next send goes
+/// to another device. A live root keeps its device: only a pick moves it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EditorDeviceChoice {
     pub device_id: Option<String>,
-    pub locked: bool,
     pub moves: bool,
 }
 
@@ -631,7 +630,7 @@ pub fn editor_device(
 ) -> EditorDeviceChoice {
     if let Some((status, device_id)) = root {
         if status != crate::contract::SESSION_STATUS_ENDED {
-            return EditorDeviceChoice { device_id: device_id.map(str::to_string), locked: true, moves: false };
+            return EditorDeviceChoice { device_id: device_id.map(str::to_string), moves: false };
         }
     }
     let root_device = root.and_then(|(_, device_id)| device_id);
@@ -644,7 +643,6 @@ pub fn editor_device(
         .or(root_device);
     EditorDeviceChoice {
         device_id: device_id.map(str::to_string),
-        locked: false,
         moves: root.is_some() && device_id != root_device,
     }
 }
@@ -1663,7 +1661,6 @@ mod tests {
                 editor_device(root, &candidates, case["remembered"].as_str()),
                 EditorDeviceChoice {
                     device_id: expected["deviceId"].as_str().map(str::to_string),
-                    locked: expected["locked"].as_bool().unwrap(),
                     moves: expected["move"].as_bool().unwrap(),
                 },
                 "{}",

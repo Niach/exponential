@@ -115,9 +115,6 @@ export interface ComposerRunnerBinding {
     value: string | null
     devices: readonly DevicePickerDevice[]
     onChange: (deviceId: string) => void
-    /** #FEED-204: an app editor's Device row outlives `rowsDisabled`: it
-     *  reads the live root's device, disabled, and an ended root's picks. */
-    locked?: boolean
   }
   account?: {
     value: string | null
@@ -338,7 +335,8 @@ export function ComposerOptionsMenu({
           ...base,
           kind: `submenu`,
           value: binding.devices.find((device) => device.id === binding.value)?.name,
-          disabled: binding.locked ?? rowsDisabled,
+          // #FEED-204: outlives `rowsDisabled`: an ended editor root's pick
+          // is where its next send goes.
           contentClassName: SUBMENU_PICKER_CLASS,
           body: (
             <SubmenuSearchList

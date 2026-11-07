@@ -429,20 +429,18 @@ public enum Apps {
     public struct EditorDeviceChoice: Equatable, Sendable {
         /// nil = none online and no root to fall back on.
         public let deviceId: String?
-        /// A live root: the row names its device and cannot change.
-        public let locked: Bool
         /// An ended root's next send goes to another device.
         public let move: Bool
 
-        public init(deviceId: String?, locked: Bool, move: Bool) {
+        public init(deviceId: String?, move: Bool) {
             self.deviceId = deviceId
-            self.locked = locked
             self.move = move
         }
     }
 
     /// `rootStatus` nil = no editor root yet. `candidates` = the member's
-    /// online devices (with a root: the targets a move accepts).
+    /// online devices (with a root: the targets a move accepts). A live root
+    /// keeps its device: only a pick moves it (#EXP-1738).
     public static func editorDevice(
         rootStatus: String?,
         rootDeviceId: String?,
@@ -450,7 +448,7 @@ public enum Apps {
         remembered: String?
     ) -> EditorDeviceChoice {
         if let rootStatus, rootStatus != DomainContract.sessionStatusEnded {
-            return EditorDeviceChoice(deviceId: rootDeviceId, locked: true, move: false)
+            return EditorDeviceChoice(deviceId: rootDeviceId, move: false)
         }
         func known(_ id: String?) -> Bool {
             guard let id else { return false }
@@ -464,7 +462,7 @@ public enum Apps {
         } else {
             deviceId = candidates.first { $0.isDefault }?.deviceId ?? candidates.first?.deviceId ?? rootDeviceId
         }
-        return EditorDeviceChoice(deviceId: deviceId, locked: false, move: rootStatus != nil && deviceId != rootDeviceId)
+        return EditorDeviceChoice(deviceId: deviceId, move: rootStatus != nil && deviceId != rootDeviceId)
     }
 
     /// The tab on screen and, on phones, the menu sheet over it.

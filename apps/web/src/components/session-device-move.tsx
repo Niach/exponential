@@ -20,6 +20,15 @@ import { trpc } from "@/lib/trpc-client"
 
 const MoveIcon = conceptIcon(`ui-swap`)
 
+/** The server's move; a refusal = `Couldn't move the session`. */
+export async function requestDeviceMove(sessionId: string, deviceId: string): Promise<void> {
+  try {
+    await trpc.sessions.send.mutate({ sessionId, deviceId }, SKIP_ERROR_TOAST)
+  } catch (error) {
+    failedAction(`move`, `the session`, error)
+  }
+}
+
 type MoveSession = Pick<
   SessionRow,
   `id` | `teamId` | `cli` | `deviceId` | `userId` | `shared` | `status` | `agentId`
@@ -50,13 +59,8 @@ export function SessionDeviceMoveButton({ session, label }: { session: MoveSessi
   const moveTo = async (deviceId: string) => {
     if (deviceMovePick(deviceId, session) !== `move`) return
     setMoving(true)
-    try {
-      await trpc.sessions.send.mutate({ sessionId: session.id, deviceId }, SKIP_ERROR_TOAST)
-    } catch (error) {
-      failedAction(`move`, `the session`, error)
-    } finally {
-      setMoving(false)
-    }
+    await requestDeviceMove(session.id, deviceId)
+    setMoving(false)
   }
 
   return (
