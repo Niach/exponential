@@ -45,7 +45,7 @@ describe(`tools`, () => {
   test(`every v1 tool is a catalog tool, sorted; only engine tools lack a native schema`, () => {
     const names = CAPABILITY_TOOLS.map((t) => t.name)
     expect(names).toEqual([...names].sort())
-    const catalog = CAPABILITIES.flatMap((c) => c.scopes.filter((s) => !s.hostOnly).flatMap((s) => s.tools.map((t) => `${c.name}.${t}`)))
+    const catalog = CAPABILITIES.flatMap((c) => c.scopes.filter((s) => !s.hostOnly).flatMap((s) => s.tools.map((t) => `${c.name}_${t}`)))
     for (const name of names) expect(catalog).toContain(name)
     for (const t of CAPABILITY_TOOLS) expect(t.nativeOutputSchema === null).toBe(t.runs === `engine`)
   })
@@ -65,14 +65,14 @@ describe(`tools`, () => {
   test(`a post without an id generates one and answers it`, async () => {
     const { store } = fakeBlobs()
     let seen: Record<string, unknown> | null = null
-    const out = await bridgeCall({ tool: `notifications.post`, arguments: { title: `Hi` }, context: v1.context, blobs: store, native: async (_, args) => ((seen = args), { structuredContent: {} }) })
+    const out = await bridgeCall({ tool: `notifications_post`, arguments: { title: `Hi` }, context: v1.context, blobs: store, native: async (_, args) => ((seen = args), { structuredContent: {} }) })
     const id = (out.result.structuredContent as { id: string }).id
     expect(id).toMatch(/^n-[0-9a-f]{32}$/)
     expect(seen as unknown as Record<string, unknown>).toEqual({ id: `acme.album/${id}`, title: `Hi`, body: null, at: null, tap: null })
   })
   test(`a throwing native is an rpcError`, async () => {
     const { store } = fakeBlobs()
-    const out = await bridgeCall({ tool: `photos.pick`, arguments: {}, context: v1.context, blobs: store, native: async () => Promise.reject(new Error(`gone`)) })
+    const out = await bridgeCall({ tool: `photos_pick`, arguments: {}, context: v1.context, blobs: store, native: async () => Promise.reject(new Error(`gone`)) })
     expect(out.outcome).toBe(`rpcError`)
     expect(out.result.isError).toBe(true)
   })
@@ -118,7 +118,7 @@ describe(`pdf`, () => {
       const { store, puts } = fakeBlobs(seed)
       const expected = c.expected as { name?: string; pages?: number; size?: number; sha256?: string; isError?: string }
       const rendered = await renderPdf(c.arguments as PdfArguments, (id) => store.get(v1.context.app, id))
-      const out = await bridgeCall({ tool: `print.pdf`, arguments: c.arguments, context: v1.context, blobs: store, native: async () => expect.unreachable() })
+      const out = await bridgeCall({ tool: `print_pdf`, arguments: c.arguments, context: v1.context, blobs: store, native: async () => expect.unreachable() })
       if (expected.isError !== undefined) {
         expect(rendered).toEqual({ error: expected.isError })
         expect(out.result.content).toEqual([{ type: `text`, text: expected.isError }])
@@ -146,8 +146,8 @@ describe(`nativeCaller`, () => {
   test(`routes the full name to the capability's bare tool`, async () => {
     const seen: string[] = []
     const call = nativeCaller([{ name: `photos`, call: async (tool) => (seen.push(tool), { structuredContent: { photos: [] } }) }])
-    expect(await call(`photos.pick`, { limit: 1 })).toEqual({ structuredContent: { photos: [] } })
+    expect(await call(`photos_pick`, { limit: 1 })).toEqual({ structuredContent: { photos: [] } })
     expect(seen).toEqual([`pick`])
-    expect(await call(`share.send`, {})).toEqual({ content: [{ type: `text`, text: `unavailable` }], isError: true })
+    expect(await call(`share_send`, {})).toEqual({ content: [{ type: `text`, text: `unavailable` }], isError: true })
   })
 })

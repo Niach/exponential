@@ -84,29 +84,29 @@ export function runnerHasPermissions(pkg: Pkg): boolean {
 
 const event = (name: string, context?: Record<string, unknown>) => ({ event: context ? { name, context } : { name } })
 
-/** The shell around one screen's template: its components (the template's root becomes `runner-page`) and its extra data. */
+/** The shell around one screen's template: its components (the template's root becomes `runner_page`) and its extra data. */
 function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[], formFactor: FormFactor): { components: SurfaceComponent[]; data: Record<string, unknown> | null } {
   const nav = navScreens(pkg)
   const permissions = runnerHasPermissions(pkg)
   const tabs = nav.length >= 2
-  const page = components.map((c) => (c.id === `root` ? { ...c, id: `runner-page` } : c))
+  const page = components.map((c) => (c.id === `root` ? { ...c, id: `runner_page` } : c))
   if (!tabs && !permissions)
-    return { components: [{ id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, height: `100%`, overflowY: `auto` }, children: [`runner-page`] }, ...page], data: null }
+    return { components: [{ id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, height: `100%`, overflowY: `auto` }, children: [`runner_page`] }, ...page], data: null }
   const S = fixture.shell
   if (formFactor === `wide`) {
-    const nav_children = [`runner-title`, ...(tabs ? [`runner-screens`] : []), ...(permissions ? [`runner-permissions`] : [])]
+    const nav_children = [`runner_title`, ...(tabs ? [`runner_screens`] : []), ...(permissions ? [`runner_permissions`] : [])]
     const shell: SurfaceComponent[] = [
-      { id: `root`, component: `Stack`, direction: `horizontal`, gap: `none`, align: `stretch`, style: { height: `100%` }, children: [`runner-sidebar`] },
-      { id: `runner-sidebar`, component: `Sidebar`, width: S.sidebarWidth, collapseBelow: `never`, children: [`runner-scroll`], slots: { sidebar: `runner-nav` } },
-      { id: `runner-scroll`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0, overflowY: `auto` }, children: [`runner-page`] },
-      { id: `runner-nav`, component: `Stack`, gap: `sm`, style: { padding: `$spacing.sm` }, children: nav_children },
-      { id: `runner-title`, component: `Heading`, text: typeof pkg.name === `string` ? pkg.name : ``, level: S.titleLevel },
+      { id: `root`, component: `Stack`, direction: `horizontal`, gap: `none`, align: `stretch`, style: { height: `100%` }, children: [`runner_sidebar`] },
+      { id: `runner_sidebar`, component: `Sidebar`, width: S.sidebarWidth, collapseBelow: `never`, children: [`runner_scroll`], slots: { sidebar: `runner_nav` } },
+      { id: `runner_scroll`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0, overflowY: `auto` }, children: [`runner_page`] },
+      { id: `runner_nav`, component: `Stack`, gap: `sm`, style: { padding: `$spacing.sm` }, children: nav_children },
+      { id: `runner_title`, component: `Heading`, text: typeof pkg.name === `string` ? pkg.name : ``, level: S.titleLevel },
     ]
     if (tabs)
       shell.push(
-        { id: `runner-screens`, component: `List`, children: nav.map((_, i) => `runner-screen-${i}`) },
+        { id: `runner_screens`, component: `List`, children: nav.map((_, i) => `runner_screen-${i}`) },
         ...nav.map((s, i) => ({
-          id: `runner-screen-${i}`,
+          id: `runner_screen-${i}`,
           component: `Row`,
           title: s.title ?? s.template,
           ...(s.icon ? { icon: s.icon } : {}),
@@ -117,30 +117,30 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
         })),
       )
     if (permissions)
-      shell.push({ id: `runner-permissions`, component: `Row`, title: fixture.copy.permissions, icon: S.permissionsIcon, density: `compact`, pressable: true, on: { press: event(`runner.permissions`) } })
+      shell.push({ id: `runner_permissions`, component: `Row`, title: fixture.copy.permissions, icon: S.permissionsIcon, density: `compact`, pressable: true, on: { press: event(`runner.permissions`) } })
     return { components: [...shell, ...page], data: null }
   }
-  const bar = [...(tabs ? [`runner-tabs-box`] : []), ...(permissions ? [`runner-permissions`] : [])]
+  const bar = [...(tabs ? [`runner_tabs-box`] : []), ...(permissions ? [`runner_permissions`] : [])]
   const shell: SurfaceComponent[] = [
-    { id: `root`, component: `Stack`, gap: `none`, style: { height: `100%` }, children: [`runner-main`, `runner-separator`, `runner-bar`] },
-    { id: `runner-main`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0, overflowY: `auto` }, children: [`runner-page`] },
-    { id: `runner-separator`, component: `Separator` },
-    { id: `runner-bar`, component: `Stack`, direction: `horizontal`, gap: `sm`, align: `center`, justify: `end`, style: { padding: `$spacing.sm` }, children: bar },
+    { id: `root`, component: `Stack`, gap: `none`, style: { height: `100%` }, children: [`runner_main`, `runner_separator`, `runner_bar`] },
+    { id: `runner_main`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0, overflowY: `auto` }, children: [`runner_page`] },
+    { id: `runner_separator`, component: `Separator` },
+    { id: `runner_bar`, component: `Stack`, direction: `horizontal`, gap: `sm`, align: `center`, justify: `end`, style: { padding: `$spacing.sm` }, children: bar },
   ]
   if (tabs)
     shell.push(
-      { id: `runner-tabs-box`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minWidth: 0 }, children: [`runner-tabs`] },
+      { id: `runner_tabs-box`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minWidth: 0 }, children: [`runner_tabs`] },
       {
-        id: `runner-tabs`,
+        id: `runner_tabs`,
         component: `Tabs`,
         tabs: nav.map((s) => ({ label: s.title ?? s.template, value: s.template, ...(s.icon ? { icon: s.icon } : {}) })),
-        value: { path: `/runner/screen` },
+        value: { "@path": `/runner/screen` },
         fill: true,
-        on: { change: event(`runner.navigate`, { screen: { path: `/runner/screen` } }) },
+        on: { change: event(`runner.navigate`, { screen: { "@path": `/runner/screen` } }) },
       },
     )
   if (permissions)
-    shell.push({ id: `runner-permissions`, component: `Button`, label: fixture.copy.permissions, icon: S.permissionsIcon, size: `icon`, variant: `ghost`, on: { press: event(`runner.permissions`) } })
+    shell.push({ id: `runner_permissions`, component: `Button`, label: fixture.copy.permissions, icon: S.permissionsIcon, size: `icon`, variant: `ghost`, on: { press: event(`runner.permissions`) } })
   return { components: [...shell, ...page], data: tabs ? { runner: { screen } } : null }
 }
 

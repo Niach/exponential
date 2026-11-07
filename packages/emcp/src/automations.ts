@@ -180,7 +180,7 @@ export function validateAutomations(list: unknown, ctx: AutomationContext): Auto
     const run = item.run
     if (!isObject(run)) return fail(`run`)
     if (!templatesValid(run, kind)) fail(`template`)
-    if (typeof run.action === `string` && run.action.startsWith(`exponential.apps.`)) return fail(`chain`)
+    if (typeof run.action === `string` && run.action.startsWith(`exponential_apps_`)) return fail(`chain`)
     for (const error of validateExposes([automationExpose({ name: `automation`, run: run as ExposeRun })], ctx)) {
       if (error.code !== `template` && error.code !== `accessTooLow`) fail(error.code)
     }

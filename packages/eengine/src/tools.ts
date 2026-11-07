@@ -33,12 +33,12 @@ export interface NativeCapability {
   call(tool: string, args: Record<string, unknown>): Promise<unknown>
 }
 
-/** `bridgeCall`'s `native` over a host's capabilities: `photos.pick` → the
+/** `bridgeCall`'s `native` over a host's capabilities: `photos_pick` → the
  *  `photos` provider's `pick`; a capability the host lacks answers `unavailable`. */
 export const nativeCaller =
   (capabilities: readonly NativeCapability[]) =>
   async (tool: string, args: Record<string, unknown>): Promise<unknown> => {
-    const at = tool.indexOf(`.`)
+    const at = tool.indexOf(`_`)
     const capability = capabilities.find((c) => c.name === tool.slice(0, at))
     if (!capability) return { content: [{ type: `text`, text: `unavailable` }], isError: true }
     return capability.call(tool.slice(at + 1), args)
@@ -308,13 +308,13 @@ async function appFile(input: BridgeInput, id: string): Promise<Uint8Array> {
 async function nativeArguments(input: BridgeInput, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const { app } = input.context
   switch (input.tool) {
-    case `files.save`: {
+    case `files_save`: {
       const name = args.name as string
       const isText = typeof args.text === `string`
       const bytes = isText ? utf8(args.text as string) : await appFile(input, args.fileId as string)
       return { name, mimeType: mimeFor(name, bytes, args.mimeType as string | undefined, isText), data: base64Encode(bytes) }
     }
-    case `share.send`: {
+    case `share_send`: {
       const out: Record<string, unknown> = {}
       for (const key of [`title`, `text`, `url`]) if (key in args) out[key] = args[key]
       if (typeof args.fileId === `string`) {
@@ -324,14 +324,14 @@ async function nativeArguments(input: BridgeInput, args: Record<string, unknown>
       }
       return out
     }
-    case `print.print`: {
+    case `print_print`: {
       const bytes = await appFile(input, args.fileId as string)
       const mimeType = sniffMime(bytes)
       const ext = mimeType === `application/pdf` ? `pdf` : mimeType === `image/png` ? `png` : mimeType === `image/jpeg` ? `jpg` : null
       if (!ext) throw new BridgeError(`unsupportedFile`, `isError`)
       return { name: (args.name as string | undefined) ?? `document.${ext}`, mimeType, data: base64Encode(bytes) }
     }
-    case `notifications.post`: {
+    case `notifications_post`: {
       const screen = args.screen as string | undefined
       if (screen !== undefined && !input.context.screens.includes(screen)) throw new BridgeError(`invalidParams: /screen enum`, `invalidParams`)
       return {
@@ -342,7 +342,7 @@ async function nativeArguments(input: BridgeInput, args: Record<string, unknown>
         tap: screen === undefined ? null : { type: `notificationTap`, app, screen, params: args.params ?? {} },
       }
     }
-    case `notifications.cancel`:
+    case `notifications_cancel`:
       return { id: `${app}/${args.id as string}` }
     default:
       return args
@@ -376,14 +376,14 @@ export async function bridgeCall(input: BridgeInput): Promise<BridgeOutput> {
   const def = toolDef(input.tool) as CapabilityTool
   const args = validated.arguments
   try {
-    if (input.tool === `print.pdf`) {
+    if (input.tool === `print_pdf`) {
       const rendered = await renderPdf(args as never, (id) => input.blobs.get(input.context.app, id))
       if (`error` in rendered) return { result: toolError(rendered.error), outcome: `isError` }
       const name = (args.name as string | undefined) ?? pdfFileName(args.title as string)
       const fileId = await input.blobs.put(input.context.app, name, `application/pdf`, rendered.bytes)
       return { result: toolResult({ file: { name, mimeType: `application/pdf`, size: rendered.bytes.length, fileId }, pages: rendered.pages }), outcome: `ok` }
     }
-    if (input.tool === `notifications.post` && args.id === undefined) args.id = (input.newId ?? newNotificationId)()
+    if (input.tool === `notifications_post` && args.id === undefined) args.id = (input.newId ?? newNotificationId)()
     const nativeArgs = await nativeArguments(input, args)
     let answer: unknown
     try {
@@ -395,7 +395,7 @@ export async function bridgeCall(input: BridgeInput): Promise<BridgeOutput> {
     const structured = isObject(answer) ? answer.structuredContent : undefined
     const violation = schemaViolation(def.nativeOutputSchema as JsonSchema, structured)
     if (violation) return { result: toolError(`badResult: ${violation}`), outcome: `isError` }
-    if (input.tool === `notifications.post`) return { result: toolResult({ id: args.id }), outcome: `ok` }
+    if (input.tool === `notifications_post`) return { result: toolResult({ id: args.id }), outcome: `ok` }
     return { result: toolResult(await storeFiles(input, structured)), outcome: `ok` }
   } catch (error) {
     if (error instanceof BridgeError) return { result: toolError(error.reason), outcome: error.outcome }

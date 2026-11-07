@@ -513,7 +513,7 @@
     ]
   },
   "auditCases": [
-    { "name": "monday_rotation", "run": { "records": { "op": "upsert", "kind": "rotation" } }, "clientId": "automation:monday_rotation", "tool": "records_upsert:rotation" },
+    { "name": "monday_rotation", "run": { "records": { "op": "upsert", "kind": "rotation" } }, "clientId": "automation:monday_rotation", "tool": "records.upsert:rotation" },
     { "name": "notify", "run": { "action": "exponential_comments_create" }, "clientId": "automation:notify", "tool": "exponential_comments_create" },
     { "name": "note", "run": { "upstream": "stripe", "tool": "create_note" }, "clientId": "automation:note", "tool": "stripe/create_note" },
     {"name": "route", "run": {"agent": "triage", "prompt": "x"}, "clientId": "automation:route", "tool": "agent:triage"}

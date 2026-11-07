@@ -177,7 +177,7 @@
       "grants": {},
       "provided": [],
       "foreground": true,
-      "call": { "from": "ui", "name": "bluetooth.scan", "arguments": {} },
+      "call": { "from": "ui", "name": "bluetooth_scan", "arguments": {} },
       "expected": { "verdict": "unknown", "capability": null, "tool": null, "scope": null, "reason": "unknownTool" }
     },
     {
@@ -268,7 +268,7 @@
       "name": "a UI call to an unknown function is audited in the qualified spelling",
       "appId": "at.exponential.photobook",
       "client": null,
-      "call": { "from": "ui", "name": "bluetooth.scan", "arguments": {} },
+      "call": { "from": "ui", "name": "bluetooth_scan", "arguments": {} },
       "verdict": { "verdict": "unknown", "capability": null, "tool": null, "scope": null, "reason": "unknownTool" },
       "outcome": null,
       "expected": { "appId": "at.exponential.photobook", "clientId": "ui", "tool": "bluetooth__scan", "status": "denied", "error": "unknownTool", "argsHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" }

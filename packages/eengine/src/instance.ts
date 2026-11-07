@@ -2,7 +2,7 @@
 // twin of the crate's `instance.rs`: load and verify its package file,
 // drive its lifecycle (lifecycle.json) and carry out the effects, resolve
 // `records:<kind>` sources with genUI's one records query, dispatch
-// `records.*`, `app.navigate` and capability calls (the broker, the E5
+// `records_*`, `app_navigate` and capability calls (the broker, the E5
 // bridge), and keep O1's outbox when the host has a sync provider
 // (outbox.json: direct writes otherwise).
 
@@ -16,6 +16,7 @@ import {
   parseSource,
   recordPolicy,
   recordsValue,
+  bridgePackage,
   validatePackage,
   verifyPackageFile,
   type PackageIssue,
@@ -136,7 +137,8 @@ export class AppInstance {
   static async load(config: EngineHostConfig, file: unknown): Promise<AppInstance> {
     const verification = await verifyPackageFile(file)
     if (verification.status === `invalid`) throw new LoadError(`signature`, verification.issues)
-    const pkg = packageOf(file)
+    // Round 9 §12: format 5 through the bridge while ACCEPT_V09 holds.
+    const pkg = bridgePackage(packageOf(file))
     const issues = validatePackage(pkg)
     if (issues.length) throw new LoadError(`invalid`, issues)
     const p = pkg as Pkg
@@ -249,20 +251,20 @@ export class AppInstance {
     return this.config.storage.subscribe(this.appId, () => on())
   }
 
-  /** A host function call from the app's UI: `records.upsert` /
-   *  `records.delete` / `records.batch`, `app.navigate`, or a capability
+  /** A host function call from the app's UI: `records_upsert` /
+   *  `records_delete` / `records_batch`, `app_navigate`, or a capability
    *  (`<capability>.<tool>`, through the broker). `newIds` = the client ids of
    *  its creates, in order. */
   async call(name: string, args: unknown, newIds: readonly string[] = []): Promise<CallResult> {
     const a = isObject(args) ? args : {}
     switch (name) {
-      case `records.upsert`:
+      case `records_upsert`:
         return this.write(`upsert`, a, newIds)
-      case `records.delete`:
+      case `records_delete`:
         return this.write(`delete`, a, newIds)
-      case `records.batch`:
+      case `records_batch`:
         return this.write(`batch`, a, newIds)
-      case `app.navigate`: {
+      case `app_navigate`: {
         const target = navigateTarget(this.pkg, args)
         if (`error` in target) return { refused: { code: `BAD_REQUEST`, message: target.error } }
         this.config.window.open(this.appId, target.screen, target.params, `replace`)
@@ -340,7 +342,7 @@ export function batchOf(entry: OutboxEntry): WriteBatch {
 /** How many client ids a call's creates take (the runner generates them). */
 export function createsOf(name: string, args: unknown): number {
   if (!isObject(args)) return 0
-  if (name === `records.upsert`) return typeof args.id === `string` ? 0 : 1
-  if (name === `records.batch` && Array.isArray(args.writes)) return args.writes.filter((w) => isObject(w) && w.op !== `delete` && typeof w.id !== `string`).length
+  if (name === `records_upsert`) return typeof args.id === `string` ? 0 : 1
+  if (name === `records_batch` && Array.isArray(args.writes)) return args.writes.filter((w) => isObject(w) && w.op !== `delete` && typeof w.id !== `string`).length
   return 0
 }
