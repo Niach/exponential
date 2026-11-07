@@ -178,6 +178,35 @@ final class Round1ModelTests: XCTestCase {
         }
     }
 
+    /// interactions-round1.json `overlayAnchor` (#EXP-1739): an open
+    /// anchored Popover closes once its anchor scrolls, moves or leaves the
+    /// tree. The core raises the close during the pass; the model's late
+    /// events take it and the next pass drops the layer.
+    func testOverlayAnchorCasesCloseOnScrollMoveAndRemoval() throws {
+        let f = try Fixtures.json("interactions-round1.json")
+        let fx = try XCTUnwrap(f["overlayAnchor"])
+        let base = try XCTUnwrap(fx["surface"]?.object)
+        let cases = fx["cases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let m = try model(.object(base))
+            XCTAssertTrue(m.layers.contains { $0.owner == "pop" }, "\(name): opens against its anchor")
+            let step = c["step"] ?? .null
+            var children = base["children"]?.array ?? []
+            if step["insertAbove"]?.bool == true, let above = fx["above"] { children.insert(above, at: 0) }
+            if step["removeAnchor"]?.bool == true { children.removeAll { $0["id"]?.string == "target" } }
+            if children != base["children"]?.array {
+                var tree = base
+                tree["children"] = .array(children)
+                _ = try m.setNested(json: JSONValue.object(tree).json)
+            }
+            if let list = step["scroll"]?.string { m.scrollTo(id: list, offset: CGPoint(x: 0, y: step["y"]?.number ?? 0)) }
+            if step["relayout"]?.bool == true { m.setViewport(width: 400, height: 800) }
+            XCTAssertEqual(m.layers.contains { $0.owner == "pop" }, c["after"]?.bool, name)
+        }
+    }
+
     // MARK: - bind-time.json presses (two-way binding through the core)
 
     func testBindTimePressesWriteTheBoundPathThroughTheModel() throws {

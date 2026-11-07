@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- An anchored overlay closes once its anchor scrolls, moves or leaves the tree (#EXP-1739, through the core).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 9 parity: Markdown's inline code paints the `Markdown/code` recipe (its type, side padding reserved in the line, corners, in quotes too), a bullet is 0.36 em at 0.46 em into the indent on the line's middle (`fixtures/markdown-inline.json` `documentPaint`). `MarkdownChipStyle.code`.

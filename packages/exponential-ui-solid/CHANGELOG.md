@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Popover, Menu (press and context) and Tooltip close once their anchor scrolls, moves or leaves the tree (#EXP-1739, `watchAnchor`).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 8: the `Canvas` native (DOM-parity with React) and Checkbox `indeterminate` (Radix's mixed DOM, the bubble input's `indeterminate`), the primitive Checkbox's dash.

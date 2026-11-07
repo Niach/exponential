@@ -991,7 +991,7 @@ impl SurfaceView {
             };
             if y >= -0.5 {
                 if self.surface.scroll_to(&n.id, s.offset_x, y.clamp(0.0, max_y)) {
-                    cx.notify();
+                    self.scrolled(cx);
                 }
                 return true;
             }
@@ -1444,7 +1444,7 @@ impl SurfaceView {
             let (x, y) = self.surface.scroll_offset(&d.id);
             let moved = if d.vertical { self.surface.scroll_to(&d.id, x, offset) } else { self.surface.scroll_to(&d.id, offset, y) };
             if moved {
-                cx.notify();
+                self.scrolled(cx);
             }
             return;
         }
@@ -1522,8 +1522,18 @@ impl SurfaceView {
         if self.surface.scroll_to(id, x, y) {
             self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
             self.scrollbars_recent(id, cx);
-            cx.notify();
+            self.scrolled(cx);
         }
+    }
+
+    /// A container scrolled: repaint, and take what the core raised for it
+    /// (#EXP-1739: an overlay anchored inside closes, its `change` fires).
+    fn scrolled(&mut self, cx: &mut Context<Self>) {
+        let late = self.surface.take_events();
+        if !late.is_empty() {
+            self.dispatch(late, None, cx);
+        }
+        cx.notify();
     }
 
     /// EXP-1555: a scroll shows the container's overlay scrollbars for

@@ -34,7 +34,7 @@
   },
   "@exponential_app/eui/web": {
     "bytes": 304014,
-    "gzip": 55552
+    "gzip": 55776
   },
   "@exponential_app/eui/web/primitives": {
     "bytes": 114057,

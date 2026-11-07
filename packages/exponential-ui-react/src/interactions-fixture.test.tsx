@@ -554,3 +554,39 @@ describe(`fixtures/interactions-round1.json checkbox`, () => {
     })
   }
 })
+
+interface OverlayAnchorCase {
+  name: string
+  step: { relayout?: boolean; scroll?: string; y?: number; insertAbove?: boolean; removeAnchor?: boolean }
+  after: boolean
+}
+
+// #EXP-1739 overlayAnchor: an open anchored Popover closes once its anchor
+// scrolls, moves or leaves the tree. jsdom lays nothing out, so a box's
+// origin here is its place among its siblings (40px a row): a node inserted
+// above the anchor moves it.
+describe(`fixtures/interactions-round1.json overlayAnchor`, () => {
+  const fx = (fixture as unknown as { overlayAnchor: { surface: NestedNode; above: NestedNode; cases: OverlayAnchorCase[] } }).overlayAnchor
+  for (const c of fx.cases) {
+    it(`overlayAnchor: ${c.name}`, async () => {
+      const rect = vi.spyOn(HTMLElement.prototype, `getBoundingClientRect`).mockImplementation(function (this: HTMLElement) {
+        let y = 0
+        for (let el: Element | null = this.closest(`[data-xui-id]`); el?.previousElementSibling; el = el.previousElementSibling) y += 40
+        return new DOMRect(0, y, 100, 40)
+      })
+      const shown = () => document.querySelector(`[data-xui-overlay="Popover"]`) !== null
+      const frames = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+      const { container, rerender } = render(<ExponentialSurface root={tree(fx.surface)} theme="neutral" id="oa" />)
+      await frames()
+      expect(shown(), `${c.name}: opens against its anchor`).toBe(true)
+      const children = [...(fx.surface.children ?? [])] as NestedNode[]
+      if (c.step.insertAbove) children.unshift(fx.above)
+      const next = c.step.removeAnchor ? children.filter((child) => child.id !== `target`) : children
+      rerender(<ExponentialSurface root={tree({ ...fx.surface, children: next })} theme="neutral" id="oa" />)
+      if (c.step.scroll) fireEvent.scroll(container.querySelector(`[data-xui-id="${c.step.scroll}"]`)!)
+      await frames()
+      expect(shown(), c.name).toBe(c.after)
+      rect.mockRestore()
+    })
+  }
+})

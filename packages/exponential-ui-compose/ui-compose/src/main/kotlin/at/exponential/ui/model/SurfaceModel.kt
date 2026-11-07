@@ -648,6 +648,8 @@ class SurfaceModel(
     private val pendingSignatures = HashSet<String>()
     private var inPass = false
     private var passAgain = false
+    /** #EXP-1739: how deep the late-event drain after a pass has gone (bounded). */
+    private var lateDepth = 0
 
     /** Per node: a failed component whose props changed, or that left the surface, paints (and may report) again. */
     private fun reconcilePaintFailures() {
@@ -898,6 +900,21 @@ class SurfaceModel(
         echoFields()
         syncToasts()
         host.afterLayout(id)
+        // #EXP-1739: while an ANCHORED overlay is up, the events the core
+        // raised during the pass (one whose anchor moved or went closes) are
+        // dispatched, like iOS's and the desktop's late events; bounded like
+        // theirs.
+        if (layers.any { it.anchorFrame != null } && lateDepth < 5) {
+            val late = surface.takeEvents()
+            if (late.isNotEmpty()) {
+                lateDepth += 1
+                try {
+                    dispatch(late)
+                } finally {
+                    lateDepth -= 1
+                }
+            }
+        }
     }
 
     /**
