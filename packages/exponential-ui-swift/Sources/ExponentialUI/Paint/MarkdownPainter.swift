@@ -186,6 +186,14 @@ enum MarkdownPainter {
             )
             if look != MarkdownChipKindStyle() { s.chip.kinds[kind] = look }
         }
+        // Round 9: inline code = the `Markdown/code` recipe, its type scaled with the rest.
+        let inlineCode = part("code")
+        s.chip.code = MarkdownCodeStyle(
+            size: inlineCode.px("fontSize").map { $0 * k },
+            paddingH: inlineCode.px("paddingHorizontal") ?? inlineCode.px("padding"),
+            paddingV: inlineCode.px("paddingVertical") ?? inlineCode.px("padding") ?? 0,
+            radius: inlineCode.px("borderRadius") ?? 4
+        )
         s.audioTitleGap = theme.spacing("xs")
         s.audioControls = theme.control("row", SurfaceMeasurer.audioControlsHeight)
         s.fileIcon = theme.control("iconSm", 16)
@@ -326,7 +334,26 @@ struct MarkdownView: View {
                 label
             }
         }
+        .background(alignment: .topLeading) { codeFills(runs, spec: spec, width: width) }
         .overlay(alignment: .topLeading) { chips(runs, spec: spec, width: width) }
+    }
+
+    /// Round 9: inline code's `Markdown/code` boxes, under the text.
+    @ViewBuilder
+    private func codeFills(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
+        let baseline = TextShaper.baseline(TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family))
+        let placed = TextShaper.codeRects(in: runs, lineHeight: spec.lineHeight, baseline: baseline, wrap: width, rtl: model.isRTL)
+        if !placed.isEmpty {
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
+                    RoundedRectangle(cornerRadius: p.radius)
+                        .fill(Color(p.fill))
+                        .frame(width: p.rect.width, height: p.rect.height)
+                        .offset(x: p.rect.minX, y: p.rect.minY)
+                }
+            }
+            .frame(width: width, alignment: .topLeading)
+        }
     }
 
     /// A text block's label. #VAPP-258: one carrying inline chips paints
@@ -408,19 +435,18 @@ struct MarkdownView: View {
     }
 
     /// Web's `list-style-position: outside` markers in the text colour: a
-    /// disc 0.34em wide whose centre sits 0.46em into the indent, on the
-    /// x-height's middle (Chromium's `disc`); an ordered `3.` ends one
-    /// space before the item text.
+    /// disc 0.36em wide whose centre sits 0.46em into the indent, on the
+    /// line's middle (Chromium's `disc`, `fixtures/markdown-inline.json`
+    /// `documentPaint`); an ordered `3.` ends one space before the item text.
     @ViewBuilder
     private func listMarker(_ marker: String, spec: MarkdownTextSpec) -> some View {
         let font = ExponentialUIFonts.font(family: spec.family, weight: spec.weight, size: spec.size)
-        let baseline = (spec.lineHeight - (font.ascender - font.descender)) / 2 + font.ascender
         if marker == "•" {
-            let d = spec.size * 0.34
+            let d = spec.size * MarkdownBullet.width
             Circle().fill(ink)
                 .frame(width: d, height: d)
-                .padding(.leading, spec.size * 0.46 - d / 2)
-                .padding(.top, baseline - font.xHeight / 2 - d / 2)
+                .padding(.leading, spec.size * MarkdownBullet.centre - d / 2)
+                .padding(.top, (spec.lineHeight - d) / 2)
                 .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .topLeading)
         } else {
             let space = (" " as NSString).size(withAttributes: [.font: font]).width
@@ -497,7 +523,7 @@ struct MarkdownView: View {
                 Rectangle().fill(quoteBorder).frame(width: styles.quoteBorder)
                 Color.clear.frame(width: styles.quotePad)
                 let inner = max(width - styles.quoteBorder - styles.quotePad, 1)
-                linked(runs(block.inlines, spec, ink: muted, link: link, codeBackground: nil, width: inner), spec: spec, width: inner)
+                linked(runs(block.inlines, spec, ink: muted, link: link, codeBackground: codeBg, width: inner), spec: spec, width: inner)
             }
         case .codeBlock:
             // One non-wrapping label per line (a single-line label would

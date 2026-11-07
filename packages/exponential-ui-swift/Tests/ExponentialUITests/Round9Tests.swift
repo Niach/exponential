@@ -184,6 +184,45 @@ final class Round9Tests: XCTestCase {
         }
     }
 
+    func testTheDocumentPaintsTheFixturesCodeAndLists() throws {
+        let fixture = try Fixtures.json("markdown-inline.json")
+        let paint = try XCTUnwrap(fixture["documentPaint"])
+        let tokens = try XCTUnwrap(JSONValue(any: JSONSerialization.jsonObject(with: Data(contentsOf: Fixtures.dir.deletingLastPathComponent().appendingPathComponent("themes/neutral.theme.json"))))["tokens"])
+        func token(_ ref: String?) -> CGFloat? {
+            var at: JSONValue? = tokens
+            for key in (ref ?? "").dropFirst().split(separator: ".") { at = at?[String(key)] }
+            return at?.number.map { CGFloat($0) }
+        }
+        let want = paint["code"]?["neutral"]
+        let theme = try XCTUnwrap(ThemeHandle.builtin("neutral"))
+        let s = MarkdownPainter.styles(theme: theme, mode: .dark, body: TextStyle(fontSize: 14, fontWeight: 400, lineHeight: 20, fontFamily: nil), props: [:])
+        XCTAssertEqual(s.chip.code.size, token(want?["fontSize"]?.string))
+        XCTAssertEqual(s.chip.code.radius, token(want?["borderRadius"]?.string))
+        XCTAssertEqual(s.chip.code.paddingH, token(want?["paddingHorizontal"]?.string))
+        XCTAssertEqual(s.chip.code.paddingV, 0)
+        let list = paint["list"]
+        XCTAssertEqual(s.listIndent, (14 * CGFloat(list?["indentEm"]?.number ?? 0)).rounded())
+        XCTAssertEqual(MarkdownBullet.width, CGFloat(list?["bulletEm"]?.number ?? 0))
+        XCTAssertEqual(MarkdownBullet.centre, CGFloat(list?["bulletCentreEm"]?.number ?? 0))
+        XCTAssertEqual(s.itemTop, CGFloat(list?["itemGap"]?.number ?? -1))
+        XCTAssertEqual(s.itemBottom, CGFloat(list?["itemGap"]?.number ?? -1))
+    }
+
+    func testInlineCodeReservesItsPaddingAndAFenceDoesNot() throws {
+        var style = MarkdownChipStyle()
+        style.code = MarkdownCodeStyle(size: 12, paddingH: 4, paddingV: 0, radius: 6)
+        let spec = MarkdownTextSpec(size: 14, lineHeight: 20, weight: 400, family: nil)
+        let shaper = MarkdownShaper(mono: nil, chip: style)
+        let inline = shaper.width([MarkdownInline(text: "code", code: true)], spec)
+        var bare = style
+        bare.code = MarkdownCodeStyle(size: 12, paddingH: 0, paddingV: 0, radius: 6)
+        XCTAssertEqual(inline - MarkdownShaper(mono: nil, chip: bare).width([MarkdownInline(text: "code", code: true)], spec), 8, accuracy: 0.05)
+        let fenced = shaper.width([MarkdownInline(text: "code", code: true, fenced: true)], spec)
+        XCTAssertLessThan(fenced, inline + 8, "a fence keeps its own type, no padding")
+        let run = TextShaper.runs([MarkdownInline(text: "code", code: true, fenced: true)], spec, mono: nil, ink: .black, link: .black, codeBackground: .black, chip: style)
+        XCTAssertFalse(TextShaper.hasChips(run))
+    }
+
     // MARK: - pictures
 
     #if canImport(AppKit)
@@ -261,6 +300,7 @@ final class Round9Tests: XCTestCase {
                 md("caption", "An inline caption is a *Text* caption.", "caption"),
                 ["id": "caption-text", "component": "Text", "props": ["text": "A Text caption beside it, the same type.", "variant": "caption"]],
                 md("headings", "# Heading 1\n## Heading 2\n### Heading 3\n#### Heading 4\n##### Heading 5 paints h4\n###### Heading 6 paints h4\nA paragraph after them.\n\n- The rest of GFM\n- stays the document's"),
+                ["id": "doc", "component": "Markdown", "props": ["text": "## A title\n\nA **bold** paragraph with `code` and [a link](https://exponential.at).\n\n- one\n- two\n\nLast paragraph."]],
             ],
         ], data: nil, name: "ios-markdown-inline")
     }

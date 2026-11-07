@@ -571,6 +571,34 @@ public enum TextShaper {
                 out.append(chipRun(chip, href: href, style: chipStyle, lineHeight: spec.lineHeight, wrap: wrap, attrs: attrs))
                 continue
             }
+            // Round 9: inline code = its type between its side padding (the
+            // run's line keeps the block's half-leading and baseline).
+            if span.code, !span.fenced, let chipStyle {
+                let body = attrs
+                var mono = ts
+                mono.fontSize = chipStyle.code.size(spec)
+                attrs = attributes(mono, italic: span.italic, family: family, align: align)
+                attrs[halfLeadingKey] = body[halfLeadingKey]
+                let font = attrs[.font] as? PlatformFont
+                let run = MarkdownCodeRun(fill: codeBackground, radius: chipStyle.code.radius, ascent: (font?.ascender ?? spec.size) + chipStyle.code.paddingV, descent: -(font?.descender ?? 0) + chipStyle.code.paddingV)
+                let pad = codePad(chipStyle.code.paddingH(spec), lineHeight: spec.lineHeight, run: run, attrs: body)
+                attrs[.foregroundColor] = span.link != nil ? link : ink
+                if span.strike { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+                if let href = span.link {
+                    attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                    attrs[Self.linkKey] = href
+                }
+                attrs[codeKey] = run
+                // The word joiners keep the padding on the span's line.
+                var glue = body
+                glue[codeKey] = run
+                out.append(NSAttributedString(string: "\u{FFFC}", attributes: pad))
+                out.append(NSAttributedString(string: "\u{2060}", attributes: glue))
+                out.append(NSAttributedString(string: span.text, attributes: attrs))
+                out.append(NSAttributedString(string: "\u{2060}", attributes: glue))
+                out.append(NSAttributedString(string: "\u{FFFC}", attributes: pad))
+                continue
+            }
             attrs[.foregroundColor] = span.link != nil ? link : ink
             if span.strike { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let href = span.link {
@@ -581,6 +609,24 @@ public enum TextShaper {
             out.append(NSAttributedString(string: span.text, attributes: attrs))
         }
         return out
+    }
+}
+
+/// Round 9: one inline code span's fill as painted (`codeRects`): above and
+/// below the baseline, `paddingV` included.
+final class MarkdownCodeRun: NSObject {
+    let fill: PlatformColor?
+    let radius: CGFloat
+    let ascent: CGFloat
+    let descent: CGFloat
+    /// The side padding's run delegate reads this.
+    var padding: CGFloat = 0
+
+    init(fill: PlatformColor?, radius: CGFloat, ascent: CGFloat, descent: CGFloat) {
+        self.fill = fill
+        self.radius = radius
+        self.ascent = ascent
+        self.descent = descent
     }
 }
 
@@ -673,6 +719,60 @@ extension TextShaper {
         return NSAttributedString(string: "\u{FFFC}", attributes: attrs)
     }
 
+    /// Round 9: the attribute over an inline code span, its side padding included.
+    static let codeKey = NSAttributedString.Key("ExponentialUI.code")
+    private static let halfLeadingKey = NSAttributedString.Key("ExponentialUI.halfLeading")
+
+    /// Round 9: the attributes of inline code's side padding: reserved like a
+    /// chip (a CoreText run delegate for the measurer, a clear attachment for
+    /// TextKit), in the block's font so its line keeps the block's baseline.
+    private static func codePad(_ width: CGFloat, lineHeight: CGFloat, run: MarkdownCodeRun, attrs base: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var attrs = base
+        attrs[codeKey] = run
+        run.padding = width
+        var callbacks = CTRunDelegateCallbacks(version: kCTRunDelegateVersion1, dealloc: { ref in
+            Unmanaged<MarkdownCodeRun>.fromOpaque(ref).release()
+        }, getAscent: { _ in 0 }, getDescent: { _ in 0 }, getWidth: { ref in
+            Unmanaged<MarkdownCodeRun>.fromOpaque(ref).takeUnretainedValue().padding
+        })
+        if let delegate = CTRunDelegateCreate(&callbacks, Unmanaged.passRetained(run).toOpaque()) {
+            attrs[NSAttributedString.Key(kCTRunDelegateAttributeName as String)] = delegate
+        }
+        let font = base[.font] as? PlatformFont
+        let ascent = font.map { $0.ascender } ?? lineHeight * 0.8
+        let descent = font.map { -$0.descender } ?? lineHeight * 0.2
+        let attachment = NSTextAttachment()
+        attachment.image = clearImage
+        attachment.bounds = CGRect(x: 0, y: -descent, width: width, height: ascent + descent)
+        attrs[.attachment] = attachment
+        return attrs
+    }
+
+    /// Round 9: each inline code span's fill per line it crosses, laid out as
+    /// the label lays it out (`baseline` = the block's in its line box).
+    static func codeRects(in a: NSAttributedString, lineHeight: CGFloat, baseline: CGFloat, wrap: CGFloat, rtl: Bool = false) -> [(fill: PlatformColor, radius: CGFloat, rect: CGRect)] {
+        var spans: [(range: NSRange, run: MarkdownCodeRun, fill: PlatformColor)] = []
+        a.enumerateAttribute(codeKey, in: NSRange(location: 0, length: a.length)) { v, range, _ in
+            if let run = v as? MarkdownCodeRun, let fill = run.fill { spans.append((range, run, fill)) }
+        }
+        if spans.isEmpty { return [] }
+        var out: [(fill: PlatformColor, radius: CGFloat, rect: CGRect)] = []
+        let typesetter = CTTypesetterCreateWithAttributedString(a)
+        for (line, r) in lineRanges(a, wrap: wrap).enumerated() where r.length > 0 {
+            let ct = CTTypesetterCreateLine(typesetter, CFRange(location: r.location, length: r.length))
+            let pen = rtl ? CGFloat(CTLineGetPenOffsetForFlush(ct, 1, Double(wrap))) : 0
+            for span in spans {
+                let part = NSIntersectionRange(span.range, r)
+                guard part.length > 0 else { continue }
+                let x0 = CTLineGetOffsetForStringIndex(ct, part.location, nil) + pen
+                let x1 = CTLineGetOffsetForStringIndex(ct, NSMaxRange(part), nil) + pen
+                let y = CGFloat(line) * lineHeight + baseline - span.run.ascent
+                out.append((span.fill, span.run.radius, CGRect(x: min(x0, x1), y: y, width: abs(x1 - x0), height: span.run.ascent + span.run.descent)))
+            }
+        }
+        return out
+    }
+
     nonisolated(unsafe) static let clearImage: PlatformImage = {
         #if canImport(UIKit)
         return UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
@@ -724,6 +824,7 @@ extension TextShaper {
                 let at = max(NSMaxRange(r) - 1, 0)
                 var attrs = a.attributes(at: at, effectiveRange: nil)
                 attrs[chipKey] = nil
+                attrs[codeKey] = nil
                 attrs[.attachment] = nil
                 attrs[NSAttributedString.Key(kCTRunDelegateAttributeName as String)] = nil
                 out.append(NSAttributedString(string: "\u{2028}", attributes: attrs))
@@ -732,10 +833,13 @@ extension TextShaper {
         return out
     }
 
+    /// Inline chips or code: painted on the typesetter's lines.
     static func hasChips(_ a: NSAttributedString) -> Bool {
         var found = false
-        a.enumerateAttribute(chipKey, in: NSRange(location: 0, length: a.length)) { v, _, stop in
-            if v != nil { found = true; stop.pointee = true }
+        for key in [chipKey, codeKey] where !found {
+            a.enumerateAttribute(key, in: NSRange(location: 0, length: a.length)) { v, _, stop in
+                if v != nil { found = true; stop.pointee = true }
+            }
         }
         return found
     }
