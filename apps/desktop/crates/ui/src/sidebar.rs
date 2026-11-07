@@ -33,7 +33,7 @@
 //! menus render in the Root overlay, outside this element tree.
 
 use crate::controls::PointerContextMenuExt as _;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
@@ -53,10 +53,8 @@ use sync::Store;
 
 // EXP-282: `OpenSettings` is gone from this file — the rail gear navigates
 // directly (EXP-17) and the account dropdown no longer duplicates it.
-use crate::actions::{CreateTeam, JoinTeam, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
-use crate::controls::WebControl as _;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
 use crate::navigation::{
@@ -801,22 +799,6 @@ pub(crate) fn left_column_divider(cx: &App) -> gpui::AnyElement {
         .into_any_element()
 }
 
-/// EXP-1075 — one team's live-run dot, or `None` when that team has none of
-/// my runs going. Amber while any of them is parked on a question, else the
-/// plain live green (the Threads dot's tokens — one palette, one meaning). A DOT, never a count: the switcher answers "is something waiting
-/// for me elsewhere", and the number is the rail's job once you are there.
-fn team_run_dot(live: Option<&crate::session_data::TeamLiveRuns>) -> Option<Hsla> {
-    let runs = live?;
-    if runs.count == 0 {
-        return None;
-    }
-    Some(if runs.needs_input {
-        theme::tokens::YELLOW.to_hsla()
-    } else {
-        theme::tokens::GREEN.to_hsla()
-    })
-}
-
 /// EXP-1294 — a Running row's mark state off its tree's facts: needs you
 /// first, then working, else the quiet waiting mark (EXP-1312: the ×4
 /// `thread_row_mark_state`). Pure.
@@ -824,221 +806,9 @@ pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_
     domain::session_tree::thread_row_mark_state(needs_you, busy)
 }
 
-/// EXP-723: the sidebar's header row, the desktop mirror of the web
-/// `SidebarHeader` (`apps/web/src/components/team/sidebar.tsx`): the team
-/// switcher taking the width, then icon-only Search and New issue.
-///
-/// EXP-863: it is the LEFT COLUMN's header, not the rail's — the `Shell`
-/// renders it ONCE, fixed, above whichever occupant (rail / settings nav) is
-/// sliding underneath, so the switcher, Search and New issue
-/// never move. Hence a free fn over the window's navigation and no listener
-/// on any view: both buttons call their openers directly with the `window`
-/// the click hands them.
-///
-/// Both icon buttons call their openers DIRECTLY rather than dispatching
-/// `OpenSearch`/`NewIssue`: a sidebar button that dispatches an App-global
-/// action fires from inside the window's own update, and the handler's
-/// re-entrant active-window lookup makes the click silently no-op (EXP-17 —
-/// the gear was dead for exactly this). The ⌘K / keymap bindings still route
-/// through the actions.
-pub(crate) fn render_left_column_header(
-    nav: &Entity<Navigation>,
-    live: &BTreeMap<String, crate::session_data::TeamLiveRuns>,
-    cx: &mut App,
-) -> impl IntoElement {
-    let active_team = active_team_id(nav, cx);
-    // EXP-1075: the rail's Running section is the ACTIVE team's runs now, so
-    // the switcher carries the others — a dot per team, never a count.
-    let teams: Vec<(String, String, bool, Option<Hsla>, Option<String>)> = Store::global(cx)
-        .collections()
-        .teams_sorted(cx)
-        .into_iter()
-        .map(|team| {
-            let active = Some(team.id.as_str()) == active_team.as_deref();
-            let dot = team_run_dot(live.get(&team.id));
-            (team.id, team.name, active, dot, team.icon_url)
-        })
-        .collect();
-    // The trigger's own dot folds every OTHER team into one: amber wins over
-    // green, because a run asking a question is the thing you must be told.
-    let elsewhere = teams
-        .iter()
-        .filter(|(_, _, active, _, _)| !*active)
-        .filter_map(|(id, _, _, _, _)| live.get(id))
-        .fold(crate::session_data::TeamLiveRuns::default(), |mut acc, runs| {
-            acc.count += runs.count;
-            acc.needs_input |= runs.needs_input && runs.count > 0;
-            acc
-        });
-    let elsewhere_tone = team_run_dot(Some(&elsewhere));
-    // The trigger names the ACTIVE team; nothing synced yet degrades to
-    // the glyph (`team_avatar`'s own fallback) and an empty label.
-    let active_row = teams.iter().find(|(_, _, active, _, _)| *active);
-    let team_name: SharedString = active_row
-        .map(|(_, name, _, _, _)| SharedString::from(name.clone()))
-        .unwrap_or_default();
-    let team_icon = active_row.and_then(|(_, _, _, _, icon)| icon.clone());
-    // EXP-449: `active_board_id` falls back to the team's first board, so
-    // this is `None` only when nothing is in scope at all.
-    let board_id = active_board_id(nav, cx);
-    // #EXP-1727: the Local desktops head the menu.
-    let locals = crate::local_desktops::entries(cx);
-    let on_local = locals.iter().any(|(_, _, current)| *current);
-
-    let switcher = crate::controls::PointerMenu::for_button(Button::new("rail-team-switcher")
-        .ghost().cursor_pointer()
-        .small()
-        .w_full()
-        .h(px(40.))
-        .px_1p5()
-        .child(
-            h_flex()
-                .w_full()
-                .gap_2()
-                .items_center()
-                .child(crate::user_avatar::team_avatar(team_icon.as_deref(), 28., cx))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .truncate()
-                        .child(team_name.clone()),
-                )
-                .child(
-                    // EXP-1075: the chevron wears the other teams' live-run
-                    // dot on its corner — the rail running row's badge, on
-                    // the one glyph that means "somewhere else".
-                    div()
-                        .relative()
-                        .flex_shrink_0()
-                        .child(
-                            Icon::new(registry::NAV_TEAM_SWITCHER)
-                                .xsmall()
-                                .flex_shrink_0()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .when_some(elsewhere_tone, |this, tone| {
-                            this.child(
-                                rail_dot(tone)
-                                    .absolute()
-                                    .top(px(-2.))
-                                    .right(px(-2.))
-                                    // The hairline keeps the dot readable
-                                    // over the glyph it overlaps.
-                                    .border_1()
-                                    .border_color(theme::tokens::BACKGROUND.to_hsla()),
-                            )
-                        }),
-                ),
-        ),
-        move |menu, _window, _cx| {
-            // Flat checked rows (the menu builder has no submenus); always
-            // shown, even with a single team (EXP-434: no teams=1 special
-            // case anywhere).
-            let mut menu = menu.label("Local desktops");
-            for (id, name, current) in &locals {
-                let id = id.clone();
-                menu = menu.item(crate::controls::pointer_check_item(name.clone(), *current, move |window, cx| {
-                    crate::local_desktops::enter(&id, cx);
-                    window.refresh();
-                }));
-            }
-            menu = menu.item(crate::controls::pointer_label_item("New local desktop", false).icon(Icon::new(registry::UI_ADD)).on_click(|_, window, cx| {
-                crate::local_desktops::create(cx);
-                window.refresh();
-            }));
-            if on_local {
-                return menu.separator().item(crate::controls::pointer_label_item("Connect Exponential", false).icon(Icon::from(ExpIcon::Logo)).on_click(|_, window, cx| {
-                    crate::local_desktops::leave(cx);
-                    window.refresh();
-                }));
-            }
-            menu = menu.separator();
-            for (id, name, active, dot, icon) in &teams {
-                let label = SharedString::from(name.clone());
-                let icon = icon.clone();
-                let switch = Box::new(SwitchTeam {
-                    team_id: id.clone(),
-                });
-                // EXP-1075: the ACTIVE team never wears a dot — its runs are
-                // the rail's Running section, right there. Every other team
-                // with live runs of mine gets the trailing [`rail_dot`].
-                let dot = if *active { None } else { *dot };
-                // #EXP-1645: each row leads with the team's mark (web parity).
-                menu = menu.menu_element_with_check(*active, switch, move |_window, cx| {
-                    h_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .items_center()
-                        .gap_2()
-                        .child(crate::user_avatar::team_avatar(icon.as_deref(), 20., cx))
-                        .child(div().flex_1().min_w_0().truncate().child(label.clone()))
-                        .children(dot.map(rail_dot))
-                });
-            }
-            menu.separator()
-                .menu_with_icon("New team", registry::UI_ADD, Box::new(CreateTeam))
-                .menu_with_icon("Join team", registry::UI_INVITE, Box::new(JoinTeam))
-        }).anchor(gpui::Anchor::TopLeft);
-
-    let rail = crate::ui_prefs::rail();
-    let mut rail_toggle = Some(Button::new("rail-toggle")
-        .ghost()
-        .web_icon_sm()
-        .flex_shrink_0()
-        .icon(if rail { registry::NAV_RAIL_EXPAND } else { registry::NAV_RAIL_COLLAPSE })
-        .tooltip(if rail { "Expand the sidebar" } else { "Collapse the sidebar" })
-        .on_click(|_: &ClickEvent, _, cx| toggle_rail(cx)));
-    let row = if rail { v_flex() } else { h_flex() };
-    row.w_full()
-        .gap_1()
-        .items_center()
-        .when(rail, |row| row.children(rail_toggle.take()))
-        .when(!rail, |row| row.child(div().flex_1().min_w_0().child(switcher)))
-        // #FEED-191: the Inbox, a popover anchored under its icon.
-        .child(crate::inbox_popover::InboxButton::new(nav.clone()))
-        .child(
-            // EXP-771: an icon-only ACTION button is a CIRCLE on every
-            // client (an icon PICKER trigger or a swatch cell stays a
-            // rounded square at the theme radius — `board_form`) — the
-            // shared `web_icon_sm` 32px capsule, not a hand-sized box.
-            Button::new("rail-search")
-                .ghost()
-                .web_icon_sm()
-                .flex_shrink_0()
-                .icon(registry::NAV_SEARCH)
-                .tooltip("Search")
-                .on_click(|_: &ClickEvent, window, cx| {
-                    crate::search_sheet::open_search(window, cx)
-                }),
-        )
-        .when_some(board_id, |row, board_id| {
-            row.child(
-                // EXP-771: the primary twin of the Search circle above.
-                Button::new("rail-new-issue")
-                    .primary()
-                    .web_icon_sm()
-                    .flex_shrink_0()
-                    .icon(registry::NAV_CREATE_ISSUE)
-                    .tooltip("New issue")
-                    .on_click(move |_: &ClickEvent, window, cx| {
-                        // EXP-1170: the New issue PAGE, no list beside it.
-                        crate::issue_draft_screen::open_new_from_rail(
-                            window,
-                            cx,
-                            board_id.clone(),
-                        );
-                    }),
-            )
-        })
-        .when(!rail, |row| row.children(rail_toggle.take()))
-}
-
 /// #EXP-1724: the sidebar folds into its icon rail and back: the shell
 /// reducer's `rail.toggle` (`shell.json`), remembered, every window.
-fn toggle_rail(cx: &mut App) {
+pub(crate) fn toggle_rail(cx: &mut App) {
     let state = uicore_model::ShellState { rail: crate::ui_prefs::rail(), ..Default::default() };
     crate::ui_prefs::set_rail(uicore_model::reduce(&state, &uicore_model::ShellEvent::RailToggle).rail);
     cx.refresh_windows();
