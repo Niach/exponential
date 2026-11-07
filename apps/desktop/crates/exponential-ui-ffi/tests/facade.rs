@@ -617,10 +617,10 @@ fn the_host_policy_fixture_replays_through_the_facade() {
     for c in f["negotiation"].as_array().unwrap() {
         let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
         assert_eq!(json!(supported_catalog_ids_for(ids.clone())), c["expected"]["supportedCatalogIds"]);
-        eq(&renderer_capabilities_json(ids, None).unwrap(), &c["expected"]["clientCapabilities"], "clientCapabilities");
+        eq(&renderer_capabilities_json(ids, None).unwrap(), &c["expected"]["rendererCapabilities"], "clientCapabilities");
     }
     assert!(combine_decisions("allow".into(), "maybe".into()).is_err());
-    eq(&package_policy_json(Some("[\"harness.toast\"]".into())).unwrap(), &json!({"allow": ["harness_toast"], "default": "deny"}), "packagePolicy");
+    eq(&package_policy_json(Some("[\"harness_toast\"]".into())).unwrap(), &json!({"allow": ["harness_toast"], "default": "deny"}), "packagePolicy");
 }
 
 #[test]
@@ -664,8 +664,8 @@ fn the_host_router_fixture_replays_through_the_facade() {
     assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
     let msgs = template_messages_json(packages["acme.devices"].to_string(), "list".into(), "x".into(), Some("{\"filter\":\"online\"}".into())).unwrap().unwrap();
     let msgs: Value = serde_json::from_str(&msgs).unwrap();
-    assert_eq!(msgs.as_array().unwrap().len(), 4);
-    assert_eq!(msgs[2]["updateDataModel"]["value"], json!({"title": "Devices", "filter": "online"}));
+    assert_eq!(msgs.as_array().unwrap().len(), 2);
+    assert_eq!(msgs[0]["createSurface"]["dataModel"], json!({"title": "Devices", "filter": "online"}));
     assert!(template_messages_json(packages["acme.devices"].to_string(), "nope".into(), "x".into(), None).unwrap().is_none());
     eq(
         &action_message_json("s".into(), "btn".into(), "save".into(), "{\"id\":1}".into(), Some("{\"value\":\"a\"}".into()), "t".into()).unwrap(),

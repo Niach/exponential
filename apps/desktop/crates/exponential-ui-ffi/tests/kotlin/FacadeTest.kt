@@ -286,7 +286,7 @@ fun main(args: Array<String>) {
         val ids = list(c["extensionIds"]).map { it as String }
         val expected = obj(c["expected"])
         check(supportedCatalogIdsFor(ids) == list(expected["supportedCatalogIds"])) { "negotiation $ids" }
-        equal(rendererCapabilitiesJson(ids, null), expected["clientCapabilities"], "capabilities $ids")
+        equal(rendererCapabilitiesJson(ids, null), expected["rendererCapabilities"], "capabilities $ids")
     }
     val routerFixture = load("host-router.json")
     val hostPackages = obj(routerFixture["packages"])

@@ -396,7 +396,7 @@ for c in policy["negotiation"] as! [[String: Any]] {
     let ids = c["extensionIds"] as! [String]
     let expected = c["expected"] as! [String: Any]
     check(supportedCatalogIdsFor(extensionIds: ids) == expected["supportedCatalogIds"] as! [String], "negotiation \(ids)")
-    equal(try! rendererCapabilitiesJson(extensionIds: ids, inlineCatalogsJson: nil), expected["clientCapabilities"]!, "capabilities \(ids)")
+    equal(try! rendererCapabilitiesJson(extensionIds: ids, inlineCatalogsJson: nil), expected["rendererCapabilities"]!, "capabilities \(ids)")
 }
 let routerFixture = load("host-router.json") as! [String: Any]
 let hostPackages = routerFixture["packages"] as! [String: Any]
