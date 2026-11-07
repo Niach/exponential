@@ -774,9 +774,12 @@ impl Builder<'_, '_> {
             }
             c
         };
+        // Round 9 §6.6: a Checkbox's message sits in the text column, under
+        // its label (the web's `.xui-field-text`).
+        let message_in_body = owner.component == "Checkbox" && (invalid || self.ctx.local.errors.get(&owner.id).is_some_and(|e| e.shown.is_some()));
         let text = |b: &mut Self, parent: u32| {
             let has_desc = str_prop(&owner.props, "description").is_some();
-            if has_desc {
+            if has_desc || message_in_body {
                 let col = b.part_in(parent, &owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "flexGrow": 1, "minWidth": 0}), json!({}), "");
                 if let Some(label) = str_prop(&owner.props, "label") {
                     b.text_part(col, &owner, "label", label, "body", "");
@@ -784,6 +787,7 @@ impl Builder<'_, '_> {
                 if let Some(d) = str_prop(&owner.props, "description") {
                     b.text_part(col, &owner, "description", d, "muted", "");
                 }
+                return Some(col);
             } else if owner.component == "Switch" && str_prop(&owner.props, "label") == Some("") {
                 // VAPP-280: a label-less Switch (a SettingsRow's control,
                 // `label: ""`) keeps the web's empty `body` column, which
@@ -794,13 +798,19 @@ impl Builder<'_, '_> {
                 b.nodes[l as usize].base_style.insert("flexGrow".into(), json!(1));
                 b.nodes[l as usize].base_style.insert("minWidth".into(), json!(0));
             }
+            None
         };
-        if owner.component == "Switch" {
-            text(self, index);
+        let body = if owner.component == "Switch" {
+            let body = text(self, index);
             control(self, index);
+            body
         } else {
             control(self, index);
-            text(self, index);
+            text(self, index)
+        };
+        if let Some(col) = body.filter(|_| message_in_body) {
+            self.field_message(col, &owner);
+            return;
         }
         if let Some((e, _)) = self.field_message(index, &owner) {
             self.nodes[e as usize].base_style.insert("flexBasis".into(), json!("100%"));
