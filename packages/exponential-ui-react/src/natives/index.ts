@@ -14,6 +14,7 @@ import { ChoiceTilesNative } from "./choice-tiles"
 import { CodeBlockNative } from "./code"
 import { DatePickerNative, DateRangePickerNative, TimePickerNative } from "./dates"
 import { MotionNative } from "./motion"
+import { CanvasNative } from "./canvas"
 import { ResizableNative } from "./resizable"
 import { RingNative, SkeletonNative, SpinnerNative, TreeGuidesNative, VoiceWaveNative } from "./feedback"
 import { CheckboxNative, ComposerNative, InputNative, NumberFieldNative, RadioNative, SliderNative, SwitchNative, TextareaNative } from "./inputs"
@@ -58,6 +59,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Skeleton: SkeletonNative,
   VoiceWave: VoiceWaveNative,
   Motion: MotionNative,
+  Canvas: CanvasNative,
   Table: TableNative,
   Chart: ChartNative,
   Button: ButtonNative,

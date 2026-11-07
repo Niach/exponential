@@ -1,5 +1,5 @@
 import * as React from "react"
-import { CheckIcon } from "lucide-react"
+import { CheckIcon, MinusIcon } from "lucide-react"
 import { Checkbox as CheckboxPrimitive } from "radix-ui"
 import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 
@@ -20,6 +20,7 @@ function Checkbox({
         className={CHECKBOX_CLASSES.indicator}
       >
         <CheckIcon className={CHECKBOX_CLASSES.icon} />
+        <MinusIcon className={CHECKBOX_CLASSES.indeterminateIcon} />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   )

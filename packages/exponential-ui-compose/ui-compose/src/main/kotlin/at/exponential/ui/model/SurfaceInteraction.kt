@@ -320,9 +320,12 @@ fun SurfaceModel.press(index: Int) {
         "Checkbox", "Switch" -> {
             val external = owner.props["checked"] ?: JsonValue.Bool(false)
             val current = mirrored(owner.id, external).bool ?: false
-            setMirror(owner.id, external, JsonValue.Bool(!current))
+            // Round 8 (interactions-round1.json `checkbox`): a mixed box
+            // resolves to checked (the core writes `indeterminate: false`).
+            val next = if (mixed(owner.index)) true else !current
+            setMirror(owner.id, external, JsonValue.Bool(next))
             val events = try {
-                surface.event(owner.index.toUInt(), "change", JsonValue.Obj(mapOf("checked" to JsonValue.Bool(!current))).json)
+                surface.event(owner.index.toUInt(), "change", JsonValue.Obj(mapOf("checked" to JsonValue.Bool(next))).json)
             } catch (_: UiException) {
                 null
             }
@@ -524,6 +527,16 @@ fun SurfaceModel.segmentedValues(index: Int): List<String> {
 fun SurfaceModel.checked(index: Int): Boolean {
     val o = owner(index) ?: return false
     return mirrored(o.id, o.props["checked"] ?: JsonValue.Bool(false)).bool ?: false
+}
+
+/**
+ * Round 8: a MIXED Checkbox (`indeterminate`, bound or the core's local
+ * `<id>.indeterminate` after a press resolved it): it wins over [checked]
+ * (a11y.json: ToggleableState.Indeterminate; the dash glyph).
+ */
+fun SurfaceModel.mixed(index: Int): Boolean {
+    val o = owner(index) ?: return false
+    return o.component == "Checkbox" && o.props["indeterminate"]?.bool == true
 }
 
 /** Is this Radio dot / row the chosen one? */

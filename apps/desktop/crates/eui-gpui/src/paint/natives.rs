@@ -1346,15 +1346,19 @@ pub fn unknown(cx: &LeafCx) -> AnyElement {
         .into_any_element()
 }
 
-/// A Checkbox `box` (or a Table `checkbox`): the check glyph when checked.
-pub fn check_box(cx: &LeafCx, checked: bool) -> AnyElement {
-    if !checked {
+/// A Checkbox `box` (or a Table `checkbox`): the check glyph when checked;
+/// round 8, a MIXED box (`indeterminate`, whatever `checked` says) the
+/// built-in `Checkbox.check.indeterminate` dash (`ui-minus`) on the checked
+/// look (the recipe's `indeterminate` when-prop paints the fill).
+pub fn check_box(cx: &LeafCx, checked: bool, mixed: bool) -> AnyElement {
+    if !checked && !mixed {
         return div().into_any_element();
     }
     let check = cx.part_props("Checkbox", "check", &[]);
     let size = px_prop(&check, "width").unwrap_or(12.0);
     let color = color_of(check.get("color").and_then(Value::as_str)).or(cx.style.color).unwrap_or(cx.ink);
-    div().size_full().flex().items_center().justify_center().child(icons::concept(cx.host, "ui-check", size, color)).into_any_element()
+    let glyph = if mixed { eui_core::layout_tree::builtin_icon("Checkbox.check.indeterminate").unwrap_or("ui-minus") } else { "ui-check" };
+    div().size_full().flex().items_center().justify_center().child(icons::concept(cx.host, glyph, size, color)).into_any_element()
 }
 
 /// A markdown task item's box (`- [ ]` / `- [x]`): THE Checkbox `box` of

@@ -148,7 +148,13 @@ impl NodeCache {
 
     /// Store a node in its slot; the slot's previous node (a tombstone for
     /// a new slot).
-    fn put(&mut self, surface: &Surface, n: PlacedNode) -> PlacedNode {
+    fn put(&mut self, surface: &Surface, mut n: PlacedNode) -> PlacedNode {
+        // Round 8: a Canvas is never a press target of its own (no button
+        // role, no tab stop): its `press` / `move` / `leave` come from the
+        // painter's pointer with drawing `{x, y}` (`view/canvas_leaf.rs`).
+        if n.component == "Canvas" {
+            n.pressable = false;
+        }
         let i = n.index as usize;
         self.grow_to(i + 1);
         if !n.removed {
@@ -370,6 +376,8 @@ pub fn a11y_label(n: &PlacedNode, strings: &StringTable) -> Option<SharedString>
         "ZoomableImage" => str_of(n, "alt"),
         // EXP-1604: an img named by its label (a11y.json).
         "Motion" => str_of(n, "label"),
+        // Round 8: a Canvas is an img named by its label (a11y.json).
+        "Canvas" => str_of(n, "label"),
         "Avatar" => str_of(n, "name"),
         "Box" | "Extension" => str_of(n, "label").or_else(|| str_of(n, "title")).or_else(|| str_of(n, "text")),
         "Spinner" => str_of(n, "label").or_else(|| strings.get("loading").map(String::as_str)),
@@ -498,6 +506,10 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Motion", None) if n.pressable => Role::Button,
         ("Motion", None) if str_of(n, "label").is_some() => Role::Image,
         ("Motion", None) => return None,
+        // Round 8: an img named by its label, decorative without one;
+        // `pointer` adds no role and no focus stop.
+        ("Canvas", None) if str_of(n, "label").is_some() => Role::Image,
+        ("Canvas", None) => return None,
         ("QrCode", None) if str_of(n, "label").is_some() => Role::Image,
         ("QrCode", None) => return None,
         ("QrScanner", None) => Role::Image,

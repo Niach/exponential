@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Round 8: the `Canvas` native (`CanvasView`: role img named by `label`, the Motion box, `pointer` events), Checkbox `indeterminate` (`checked="indeterminate"`, the `ui-minus` glyph, `aria-checked=mixed`, the press rule of `interactions-round1.json` `checkbox`), the primitive Checkbox's dash. Snapshots re-recorded (Progress header, Checkbox recipe prop).
+
 ## 0.18.0 (2026-11-06)
 
 - A focused text field adopts an action's `set` of its bound value (#VAPP-288): `ctx.assignData` / `ctx.writeEpoch`, `useWriteEpoch`, `useHostOwnedValue({epoch})`; echoes keep the typing rule.

@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Round 8: Canvas and Checkbox `indeterminate` through the Solid painter.
+
 ## 0.18.0 (2026-11-06)
 
 - Tree (#VAPP-285) through the Solid painter.

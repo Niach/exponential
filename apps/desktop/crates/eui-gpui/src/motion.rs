@@ -34,6 +34,15 @@ pub enum Fit {
 }
 
 impl Fit {
+    /// The engine's own fit (the same three rules).
+    pub fn engine(self) -> eui_motion::canvas::Fit {
+        match self {
+            Fit::Contain => eui_motion::canvas::Fit::Contain,
+            Fit::Cover => eui_motion::canvas::Fit::Cover,
+            Fit::Fill => eui_motion::canvas::Fit::Fill,
+        }
+    }
+
     pub fn from_props(props: &Map<String, Value>) -> Self {
         match props.get("fit").and_then(Value::as_str) {
             Some("cover") => Fit::Cover,
@@ -157,6 +166,14 @@ impl MotionPlayer {
         self.motion.size()
     }
 
+    /// Round 8: the text ops of the last sampled frame (display list v2;
+    /// a Motion never emits one today, a Canvas does): the raster skips
+    /// them and the view sets them natively ABOVE the image
+    /// (`view/canvas_leaf.rs` `paint_text_ops`).
+    pub fn texts(&self) -> impl Iterator<Item = &eui_motion::Op> {
+        self.list.ops.iter().filter(|op| matches!(op, eui_motion::Op::Text { .. }))
+    }
+
     /// Re-read the playback props (they change without a reload).
     pub fn set_playback(&mut self, props: &Map<String, Value>) {
         self.playback = Playback::from_json(&Value::Object(props.clone()));
@@ -228,7 +245,7 @@ pub fn fit_transform(cw: f32, ch: f32, w: f32, h: f32, fit: Fit) -> Transform {
 }
 
 /// Premultiplied RGBA → straight-alpha BGRA.
-fn to_bgra(pixmap: &Pixmap) -> image::RgbaImage {
+pub(crate) fn to_bgra(pixmap: &Pixmap) -> image::RgbaImage {
     let (w, h) = (pixmap.width(), pixmap.height());
     let mut out = vec![0u8; (w * h * 4) as usize];
     for (src, dst) in pixmap.pixels().iter().zip(out.chunks_exact_mut(4)) {

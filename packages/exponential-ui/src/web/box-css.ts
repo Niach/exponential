@@ -10,6 +10,9 @@
 //      the same way (VAPP-218: the host's, else derived from the width), `hover` and
 //      `prefers-reduced-motion` as real media queries;
 //   3. the state blocks `:hover`, `:focus-visible`, `:pressed`.
+// Round 8: `@container (min-width|max-width: N)` blocks match the node's
+// PARENT box: a real `@container (width …)` query, the parent made an
+// `inline-size` container (`:has(> .node)`), in source order with the rest.
 // A style value the macro expander left DYNAMIC (a binding or a call, e.g.
 // Progress `width: percent{…}`) becomes `var(--xd-<n>)`; `NodeView` sets
 // the resolved value on the element, so the layer order (native recipe <
@@ -193,6 +196,7 @@ function styleRules(
 ): string {
   const sel = `${scope} .${cls}`
   const rules: string[] = []
+  let containerRule = ``
   const base = declarations(withVars(``, style), fonts, own)
   if (base.length) rules.push(rule(sel, base) + shimmerRule(sel, style))
   for (const [key, value] of Object.entries(style)) {
@@ -214,7 +218,13 @@ function styleRules(
         const px = breakpointPx(condition.value, theme)
         if (px === null) break // an unknown token never matches
         const op = condition.feature === `min-width` ? `>=` : `<`
-        rules.push(`@container xui (width ${op} ${px}px){${rule(sel, block)}${band(sel)}}`)
+        if (condition.container) {
+          // Round 8: `@container (…)` asks the node's PARENT box: the parent
+          // becomes an anonymous inline-size container (the nearest one
+          // an unnamed query sees), so it never matches before layout.
+          if (!containerRule) containerRule = `${scope}:has(> .${cls}),${scope} :has(> .${cls}){container-type:inline-size}`
+          rules.push(`@container (width ${op} ${px}px){${rule(sel, block)}${band(sel)}}`)
+        } else rules.push(`@container xui (width ${op} ${px}px){${rule(sel, block)}${band(sel)}}`)
         break
       }
       case `min-height`:
@@ -250,6 +260,7 @@ function styleRules(
     const block = declarations(withVars(key, value as Record<string, unknown>), fonts, own)
     if (block.length) rules.push(rule(selector, block) + shimmerRule(selector, value as Record<string, unknown>))
   }
+  if (containerRule) rules.unshift(containerRule)
   return rules.join(``)
 }
 

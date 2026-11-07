@@ -1311,3 +1311,65 @@ fn a_tree_selects_folds_fetches_and_moves_the_focus(cx: &mut TestAppContext) {
         assert_eq!(data, Some(c["after"]["open"].clone()), "{name}: /open");
     }
 }
+
+/// Round 8: the mixed Checkbox through the painter: interactions-round1.json
+/// `checkbox` (a press on a mixed box checks it and clears
+/// `indeterminate`, a plain press toggles; `change` carries both), the
+/// toggled state a reader hears (`Mixed` wins over checked) and the bound
+/// paths after each press.
+#[gpui::test]
+fn a_mixed_checkbox_presses_to_checked_and_reads_mixed(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fx = &f["checkbox"];
+    init(cx);
+    let state_of = |t: Option<gpui::Toggled>| match t {
+        Some(gpui::Toggled::Mixed) => "mixed",
+        Some(gpui::Toggled::True) => "true",
+        Some(gpui::Toggled::False) => "false",
+        None => "none",
+    };
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut node = fx["surface"].clone();
+        if let Some(Value::Object(unbound)) = c.get("unbound") {
+            for (k, v) in unbound {
+                node["props"][k] = v.clone();
+            }
+        }
+        let tree = json!({"id": "root", "component": "Box", "children": [node]});
+        let log = Recorder::default();
+        let host = Rc::new(log.clone());
+        let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: eui_core::theme::Mode::Light, host, ..Default::default() };
+        let (view, vcx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
+        let data = c.get("data").cloned();
+        view.update(vcx, |v, cx| {
+            for (k, val) in data.as_ref().and_then(Value::as_object).into_iter().flatten() {
+                v.set_data(&format!("/{k}"), Some(val.clone()), cx).unwrap();
+            }
+            v.set_nested(serde_json::from_value::<NestedNode>(tree).unwrap(), cx);
+        });
+        draw(vcx);
+        draw(vcx);
+        let toggled = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext| view.read_with(vcx, |v, _| v.toggled_state("c"));
+        assert_eq!(state_of(toggled(&view, vcx)), c["before"].as_str().unwrap(), "{name}: before");
+        let presses = c["presses"].as_u64().unwrap() as usize;
+        let steps = c["steps"].as_array().unwrap();
+        assert_eq!(presses, steps.len());
+        for (k, step) in steps.iter().enumerate() {
+            log.0.borrow_mut().actions.clear();
+            let index = view.read_with(vcx, |v, _| v.index_of("c")).unwrap();
+            vcx.update(|window, cx| view.update(cx, |v, cx| v.press(index, window, cx)));
+            draw(vcx);
+            let changes: Vec<Value> = log.0.borrow().actions.iter().filter(|a| a.name == "change").map(|a| a.payload.clone().unwrap_or_else(|| a.context.clone())).collect();
+            assert_eq!(changes.len(), 1, "{name} #{k}: one change");
+            assert_eq!(changes[0]["checked"], step["change"]["checked"], "{name} #{k}: change.checked");
+            assert_eq!(changes[0]["indeterminate"], step["change"]["indeterminate"], "{name} #{k}: change.indeterminate");
+            assert_eq!(state_of(toggled(&view, vcx)), step["state"].as_str().unwrap(), "{name} #{k}: state");
+            if c.get("unbound").is_none() {
+                let (checked, mixed) = view.read_with(vcx, |v, _| (v.surface().get_data("/checked").cloned(), v.surface().get_data("/mixed").cloned()));
+                assert_eq!(checked.unwrap_or(Value::Null), step["checked"], "{name} #{k}: /checked");
+                assert_eq!(mixed.unwrap_or(Value::Null), step["mixed"], "{name} #{k}: /mixed");
+            }
+        }
+    }
+}

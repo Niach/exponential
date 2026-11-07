@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Round 8: the `Canvas` native (DOM-parity with React) and Checkbox `indeterminate` (Radix's mixed DOM, the bubble input's `indeterminate`), the primitive Checkbox's dash.
+
 ## 0.18.0 (2026-11-06)
 
 - A focused text field adopts an action's `set` of its bound value (#VAPP-288): `ctx.assignData` / `ctx.writeEpoch`, `createHostOwnedValue({epoch})`; echoes keep the typing rule.

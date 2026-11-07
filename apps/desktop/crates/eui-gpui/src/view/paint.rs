@@ -201,6 +201,18 @@ impl SurfaceView {
         n.states.iter().any(|s| s == "checked") || matches!(n.props.get("checked"), Some(Value::Bool(true)))
     }
 
+    /// The toggled state a reader announces: round 8, a mixed Checkbox is
+    /// `Mixed` whatever `checked` says (a11y.json: mixed wins).
+    pub(crate) fn toggled(&self, n: &PlacedNode) -> gpui::Toggled {
+        if is_mixed(n) {
+            gpui::Toggled::Mixed
+        } else if self.checked(n) {
+            gpui::Toggled::True
+        } else {
+            gpui::Toggled::False
+        }
+    }
+
     /// One node and its subtree (`None` = hidden).
     pub(crate) fn paint_node(&self, index: u32, place: Place, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let i = index as usize;
@@ -291,7 +303,9 @@ impl SurfaceView {
         let id = self.cache.ids[i].clone();
         let mut el = div().id(id.clone()).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
         // `native: true`: the platform control paints the part itself.
-        let native = style.native && leaf && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
+        // Round 8: gpui-component's checkbox has no mixed state, so a MIXED
+        // box always paints the eUI look (the dash).
+        let native = style.native && leaf && !is_mixed(n) && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
         let mut style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
         // A dimmed (disabled) Button / Toggle fades as ONE layer on the web:
         // its label never shows its own fill through it. On an opaque
@@ -512,7 +526,7 @@ impl SurfaceView {
         match role {
             gpui::Role::Tab | gpui::Role::ListBoxOption | gpui::Role::GridCell | gpui::Role::Row => el = el.aria_selected(flags.selected),
             gpui::Role::CheckBox | gpui::Role::Switch | gpui::Role::RadioButton | gpui::Role::MenuItemCheckBox => {
-                el = el.aria_toggled(if self.checked(n) { gpui::Toggled::True } else { gpui::Toggled::False });
+                el = el.aria_toggled(self.toggled(n));
             }
             gpui::Role::ComboBox | gpui::Role::DateInput => el = el.aria_expanded(flags.open),
             gpui::Role::Splitter => {
@@ -950,6 +964,8 @@ impl SurfaceView {
             ("ZoomableImage", _) => self.zoom_element(&n.id, w, h, cx)?,
             // EXP-1604: the raster's frame as an image (view/motion_leaf.rs).
             ("Motion", _) => self.motion_element(n, cx),
+            // Round 8: the shapes' raster + native text (view/canvas_leaf.rs).
+            ("Canvas", _) => self.canvas_element(n, cx),
             ("Video", _) => natives::video(&lcx, self.media_play(n, "mp4")),
             ("AudioPlayer", _) => natives::audio(&lcx, self.media_play(n, "m4a")),
             ("Spinner", _) => natives::spinner(&lcx),
@@ -960,9 +976,9 @@ impl SurfaceView {
             ("QrCode", _) => crate::paint::qr::qr_code(&lcx),
             ("QrScanner", _) => self.paint_qr_scanner(&lcx, index, window, cx),
             ("Unknown", _) => natives::unknown(&lcx),
-            ("Checkbox", Some("box" | "checkbox")) if style.native => gpui_component::checkbox::Checkbox::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).tab_stop(false).into_any_element(),
+            ("Checkbox", Some("box" | "checkbox")) if style.native && !is_mixed(n) => gpui_component::checkbox::Checkbox::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).tab_stop(false).into_any_element(),
             ("Switch", Some("track")) if style.native => gpui_component::switch::Switch::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).into_any_element(),
-            ("Checkbox", Some("box" | "checkbox")) => natives::check_box(&lcx, self.checked(n)),
+            ("Checkbox", Some("box" | "checkbox")) => natives::check_box(&lcx, self.checked(n), is_mixed(n)),
             ("Switch", Some("track")) => natives::switch_thumb(&lcx, self.checked(n)),
             ("Radio", Some("dot")) => {
                 if self.checked(n) {
@@ -1993,4 +2009,10 @@ fn mark_token(tone: &str) -> &'static str {
         "neutral" | "muted" => "mutedForeground",
         _ => "primary",
     }
+}
+
+/// Round 8: a Checkbox (its root or its `box` part, whose props carry it)
+/// in the MIXED state (`indeterminate: true`).
+pub(crate) fn is_mixed(n: &PlacedNode) -> bool {
+    (n.component == "Checkbox" || n.owner_component.as_deref() == Some("Checkbox")) && n.props.get("indeterminate").and_then(Value::as_bool) == Some(true)
 }

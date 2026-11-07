@@ -36,10 +36,15 @@ export function bubbleOnChange<T>(input: () => HTMLInputElement | HTMLSelectElem
 export const setChecked = (el: HTMLInputElement | HTMLSelectElement, v: boolean) => Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, `checked`)?.set?.call(el, v)
 
 /** Radix's hidden checkbox/radio bubble input (inside a <form> only). */
-export function BubbleCheck(props: { type: `checkbox` | `radio`; control: HTMLElement | undefined; checked: boolean; name?: string; value: string; disabled: boolean; transformFirst: boolean; bubbles: () => boolean }): JSX.Element {
+export function BubbleCheck(props: { type: `checkbox` | `radio`; control: HTMLElement | undefined; checked: boolean; indeterminate?: boolean; name?: string; value: string; disabled: boolean; transformFirst: boolean; bubbles: () => boolean }): JSX.Element {
   let input: HTMLInputElement | undefined
   const size = createElementSize(() => props.control)
   const initial = untrack(() => props.checked)
+  // Round 8: Radix sets the bubble's `indeterminate` property (no attribute).
+  createEffect(() => {
+    const mixed = Boolean(props.indeterminate)
+    if (input && input.indeterminate !== mixed) input.indeterminate = mixed
+  })
   bubbleOnChange(() => input, () => props.checked, setChecked, `click`, props.bubbles)
   const style = () => {
     const s = size()

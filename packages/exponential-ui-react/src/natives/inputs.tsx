@@ -20,6 +20,7 @@ import { useBoundState } from "./bound"
 import { bool, BuiltinIcon, num, str, useParts, TextPart, objects } from "./shared"
 import type { SurfaceInputEvent } from "../host"
 import { parseLocaleNumber } from "@exponential_app/eui/web"
+import { checkboxPress } from "@exponential_app/eui"
 
 export function useInputSender(node: NativeProps[`node`], scope: string, prop: string, domId: string = node.id) {
   const ctx = useSurfaceContext()
@@ -281,9 +282,14 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
 // ---------------------------------------------------------------------------
 
 export function CheckboxNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
-  const part = useParts(node, props)
   const id = useId()
   const [checked, setChecked] = useBoundState(node, scope, `checked`, bool(props.checked))
+  // Round 8 (§2): `indeterminate` = the mixed look (the checked box with the
+  // dash); mixed wins over checked for a11y; a press on a mixed box checks
+  // it and clears the dash (`checkboxPress`, interactions-round1 `checkbox`).
+  const [mixed, setMixed] = useBoundState(node, scope, `indeterminate`, bool(props.indeterminate))
+  const partProps = useMemo(() => (bool(props.indeterminate) === mixed ? props : { ...props, indeterminate: mixed }), [props, mixed])
+  const part = useParts(node, partProps)
   const focusRef = useRef<HTMLButtonElement | null>(null)
   const f = useField({ node, domId, props, value: checked, focusRef })
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
@@ -293,21 +299,22 @@ export function CheckboxNative({ node, props, rootProps, emit, scope, domId }: N
         ref={focusRef}
         id={id}
         {...(part(`box`, checked && `checked`, disabled && `disabled`, f.invalid && `invalid`) as Record<string, string>)}
-        checked={checked}
+        checked={mixed ? `indeterminate` : checked}
         disabled={disabled}
         name={str(props.name, node.id)}
         aria-invalid={f.invalid || undefined}
         aria-describedby={f.describedBy}
-        onCheckedChange={(next) => {
-          const value = next === true
-          setChecked(value)
-          f.change(value)
+        onCheckedChange={() => {
+          const press = checkboxPress(checked, mixed)
+          setChecked(press.checked)
+          if (press.writesIndeterminate) setMixed(false)
+          f.change(press.checked)
           f.touch()
-          void emit(`change`, { checked: value }, { checked: value })
+          void emit(`change`, press.change, press.change)
         }}
       >
         <CheckboxPrimitive.Indicator {...(part(`check`) as Record<string, string>)}>
-          <BuiltinIcon slot="Checkbox.check" />
+          <BuiltinIcon slot={mixed ? `Checkbox.check.indeterminate` : `Checkbox.check`} />
         </CheckboxPrimitive.Indicator>
       </CheckboxPrimitive.Root>
       <div className="xui-field-text">

@@ -5,6 +5,11 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `Canvas` (round 8, `docs/round-8-contract.md` §1): a static vector drawing on the core's `CanvasPlayer` (`CanvasLeaf`, `CanvasSource`), recompiled on a `size` / `shapes` change and resampled on a theme or mode change. Shapes paint through `MotionPainter`; the `text` ops follow natively (one line in the theme's sans / mono at the CSS weight, physical align, the baseline from `Paint.FontMetrics`). It boxes like a Motion, and it is an image named by `label`. With `pointer: true` it sends `press` / `move` / `leave` with `canvasToDrawing` coordinates (at most one `move` per frame); it is never a focus stop.
+- Motion's packed frames are VERSION 2: `MotionList` decodes the `text` op (`Op.Text`), and `MotionPainter.paint` takes a `Typefaces` for it.
+- Checkbox `indeterminate`: the dash glyph (`Glyph.Minus`, builtin `Checkbox.check.indeterminate`), `ToggleableState.Indeterminate` (mixed wins over checked), and a press on a mixed box checks it (`SurfaceModel.mixed`; replays `interactions-round1.json` `checkbox`).
+- Progress `valueText` + `detail`: the `value` caption sets tabular figures (`ResolvedTextStyle.forPart`). Stepper `collapse` and the `@container` condition come through the core. Progress (with a label), Checkbox and Stepper snapshots re-recorded.
+
 - An app's own file as an image src (#VAPP-271, `catalog/host.json` `media.appFile`): `app-file:<fileId>` loads through the new optional `HostPlugin.appFile` hook (`AppFileLoader = suspend (String) -> ByteArray?`; also `HostPolicy(appFile =)`, `ClosureHost(appFile =)`) under the image limits and cache, resolved before the media policy; no hook = nothing loads (the missing-image fallback). `appFileId(src)`, `LeafImages.appFileBytes` (replays `fixtures/host-policy.json` `appFiles`).
 - A call's answer (#VAPP-271): `ExponentialHost` gates and runs an action's result call (`call` + `result: <name>`) before the commit and runs the action again over the same snapshot with the answer as `results.<name>`; a refusal or the function's error fails the action. `Actions.run(…, results =)`, `Actions.Outcome.Waiting(Actions.Pending)`.
 

@@ -6,12 +6,16 @@
 // surface. The WASM rides inline (gzip + base64): the page works over file://.
 // EXP-1605: a Motion with `on.press` is pressable (Enter / Space); clicks and
 // hovers reach its state machine through the painter.
+// Round 8: the same for every Canvas (`CanvasView`, the canvas entry's
+// canvas.specimens.json); a press on the pointer pad writes its drawing
+// coordinates into the pad's readout (the island cannot re-render).
 
 import { DEFAULT_THEME_ID, builtinTheme, type NestedNode } from "@exponential_app/eui"
 import { initMotionWasm } from "@exponential_app/eui/motion"
-import { MotionView } from "@exponential_app/eui/web"
+import { CanvasView, MotionView } from "@exponential_app/eui/web"
 import { MOTION_WASM_GZ_BASE64 } from "@exponential_app/eui/wasm/motion/bytes.ts"
 import specimens from "./entries/motion.specimens.json"
+import canvasSpecimens from "./entries/canvas.specimens.json"
 
 type Tree = { data: Record<string, unknown>; cases: NestedNode; illustration: NestedNode; interactive?: NestedNode }
 
@@ -42,11 +46,45 @@ async function wasmBytes(): Promise<ArrayBuffer> {
   return new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream(`gzip`))).arrayBuffer()
 }
 
+/** Canvas id → its props (bindings resolved). */
+function canvasProps(tree: { data: Record<string, unknown>; cases: NestedNode }): Map<string, Record<string, unknown>> {
+  const out = new Map<string, Record<string, unknown>>()
+  const walk = (node: NestedNode) => {
+    if (node.component === `Canvas`) out.set(node.id, Object.fromEntries(Object.entries(node.props ?? {}).map(([k, v]) => [k, resolve(v, tree.data)])))
+    for (const child of node.children ?? []) walk(child as NestedNode)
+  }
+  walk(tree.cases)
+  return out
+}
+
+function mountCanvases(canvases: HTMLElement[]): void {
+  const props = canvasProps(canvasSpecimens as unknown as { data: Record<string, unknown>; cases: NestedNode })
+  for (const el of canvases) {
+    const id = el.dataset.xuiId ?? ``
+    const spec = props.get(id)
+    const canvas = el.querySelector(`canvas`)
+    if (!spec || !canvas) continue
+    const surface = el.closest<HTMLElement>(`[data-xui-surface]`)
+    const mode = surface?.dataset.xuiMode === `light` ? `light` : `dark`
+    const theme = builtinTheme(surface?.dataset.xuiTheme ?? DEFAULT_THEME_ID)
+    const readout = surface?.querySelector<HTMLElement>(`[data-xui-id="${id}-readout"]`)
+    new CanvasView(el, canvas).update(spec, {
+      theme,
+      mode,
+      emit: (event, payload) => {
+        if (event === `press` && readout && payload) readout.textContent = `Last press: x ${String(payload.x)} · y ${String(payload.y)}`
+      },
+    })
+  }
+}
+
 async function mount(): Promise<void> {
   const roots = [...document.querySelectorAll(`[data-ui-island]`)].map((host) => host.shadowRoot).filter((r): r is ShadowRoot => r !== null)
   const motions = roots.flatMap((r) => [...r.querySelectorAll<HTMLElement>(`[data-xui-c="Motion"]`)])
-  if (!motions.length) return
+  const canvases = roots.flatMap((r) => [...r.querySelectorAll<HTMLElement>(`[data-xui-c="Canvas"]`)])
+  if (!motions.length && !canvases.length) return
   initMotionWasm(await wasmBytes())
+  mountCanvases(canvases)
   const props = motionProps(specimens as unknown as Tree)
   const reduced = matchMedia(`(prefers-reduced-motion: reduce)`).matches
   for (const el of motions) {

@@ -68,15 +68,23 @@ class MotionSource(val player: MotionPlayer, val machine: String? = null) {
          * The slot overrides (contract §2): every `$color.<token>` slot of the
          * file gets the theme's colour, `$mode` the mode, the node's `slots` last.
          */
-        fun slots(lottie: String, props: Props, color: (String) -> String?, dark: Boolean): String {
+        fun slots(lottie: String, props: Props, color: (String) -> String?, dark: Boolean): String =
+            themeSlots(JsonValue.parse(lottie)["slots"]?.obj?.keys ?: emptySet(), color, dark, props["slots"]?.obj)
+
+        /**
+         * The slot overrides for these slot ids (round 8: a Canvas's
+         * `slotIds()`): `$color.<token>` from the theme, `$mode` the mode,
+         * [own] last.
+         */
+        fun themeSlots(ids: Collection<String>, color: (String) -> String?, dark: Boolean, own: Map<String, JsonValue>? = null): String {
             val out = LinkedHashMap<String, JsonValue>()
-            for (sid in JsonValue.parse(lottie)["slots"]?.obj?.keys ?: emptySet()) {
+            for (sid in ids) {
                 if (!sid.startsWith("\$color.")) continue
                 val c = color(sid.removePrefix("\$color."))?.let(::rgba) ?: continue
                 out[sid] = JsonValue.Obj(mapOf("p" to JsonValue.Obj(mapOf("a" to JsonValue.Num(0.0), "k" to JsonValue.Arr(c.map { JsonValue.Num(it) })))))
             }
             if (dark) out["\$mode"] = JsonValue.Str("dark")
-            props["slots"]?.obj?.let { out.putAll(it) }
+            own?.let { out.putAll(it) }
             return JsonValue.Obj(out).json
         }
 

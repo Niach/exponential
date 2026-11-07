@@ -20,7 +20,15 @@ export type MotionCanvas = HTMLCanvasElement | OffscreenCanvas
 export type MotionContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 export type MotionImageSource = CanvasImageSource & { width: number; height: number }
 
-export const MOTION_PACKED_VERSION = 1
+export const MOTION_PACKED_VERSION = 2
+
+/** The CSS font stacks a `text` op (packed op 7, round 8: a Canvas's) sets
+ *  its line in: the theme's `$type.family.sans` / `$type.family.mono`. */
+export interface MotionTextFonts {
+  sans: string
+  mono: string
+}
+export const MOTION_DEFAULT_FONTS: MotionTextFonts = { sans: `ui-sans-serif, system-ui, sans-serif`, mono: `ui-monospace, monospace` }
 
 const BLENDS: readonly GlobalCompositeOperation[] = [
   `source-over`,
@@ -142,8 +150,9 @@ type Filter = { kind: 0; sx: number; sy: number } | { kind: 1; m: number[] } | {
 /** Paint one packed frame into `ctx` (a `width × height` px canvas, cleared
  *  first) under `base` (the fit transform × devicePixelRatio). `images` =
  *  the decoded assets in `MotionPlayer.images()` order (null while
- *  loading: skipped). Returns false when the stream is not a v1 frame. */
-export function paintMotionFrame(ctx: MotionContext, width: number, height: number, packed: ArrayLike<number>, base: MotionMatrix, images: readonly (MotionImageSource | null | undefined)[] = [], pool: MotionCanvasPool = new MotionCanvasPool()): boolean {
+ *  loading: skipped). `fonts` = the stacks `text` ops set their line in.
+ *  Returns false when the stream is not a VERSION 2 frame. */
+export function paintMotionFrame(ctx: MotionContext, width: number, height: number, packed: ArrayLike<number>, base: MotionMatrix, images: readonly (MotionImageSource | null | undefined)[] = [], pool: MotionCanvasPool = new MotionCanvasPool(), fonts: MotionTextFonts = MOTION_DEFAULT_FONTS): boolean {
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.globalAlpha = 1
   ctx.globalCompositeOperation = `source-over`
@@ -330,9 +339,54 @@ export function paintMotionFrame(ctx: MotionContext, width: number, height: numb
         c.drawImage(img, 0, 0, w > 0 ? w : img.width, h > 0 ? h : img.height)
       }
       c.restore()
+    } else if (op === 7) {
+      const t = mat()
+      const font = f()
+      const weight = f()
+      const size = f()
+      const align = f()
+      const baseline = f()
+      const color: [number, number, number, number] = [f(), f(), f(), f()]
+      const count = f()
+      if (!(count >= 0) || i + count > n) return false
+      let text = ``
+      for (let k = 0; k < count; k++) text += String.fromCharCode(f())
+      paintText(ctx, motionConcat(base, t), text, font === 1 ? fonts.mono : fonts.sans, weight, size, align, baseline, color)
     } else return false
   }
   return true
+}
+
+/** One `text` op (README › Packed frames, round 8): ONE line whose anchor
+ *  is the op's local origin under `m` (fit × dpr × the op's transform). The
+ *  line is set at device px (`size` × the transform's scale) under the
+ *  transform's rotation/skew only, so small drawings stay crisp. Align is
+ *  physical (`direction: ltr`, never mirrored); the baseline rule uses the
+ *  font's own ascent/descent (`fontBoundingBoxAscent/Descent`): top =
+ *  baseline at y + ascent, middle = y + (ascent − descent) / 2, alphabetic
+ *  = y. Clipped only by the canvas (the box), never by the composition. */
+export function paintText(ctx: MotionContext, m: MotionMatrix, text: string, family: string, weight: number, size: number, align: number, baseline: number, color: readonly number[]): void {
+  const scale = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]))
+  const px = size * scale
+  if (!text || !(px > 0) || !Number.isFinite(px) || !(clamp01(color[3]!) > 0)) return
+  ctx.save()
+  ctx.setTransform(m[0] / scale, m[1] / scale, m[2] / scale, m[3] / scale, m[4], m[5])
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = `source-over`
+  ctx.font = `${weight === 500 || weight === 600 || weight === 700 ? weight : 400} ${px}px ${family}`
+  ctx.direction = `ltr`
+  ctx.textAlign = align === 1 ? `center` : align === 2 ? `right` : `left`
+  ctx.textBaseline = `alphabetic`
+  ctx.fillStyle = css(color)
+  let dy = 0
+  if (baseline !== 2) {
+    const metrics = ctx.measureText(text)
+    const ascent = Number.isFinite(metrics.fontBoundingBoxAscent) ? metrics.fontBoundingBoxAscent : px * 0.8
+    const descent = Number.isFinite(metrics.fontBoundingBoxDescent) ? metrics.fontBoundingBoxDescent : px * 0.2
+    dy = baseline === 0 ? ascent : (ascent - descent) / 2
+  }
+  ctx.fillText(text, 0, dy)
+  ctx.restore()
 }
 
 function clamp01(v: number): number {

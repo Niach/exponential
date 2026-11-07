@@ -337,7 +337,7 @@ impl SurfaceView {
             None => Drive::Play,
             },
         };
-        MotionCanvas { id: ElementId::Name(format!("{}.motion", n.id).into()), leaf, drive, fit: Fit::from_props(props), now: self.now_or_instant(), background_pause: self.motion_background_pause, view: cx.entity().downgrade() }.into_any_element()
+        MotionCanvas { id: ElementId::Name(format!("{}.motion", n.id).into()), leaf, drive, fit: Fit::from_props(props), now: self.now_or_instant(), background_pause: self.motion_background_pause, fonts: self.drawing_fonts(), view: cx.entity().downgrade() }.into_any_element()
     }
 
     /// EXP-1605: (re)start the leaf's state machine when its source
@@ -500,6 +500,8 @@ pub(crate) struct MotionCanvas {
     fit: Fit,
     now: Instant,
     background_pause: bool,
+    /// Round 8: the families display-list v2 `text` ops are set in.
+    fonts: super::canvas_leaf::TextFonts,
     view: WeakEntity<SurfaceView>,
 }
 
@@ -619,6 +621,13 @@ impl Element for MotionCanvas {
         leaf.frame = Some(frame);
         if let Some(image) = image {
             let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
+        }
+        // Round 8 (display list v2): `text` ops come after every shape, so
+        // they are set natively over the raster (a Motion emits none today).
+        if player.texts().next().is_some() {
+            let (cw, ch) = player.size();
+            let fit = eui_motion::canvas::fit_matrix(cw as f64, ch as f64, f32::from(bounds.size.width) as f64, f32::from(bounds.size.height) as f64, self.fit.engine());
+            super::canvas_leaf::paint_text_ops(player.texts(), fit, bounds, &self.fonts, window, cx);
         }
         if ticking && leaf.armed_until.is_none_or(|until| now >= until) {
             let elapsed = leaf.elapsed(now);

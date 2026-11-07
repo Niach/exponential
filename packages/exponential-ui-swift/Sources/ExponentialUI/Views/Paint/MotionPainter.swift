@@ -1,6 +1,7 @@
 import SwiftUI
 import CoreGraphics
 import ImageIO
+import CoreText
 
 /// EXP-1604: one frame of a Motion, decoded from the packed display list
 /// (`apps/desktop/crates/eui-motion/README.md` › Packed frames). The painter
@@ -47,16 +48,20 @@ public struct MotionList: Sendable {
         case fill(transform: CGAffineTransform, evenOdd: Bool, brush: Brush, path: Path)
         case stroke(transform: CGAffineTransform, style: Dash, brush: Brush, path: Path)
         case image(transform: CGAffineTransform, asset: Int, alpha: Double, width: CGFloat, height: CGFloat)
+        /// Round 8: a Canvas `text` op (README › Packed frames): one native
+        /// line anchored at the op's local origin, drawn after every shape.
+        case text(transform: CGAffineTransform, text: String, mono: Bool, weight: Int, size: CGFloat, align: Int, baseline: Int, color: Color4)
     }
 
     public var width: CGFloat
     public var height: CGFloat
     public var ops: [Op]
 
-    /// Decode a packed frame; nil when the stream is not VERSION 1 or ends early.
+    /// Decode a packed frame; nil when the stream is not VERSION 1 or 2 or
+    /// ends early (round 8: VERSION 2 adds the `text` op, 7).
     public init?(packed p: [Float]) {
         var r = Reader(p: p)
-        guard let v = r.next(), v == 1, let w = r.next(), let h = r.next() else { return nil }
+        guard let v = r.next(), v == 1 || v == 2, let w = r.next(), let h = r.next() else { return nil }
         width = CGFloat(w)
         height = CGFloat(h)
         var ops: [Op] = []
@@ -188,6 +193,14 @@ public struct MotionList: Sendable {
             case 6:
                 guard let t = transform(), let asset = n(), let alpha = d(), let w = cg(), let h = cg() else { return nil }
                 return .image(transform: t, asset: asset, alpha: alpha, width: w, height: h)
+            case 7:
+                guard let t = transform(), let font = n(), let weight = n(), let size = cg(), let align = n(), let baseline = n(),
+                      let color = color(), let count = n(), count >= 0 else { return nil }
+                var units: [UInt16] = []
+                units.reserveCapacity(count)
+                for _ in 0..<count { guard let u = n() else { return nil }; units.append(UInt16(clamping: u)) }
+                return .text(transform: t, text: String(decoding: units, as: UTF16.self), mono: font == 1, weight: weight,
+                             size: size, align: align, baseline: baseline, color: color)
             default: return nil
             }
         }
@@ -214,15 +227,69 @@ public enum MotionPainter {
         }
     }
 
-    /// Paint `list` into `box` (clipped to it) with the `fit` transform.
-    public static func paint(_ list: MotionList, in ctx: inout GraphicsContext, box: CGSize, fit mode: String = "contain", images: [CGImage?] = []) {
+    /// The CoreText font of a `text` op: (mono, CSS weight, px size).
+    public typealias TextFont = (_ mono: Bool, _ weight: Int, _ size: CGFloat) -> CTFont
+
+    /// The system faces (no theme): sans = the system font, mono = the
+    /// system monospaced one.
+    public static let systemTextFont: TextFont = { mono, weight, size in
+        TextFonts.font(family: mono ? "ui-monospace" : nil, weight: weight, size: size)
+    }
+
+    /// Paint `list` into `box` (clipped to it) with the `fit` transform; the
+    /// `text` ops last, natively, clipped by the box only.
+    public static func paint(_ list: MotionList, in ctx: inout GraphicsContext, box: CGSize, fit mode: String = "contain", images: [CGImage?] = [], font: TextFont = systemTextFont) {
         let base = fit(width: list.width, height: list.height, into: box, mode: mode)
-        var g = ctx
-        g.clip(to: Path(CGRect(origin: .zero, size: box)))
+        var boxed = ctx
+        boxed.clip(to: Path(CGRect(origin: .zero, size: box)))
+        var g = boxed
         g.concatenate(base)
         let scale = sqrt(abs(base.a * base.d - base.b * base.c))
         var i = 0
         run(list.ops, &i, &g, scale: scale, images: images)
+        for op in list.ops {
+            guard case let .text(t, text, mono, weight, size, align, baseline, color) = op, !text.isEmpty, size > 0 else { continue }
+            drawText(text, transform: t.concatenating(base), mono: mono, weight: weight, size: size, align: align, baseline: baseline, color: color, font: font, in: &boxed)
+        }
+    }
+
+    /// The line's placement (round-8 contract §1): the anchor = (0, 0)
+    /// through fit × transform; the size × the transform's scale; `align`
+    /// physical (0 start = left edge at x, 1 centre, 2 end = right edge);
+    /// `baseline` 0 top = y + ascent, 1 middle = y + (ascent − descent) / 2,
+    /// 2 alphabetic = y (CTFont's ascent / descent, no leading). Returns the
+    /// line's left x, its baseline y and the font size in box px.
+    static func textOrigin(transform m: CGAffineTransform, align: Int, baseline: Int, width: CGFloat, ascent: CGFloat, descent: CGFloat) -> CGPoint {
+        let anchor = CGPoint(x: m.tx, y: m.ty)
+        let x = align == 1 ? anchor.x - width / 2 : align == 2 ? anchor.x - width : anchor.x
+        let y = baseline == 0 ? anchor.y + ascent : baseline == 1 ? anchor.y + (ascent - descent) / 2 : anchor.y
+        return CGPoint(x: x, y: y)
+    }
+
+    /// The uniform scale of a transform (√|det|).
+    static func uniformScale(_ m: CGAffineTransform) -> CGFloat { sqrt(abs(m.a * m.d - m.b * m.c)) }
+
+    private static func drawText(_ text: String, transform m: CGAffineTransform, mono: Bool, weight: Int, size: CGFloat, align: Int, baseline: Int, color: MotionList.Color4, font: TextFont, in ctx: inout GraphicsContext) {
+        let px = size * uniformScale(m)
+        guard px > 0, px.isFinite, color.a > 0 else { return }
+        let ct = font(mono, weight, px)
+        let attributed = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): ct,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color.cg,
+        ])
+        let line = CTLineCreateWithAttributedString(attributed)
+        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        let origin = textOrigin(transform: m, align: align, baseline: baseline, width: width, ascent: CTFontGetAscent(ct), descent: CTFontGetDescent(ct))
+        ctx.withCGContext { cg in
+            cg.saveGState()
+            // The context is y-down; CoreText sets y-up glyphs.
+            cg.translateBy(x: origin.x, y: origin.y)
+            cg.scaleBy(x: 1, y: -1)
+            cg.textMatrix = .identity
+            cg.textPosition = .zero
+            CTLineDraw(line, cg)
+            cg.restoreGState()
+        }
     }
 
     /// Paint ops from `i` until the `pop` that closes the current group.
@@ -291,6 +358,9 @@ public enum MotionPainter {
                 let iw = CGFloat(img.width), ih = CGFloat(img.height)
                 let rect = CGRect(x: 0, y: 0, width: w > 0 ? w : iw, height: h > 0 ? h : ih)
                 g.draw(Image(decorative: img, scale: 1), in: rect)
+            case .text:
+                // Drawn natively after the shapes (`paint`).
+                continue
             }
         }
     }

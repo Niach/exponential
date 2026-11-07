@@ -100,7 +100,7 @@ public struct LeafRequest {
         part = l.part
         props = JSONValue.parse(l.propsJson).object ?? [:]
         text = l.text
-        textStyle = TextStyle(l.textStyle, defaultFamily: defaultFamily).forPart(owner: l.ownerComponent, part: l.part)
+        textStyle = TextStyle(l.textStyle, defaultFamily: defaultFamily).forPart(owner: l.ownerComponent, part: l.part, id: l.id)
         control = ControlBox(l.control)
         lines = l.lines.map { Int($0) }
         ownerComponent = l.ownerComponent
@@ -335,7 +335,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         case ("ZoomableImage", _): content = MeasuredContent(Self.zoomableBox(props, wrap: inner))
         // EXP-1604 (contract §4): the composition's px size, shrinking to
         // the available width, aspect kept (the core's style defaults agree).
-        case ("Motion", _): content = MeasuredContent(Self.motionBox(props, wrap: inner))
+        // Round 8: a Canvas is the Motion box (intrinsic = `size`).
+        case ("Motion", _), ("Canvas", _): content = MeasuredContent(Self.motionBox(props, wrap: inner))
         case ("AudioPlayer", _):
             let track: CGFloat = props.str("title").isEmpty ? 0 : ts.lineHeight + spacing("xs")
             let w: CGFloat

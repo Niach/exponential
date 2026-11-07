@@ -50,6 +50,9 @@ enum class Glyph(
     /** A check mark. */
     Check(listOf("M20 6 9 17 4 12")),
 
+    /** A dash (Lucide `minus`; round 8: the mixed Checkbox, builtin `Checkbox.check.indeterminate` = `ui-minus`). */
+    Minus(listOf("M5 12h14")),
+
     /** A chevron pointing down. */
     ChevronDown(listOf("M6 9l6 6 6-6")),
 

@@ -86,6 +86,7 @@ import { entry as settingsRow } from "./settings-row.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
 import { entry as zoomableImage } from "./zoomable-image.tsx"
 import { entry as motion } from "./motion.tsx"
+import { entry as canvas } from "./canvas.tsx"
 import { entry as calendar } from "./calendar.tsx"
 import { entry as timeline } from "./timeline.tsx"
 import { entry as qrScanner } from "./qr-scanner.tsx"
@@ -132,6 +133,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   mosaic,
   zoomableImage,
   motion,
+  canvas,
   calendar,
   timeline,
   recordForm,

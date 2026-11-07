@@ -69,7 +69,8 @@ import at.exponential.ui.theme.PaintStyle
 /**
  * Which pressables handle their own gestures (no clickable wrapper): the
  * text fields, the picker triggers, the Slider track, Segmented controls, the
- * carousel indicator and Resizable handles.
+ * carousel indicator and Resizable handles. Round 8: a Canvas (its
+ * `pointer` leaf sends `press {x, y}` itself; never a focus stop or a role).
  */
 internal fun selfHandling(n: NodeInfo): Boolean {
     if (n.isTextField) return true
@@ -77,7 +78,8 @@ internal fun selfHandling(n: NodeInfo): Boolean {
         (n.component == "Slider" && n.part == "track") ||
         n.component == "Segmented" ||
         (n.component == "Box" && n.part == "indicator") ||
-        (n.ownerComponent == "Resizable" && n.part == "handle")
+        (n.ownerComponent == "Resizable" && n.part == "handle") ||
+        n.component == "Canvas"
 }
 
 /** One frame of a keyframe animation (round 2 §2): the channels the core computed. */
@@ -213,7 +215,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         }
         // Self-handling controls (picker triggers, a slider track, carousel
         // dots) still take keyboard focus for their keys.
-        node.pressable && !node.isTextField && selfHandling(node) && node.ownerComponent != "Resizable" && !invisible -> Modifier
+        node.pressable && !node.isTextField && selfHandling(node) && node.ownerComponent != "Resizable" && node.component != "Canvas" && !invisible -> Modifier
             .focusRequester(focusRequester)
             .onFocusChanged { model.focus(node.id, it.isFocused, inputMode.inputMode == InputMode.Keyboard) }
             .focusable(enabled = !disabled)
@@ -321,7 +323,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         // trigger (a press Menu's default button): paint the children.
         CompositionLocalProvider(LocalInvisible provides invisible) {
             if (node.isLeaf && model.children.getOrNull(index).isNullOrEmpty()) {
-                LeafContent(LeafContext(model, node, size, style, inheritedInk(model.ink(index)), model.textStyle(index).forPart(node.ownerComponent, node.part)))
+                LeafContent(LeafContext(model, node, size, style, inheritedInk(model.ink(index)), model.textStyle(index).forPart(node.ownerComponent ?: node.macroName, node.part, node.id)))
             } else {
                 ContainerContent(index, node, model, style, size)
             }

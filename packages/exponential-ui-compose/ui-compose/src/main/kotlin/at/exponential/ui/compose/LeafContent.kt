@@ -38,6 +38,8 @@ fun LeafContent(context: LeafContext) {
         "Video" -> VideoLeaf(cx)
         // EXP-1604: the core's display list for the clock's frame.
         "Motion" -> MotionLeaf(cx)
+        // Round 8: a static drawing on the core's CanvasPlayer (shapes, then native text).
+        "Canvas" -> CanvasLeaf(cx)
         "AudioPlayer" -> AudioLeaf(cx)
         "Spinner" -> LeafFrame {
             SpinnerView(min(cx.inner.width, cx.inner.height), cx.ink, Modifier.align(Alignment.Center))

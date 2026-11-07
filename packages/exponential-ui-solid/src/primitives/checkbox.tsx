@@ -1,5 +1,5 @@
 import { Show, createEffect, createSignal, onCleanup, splitProps, untrack, type ComponentProps, type JSX } from "solid-js"
-import { Check } from "lucide-solid"
+import { Check, Minus } from "lucide-solid"
 import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 
 import { bubbleOnChange, createElementSize, createInForm, createPresence } from "../behaviors"
@@ -91,6 +91,7 @@ function Checkbox(props: CheckboxProps) {
         <Show when={presence.mounted()}>
           <span ref={presence.ref} data-state={stateOf(checked())} data-disabled={local.disabled ? `` : undefined} data-slot="checkbox-indicator" class={CHECKBOX_CLASSES.indicator} style={css({ pointerEvents: `none` })}>
             <PaintIcon icon={Check} class={CHECKBOX_CLASSES.icon} />
+            <PaintIcon icon={Minus} class={CHECKBOX_CLASSES.indeterminateIcon} />
           </span>
         </Show>
       </button>

@@ -132,9 +132,10 @@ struct A11yInfo: Equatable {
             info.label = a.label ?? n.props.str("label")
             info.traits = .isButton
             return info
-        case ("QrCode", _), ("Motion", _):
+        case ("QrCode", _), ("Motion", _), ("Canvas", _):
             // VAPP-162, EXP-1604 (a11y.json): an img named by `label`; decorative
-            // without one; never focusable.
+            // without one; never focusable. Round 8: a Canvas too, `pointer`
+            // and `on.press` included (no button role, no focus stop).
             let name = a.label ?? n.props.str("label")
             guard !name.isEmpty else {
                 info.hidden = true
@@ -187,7 +188,9 @@ struct A11yInfo: Equatable {
             let checked = a.checked ?? (tile
                 ? model.choiceTileSelected(n.index)
                 : (n.part == nil && n.component != "Checkbox" && n.component != "Switch" ? n.checked : model.checked(n.index)))
-            values.append(checked ? "on" : "off")
+            // Round 8 (a11y.json): a mixed Checkbox reads "mixed" (wins over checked).
+            let mixed = role == "checkbox" && !tile && model.indeterminate(n.index)
+            values.append(mixed ? "mixed" : checked ? "on" : "off")
         case "progressbar", "meter", "slider":
             let now = a.valueNow ?? (role == "slider" ? model.sliderValue(n.index) : n.props.num("value"))
             let lo = a.valueMin ?? n.props.num("min") ?? 0

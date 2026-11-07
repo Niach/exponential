@@ -440,3 +440,58 @@ describe(`fixtures/interactions-round1.json fieldWrites`, () => {
       })
   }
 })
+
+// Round 8 (docs/round-8-contract.md §2): the checkbox cases. A press on a
+// mixed box checks it and clears the dash (both paths written); a plain
+// press toggles and leaves an unseeded /mixed unseeded; `change` carries
+// {checked, indeterminate: false}.
+interface CheckboxStep {
+  change: { checked: boolean; indeterminate: boolean }
+  checked: boolean
+  mixed: boolean | null
+  state: string
+}
+interface CheckboxCase {
+  name: string
+  data?: Record<string, unknown>
+  unbound?: { checked: boolean; indeterminate: boolean }
+  presses: number
+  before: string
+  steps: CheckboxStep[]
+}
+const checkboxFixture = (fixture as unknown as { checkbox: { surface: NestedNode; cases: CheckboxCase[] } }).checkbox
+
+function CheckboxSurface({ c, onState, onAction }: { c: CheckboxCase; onState: (s: SurfaceState) => void; onAction: (e: SurfaceActionEvent) => void }) {
+  const node = c.unbound ? { ...checkboxFixture.surface, props: { ...checkboxFixture.surface.props, ...c.unbound } } : checkboxFixture.surface
+  const surface = useSurface({ surfaceId: `cb`, data: c.data ?? {}, initial: node as NestedNode })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="cb" host={{ onAction }} />
+}
+
+describe(`fixtures/interactions-round1.json checkbox`, () => {
+  for (const c of checkboxFixture.cases) {
+    it(`checkbox: ${c.name}`, () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<CheckboxSurface c={c} onState={(s) => (state = s)} onAction={(e) => void actions.push(e)} />)
+      const box = () => container.querySelector(`[role="checkbox"]`) as HTMLButtonElement
+      const glyph = () => box().querySelector(`[data-slot]`)?.getAttribute(`data-slot`) ?? null
+      expect(box().getAttribute(`aria-checked`)).toBe(c.before)
+      expect(glyph()).toBe(c.before === `mixed` ? `Checkbox.check.indeterminate` : c.before === `true` ? `Checkbox.check` : null)
+      for (let k = 0; k < c.presses; k++) {
+        fireEvent.click(box())
+        const step = c.steps[k]!
+        const changes = actions.filter((a) => a.name === `change`)
+        expect(changes.at(-1)!.context).toEqual(step.change)
+        expect(box().getAttribute(`aria-checked`)).toBe(step.state)
+        if (!c.unbound) {
+          const data = state.data as Record<string, unknown>
+          expect(data.checked).toBe(step.checked)
+          expect(data.mixed ?? null).toBe(step.mixed)
+        } else expect(box().getAttribute(`data-state`)).toBe(step.mixed ? `indeterminate` : step.checked ? `checked` : `unchecked`)
+      }
+    })
+  }
+})

@@ -65,6 +65,7 @@ import at.exponential.ui.json.shownText
 import at.exponential.ui.json.str
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.checked
+import at.exponential.ui.model.mixed
 import at.exponential.ui.model.press
 import at.exponential.ui.model.radioChecked
 import at.exponential.ui.model.selectPick
@@ -78,14 +79,19 @@ import at.exponential.ui.theme.ResolvedTextStyle
 import kotlin.math.max
 import kotlin.math.min
 
-/** A Checkbox `box`: the `Checkbox/check` glyph while checked (the box chrome is the node's; the press is NodeView's). */
+/**
+ * A Checkbox `box`: the `Checkbox/check` glyph while checked, the dash
+ * (round 8: `Checkbox.check.indeterminate` = `ui-minus`) while mixed, which
+ * wins over checked (the box chrome is the node's; the press is NodeView's).
+ */
 @Composable
 internal fun CheckboxBox(cx: LeafContext) {
     @Suppress("UNUSED_VARIABLE") val gen = cx.model.mirrorGeneration
-    if (!cx.model.checked(cx.index)) return
+    val mixed = cx.model.mixed(cx.index)
+    if (!mixed && !cx.model.checked(cx.index)) return
     val check = cx.part("Checkbox", "check", listOf("checked"))
     LeafFrame {
-        GlyphView(Glyph.Check, check.width ?: 12f, check.color ?: cx.ink, Modifier.align(Alignment.Center), GlyphWeight.Bold)
+        GlyphView(if (mixed) Glyph.Minus else Glyph.Check, check.width ?: 12f, check.color ?: cx.ink, Modifier.align(Alignment.Center), GlyphWeight.Bold)
     }
 }
 

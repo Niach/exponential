@@ -196,11 +196,17 @@ function Catalog() {
  *  on a surface of the context's size (the theme's breakpoints overridden
  *  when the context names its own), its states forced. */
 function Conditions() {
-  type Ctx = { width: number; height?: number; states?: string[]; breakpoints?: Record<string, number>; formFactor?: `phone` | `wide` }
+  type Ctx = { width: number; height?: number; states?: string[]; breakpoints?: Record<string, number>; formFactor?: `phone` | `wide`; containerWidth?: number }
   const c = (conditions.cases as { style: Record<string, unknown>; contexts: Ctx[] }[])[Number(params.get(`case`) ?? 0)]
   const ctx = c.contexts[Number(params.get(`ctx`) ?? 0)]
   const theme = ctx.breakpoints ? { $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } : `neutral`
-  const { root } = reduceNested({ id: `n`, component: `Box`, style: { ...c.style, width: 40, height: 40 } } as unknown as NestedNode, { catalogId: CORE_CATALOG_ID, validate: false })
+  const node = { id: `n`, component: `Box`, style: { ...c.style, width: 40, height: 40 } }
+  // Round 8: an `@container` case puts the node in a parent box of the
+  // context's `containerWidth`; without one the parent is not laid out
+  // (`display: none`: a container query never matches).
+  const contained = Object.keys(c.style).some((k) => k.startsWith(`@container`))
+  const tree = contained ? { id: `p`, component: `Box`, style: ctx.containerWidth === undefined ? { display: `none` } : { width: ctx.containerWidth }, children: [node] } : node
+  const { root } = reduceNested(tree as unknown as NestedNode, { catalogId: CORE_CATALOG_ID, validate: false })
   // No context height = no height at all (a content-sized root is not a
   // viewport), so height conditions do not match, as in the core.
   return <ExponentialSurface id="cond" root={root} theme={theme as never} mode="light" width={ctx.width} viewportHeight={ctx.height} style={ctx.height === undefined ? undefined : { height: ctx.height }} states={ctx.states?.map((s) => s)} formFactor={ctx.formFactor} />

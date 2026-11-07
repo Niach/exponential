@@ -96,6 +96,9 @@ class LeafRequest(l: FfiLeaf, ownerOf: (Int, String, String?) -> String? = { _, 
      * covers a facade that does not.
      */
     val ownerComponent: String? = if (part == null) null else l.ownerComponent ?: ownerOf(index, id, part)
+
+    /** The facade's owner as sent (round 8: also a macro part without a native part, the Progress `value`). */
+    internal val facadeOwner: String? = l.ownerComponent
 }
 
 /**
@@ -172,7 +175,7 @@ class SurfaceMeasurer(
     private fun shown(text: String, leaf: LeafRequest): String = applyTransform(text, leaf.textStyle.textTransform)
 
     /** The leaf's style (+ the painter's per-part features, EXP-1495 tabular figures). */
-    private fun ts(leaf: LeafRequest): ResolvedTextStyle = leaf.textStyle.forPart(leaf.ownerComponent, leaf.part)
+    private fun ts(leaf: LeafRequest): ResolvedTextStyle = leaf.textStyle.forPart(leaf.ownerComponent ?: leaf.facadeOwner, leaf.part, leaf.id)
 
     private fun line(text: String, ts: ResolvedTextStyle): Float = shaper.maxContent(text, ts)
 
@@ -238,7 +241,8 @@ class SurfaceMeasurer(
                 // EXP-1586 (style.json `zoomableImage` THE BOX): as wide as offered, the natural aspect (a TALL picture no taller than wide), else 16:9.
                 "ZoomableImage" -> at.exponential.ui.compose.zoomableBox(props, inner, MEDIA_INTRINSIC_WIDTH, MEDIA_ASPECT_RATIO).let { plain(it.width, it.height) }
                 // EXP-1604 (contract §4): the composition's px size, shrinking to the width, aspect kept.
-                "Motion" -> at.exponential.ui.compose.motionBox(props, inner).let { plain(it.width, it.height) }
+                // Round 8 (layout.json `canvas`): a Canvas boxes like a Motion (intrinsic = `size`).
+                "Motion", "Canvas" -> at.exponential.ui.compose.motionBox(props, inner).let { plain(it.width, it.height) }
                 "AudioPlayer" -> {
                     // Round 2 §7: the title line + xs + a controls row of `$control.row`.
                     val track = if (props.str("title").isEmpty()) 0f else ts.lineHeight + spacing("xs")

@@ -1,0 +1,752 @@
+{
+  "$comment": "Round 8: THE specimens of the `canvas` styleguide entry, read by the web entry (apps/styleguide/src/entries/canvas.tsx + the page script motion-islands.client.ts) and the desktop twin, so they cannot drift. `cases` paint in the app's mode: a bar chart with value and axis labels, a line plot (polyline + dots, a dashed grid), and a pointer pad (`pointer: true`, on.press = event `canvasPress` {x, y} in drawing units). The pad's readout Text binds `/pressed`; a host writes `x <x> · y <y>` of the latest press there (the web page sets it from the event). Colours are $color tokens only, so both modes follow the theme.",
+  "data": {
+    "pressed": "Last press: none"
+  },
+  "cases": {
+    "id": "sg-canvas",
+    "component": "Stack",
+    "props": {
+      "direction": "horizontal",
+      "gap": "xl",
+      "align": "start",
+      "wrap": true
+    },
+    "children": [
+      {
+        "id": "sg-canvas-bars-case",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "xs"
+        },
+        "children": [
+          {
+            "id": "sg-canvas-bars-caption",
+            "component": "Text",
+            "props": {
+              "text": "Bar chart",
+              "variant": "caption"
+            }
+          },
+          {
+            "id": "sg-canvas-bars",
+            "component": "Canvas",
+            "props": {
+              "label": "Visits by day",
+              "size": [
+                240,
+                140
+              ],
+              "shapes": [
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M36 14 H228 M36 62.0 H228"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1,
+                      "dash": [
+                        3,
+                        3
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M36 110 H228"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "0",
+                  "position": [
+                    30,
+                    110
+                  ],
+                  "size": 10,
+                  "align": "end",
+                  "baseline": "middle",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "50",
+                  "position": [
+                    30,
+                    62.0
+                  ],
+                  "size": 10,
+                  "align": "end",
+                  "baseline": "middle",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "100",
+                  "position": [
+                    30,
+                    14
+                  ],
+                  "size": 10,
+                  "align": "end",
+                  "baseline": "middle",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "rect",
+                      "position": [
+                        55.2,
+                        89.84
+                      ],
+                      "size": [
+                        22,
+                        40.32
+                      ],
+                      "radius": 3
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.chart1"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "42",
+                  "position": [
+                    55.2,
+                    65.68
+                  ],
+                  "size": 9,
+                  "weight": "medium",
+                  "align": "center",
+                  "color": "$color.foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "Mon",
+                  "position": [
+                    55.2,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "rect",
+                      "position": [
+                        93.6,
+                        77.36
+                      ],
+                      "size": [
+                        22,
+                        65.28
+                      ],
+                      "radius": 3
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.chart1"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "68",
+                  "position": [
+                    93.6,
+                    40.72
+                  ],
+                  "size": 9,
+                  "weight": "medium",
+                  "align": "center",
+                  "color": "$color.foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "Tue",
+                  "position": [
+                    93.6,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "rect",
+                      "position": [
+                        132.0,
+                        83.6
+                      ],
+                      "size": [
+                        22,
+                        52.8
+                      ],
+                      "radius": 3
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.chart1"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "55",
+                  "position": [
+                    132.0,
+                    53.2
+                  ],
+                  "size": 9,
+                  "weight": "medium",
+                  "align": "center",
+                  "color": "$color.foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "Wed",
+                  "position": [
+                    132.0,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "rect",
+                      "position": [
+                        170.4,
+                        66.8
+                      ],
+                      "size": [
+                        22,
+                        86.4
+                      ],
+                      "radius": 3
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.chart1"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "90",
+                  "position": [
+                    170.4,
+                    19.6
+                  ],
+                  "size": 9,
+                  "weight": "medium",
+                  "align": "center",
+                  "color": "$color.foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "Thu",
+                  "position": [
+                    170.4,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "rect",
+                      "position": [
+                        208.8,
+                        95.6
+                      ],
+                      "size": [
+                        22,
+                        28.8
+                      ],
+                      "radius": 3
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.chart1"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "30",
+                  "position": [
+                    208.8,
+                    77.2
+                  ],
+                  "size": 9,
+                  "weight": "medium",
+                  "align": "center",
+                  "color": "$color.foreground"
+                },
+                {
+                  "type": "text",
+                  "text": "Fri",
+                  "position": [
+                    208.8,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "sg-canvas-line-case",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "xs"
+        },
+        "children": [
+          {
+            "id": "sg-canvas-line-caption",
+            "component": "Text",
+            "props": {
+              "text": "Line plot",
+              "variant": "caption"
+            }
+          },
+          {
+            "id": "sg-canvas-line",
+            "component": "Canvas",
+            "props": {
+              "label": "Sign-ups this week",
+              "size": [
+                240,
+                140
+              ],
+              "shapes": [
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M36 14 H228 M36 62.0 H228"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1,
+                      "dash": [
+                        3,
+                        3
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M36 110 H228"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "0",
+                  "position": [
+                    30,
+                    110
+                  ],
+                  "size": 10,
+                  "align": "end",
+                  "baseline": "middle",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "50",
+                  "position": [
+                    30,
+                    62.0
+                  ],
+                  "size": 10,
+                  "align": "end",
+                  "baseline": "middle",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "100",
+                  "position": [
+                    30,
+                    14
+                  ],
+                  "size": 10,
+                  "align": "end",
+                  "baseline": "middle",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M36.0 90.8 L68.0 76.4 L100.0 81.2 L132.0 57.2 L164.0 63.92 L196.0 40.88 L228.0 28.4"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.chart2",
+                      "width": 2,
+                      "cap": "round",
+                      "join": "round"
+                    }
+                  ]
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "ellipse",
+                      "position": [
+                        36.0,
+                        90.8
+                      ],
+                      "size": [
+                        6,
+                        6
+                      ]
+                    },
+                    {
+                      "type": "ellipse",
+                      "position": [
+                        68.0,
+                        76.4
+                      ],
+                      "size": [
+                        6,
+                        6
+                      ]
+                    },
+                    {
+                      "type": "ellipse",
+                      "position": [
+                        100.0,
+                        81.2
+                      ],
+                      "size": [
+                        6,
+                        6
+                      ]
+                    },
+                    {
+                      "type": "ellipse",
+                      "position": [
+                        132.0,
+                        57.2
+                      ],
+                      "size": [
+                        6,
+                        6
+                      ]
+                    },
+                    {
+                      "type": "ellipse",
+                      "position": [
+                        164.0,
+                        63.92
+                      ],
+                      "size": [
+                        6,
+                        6
+                      ]
+                    },
+                    {
+                      "type": "ellipse",
+                      "position": [
+                        196.0,
+                        40.88
+                      ],
+                      "size": [
+                        6,
+                        6
+                      ]
+                    },
+                    {
+                      "type": "ellipse",
+                      "position": [
+                        228.0,
+                        28.4
+                      ],
+                      "size": [
+                        6,
+                        6
+                      ]
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.chart2"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "Mon",
+                  "position": [
+                    36.0,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "Tue",
+                  "position": [
+                    68.0,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "Wed",
+                  "position": [
+                    100.0,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "Thu",
+                  "position": [
+                    132.0,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "Fri",
+                  "position": [
+                    164.0,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "Sat",
+                  "position": [
+                    196.0,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "Sun",
+                  "position": [
+                    228.0,
+                    116
+                  ],
+                  "size": 10,
+                  "align": "center",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "sg-canvas-pointer-case",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "xs"
+        },
+        "children": [
+          {
+            "id": "sg-canvas-pointer-caption",
+            "component": "Text",
+            "props": {
+              "text": "Pointer",
+              "variant": "caption"
+            }
+          },
+          {
+            "id": "sg-canvas-pointer",
+            "component": "Canvas",
+            "props": {
+              "label": "Pointer pad",
+              "size": [
+                240,
+                120
+              ],
+              "pointer": true,
+              "shapes": [
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "rect",
+                      "position": [
+                        120,
+                        60
+                      ],
+                      "size": [
+                        240,
+                        120
+                      ],
+                      "radius": 10
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.muted"
+                    }
+                  ]
+                },
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M120 12 V108 M12 60 H228"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1,
+                      "dash": [
+                        4,
+                        4
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "Press anywhere",
+                  "position": [
+                    120,
+                    60
+                  ],
+                  "size": 12,
+                  "weight": "medium",
+                  "align": "center",
+                  "baseline": "middle",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "0, 0",
+                  "position": [
+                    6,
+                    6
+                  ],
+                  "size": 9,
+                  "font": "mono",
+                  "baseline": "top",
+                  "color": "$color.mutedForeground"
+                },
+                {
+                  "type": "text",
+                  "text": "240, 120",
+                  "position": [
+                    234,
+                    114
+                  ],
+                  "size": 9,
+                  "font": "mono",
+                  "align": "end",
+                  "color": "$color.mutedForeground"
+                }
+              ]
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "canvasPress"
+                }
+              }
+            }
+          },
+          {
+            "id": "sg-canvas-pointer-readout",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/pressed"
+              },
+              "variant": "caption"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

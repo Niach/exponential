@@ -166,6 +166,8 @@ public struct NodeInfo: Identifiable, Sendable {
         case ("Chart", nil): return !isSparkline
         // EXP-1586: the picture takes the zoom keys.
         case ("ZoomableImage", nil): return true
+        // Round 8 (a11y.json): a Canvas is never a focus stop, `on.press` or not.
+        case ("Canvas", _): return false
         case ("Button", _), ("Link", _), ("Toggle", _): return true
         default: return pressable
         }
