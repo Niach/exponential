@@ -21,7 +21,7 @@
   "hosts": {
     "exponential": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "member" }, "vault": {}, "window": {}, "zone": {}, "network": "any", "sync": {}, "agents": [{ "id": "acp" }, { "id": "remoteSession" }], "capabilities": [{ "name": "files" }, { "name": "share" }, { "name": "notifications" }] },
     "softcoded": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {}, "network": "upstreamsOnly", "agents": [{ "id": "localModel" }] },
-    "ede": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {}, "network": "any", "agents": [{ "id": "acp" }], "capabilities": [{ "name": "files" }, { "name": "notifications" }, { "name": "shell" }] },
+    "ede": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {}, "network": "any", "agents": [{ "id": "acp" }], "capabilities": [{ "name": "files" }, { "name": "notifications" }, { "name": "shell" }, { "name": "windows" }, { "name": "focus" }, { "name": "launch" }] },
     "spezl": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "peer" }, "vault": {}, "window": {}, "network": "any", "sync": {}, "agents": [{ "id": "acp" }] },
     "exported": { "host": {}, "storage": {}, "blobs": {}, "identity": { "kind": "local" }, "vault": {}, "window": {}, "network": "off", "capabilities": [{ "name": "photos" }, { "name": "print" }, { "name": "share" }] }
   },

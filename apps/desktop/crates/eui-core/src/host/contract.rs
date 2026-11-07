@@ -172,6 +172,7 @@ pub fn host_contract() -> Value {
                 "exposedDescriptionMax": super::screens::MAX_EXPOSED_DESCRIPTION,
                 "navigateFunction": super::screens::NAVIGATE_FUNCTION,
                 "paramsKey": super::screens::SCREEN_PARAMS_KEY,
+                "widgetSizes": super::screens::WIDGET_SIZES,
             },
             "capabilities": {
                 "max": super::capabilities::MAX_CAPABILITIES,
