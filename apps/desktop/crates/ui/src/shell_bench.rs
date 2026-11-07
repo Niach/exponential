@@ -76,8 +76,8 @@ fn seeded(cx: &mut gpui::App) {
     ]), cx);
 }
 
-fn open(cx: &mut HeadlessAppContext) -> gpui::WindowHandle<RailView> {
-    cx.open_window(size(px(SIDEBAR.0), px(SIDEBAR.1)), |window: &mut Window, cx| {
+fn open(cx: &mut HeadlessAppContext, bounds: gpui::Size<gpui::Pixels>) -> gpui::WindowHandle<RailView> {
+    cx.open_window(bounds, |window: &mut Window, cx| {
         let nav = nav_for_window(window, cx);
         nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
         cx.new(|cx| RailView::new(window, cx))
@@ -109,7 +109,7 @@ fn sample() -> IdeSidebarInput {
 fn shell_sidebar_frames() {
     let mut cx = headless();
     cx.update(seeded);
-    let handle = open(&mut cx);
+    let handle = open(&mut cx, size(px(SIDEBAR.0), px(SIDEBAR.1)));
     let window: gpui::AnyWindowHandle = handle.into();
     for _ in 0..3 {
         draw(window, &mut cx);
@@ -141,6 +141,21 @@ fn shell_sidebar_frames() {
         let shot = cx.capture_screenshot(window).expect("the frame");
         shot.save(std::path::Path::new(&dir).join("ide-rail.png")).expect("the PNG");
         crate::ui_prefs::set_rail(false);
+        let wide = open(&mut cx, size(px(1100.), px(760.)));
+        let wide_any: gpui::AnyWindowHandle = wide.into();
+        let region = cx.update(|cx| wide.entity(cx).expect("the rail").read(cx).region());
+        cx.update(|cx| region.update(cx, |region, cx| region.show(sample(), None, cx)));
+        for _ in 0..3 {
+            draw(wide_any, &mut cx);
+            cx.run_until_parked();
+        }
+        cx.update_window(wide_any, |_, window, cx| region.update(cx, |region, cx| region.open_menu(window, cx))).expect("the window");
+        for _ in 0..4 {
+            draw(wide_any, &mut cx);
+            cx.run_until_parked();
+        }
+        let shot = cx.capture_screenshot(wide_any).expect("the frame");
+        shot.save(std::path::Path::new(&dir).join("ide-start-menu.png")).expect("the PNG");
     }
     let mut times: Vec<f64> = (0..120).map(|_| draw(window, &mut cx)).collect();
     times.sort_by(f64::total_cmp);
