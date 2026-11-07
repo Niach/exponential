@@ -37,7 +37,10 @@ export async function assertAgentInTeam(
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1)
-  if (!row || row.teamId !== teamId) {
+  // #EXP-1714: the actor's own Assistant is global (their personal team):
+  // assignable in every team of theirs; any other agent only in its own.
+  const ownAssistant = row?.role === `assistant` && row.ownerId === actorUserId
+  if (!row || (row.teamId !== teamId && !ownAssistant)) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `The assignee agent must belong to the issue's team`,

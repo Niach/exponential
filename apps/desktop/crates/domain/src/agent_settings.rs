@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(ASSISTANT.default_schedule, "1h");
         assert_eq!(ASSISTANT.copy.check_in, "Check in");
         assert_eq!(ASSISTANT.sections, ["identity", "runs-on", "check-in", "voice"]);
-        assert_eq!(ASSISTANT.prompt.version, 3);
+        assert_eq!(ASSISTANT.prompt.version, 4);
         assert!(!ASSISTANT.prompt.text.is_empty());
         assert_eq!(ASSISTANT.copy.prompt_fixed, "The Assistant's prompt is built in");
     }
