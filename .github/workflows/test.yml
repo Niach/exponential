@@ -268,6 +268,8 @@ jobs:
           cargo test --locked --no-fail-fast -p eagent -p coding -p ui --lib
           cargo test --locked --no-fail-fast -p eagent --lib --features local-model provider::
           cargo test --locked --no-fail-fast -p engine
+          # #EDE-55: the Local desktop store, its parity replay and the api Transport seam.
+          cargo test --locked --no-fail-fast -p elocal -p api
 
   # systemd 258 expands `${VAR}` in a scope's argv, which would put agent
   # secrets on `ps`. The Mint's runner container has no systemd, so this runs

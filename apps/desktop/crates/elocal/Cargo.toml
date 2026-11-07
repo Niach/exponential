@@ -1,0 +1,25 @@
+[package]
+name = "elocal"
+description = "The shared LOCAL store of a Local desktop (#EDE-55): the IDE's synced-shape SQLite made authoritative with no server, the executor answering the tRPC procedure subset over it behind api's Transport seam, the local identity, the desktops index and the blob store; gpui-free, Engine-free"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+# THE RULE (gated by `tests/dependency_gate.rs`): elocal is what eDE, the IDE
+# and later the Engine host, so it links no UI toolkit, no app crate and not
+# the Engine (#EDE-55: the Engine uses elocal later, never the other way).
+[dependencies]
+api = { path = "../api" }
+sync = { path = "../sync", default-features = false }
+domain = { path = "../domain" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+flume.workspace = true
+jiff = { version = "0.2", default-features = false, features = ["std"] }
+log = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+toml = "0.8"

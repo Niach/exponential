@@ -25,6 +25,12 @@
 //! Electric-echo gate (§4.1/Phase 3) sits on top of the `txid` values many
 //! mutation outputs carry — decode them via your output type.
 
+//!
+//! #EDE-55: the HTTP half sits behind the [`Transport`] seam. [`HttpTransport`]
+//! is today's client; a Local desktop (`elocal`) answers the same procedure
+//! calls from its own store without a server, so the typed wrappers above
+//! this file never know which one they talk to.
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -64,11 +70,50 @@ struct EnvelopeResult<T> {
     data: T,
 }
 
-/// Blocking tRPC client bound to one instance URL + one account's token
-/// provider. Cheap to clone-per-account; share one per (account, app).
-pub struct TrpcClient {
+/// Query or mutation: the HTTP method on the wire, the dispatch key locally.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallKind {
+    Query,
+    Mutation,
+}
+
+/// #EDE-55: where a [`TrpcClient`]'s calls go. [`HttpTransport`] = the
+/// instance over HTTP (today's client); `elocal`'s executor = a Local
+/// desktop's store. `call` answers the procedure's OUTPUT as JSON text (what
+/// the HTTP envelope's `result.data` holds), never the envelope.
+pub trait Transport: Send + Sync {
+    fn call(
+        &self,
+        kind: CallKind,
+        path: &str,
+        input: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<String, ApiError>;
+    /// A blob off a NON-tRPC route (`/api/attachments/{id}`).
+    fn get_blob(&self, path: &str, timeout: Duration) -> Result<Blob, ApiError>;
+    /// PUT raw bytes to a NON-tRPC route (a handoff package).
+    fn put_bytes(&self, path: &str, body: Vec<u8>, content_type: &str) -> Result<(), ApiError>;
+    /// POST a JSON body to a NON-tRPC route (`/api/mcp`), the body back.
+    fn post_json(&self, path: &str, body: &str, accept: &str, timeout: Duration) -> Result<String, ApiError>;
+    /// The headers a request of this transport carries (for a call that does
+    /// not go through it: the MCP client).
+    fn auth_headers(&self) -> Vec<(String, String)>;
+    /// The normalized instance base URL (a Local desktop names its own scheme).
+    fn base_url(&self) -> &str;
+}
+
+/// The instance over HTTP: the wire format at the top of this file.
+pub struct HttpTransport {
     base_url: String,
     token_provider: Arc<dyn TokenProvider>,
+}
+
+/// Blocking tRPC client bound to one [`Transport`]: an instance URL + one
+/// account's token provider ([`TrpcClient::new`]), or a Local desktop
+/// ([`TrpcClient::with_transport`]). Cheap to clone-per-account; share one
+/// per (account, app).
+pub struct TrpcClient {
+    transport: Arc<dyn Transport>,
 }
 
 /// A blob off a NON-tRPC route ([`TrpcClient::get_blob`]).
@@ -83,40 +128,29 @@ impl TrpcClient {
     /// `instance_url` is normalized ([`normalize_instance_url`]); the token
     /// provider is evaluated per request (never captured once).
     pub fn new(instance_url: &str, token_provider: Arc<dyn TokenProvider>) -> Self {
-        Self {
-            base_url: normalize_instance_url(instance_url),
-            token_provider,
-        }
+        Self::with_transport(Arc::new(HttpTransport::new(instance_url, token_provider)))
     }
 
-    /// The process-wide client, read per request: same connection pool as
-    /// sync (tRPC rides the HTTP/2 connection it already has open), and a
-    /// rebuilt client (FEED-69) is picked up by the very next call.
-    fn client(&self) -> reqwest::blocking::Client {
-        http::shared()
+    /// #EDE-55: a client over any transport (a Local desktop's executor).
+    pub fn with_transport(transport: Arc<dyn Transport>) -> Self {
+        Self { transport }
     }
 
     /// The normalized instance base URL this client talks to.
     pub fn base_url(&self) -> &str {
-        &self.base_url
+        self.transport.base_url()
     }
 
-    /// EXP-1492: the headers [`Self::authorize`] puts on a request (the
-    /// client-version header and the bearer read NOW), for a call that does
-    /// not go through this client's HTTP stack (the MCP client).
+    /// EXP-1492: the headers [`HttpTransport::authorize`] puts on a request
+    /// (the client-version header and the bearer read NOW), for a call that
+    /// does not go through this client's HTTP stack (the MCP client).
     pub fn auth_headers(&self) -> Vec<(String, String)> {
-        let mut headers = vec![(CLIENT_VERSION_HEADER.to_string(), client_version_header_value())];
-        if let Some(token) = self.token_provider.token() {
-            headers.push(("Authorization".to_string(), format!("Bearer {token}")));
-        }
-        headers
+        self.transport.auth_headers()
     }
 
     /// GET an input-less `query` procedure (e.g. `users.listPersonalApiKeys`).
     pub fn query<O: DeserializeOwned>(&self, path: &str) -> Result<O, ApiError> {
-        let url = format!("{}/api/trpc/{path}", self.base_url);
-        let request = self.authorize(self.client().get(&url).header("Accept", "application/json"));
-        self.send(request, path)
+        decode(path, self.transport.call(CallKind::Query, path, None, None)?)
     }
 
     /// GET a `query` procedure with an input (`?input=<raw JSON>`,
@@ -128,13 +162,7 @@ impl TrpcClient {
     ) -> Result<O, ApiError> {
         let json = serde_json::to_string(input)
             .map_err(|e| ApiError::Decode(format!("{path} input: {e}")))?;
-        let url = format!(
-            "{}/api/trpc/{path}?input={}",
-            self.base_url,
-            percent_encode(&json)
-        );
-        let request = self.authorize(self.client().get(&url).header("Accept", "application/json"));
-        self.send(request, path)
+        decode(path, self.transport.call(CallKind::Query, path, Some(&json), None)?)
     }
 
     /// POST a `mutation` procedure with an input.
@@ -145,7 +173,7 @@ impl TrpcClient {
     ) -> Result<O, ApiError> {
         let body = serde_json::to_string(input)
             .map_err(|e| ApiError::Decode(format!("{path} input: {e}")))?;
-        self.mutation_raw(path, &body, None)
+        decode(path, self.transport.call(CallKind::Mutation, path, Some(&body), None)?)
     }
 
     /// EXP-1140: [`Self::mutation`] made FROM INSIDE a coding session — the
@@ -162,7 +190,7 @@ impl TrpcClient {
     ) -> Result<O, ApiError> {
         let body = serde_json::to_string(input)
             .map_err(|e| ApiError::Decode(format!("{path} input: {e}")))?;
-        self.mutation_raw(path, &body, Some(session_id))
+        decode(path, self.transport.call(CallKind::Mutation, path, Some(&body), Some(session_id))?)
     }
 
     /// POST a `mutation` procedure that takes no input. The body is `{}`,
@@ -171,26 +199,7 @@ impl TrpcClient {
     /// parse with a 400 (`notifications.markAllRead` gained `{teamId?}` and
     /// the IDE's Mark all read silently did nothing).
     pub fn mutation_no_input<O: DeserializeOwned>(&self, path: &str) -> Result<O, ApiError> {
-        self.mutation_raw(path, "{}", None)
-    }
-
-    fn mutation_raw<O: DeserializeOwned>(
-        &self,
-        path: &str,
-        body: &str,
-        session_id: Option<&str>,
-    ) -> Result<O, ApiError> {
-        let url = format!("{}/api/trpc/{path}", self.base_url);
-        let mut request = self
-            .client()
-            .post(&url)
-            .header("Accept", "application/json")
-            .header("Content-Type", "application/json");
-        if let Some(session_id) = session_id {
-            request = request.header(SESSION_HEADER, session_id);
-        }
-        let request = self.authorize(request).body(body.to_string());
-        self.send(request, path)
+        decode(path, self.transport.call(CallKind::Mutation, path, Some("{}"), None)?)
     }
 
     /// GET raw bytes from a NON-tRPC route on the same instance (`path` starts
@@ -209,13 +218,60 @@ impl TrpcClient {
         path: &str,
         timeout: Duration,
     ) -> Result<(Vec<u8>, Option<String>), ApiError> {
-        self.get_blob_within(path, timeout).map(|blob| (blob.bytes, blob.content_type))
+        self.transport.get_blob(path, timeout).map(|blob| (blob.bytes, blob.content_type))
     }
 
     /// FEED-180: [`Self::get_bytes`] with the response's
     /// `Content-Disposition` too (an attachment's server filename).
     pub fn get_blob(&self, path: &str) -> Result<Blob, ApiError> {
-        self.get_blob_within(path, BLOB_TIMEOUT)
+        self.transport.get_blob(path, BLOB_TIMEOUT)
+    }
+
+    /// EXP-1252: PUT raw bytes to a NON-tRPC route on the same instance
+    /// (`path` starts with `/`) with the same call-time bearer — a session's
+    /// handoff package (`/api/sessions/{id}/handoff`). The status passes the
+    /// AUTHED policy (401 = [`ApiError::Unauthorized`]); the body of a 2xx is
+    /// ignored. Blocking; background executor only.
+    pub fn put_bytes(&self, path: &str, body: Vec<u8>, content_type: &str) -> Result<(), ApiError> {
+        self.transport.put_bytes(path, body, content_type)
+    }
+
+    /// POST a raw JSON body to a NON-tRPC route on the same instance (`path`
+    /// starts with `/`) with the same call-time bearer, and hand back the
+    /// response body once the status passed the AUTHED policy (401 =
+    /// [`ApiError::Unauthorized`], 426 = upgrade). EXP-1110: the CLI's
+    /// `/api/mcp` tool calls ride this (`crate::mcp_tools`). `accept` is the
+    /// `Accept` header verbatim — the MCP transport refuses a request that
+    /// does not list both JSON and SSE.
+    pub fn post_json(
+        &self,
+        path: &str,
+        body: &str,
+        accept: &str,
+        timeout: Duration,
+    ) -> Result<String, ApiError> {
+        self.transport.post_json(path, body, accept, timeout)
+    }
+}
+
+/// The procedure's output text into the caller's type.
+fn decode<O: DeserializeOwned>(path: &str, data: String) -> Result<O, ApiError> {
+    serde_json::from_str(&data).map_err(|e| ApiError::Decode(format!("{path} output: {e}")))
+}
+
+impl HttpTransport {
+    pub fn new(instance_url: &str, token_provider: Arc<dyn TokenProvider>) -> Self {
+        Self {
+            base_url: normalize_instance_url(instance_url),
+            token_provider,
+        }
+    }
+
+    /// The process-wide client, read per request: same connection pool as
+    /// sync (tRPC rides the HTTP/2 connection it already has open), and a
+    /// rebuilt client (FEED-69) is picked up by the very next call.
+    fn client(&self) -> reqwest::blocking::Client {
+        http::shared()
     }
 
     fn get_blob_within(&self, path: &str, timeout: Duration) -> Result<Blob, ApiError> {
@@ -248,12 +304,82 @@ impl TrpcClient {
         })
     }
 
-    /// EXP-1252: PUT raw bytes to a NON-tRPC route on the same instance
-    /// (`path` starts with `/`) with the same call-time bearer — a session's
-    /// handoff package (`/api/sessions/{id}/handoff`). The status passes the
-    /// AUTHED policy (401 = [`ApiError::Unauthorized`]); the body of a 2xx is
-    /// ignored. Blocking; background executor only.
-    pub fn put_bytes(&self, path: &str, body: Vec<u8>, content_type: &str) -> Result<(), ApiError> {
+    /// Attach the bearer read **at call time** (§5.7). No token → the request
+    /// goes out unauthenticated and the server answers 401 for authed procs —
+    /// which correctly surfaces as [`ApiError::Unauthorized`].
+    fn authorize(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
+        // EXP-104: every request carries the client-version header so the
+        // server can 426-gate stale builds (authed and unauthed alike).
+        let request = request.header(CLIENT_VERSION_HEADER, client_version_header_value());
+        match self.token_provider.token() {
+            Some(token) => request.header("Authorization", format!("Bearer {token}")),
+            None => request,
+        }
+    }
+
+    /// Send, map a non-2xx status through the AUTHED policy (401 is the reauth
+    /// signal), then decode the tRPC envelope down to its `result.data` text.
+    /// reqwest hands back `Ok` for error statuses, so the check has to be
+    /// explicit — unlike ureq, where it arrived as an `Err`.
+    fn send(&self, request: reqwest::blocking::RequestBuilder, path: &str) -> Result<String, ApiError> {
+        let response = request
+            .timeout(http::DEFAULT_TIMEOUT)
+            .send()
+            .map_err(transport_error)?;
+        http::record_success();
+        let status = response.status().as_u16();
+        let body = read_body(response)?;
+        if !(200..300).contains(&status) {
+            return Err(status_error_authed(status, &body));
+        }
+        let envelope: Envelope<serde_json::Value> = serde_json::from_str(&body)
+            .map_err(|e| ApiError::Decode(format!("{path} envelope: {e}")))?;
+        serde_json::to_string(&envelope.result.data)
+            .map_err(|e| ApiError::Decode(format!("{path} envelope: {e}")))
+    }
+}
+
+impl Transport for HttpTransport {
+    fn call(
+        &self,
+        kind: CallKind,
+        path: &str,
+        input: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<String, ApiError> {
+        match kind {
+            CallKind::Query => {
+                let url = match input {
+                    Some(json) => format!("{}/api/trpc/{path}?input={}", self.base_url, percent_encode(json)),
+                    None => format!("{}/api/trpc/{path}", self.base_url),
+                };
+                let request = self.authorize(self.client().get(&url).header("Accept", "application/json"));
+                self.send(request, path)
+            }
+            CallKind::Mutation => {
+                let url = format!("{}/api/trpc/{path}", self.base_url);
+                let mut request = self
+                    .client()
+                    .post(&url)
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json");
+                if let Some(session_id) = session_id {
+                    request = request.header(SESSION_HEADER, session_id);
+                }
+                let request = self.authorize(request).body(input.unwrap_or("{}").to_string());
+                self.send(request, path)
+            }
+        }
+    }
+
+    fn get_blob(&self, path: &str, timeout: Duration) -> Result<Blob, ApiError> {
+        self.get_blob_within(path, timeout)
+    }
+
+    fn put_bytes(&self, path: &str, body: Vec<u8>, content_type: &str) -> Result<(), ApiError> {
         let url = format!("{}{path}", self.base_url);
         let response = self
             .authorize(self.client().put(&url).header("Content-Type", content_type))
@@ -270,20 +396,7 @@ impl TrpcClient {
         Ok(())
     }
 
-    /// POST a raw JSON body to a NON-tRPC route on the same instance (`path`
-    /// starts with `/`) with the same call-time bearer, and hand back the
-    /// response body once the status passed the AUTHED policy (401 =
-    /// [`ApiError::Unauthorized`], 426 = upgrade). EXP-1110: the CLI's
-    /// `/api/mcp` tool calls ride this (`crate::mcp_tools`). `accept` is the
-    /// `Accept` header verbatim — the MCP transport refuses a request that
-    /// does not list both JSON and SSE.
-    pub fn post_json(
-        &self,
-        path: &str,
-        body: &str,
-        accept: &str,
-        timeout: Duration,
-    ) -> Result<String, ApiError> {
+    fn post_json(&self, path: &str, body: &str, accept: &str, timeout: Duration) -> Result<String, ApiError> {
         let url = format!("{}{path}", self.base_url);
         let response = self
             .authorize(
@@ -305,44 +418,16 @@ impl TrpcClient {
         Ok(body)
     }
 
-    /// Attach the bearer read **at call time** (§5.7). No token → the request
-    /// goes out unauthenticated and the server answers 401 for authed procs —
-    /// which correctly surfaces as [`ApiError::Unauthorized`].
-    fn authorize(
-        &self,
-        request: reqwest::blocking::RequestBuilder,
-    ) -> reqwest::blocking::RequestBuilder {
-        // EXP-104: every request carries the client-version header so the
-        // server can 426-gate stale builds (authed and unauthed alike).
-        let request = request.header(CLIENT_VERSION_HEADER, client_version_header_value());
-        match self.token_provider.token() {
-            Some(token) => request.header("Authorization", format!("Bearer {token}")),
-            None => request,
+    fn auth_headers(&self) -> Vec<(String, String)> {
+        let mut headers = vec![(CLIENT_VERSION_HEADER.to_string(), client_version_header_value())];
+        if let Some(token) = self.token_provider.token() {
+            headers.push(("Authorization".to_string(), format!("Bearer {token}")));
         }
+        headers
     }
 
-    /// Send, map a non-2xx status through the AUTHED policy (401 is the reauth
-    /// signal), then decode the tRPC envelope. reqwest hands back `Ok` for
-    /// error statuses, so the check has to be explicit — unlike ureq, where it
-    /// arrived as an `Err`.
-    fn send<O: DeserializeOwned>(
-        &self,
-        request: reqwest::blocking::RequestBuilder,
-        path: &str,
-    ) -> Result<O, ApiError> {
-        let response = request
-            .timeout(http::DEFAULT_TIMEOUT)
-            .send()
-            .map_err(transport_error)?;
-        http::record_success();
-        let status = response.status().as_u16();
-        let body = read_body(response)?;
-        if !(200..300).contains(&status) {
-            return Err(status_error_authed(status, &body));
-        }
-        let envelope: Envelope<O> = serde_json::from_str(&body)
-            .map_err(|e| ApiError::Decode(format!("{path} envelope: {e}")))?;
-        Ok(envelope.result.data)
+    fn base_url(&self) -> &str {
+        &self.base_url
     }
 }
 
