@@ -1379,9 +1379,21 @@ fn chat_local(shell: &SharedShell) -> bool {
         }
     }
     if shell.borrow().chat_local.is_none() {
-        // #VAPP-273: the desktop's own agent edits the shell through `shell_edit`, never an app.
+        // #VAPP-273: the desktop's own agent edits the shell through `shell_edit` (never an
+        // app) and reaches the running apps' exposed tools (`<app>__<tool>`).
         let ui_dir = shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).dir().to_path_buf();
-        let host = elocal::runs::HostTools { provider: Arc::new(engine::shell_edit::ShellEdit::new(ui_dir)), note: engine::shell_edit::ShellEdit::note() };
+        let mut providers: Vec<Arc<dyn emcp::server::ToolProvider>> = vec![Arc::new(engine::shell_edit::ShellEdit::new(ui_dir))];
+        let mut note = engine::shell_edit::ShellEdit::note();
+        let engine = shell.borrow().engine.clone();
+        if let Some(engine) = engine {
+            let apps = engine::apps_provider(&engine.borrow(), elocal::runs::local_tools(desktop.clone()));
+            if !apps.apps.is_empty() {
+                let names: Vec<String> = apps.apps.iter().map(|a| a.server.clone()).collect();
+                note.push_str(&format!(" The apps of this desktop expose their tools as <app>__<tool> (apps: {}); a records tool reads or writes the app's own records, an action tool runs one of the exponential tools via the app.", names.join(", ")));
+                providers.push(Arc::new(apps));
+            }
+        }
+        let host = elocal::runs::HostTools { provider: Arc::new(engine::exposes::Providers(providers)), note };
         let chat = local_runs::LocalChat::start(desktop, Some(host));
         shell.borrow_mut().chat_local = Some(chat);
     }

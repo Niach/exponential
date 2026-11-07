@@ -132,7 +132,7 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
 
 /// The fixture's output as the document binds it: dots as glyph names, the
 /// row under the pointer marked, the active rows' device glyphs.
-fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Option<&str>) -> Value {
+fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Option<&str>, rail: bool) -> Value {
     let mut value = serde_json::to_value(ide_sidebar(input)).expect("the sidebar serializes");
     let mark = |rows: &mut Value| {
         for row in rows.as_array_mut().into_iter().flatten() {
@@ -141,6 +141,17 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
                 None => dot_icon(&row["dot"]),
             };
             row["hover"] = json!(hover == row["id"].as_str());
+            // #EXP-1724: a rail tile says its count (or that there is news)
+            // in its corner, and a pin needs a glyph of its own.
+            row["meta"] = match (rail, row["count"].as_str(), row["dot"].is_null()) {
+                (true, Some(count), _) => json!(count),
+                (true, None, false) => json!("•"),
+                _ => Value::Null,
+            };
+            if rail && row.get("identifier").is_some() {
+                row["icon"] = json!("ui-pin");
+                row["identifier"] = Value::Null;
+            }
         }
     };
     mark(&mut value["nav"]);
@@ -170,6 +181,7 @@ pub(crate) struct SidebarRegion {
     hover: Rc<RefCell<Option<String>>>,
     input: IdeSidebarInput,
     shown: Option<Value>,
+    rail: bool,
     /// The pictures show a sample, not the store.
     #[cfg(test)]
     frozen: bool,
@@ -191,6 +203,7 @@ impl SidebarRegion {
                 hover,
                 input: IdeSidebarInput::default(),
                 shown: None,
+                rail: false,
                 #[cfg(test)]
                 frozen: false,
             }
@@ -221,12 +234,15 @@ impl SidebarRegion {
     }
 
     fn push(&mut self, cx: &mut gpui::Context<Self>) {
-        let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref());
-        if self.shown.as_ref() == Some(&value) {
+        let rail = crate::ui_prefs::rail();
+        let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref(), rail);
+        if self.shown.as_ref() == Some(&value) && self.rail == rail {
             return;
         }
         self.shown = Some(value.clone());
+        self.rail = rail;
         self.view.update(cx, |view, cx| {
+            let _ = view.set_data("/shell/rail", Some(json!(rail)), cx);
             let _ = view.set_data("/shell/ide", Some(value), cx);
         });
     }
@@ -406,12 +422,28 @@ mod tests {
             boards: vec![IdeBoardInput { id: "b1".into(), name: "Web".into(), icon: "ide:board:b1".into() }],
             ..Default::default()
         };
-        let value = shaped(&input, &HashMap::new(), Some("b1"));
+        let value = shaped(&input, &HashMap::new(), Some("b1"), false);
         assert_eq!(value["nav"][1]["dotIcon"], "ide:dot:amber");
         let counted = IdeSidebarInput { needs_you: 5, ..input.clone() };
-        assert_eq!(shaped(&counted, &HashMap::new(), None)["nav"][1]["dotIcon"], "ide:count:5");
+        assert_eq!(shaped(&counted, &HashMap::new(), None, false)["nav"][1]["dotIcon"], "ide:count:5");
         assert_eq!(value["boards"]["rows"][0]["hover"], true);
         assert_eq!(value["nav"][0]["hover"], false);
+    }
+
+    #[test]
+    fn a_rail_tile_carries_its_count_and_a_pin_a_glyph() {
+        let input = IdeSidebarInput {
+            screen: "home".into(),
+            needs_you: 5,
+            threads_dot: Some(IdeDot::Primary),
+            pins: vec![IdePinInput { id: "i1".into(), identifier: "APP-1".into(), title: "Crash".into() }],
+            ..Default::default()
+        };
+        let value = shaped(&input, &HashMap::new(), None, true);
+        assert_eq!(value["nav"][1]["meta"], "5");
+        assert_eq!(value["nav"][2]["meta"], "•");
+        assert_eq!(value["pins"][0]["icon"], "ui-pin");
+        assert_eq!(shaped(&input, &HashMap::new(), None, false)["nav"][1]["meta"], Value::Null);
     }
 
     #[test]

@@ -111,7 +111,7 @@ jobs:
           # generator that writes Kotlin into it, the fixtures and vectors its
           # unit tests read, the eNet / eUI facades (committed Kotlin bindings +
           # the host library the tests load through JNA).
-          android='^(apps/android/|packages/(domain-contract|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
+          android='^(apps/android/|packages/(domain-contract|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi|eengine|eengine-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
           echo "android=$(grep -qE "$android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-267: the Android runner, the modules it builds from (eUI
           # Compose, the Engine AAR + its facade and core) and the fixtures its
@@ -323,6 +323,10 @@ jobs:
       - name: Build the eNet facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p exponential-net-ffi --release --features cli --locked
+      # #VAPP-272: the Engine's facade, loaded by AppRecordOutboxLogTest.
+      - name: Build the Engine facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p eengine-ffi --release --features cli --locked
       - name: Cache Gradle packages
         if: runner.environment == 'github-hosted'
         uses: actions/cache@v4

@@ -811,7 +811,7 @@ Added here:
 
 | Executor | Runs | When | Engine | Status |
 |---|---|---|---|---|
-| Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | web: the TS twin (`@exp/eengine`); desktop, iOS, Android: `eengine` (desktop first, then the phones' `AppHost` piece by piece) | ✅ / Engine 🆕 |
+| Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | web: its own host (it stays online-only, §14); desktop, iOS, Android: `SyncedRecordStore` on `eengine` (#VAPP-272), the rest is the host's (§13.1) | ✅ |
 | Server broker | `exposes`, upstream reads (M1), automations (A1), webhooks (A3), public links (P1) | Always (the web server process) | none: the server is a provider (records service, Postgres + RLS), never inside the Engine | ✅ for exposes and upstream reads, 🆕 for the rest |
 | Agent | Anything that needs judgement (`run.agent`) | On trigger | an `AgentProvider` (Agents) with a hub grant | ✅ A2 |
 | Device | stdio/LAN upstreams (M2) | When the device is online | capabilities and upstreams on the in-process hub | ✅ (#VAPP-239) |
@@ -820,7 +820,7 @@ Added here:
 
 ### 13.1 The Engine (✅ contract E0 #VAPP-260; ✅ crate E1 #VAPP-261; ✅ FFI + SDK products E3 #VAPP-263)
 
-The **Engine** (crate `eengine`, contract `packages/eengine`, tag `eengine-v*`) replaces the old S2 to S4 (the `eapps` crate). It is the stateful, I/O-bearing runtime around genUI. Today every host re-implements it: web TS, desktop Rust, iOS `AppHost.swift` and Android `AppHost.kt` each carry their own sources, outbox, action dispatch, consent and upstream calls. The Apps format and its pure logic (validation, query, CEL, policy, transitions, migrations, exposes) stay in genUI's host (`eui-core/src/host` + TS) and ship with genUI. There is no `eapps` crate.
+The **Engine** (crate `eengine`, contract `packages/eengine`, tag `eengine-v*`) replaces the old S2 to S4 (the `eapps` crate). It is the stateful, I/O-bearing runtime around genUI. Exponential's hosts run their record writes on it (#VAPP-272) and keep what is Exponential's own (below). The Apps format and its pure logic (validation, query, CEL, policy, transitions, migrations, exposes) stay in genUI's host (`eui-core/src/host` + TS) and ship with genUI. There is no `eapps` crate.
 
 ```
  hosts:  Exponential web · desktop · iOS · Android │ softcoded app │ eDE │ Spezl │ exported apps
@@ -879,7 +879,7 @@ Self-hosted gets everything: the broker is the same image (`ghcr.io/niach/expone
 |---|---|---|---|---|
 | Web | Records on demand per app (`subsets`) | Online (tRPC) | the TS twin over the server's records | ✅ / offline ❌ (banner) |
 | Desktop | Full shape | Outbox (O1) | `SyncedRecordStore` | ✅ |
-| iOS (GRDB), Android (Room) | Full shape | Outbox (O1) | `SyncedRecordStore` over `eengine-ffi` (later) | ✅ |
+| iOS (GRDB), Android (Room) | Full shape | Outbox (O1) | `SyncedRecordStore` over `eengine-ffi` (#VAPP-272, the overlay and the pending glyph still read the host's table) | ✅ |
 | Spezl | Local sqlite + P2P records space | Local first | `SqliteRecordStore` + a P2P `SyncTransport` | #YO-32 |
 | eDE | Local desktop: `elocal`; connected: the account's shape | Local desktop: direct; connected: outbox | `SqliteRecordStore` (= `elocal`'s app-records, #EDE-55) or `SyncedRecordStore` | 🆕 #EDE-54 |
 | Softcoded app, exported apps | Local sqlite | Direct (no outbox) | `SqliteRecordStore`, local identity | 🆕 E1 |
@@ -937,7 +937,7 @@ Every host runs Apps on the Engine (§13.1) and fills in its providers (`package
 
 1. ✅ Apps run on the Engine in eDE's shell process (#VAPP-273). On a Local desktop, genUI on disk (NEW-107) loads the factory apps (`/usr/share/exponential-desktop/apps`) and `$XDG_CONFIG_HOME/exponential-desktop/apps/*.app.json` (the directory next to the shell's `ui/`) with the same validator; records in one `SqliteRecordStore` under the data directory, identity `local`. On a connected team the apps are the team's published packages over `SyncedRecordStore` (the shared `sync::app_outbox` providers of #VAPP-272) with identity `member` (the account's user, their team role). `uicore-data` sources become Engine providers (#EDE-50).
 2. ✅ format (#VAPP-273): widget templates (C26): `screens[].widget: {template, size: "s" | "m" | "l"}` (§5.1) are painted on the eDE desktop, one layer surface per widget. The same entry gives iOS/Android home-screen widgets later, with the slots model (#VAPP-64).
-3. The in-process hub lists the apps' tools to on-device agents, using the same `exposes` and the same broker (open). ✅ #VAPP-273: the desktop's own agent (the shell's chat runs, #EDE-58) gets `shell_edit` on its hub, the host-only `shell.edit`: validation, the sealed consent once per run, then `exponential-ui set`; no app can declare the scope.
+3. ✅ #VAPP-273: the in-process hub lists the running apps' `exposes` tools (`<app>__<tool>`, the app = its package id with dashes) to the desktop's own agent, run as the web's apps broker runs them (`records` list/get/upsert over the app's rows and instance, `action` via the Local desktop's nouns; `upstream` and `agent` runs stay unlisted on a desktop). Also: the desktop's own agent (the shell's chat runs, #EDE-58) gets `shell_edit` on its hub, the host-only `shell.edit`: validation, the sealed consent once per run, then `exponential-ui set`; no app can declare the scope.
 
 **Exported apps:** a signed package bundled onto a prebuilt runner (macOS, Windows, Linux, Android, iOS, web PWA). No app code is compiled per app (iOS links only the declared capability modules), and there is no OTA channel.
 

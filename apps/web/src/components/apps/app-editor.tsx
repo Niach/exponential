@@ -62,6 +62,7 @@ import { AppDataTab } from "@/components/apps/app-data-tab"
 import { packageScreens, type AppAccessLevel } from "@exponential_app/eui/host"
 import type { ScreenRequest } from "@/lib/app-screens"
 import { SessionComposer } from "@/components/session-composer"
+import { requestDeviceMove } from "@/components/session-device-move"
 import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
@@ -78,7 +79,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection, sessionCollection } from "@/lib/collections"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { loadEditorDevice, saveEditorDevice } from "@/lib/launch-device"
-import { deviceMoveAgent, deviceMoveName, deviceMoveTargetReason } from "@/lib/session-device-move"
+import { deviceMoveAgent, deviceMoveName, deviceMovePick, deviceMoveTargetReason } from "@/lib/session-device-move"
 import { deviceIsOnline } from "@/lib/steer-devices"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
@@ -348,7 +349,7 @@ export function AppEditor({
 
   // #FEED-204 (apps.json EDITOR DEVICE): the device the composer shows and
   // sends on: the online devices (with a root: the ones it may move to), the
-  // pick remembered per app, a live root's own device, locked.
+  // pick remembered per app, a live root's own device (#EXP-1738: a pick moves it).
   const devices = useSteerDevices({ enabled: isMember, currentUserId: me ?? undefined, teamId })
   const candidates = useMemo(() => {
     const all = devices.devices ?? []
@@ -377,6 +378,7 @@ export function AppEditor({
   const pickDevice = (next: string) => {
     saveEditorDevice(app.id, next)
     setPickedDevice({ appId: app.id, deviceId: next })
+    if (root && root.status !== `ended` && deviceMovePick(next, root) === `move`) void requestDeviceMove(root.id, next)
   }
 
   // Leaving the editor ends the live editor session (its whole tree).
@@ -585,7 +587,7 @@ export function AppEditor({
       sessionId={root?.id ?? null}
       appId={app.id}
       deviceId={deviceId ?? undefined}
-      deviceMenu={{ value: deviceId, devices: deviceRows, onChange: pickDevice, locked: device.locked }}
+      deviceMenu={{ value: deviceId, devices: deviceRows, onChange: pickDevice }}
       moveDevice={device.move}
       disabled={!root && !deviceId}
       placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}

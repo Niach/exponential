@@ -2808,6 +2808,7 @@ dependencies = [
  "uicore-docs",
  "uicore-gpui",
  "uicore-model",
+ "uuid",
  "zbus",
 ]
 

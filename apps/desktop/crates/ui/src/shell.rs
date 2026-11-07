@@ -176,6 +176,10 @@ pub(crate) fn window_extent(window: &Window) -> f32 {
 /// EXP-1156: a dragged width, clamped into `extent` (the window width,
 /// [`window_extent`]) at read time.
 pub(crate) fn left_column_width_for(occupant: LeftOccupant, extent: f32) -> f32 {
+    // #EXP-1724: the sidebar folded into its icon rail.
+    if occupant == LeftOccupant::Rail && crate::ui_prefs::rail() {
+        return uicore_model::layout::shell_layout().rail_width as f32;
+    }
     crate::resize_edge::panel_width(occupant.panel(), extent)
 }
 

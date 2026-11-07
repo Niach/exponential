@@ -44,6 +44,8 @@ gpui-component.workspace = true
 gpui-component-assets.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# #VAPP-273: an exposed records tool checks ids are uuids.
+uuid.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # The IDE's fonts and Lucide icons (apps/desktop/assets), embedded like crates/app/src/assets.rs does.

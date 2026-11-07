@@ -251,7 +251,6 @@ final class AppsTests: XCTestCase {
                 ),
                 Apps.EditorDeviceChoice(
                     deviceId: expected["deviceId"] as? String,
-                    locked: expected["locked"] as? Bool ?? false,
                     move: expected["move"] as? Bool ?? false
                 ),
                 item["name"] as? String ?? ""

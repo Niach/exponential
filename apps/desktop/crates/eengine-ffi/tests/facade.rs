@@ -424,3 +424,12 @@ fn the_synced_store_carries_a_refusal_and_queues_offline() {
     assert!(store.visible_rows_json("a".into(), Some("me".into())).contains(&id));
     assert!(store.submit_call("a".into(), "exponential_issues_update".into(), "{}".into(), false).is_err());
 }
+
+#[test]
+fn one_unreadable_row_does_not_stop_the_queue() {
+    let log = Arc::new(RoomLog::default());
+    log.0.lock().unwrap().push(r#"{"writeId":"bad","appId":"a"}"#.to_string());
+    log.0.lock().unwrap().push(r#"{"writeId":"w1","appId":"a","call":"delete","writes":[{"op":"delete","id":"r1"}],"at":"2026-11-07T09:00:00.000Z","state":"pending"}"#.to_string());
+    let store = synced(log, r#"{"ok":true}"#);
+    assert_eq!(store.pending_label("a".into()).as_deref(), Some("1 change waiting to sync"));
+}

@@ -707,6 +707,15 @@ its `vault.json` without one).
   so the edit is committed and Version history undoes it. That is the
   host-only `shell.edit` of the catalog: the shell's agent has it, no
   app ever does.
+- **The apps' tools on that hub:** every running app's `exposes` list as
+  `<app>__<tool>` (the app = its package id with dashes,
+  `at-exponential-notes__list_notes`), run as the web's apps broker runs
+  them: a `records` tool reads the app's rows through the same records
+  query (`list` with a named query and the run's own keys, `get` by id) or
+  writes through the instance (`upsert`); an `action` tool runs one of the
+  exponential nouns of the Local desktop via the app. `upstream` and
+  `agent` runs have no seam on a desktop and stay unlisted; `admin` tools
+  never show.
 - **A sample:** `apps/ede/apps/notes.app.json` (Notes: a records kind, an
   action, a screen with a widget). Copy it into the apps directory to try
   it; `exponential-shell`'s tests boot it on the Engine.

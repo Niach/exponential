@@ -616,6 +616,12 @@ struct LocalTools {
     desktop: Arc<LocalDesktop>,
 }
 
+/// The noun subset as a provider of its own (#VAPP-273: an app's `action`
+/// run calls one of these "via" the app).
+pub fn local_tools(desktop: Arc<LocalDesktop>) -> Arc<dyn ToolProvider> {
+    Arc::new(LocalTools { desktop })
+}
+
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({"name": name, "description": description, "inputSchema": {"type": "object", "properties": properties, "required": required}})
 }

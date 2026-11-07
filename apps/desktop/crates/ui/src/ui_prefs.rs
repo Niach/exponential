@@ -67,6 +67,9 @@ struct UiPrefs {
     /// on this client only (apps.json EDITOR DEVICE).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     editor_devices: BTreeMap<String, String>,
+    /// #EXP-1724: the sidebar is folded into its icon rail.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    rail: bool,
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -165,6 +168,22 @@ pub(crate) fn set_sidebar_width(key: &str, width: Option<f32>) {
         if !apply_width(&mut prefs, key, width) {
             return;
         }
+    }
+    schedule_write();
+}
+
+/// #EXP-1724: is the sidebar folded into its icon rail?
+pub(crate) fn rail() -> bool {
+    prefs().lock().is_ok_and(|prefs| prefs.rail)
+}
+
+/// #EXP-1724: remember the rail.
+pub(crate) fn set_rail(rail: bool) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        prefs.rail = rail;
     }
     schedule_write();
 }
