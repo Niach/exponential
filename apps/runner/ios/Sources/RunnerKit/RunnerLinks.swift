@@ -27,12 +27,16 @@ public enum RunnerFunctions {
         "camera_capture",
         "clipboard_read", "clipboard_write",
         "files_open", "files_save",
+        // #VAPP-273: Exponential Desktop's own (unavailable here: the broker says so).
+        "focus_window",
         "http_fetch",
+        "launch_app",
         "location_current",
         "notifications_cancel", "notifications_post",
         "photos_get", "photos_list", "photos_pick",
         "print_pdf", "print_print",
         "share_send",
+        "windows_list",
     ]
 
     /// What the painter registers as host functions, each answered by `RunnerSession.call`.

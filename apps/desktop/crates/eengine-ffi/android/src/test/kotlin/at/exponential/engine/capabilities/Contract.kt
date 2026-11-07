@@ -15,7 +15,12 @@ object Contract {
         Json.parse(File(dir, "capabilities.json").readText()) as Map<*, *>
     }
 
-    val tools: List<Map<*, *>> get() = (fixture["tools"] as List<*>).map { it as Map<*, *> }
+    /** #VAPP-273: the capabilities one host alone provides (`host: "ede"`): no module here, their tools stay out. */
+    val hostOnlyCapabilities: Set<String> get() = (fixture["capabilities"] as List<*>).map { it as Map<*, *> }.filter { it["host"] != null }.map { it["name"] as String }.toSet()
+
+    private fun capabilityOf(tool: String): String = tool.takeWhile { it != '.' && it != '_' }
+
+    val tools: List<Map<*, *>> get() = (fixture["tools"] as List<*>).map { it as Map<*, *> }.filter { capabilityOf(it["name"] as String) !in hostOnlyCapabilities }
 
     fun tool(name: String): Map<*, *> = tools.first { it["name"] == name }
 
