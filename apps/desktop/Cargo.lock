@@ -2773,6 +2773,7 @@ version = "0.14.136"
 dependencies = [
  "api",
  "base64 0.22.1",
+ "eagent",
  "ede-protocol",
  "ede-services",
  "ede-theme",
@@ -2934,6 +2935,10 @@ version = "0.14.136"
 dependencies = [
  "api",
  "domain",
+ "eagent",
+ "eagent-hub-core",
+ "ecore",
+ "emcp",
  "flume 0.11.1",
  "jiff",
  "log",

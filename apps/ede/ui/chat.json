@@ -1,18 +1,323 @@
 {
-  "$comment": "Exponential Desktop's factory chat (#EDE-52): the Assistant's composer, opened by the chat button next to the start button (or Super+Space) as an on-demand top layer surface in the middle of the screen. The one global Assistant lives in the Exponential app and needs an account (#EDE-54, #EXP-1565): until the desktop is connected the composer hands the text to the Exponential app (ede.launch with the app and the text), and the empty state says so.",
-  "surface": {"layer": "top", "size": {"width": 720, "height": 420}, "keyboard": "on-demand", "onDemand": true, "functions": ["ede.launch", "ede.chat", "ede.switcher"]},
+  "$comment": "Exponential Desktop's factory chat (#EDE-52, #EDE-58): the composer opened by the chat button next to the start button (or Super+Space) as an on-demand top layer surface in the middle of the screen. On a LOCAL desktop it is the desktop's own agent: the text starts a local session (local-parity.json sessions.send) that the shell runs with the person's own CLI over ACP (elocal's runs: eagent-hub-core in-process, an in-process MCP hub over the desktop's store); the conversation shows here (/chatting {local, agent, status, messages [{id, author, body}]}), every message as Markdown. Without a CLI installed and signed in the composer says so. On a team (an account), the one global Assistant lives in the Exponential app (#EXP-1565): the composer hands the text to it (ede.launch with the app and the text).",
+  "surface": {
+    "layer": "top",
+    "size": {
+      "width": 720,
+      "height": 480
+    },
+    "keyboard": "on-demand",
+    "onDemand": true,
+    "functions": [
+      "ede.launch",
+      "ede.chat",
+      "ede.switcher"
+    ]
+  },
   "root": {
     "id": "chat",
     "component": "Box",
-    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "width": 720, "height": 420, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "gap": "$spacing.md",
+      "padding": "$spacing.lg",
+      "width": 720,
+      "height": 480,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.lg"
+    },
     "children": [
-      {"id": "chat-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "between"}, "children": [
-        {"id": "chat-title", "component": "Heading", "props": {"text": "Assistant", "level": "h3"}},
-        {"id": "chat-close", "component": "Button", "props": {"icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Close"}, "on": {"press": {"functionCall": {"call": "ede.chat"}}}}
-      ]},
-      {"id": "chat-empty", "component": "EmptyState", "props": {"icon": "action-chat", "title": "Your Assistant lives in the Exponential app", "actionLabel": "Connect Exponential", "size": "page"}, "style": {"flexGrow": 1}, "on": {"press": {"functionCall": {"call": "ede.switcher", "args": {"action": "connect"}}}}},
-      {"id": "composer", "component": "Composer", "props": {"placeholder": "What do you want to build?", "value": {"path": "/chat/draft"}}, "on": {"submit": {"functionCall": {"call": "ede.launch", "args": {"app": "at.exponential", "text": {"path": "/chat/draft"}}}}}}
+      {
+        "id": "chat-head",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center",
+          "justify": "between"
+        },
+        "children": [
+          {
+            "id": "chat-title",
+            "component": "Heading",
+            "props": {
+              "text": {
+                "path": "/chatting/title"
+              },
+              "level": "h3"
+            }
+          },
+          {
+            "id": "chat-status",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/chatting/status"
+              },
+              "variant": "muted",
+              "lines": 1
+            },
+            "style": {
+              "flexGrow": 1
+            }
+          },
+          {
+            "id": "chat-close",
+            "component": "Button",
+            "props": {
+              "icon": "ui-close",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "Close"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "ede.chat"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "chat-empty",
+        "component": "EmptyState",
+        "props": {
+          "icon": "action-chat",
+          "title": "Your Assistant lives in the Exponential app",
+          "actionLabel": "Connect Exponential",
+          "size": "page"
+        },
+        "style": {
+          "flexGrow": 1
+        },
+        "visible": {
+          "call": "not",
+          "args": {
+            "value": {
+              "path": "/chatting/local"
+            }
+          }
+        },
+        "on": {
+          "press": {
+            "functionCall": {
+              "call": "ede.switcher",
+              "args": {
+                "action": "connect"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "chat-no-cli",
+        "component": "EmptyState",
+        "props": {
+          "icon": "settings-agents",
+          "title": "No coding CLI on this desktop",
+          "description": "Install and sign in to Claude Code or Codex; the desktop's agent runs with it.",
+          "size": "page"
+        },
+        "style": {
+          "flexGrow": 1
+        },
+        "visible": {
+          "call": "and",
+          "args": {
+            "values": [
+              {
+                "path": "/chatting/local"
+              },
+              {
+                "call": "eq",
+                "args": {
+                  "a": {
+                    "path": "/chatting/agent"
+                  },
+                  "b": ""
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "chat-thread",
+        "component": "ScrollArea",
+        "props": {
+          "direction": "vertical"
+        },
+        "style": {
+          "flexGrow": 1,
+          "minHeight": 0
+        },
+        "visible": {
+          "call": "and",
+          "args": {
+            "values": [
+              {
+                "path": "/chatting/local"
+              },
+              {
+                "call": "not",
+                "args": {
+                  "value": {
+                    "call": "eq",
+                    "args": {
+                      "a": {
+                        "path": "/chatting/agent"
+                      },
+                      "b": ""
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "children": [
+          {
+            "id": "chat-messages",
+            "component": "List",
+            "props": {
+              "gap": "sm"
+            },
+            "template": {
+              "component": "chat-message",
+              "path": "/chatting/messages",
+              "key": "id"
+            },
+            "children": []
+          },
+          {
+            "id": "chat-message",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs"
+            },
+            "children": [
+              {
+                "id": "chat-message-author",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "path": "author"
+                  },
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "chat-message-body",
+                "component": "Markdown",
+                "props": {
+                  "text": {
+                    "path": "body"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "chat-nothing",
+            "component": "Text",
+            "props": {
+              "text": "Ask the desktop's agent anything about its issues, boards and files.",
+              "variant": "muted"
+            },
+            "visible": {
+              "call": "eq",
+              "args": {
+                "a": {
+                  "call": "len",
+                  "args": {
+                    "value": {
+                      "path": "/chatting/messages"
+                    }
+                  }
+                },
+                "b": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "What do you want to build?",
+          "value": {
+            "path": "/chat/draft"
+          }
+        },
+        "visible": {
+          "call": "not",
+          "args": {
+            "value": {
+              "path": "/chatting/local"
+            }
+          }
+        },
+        "on": {
+          "submit": {
+            "functionCall": {
+              "call": "ede.launch",
+              "args": {
+                "app": "at.exponential",
+                "text": {
+                  "path": "/chat/draft"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "composer-local",
+        "component": "Composer",
+        "props": {
+          "placeholder": "What do you want to build?",
+          "value": {
+            "path": "/chat/draft"
+          }
+        },
+        "visible": {
+          "path": "/chatting/local"
+        },
+        "on": {
+          "submit": {
+            "functionCall": {
+              "call": "ede.chat",
+              "args": {
+                "action": "send",
+                "text": {
+                  "path": "/chat/draft"
+                }
+              }
+            }
+          }
+        }
+      }
     ]
   },
-  "data": {"chat": {"draft": ""}}
+  "data": {
+    "chat": {
+      "draft": ""
+    },
+    "chatting": {
+      "local": false,
+      "agent": "",
+      "title": "Assistant",
+      "status": "",
+      "busy": false,
+      "messages": []
+    }
+  }
 }

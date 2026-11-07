@@ -19,7 +19,10 @@
 //! ([`DesktopMeta`]: what the shapes leave out, prompt bodies and agent
 //! instructions). Hosts drain [`LocalStore::deltas`] to redraw.
 //!
-//! Share as a team (#EDE-57) is [`share`]: the uploader of the team import
+//! Local agent runs (#EDE-58) are [`runs`]: a queued local session runs the
+//! person's own CLI over ACP with eagent-hub-core as the orchestration
+//! authority and an in-process MCP hub serving the noun subset over this
+//! store. Share as a team (#EDE-57) is [`share`]: the uploader of the team import
 //! API, the fixture `team-import.json`'s chunking replayed here.
 //!
 //! gpui-free and Engine-free (`tests/dependency_gate.rs`): eDE hosts it now,
@@ -30,6 +33,7 @@ pub mod desktops;
 pub mod executor;
 pub mod identity;
 pub mod parity;
+pub mod runs;
 pub mod share;
 pub mod store;
 pub mod time;

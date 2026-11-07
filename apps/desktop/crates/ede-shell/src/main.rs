@@ -48,7 +48,8 @@
 //! `/accounts`; `exponential-shell connect <url>` is the scheme handler's
 //! command, forwarding the browser's callback to the running shell);
 //! #EDE-57: `ede.share {action: start|run|cancel, name?, account?}` (Share a
-//! Local desktop as a team: `/sharing`).
+//! Local desktop as a team: `/sharing`); #EDE-58: `ede.chat {action: send,
+//! text}` (the desktop's own agent on a Local desktop: `/chatting`).
 //!
 //! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
@@ -63,6 +64,7 @@ mod accounts;
 mod assets;
 mod connect;
 mod dbus;
+mod local_runs;
 mod settings;
 mod settings_pages;
 mod share;
@@ -210,6 +212,8 @@ struct Shell {
     local: Option<Arc<elocal::LocalDesktop>>,
     /// A team to make current once the account's teams shape carries it.
     pending_pick: Option<String>,
+    /// #EDE-58: the chat on the current Local desktop (its agent runs).
+    chat_local: Option<local_runs::LocalChat>,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -529,7 +533,17 @@ impl HostPlugin for Host {
                                     tracing::warn!("desktops.json: {e}");
                                 }
                             }
+                            let picked_local = entry_kind == uicore_model::SwitcherKind::Local;
                             dispatch(&shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
+                            // Another desktop or a team: the opened desktop and its chat go.
+                            let changed = shell.borrow().local.as_ref().is_some_and(|d| !picked_local || d.entry.id != id);
+                            if changed {
+                                if let Some(chat) = shell.borrow_mut().chat_local.take() {
+                                    chat.stop();
+                                }
+                                shell.borrow_mut().local = None;
+                            }
+                            chatting_changed(&shell, cx);
                         }
                     }
                     Some("new") => {
@@ -631,7 +645,13 @@ impl HostPlugin for Host {
                     }
                 });
             }
-            "ede.chat" => cx.defer(move |cx| chat_toggle(&shell, cx)),
+            "ede.chat" => {
+                let args = args.clone();
+                cx.defer(move |cx| match args.get("action").and_then(Value::as_str) {
+                    Some("send") => chat_send(&shell, args.get("text").and_then(Value::as_str).unwrap_or(""), cx),
+                    _ => chat_toggle(&shell, cx),
+                });
+            }
             "ede.workspace" => {
                 if let Some(index) = args.get("index").and_then(Value::as_u64) {
                     with_ede(&self.shell, |ede| ede.switch_workspace(index as usize));
@@ -1237,11 +1257,62 @@ fn chat_toggle(shell: &SharedShell, cx: &mut App) {
     dispatch(shell, ShellEvent::ChatToggle, cx);
     let open = shell.borrow().model.chat.open;
     if open {
+        chatting_changed(shell, cx);
         open_on_demand(shell, "chat", cx);
         refresh(shell, cx);
     } else {
         close(shell, "chat", cx);
     }
+}
+
+/// Is the switcher on a Local desktop?
+fn on_local(shell: &SharedShell) -> bool {
+    shell.borrow().model.switcher.current.kind == uicore_model::SwitcherKind::Local
+}
+
+/// The chat on the current Local desktop, its runner started once (#EDE-58).
+fn chat_local(shell: &SharedShell) -> bool {
+    if !on_local(shell) {
+        return false;
+    }
+    let Some(desktop) = local_desktop(shell) else { return false };
+    let stale = shell.borrow().chat_local.as_ref().is_some_and(|c| c.desktop.entry.id != desktop.entry.id);
+    if stale {
+        if let Some(old) = shell.borrow_mut().chat_local.take() {
+            old.stop();
+        }
+    }
+    if shell.borrow().chat_local.is_none() {
+        let chat = local_runs::LocalChat::start(desktop);
+        shell.borrow_mut().chat_local = Some(chat);
+    }
+    true
+}
+
+/// `/chatting` into the views: the local conversation, or the app's Assistant.
+fn chatting_changed(shell: &SharedShell, cx: &mut App) {
+    if std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0") {
+        return;
+    }
+    let feed = if chat_local(shell) { shell.borrow().chat_local.as_ref().map(|c| c.feed()).unwrap_or_else(local_runs::remote_feed) } else { local_runs::remote_feed() };
+    shell.borrow_mut().feed.set("/chatting", feed);
+    refresh(shell, cx);
+}
+
+/// The composer's text to the desktop's agent (#EDE-58).
+fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
+    if !chat_local(shell) {
+        launch_app(&shell.borrow(), "at.exponential");
+        return;
+    }
+    let sent = shell.borrow_mut().chat_local.as_mut().map(|c| c.send(text)).unwrap_or(Ok(()));
+    if let Err(e) = sent {
+        tracing::warn!("chat send: {e}");
+    }
+    // The draft is the document's: hand it an empty one, then let it own it again.
+    shell.borrow_mut().feed.set("/chat", json!({"draft": ""}));
+    chatting_changed(shell, cx);
+    shell.borrow_mut().feed.remove("/chat");
 }
 
 /// The start menu: the popup document `start-menu` (or the older `menu`),
@@ -1765,6 +1836,7 @@ fn main() {
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
+        feed.set("/chatting", if demo { local_runs::demo_feed() } else { local_runs::remote_feed() });
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
             feed.set("/notifications", json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}));
@@ -1846,6 +1918,7 @@ fn main() {
             share,
             local: None,
             pending_pick: None,
+            chat_local: None,
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
@@ -1954,6 +2027,11 @@ fn main() {
                 }
                 if teams_changed {
                     cx.update(|cx| switcher_refresh_entries(&s, cx));
+                }
+                // #EDE-58: the local agent's runs changed a session or its messages.
+                let chat_changed = s.borrow().chat_local.as_ref().and_then(|c| c.changes.as_ref()).map(|rx| rx.drain().count() > 0).unwrap_or(false);
+                if chat_changed {
+                    cx.update(|cx| chatting_changed(&s, cx));
                 }
                 let expired = s.borrow_mut().notifications.expire(Instant::now());
                 if !expired.is_empty() {
