@@ -569,6 +569,9 @@
                       "pressable": true,
                       "selected": {
                         "@path": "selected"
+                      },
+                      "meta": {
+                        "@path": "meta"
                       }
                     },
                     "on": {
@@ -614,7 +617,22 @@
                               }
                             }
                           }
-                        ]
+                        ],
+                        "visible": {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "/shell/rail"
+                                },
+                                "then": true,
+                                "else": false
+                              }
+                            }
+                          }
+                        }
                       }
                     }
                   }
@@ -1309,7 +1327,22 @@
                                   "color": "$color.mutedForeground"
                                 }
                               }
-                            ]
+                            ],
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "/shell/rail"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            }
                           },
                           {
                             "id": "ide_pins_list",
@@ -1337,6 +1370,12 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
+                                  },
+                                  "meta": {
+                                    "@path": "meta"
+                                  },
+                                  "icon": {
+                                    "@path": "icon"
                                   }
                                 },
                                 "on": {
@@ -1367,13 +1406,35 @@
                                       "height": 20
                                     },
                                     "visible": {
-                                      "@call": "cond",
+                                      "@call": "and",
                                       "args": {
-                                        "if": {
-                                          "@path": "hover"
-                                        },
-                                        "then": true,
-                                        "else": false
+                                        "values": [
+                                          {
+                                            "@call": "cond",
+                                            "args": {
+                                              "if": {
+                                                "@path": "hover"
+                                              },
+                                              "then": true,
+                                              "else": false
+                                            }
+                                          },
+                                          {
+                                            "@call": "not",
+                                            "args": {
+                                              "value": {
+                                                "@call": "cond",
+                                                "args": {
+                                                  "if": {
+                                                    "@path": "/shell/rail"
+                                                  },
+                                                  "then": true,
+                                                  "else": false
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
                                       }
                                     },
                                     "on": {
@@ -1480,7 +1541,22 @@
                                   }
                                 }
                               }
-                            ]
+                            ],
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "/shell/rail"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            }
                           },
                           {
                             "id": "ide_agents_list",
@@ -1508,6 +1584,9 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
+                                  },
+                                  "meta": {
+                                    "@path": "meta"
                                   }
                                 },
                                 "on": {
@@ -1590,7 +1669,22 @@
                                           }
                                         }
                                       }
-                                    ]
+                                    ],
+                                    "visible": {
+                                      "@call": "not",
+                                      "args": {
+                                        "value": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "/shell/rail"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      }
+                                    }
                                   }
                                 }
                               }
@@ -1663,7 +1757,22 @@
                                   "height": 20
                                 }
                               }
-                            ]
+                            ],
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "/shell/rail"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            }
                           },
                           {
                             "id": "ide_app_menu",
@@ -1719,6 +1828,9 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
+                                  },
+                                  "meta": {
+                                    "@path": "meta"
                                   }
                                 },
                                 "on": {
@@ -1801,7 +1913,22 @@
                                           }
                                         }
                                       }
-                                    ]
+                                    ],
+                                    "visible": {
+                                      "@call": "not",
+                                      "args": {
+                                        "value": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "/shell/rail"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      }
+                                    }
                                   }
                                 }
                               }
@@ -1884,7 +2011,22 @@
                                   }
                                 }
                               }
-                            ]
+                            ],
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "/shell/rail"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            }
                           },
                           {
                             "id": "ide_boards_list",
@@ -1912,6 +2054,9 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
+                                  },
+                                  "meta": {
+                                    "@path": "meta"
                                   }
                                 },
                                 "on": {
@@ -1994,7 +2139,22 @@
                                           }
                                         }
                                       }
-                                    ]
+                                    ],
+                                    "visible": {
+                                      "@call": "not",
+                                      "args": {
+                                        "value": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "/shell/rail"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      }
+                                    }
                                   }
                                 }
                               }
@@ -2013,13 +2173,35 @@
                               "paddingLeft": "$spacing.xs"
                             },
                             "visible": {
-                              "@call": "cond",
+                              "@call": "and",
                               "args": {
-                                "if": {
-                                  "@path": "/shell/ide/boards/empty"
-                                },
-                                "then": true,
-                                "else": false
+                                "values": [
+                                  {
+                                    "@call": "cond",
+                                    "args": {
+                                      "if": {
+                                        "@path": "/shell/ide/boards/empty"
+                                      },
+                                      "then": true,
+                                      "else": false
+                                    }
+                                  },
+                                  {
+                                    "@call": "not",
+                                    "args": {
+                                      "value": {
+                                        "@call": "cond",
+                                        "args": {
+                                          "if": {
+                                            "@path": "/shell/rail"
+                                          },
+                                          "then": true,
+                                          "else": false
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
                               }
                             }
                           }
@@ -2076,7 +2258,22 @@
                                   "color": "$color.mutedForeground"
                                 }
                               }
-                            ]
+                            ],
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "/shell/rail"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            }
                           },
                           {
                             "id": "ide_active_list",
@@ -2169,7 +2366,22 @@
                                           }
                                         }
                                       }
-                                    ]
+                                    ],
+                                    "visible": {
+                                      "@call": "not",
+                                      "args": {
+                                        "value": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "/shell/rail"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      }
+                                    }
                                   }
                                 }
                               }
