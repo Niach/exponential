@@ -47,3 +47,4 @@
 - Markdown i opgaver, kommentarer og chats ser ens ud i alle apps
 - Din Assistent virker på tværs af alle dine teams
 - Teamejere kan vælge en Koordinator-agent
+- Apps kan tegne på et lærred og reagere på tryk og træk

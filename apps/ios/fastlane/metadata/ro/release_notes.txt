@@ -47,3 +47,4 @@
 - Markdown-ul din probleme, comentarii și chaturi arată la fel în toate aplicațiile
 - Asistentul tău funcționează în toate echipele tale
 - Proprietarii pot alege un agent Coordonator
+- Aplicațiile pot desena pe o pânză și răspund la atingeri și trageri

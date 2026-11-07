@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.19.0 (2026-11-07)
+
 - Round 9 parity: Markdown's inline code paints the `Markdown/code` recipe (its type, side padding reserved in the line, corners, in quotes too), a bullet is 0.36 em at 0.46 em into the indent, an ordered marker is in the text colour and ends one space before the text (`fixtures/markdown-inline.json` `documentPaint`). `MarkdownChipStyle.code`.
 - Round 9 (`docs/round-9-contract.md`): check severities (§6.6): a field's one message in the `error` part's `warning` / `info` state, polite and never the field's semantic error; a Button's `checks`. `accessibility.live` wins over `Text.live`, `accessibility.hidden` leaves the tree (§5.1). Markdown `profile: inline` (§9.1): `MarkdownPainter.inlineRecipes`, `MarkdownStyles.paragraph`, `MarkdownColors.paragraphInk` / `headingInk`; an inline Markdown skips `HostPlugin.markdown`.
 - `Canvas` (round 8, `docs/round-8-contract.md` §1): a static vector drawing on the core's `CanvasPlayer` (`CanvasLeaf`, `CanvasSource`), recompiled on a `size` / `shapes` change and resampled on a theme or mode change. Shapes paint through `MotionPainter`; the `text` ops follow natively (one line in the theme's sans / mono at the CSS weight, physical align, the baseline from `Paint.FontMetrics`). It boxes like a Motion, and it is an image named by `label`. With `pointer: true` it sends `press` / `move` / `leave` with `canvasToDrawing` coordinates (at most one `move` per frame); it is never a focus stop.

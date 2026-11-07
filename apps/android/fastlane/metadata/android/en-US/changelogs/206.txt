@@ -1,0 +1,2 @@
+- Apps can draw on a canvas and react to taps and drags
+- Half-checked boxes, richer progress and collapsing steppers in apps
