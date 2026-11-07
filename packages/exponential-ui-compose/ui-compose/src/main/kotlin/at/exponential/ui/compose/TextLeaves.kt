@@ -460,7 +460,9 @@ internal fun MarkdownLeaf(cx: LeafContext) {
     val text = cx.props.shownText("text")
     val model = cx.model
     val r = cx.inner
-    val custom = model.host.markdown(text, r.width)
+    // Round 9 §9.1: the inline profile is always the built-in painter.
+    val inline = MarkdownPainter.isInline(cx.props)
+    val custom = if (inline) null else model.host.markdown(text, r.width)
     if (custom != null) {
         InnerBox(cx) { custom() }
         return
@@ -484,6 +486,8 @@ internal fun MarkdownLeaf(cx: LeafContext) {
         codeBackground = cx.part("Markdown", "code", props).style.background,
         codeBlockBackground = cx.part("Markdown", "codeBlock", props).style.background ?: cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.06f),
         quoteBorder = cx.part("Markdown", "quote", props).style.borderColor ?: border,
+        paragraphInk = if (inline) MarkdownPainter.inlineInk(theme, model.mode, MarkdownPainter.inlineRecipes("paragraph", MarkdownPainter.variant(props))) ?: Color.Unspecified else Color.Unspecified,
+        headingInk = if (inline) MarkdownPainter.inlineInk(theme, model.mode, MarkdownPainter.inlineRecipes("heading")) ?: Color.Unspecified else Color.Unspecified,
         // A task box IS the theme's Checkbox box (off / on) and its check.
         taskFill = taskOff.style.background ?: Color.Transparent,
         taskBorder = taskOff.style.borderColor ?: border,

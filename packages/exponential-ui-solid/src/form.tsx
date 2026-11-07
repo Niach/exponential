@@ -9,16 +9,18 @@
 
 import { For, Show, createContext, createMemo, createSignal, createEffect, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
 import { FormRegistry, fieldErrorsVisible, joinIds, validateOnDefault } from "@exponential_app/eui/web"
+import type { FieldChecks } from "@exponential_app/eui"
 import type { UiNode } from "@exponential_app/eui"
 import { useSurfaceContext } from "./context"
 import type { NativeProps } from "./node-view"
-import { bool, failingChecks, parts, str, type PartFn } from "./natives/shared"
+import { bool, parts, resolvedFieldChecks, str, type PartFn } from "./natives/shared"
 
 export interface FieldHandle {
   name: string
   domId: string
   value: () => unknown
   errors: () => string[]
+  advisory: () => boolean
   focus: () => void
   element: () => HTMLElement | null
 }
@@ -68,6 +70,8 @@ export function FormNative(props: NativeProps): JSX.Element {
       return
     }
     setSummary([])
+    // A submit reveals the advisories it let through (round 9 §6.6).
+    if (result.advised) setAttempts((n) => n + 1)
     void props.emit(`submit`, { values: result.values })
     closeOverlay?.()
   }
@@ -134,9 +138,11 @@ export interface FieldOptions {
 
 /** A field's validation state (live getters). */
 export interface FieldState {
-  /** The messages to SHOW now. */
+  /** The `error` message to SHOW now (at most one, round 9 §6.6). */
   readonly errors: string[]
   readonly invalid: boolean
+  /** The one message shown now (any severity), null = none. */
+  readonly shown: FieldChecks[`shown`]
   /** `<field id>.error` — put it in the control's aria-describedby. */
   readonly errorId: string
   readonly describedBy: string | undefined
@@ -151,7 +157,8 @@ export interface FieldState {
 export function createField(options: FieldOptions): FieldState {
   const form = useForm()
   const ctx = useSurfaceContext()
-  const all = createMemo(() => failingChecks(options.props().checks, ctx.t(`invalidValue`)))
+  const checks = createMemo(() => resolvedFieldChecks(options.props().checks, ctx.t(`checkFailed`)))
+  const all = () => checks().errors
   const [touched, setTouched] = createSignal(false)
   const [dirty, setDirty] = createSignal(false)
   const [submitted, setSubmitted] = createSignal(false)
@@ -167,12 +174,20 @@ export function createField(options: FieldOptions): FieldState {
         domId: id,
         value: () => untrack(options.value),
         errors: () => untrack(all),
+        advisory: () => {
+          const shown = untrack(checks).shown
+          return shown !== null && shown.severity !== `error`
+        },
         focus: () => options.focusEl()?.focus(),
         element: () => options.focusEl() ?? null,
       })
     )
   })
-  const errors = createMemo(() => (show() ? all() : []))
+  const shown = createMemo(() => (show() ? checks().shown : null))
+  const errors = createMemo(() => {
+    const s = shown()
+    return s?.severity === `error` ? [s.message] : []
+  })
   const errorId = () => `${options.domId()}.error`
   return {
     get errors() {
@@ -181,11 +196,14 @@ export function createField(options: FieldOptions): FieldState {
     get invalid() {
       return errors().length > 0
     },
+    get shown() {
+      return shown()
+    },
     get errorId() {
       return errorId()
     },
     get describedBy() {
-      return errors().length ? errorId() : undefined
+      return shown() ? errorId() : undefined
     },
     touch: () => setTouched(true),
     change: (v: unknown) => {
@@ -201,13 +219,17 @@ export function createField(options: FieldOptions): FieldState {
   }
 }
 
-/** Every failing message under a field, linked by `errorId`. */
+/** The field's one message, linked by `errorId`: an `error` is an alert in
+ *  the `error` part; a `warning` / `info` the same part in that recipe state,
+ *  a quiet `status`. */
 export function FieldErrors(props: { part: PartFn; field: FieldState }): JSX.Element {
   return (
-    <Show when={props.field.errors.length}>
-      <div {...props.part(`error`)} id={props.field.errorId} role="alert">
-        <For each={props.field.errors}>{(m) => <span class="xui-field-error">{m}</span>}</For>
-      </div>
+    <Show when={props.field.shown}>
+      {(shown) => (
+        <div {...props.part(`error`, shown().severity !== `error` && shown().severity)} id={props.field.errorId} role={shown().severity === `error` ? `alert` : `status`}>
+          <span class="xui-field-error">{shown().message}</span>
+        </div>
+      )}
     </Show>
   )
 }

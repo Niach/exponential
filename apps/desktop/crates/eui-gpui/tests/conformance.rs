@@ -73,7 +73,7 @@ fn decode_baseline(b: &Value) -> BTreeMap<String, CaseDump> {
             .map(|row| {
                 let row = row.as_array().expect("frame row");
                 let n = table[row[0].as_u64().expect("node index") as usize].as_array().expect("node row");
-                DumpNode { id: s(&n[0]).unwrap_or_default(), component: s(&n[1]).unwrap_or_default(), part: s(&n[2]), parent: s(&n[3]), x: f(&row[1]), y: f(&row[2]), w: f(&row[3]), h: f(&row[4]), text: s(&n[4]), lines: row.get(5).and_then(Value::as_u64).map(|l| l as u32), lh: row.get(6).map(f) }
+                DumpNode { id: s(&n[0]).unwrap_or_default(), component: s(&n[1]).unwrap_or_default(), part: s(&n[2]), parent: s(&n[3]), x: f(&row[1]), y: f(&row[2]), w: f(&row[3]), h: f(&row[4]), text: s(&n[4]), lines: row.get(5).and_then(Value::as_u64).map(|l| l as u32), lh: row.get(6).map(f), live: None, a11y_hidden: None }
             })
             .collect();
         out.insert(key.clone(), CaseDump { width: f(&c["width"]), height: f(&c["height"]), nodes });
@@ -302,7 +302,7 @@ fn gpui_matches_the_web_baseline_within_the_known_budget() {
 }
 
 fn n(id: &str, parent: Option<&str>, x: f32, y: f32, w: f32, h: f32) -> DumpNode {
-    DumpNode { id: id.into(), component: "Box".into(), part: None, parent: parent.map(String::from), x, y, w, h, text: None, lines: None, lh: None }
+    DumpNode { id: id.into(), component: "Box".into(), part: None, parent: parent.map(String::from), x, y, w, h, text: None, lines: None, lh: None, live: None, a11y_hidden: None }
 }
 
 fn case(nodes: Vec<DumpNode>) -> CaseDump {

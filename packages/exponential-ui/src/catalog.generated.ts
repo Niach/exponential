@@ -269,7 +269,7 @@ export interface ComponentProps {
   Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
   StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic }
-  Button: { label?: string | Dynamic; icon?: IconName | Dynamic; href?: string; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; loading?: boolean; pendingLabel?: string; submit?: boolean; hold?: boolean; holdingLabel?: string }
+  Button: { label?: string | Dynamic; icon?: IconName | Dynamic; href?: string; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; checks?: Shapes["check"][]; loading?: boolean; pendingLabel?: string; submit?: boolean; hold?: boolean; holdingLabel?: string }
   Link: { label: string | Dynamic; href?: string; external?: boolean }
   Toggle: { label: string; icon?: IconName; pressed?: boolean | Dynamic; variant?: "default" | "outline"; size?: ControlSizeValue }
   Form: { name: string; disabled?: boolean | Dynamic; busy?: boolean | Dynamic; summary?: boolean }

@@ -164,6 +164,27 @@ data class MarkdownBlock(
     val lang: String? = null,
 )
 
+/** Round 9 (`fixtures/markdown-inline.json` `documentPaint`): a bullet's width and its centre in the indent, in em. */
+const val MARKDOWN_BULLET_EM = 0.36f
+const val MARKDOWN_BULLET_CENTRE_EM = 0.46f
+
+/**
+ * Round 9 (`fixtures/markdown-inline.json` `documentPaint`): inline code, the
+ * `Markdown/code` recipe: its type ([size]; null = 0.925 em of the run), a
+ * [radius]-cornered fill, [padH] (null = 0.3 em) reserved in the line on each
+ * side and [padV] over the font's own ascent and descent, as the web's inline
+ * box. On [MarkdownChipStyle] because every measurer already gets that one.
+ */
+data class MarkdownCodeStyle(
+    val size: Float? = null,
+    val padH: Float? = null,
+    val padV: Float = 0f,
+    val radius: Float = 4f,
+) {
+    fun size(base: MarkdownTextSpec): Float = size ?: (base.size * 0.925f)
+    fun padH(base: MarkdownTextSpec): Float = padH ?: (base.size * 0.3f)
+}
+
 /**
  * #VAPP-258: the inline chip's geometry: [label] = the Text `caption`
  * style, [padH] = `$spacing.sm` each side, [gap] = `$spacing.xs` after the
@@ -182,6 +203,8 @@ data class MarkdownChipStyle(
     val radius: Float? = null,
     /** #VAPP-258: a theme's `Markdown/chip*` metrics per chip kind. */
     val kinds: Map<String, MarkdownChipKindStyle> = emptyMap(),
+    /** Round 9: inline code. */
+    val code: MarkdownCodeStyle = MarkdownCodeStyle(),
 ) {
     /** The chip box's height in a line [lineHeight] tall. */
     fun height(lineHeight: Float): Float = minOf(height, lineHeight)
@@ -265,6 +288,8 @@ data class MarkdownStyles(
     var audioRow: Float = 32f,
     /** #VAPP-258: a file attachment's row height (the FileUpload `file` row). */
     var fileHeight: Float = 40f,
+    /** Round 9 §9.1: an inline-profile paragraph's type (Text/root of its `variant`); null = [body]. */
+    var paragraph: MarkdownTextSpec? = null,
 ) {
     /** #VAPP-258: an attachment block's height at [width]. */
     fun attachmentHeight(kind: MarkdownBlockKind.Attachment, width: Float): Float = when (kind.type) {
@@ -284,6 +309,7 @@ data class MarkdownStyles(
     fun spec(kind: MarkdownBlockKind): MarkdownTextSpec = when (kind) {
         is MarkdownBlockKind.Heading -> headingLevels[levelOf(kind)] ?: heading
         MarkdownBlockKind.CodeBlock -> code
+        MarkdownBlockKind.Paragraph -> paragraph ?: body
         else -> body
     }
 

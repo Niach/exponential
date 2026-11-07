@@ -3371,6 +3371,12 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func failingChecks(id: String)  -> [String]
     
     /**
+     * Round 9 §6.6 (`data::field_checks`): a field's check state now, as
+     * `{"errors": [...], "shown": {"severity", "message"} | null}`.
+     */
+    func fieldChecksJson(id: String)  -> String
+    
+    /**
      * VAPP-162: one input on a `hold: true` Button (round-5 contract §9).
      * `input_json` = `{"do": "pointerdown"|"pointermove"|"pointerup", x, y}`
      * (px relative to the button's top-left), `{"do": "pointercancel"}`,
@@ -3845,6 +3851,19 @@ open func event(index: UInt32, name: String, payloadJson: String?)throws  -> [Ff
 open func failingChecks(id: String) -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Round 9 §6.6 (`data::field_checks`): a field's check state now, as
+     * `{"errors": [...], "shown": {"severity", "message"} | null}`.
+     */
+open func fieldChecksJson(id: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),$0
     )
@@ -9914,6 +9933,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks() != 25004) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json() != 55782) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_hold() != 13037) {

@@ -215,7 +215,21 @@ pub struct ListView {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FieldErrors {
     pub name: String,
+    /// Every failing `error` message, in checks order (a Form's summary;
+    /// empty = nothing blocks, the entry only carries an advisory).
     pub messages: Vec<String>,
+    /// Round 9 §6.6: the ONE message the field paints, of any severity;
+    /// `None` = every one of `messages` (a FileUpload's refused files).
+    pub shown: Option<FieldMessage>,
+}
+
+/// Round 9 §6.6 (`fieldChecks`): a field's shown check result. `severity` is
+/// `error`, `warning` or `info`; the last two are advisory: the `error` part
+/// in that recipe state, never the `invalid` state, never blocking.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldMessage {
+    pub severity: String,
+    pub message: String,
 }
 
 /// VAPP-279: a strip tab's reorder drag, from its start.
@@ -760,6 +774,11 @@ impl<'a, 'b> Builder<'a, 'b> {
         // Inside a disabled Form every field (and button) is inert; inside a
         // busy one the submit buttons show loading.
         let form = parent.and_then(|p| self.nodes[p as usize].form.clone());
+        // Round 9 §6.6: a failing `error` check disables a Button (warning
+        // and info never do); `checks` are resolved here.
+        if node.component == "Button" && crate::data::checks_block(props.get("checks")) {
+            props.insert("disabled".into(), Value::Bool(true));
+        }
         let mut form_disabled = false;
         if let Some((disabled, busy)) = form.as_ref().and_then(|f| self.forms.get(f)).copied() {
             if disabled && (FORM_FIELDS.contains(&node.component.as_str()) || node.component == "Button") {
@@ -814,7 +833,9 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.on = node.on.clone();
         n.source = self.sources.get(&node.id).cloned();
         n.accessibility = node.accessibility.as_ref().and_then(|a| self.resolve(a, scope));
-        n.live = str_prop(&props, "live").filter(|l| *l != "off").map(str::to_string);
+        // Round 9 §5.1: `accessibility.live` wins over `Text.live`.
+        let live = n.accessibility.as_ref().and_then(|a| a.get("live")).and_then(Value::as_str).or(str_prop(&props, "live"));
+        n.live = live.filter(|l| *l != "off").map(str::to_string);
         n.form_disabled = form_disabled;
         n.own_query = Some(RecipeQuery::new(node.component.clone(), "root", self.ctx.recipes.native_recipe_props(&node.component, &recipe_props(&props, form_disabled)), Vec::new()));
         if let Some(r) = &node.recipe {

@@ -50,8 +50,8 @@ export function supportedCatalogIds(extensionIds: readonly string[] = []): strin
 /** The renderer's negotiation object (round 9 §10): `supportedCatalogIds`
  *  plus, with `inline`, the generated 1.0 catalog definitions of the
  *  registered extensions, in registration order. */
-export function rendererCapabilities(extensionIds: readonly string[] = [], options: { inline?: readonly unknown[] } = {}): { "1.0": { supportedCatalogIds: string[]; inlineCatalogs?: unknown[] } } {
-  return { "1.0": { supportedCatalogIds: supportedCatalogIds(extensionIds), ...(options.inline ? { inlineCatalogs: [...options.inline] } : {}) } }
+export function rendererCapabilities(extensionIds: readonly string[] = [], options: { inline?: readonly unknown[] } = {}): { [A2UI_VERSION]: { supportedCatalogIds: string[]; inlineCatalogs?: unknown[] } } {
+  return { [A2UI_VERSION]: { supportedCatalogIds: supportedCatalogIds(extensionIds), ...(options.inline ? { inlineCatalogs: [...options.inline] } : {}) } }
 }
 
 export interface TemplateBinding {

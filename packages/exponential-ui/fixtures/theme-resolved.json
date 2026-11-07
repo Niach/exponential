@@ -2658,6 +2658,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -2738,6 +2754,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -2816,6 +2848,31 @@
                 "color": "$color.mutedForeground"
               }
             }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
           ]
         },
         "Radio": {
@@ -2872,6 +2929,31 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -2963,6 +3045,31 @@
               "style": {
                 "fontSize": "$type.size.xs",
                 "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -3295,6 +3402,31 @@
               "style": {
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -5661,6 +5793,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -5786,6 +5934,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -6180,6 +6344,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -10569,6 +10749,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -10655,6 +10851,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -10746,6 +10958,31 @@
                 "color": "$color.mutedForeground"
               }
             }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
           ]
         },
         "Radio": {
@@ -10808,6 +11045,31 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -10920,6 +11182,31 @@
               "style": {
                 "fontSize": "$type.size.xs",
                 "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -11269,6 +11556,31 @@
               "style": {
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -13743,6 +14055,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -13881,6 +14209,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -14312,6 +14656,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -18516,6 +18876,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -18603,6 +18979,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -18689,6 +19081,31 @@
                 "color": "$color.mutedForeground"
               }
             }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
           ]
         },
         "Radio": {
@@ -18752,6 +19169,31 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -18843,6 +19285,31 @@
               "style": {
                 "fontSize": "$type.size.xs",
                 "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -19247,6 +19714,31 @@
               "style": {
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -21855,6 +22347,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -21993,6 +22501,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -22425,6 +22949,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -26851,6 +27391,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -26937,6 +27493,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -27028,6 +27600,31 @@
                 "color": "$color.mutedForeground"
               }
             }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
           ]
         },
         "Radio": {
@@ -27090,6 +27687,31 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -27202,6 +27824,31 @@
               "style": {
                 "fontSize": "$type.size.xs",
                 "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -27551,6 +28198,31 @@
               "style": {
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "error": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
                 "color": "$color.mutedForeground"
               }
             }
@@ -30025,6 +30697,22 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ]
         },
@@ -30163,6 +30851,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -30594,6 +31298,22 @@
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "state": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "state": "info"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]

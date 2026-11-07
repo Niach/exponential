@@ -20,7 +20,7 @@ import { useForm } from "../form"
 import { CHROME, IconGlyph, PaintIcon } from "../icons"
 import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
-import { bool, css, parts, str } from "./shared"
+import { bool, css, failingChecks, parts, str } from "./shared"
 
 /** React's `usePending`: `pending` while the last tracked promise runs. */
 export function createPending(): { pending: Accessor<boolean>; track: (result: void | Promise<void>) => void } {
@@ -63,7 +63,8 @@ export function ButtonNative(props: NativeProps): JSX.Element {
   const icon = () => str(props.props.icon)
   const loading = () => bool(props.props.loading) || pending() || (submit() && form!.busy)
   // EXP-1556: loading refuses presses but keeps the idle look; only `disabled` dims.
-  const disabled = () => bool(props.props.disabled)
+  // Round 9 §6.6: a failing `error` check disables it (warning / info never do).
+  const disabled = () => bool(props.props.disabled) || failingChecks(props.props.checks).length > 0
   const inert = () => disabled() || loading()
   const iconOnly = () => props.props.size === `icon`
   const hasChild = () => props.node.children.length > 0

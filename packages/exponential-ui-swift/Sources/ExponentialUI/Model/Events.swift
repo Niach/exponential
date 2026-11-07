@@ -557,6 +557,12 @@ extension SurfaceModel {
         surface.failingChecks(id: fieldId)
     }
 
+    /// Round 9 §6.6: a field's check state now: every failing `error`, and
+    /// the ONE message it shows (`error`, else `warning`, else `info`).
+    public func fieldChecks(_ fieldId: String) -> FieldChecks {
+        FieldChecks(JSONValue.parse(surface.fieldChecksJson(id: fieldId)))
+    }
+
     /// A Chart's tooltip category / slice (pointer or keyboard).
     public func setChartHover(_ index: Int, _ point: Int?) {
         if chartHover[index] != point { chartHover[index] = point }
@@ -840,6 +846,24 @@ func mimeType(of url: URL) -> String {
     switch ext {
     case "md", "txt": return "text/plain"
     default: return "application/octet-stream"
+    }
+}
+
+/// Round 9 §6.6 (`data::field_checks`): what a field's checks say.
+public struct FieldChecks: Equatable, Sendable {
+    /// The one message a field paints; `severity` = `error` | `warning` | `info`.
+    public struct Shown: Equatable, Sendable {
+        public let severity: String
+        public let message: String
+    }
+
+    /// Every failing `error` message, in checks order: what blocks a submit.
+    public let errors: [String]
+    public let shown: Shown?
+
+    init(_ v: JSONValue) {
+        errors = v["errors"]?.array?.compactMap(\.string) ?? []
+        shown = v["shown"].flatMap { s in s["severity"]?.string.map { Shown(severity: $0, message: s["message"]?.string ?? "") } }
     }
 }
 

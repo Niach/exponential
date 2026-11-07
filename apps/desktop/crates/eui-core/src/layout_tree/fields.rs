@@ -8,7 +8,7 @@
 
 use serde_json::{json, Map, Value};
 
-use super::{bool_prop, js, str_prop, Builder, LNode, LayerPlacement, NodeKind};
+use super::{bool_prop, js, str_prop, Builder, FieldErrors, LNode, LayerPlacement, NodeKind};
 use crate::overlay::{OverlayAlign, OverlaySide};
 use crate::theme::RecipeQuery;
 use crate::types::UiNode;
@@ -278,14 +278,42 @@ impl Builder<'_, '_> {
         owner
     }
 
-    /// The failed checks of a field (after a refused submit) plus an
-    /// authored `error`.
+    /// The failed `error` a field shows (round 9 §6.6: ONE; every refused
+    /// file of a FileUpload) plus an authored `error`.
     fn field_errors(&self, owner: &LNode) -> Vec<String> {
-        let mut out: Vec<String> = self.ctx.local.errors.get(&owner.id).map(|e| e.messages.clone()).unwrap_or_default();
+        let mut out: Vec<String> = match self.ctx.local.errors.get(&owner.id) {
+            Some(FieldErrors { shown: Some(s), .. }) if s.severity == "error" => vec![s.message.clone()],
+            Some(FieldErrors { shown: None, messages, .. }) => messages.clone(),
+            _ => vec![],
+        };
         if let Some(e) = str_prop(&owner.props, "error") {
             out.push(e.to_string());
         }
         out
+    }
+
+    /// The field's `error` part: its errors in the `invalid` state, else an
+    /// advisory `warning` / `info` in that recipe state (round 9 §6.6). The
+    /// part's index, and whether the field is invalid.
+    fn field_message(&mut self, index: u32, owner: &LNode) -> Option<(u32, bool)> {
+        let errors = self.field_errors(owner);
+        if !errors.is_empty() {
+            let e = self.text_part(index, owner, "error", &errors.join("\n"), "caption", "");
+            self.add_state(e, "invalid");
+            self.field_message_live(e, "alert", "assertive");
+            return Some((e, true));
+        }
+        let advisory = self.ctx.local.errors.get(&owner.id).and_then(|e| e.shown.clone())?;
+        let e = self.text_part(index, owner, "error", &advisory.message, "caption", "");
+        self.add_state(e, &advisory.severity);
+        self.field_message_live(e, "status", "polite");
+        Some((e, false))
+    }
+
+    /// Round 9 §6.6: an error reads as an alert, an advisory as a status.
+    fn field_message_live(&mut self, part: u32, role: &str, live: &str) {
+        self.default_a11y(part, "role", json!(role));
+        self.nodes[part as usize].live = Some(live.into());
     }
 
     /// Description and error lines under the control; `control` (the part
@@ -294,13 +322,8 @@ impl Builder<'_, '_> {
         if let Some(d) = str_prop(&owner.props, "description") {
             self.text_part(owner.index, owner, "description", d, "muted", "");
         }
-        let errors = self.field_errors(owner);
-        if !errors.is_empty() {
-            let e = self.text_part(owner.index, owner, "error", &errors.join("\n"), "caption", "");
-            self.add_state(e, "invalid");
-            if let Some(c) = control {
-                self.add_state(c, "invalid");
-            }
+        if let (Some((_, true)), Some(c)) = (self.field_message(owner.index, owner), control) {
+            self.add_state(c, "invalid");
         }
     }
 
@@ -732,6 +755,12 @@ impl Builder<'_, '_> {
         let control_part = if owner.component == "Switch" { "track" } else { "box" };
         let checked = bool_prop(&owner.props, "checked");
         let invalid = !self.field_errors(&owner).is_empty();
+        // Round 9 §6.6: a Checkbox's message sits in the text column, under
+        // its label (the web's `.xui-field-text`).
+        let body_message = owner.component == "Checkbox" && (invalid || self.ctx.local.errors.get(&owner.id).is_some_and(|e| e.shown.is_some()));
+        if body_message {
+            self.nodes[index as usize].base_style.insert("alignItems".into(), json!("flex-start"));
+        }
         let mut control_props = json!({"checked": checked, "disabled": bool_prop(&owner.props, "disabled")});
         if owner.component == "Switch" {
             control_props["size"] = json!(str_prop(&owner.props, "size").unwrap_or("default"));
@@ -743,6 +772,11 @@ impl Builder<'_, '_> {
         }
         let control = |b: &mut Self, parent: u32| {
             let c = b.part_in(parent, &owner, control_part, &owner.component, NodeKind::Leaf, json!({"flexShrink": 0}), control_props.clone(), "");
+            // Two lines beside it: the box stays on the first (`xxs` = the
+            // web's half-leading of the 16px box on the 20px label).
+            if body_message {
+                b.nodes[c as usize].base_style.insert("marginTop".into(), json!("$spacing.xxs"));
+            }
             if checked {
                 b.add_state(c, "checked");
             }
@@ -753,7 +787,7 @@ impl Builder<'_, '_> {
         };
         let text = |b: &mut Self, parent: u32| {
             let has_desc = str_prop(&owner.props, "description").is_some();
-            if has_desc {
+            if has_desc || body_message {
                 let col = b.part_in(parent, &owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "flexGrow": 1, "minWidth": 0}), json!({}), "");
                 if let Some(label) = str_prop(&owner.props, "label") {
                     b.text_part(col, &owner, "label", label, "body", "");
@@ -761,6 +795,7 @@ impl Builder<'_, '_> {
                 if let Some(d) = str_prop(&owner.props, "description") {
                     b.text_part(col, &owner, "description", d, "muted", "");
                 }
+                return Some(col);
             } else if owner.component == "Switch" && str_prop(&owner.props, "label") == Some("") {
                 // VAPP-280: a label-less Switch (a SettingsRow's control,
                 // `label: ""`) keeps the web's empty `body` column, which
@@ -771,20 +806,22 @@ impl Builder<'_, '_> {
                 b.nodes[l as usize].base_style.insert("flexGrow".into(), json!(1));
                 b.nodes[l as usize].base_style.insert("minWidth".into(), json!(0));
             }
+            None
         };
-        if owner.component == "Switch" {
-            text(self, index);
+        let body = if owner.component == "Switch" {
+            let body = text(self, index);
             control(self, index);
+            body
         } else {
             control(self, index);
-            text(self, index);
+            text(self, index)
+        };
+        if let Some(col) = body.filter(|_| body_message) {
+            self.field_message(col, &owner);
+            return;
         }
-        let errors = self.field_errors(&owner);
-        if !errors.is_empty() {
-            let wrap_note = errors.join("\n");
-            let e = self.text_part(index, &owner, "error", &wrap_note, "caption", "");
+        if let Some((e, _)) = self.field_message(index, &owner) {
             self.nodes[e as usize].base_style.insert("flexBasis".into(), json!("100%"));
-            self.add_state(e, "invalid");
             self.style_default(index, &[("flexWrap", json!("wrap"))]);
         }
     }
@@ -822,11 +859,7 @@ impl Builder<'_, '_> {
             let label = option.get("label").map(js).unwrap_or_default();
             self.text_part(row, &owner, "label", &label, "body", &format!(".{i}"));
         }
-        let errors = self.field_errors(&owner);
-        if !errors.is_empty() {
-            let e = self.text_part(index, &owner, "error", &errors.join("\n"), "caption", "");
-            self.add_state(e, "invalid");
-        }
+        self.field_message(index, &owner);
     }
 
     /// ChoiceTiles (EXP-1280): a grid of `columns` (1–4) equal tiles, one
@@ -873,12 +906,9 @@ impl Builder<'_, '_> {
                 self.text_part(tile, &owner, "description", &d, "muted", &suffix);
             }
         }
-        let errors = self.field_errors(&owner);
-        if !errors.is_empty() {
-            let e = self.text_part(index, &owner, "error", &errors.join("\n"), "caption", "");
+        if let Some((e, _)) = self.field_message(index, &owner) {
             // The error spans every column.
             self.nodes[e as usize].base_style.insert("gridColumn".into(), json!("1 / -1"));
-            self.add_state(e, "invalid");
         }
     }
 

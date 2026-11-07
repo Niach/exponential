@@ -1122,7 +1122,7 @@ impl Surface {
                     crate::strings::format_string(&template, &params)
                 })
                 .collect();
-            self.local.errors.insert(id.to_string(), FieldErrors { name, messages });
+            self.local.errors.insert(id.to_string(), FieldErrors { name, messages, shown: None });
         } else {
             self.local.errors.remove(id);
         }
@@ -1392,34 +1392,33 @@ impl Surface {
     // ------------------------------------------------------------------
 
     /// Validation `checks` of a field evaluated against the data model: the
-    /// messages of the failing ones. The reference's `failingChecks`: a check
-    /// WITH a `condition` fails when it resolves to nothing (an unseeded
-    /// path), `null`, `false` or `""` (0 passes); a `$string.<id>` message
-    /// resolves through the surface's strings; a message that is not a string
-    /// reads `$string.invalidValue` (round 2).
+    /// messages of the failing `error`s (round 9 §6.6: warning and info never
+    /// block). The reference's `failingChecks`: a check WITH a `condition`
+    /// fails when it resolves to nothing (an unseeded path), `null`, `false`
+    /// or `""` (0 passes); a `$string.<id>` message resolves through the
+    /// surface's strings; a message that is not a string reads
+    /// `$string.checkFailed`.
     pub fn failing_checks(&self, id: &str) -> Vec<String> {
-        let Some(node) = self.source_node(id) else { return vec![] };
+        self.field_checks(id).0
+    }
+
+    /// Round 9 §6.6: a field's check state: the blocking messages and the
+    /// ONE message it paints.
+    pub fn field_checks(&self, id: &str) -> (Vec<String>, Option<crate::layout_tree::FieldMessage>) {
+        let Some(node) = self.source_node(id) else { return (vec![], None) };
         let scope = self.scope_of(id);
         let ctx = self.resolve_ctx(&scope);
-        node.props
+        let results: Vec<Value> = node
+            .props
             .get("checks")
             .and_then(Value::as_array)
-            .map(|checks| {
-                // Round 9 §6.6: each rule → a ValidationResult; only a failing
-                // `error` blocks (warning / info are advisory).
-                checks
-                    .iter()
-                    .filter(|c| c.get("condition").is_some())
-                    .map(|c| crate::data::evaluate_check(c, &ctx))
-                    .filter(|r| crate::data::check_failed(r) && crate::data::check_severity(r) == "error")
-                    .map(|r| {
-                        r.get("message").and_then(Value::as_str).map(|message| crate::strings::resolve_string(message, &self.strings).to_string()).unwrap_or_else(|| {
-                            self.strings.get("checkFailed").or_else(|| self.strings.get("invalidValue")).cloned().unwrap_or_else(|| "Invalid value".into())
-                        })
-                    })
-                    .collect()
+            .map(|checks| checks.iter().filter(|c| c.get("condition").is_some()).map(|c| crate::data::evaluate_check(c, &ctx)).collect())
+            .unwrap_or_default();
+        crate::data::field_checks(&results, |r| {
+            r.get("message").and_then(Value::as_str).map(|message| crate::strings::resolve_string(message, &self.strings).to_string()).unwrap_or_else(|| {
+                self.strings.get("checkFailed").or_else(|| self.strings.get("invalidValue")).cloned().unwrap_or_else(|| "Invalid value".into())
             })
-            .unwrap_or_default()
+        })
     }
 
     /// A field's `validateOn` (its prop, else the catalog default, else blur).
@@ -1434,15 +1433,15 @@ impl Surface {
 
     /// Run one field's checks now (its errors show or clear).
     fn validate_field(&mut self, id: &str) {
-        let failed = self.failing_checks(id);
+        let (messages, shown) = self.field_checks(id);
         let name = self.node_by_id(id).and_then(|n| n.props.get("name")).map(js).unwrap_or_default();
-        let before = self.local.errors.get(id).map(|e| e.messages.clone());
-        if failed.is_empty() {
+        let before = self.local.errors.get(id).cloned();
+        if shown.is_none() {
             self.local.errors.remove(id);
         } else {
-            self.local.errors.insert(id.to_string(), FieldErrors { name, messages: failed.clone() });
+            self.local.errors.insert(id.to_string(), FieldErrors { name, messages, shown });
         }
-        if before.unwrap_or_default() != failed {
+        if before != self.local.errors.get(id).cloned() {
             self.needs_build = true;
         }
     }
@@ -1502,16 +1501,19 @@ impl Surface {
         let mut errors = Vec::new();
         let mut first_invalid: Option<String> = None;
         for (id, _, name) in &fields {
-            let failed = self.failing_checks(id);
-            if failed.is_empty() {
+            let (failed, shown) = self.field_checks(id);
+            if shown.is_none() {
                 self.local.errors.remove(id);
                 continue;
             }
-            first_invalid.get_or_insert_with(|| id.clone());
+            // Round 9 §6.6: only an `error` blocks; a submit reveals the rest.
+            if !failed.is_empty() {
+                first_invalid.get_or_insert_with(|| id.clone());
+            }
             for m in &failed {
                 errors.push(json!({"name": name, "message": m}));
             }
-            self.local.errors.insert(id.clone(), FieldErrors { name: name.clone(), messages: failed });
+            self.local.errors.insert(id.clone(), FieldErrors { name: name.clone(), messages: failed, shown });
         }
         self.needs_build = true;
         let mut out = vec![];

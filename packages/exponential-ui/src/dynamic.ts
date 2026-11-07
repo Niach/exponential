@@ -502,10 +502,27 @@ export function evaluateCheck(rule: { condition?: unknown; message?: unknown }, 
  *  else the first `warning`, else the first `info`; null = all valid. */
 export function shownResult(results: readonly ValidationResult[]): ValidationResult | null {
   for (const severity of [`error`, `warning`, `info`] as const) {
-    const hit = results.find((r) => !r.valid && (r.severity ?? `error`) === severity)
+    const hit = results.find((r) => !r.valid && (r.severity === `warning` || r.severity === `info` ? r.severity : `error`) === severity)
     if (hit) return hit
   }
   return null
+}
+
+/** Round 9 §6.6: what a field does with its results. `errors` = every failing
+ *  `error` message in checks order (a non-empty list blocks: the Form's
+ *  `invalid {errors}`, a Button's `disabled`, the `invalid` recipe state);
+ *  `shown` = the ONE message the field paints, `warning` / `info` advisory.
+ *  A failing result with no message reads `fallback` ($string.checkFailed). */
+export interface FieldChecks {
+  errors: string[]
+  shown: { severity: `error` | `warning` | `info`; message: string } | null
+}
+
+export function fieldChecks(results: readonly ValidationResult[], fallback: string): FieldChecks {
+  const text = (r: ValidationResult) => (typeof r.message === `string` ? r.message : fallback)
+  const errors = results.filter((r) => !r.valid && r.severity !== `warning` && r.severity !== `info`).map(text)
+  const hit = shownResult(results)
+  return { errors, shown: hit ? { severity: hit.severity === `warning` || hit.severity === `info` ? hit.severity : `error`, message: text(hit) } : null }
 }
 
 /** A node's `visible`: absent = shown; else its resolved value under the

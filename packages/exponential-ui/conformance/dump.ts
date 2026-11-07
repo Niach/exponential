@@ -26,6 +26,10 @@ export interface DumpNode {
   lines?: number
   /** The text's line height (px). */
   lh?: number
+  /** Round 9 §5.1: the node's live region (gpui dump; the web's is `aria-live`). */
+  live?: `polite` | `assertive`
+  /** Round 9 §5.1: `accessibility.hidden` holds on the node itself (gpui dump). */
+  a11yHidden?: boolean
 }
 
 export interface CaseDump {
