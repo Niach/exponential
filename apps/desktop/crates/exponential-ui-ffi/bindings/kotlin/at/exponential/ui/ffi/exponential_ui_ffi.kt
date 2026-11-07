@@ -755,7 +755,13 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "exponential_ui_ffi"))
         uniffiCheckContractApiVersion(this)
     }
-    external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
+    external fun uniffi_exponential_ui_ffi_checksum_func_a2ui_version(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_accept_v09(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_animation_frame_json(
 ): Short
@@ -775,11 +781,11 @@ external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_check_expression_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_code_text(
 ): Short
@@ -816,6 +822,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_format_pattern_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_format_string(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_function_effect(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_function_error_message_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_host_contract_json(
 ): Short
@@ -867,6 +875,12 @@ external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_value_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_resizable_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json(
@@ -904,6 +918,10 @@ external fun uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_upgrade09_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_upgrade_card09(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_package_json(
 ): Short
@@ -947,13 +965,19 @@ external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_available_catalog_ids(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_mint_surface_id(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension(
 ): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route(
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids(
 ): Short
@@ -1246,13 +1270,19 @@ external fun uniffi_exponential_ui_ffi_fn_free_hostrouter(`handle`: Long,uniffi_
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_constructor_hostrouter_new(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_available_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(`ptr`: Long,`packageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(`ptr`: Long,`base`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_package_id_of(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_extension(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route(`ptr`: Long,`messageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1534,7 +1564,13 @@ external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_status(`ptr`: L
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(`ptr`: Long,`elapsedMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_a2ui_version(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_accept_v09(uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,`userMessage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_animation_frame_json(`name`: RustBuffer.ByValue,`timingJson`: RustBuffer.ByValue,`elapsedMs`: Double,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1554,11 +1590,11 @@ external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(uniffi_out_err:
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(`surfaceId`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_check_expression_json(`expr`: RustBuffer.ByValue,`typesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_code_text(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1595,6 +1631,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_format_pattern_json(`pattern`: Ru
 external fun uniffi_exponential_ui_ffi_fn_func_format_string(`template`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_function_effect(`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_function_error_message_json(`code`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_host_contract_json(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1646,6 +1684,12 @@ external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(`componentsJs
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(`deltaMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(`extensionIds`: RustBuffer.ByValue,`inlineCatalogsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(`functionCallId`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(`functionCallId`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_resizable_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(`styleJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1683,6 +1727,10 @@ external fun uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(`code`: RustBu
 external fun uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(`kindJson`: RustBuffer.ByValue,`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_transitions_from_json(`kindJson`: RustBuffer.ByValue,`recordJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_upgrade09_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_upgrade_card09(`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_validate_package_json(`packageJson`: RustBuffer.ByValue,`catalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -3300,10 +3348,21 @@ public object FfiConverterTypeHostFormatter: FfiConverter<HostFormatter, Long> {
 public interface HostRouterInterface {
     
     /**
+     * Round 9 §5.5: the supported ids, then the inline catalogs.
+     */
+    fun `availableCatalogIds`(): List<kotlin.String>
+    
+    /**
      * Install a declarative package (JSON); returns its issues as a JSON
      * array `[{path, message}]` (installed only when empty).
      */
     fun `installPackage`(`packageJson`: kotlin.String): kotlin.String
+    
+    /**
+     * Round 9 §1.4: a fresh id for a re-opened surface (`<base>#<n>`).
+     * Mint, `applyTemplate` onto it, then `deleteSurface` the old one.
+     */
+    fun `mintSurfaceId`(`base`: kotlin.String): kotlin.String
     
     /**
      * The package whose template created the surface (its function policy).
@@ -3313,11 +3372,18 @@ public interface HostRouterInterface {
     fun `registerExtension`(`id`: kotlin.String)
     
     /**
-     * One server message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send, …}]`). Never
-     * fails: unparseable text is an INVALID_MESSAGE `send` op.
+     * Round 9 §10: an inline catalog id joins the available set.
      */
-    fun `route`(`messageJson`: kotlin.String): kotlin.String
+    fun `registerInlineCatalog`(`id`: kotlin.String)
+    
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     */
+    fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String
     
     fun `supportedCatalogIds`(): List<kotlin.String>
     
@@ -3441,6 +3507,22 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
 
     
     /**
+     * Round 9 §5.5: the supported ids, then the inline catalogs.
+     */override fun `availableCatalogIds`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_available_catalog_ids(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Install a declarative package (JSON); returns its issues as a JSON
      * array `[{path, message}]` (installed only when empty).
      */
@@ -3451,6 +3533,23 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(
         it,
         FfiConverterString.lower(`packageJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round 9 §1.4: a fresh id for a re-opened surface (`<base>#<n>`).
+     * Mint, `applyTemplate` onto it, then `deleteSurface` the old one.
+     */override fun `mintSurfaceId`(`base`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(
+        it,
+        FfiConverterString.lower(`base`),_status)
 }
     }
     )
@@ -3487,16 +3586,33 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
 
     
     /**
-     * One server message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send, …}]`). Never
-     * fails: unparseable text is an INVALID_MESSAGE `send` op.
-     */override fun `route`(`messageJson`: kotlin.String): kotlin.String {
+     * Round 9 §10: an inline catalog id joins the available set.
+     */override fun `registerInlineCatalog`(`id`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(
+        it,
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     */override fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route(
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(
         it,
-        FfiConverterString.lower(`messageJson`),_status)
+        FfiConverterString.lower(`messageJson`),FfiConverterBoolean.lower(`trusted`),_status)
 }
     }
     )
@@ -10936,7 +11052,34 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     }
 }
         /**
-         * A client action message (A2UI v0.9 `action`) JSON.
+         * The wire version every message carries (`A2UI_VERSION`, §1.1).
+         */ fun `a2uiVersion`(): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_a2ui_version(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * `ACCEPT_V09` (§14.1): every core entry upgrades 0.9 input while true.
+         */ fun `acceptV09`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_accept_v09(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * A renderer `action` message (A2UI 1.0) JSON. `payload_json` travels as
+         * `metadata.extensions.at_exponential_payload`, merged over `context` (§1.3).
          */
     @Throws(UiException::class) fun `actionMessageJson`(`surfaceId`: kotlin.String, `componentId`: kotlin.String, `name`: kotlin.String, `contextJson`: kotlin.String, `payloadJson`: kotlin.String?, `timestamp`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
@@ -10944,6 +11087,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_action_message_json(
     
         FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`componentId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`contextJson`),FfiConverterOptionalString.lower(`payloadJson`),FfiConverterString.lower(`timestamp`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * [`action_message_json`] with the Action's resolved `event.userMessage`.
+         */
+    @Throws(UiException::class) fun `actionMessageWithUserMessageJson`(`surfaceId`: kotlin.String, `componentId`: kotlin.String, `name`: kotlin.String, `contextJson`: kotlin.String, `payloadJson`: kotlin.String?, `timestamp`: kotlin.String, `userMessage`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(
+    
+        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`componentId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`contextJson`),FfiConverterOptionalString.lower(`payloadJson`),FfiConverterString.lower(`timestamp`),FfiConverterOptionalString.lower(`userMessage`),_status)
 }
     )
     }
@@ -11083,6 +11240,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * A `callAgentFunction` message (§1.3) JSON; `args_json` = the resolved args object.
+         */
+    @Throws(UiException::class) fun `callAgentFunctionMessageJson`(`surfaceId`: kotlin.String, `functionCallId`: kotlin.String, `name`: kotlin.String, `catalogId`: kotlin.String, `argsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(
+    
+        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`catalogId`),FfiConverterString.lower(`argsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * `{min, max}` of a chart (`series_json` = the Chart's `series`).
          */
     @Throws(UiException::class) fun `chartExtentJson`(`kind`: kotlin.String, `seriesJson`: kotlin.String, `min`: kotlin.Double?, `max`: kotlin.Double?): kotlin.String {
@@ -11107,19 +11278,6 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_check_expression_json(
     
         FfiConverterString.lower(`expr`),FfiConverterString.lower(`typesJson`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * A2UI `a2uiClientCapabilities` JSON.
-         */ fun `clientCapabilitiesJson`(`extensionIds`: List<kotlin.String>): kotlin.String {
-            return FfiConverterString.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(
-    
-        FfiConverterSequenceString.lower(`extensionIds`),_status)
 }
     )
     }
@@ -11275,7 +11433,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
-         * A client error message (A2UI v0.9 `error`) JSON.
+         * A renderer `error` message (A2UI 1.0) about a surface, JSON.
          */ fun `errorMessageJson`(`code`: kotlin.String, `surfaceId`: kotlin.String, `message`: kotlin.String, `path`: kotlin.String?): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
@@ -11375,6 +11533,19 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_function_effect(
     
         FfiConverterString.lower(`name`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A renderer `error` message about a routed call (`functionCallId`, §1.3), JSON.
+         */ fun `functionErrorMessageJson`(`code`: kotlin.String, `functionCallId`: kotlin.String, `message`: kotlin.String, `path`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_function_error_message_json(
+    
+        FfiConverterString.lower(`code`),FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`message`),FfiConverterOptionalString.lower(`path`),_status)
 }
     )
     }
@@ -11753,6 +11924,48 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * Round 9 §10: `{"1.0": {supportedCatalogIds, inlineCatalogs?}}` JSON.
+         * `inline_catalogs_json` = a JSON array of 1.0 catalog definitions.
+         */
+    @Throws(UiException::class) fun `rendererCapabilitiesJson`(`extensionIds`: List<kotlin.String>, `inlineCatalogsJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(
+    
+        FfiConverterSequenceString.lower(`extensionIds`),FfiConverterOptionalString.lower(`inlineCatalogsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A `rendererFunctionResponse` with an error (§1.3) JSON.
+         */ fun `rendererFunctionErrorJson`(`functionCallId`: kotlin.String, `code`: kotlin.String, `message`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(
+    
+        FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`code`),FfiConverterString.lower(`message`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A `rendererFunctionResponse` with a value (§1.3) JSON (`None` = `value: null`).
+         */
+    @Throws(UiException::class) fun `rendererFunctionValueJson`(`functionCallId`: kotlin.String, `valueJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(
+    
+        FfiConverterString.lower(`functionCallId`),FfiConverterOptionalString.lower(`valueJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Round 2 (§1): the Resizable arithmetic, `{op, …}` → the numbers:
          * `normalize {sizes?, count, panels?}`, `resize {sizes, handle, delta,
          * panels?}`, `key {sizes, handle, key, orientation, direction?, panels?}`,
@@ -12045,6 +12258,36 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_transitions_from_json(
     
         FfiConverterString.lower(`kindJson`),FfiConverterOptionalString.lower(`recordJson`),FfiConverterOptionalString.lower(`viewerJson`),FfiConverterOptionalString.lower(`rowJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
+         * documented on `eui_core::upgrade09::upgrade09_json`.
+         */
+    @Throws(UiException::class) fun `upgrade09Json`(`requestJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade09_json(
+    
+        FfiConverterString.lower(`requestJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A stored 0.9 `exponential_show` card (nested `{root, data}`) → 1.0
+         * (§18: to DISPLAY a card that has no `version: "1.0"`).
+         */
+    @Throws(UiException::class) fun `upgradeCard09`(`cardJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade_card09(
+    
+        FfiConverterString.lower(`cardJson`),_status)
 }
     )
     }
