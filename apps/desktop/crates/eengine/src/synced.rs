@@ -137,28 +137,38 @@ impl SyncedRecordStore {
     /// with nothing sent, and the host calls [`flush`](Self::flush).
     pub fn submit(&self, entry: OutboxEntry, online: bool) -> Result<Submitted, Failure> {
         let write_id = entry.write_id.clone();
+        Ok(if self.enqueue(entry, online)? { self.await_outcome(&write_id) } else { Submitted::Queued })
+    }
+
+    /// [`submit`](Self::submit)'s first half, for a host that persists on its
+    /// UI thread and replays off it: true = the call awaits its own first
+    /// outcome ([`await_outcome`](Self::await_outcome)). Never touches the transport.
+    pub fn enqueue(&self, entry: OutboxEntry, online: bool) -> Result<bool, Failure> {
         let awaits = {
             let mut q = self.locked();
             self.log.push(&entry)?;
             let awaits = online && !q.entries.iter().any(OutboxEntry::is_pending);
             if awaits {
-                q.awaited.insert(write_id.clone());
+                q.awaited.insert(entry.write_id.clone());
             }
             q.entries.push(entry);
             awaits
         };
         self.changed();
-        if !awaits {
-            return Ok(Submitted::Queued);
-        }
+        Ok(awaits)
+    }
+
+    /// [`submit`](Self::submit)'s second half: replay, and answer the entry
+    /// [`enqueue`](Self::enqueue) said to await.
+    pub fn await_outcome(&self, write_id: &str) -> Submitted {
         self.flush();
         // Another thread's flush may be the one replaying it.
         let mut q = self.locked();
-        while q.flushing && !q.outcomes.contains_key(&write_id) {
+        while q.flushing && !q.outcomes.contains_key(write_id) {
             q = self.settled.wait(q).unwrap_or_else(|e| e.into_inner());
         }
-        q.awaited.remove(&write_id);
-        Ok(q.outcomes.remove(&write_id).unwrap_or(Submitted::Queued))
+        q.awaited.remove(write_id);
+        q.outcomes.remove(write_id).unwrap_or(Submitted::Queued)
     }
 
     /// Replay the pending entries oldest first, one at a time, until none is
