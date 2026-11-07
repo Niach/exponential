@@ -13,7 +13,7 @@ import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.ffi.HostRouter
 import at.exponential.ui.ffi.HostZone
 import at.exponential.ui.ffi.actionMessageJson
-import at.exponential.ui.ffi.clientCapabilitiesJson
+import at.exponential.ui.ffi.rendererCapabilitiesJson
 import at.exponential.ui.ffi.combineDecisions
 import at.exponential.ui.ffi.decideFunction
 import at.exponential.ui.ffi.decideUrlJson
@@ -86,7 +86,7 @@ data class HostOptions(
 )
 
 /** The A2UI protocol version the host's own messages carry (the catalog's). */
-val A2UI_VERSION: String = at.exponential.ui.ExponentialUICatalog.basicVersion
+val A2UI_VERSION: String = at.exponential.ui.ExponentialUICatalog.a2uiVersion
 
 /** The A2UI error code of a failed painter (`catalog/host.json` `paint.errorCode`). */
 const val RENDER_FAILED = "RENDER_FAILED"
@@ -160,8 +160,8 @@ class ExponentialHost(
     /** The core, the core lite, the basic catalog, then the extension ids. */
     val supportedCatalogIds: List<String> get() = router.supportedCatalogIds()
 
-    /** A2UI `a2uiClientCapabilities`. */
-    fun clientCapabilities(): JsonValue = JsonValue.parse(clientCapabilitiesJson(extensions.map { it.id }))
+    /** A2UI `rendererCapabilities`. */
+    fun rendererCapabilities(): JsonValue = JsonValue.parse(rendererCapabilitiesJson(extensions.map { it.id }, null))
 
     /** The registered extensions. */
     val extensionDefs: List<HostExtension> get() = extensions.toList()
@@ -249,13 +249,17 @@ class ExponentialHost(
         scope.cancel()
     }
 
-    /** One server message (JSON text); the ops performed. */
-    fun receive(json: String): List<JsonValue> =
+    /**
+     * One agent message (JSON text); the ops performed. Round 9 §2: a transport
+     * is untrusted; only host code passes `trusted = true` (`applyTemplate`,
+     * `bindDataModel`).
+     */
+    fun receive(json: String, trusted: Boolean = false): List<JsonValue> =
         // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
-        perform(JsonValue.parse(router.route(HostParams.adding(json, options.now?.invoke(), options.zone))).array ?: emptyList())
+        perform(JsonValue.parse(router.routeJson(HostParams.adding(json, options.now?.invoke(), options.zone), trusted)).array ?: emptyList())
 
     /** One server message; the ops performed. On the host's thread. */
-    fun receive(message: JsonValue): List<JsonValue> = receive(message.json)
+    fun receive(message: JsonValue, trusted: Boolean = false): List<JsonValue> = receive(message.json, trusted)
 
     private fun perform(ops: List<JsonValue>): List<JsonValue> {
         for (op in ops) perform(op)
@@ -550,7 +554,7 @@ class ExponentialHost(
                 ),
             ),
         )
-        return receive(message).any { it["op"]?.string == "bind" }
+        return receive(message, trusted = true).any { it["op"]?.string == "bind" }
     }
 
     /** The URL policy every href passes (relative urls against the urls' or the media `baseUrl`). */

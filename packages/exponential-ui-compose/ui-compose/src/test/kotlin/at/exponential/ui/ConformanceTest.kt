@@ -21,7 +21,7 @@ import at.exponential.ui.ffi.SseDecoder
 import at.exponential.ui.ffi.basicCatalogId
 import at.exponential.ui.ffi.builtinThemeIds
 import at.exponential.ui.ffi.builtinThemeJson
-import at.exponential.ui.ffi.clientCapabilitiesJson
+import at.exponential.ui.ffi.rendererCapabilitiesJson
 import at.exponential.ui.ffi.combineDecisions
 import at.exponential.ui.ffi.coreCatalogId
 import at.exponential.ui.ffi.decideFunction
@@ -530,7 +530,7 @@ class ConformanceTest {
             out.add(
                 case("negotiation: ${ids.size} extension ids") {
                     same(JsonValue.Arr(supportedCatalogIdsFor(ids).map(JsonValue::Str)).json, c["expected"]!!["supportedCatalogIds"]!!)
-                        ?: same(clientCapabilitiesJson(ids), c["expected"]!!["clientCapabilities"]!!)
+                        ?: same(rendererCapabilitiesJson(ids, null), c["expected"]!!["clientCapabilities"]!!)
                 },
             )
         }
@@ -582,7 +582,7 @@ class ConformanceTest {
                             same(router.installPackage(packages[id]!!.json), flow["installIssues"]!![id]!!)?.let { return@case "install $id: $it" }
                         }
                         for ((i, step) in list(flow, "steps").withIndex()) {
-                            same(router.route(step["message"]!!.json), step["expected"]!!)?.let { return@case "step $i: $it" }
+                            same(router.routeJson(step["message"]!!.json, step["trusted"]?.bool == true), step["expected"]!!)?.let { return@case "step $i: $it" }
                         }
                         null
                     } finally {

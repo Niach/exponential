@@ -763,10 +763,10 @@ final class ExpAppHost {
         ]
         if let data { apply["data"] = data }
         let message: JSONValue = .object([
-            "version": .string("v0.9"),
+            "version": .string(ExponentialHost.a2uiVersion),
             "applyTemplate": .object(apply),
         ])
-        host.receive(message)
+        host.receive(message, trusted: true)
     }
 
     func close() {

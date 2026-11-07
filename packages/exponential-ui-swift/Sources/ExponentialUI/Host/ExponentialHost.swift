@@ -143,8 +143,8 @@ public final class ExponentialHost {
 
     public var supportedCatalogIds: [String] { router.supportedCatalogIds() }
 
-    /// A2UI `a2uiClientCapabilities` (`{"v0.9": {supportedCatalogIds}}`).
-    public var clientCapabilities: JSONValue { JSONValue.parse(clientCapabilitiesJson(extensionIds: extensions.map(\.id))) }
+    /// A2UI `rendererCapabilities` (`{"1.0": {supportedCatalogIds}}`).
+    public var rendererCapabilities: JSONValue { JSONValue.parse((try? rendererCapabilitiesJson(extensionIds: extensions.map(\.id), inlineCatalogsJson: nil)) ?? "{}") }
 
     public var extensionIds: [String] { extensions.map(\.id) }
 
@@ -207,20 +207,22 @@ public final class ExponentialHost {
         for id in surfaceIds { perform(.object(["op": .string("delete"), "surfaceId": .string(id)])) }
     }
 
-    /// One server message (JSON text); returns the ops performed.
+    /// One agent message (JSON text); returns the ops performed. Round 9 §2:
+    /// a transport is untrusted; only host code passes `trusted: true`
+    /// (`applyTemplate`, `bindDataModel`).
     @discardableResult
-    public func receive(_ messageJSON: String) -> [JSONValue] {
+    public func receive(_ messageJSON: String, trusted: Bool = false) -> [JSONValue] {
         // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
         let nowMs = options.now.map { $0().timeIntervalSince1970 * 1000 }
         let routed = HostParams.adding(to: messageJSON, nowMs: nowMs, zone: options.zone)
-        let ops = JSONValue.parse(router.route(messageJson: routed)).array ?? []
+        let ops = JSONValue.parse(router.routeJson(messageJson: routed, trusted: trusted)).array ?? []
         for op in ops { perform(op) }
         return ops
     }
 
     @discardableResult
-    public func receive(_ message: JSONValue) -> [JSONValue] {
-        receive(message.json)
+    public func receive(_ message: JSONValue, trusted: Bool = false) -> [JSONValue] {
+        receive(message.json, trusted: trusted)
     }
 
     /// A client message (JSON text) out over the transport.
@@ -499,11 +501,11 @@ public final class ExponentialHost {
                 "source": .string(BindingSource.sourceWithParams(source, params: params)),
             ]),
         ])
-        return receive(message).contains { $0["op"]?.string == "bind" }
+        return receive(message, trusted: true).contains { $0["op"]?.string == "bind" }
     }
 
     /// The A2UI protocol version the host speaks (`catalog` `A2UI_VERSION`).
-    public static let a2uiVersion = "v0.9"
+    public static let a2uiVersion = ExponentialUICore.a2uiVersion()
 
     /// The URL policy every href passes (relative urls against the urls'
     /// or the media `baseUrl`).

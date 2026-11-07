@@ -508,7 +508,7 @@ final class ConformanceTests: XCTestCase {
             let ids = (c["extensionIds"]?.array ?? []).compactMap(\.string)
             out.append(run("negotiation: \(ids.count) extension ids") {
                 if let d = same(JSONValue.array(supportedCatalogIdsFor(extensionIds: ids).map { .string($0) }).json, c["expected"]!["supportedCatalogIds"]!) { return d }
-                return same(clientCapabilitiesJson(extensionIds: ids), c["expected"]!["clientCapabilities"]!)
+                return same(try! rendererCapabilitiesJson(extensionIds: ids, inlineCatalogsJson: nil), c["expected"]!["clientCapabilities"]!)
             })
         }
         return out
@@ -556,7 +556,7 @@ final class ConformanceTests: XCTestCase {
                     if let d = same(try router.installPackage(packageJson: packages[id]!.json), flow["installIssues"]![id]!) { return "install \(id): \(d)" }
                 }
                 for (i, step) in (flow["steps"]?.array ?? []).enumerated() {
-                    if let d = same(router.route(messageJson: step["message"]!.json), step["expected"]!) { return "step \(i): \(d)" }
+                    if let d = same(router.routeJson(messageJson: step["message"]!.json, trusted: step["trusted"]?.bool ?? false), step["expected"]!) { return "step \(i): \(d)" }
                 }
                 return nil
             })

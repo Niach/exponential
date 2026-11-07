@@ -297,7 +297,7 @@ final class HostTests: XCTestCase {
         let extId = ext["id"]!.string!
         XCTAssertEqual(host.supportedCatalogIds, supportedCatalogIdsFor(extensionIds: [extId]))
         XCTAssertEqual(host.supportedCatalogIds.last, extId)
-        XCTAssertEqual(host.clientCapabilities["v0.9"]?["supportedCatalogIds"]?.array?.count, host.supportedCatalogIds.count)
+        XCTAssertEqual(host.rendererCapabilities["1.0"]?["supportedCatalogIds"]?.array?.count, host.supportedCatalogIds.count)
         host.receive(create("e1", catalog: extId))
         XCTAssertNotNil(host.surface("e1"))
         XCTAssertNil(host.unsupportedCatalog)

@@ -382,7 +382,7 @@ class HostTest {
         val h = host(HostOptions(transport = t, extensions = listOf(HostExtension(ext, mapOf("Spark" to NoPaint)))))
         h.connect()
         assertEquals("https://acme.example/catalog/v1", h.supportedCatalogIds.last())
-        assertEquals(h.supportedCatalogIds, h.clientCapabilities()["v0.9"]?.get("supportedCatalogIds")?.array?.map { it.string })
+        assertEquals(h.supportedCatalogIds, h.rendererCapabilities()["1.0"]?.get("supportedCatalogIds")?.array?.map { it.string })
         // A surface on the extension catalog paints its native.
         t.feed(create("x", "https://acme.example/catalog/v1"))
         t.feed(components("x", """{"id":"root","component":"Spark","values":[1,2,3]}"""))

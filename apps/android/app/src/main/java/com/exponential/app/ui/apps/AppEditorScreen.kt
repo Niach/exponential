@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import at.exponential.ui.host.A2UI_VERSION
 import at.exponential.ui.host.HostSurface
 import at.exponential.ui.host.NavigateTarget
 import at.exponential.ui.host.Screens
@@ -649,7 +650,7 @@ internal fun AppPackageSurface(
                 host.receive(
                     JsonValue.Obj(
                         mapOf(
-                            "version" to JsonValue.Str("v0.9"),
+                            "version" to JsonValue.Str(A2UI_VERSION),
                             "deleteSurface" to JsonValue.Obj(mapOf("surfaceId" to JsonValue.Str(Apps.Preview.SURFACE_ID))),
                         ),
                     ),
@@ -658,7 +659,7 @@ internal fun AppPackageSurface(
             host.receive(
                 JsonValue.Obj(
                     mapOf(
-                        "version" to JsonValue.Str("v0.9"),
+                        "version" to JsonValue.Str(A2UI_VERSION),
                         "applyTemplate" to JsonValue.Obj(
                             buildMap {
                                 put("surfaceId", JsonValue.Str(Apps.Preview.SURFACE_ID))
@@ -669,6 +670,7 @@ internal fun AppPackageSurface(
                         ),
                     ),
                 ),
+                trusted = true,
             )
             applied = true
         }
