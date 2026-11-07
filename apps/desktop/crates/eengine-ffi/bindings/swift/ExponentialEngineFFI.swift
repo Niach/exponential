@@ -2218,6 +2218,311 @@ public func FfiConverterTypeEngineClock_lower(_ value: EngineClock) -> UInt64 {
 
 
 /**
+ * Where an account's outbox persists (GRDB, Room), oldest entry first.
+ */
+public protocol OutboxLog: AnyObject, Sendable {
+    
+    /**
+     * The entries as a JSON array; a row that no longer parses is left out.
+     */
+    func entriesJson() throws  -> String
+    
+    func push(entryJson: String) throws 
+    
+    func ack(writeId: String, at: String) throws 
+    
+    func remove(writeIds: [String]) throws 
+    
+}
+/**
+ * Where an account's outbox persists (GRDB, Room), oldest entry first.
+ */
+open class OutboxLogImpl: OutboxLog, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_eengine_ffi_fn_clone_outboxlog(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_eengine_ffi_fn_free_outboxlog(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The entries as a JSON array; a row that no longer parses is left out.
+     */
+open func entriesJson()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_method_outboxlog_entries_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func push(entryJson: String)throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_method_outboxlog_push(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(entryJson),$0
+    )
+}
+}
+    
+open func ack(writeId: String, at: String)throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_method_outboxlog_ack(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(writeId),
+        FfiConverterString.lower(at),$0
+    )
+}
+}
+    
+open func remove(writeIds: [String])throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_method_outboxlog_remove(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(writeIds),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceOutboxLog {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceOutboxLog] = [UniffiVTableCallbackInterfaceOutboxLog(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeOutboxLog.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface OutboxLog: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeOutboxLog.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface OutboxLog: handle missing in uniffiClone")
+            }
+        },
+        entriesJson: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeOutboxLog.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.entriesJson(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeEngineError_lower
+            )
+        },
+        push: { (
+            uniffiHandle: UInt64,
+            entryJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeOutboxLog.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.push(
+                     entryJson: try FfiConverterString.lift(entryJson)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeEngineError_lower
+            )
+        },
+        ack: { (
+            uniffiHandle: UInt64,
+            writeId: RustBuffer,
+            at: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeOutboxLog.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.ack(
+                     writeId: try FfiConverterString.lift(writeId),
+                     at: try FfiConverterString.lift(at)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeEngineError_lower
+            )
+        },
+        remove: { (
+            uniffiHandle: UInt64,
+            writeIds: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeOutboxLog.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.remove(
+                     writeIds: try FfiConverterSequenceString.lift(writeIds)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeEngineError_lower
+            )
+        }
+    )]
+}
+
+private func uniffiCallbackInitOutboxLog() {
+    uniffi_eengine_ffi_fn_init_callback_vtable_outboxlog(UniffiCallbackInterfaceOutboxLog.vtable)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOutboxLog: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<OutboxLog>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = OutboxLog
+
+    public static func lift(_ handle: UInt64) throws -> OutboxLog {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return OutboxLogImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: OutboxLog) -> UInt64 {
+         if let rustImpl = value as? OutboxLogImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OutboxLog {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: OutboxLog, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOutboxLog_lift(_ handle: UInt64) throws -> OutboxLog {
+    return try FfiConverterTypeOutboxLog.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOutboxLog_lower(_ value: OutboxLog) -> UInt64 {
+    return FfiConverterTypeOutboxLog.lower(value)
+}
+
+
+
+
+
+
+/**
  * Where an app's records live; one store serves every app of a host.
  * Rows, batches and events are the Engine's JSON (`RecordRow`, `WriteBatch`,
  * `WriteAck`, `RecordEvent`).
@@ -2731,7 +3036,9 @@ public func FfiConverterTypeRecordsListener_lower(_ value: RecordsListener) -> U
 public protocol SyncTransport: AnyObject, Sendable {
     
     /**
-     * Replay one outbox entry; answers `{"ok":true}`, `{"transport":true}` or `{"code":"…"}`.
+     * Replay one outbox entry; answers `{"ok":true,"answer":…}`,
+     * `{"transport":true}` or `{"code":"…","message":"…","invalid":true}`
+     * (`answer`, `message` and `invalid` are optional).
      */
     func push(app: String, call: String, inputJson: String)  -> String
     
@@ -2794,7 +3101,9 @@ open class SyncTransportImpl: SyncTransport, @unchecked Sendable {
 
     
     /**
-     * Replay one outbox entry; answers `{"ok":true}`, `{"transport":true}` or `{"code":"…"}`.
+     * Replay one outbox entry; answers `{"ok":true,"answer":…}`,
+     * `{"transport":true}` or `{"code":"…","message":"…","invalid":true}`
+     * (`answer`, `message` and `invalid` are optional).
      */
 open func push(app: String, call: String, inputJson: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
@@ -2924,6 +3233,494 @@ public func FfiConverterTypeSyncTransport_lift(_ handle: UInt64) throws -> SyncT
 #endif
 public func FfiConverterTypeSyncTransport_lower(_ value: SyncTransport) -> UInt64 {
     return FfiConverterTypeSyncTransport.lower(value)
+}
+
+
+
+
+
+
+/**
+ * What the host hears from a [`SyncedRecordStore`], on the replaying thread.
+ */
+public protocol SyncedListener: AnyObject, Sendable {
+    
+    /**
+     * The entries moved.
+     */
+    func changed() 
+    
+    /**
+     * A replay nobody awaits was refused: the failed-action toast.
+     */
+    func refused(entryJson: String, verb: String, message: String?) 
+    
+}
+/**
+ * What the host hears from a [`SyncedRecordStore`], on the replaying thread.
+ */
+open class SyncedListenerImpl: SyncedListener, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_eengine_ffi_fn_clone_syncedlistener(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_eengine_ffi_fn_free_syncedlistener(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The entries moved.
+     */
+open func changed()  {try! rustCall() {
+    uniffi_eengine_ffi_fn_method_syncedlistener_changed(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * A replay nobody awaits was refused: the failed-action toast.
+     */
+open func refused(entryJson: String, verb: String, message: String?)  {try! rustCall() {
+    uniffi_eengine_ffi_fn_method_syncedlistener_refused(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(entryJson),
+        FfiConverterString.lower(verb),
+        FfiConverterOptionString.lower(message),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceSyncedListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceSyncedListener] = [UniffiVTableCallbackInterfaceSyncedListener(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeSyncedListener.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface SyncedListener: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeSyncedListener.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface SyncedListener: handle missing in uniffiClone")
+            }
+        },
+        changed: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeSyncedListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.changed(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        refused: { (
+            uniffiHandle: UInt64,
+            entryJson: RustBuffer,
+            verb: RustBuffer,
+            message: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeSyncedListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.refused(
+                     entryJson: try FfiConverterString.lift(entryJson),
+                     verb: try FfiConverterString.lift(verb),
+                     message: try FfiConverterOptionString.lift(message)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )]
+}
+
+private func uniffiCallbackInitSyncedListener() {
+    uniffi_eengine_ffi_fn_init_callback_vtable_syncedlistener(UniffiCallbackInterfaceSyncedListener.vtable)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncedListener: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<SyncedListener>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = SyncedListener
+
+    public static func lift(_ handle: UInt64) throws -> SyncedListener {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return SyncedListenerImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: SyncedListener) -> UInt64 {
+         if let rustImpl = value as? SyncedListenerImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncedListener {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: SyncedListener, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncedListener_lift(_ handle: UInt64) throws -> SyncedListener {
+    return try FfiConverterTypeSyncedListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncedListener_lower(_ value: SyncedListener) -> UInt64 {
+    return FfiConverterTypeSyncedListener.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One account's records (`eengine::synced`): the O1 outbox across its apps
+ * over the host's [`OutboxLog`] and [`SyncTransport`], and the synced rows
+ * the host feeds in. `submit` and `flush` block on the transport: call them
+ * off the main thread.
+ */
+public protocol SyncedRecordStoreProtocol: AnyObject, Sendable {
+    
+    /**
+     * Every entry, oldest first, as a JSON array.
+     */
+    func entriesJson()  -> String
+    
+    /**
+     * Replay the pending entries until none is left or one must retry.
+     */
+    func flush() 
+    
+    /**
+     * The header glyph's label for `app` (None = nothing pending).
+     */
+    func pendingLabel(app: String)  -> String?
+    
+    /**
+     * Drop the acked entries reflected or past the grace.
+     */
+    func prune() 
+    
+    /**
+     * Feed `app`'s synced rows in (JSON array of rows): acked entries they reflect leave.
+     */
+    func setRows(app: String, rowsJson: String) throws 
+    
+    /**
+     * Persist a host call's entry; alone and `online` it replays now and
+     * answers its first outcome, otherwise `Queued` (then call `flush`).
+     */
+    func submit(entryJson: String, online: Bool) throws  -> Submitted
+    
+    /**
+     * `app`'s synced rows with its entries laid over them, as a JSON array.
+     */
+    func visibleRowsJson(app: String, me: String?)  -> String
+    
+}
+/**
+ * One account's records (`eengine::synced`): the O1 outbox across its apps
+ * over the host's [`OutboxLog`] and [`SyncTransport`], and the synced rows
+ * the host feeds in. `submit` and `flush` block on the transport: call them
+ * off the main thread.
+ */
+open class SyncedRecordStore: SyncedRecordStoreProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_eengine_ffi_fn_clone_syncedrecordstore(self.handle, $0) }
+    }
+public convenience init(log: OutboxLog, transport: SyncTransport, listener: SyncedListener?, clock: EngineClock?)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_constructor_syncedrecordstore_new(
+        FfiConverterTypeOutboxLog_lower(log),
+        FfiConverterTypeSyncTransport_lower(transport),
+        FfiConverterOptionTypeSyncedListener.lower(listener),
+        FfiConverterOptionTypeEngineClock.lower(clock),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_eengine_ffi_fn_free_syncedrecordstore(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Every entry, oldest first, as a JSON array.
+     */
+open func entriesJson() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_eengine_ffi_fn_method_syncedrecordstore_entries_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Replay the pending entries until none is left or one must retry.
+     */
+open func flush()  {try! rustCall() {
+    uniffi_eengine_ffi_fn_method_syncedrecordstore_flush(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The header glyph's label for `app` (None = nothing pending).
+     */
+open func pendingLabel(app: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_eengine_ffi_fn_method_syncedrecordstore_pending_label(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(app),$0
+    )
+})
+}
+    
+    /**
+     * Drop the acked entries reflected or past the grace.
+     */
+open func prune()  {try! rustCall() {
+    uniffi_eengine_ffi_fn_method_syncedrecordstore_prune(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Feed `app`'s synced rows in (JSON array of rows): acked entries they reflect leave.
+     */
+open func setRows(app: String, rowsJson: String)throws   {try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(app),
+        FfiConverterString.lower(rowsJson),$0
+    )
+}
+}
+    
+    /**
+     * Persist a host call's entry; alone and `online` it replays now and
+     * answers its first outcome, otherwise `Queued` (then call `flush`).
+     */
+open func submit(entryJson: String, online: Bool)throws  -> Submitted  {
+    return try  FfiConverterTypeSubmitted_lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_method_syncedrecordstore_submit(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(entryJson),
+        FfiConverterBool.lower(online),$0
+    )
+})
+}
+    
+    /**
+     * `app`'s synced rows with its entries laid over them, as a JSON array.
+     */
+open func visibleRowsJson(app: String, me: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_eengine_ffi_fn_method_syncedrecordstore_visible_rows_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(app),
+        FfiConverterOptionString.lower(me),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncedRecordStore: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = SyncedRecordStore
+
+    public static func lift(_ handle: UInt64) throws -> SyncedRecordStore {
+        return SyncedRecordStore(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: SyncedRecordStore) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncedRecordStore {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: SyncedRecordStore, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncedRecordStore_lift(_ handle: UInt64) throws -> SyncedRecordStore {
+    return try FfiConverterTypeSyncedRecordStore.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncedRecordStore_lower(_ value: SyncedRecordStore) -> UInt64 {
+    return FfiConverterTypeSyncedRecordStore.lower(value)
 }
 
 
@@ -4443,6 +5240,102 @@ public func FfiConverterTypeRunnerFormFactor_lower(_ value: RunnerFormFactor) ->
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Every problem with a host config in its JSON spelling (providers.json
+ * `validateCases`): `[{key, code}]`, empty = valid.
+ * A host call's answer from the [`SyncedRecordStore`].
+ */
+
+public enum Submitted: Equatable, Hashable {
+    
+    /**
+     * The server took it: its answer.
+     */
+    case done(answerJson: String
+    )
+    /**
+     * The server refused it (the entry is gone): the call fails. `invalid`
+     * = invalid input (BAD_REQUEST): a record form shows it inline.
+     */
+    case refused(message: String?, invalid: Bool
+    )
+    /**
+     * Offline, behind others, a retry or a drop: answer from the entry.
+     */
+    case queued
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension Submitted: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSubmitted: FfiConverterRustBuffer {
+    typealias SwiftType = Submitted
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Submitted {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .done(answerJson: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 2: return .refused(message: try FfiConverterOptionString.read(from: &buf), invalid: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 3: return .queued
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: Submitted, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .done(answerJson):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(answerJson, into: &buf)
+            
+        
+        case let .refused(message,invalid):
+            writeInt(&buf, Int32(2))
+            FfiConverterOptionString.write(message, into: &buf)
+            FfiConverterBool.write(invalid, into: &buf)
+            
+        
+        case .queued:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSubmitted_lift(_ buf: RustBuffer) throws -> Submitted {
+    return try FfiConverterTypeSubmitted.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSubmitted_lower(_ value: Submitted) -> RustBuffer {
+    return FfiConverterTypeSubmitted.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -4638,6 +5531,30 @@ fileprivate struct FfiConverterOptionTypeSyncTransport: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeSyncedListener: FfiConverterRustBuffer {
+    typealias SwiftType = SyncedListener?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSyncedListener.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSyncedListener.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeGrantValue: FfiConverterRustBuffer {
     typealias SwiftType = GrantValue?
 
@@ -4769,10 +5686,6 @@ public func runnerToast(message: String) -> String  {
     )
 })
 }
-/**
- * Every problem with a host config in its JSON spelling (providers.json
- * `validateCases`): `[{key, code}]`, empty = valid.
- */
 public func validateHostConfig(configJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
     uniffi_eengine_ffi_fn_func_validate_host_config(
@@ -4814,7 +5727,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_eengine_ffi_checksum_func_runner_toast() != 28331) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_eengine_ffi_checksum_func_validate_host_config() != 33181) {
+    if (uniffi_eengine_ffi_checksum_func_validate_host_config() != 4552) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_eengine_ffi_checksum_method_appinstance_answer_consent() != 55519) {
@@ -4895,6 +5808,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_eengine_ffi_checksum_method_engineclock_now() != 836) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_eengine_ffi_checksum_method_outboxlog_entries_json() != 24899) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_outboxlog_push() != 57455) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_outboxlog_ack() != 41476) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_outboxlog_remove() != 41872) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_eengine_ffi_checksum_method_recordstore_rows() != 13724) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4913,7 +5838,34 @@ private let initializationResult: InitializationResult = {
     if (uniffi_eengine_ffi_checksum_method_recordslistener_changed() != 60930) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_eengine_ffi_checksum_method_synctransport_push() != 44441) {
+    if (uniffi_eengine_ffi_checksum_method_synctransport_push() != 7309) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedlistener_changed() != 18986) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedlistener_refused() != 49464) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_entries_json() != 16992) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_flush() != 24328) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_pending_label() != 39285) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_prune() != 64497) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_set_rows() != 296) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit() != 53028) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_visible_rows_json() != 36129) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_eengine_ffi_checksum_method_vault_read() != 20990) {
@@ -4931,14 +5883,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_eengine_ffi_checksum_constructor_engine_new() != 16686) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_eengine_ffi_checksum_constructor_syncedrecordstore_new() != 16099) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
     uniffiCallbackInitBlobStore()
     uniffiCallbackInitCallAudit()
     uniffiCallbackInitCapability()
     uniffiCallbackInitConsentUi()
     uniffiCallbackInitEngineClock()
+    uniffiCallbackInitOutboxLog()
     uniffiCallbackInitRecordStore()
     uniffiCallbackInitSyncTransport()
+    uniffiCallbackInitSyncedListener()
     uniffiCallbackInitVault()
     uniffiCallbackInitWindowHost()
     return InitializationResult.ok

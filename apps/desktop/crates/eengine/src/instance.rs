@@ -332,7 +332,7 @@ pub fn batch_of(entry: &OutboxEntry) -> WriteBatch {
     WriteBatch { write_id: entry.write_id.clone(), writes, at: entry.at.clone() }
 }
 
-fn outbox_row(r: eui_core::host::RecordRow) -> crate::outbox::OutboxRow {
+pub(crate) fn outbox_row(r: eui_core::host::RecordRow) -> crate::outbox::OutboxRow {
     crate::outbox::OutboxRow {
         id: r.id,
         kind: r.kind,
@@ -344,7 +344,7 @@ fn outbox_row(r: eui_core::host::RecordRow) -> crate::outbox::OutboxRow {
     }
 }
 
-fn overlay(rows: Vec<eui_core::host::RecordRow>, entries: &[OutboxEntry], me: Option<&str>) -> Vec<eui_core::host::RecordRow> {
+pub(crate) fn overlay(rows: Vec<eui_core::host::RecordRow>, entries: &[OutboxEntry], me: Option<&str>) -> Vec<eui_core::host::RecordRow> {
     let rows: Vec<crate::outbox::OutboxRow> = rows.into_iter().map(outbox_row).collect();
     crate::outbox::outbox_rows(&rows, entries, me)
         .into_iter()

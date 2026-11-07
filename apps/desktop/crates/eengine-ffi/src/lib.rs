@@ -201,8 +201,29 @@ pub trait ConsentUi: Send + Sync {
 /// every app write queues in the outbox; without one, writes go to the store.
 #[uniffi::export(with_foreign)]
 pub trait SyncTransport: Send + Sync {
-    /// Replay one outbox entry; answers `{"ok":true}`, `{"transport":true}` or `{"code":"…"}`.
+    /// Replay one outbox entry; answers `{"ok":true,"answer":…}`,
+    /// `{"transport":true}` or `{"code":"…","message":"…","invalid":true}`
+    /// (`answer`, `message` and `invalid` are optional).
     fn push(&self, app: String, call: String, input_json: String) -> String;
+}
+
+/// Where an account's outbox persists (GRDB, Room), oldest entry first.
+#[uniffi::export(with_foreign)]
+pub trait OutboxLog: Send + Sync {
+    /// The entries as a JSON array; a row that no longer parses is left out.
+    fn entries_json(&self) -> Result<String, EngineError>;
+    fn push(&self, entry_json: String) -> Result<(), EngineError>;
+    fn ack(&self, write_id: String, at: String) -> Result<(), EngineError>;
+    fn remove(&self, write_ids: Vec<String>) -> Result<(), EngineError>;
+}
+
+/// What the host hears from a [`SyncedRecordStore`], on the replaying thread.
+#[uniffi::export(with_foreign)]
+pub trait SyncedListener: Send + Sync {
+    /// The entries moved.
+    fn changed(&self);
+    /// A replay nobody awaits was refused: the failed-action toast.
+    fn refused(&self, entry_json: String, verb: String, message: Option<String>);
 }
 
 /// One broker audit row (audit.json's shape).
@@ -374,8 +395,50 @@ struct Transport(Arc<dyn SyncTransport>);
 
 impl core::SyncTransport for Transport {
     fn push(&self, app: &str, call: &str, input: &Value) -> OutboxResult {
-        let answer = self.0.push(app.into(), call.into(), text(input));
-        OutboxResult::from_value(&serde_json::from_str(&answer).unwrap_or(Value::Null))
+        self.send(app, call, input).result
+    }
+
+    fn send(&self, app: &str, call: &str, input: &Value) -> core::Pushed {
+        let reply: Value = serde_json::from_str(&self.0.push(app.into(), call.into(), text(input))).unwrap_or(Value::Null);
+        core::Pushed {
+            result: OutboxResult::from_value(&reply),
+            answer: reply.get("answer").cloned().unwrap_or(Value::Null),
+            message: reply.get("message").and_then(Value::as_str).map(str::to_string),
+            invalid: reply.get("invalid").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+}
+
+struct Log(Arc<dyn OutboxLog>);
+
+impl eengine::OutboxLog for Log {
+    fn entries(&self) -> Result<Vec<eengine::outbox::OutboxEntry>, core::Failure> {
+        let entries = self.0.entries_json().map_err(core::Failure::from)?;
+        serde_json::from_str(&entries).map_err(|e| core::Failure::new("BAD_REQUEST", e.to_string()))
+    }
+
+    fn push(&self, entry: &eengine::outbox::OutboxEntry) -> Result<(), core::Failure> {
+        self.0.push(text(entry)).map_err(core::Failure::from)
+    }
+
+    fn ack(&self, write_id: &str, at: &str) -> Result<(), core::Failure> {
+        self.0.ack(write_id.into(), at.into()).map_err(core::Failure::from)
+    }
+
+    fn remove(&self, write_ids: &[String]) -> Result<(), core::Failure> {
+        self.0.remove(write_ids.to_vec()).map_err(core::Failure::from)
+    }
+}
+
+struct Heard(Arc<dyn SyncedListener>);
+
+impl eengine::SyncedListener for Heard {
+    fn changed(&self) {
+        self.0.changed();
+    }
+
+    fn refused(&self, entry: &eengine::outbox::OutboxEntry, verb: &str, pushed: &core::Pushed) {
+        self.0.refused(text(entry), verb.into(), pushed.message.clone());
     }
 }
 
@@ -585,6 +648,83 @@ impl Engine {
 
 /// Every problem with a host config in its JSON spelling (providers.json
 /// `validateCases`): `[{key, code}]`, empty = valid.
+// --- The synced store ---------------------------------------------------
+
+/// A host call's answer from the [`SyncedRecordStore`].
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum Submitted {
+    /// The server took it: its answer.
+    Done { answer_json: String },
+    /// The server refused it (the entry is gone): the call fails. `invalid`
+    /// = invalid input (BAD_REQUEST): a record form shows it inline.
+    Refused { message: Option<String>, invalid: bool },
+    /// Offline, behind others, a retry or a drop: answer from the entry.
+    Queued,
+}
+
+/// One account's records (`eengine::synced`): the O1 outbox across its apps
+/// over the host's [`OutboxLog`] and [`SyncTransport`], and the synced rows
+/// the host feeds in. `submit` and `flush` block on the transport: call them
+/// off the main thread.
+#[derive(uniffi::Object)]
+pub struct SyncedRecordStore(eengine::SyncedRecordStore);
+
+#[uniffi::export]
+impl SyncedRecordStore {
+    #[uniffi::constructor]
+    pub fn new(log: Arc<dyn OutboxLog>, transport: Arc<dyn SyncTransport>, listener: Option<Arc<dyn SyncedListener>>, clock: Option<Arc<dyn EngineClock>>) -> Result<Arc<Self>, EngineError> {
+        let clock: Arc<dyn core::Clock> = match clock {
+            Some(clock) => Arc::new(ForeignClock(clock)),
+            None => Arc::new(core::SystemClock),
+        };
+        let listener = listener.map(|l| Arc::new(Heard(l)) as Arc<dyn eengine::SyncedListener>);
+        Ok(Arc::new(SyncedRecordStore(eengine::SyncedRecordStore::new(Arc::new(Log(log)), Arc::new(Transport(transport)), clock, listener)?)))
+    }
+
+    /// Every entry, oldest first, as a JSON array.
+    pub fn entries_json(&self) -> String {
+        text(&self.0.entries())
+    }
+
+    /// The header glyph's label for `app` (None = nothing pending).
+    pub fn pending_label(&self, app: String) -> Option<String> {
+        self.0.pending_label(&app)
+    }
+
+    /// `app`'s synced rows with its entries laid over them, as a JSON array.
+    pub fn visible_rows_json(&self, app: String, me: Option<String>) -> String {
+        text(&self.0.visible_rows(&app, me.as_deref()))
+    }
+
+    /// Persist a host call's entry; alone and `online` it replays now and
+    /// answers its first outcome, otherwise `Queued` (then call `flush`).
+    pub fn submit(&self, entry_json: String, online: bool) -> Result<Submitted, EngineError> {
+        let entry = serde_json::from_str(&entry_json).map_err(|e| invalid(format!("entry: {e}")))?;
+        Ok(match self.0.submit(entry, online)? {
+            eengine::Submitted::Done(answer) => Submitted::Done { answer_json: text(&answer) },
+            eengine::Submitted::Refused(pushed) => Submitted::Refused { message: pushed.message, invalid: pushed.invalid },
+            eengine::Submitted::Queued => Submitted::Queued,
+        })
+    }
+
+    /// Replay the pending entries until none is left or one must retry.
+    pub fn flush(&self) {
+        self.0.flush();
+    }
+
+    /// Feed `app`'s synced rows in (JSON array of rows): acked entries they reflect leave.
+    pub fn set_rows(&self, app: String, rows_json: String) -> Result<(), EngineError> {
+        let rows = serde_json::from_str(&rows_json).map_err(|e| invalid(format!("rows: {e}")))?;
+        self.0.set_rows(&app, rows);
+        Ok(())
+    }
+
+    /// Drop the acked entries reflected or past the grace.
+    pub fn prune(&self) {
+        self.0.prune();
+    }
+}
+
 #[uniffi::export]
 pub fn validate_host_config(config_json: String) -> Result<String, EngineError> {
     let config = parse("config", &config_json)?;
