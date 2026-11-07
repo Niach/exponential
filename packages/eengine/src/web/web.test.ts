@@ -67,9 +67,15 @@ const check = (schema: Schema, value: unknown, path = ``): string | null => {
 
 type Result = { content: { type: string; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean }
 
-/** Calls `<cap>.<tool>`, asserts the MCP result shape and the fixture schema, answers structuredContent. */
+/** A flat `<capability>_<tool>` splits at its first `_`. */
+const splitTool = (name: string): [string, string] => {
+  const at = name.indexOf(`_`)
+  return [name.slice(0, at), name.slice(at + 1)]
+}
+
+/** Calls `<cap>_<tool>`, asserts the MCP result shape and the fixture schema, answers structuredContent. */
 const okCall = async (caps: NativeCapability[], name: string, args: Record<string, unknown> = {}) => {
-  const [cap, tool] = name.split(`.`) as [string, string]
+  const [cap, tool] = splitTool(name)
   const provider = caps.find((c) => c.name === cap)
   if (!provider) throw new Error(`no ${cap}`)
   const result = (await provider.call(tool, args)) as Result
@@ -81,7 +87,7 @@ const okCall = async (caps: NativeCapability[], name: string, args: Record<strin
 }
 
 const errCall = async (caps: NativeCapability[], name: string, args: Record<string, unknown> = {}) => {
-  const [cap, tool] = name.split(`.`) as [string, string]
+  const [cap, tool] = splitTool(name)
   const result = (await caps.find((c) => c.name === cap)!.call(tool, args)) as Result
   expect(result.isError).toBe(true)
   expect(result.structuredContent).toBeUndefined()
@@ -316,11 +322,11 @@ describe(`webCapabilities`, () => {
   test(`every native tool of a mounted capability answers; an unknown one is unavailable`, async () => {
     const caps = webCapabilities(fake())
     for (const t of tools.filter((t) => t.runs === `native`)) {
-      const [cap] = t.name.split(`.`)
+      const [cap] = splitTool(t.name)
       expect(caps.some((c) => c.name === cap)).toBe(true)
     }
-    expect(await errCall(caps, `print.pdf`)).toBe(`unavailable`)
-    expect(await errCall(caps, `files.toString`)).toBe(`unavailable`)
+    expect(await errCall(caps, `print_pdf`)).toBe(`unavailable`)
+    expect(await errCall(caps, `files_toString`)).toBe(`unavailable`)
   })
 })
 
@@ -329,7 +335,7 @@ describe(`files`, () => {
     const f = fake()
     f.openAnswer = [file(`a.csv`, `x,y`, `text/csv`), file(`b.bin`, `hello`)]
     const caps = webCapabilities(f)
-    const out = await okCall(caps, `files.open`, { accept: [`image/*`, `.csv`, `.bin`], multiple: true })
+    const out = await okCall(caps, `files_open`, { accept: [`image/*`, `.csv`, `.bin`], multiple: true })
     expect(out).toEqual({
       files: [
         { name: `a.csv`, mimeType: `text/csv`, data: encodeBase64(bytes(`x,y`)) },
@@ -348,27 +354,27 @@ describe(`files`, () => {
     const f = fake()
     f.openAnswer = [file(`a.txt`, `1`), file(`b.txt`, `2`)]
     const caps = webCapabilities(f)
-    expect(((await okCall(caps, `files.open`, { multiple: false })).files as unknown[]).length).toBe(1)
+    expect(((await okCall(caps, `files_open`, { multiple: false })).files as unknown[]).length).toBe(1)
     expect(f.openOptions[0]).toEqual({ multiple: false })
     f.openAnswer = `abort`
-    expect(await okCall(caps, `files.open`, { multiple: true })).toEqual({ files: [] })
+    expect(await okCall(caps, `files_open`, { multiple: true })).toEqual({ files: [] })
   })
 
   test(`open without File System Access (or a refused accept) = the hidden input; its cancel = no files`, async () => {
     const f = fake({ fsAccess: false })
     f.inputAnswer = [file(`p.png`, `png`)]
     const caps = webCapabilities(f)
-    expect(await okCall(caps, `files.open`, { accept: [`image/png`, `.png`], multiple: false })).toEqual({
+    expect(await okCall(caps, `files_open`, { accept: [`image/png`, `.png`], multiple: false })).toEqual({
       files: [{ name: `p.png`, mimeType: `image/png`, data: encodeBase64(bytes(`png`)) }],
     })
     expect(f.inputOptions).toEqual([{ accept: `image/png,.png`, multiple: false }])
     f.inputAnswer = []
-    expect(await okCall(caps, `files.open`, { multiple: false })).toEqual({ files: [] })
+    expect(await okCall(caps, `files_open`, { multiple: false })).toEqual({ files: [] })
 
     const g = fake()
     g.openAnswer = `typeError`
     g.inputAnswer = [file(`x.txt`, `x`)]
-    expect(((await okCall(webCapabilities(g), `files.open`, { accept: [`weird`], multiple: false })).files as unknown[]).length).toBe(1)
+    expect(((await okCall(webCapabilities(g), `files_open`, { accept: [`weird`], multiple: false })).files as unknown[]).length).toBe(1)
     expect(g.log).toEqual([`picker`, `input`])
   })
 
@@ -377,7 +383,7 @@ describe(`files`, () => {
     f.pickWithInput = async () => {
       throw new Error(`the picker needs a user gesture`)
     }
-    expect(await errCall(webCapabilities(f), `files.open`, { multiple: false })).toBe(`failed: the picker needs a user gesture`)
+    expect(await errCall(webCapabilities(f), `files_open`, { multiple: false })).toBe(`failed: the picker needs a user gesture`)
   })
 
   test(`save through the save picker, cancel = saved false, else a download`, async () => {
@@ -386,17 +392,17 @@ describe(`files`, () => {
     f.saveAnswer = store
     const caps = webCapabilities(f)
     const args = { name: `r.txt`, mimeType: `text/plain`, data: `aGVsbG8=` }
-    expect(await okCall(caps, `files.save`, args)).toEqual({ saved: true })
+    expect(await okCall(caps, `files_save`, args)).toEqual({ saved: true })
     expect(new TextDecoder().decode(store.get(`r.txt`)!)).toBe(`hello`)
     f.saveAnswer = `abort`
-    expect(await okCall(caps, `files.save`, args)).toEqual({ saved: false })
+    expect(await okCall(caps, `files_save`, args)).toEqual({ saved: false })
 
     const g = fake({ fsAccess: false })
-    expect(await okCall(webCapabilities(g), `files.save`, args)).toEqual({ saved: true })
+    expect(await okCall(webCapabilities(g), `files_save`, args)).toEqual({ saved: true })
     expect(g.downloads[0]!.name).toBe(`r.txt`)
     expect(g.downloads[0]!.blob.type).toStartWith(`text/plain`)
     expect(await g.downloads[0]!.blob.text()).toBe(`hello`)
-    expect(await errCall(webCapabilities(g), `files.save`, { ...args, data: `aGVsbG8` })).toBe(`failed: bad base64`)
+    expect(await errCall(webCapabilities(g), `files_save`, { ...args, data: `aGVsbG8` })).toBe(`failed: bad base64`)
   })
 
   test(`pickerTypes`, () => {
@@ -412,7 +418,7 @@ describe(`photos`, () => {
       file(`new.png`, `new`, `image/png`, Date.parse(`2026-06-01T12:00:00Z`)),
       file(`mid.webp`, `mid`, ``, Date.parse(`2026-03-01T00:00:00Z`)),
     ]
-    const picked = await okCall(webCapabilities(f), `photos.pick`, { limit: 3 })
+    const picked = await okCall(webCapabilities(f), `photos_pick`, { limit: 3 })
     expect(f.openOptions[0]!.types).toEqual([{ description: `Files`, accept: { "image/*": [] } }])
     expect(picked.photos).toEqual([
       { id: `${Date.parse(`2026-01-01T00:00:00Z`)}-old.jpg`, name: `old.jpg`, mimeType: `image/jpeg`, takenAt: `2026-01-01T00:00:00.000Z`, data: encodeBase64(bytes(`old`)) },
@@ -422,41 +428,41 @@ describe(`photos`, () => {
 
     // A reload: new capabilities, the same OPFS.
     const caps = webCapabilities({ ...fake(), storageDirectory: f.storageDirectory })
-    const first = await okCall(caps, `photos.list`, { limit: 2 })
+    const first = await okCall(caps, `photos_list`, { limit: 2 })
     expect((first.photos as { name: string }[]).map((p) => p.name)).toEqual([`new.png`, `mid.webp`])
     expect(first.photos).toContainEqual({ id: `${Date.parse(`2026-06-01T12:00:00Z`)}-new.png`, name: `new.png`, mimeType: `image/png`, takenAt: `2026-06-01T12:00:00.000Z` })
     expect(first.cursor).toBe(`2`)
-    const second = await okCall(caps, `photos.list`, { limit: 2, cursor: first.cursor })
+    const second = await okCall(caps, `photos_list`, { limit: 2, cursor: first.cursor })
     expect((second.photos as { name: string }[]).map((p) => p.name)).toEqual([`old.jpg`])
     expect(second.cursor).toBeNull()
 
     const id = (picked.photos as { id: string }[])[1]!.id
-    expect(await okCall(caps, `photos.get`, { id })).toEqual({
+    expect(await okCall(caps, `photos_get`, { id })).toEqual({
       photo: { id, name: `new.png`, mimeType: `image/png`, takenAt: `2026-06-01T12:00:00.000Z`, data: encodeBase64(bytes(`new`)) },
     })
-    expect(await errCall(caps, `photos.get`, { id: `1-nope.jpg` })).toBe(`notFound`)
-    expect(await errCall(caps, `photos.get`, { id: `../etc` })).toBe(`notFound`)
-    expect(await errCall(caps, `photos.list`, { limit: 2, cursor: `abc` })).toBe(`failed: bad cursor`)
+    expect(await errCall(caps, `photos_get`, { id: `1-nope.jpg` })).toBe(`notFound`)
+    expect(await errCall(caps, `photos_get`, { id: `../etc` })).toBe(`notFound`)
+    expect(await errCall(caps, `photos_list`, { limit: 2, cursor: `abc` })).toBe(`failed: bad cursor`)
   })
 
   test(`pick honours limit, a zero lastModified is a null takenAt, cancel = no photos`, async () => {
     const f = fake({ fsAccess: false })
     f.inputAnswer = [file(`a/b.gif`, `1`, `image/gif`), file(`c.gif`, `2`, `image/gif`)]
     const caps = webCapabilities(f)
-    const out = await okCall(caps, `photos.pick`, { limit: 1 })
+    const out = await okCall(caps, `photos_pick`, { limit: 1 })
     expect(out.photos).toEqual([{ id: `0-a_b.gif`, name: `a_b.gif`, mimeType: `image/gif`, takenAt: null, data: `MQ==` }])
     expect(f.inputOptions[0]).toEqual({ accept: `image/*`, multiple: false })
     f.inputAnswer = []
-    expect(await okCall(caps, `photos.pick`, { limit: 5 })).toEqual({ photos: [] })
+    expect(await okCall(caps, `photos_pick`, { limit: 5 })).toEqual({ photos: [] })
   })
 
   test(`without OPFS: pick still answers, the library is empty, get is notFound`, async () => {
     const f = fake({ opfs: false })
     f.openAnswer = [file(`a.png`, `1`, `image/png`, 5)]
     const caps = webCapabilities(f)
-    const out = await okCall(caps, `photos.pick`, { limit: 1 })
-    expect(await okCall(caps, `photos.list`, { limit: 50 })).toEqual({ photos: [], cursor: null })
-    expect(await errCall(caps, `photos.get`, { id: (out.photos as { id: string }[])[0]!.id })).toBe(`notFound`)
+    const out = await okCall(caps, `photos_pick`, { limit: 1 })
+    expect(await okCall(caps, `photos_list`, { limit: 50 })).toEqual({ photos: [], cursor: null })
+    expect(await errCall(caps, `photos_get`, { id: (out.photos as { id: string }[])[0]!.id })).toBe(`notFound`)
   })
 })
 
@@ -465,7 +471,7 @@ describe(`share`, () => {
     const f = fake()
     const caps = webCapabilities(f)
     expect(
-      await okCall(caps, `share.send`, { title: `T`, text: `hi`, url: `https://x.at/`, file: { name: `a.txt`, mimeType: `text/plain`, data: `aGVsbG8=` } }),
+      await okCall(caps, `share_send`, { title: `T`, text: `hi`, url: `https://x.at/`, file: { name: `a.txt`, mimeType: `text/plain`, data: `aGVsbG8=` } }),
     ).toEqual({ shared: true })
     const sent = f.shared[0]!
     expect([sent.title, sent.text, sent.url]).toEqual([`T`, `hi`, `https://x.at/`])
@@ -474,16 +480,16 @@ describe(`share`, () => {
     expect(await sent.files![0]!.text()).toBe(`hello`)
 
     f.shareFiles = false
-    expect(await okCall(caps, `share.send`, { url: `https://x.at/`, file: { name: `a.txt`, mimeType: `text/plain`, data: `aGVsbG8=` } })).toEqual({ shared: true })
+    expect(await okCall(caps, `share_send`, { url: `https://x.at/`, file: { name: `a.txt`, mimeType: `text/plain`, data: `aGVsbG8=` } })).toEqual({ shared: true })
     expect(f.shared[1]!.files).toBeUndefined()
-    expect(await errCall(caps, `share.send`, { file: { name: `a.txt`, mimeType: `text/plain`, data: `aGVsbG8=` } })).toBe(
+    expect(await errCall(caps, `share_send`, { file: { name: `a.txt`, mimeType: `text/plain`, data: `aGVsbG8=` } })).toBe(
       `failed: this browser cannot share files`,
     )
 
     f.shareAnswer = `abort`
-    expect(await okCall(caps, `share.send`, { text: `hi` })).toEqual({ shared: false })
+    expect(await okCall(caps, `share_send`, { text: `hi` })).toEqual({ shared: false })
     f.shareAnswer = `denied`
-    expect(await errCall(caps, `share.send`, { text: `hi` })).toBe(`failed: Must be handling a user gesture`)
+    expect(await errCall(caps, `share_send`, { text: `hi` })).toBe(`failed: Must be handling a user gesture`)
   })
 })
 
@@ -491,13 +497,13 @@ describe(`print`, () => {
   test(`hands the bytes to the print frame; printed true`, async () => {
     const f = fake()
     const caps = webCapabilities(f)
-    expect(await okCall(caps, `print.print`, { name: `d.pdf`, mimeType: `application/pdf`, data: `JVBERi0xLjQK` })).toEqual({ printed: true })
+    expect(await okCall(caps, `print_print`, { name: `d.pdf`, mimeType: `application/pdf`, data: `JVBERi0xLjQK` })).toEqual({ printed: true })
     expect(f.printed[0]!.type).toBe(`application/pdf`)
     expect(await f.printed[0]!.text()).toBe(`%PDF-1.4\n`)
     f.print = async () => {
       throw new Error(`no print frame`)
     }
-    expect(await errCall(caps, `print.print`, { name: `d.pdf`, mimeType: `application/pdf`, data: `JVBERi0xLjQK` })).toBe(`failed: no print frame`)
+    expect(await errCall(caps, `print_print`, { name: `d.pdf`, mimeType: `application/pdf`, data: `JVBERi0xLjQK` })).toBe(`failed: no print frame`)
   })
 })
 
@@ -508,21 +514,21 @@ describe(`notifications`, () => {
     const f = fake()
     const taps: unknown[] = []
     const caps = webCapabilities(f, { onTap: (t) => taps.push(t) })
-    expect(await okCall(caps, `notifications.post`, { id: `acme.album/n1`, title: `Hi`, body: `there`, at: null, tap })).toEqual({})
+    expect(await okCall(caps, `notifications_post`, { id: `acme.album/n1`, title: `Hi`, body: `there`, at: null, tap })).toEqual({})
     expect(f.shown.map((n) => [n.title, n.body, n.tag])).toEqual([[`Hi`, `there`, `acme.album/n1`]])
     f.shown[0]!.onclick!({})
     expect(taps).toEqual([tap])
     expect(taps[0]).toBe(tap)
     expect(f.log).toContain(`focus`)
     expect(f.shown[0]!.closed).toBe(true)
-    expect(await okCall(caps, `notifications.cancel`, { id: `acme.album/n1` })).toEqual({ cancelled: false })
+    expect(await okCall(caps, `notifications_cancel`, { id: `acme.album/n1` })).toEqual({ cancelled: false })
   })
 
   test(`a null tap only focuses; a null body is left out`, async () => {
     const f = fake()
     const taps: unknown[] = []
     const caps = webCapabilities(f, { onTap: (t) => taps.push(t) })
-    await okCall(caps, `notifications.post`, { id: `a/x`, title: `T`, body: null, at: null, tap: null })
+    await okCall(caps, `notifications_post`, { id: `a/x`, title: `T`, body: null, at: null, tap: null })
     expect(`body` in f.shown[0]!).toBe(false)
     f.shown[0]!.onclick!({})
     expect(taps).toEqual([])
@@ -533,17 +539,17 @@ describe(`notifications`, () => {
     const f = fake()
     f.permission = `default`
     const caps = webCapabilities(f)
-    await okCall(caps, `notifications.post`, { id: `a/x`, title: `T`, body: null, at: null, tap: null })
+    await okCall(caps, `notifications_post`, { id: `a/x`, title: `T`, body: null, at: null, tap: null })
     expect(f.log).toEqual([`ask`])
     const g = fake()
     g.permission = `default`
     g.permissionAfterAsk = `denied`
-    expect(await errCall(webCapabilities(g), `notifications.post`, { id: `a/x`, title: `T`, body: null, at: null, tap: null })).toBe(
+    expect(await errCall(webCapabilities(g), `notifications_post`, { id: `a/x`, title: `T`, body: null, at: null, tap: null })).toBe(
       `failed: notifications blocked`,
     )
     const h = fake()
     h.permission = `denied`
-    expect(await errCall(webCapabilities(h), `notifications.post`, { id: `a/x`, title: `T`, body: null, at: null, tap: null })).toBe(
+    expect(await errCall(webCapabilities(h), `notifications_post`, { id: `a/x`, title: `T`, body: null, at: null, tap: null })).toBe(
       `failed: notifications blocked`,
     )
     expect(h.log).toEqual([])
@@ -553,24 +559,24 @@ describe(`notifications`, () => {
     const f = fake()
     const caps = webCapabilities(f)
     const inAMinute = new Date(f.clock + 60_000).toISOString()
-    await okCall(caps, `notifications.post`, { id: `a/later`, title: `L`, body: null, at: inAMinute, tap: null })
-    await okCall(caps, `notifications.post`, { id: `a/past`, title: `P`, body: null, at: `2020-01-01T00:00:00Z`, tap: null })
+    await okCall(caps, `notifications_post`, { id: `a/later`, title: `L`, body: null, at: inAMinute, tap: null })
+    await okCall(caps, `notifications_post`, { id: `a/past`, title: `P`, body: null, at: `2020-01-01T00:00:00Z`, tap: null })
     expect(f.shown.map((n) => n.title)).toEqual([`P`])
     f.advance(59_999)
     expect(f.shown.length).toBe(1)
     f.advance(1)
     expect(f.shown.map((n) => n.title)).toEqual([`P`, `L`])
 
-    await okCall(caps, `notifications.post`, { id: `a/pending`, title: `X`, body: null, at: inAMinute.replace(`10:01`, `11:00`), tap: null })
-    expect(await okCall(caps, `notifications.cancel`, { id: `a/pending` })).toEqual({ cancelled: true })
+    await okCall(caps, `notifications_post`, { id: `a/pending`, title: `X`, body: null, at: inAMinute.replace(`10:01`, `11:00`), tap: null })
+    expect(await okCall(caps, `notifications_cancel`, { id: `a/pending` })).toEqual({ cancelled: true })
     f.advance(10 * 3_600_000)
     expect(f.shown.map((n) => n.title)).toEqual([`P`, `L`])
     expect(f.timers.size).toBe(0)
 
-    expect(await okCall(caps, `notifications.cancel`, { id: `a/past` })).toEqual({ cancelled: true })
+    expect(await okCall(caps, `notifications_cancel`, { id: `a/past` })).toEqual({ cancelled: true })
     expect(f.shown[0]!.closed).toBe(true)
-    expect(await okCall(caps, `notifications.cancel`, { id: `a/past` })).toEqual({ cancelled: false })
-    expect(await okCall(caps, `notifications.cancel`, { id: `a/never` })).toEqual({ cancelled: false })
+    expect(await okCall(caps, `notifications_cancel`, { id: `a/past` })).toEqual({ cancelled: false })
+    expect(await okCall(caps, `notifications_cancel`, { id: `a/never` })).toEqual({ cancelled: false })
   })
 
   test(`re-posting an id replaces it (pending and shown); a closed one is gone`, async () => {
@@ -578,17 +584,17 @@ describe(`notifications`, () => {
     const taps: unknown[] = []
     const caps = webCapabilities(f, { onTap: (t) => taps.push(t) })
     const later = new Date(f.clock + 1_000).toISOString()
-    await okCall(caps, `notifications.post`, { id: `a/r`, title: `one`, body: null, at: later, tap: null })
-    await okCall(caps, `notifications.post`, { id: `a/r`, title: `two`, body: null, at: null, tap })
+    await okCall(caps, `notifications_post`, { id: `a/r`, title: `one`, body: null, at: later, tap: null })
+    await okCall(caps, `notifications_post`, { id: `a/r`, title: `two`, body: null, at: null, tap })
     f.advance(5_000)
     expect(f.shown.map((n) => n.title)).toEqual([`two`])
-    await okCall(caps, `notifications.post`, { id: `a/r`, title: `three`, body: null, at: null, tap })
+    await okCall(caps, `notifications_post`, { id: `a/r`, title: `three`, body: null, at: null, tap })
     expect(f.shown.map((n) => [n.title, n.closed])).toEqual([
       [`two`, true],
       [`three`, false],
     ])
     f.shown[1]!.close()
-    expect(await okCall(caps, `notifications.cancel`, { id: `a/r` })).toEqual({ cancelled: false })
+    expect(await okCall(caps, `notifications_cancel`, { id: `a/r` })).toEqual({ cancelled: false })
     expect(taps).toEqual([])
   })
 
@@ -596,7 +602,7 @@ describe(`notifications`, () => {
     const f = fake()
     const caps = webCapabilities(f)
     const far = new Date(f.clock + 40 * 86_400_000).toISOString()
-    await okCall(caps, `notifications.post`, { id: `a/far`, title: `F`, body: null, at: far, tap: null })
+    await okCall(caps, `notifications_post`, { id: `a/far`, title: `F`, body: null, at: far, tap: null })
     f.advance(30 * 86_400_000)
     expect(f.shown.length).toBe(0)
     f.advance(10 * 86_400_000)

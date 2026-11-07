@@ -6,6 +6,7 @@
 // own action builds the blocks from the records), then Save and Share.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { A2UI_VERSION } from "@exponential_app/eui"
 import { ExponentialHost, type AppPackage } from "@exponential_app/eui/host"
 
 import file from "../../../samples/apps/photobook.app.json" with { type: "json" }
@@ -107,14 +108,22 @@ async function photobook() {
     navigate: ({ screen, params }) => void app.call(`app_navigate`, { screen, params }),
     onActionFailed: ({ message }) => void failed.push(message),
   })
-  const open = (templateId: string, params: Record<string, string> = {}) => host.applyTemplate({ surfaceId: `app`, packageId: pkg.id, templateId, data: { params } })
+  // Round 9 §1.4: a screen switch mints a fresh id, then deletes the old surface.
+  let current: string | null = null
+  const open = (templateId: string, params: Record<string, string> = {}) => {
+    const surfaceId = host.freshSurfaceId(`app`)
+    const ops = host.applyTemplate({ surfaceId, packageId: pkg.id, templateId, data: { params } })
+    if (current) host.receive({ version: A2UI_VERSION, deleteSurface: { surfaceId: current } })
+    current = surfaceId
+    return ops
+  }
   const settled = () => new Promise((r) => setTimeout(r, 0))
   const press = async (componentId: string, name: string, args: Record<string, unknown>) => {
-    const out = await host.callFunction({ surfaceId: `app`, componentId, name, args })
+    const out = await host.callFunction({ surfaceId: current!, componentId, name, args })
     await settled()
     return out
   }
-  const data = () => host.surface(`app`)!.data as Record<string, any>
+  const data = () => host.surface(current!)!.data as Record<string, any>
   return { app, host, store, blobs, open, press, data, settled, photos, files, share, print, http, saved, shared, failed, opened }
 }
 

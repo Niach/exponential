@@ -104,9 +104,9 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
     ]
     if (tabs)
       shell.push(
-        { id: `runner_screens`, component: `List`, children: nav.map((_, i) => `runner_screen-${i}`) },
+        { id: `runner_screens`, component: `List`, children: nav.map((_, i) => `runner_screen_${i}`) },
         ...nav.map((s, i) => ({
-          id: `runner_screen-${i}`,
+          id: `runner_screen_${i}`,
           component: `Row`,
           title: s.title ?? s.template,
           ...(s.icon ? { icon: s.icon } : {}),
@@ -120,7 +120,7 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
       shell.push({ id: `runner_permissions`, component: `Row`, title: fixture.copy.permissions, icon: S.permissionsIcon, density: `compact`, pressable: true, on: { press: event(`runner.permissions`) } })
     return { components: [...shell, ...page], data: null }
   }
-  const bar = [...(tabs ? [`runner_tabs-box`] : []), ...(permissions ? [`runner_permissions`] : [])]
+  const bar = [...(tabs ? [`runner_tabs_box`] : []), ...(permissions ? [`runner_permissions`] : [])]
   const shell: SurfaceComponent[] = [
     { id: `root`, component: `Stack`, gap: `none`, style: { height: `100%` }, children: [`runner_main`, `runner_separator`, `runner_bar`] },
     { id: `runner_main`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0, overflowY: `auto` }, children: [`runner_page`] },
@@ -129,7 +129,7 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
   ]
   if (tabs)
     shell.push(
-      { id: `runner_tabs-box`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minWidth: 0 }, children: [`runner_tabs`] },
+      { id: `runner_tabs_box`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minWidth: 0 }, children: [`runner_tabs`] },
       {
         id: `runner_tabs`,
         component: `Tabs`,
