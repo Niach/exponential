@@ -73,9 +73,23 @@ pub trait Transport: 'static {
     /// Round 9 §1.3: a message with the `sendDataModel` metadata beside it:
     /// `{"message", "metadata"}` on the wire (the MCP carrier unwraps it).
     fn send_with_metadata(&mut self, message: &Value, metadata: &Value) {
-        self.send(&serde_json::json!({"message": message, "metadata": metadata}));
+        self.send(&with_metadata(message, metadata));
     }
     fn close(&mut self);
+}
+
+/// §1.3: the WebSocket / JSONL wrap of a message with metadata.
+pub fn with_metadata(message: &Value, metadata: &Value) -> Value {
+    serde_json::json!({"message": message, "metadata": metadata})
+}
+
+/// The MCP `tools/call` of what [`Transport::send_with_metadata`] sent: the
+/// wrap is opened, the metadata rides beside the message (§10).
+pub fn mcp_call_of(sent: &Value, tool: Option<&str>) -> Value {
+    match (sent.get("message"), sent.get("metadata")) {
+        (Some(inner), Some(metadata)) => eui_core::host::mcp_action_call_with(inner, tool, Some(metadata)),
+        _ => eui_core::host::mcp_action_call(sent, tool),
+    }
 }
 
 #[derive(Default)]
@@ -155,7 +169,7 @@ mod net {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use eui_core::host::{decode_jsonl, mcp_action_call, mcp_action_call_with, messages_from_mcp_result, Decoded, JsonlDecoder, SseDecoder};
+    use eui_core::host::{decode_jsonl, messages_from_mcp_result, Decoded, JsonlDecoder, SseDecoder};
     use serde_json::{json, Value};
 
     use super::{Transport, TransportSink, TransportStatus};
@@ -780,11 +794,7 @@ mod net {
                         Err(e) => sink.status(TransportStatus::Error, Some(e)),
                     }
                     while let Ok(McpCommand::Send(message)) = rx.recv() {
-                        // §1.3: `{"message", "metadata"}` = the metadata rides beside it.
-                        let call = match (message.get("message"), message.get("metadata")) {
-                            (Some(inner), Some(metadata)) => mcp_action_call_with(inner, options.action_tool.as_deref(), Some(metadata)),
-                            _ => mcp_action_call(&message, options.action_tool.as_deref()),
-                        };
+                        let call = super::mcp_call_of(&message, options.action_tool.as_deref());
                         // A failed or timed-out call drops that message and
                         // reports why (the TS `McpTransport.send` rejects).
                         match rpc.call(call["method"].as_str().unwrap_or("tools/call"), call["params"].clone()) {

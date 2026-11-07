@@ -837,3 +837,45 @@ fn a_reactive_call_goes_to_the_agent_and_its_answer_rebinds(cx: &mut TestAppCont
     assert_eq!(text, Some(json!("seven")));
     assert_eq!(t.sent().iter().filter(|m| m.get("callAgentFunction").is_some()).count(), 1, "the answer stays");
 }
+
+/// Round 9 §1.3: an action on a `sendDataModel` surface goes out wrapped
+/// with the data; the MCP carrier opens the wrap; other surfaces stay bare.
+#[gpui::test]
+fn a_send_data_model_action_carries_the_data(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    let button = json!([{"id": "root", "component": "Button", "label": "Go", "on": {"press": {"event": {"name": "go"}}}}]);
+    t.feed([
+        json!({"version": VERSION, "createSurface": {"surfaceId": "s", "catalogId": CORE, "sendDataModel": true, "dataModel": {"a": 1}}}),
+        components("s", button.clone()),
+        create("plain"),
+        components("plain", button),
+    ]);
+    cx.run_until_parked();
+    for sid in ["s", "plain"] {
+        let view = host.read_with(cx, |h, _| h.surface(sid)).unwrap();
+        let v2 = view.clone();
+        let (_, vcx) = cx.add_window_view(move |_, _| Holder(Some(v2)));
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            view.update(cx, |v, cx| {
+                let i = v.index_of("root").unwrap();
+                v.press(i, window, cx);
+            })
+        });
+        vcx.run_until_parked();
+    }
+    let sent = t.sent();
+    let wrapped = sent.iter().find(|m| m.get("metadata").is_some()).expect("the wrap");
+    assert_eq!(wrapped["message"]["action"]["surfaceId"], "s");
+    assert_eq!(wrapped["metadata"], json!({"a2uiRendererDataModel": {"version": VERSION, "surfaces": {"s": {"a": 1}}}}));
+    assert!(sent.iter().any(|m| m["action"]["surfaceId"] == "plain"), "{sent:?}");
+    let call = eui_gpui::transport::mcp_call_of(wrapped, None);
+    assert_eq!(call["params"]["arguments"]["metadata"], wrapped["metadata"]);
+    assert_eq!(call["params"]["arguments"]["message"], wrapped["message"]);
+    let bare = eui_gpui::transport::mcp_call_of(&json!({"version": VERSION, "action": {}}), None);
+    assert!(bare["params"]["arguments"].get("metadata").is_none());
+}
