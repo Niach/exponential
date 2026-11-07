@@ -812,3 +812,28 @@ fn a_failed_function_stops_its_event(cx: &mut TestAppContext) {
     let names: Vec<Value> = t.sent().iter().filter_map(|m| m["action"].get("name").cloned()).collect();
     assert_eq!(names, vec![json!("fired")]);
 }
+
+/// Round 9 §6.5: a binding on a function the host lacks: pending `null`, the
+/// layout sends one call, the answer binds again.
+#[gpui::test]
+fn a_reactive_call_goes_to_the_agent_and_its_answer_rebinds(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), agent: true, ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([create("s"), components("s", json!([{"id": "root", "component": "Text", "text": {"@call": "lookup", "args": {"q": "a"}}}]))]);
+    cx.run_until_parked();
+    let view = host.read_with(cx, |h, _| h.surface("s")).unwrap();
+    let v2 = view.clone();
+    let (_, vcx) = cx.add_window_view(move |_, _| Holder(Some(v2)));
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx.run_until_parked();
+    assert_eq!(t.sent().iter().filter(|m| m.get("callAgentFunction").is_some()).count(), 1);
+    t.feed([json!({"version": VERSION, "agentFunctionResponse": {"functionCallId": "s:1", "value": "seven"}})]);
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx.run_until_parked();
+    let text = view.update(vcx, |v, _| v.surface_mut().nodes().iter().find(|n| n.id == "root").and_then(|n| n.props.get("text").cloned()));
+    assert_eq!(text, Some(json!("seven")));
+    assert_eq!(t.sent().iter().filter(|m| m.get("callAgentFunction").is_some()).count(), 1, "the answer stays");
+}

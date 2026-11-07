@@ -534,6 +534,8 @@ pub struct Surface {
     pub(crate) failures: Arc<std::sync::Mutex<Vec<crate::data::Failure>>>,
     /// Round 9 §6.5: where reactive calls that are no local function go.
     pub(crate) call_route: Option<CallRoute>,
+    /// A reactive call went through [`Self::call_route`] since the last ask.
+    routed: Arc<std::sync::atomic::AtomicBool>,
     /// What [`Surface::take_failures`] already answered (once per lifetime).
     sent_failures: HashSet<(String, String, String)>,
     pub(crate) style_issues: Vec<ReduceIssue>,
@@ -661,6 +663,7 @@ impl Surface {
             build_issues: Vec::new(),
             failures: Default::default(),
             call_route: None,
+            routed: Default::default(),
             sent_failures: HashSet::new(),
             style_issues: Vec::new(),
             local: LocalState::default(),
@@ -1376,13 +1379,21 @@ impl Surface {
     /// Round 9 §6.5: route this surface's reactive calls through the host
     /// (`host::route_handle`).
     pub fn set_call_route(&mut self, route: Option<CallRoute>) {
-        self.call_route = route;
+        let routed = self.routed.clone();
+        self.call_route = route.map(|route| -> CallRoute {
+            Arc::new(move |call| {
+                routed.store(true, std::sync::atomic::Ordering::Relaxed);
+                route(call)
+            })
+        });
         self.needs_build = true;
     }
 
-    /// Is there anything for [`Self::take_failures`]?
+    /// Must the host flush after this layout: a reactive failure, or a call
+    /// that went through the route (it may have queued a message)? Once.
     pub fn has_failures(&self) -> bool {
-        self.failures.lock().map(|l| !l.is_empty()).unwrap_or(false)
+        let routed = self.routed.swap(false, std::sync::atomic::Ordering::Relaxed);
+        routed || self.failures.lock().map(|l| !l.is_empty()).unwrap_or(false)
     }
 
     /// A routed value settled (`CallHub::take_dirty`): bind again.
