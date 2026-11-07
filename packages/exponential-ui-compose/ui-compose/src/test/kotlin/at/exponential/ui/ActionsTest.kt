@@ -167,7 +167,7 @@ class ActionsTest {
                 ),
                 CoroutineScope(Dispatchers.Unconfined),
             )
-            host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"main"}}"""))
+            host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"main"}}"""), trusted = true)
             val out = host.callFunction(FunctionCallInfo("s", "add", "actions_${c["action"]!!.string}", emptyMap()))
             assertEquals(name, c["error"]?.string, out.error)
             same(JsonValue.Arr(called), c["called"] ?: JsonValue.Arr(emptyList()), "results host called: $name")
@@ -236,7 +236,7 @@ class ActionsTest {
                 ),
                 CoroutineScope(Dispatchers.Unconfined),
             )
-            host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"month"}}"""))
+            host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"month"}}"""), trusted = true)
         }
 
         val formHours: JsonValue? get() = host.surface("s")?.data?.get("form")?.get("hours")
@@ -317,7 +317,7 @@ class ActionsTest {
                 ),
                 CoroutineScope(Dispatchers.Unconfined),
             )
-            host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"main"}}"""))
+            host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"main"}}"""), trusted = true)
             val out = host.callFunction(FunctionCallInfo("s", "b", "actions_${c["action"]!!.string}", c["args"]?.obj.orEmpty()))
             assertEquals(name, c["error"]?.string, out.error)
             assertEquals(name, c["opened"]?.array.orEmpty().mapNotNull { it.string }, opened)

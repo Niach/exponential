@@ -140,13 +140,14 @@ class HostTest {
         assertNull(m.data["b"])
         t.feed(msg("""{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"x":1}}}"""))
         assertEquals("""{"x":1}""", m.data.json)
-        // A re-create replaces the model.
+        // Round 9 §1.4: a live id is not created twice.
         t.feed(create())
-        assertTrue(h.surface("s1") !== m)
+        assertTrue(h.surface("s1") === m)
+        assertEquals("INTEGRITY_ERROR", errorCode(t.sent.last()))
         t.feed(msg("""{"version":"v0.9","deleteSurface":{"surfaceId":"s1"}}"""))
         assertNull(h.surface("s1"))
         assertEquals(emptyList<String>(), h.surfaceIds())
-        assertEquals(listOf("create", "components", "components", "data", "data", "data", "create", "delete"), ops)
+        assertEquals(listOf("create", "components", "components", "data", "data", "data", "send", "delete"), ops)
         // An error op goes out on the transport.
         t.feed(components("ghost", """{"id":"root","component":"Text","text":"x"}"""))
         assertEquals("SURFACE_NOT_FOUND", errorCode(t.sent.last()))
@@ -196,7 +197,7 @@ class HostTest {
         t.feed(create())
         t.feed(msg("""{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"FileUpload","files":{"path":"/draft/files"}}]}}"""))
         val m = h.surface("s1")!!
-        assertEquals("/draft/files", m.components.first()["files"]?.get("path")?.string)
+        assertEquals("/draft/files", m.components.first()["files"]?.get("@path")?.string)
         assertEquals("s1", FilePickRequest(m, "root", null, false).surfaceId)
     }
 
@@ -221,14 +222,14 @@ class HostTest {
         )
         h.connect()
         t.feed(create())
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/devices","source":"exp:devices?team=t1"}}"""))
+        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/devices","source":"exp:devices?team=t1"}}"""), trusted = true)
         assertEquals("exp:devices {team=t1}", seen)
         val m = h.surface("s1")!!
         assertEquals("""["d1"]""", m.data["devices"]?.json)
         emit!!(JsonValue.Arr(listOf(JsonValue.Str("d1"), JsonValue.Str("d2"))))
         assertEquals("""["d1","d2"]""", m.data["devices"]?.json)
         // No resolver for a scheme → VALIDATION_FAILED back to the server.
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/x","source":"acme:things"}}"""))
+        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/x","source":"acme:things"}}"""), trusted = true)
         val err = t.sent.last()["error"]!!
         assertEquals("VALIDATION_FAILED", err["code"]?.string)
         assertEquals("no resolver for the source scheme acme", err["message"]?.string)
@@ -256,8 +257,8 @@ class HostTest {
         )
         h.connect()
         t.feed(create())
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/records","source":"records:entry"}}"""))
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/other","source":"exp:devices"}}"""))
+        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/records","source":"records:entry"}}"""), trusted = true)
+        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/other","source":"exp:devices"}}"""), trusted = true)
         val args = mapOf(
             "path" to JsonValue.Str("/records"),
             "source" to JsonValue.Str("records:entry"),
@@ -336,7 +337,7 @@ class HostTest {
         assertEquals(FunctionDecision.Allow, h.decide("free", "formatDate"))
 
         // A package surface: its `functions` list narrows the host's decision.
-        t.feed(msg("""{"version":"v0.9","applyTemplate":{"surfaceId":"pkg","templateId":"list","packageId":"acme.devices"}}"""))
+        h.receive(msg("""{"version":"v0.9","applyTemplate":{"surfaceId":"pkg","templateId":"list","packageId":"acme.devices"}}"""), trusted = true)
         assertNotNull(h.surface("pkg"))
         assertEquals("acme.devices", h.packageIdOf("pkg"))
         assertEquals(FunctionDecision.Allow, h.decide("pkg", "harness_toast"))

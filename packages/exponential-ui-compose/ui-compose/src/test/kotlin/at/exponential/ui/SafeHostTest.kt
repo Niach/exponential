@@ -323,9 +323,10 @@ class SafeHostTest {
         // A component that left the surface drops its entry.
         update("""{"id":"root","component":"Stack","children":["chart"]}""")
         assertEquals(setOf("chart"), m.paintFailures.keys.toSet())
-        // A new createSurface forgets the host's keys.
-        t.feed(msg("""{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
-        h.paintError(PaintError("s1", "chart", "Chart: bad series"))
+        // A deleted surface's keys go with it (its id never comes back, §1.4).
+        t.feed(msg("""{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}"""))
+        t.feed(msg("""{"version":"1.0","createSurface":{"surfaceId":"s2","catalogId":"$core"}}"""))
+        h.paintError(PaintError("s2", "chart", "Chart: bad series"))
         assertEquals(4, t.sent.size)
         assertEquals(RENDER_FAILED, t.sent.last()["error"]?.get("code")?.string)
     }
