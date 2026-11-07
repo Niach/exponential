@@ -137,8 +137,9 @@ pub fn place_new(size: Size<i32, Logical>, area: Rect, existing: &[Point<i32, Lo
 }
 
 /// A tiled window dragged away goes back to its floating size, keeping the
-/// grab point at the same fraction of the title width so the window doesn't
-/// jump out from under the pointer.
+/// grab point (`pointer` = where the drag started) at the same fraction of
+/// the title width and at the same height (a server-side title bar above
+/// the window included, at most half the floating height below), so the window doesn't jump out from under the pointer.
 pub fn untile_location(pointer: Point<f64, Logical>, tiled: Rect, restore: Size<i32, Logical>) -> Point<i32, Logical> {
     let frac = if tiled.size.w > 0 {
         ((pointer.x - tiled.loc.x as f64) / tiled.size.w as f64).clamp(0.0, 1.0)
@@ -146,7 +147,8 @@ pub fn untile_location(pointer: Point<f64, Logical>, tiled: Rect, restore: Size<
         0.5
     };
     let x = pointer.x - frac * restore.w as f64;
-    (x.round() as i32, tiled.loc.y).into()
+    let dy = (pointer.y - tiled.loc.y as f64).clamp(-crate::frames::HEIGHT as f64, (restore.h / 2).max(0) as f64);
+    (x.round() as i32, (pointer.y - dy).round() as i32).into()
 }
 
 #[cfg(test)]
@@ -246,5 +248,9 @@ mod tests {
         let tiled = r(0, 0, 960, 1080);
         let p = untile_location((480.0, 10.0).into(), tiled, (600, 400).into());
         assert_eq!(p, (180, 0).into());
+        // Grabbed deep inside a maximized window: the floating one still
+        // has the pointer inside it.
+        let p = untile_location((480.0, 900.0).into(), tiled, (600, 400).into());
+        assert_eq!(p, (180, 700).into());
     }
 }
