@@ -7,6 +7,35 @@
   "description": "Quick notes on this desktop, with a tile that counts them.",
   "functions": ["records_*", "actions_*", "bind"],
   "sources": ["records:*"],
+  "queries": {
+    "recent": { "from": "note", "sort": [["createdAt", "desc"]], "limit": 50 }
+  },
+  "exposes": [
+    {
+      "name": "list_notes",
+      "title": "List notes",
+      "description": "The notes on this desktop, newest first (at most 50).",
+      "input": { "type": "object", "properties": {} },
+      "access": "read",
+      "run": { "records": { "op": "list", "kind": "note", "query": "recent" } }
+    },
+    {
+      "name": "find_notes",
+      "title": "Find notes",
+      "description": "The notes whose text is exactly `text`.",
+      "input": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
+      "access": "read",
+      "run": { "records": { "op": "list", "kind": "note", "query": "recent", "where": { "text": "${input.text}" } } }
+    },
+    {
+      "name": "add_note",
+      "title": "Add a note",
+      "description": "Write a note on this desktop.",
+      "input": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
+      "access": "write",
+      "run": { "records": { "op": "upsert", "kind": "note", "data": { "text": "${input.text}" } } }
+    }
+  ],
   "records": {
     "note": {
       "title": "Note",

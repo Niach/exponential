@@ -14,6 +14,7 @@
 //! `windows`, `focus` and `launch` over ede-protocol ([`capabilities`]).
 
 pub mod capabilities;
+pub mod exposes;
 pub mod shell_edit;
 
 use std::cell::RefCell;
@@ -133,6 +134,8 @@ impl HostPlugin for Plugin {
 pub struct Running {
     pub app: EngineApp,
     pub ctx: Rc<Ctx>,
+    /// The viewer the instance writes as (the device id on a Local desktop).
+    pub me: String,
     pub theme: Arc<ResolvedTheme>,
     pub window: Option<AnyWindowHandle>,
     /// `(widget, surface id)` for every `screens[].widget`.
@@ -204,13 +207,15 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
         desktop.app_id = Some(app.id.clone());
         let mut capabilities = eengine_desktop::desktop_capabilities(desktop);
         capabilities.extend(stores.capabilities.iter().cloned());
+        let vault = Arc::new(RunnerVault::platform(&app.id, &app.name, &app_dir));
+        let me = eengine_runner::vault::device_id(vault.as_ref());
         let providers = Providers {
             host_kind: "ede".into(),
             platform: "linux".into(),
             locale: paint::locale(),
             storage: stores.storage.clone(),
             blobs: stores.blobs.clone(),
-            vault: Arc::new(RunnerVault::platform(&app.id, &app.name, &app_dir)),
+            vault,
             capabilities,
         };
         let config = RunnerConfig { id: app.id.clone(), name: app.name.clone(), version: app.version.clone(), network: NetworkPolicy::Any };
@@ -265,7 +270,7 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
             })
             .detach();
         }
-        engine.borrow_mut().running.push(Running { app, ctx, theme, window: None, widgets, widget_windows: Vec::new(), _store: Some(store) });
+        engine.borrow_mut().running.push(Running { app, ctx, me, theme, window: None, widgets, widget_windows: Vec::new(), _store: Some(store) });
     }
     {
         // A closed window: the app goes to the background and may be opened again.
@@ -283,6 +288,25 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
         .detach();
     }
     engine
+}
+
+/// Every running app's exposed tools for the desktop agent's hub
+/// (`exposes`), writing through each app's pump; `exponential` = the
+/// desktop's noun subset the `action` runs call.
+pub fn apps_provider(engine: &Engine, exponential: Arc<dyn emcp::server::ToolProvider>) -> exposes::AppsProvider {
+    let apps = engine
+        .running
+        .iter()
+        .map(|r| {
+            let storage = r.ctx.runner.borrow().as_ref().map(|runner| runner.storage().clone());
+            let package = r.ctx.runner.borrow().as_ref().map(|runner| runner.instance().package().clone()).unwrap_or(Value::Null);
+            (r, storage, package)
+        })
+        .filter_map(|(r, storage, package)| {
+            Some(Arc::new(exposes::AppTools { id: r.app.id.clone(), server: exposes::server_name(&r.app.id), package, storage: storage?, me: r.me.clone(), writes: Arc::new(exposes::PumpWrites(r.ctx.tx.clone())) }))
+        })
+        .collect();
+    exposes::AppsProvider { apps, exponential }
 }
 
 /// The app's window: a plain toplevel of the shell process (its app id is
