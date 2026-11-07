@@ -150,4 +150,4 @@ Compose and gpui get it for free. TS: `resolveConditions` with
 
 ## Prompt
 
-+180 tokens (a named exception, `scripts/generate.ts`): the measured 9,733.
++180 tokens: the measured 9,733, under the 10,000-token ceiling (no named exception).
