@@ -345,6 +345,19 @@ pub fn render_node_for<T: Copy>(egl: Option<T>, own_render: Option<T>, card: T) 
     egl.or(own_render).unwrap_or(card)
 }
 
+/// The reason the session stops when no card could be driven: every
+/// card's own failure, and the usual cause when they read like a locked
+/// device (another display server holds the seat's GPUs: eDE started from
+/// inside a running desktop).
+pub fn no_gpu_message(failures: &[String]) -> String {
+    let busy = failures.iter().any(|f| f.contains("ermission denied") || f.contains("EACCES") || f.contains("EBUSY") || f.contains("usy"));
+    let hint = if busy || failures.is_empty() { "; is another display server running on this seat? (nested: run inside X11/Wayland without --udev)" } else { "" };
+    if failures.is_empty() {
+        return format!("no GPU could be opened{hint}");
+    }
+    format!("no GPU could be driven: {}{hint}", failures.join("; "))
+}
+
 /// `Some(node)` when `primary` is not a node a renderer was registered
 /// under: the first registered one renders instead (`None` = fine as is).
 pub fn reconcile_primary<T: Copy + PartialEq>(primary: T, registered: &[T]) -> Option<T> {
@@ -461,6 +474,16 @@ mod tests {
         // A pinned mode that just appeared (the window is that size again) wins.
         assert_eq!(mode_to_follow(Some(mode(1280, 800)), mode(3200, 1824), Some(mode(3200, 1824))), Some(mode(3200, 1824)));
         assert_eq!(mode_to_follow(None, mode(1280, 800), None), Some(mode(1280, 800)));
+    }
+
+    #[test]
+    fn the_no_gpu_message_carries_every_cards_reason() {
+        let broken = no_gpu_message(&["/dev/dri/card2: nvidia-drm renders in software only (Mesa's llvmpipe): …".into()]);
+        assert!(broken.starts_with("no GPU could be driven: /dev/dri/card2: nvidia-drm renders in software"), "{broken}");
+        assert!(!broken.contains("another display server"), "a driver failure is not a busy seat: {broken}");
+        let busy = no_gpu_message(&["/dev/dri/card0: Permission denied (os error 13)".into()]);
+        assert!(busy.contains("another display server"), "{busy}");
+        assert!(no_gpu_message(&[]).contains("another display server"));
     }
 
     #[test]

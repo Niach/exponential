@@ -1,0 +1,2 @@
+The X.Org Foundation Xwayland Version 23.2.6 (12302006)
+X Protocol Version 11, Revision 0
