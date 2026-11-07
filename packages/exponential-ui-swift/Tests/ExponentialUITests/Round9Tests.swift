@@ -184,6 +184,88 @@ final class Round9Tests: XCTestCase {
         }
     }
 
+    // MARK: - pictures
+
+    #if canImport(AppKit)
+    /// `VAPP289_SHOTS=<dir>` paints the severity states and Markdown inline
+    /// through the macOS test runner (no simulator), at 3x, like the web's
+    /// and the natives' review pictures.
+    private func picture(_ tree: [String: Any], data: JSONValue?, name: String, reveal: (SurfaceModel) -> Void = { _ in }) throws {
+        let dir = try XCTUnwrap(ProcessInfo.processInfo.environment["VAPP289_SHOTS"])
+        var o = SurfaceOptions()
+        o.theme = ThemeHandle.builtin("neutral")
+        o.mode = .dark
+        let m = try SurfaceModel(id: name, options: o, host: NoHost())
+        let width: CGFloat = 390
+        try m.setNested(json: String(data: JSONSerialization.data(withJSONObject: tree), encoding: .utf8)!)
+        if let data { m.setData(path: "", value: data) }
+        m.setViewport(width: width, height: 1400)
+        reveal(m)
+        m.pass()
+        let height = max(m.surfaceSize.height, 40)
+        let root = ExponentialSurface(model: m).frame(width: width, height: height, alignment: .topLeading).background(m.color("background") ?? .black)
+        let view = NSHostingView(rootView: root)
+        view.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        view.layoutSubtreeIfNeeded()
+        _ = view.fittingSize
+        view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width * 3), pixelsHigh: Int(height * 3), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = view.bounds.size
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+    }
+
+    func testPictures() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["VAPP289_SHOTS"] != nil, "VAPP289_SHOTS unset")
+        func field(_ id: String, _ component: String, _ label: String, _ path: String?, _ extra: [String: Any]) -> [String: Any] {
+            var p: [String: Any] = ["label": label, "name": id, "validateOn": "submit"]
+            if let path { p["checks"] = [["condition": ["@path": path]]] }
+            return ["id": id, "component": component, "props": p.merging(extra) { _, b in b }]
+        }
+        func result(_ severity: String, _ message: String?) -> JSONValue {
+            var r: [String: JSONValue] = ["valid": .bool(false), "severity": .string(severity)]
+            if let message { r["message"] = .string(message) }
+            return .object(r)
+        }
+        let check = [["condition": ["@path": "/warning"]]]
+        var severities = form([
+                ["id": "title", "component": "Heading", "props": ["text": "Check severities", "level": "h2"]],
+                field("ok", "Input", "No failing check", nil, ["value": "ada@example.com"]),
+                field("email", "Input", "Email (error)", "/error", ["value": "ada@"]),
+                field("password", "Input", "Password (warning)", "/warning", ["value": "hunter2"]),
+                field("nickname", "Input", "Nickname (info)", "/info", ["value": "ada"]),
+                field("silent", "Input", "Advisory without a message", "/silent", ["value": "x"]),
+                field("notes", "Textarea", "Notes (warning)", "/warning", ["value": "short"]),
+                field("news", "Checkbox", "Newsletter (info)", "/info", ["checked": true]),
+                field("plan", "Select", "Plan (error)", "/error", ["value": "free", "options": [["label": "Free", "value": "free"]]]),
+                ["id": "warned", "component": "Button", "props": ["label": "Warning: enabled", "checks": check]],
+                ["id": "blocked", "component": "Button", "props": ["label": "Error: disabled", "checks": [["condition": ["@path": "/error"]]]]],
+        ])
+        severities["style"] = ["padding": "$spacing.xl"]
+        severities["children"] = (severities["children"] as? [Any])?.dropLast().map { $0 }
+        try picture(severities, data: .object([
+            "error": result("error", "Not an email"), "warning": result("warning", "Weak: add a few more characters"),
+            "info": result("info", "Shown on your profile"), "silent": result("warning", nil),
+        ]), name: "ios-severity") { m in
+            m.submitForm(id: "f")
+            m.blur()
+        }
+        func md(_ id: String, _ text: String, _ variant: String = "body") -> [String: Any] {
+            ["id": id, "component": "Markdown", "props": ["text": text, "profile": "inline", "variant": variant]]
+        }
+        try picture([
+            "id": "root", "component": "Stack", "props": ["gap": "md"], "style": ["padding": "$spacing.xl"], "children": [
+                md("body", "An inline paragraph is a **Text** body, with [a link](https://a2ui.org) and `code`."),
+                ["id": "body-text", "component": "Text", "props": ["text": "A Text body beside it, the same type."]],
+                md("caption", "An inline caption is a *Text* caption.", "caption"),
+                ["id": "caption-text", "component": "Text", "props": ["text": "A Text caption beside it, the same type.", "variant": "caption"]],
+                md("headings", "# Heading 1\n## Heading 2\n### Heading 3\n#### Heading 4\n##### Heading 5 paints h4\n###### Heading 6 paints h4\nA paragraph after them.\n\n- The rest of GFM\n- stays the document's"),
+            ],
+        ], data: nil, name: "ios-markdown-inline")
+    }
+    #endif
+
     // MARK: - §9.1 Markdown inline
 
     func testMarkdownInlineRecipesReplayTheFixture() throws {
