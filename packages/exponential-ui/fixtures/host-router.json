@@ -2,7 +2,7 @@
   "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`. VAPP-221 (eApps R7, files on records): `format: \"attachment\"` on a string field or on a list's string `items` holds the instance's attachment route `/api/attachments/<lowercase uuid>` (relative, nothing else: no origin, query or fragment; anything else = `an attachment (/api/attachments/<id>)`); `items.format` takes the same formats, on string items only. `acme.files` declares a receipt and a list of photos; `acme.badrecords` puts a format on number items. `attachments` = recordAttachmentIds(schema, data): the ids the attachment fields reference, fields sorted, each id once in the order first met, non-refs skipped (the server checks each belongs to the app and its team). VAPP-218 (eApps U1, src/host/screens.ts): `acme.screens` declares three screens (keyed by template; `settings` is a template that is no screen), a press and an action call step that navigate (`app.navigate`, the host function); `acme.badscreens` makes every screens mistake (a bad icon, a duplicate, an unknown template, a blank title, a non-string param, an unknown key, a too-long title, a screen that is no object, more than MAX_SCREENS = 5, a press and an action step navigating to no screen); `acme.screenslist` has screens that is no list. `screens` = resolveScreen(packages[package], screen, params) → {screen, title, icon, params} | null (the requested screen, else the first; its params, then the request's string params key by key); its `deals` template binds `${params.stage}` and `${params.q}` (templateMessages fills them from the data's params, percent-encoded, a missing one empty; the VAPP-218 flow); `navigate` = navigateTarget(packages[package], args) → {screen, params} | {error}. #EXP-1674 (format version 4): `acme.details` has seven screens, five in the navigation (nav: false ones do not count), one exposed nav screen and one exposed detail screen with a required and an optional param; `acme.closed` exposes nothing; `acme.onlydetails` has only nav: false screens (refused); `acme.baddetails` makes every nav and exposed mistake. `screens`: the fallback is the first in the NAVIGATION. `crossApp` = crossAppTarget(packages[package], screen, params) → {screen, params} | {error}: what a link from another app may open. VAPP-206: `hostParams` = {today, now, month} of a host (the team zone, read at each bind): every host adds them to its applyTemplate and bindDataModel messages. On a package surface the router fills `${today}`, `${now}`, `${month}` in a source (percent-encoded) and a named query's templates (a binding's own param of that name wins); a template's binds read its applyTemplate's. Without them a source stays as written and a query's template is empty. `hostParams` cases: hostParams(now, offset) → {today, now, month}. VAPP-260 (format version 5, src/host/capabilities.ts): `acme.capabilities` declares a valid capability manifest (an ask scope, a picker scope, `http.fetch` with two origins, one with a port); `acme.badcapabilities` makes every entry mistake (a host-only scope, a duplicate, a missing id, a blank and a too-long why, an unknown scope, `http.fetch` without origins, origins on a scope that takes none, an unknown key, an entry that is no object, an empty origins list on the wrong scope); `acme.badcapabilities2` every origin mistake (http, uppercase, a path, a duplicate, a non-string, a label starting with -, a six-digit port, origins that are no list); `acme.capabilitieslist` has capabilities that is no list; `acme.manycapabilities` has more than 16.",
   "packages": {
     "acme.devices": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.devices",
       "name": "Devices",
       "version": "1.0.0",
@@ -21,7 +21,7 @@
               "id": "title",
               "component": "Text",
               "text": {
-                "path": "/title"
+                "@path": "/title"
               }
             }
           ],
@@ -38,11 +38,11 @@
         }
       },
       "functions": [
-        "harness.toast"
+        "harness_toast"
       ]
     },
     "broken": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "broken",
       "name": "",
       "version": "1",
@@ -80,7 +80,7 @@
       ]
     },
     "acme.scoped": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.scoped",
       "name": "Scoped",
       "version": "1.0.0",
@@ -92,7 +92,7 @@
               "id": "root",
               "component": "Text",
               "text": {
-                "path": "/devices/count"
+                "@path": "/devices/count"
               }
             }
           ],
@@ -105,7 +105,7 @@
         }
       },
       "functions": [
-        "harness.toast"
+        "harness_toast"
       ],
       "sources": [
         "exp:devices",
@@ -113,7 +113,7 @@
       ]
     },
     "acme.leaky": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.leaky",
       "name": "Leaky",
       "version": "1.0.0",
@@ -144,7 +144,7 @@
       ]
     },
     "acme.hours": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.hours",
       "name": "Working hours",
       "version": "1.0.0",
@@ -163,7 +163,7 @@
               "id": "title",
               "component": "Text",
               "text": {
-                "path": "/entries/month/label"
+                "@path": "/entries/month/label"
               }
             }
           ],
@@ -182,7 +182,7 @@
         }
       },
       "functions": [
-        "records.*",
+        "records_*",
         "bind"
       ],
       "sources": [
@@ -251,7 +251,7 @@
       }
     },
     "acme.badrecords": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.badrecords",
       "name": "Bad records",
       "version": "1.0.0",
@@ -319,7 +319,7 @@
       }
     },
     "acme.v2": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.v2",
       "name": "Hours v2",
       "version": "2.0.0",
@@ -331,7 +331,7 @@
               "id": "root",
               "component": "Text",
               "text": {
-                "path": "/entries/count"
+                "@path": "/entries/count"
               }
             }
           ],
@@ -344,10 +344,10 @@
         }
       },
       "functions": [
-        "records.*",
-        "tools.weather.*",
-        "tools.lint",
-        "tools.files.read"
+        "records_*",
+        "tools_weather__*",
+        "tools_lint",
+        "tools_files__read"
       ],
       "sources": [
         "records:*"
@@ -547,7 +547,7 @@
       ]
     },
     "acme.charts": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.charts",
       "name": "Charts",
       "version": "1.0.0",
@@ -572,7 +572,7 @@
               "id": "gantt",
               "component": "Gantt",
               "rows": {
-                "path": "/rows"
+                "@path": "/rows"
               }
             }
           ]
@@ -589,7 +589,7 @@
       ]
     },
     "acme.exposes": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.exposes",
       "name": "Hours with tools",
       "version": "1.0.0",
@@ -695,7 +695,7 @@
           },
           "access": "write",
           "run": {
-            "action": "exponential.comments.create",
+            "action": "exponential_comments_create",
             "args": {
               "body": "Logged ${input.hours} h",
               "issueId": "${input.issue}"
@@ -711,7 +711,7 @@
           },
           "access": "write",
           "run": {
-            "action": "exponential.issues.list",
+            "action": "exponential_issues_list",
             "args": {}
           }
         },
@@ -739,7 +739,7 @@
       ]
     },
     "acme.badexposes": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.badexposes",
       "name": "Bad tools",
       "version": "1.0.0",
@@ -814,7 +814,7 @@
           },
           "access": "write",
           "run": {
-            "action": "exponential.issues.create",
+            "action": "exponential_issues_create",
             "upstream": "crm",
             "tool": "x"
           }
@@ -883,7 +883,7 @@
           },
           "access": "write",
           "run": {
-            "action": "exponential.issues.delete",
+            "action": "exponential_issues_delete",
             "args": {}
           }
         },
@@ -909,7 +909,7 @@
           },
           "access": "read",
           "run": {
-            "action": "exponential.issues.create",
+            "action": "exponential_issues_create",
             "args": {}
           }
         },
@@ -988,7 +988,7 @@
       ]
     },
     "acme.exposeslist": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.exposeslist",
       "name": "Tools not a list",
       "version": "1.0.0",
@@ -1012,7 +1012,7 @@
       }
     },
     "acme.queries": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.queries",
       "name": "Hours with queries",
       "version": "1.0.0",
@@ -1024,7 +1024,7 @@
               "id": "root",
               "component": "Text",
               "text": {
-                "path": "/days/count"
+                "@path": "/days/count"
               }
             }
           ],
@@ -1114,7 +1114,7 @@
       }
     },
     "acme.badqueries": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.badqueries",
       "name": "Bad queries",
       "version": "1.0.0",
@@ -1243,7 +1243,7 @@
       ]
     },
     "acme.querieslist": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.querieslist",
       "name": "Queries list",
       "version": "1.0.0",
@@ -1264,7 +1264,7 @@
       ]
     },
     "acme.badcomponents": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.badcomponents",
       "name": "Bad components",
       "version": "1.0.0",
@@ -1338,7 +1338,7 @@
       }
     },
     "acme.files": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.files",
       "name": "Expenses",
       "version": "1.0.0",
@@ -1361,14 +1361,14 @@
               "label": "Receipt",
               "accept": "image/*,application/pdf",
               "files": {
-                "path": "/draft/files"
+                "@path": "/draft/files"
               }
             },
             {
               "id": "receipt",
               "component": "Image",
               "src": {
-                "path": "/latest/receipt"
+                "@path": "/latest/receipt"
               },
               "alt": "Receipt"
             }
@@ -1406,7 +1406,7 @@
       }
     },
     "acme.crm": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.crm",
       "name": "CRM",
       "version": "1.0.0",
@@ -1424,7 +1424,7 @@
         }
       },
       "functions": [
-        "records.*"
+        "records_*"
       ],
       "records": {
         "company": {
@@ -1486,7 +1486,7 @@
       }
     },
     "acme.badrefs": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.badrefs",
       "name": "CRM",
       "version": "1.0.0",
@@ -1504,7 +1504,7 @@
         }
       },
       "functions": [
-        "records.*"
+        "records_*"
       ],
       "records": {
         "company": {
@@ -1584,7 +1584,7 @@
       }
     },
     "acme.expenses": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.expenses",
       "name": "CRM",
       "version": "1.0.0",
@@ -1602,7 +1602,7 @@
         }
       },
       "functions": [
-        "records.*"
+        "records_*"
       ],
       "records": {
         "expense": {
@@ -1645,7 +1645,7 @@
       }
     },
     "acme.hours2": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.hours2",
       "name": "Working hours",
       "version": "2.0.0",
@@ -1664,7 +1664,7 @@
               "id": "title",
               "component": "Text",
               "text": {
-                "path": "/entries/month/label"
+                "@path": "/entries/month/label"
               }
             }
           ],
@@ -1683,7 +1683,7 @@
         }
       },
       "functions": [
-        "records.*",
+        "records_*",
         "bind"
       ],
       "sources": [
@@ -1775,7 +1775,7 @@
       ]
     },
     "acme.screens": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.screens",
       "name": "Screens",
       "version": "1.0.0",
@@ -1803,7 +1803,7 @@
         "won": {
           "steps": [
             {
-              "call": "app.navigate",
+              "@call": "app_navigate",
               "args": {
                 "screen": "'deals'",
                 "params": {
@@ -1844,7 +1844,7 @@
               "id": "t",
               "component": "Text",
               "text": {
-                "path": "/params/stage"
+                "@path": "/params/stage"
               }
             }
           ],
@@ -1877,7 +1877,7 @@
               "on": {
                 "press": {
                   "functionCall": {
-                    "call": "app.navigate",
+                    "@call": "app_navigate",
                     "args": {
                       "screen": "deals",
                       "params": {
@@ -1909,7 +1909,7 @@
       }
     },
     "acme.badscreens": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.badscreens",
       "name": "Bad screens",
       "version": "1.0.0",
@@ -1946,7 +1946,7 @@
         "go": {
           "steps": [
             {
-              "call": "app.navigate",
+              "@call": "app_navigate",
               "args": {
                 "screen": "'gone'"
               }
@@ -1977,7 +1977,7 @@
               "on": {
                 "press": {
                   "functionCall": {
-                    "call": "app.navigate",
+                    "@call": "app_navigate",
                     "args": {
                       "screen": "nowhere"
                     }
@@ -2022,7 +2022,7 @@
       }
     },
     "acme.screenslist": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.screenslist",
       "name": "Screens list",
       "version": "1.0.0",
@@ -2050,7 +2050,7 @@
       }
     },
     "acme.details": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.details",
       "name": "Details",
       "version": "1.0.0",
@@ -2219,7 +2219,7 @@
       }
     },
     "acme.closed": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.closed",
       "name": "Details",
       "version": "1.0.0",
@@ -2250,7 +2250,7 @@
       }
     },
     "acme.onlydetails": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.onlydetails",
       "name": "Details",
       "version": "1.0.0",
@@ -2282,7 +2282,7 @@
       }
     },
     "acme.baddetails": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.baddetails",
       "name": "Details",
       "version": "1.0.0",
@@ -2438,7 +2438,7 @@
       }
     },
     "acme.today": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.today",
       "name": "Today",
       "version": "1.0.0",
@@ -2503,7 +2503,7 @@
       }
     },
     "acme.capabilities": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.capabilities",
       "name": "Photobook",
       "version": "1.0.0",
@@ -2539,7 +2539,7 @@
       }
     },
     "acme.badcapabilities": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.badcapabilities",
       "name": "Bad capabilities",
       "version": "1.0.0",
@@ -2604,7 +2604,7 @@
       }
     },
     "acme.badcapabilities2": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.badcapabilities2",
       "name": "Bad origins",
       "version": "1.0.0",
@@ -2643,7 +2643,7 @@
       }
     },
     "acme.capabilitieslist": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.capabilitieslist",
       "name": "Capabilities list",
       "version": "1.0.0",
@@ -2664,7 +2664,7 @@
       }
     },
     "acme.manycapabilities": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.manycapabilities",
       "name": "Too many",
       "version": "1.0.0",
@@ -2757,190 +2757,71 @@
       "name": "the A2UI lifecycle",
       "steps": [
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "s1",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "updateComponents": {
-              "surfaceId": "s1",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Text",
-                  "text": "Hi"
-                }
-              ]
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
+          "version": "1.0",
+          "updateComponents": {
+            "surfaceId": "s1",
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "text": "Hi"
               }
-            }
-          ]
+            ]
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "updateDataModel": {
-              "surfaceId": "s1",
-              "path": "/user/name",
-              "value": "Ada"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "updateDataModel": {
+            "surfaceId": "s1",
+            "path": "/user/name",
+            "value": "Ada"
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "updateDataModel": {
-              "surfaceId": "s1",
-              "path": "/user/name"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "updateDataModel": {
+            "surfaceId": "s1",
+            "path": "/user/name",
+            "value": null
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "updateDataModel": {
-              "surfaceId": "s1",
-              "value": {
-                "a": 1
-              }
+          "version": "1.0",
+          "updateDataModel": {
+            "surfaceId": "s1",
+            "value": {
+              "a": 1
             }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "updateDataModel": {
-              "surfaceId": "s1",
-              "path": "/",
-              "value": {
-                "b": 2
-              }
+          "version": "1.0",
+          "updateDataModel": {
+            "surfaceId": "s1",
+            "path": "/",
+            "value": {
+              "b": 2
             }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "deleteSurface": {
-              "surfaceId": "s1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "deleteSurface": {
+            "surfaceId": "s1"
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "deleteSurface": {
-              "surfaceId": "s1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "deleteSurface": {
+            "surfaceId": "s1"
+          }
         }
       ]
     },
@@ -2948,46 +2829,27 @@
       "name": "createSurface keeps theme and sendDataModel",
       "steps": [
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s2",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-              "theme": {
-                "primaryColor": "#ff0000"
-              },
-              "sendDataModel": true
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s2",
-                  "message": "unsupported version v0.9"
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "s2",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+            "sendDataModel": true,
+            "metadata": {
+              "extensions": {
+                "at_exponential_theme": {
+                  "primaryColor": "#ff0000"
                 }
               }
             }
-          ]
+          }
         },
         {
-          "message": {
-            "createSurface": {
-              "surfaceId": "s3",
-              "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json",
-              "sendDataModel": false
-            }
-          },
-          "expected": [
-            {
-              "op": "create",
-              "surfaceId": "s3",
-              "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
-            }
-          ]
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "s3",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "sendDataModel": false
+          }
         }
       ]
     },
@@ -2995,267 +2857,88 @@
       "name": "errors",
       "steps": [
         {
-          "message": {
-            "version": "v0.9",
-            "updateComponents": {
-              "surfaceId": "ghost",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Text",
-                  "text": "Hi"
-                }
-              ]
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "ghost",
-                  "message": "unsupported version v0.9"
-                }
+          "version": "1.0",
+          "updateComponents": {
+            "surfaceId": "ghost",
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "text": "Hi"
               }
-            }
-          ]
+            ]
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "updateDataModel": {
-              "surfaceId": "ghost",
-              "value": 1
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "ghost",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "updateDataModel": {
+            "surfaceId": "ghost",
+            "value": 1
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v2"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "s1",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v2"
+          }
         },
         {
-          "message": {
-            "version": "v0.8",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.8"
-                }
-              }
-            }
-          ]
+          "version": "v0.8",
+          "createSurface": {
+            "surfaceId": "s1",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+          }
         },
         {
-          "message": {
-            "version": "v0.9"
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "v0.9"
         },
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            "deleteSurface": {
-              "surfaceId": "s1"
-            }
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "s1",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "deleteSurface": {
+            "surfaceId": "s1"
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "beginRendering": {
-              "surfaceId": "s1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "v0.9",
+          "beginRendering": {
+            "surfaceId": "s1"
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "createSurface": {
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+          }
+        },
+        [
+          1,
+          2
+        ],
+        {
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "s1",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+          }
         },
         {
-          "message": [
-            1,
-            2
-          ],
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "a message is a JSON object"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "updateComponents": {
+            "surfaceId": "s1"
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
-        },
-        {
-          "message": {
-            "version": "v0.9",
-            "updateComponents": {
-              "surfaceId": "s1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
-        },
-        {
-          "message": {
-            "version": "v0.9",
-            "updateDataModel": {
-              "surfaceId": "s1",
-              "path": 3
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "updateDataModel": {
+            "surfaceId": "s1",
+            "path": 3,
+            "value": null
+          }
         }
       ]
     },
@@ -3266,48 +2949,18 @@
       ],
       "steps": [
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "x",
-              "catalogId": "https://acme.example/catalog/v1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "x",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "x",
+            "catalogId": "https://acme.example/catalog/v1"
+          }
         },
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "y",
-              "catalogId": "https://other.example/catalog/v1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "y",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "y",
+            "catalogId": "https://other.example/catalog/v1"
+          }
         }
       ]
     },
@@ -3315,95 +2968,44 @@
       "name": "bindDataModel",
       "steps": [
         {
-          "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "s1",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+          }
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "s1",
               "path": "/devices",
               "source": "exp:devices?team=t1"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "s1",
               "path": "/x",
               "source": "not a source"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "nope",
               "path": "/x",
               "source": "exp:devices"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "nope",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         }
       ]
     },
@@ -3457,7 +3059,7 @@
       "steps": [
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "d1",
               "templateId": "list",
@@ -3466,87 +3068,39 @@
               }
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "d1",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "d2",
               "templateId": "list",
               "packageId": "acme.devices"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "d2",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "d3",
               "templateId": "missing"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "d3",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "d4",
               "templateId": "t",
               "packageId": "broken"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "d4",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         }
       ]
     },
@@ -3568,140 +3122,65 @@
       "steps": [
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "s",
               "templateId": "list",
               "packageId": "acme.scoped"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "s",
               "path": "/issues",
               "source": "exp:issues?board=b1"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "s",
               "path": "/devices",
               "source": "EXP:devices?limit=5"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "s",
               "path": "/extra",
               "source": "acme.data:list/items"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "s",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
+        },
+        {
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "free",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+          }
         },
         {
           "message": {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "free",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            }
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "free",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
-        },
-        {
-          "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "free",
               "path": "/issues",
               "source": "exp:issues"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "free",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         }
       ]
     },
@@ -3716,71 +3195,35 @@
       "steps": [
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "h",
               "templateId": "month"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "h",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "h",
               "path": "/entries",
               "source": "records:entry?mine=1&by=date&sum=hours&month=2026-09"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "h",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "h",
               "path": "/entries",
               "source": "exp:issues?board=b1"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "h",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         }
       ]
     },
@@ -3814,26 +3257,14 @@
       "steps": [
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "h",
               "packageId": "acme.v2",
               "templateId": "list"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "h",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         }
       ]
     },
@@ -3848,71 +3279,35 @@
       "steps": [
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "q",
               "templateId": "month"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "q",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "q",
               "path": "/days",
               "source": "records:entry?query=month&month=2026-11&start=2026-11-01&end=2026-11-30"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "q",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "q",
               "path": "/days",
               "source": "records:entry?query=unknown&month=2026-11"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "q",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         }
       ]
     },
@@ -3927,7 +3322,7 @@
       "steps": [
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "app",
               "packageId": "acme.screens",
@@ -3939,19 +3334,7 @@
               }
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "app",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         }
       ]
     },
@@ -3966,7 +3349,7 @@
       "steps": [
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "applyTemplate": {
               "surfaceId": "t",
               "packageId": "acme.today",
@@ -3978,23 +3361,11 @@
               }
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "t",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "t",
               "path": "/later",
@@ -4006,42 +3377,18 @@
               }
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "t",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "bindDataModel": {
               "surfaceId": "t",
               "path": "/bare",
               "source": "records:entry?date=${today}"
             }
           },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "v0.9",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "t",
-                  "message": "unsupported version v0.9"
-                }
-              }
-            }
-          ]
+          "trusted": true
         }
       ]
     }

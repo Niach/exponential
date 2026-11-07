@@ -6,8 +6,9 @@
 // issue. The Rust core's `check_entry` mirrors this function message for
 // message.
 
-import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, coreCatalog } from "./catalog"
+import { A2UI_BASIC_CATALOG_ID, A2UI_VERSION, ACCEPT_V09, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, coreCatalog } from "./catalog"
 import { isDataSchema } from "./dynamic"
+import { INDEX_FUNCTION } from "./functions"
 import { isIdentifier } from "./ids"
 import type { ComponentDef, ExtensionDef } from "./types"
 
@@ -17,8 +18,23 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === `object
 export const ENVELOPE_KEYS: readonly string[] = [`id`, `component`, `catalogId`, `accessibility`, `metadata`]
 /** The reserved container `createSurface` implies (§5.4). */
 export const SURFACE_COMPONENT = `Surface`
-/** The only `@` function name (§6.2). */
-export const INDEX_FUNCTION = `@index`
+export { INDEX_FUNCTION }
+
+/** The 0.9 wire version the bridge recognizes (§1.1 check 3). */
+export const A2UI_VERSION_09 = `v0.9`
+
+/** What §1.1 checks 3–4 decide about a message's `version`. */
+export type Envelope = { kind: `v10` } | { kind: `upgrade` } | { kind: `refused`; reason: string }
+
+/** Round 9 §1.5: the ONE version check every core entry runs (the router,
+ *  `SurfaceStore.apply`, cards, packages). */
+export function checkEnvelope(message: Record<string, unknown>, acceptV09: boolean = ACCEPT_V09): Envelope {
+  const version = message.version
+  if (version === undefined) return acceptV09 ? { kind: `upgrade` } : { kind: `refused`, reason: `version is required` }
+  if (version === A2UI_VERSION_09) return acceptV09 ? { kind: `upgrade` } : { kind: `refused`, reason: `unsupported version ${A2UI_VERSION_09}` }
+  if (version === A2UI_VERSION) return { kind: `v10` }
+  return { kind: `refused`, reason: `unsupported version ${typeof version === `string` ? version : JSON.stringify(version)}` }
+}
 
 /** RFC 6901 escaping of one reference token. */
 export const escapeToken = (token: string): string => token.replace(/~/g, `~0`).replace(/\//g, `~1`)
@@ -31,6 +47,12 @@ export interface EntryFailure {
 
 const quote = (v: string) => JSON.stringify(v)
 const notId = (what: string, v: string) => `${what}${quote(v)} is not an identifier (UAX #31)`
+
+/** §4.2: an id reference is a string and an identifier. */
+function idRef(value: unknown, pointer: string): EntryFailure | null {
+  if (typeof value !== `string`) return { pointer, message: `a component id is a string` }
+  return isIdentifier(value) ? null : { pointer, message: notId(`id `, value) }
+}
 
 /** §3.3: the first malformed directive (or non-identifier function / arg
  *  name) in a value at a DYNAMIC position, depth-first in key order. */
@@ -45,12 +67,12 @@ export function checkDynamicValue(value: unknown, pointer = ``): EntryFailure | 
   if (!isObj(value)) return null
   if (`@path` in value) {
     if (typeof value[`@path`] !== `string`) return { pointer: `${pointer}/@path`, message: `@path is a string` }
-    for (const k of Object.keys(value)) if (k !== `@path`) return { pointer: `${pointer}/${escapeToken(k)}`, message: `a binding has only @path` }
+    for (const k of Object.keys(value)) if (k !== `@path`) return { pointer: `${pointer}/${escapeToken(k)}`, message: `a binding has only @path (not ${k})` }
     return null
   }
   if (`@call` in value) return checkCall(value, pointer)
   for (const [k, v] of Object.entries(value)) {
-    if (/^@([^@]|$)/.test(k)) return { pointer: `${pointer}/${escapeToken(k)}`, message: `${quote(k)} is not a directive (@path, @call; @@ escapes a literal @)` }
+    if (/^@([^@]|$)/.test(k)) return { pointer: `${pointer}/${escapeToken(k)}`, message: `${k} is not a directive (write @@ for a literal @)` }
     const hit = checkDynamicValue(v, `${pointer}/${escapeToken(k)}`)
     if (hit) return hit
   }
@@ -61,9 +83,9 @@ export function checkDynamicValue(value: unknown, pointer = ``): EntryFailure | 
 export function checkCall(value: Record<string, unknown>, pointer = ``): EntryFailure | null {
   const name = value[`@call`]
   if (typeof name !== `string`) return { pointer: `${pointer}/@call`, message: `@call is a string` }
-  for (const k of Object.keys(value))
-    if (k !== `@call` && k !== `args` && k !== `catalogId`) return { pointer: `${pointer}/${escapeToken(k)}`, message: `a call has only @call, args and catalogId` }
   if (name !== INDEX_FUNCTION && !isIdentifier(name)) return { pointer: `${pointer}/@call`, message: notId(`function `, name) }
+  for (const k of Object.keys(value))
+    if (k !== `@call` && k !== `args` && k !== `catalogId`) return { pointer: `${pointer}/${escapeToken(k)}`, message: `a call has only @call, args and catalogId (not ${k})` }
   if (`catalogId` in value && typeof value.catalogId !== `string`) return { pointer: `${pointer}/catalogId`, message: `catalogId is a string` }
   if (`args` in value) {
     if (!isObj(value.args)) return { pointer: `${pointer}/args`, message: `args is an object` }
@@ -79,11 +101,11 @@ export function checkCall(value: Record<string, unknown>, pointer = ``): EntryFa
 /** §5.1: `metadata` = `{extensions?: {<identifier>: any}}`. */
 export function checkMetadata(value: unknown, pointer: string): EntryFailure | null {
   if (!isObj(value)) return { pointer, message: `metadata is an object` }
-  for (const k of Object.keys(value)) if (k !== `extensions`) return { pointer: `${pointer}/${escapeToken(k)}`, message: `metadata has only extensions` }
+  for (const k of Object.keys(value)) if (k !== `extensions`) return { pointer: `${pointer}/${escapeToken(k)}`, message: `metadata.${k} is not allowed` }
   if (`extensions` in value) {
     if (!isObj(value.extensions)) return { pointer: `${pointer}/extensions`, message: `metadata.extensions is an object` }
     for (const k of Object.keys(value.extensions))
-      if (!isIdentifier(k)) return { pointer: `${pointer}/extensions/${escapeToken(k)}`, message: notId(`extension key `, k) }
+      if (!isIdentifier(k)) return { pointer: `${pointer}/extensions/${escapeToken(k)}`, message: notId(`extension `, k) }
   }
   return null
 }
@@ -148,14 +170,16 @@ export interface EntryContext {
  *  then the other keys in key order (prop names, id references, directives,
  *  depth-first). */
 export function checkEntry(entry: unknown, ctx: EntryContext = {}): EntryFailure | null {
-  if (!isObj(entry)) return { pointer: ``, message: `a component is an object` }
+  if (!isObj(entry)) return { pointer: ``, message: `a component is a JSON object` }
   const id = entry.id
+  if (id === undefined) return { pointer: `/id`, message: `id is required` }
   if (typeof id !== `string`) return { pointer: `/id`, message: `id is a string` }
   if (!isIdentifier(id)) return { pointer: `/id`, message: notId(`id `, id) }
   const component = entry.component
+  if (component === undefined) return { pointer: `/component`, message: `component is required` }
   if (typeof component !== `string`) return { pointer: `/component`, message: `component is a string` }
   if (!isIdentifier(component)) return { pointer: `/component`, message: notId(`component `, component) }
-  if (component === SURFACE_COMPONENT) return { pointer: `/component`, message: `Surface is reserved (createSurface implies it)` }
+  if (component === SURFACE_COMPONENT) return { pointer: `/component`, message: `Surface is reserved` }
   if (`catalogId` in entry && typeof entry.catalogId !== `string`) return { pointer: `/catalogId`, message: `catalogId is a string` }
   if (`metadata` in entry) {
     const hit = checkMetadata(entry.metadata, `/metadata`)
@@ -179,16 +203,22 @@ export function checkEntry(entry: unknown, ctx: EntryContext = {}): EntryFailure
     }
     if (k === `children`) {
       if (Array.isArray(v)) {
-        for (let i = 0; i < v.length; i++) if (typeof v[i] !== `string` || !isIdentifier(v[i])) return { pointer: `${at}/${i}`, message: notId(`child id `, String(v[i])) }
+        for (let i = 0; i < v.length; i++) {
+          const hit = idRef(v[i], `${at}/${i}`)
+          if (hit) return hit
+        }
       } else if (isObj(v) && `componentId` in v) {
-        if (typeof v.componentId !== `string` || !isIdentifier(v.componentId)) return { pointer: `${at}/componentId`, message: notId(`child id `, String(v.componentId)) }
+        const hit = idRef(v.componentId, `${at}/componentId`)
+        if (hit) return hit
       }
       continue
     }
     if (k === `slots`) {
       if (isObj(v))
-        for (const [slot, ref] of Object.entries(v))
-          if (typeof ref !== `string` || !isIdentifier(ref)) return { pointer: `${at}/${escapeToken(slot)}`, message: notId(`slot id `, String(ref)) }
+        for (const [slot, ref] of Object.entries(v)) {
+          const hit = idRef(ref, `${at}/${escapeToken(slot)}`)
+          if (hit) return hit
+        }
       continue
     }
     if (k === `style`) continue
@@ -207,12 +237,16 @@ export function checkEntry(entry: unknown, ctx: EntryContext = {}): EntryFailure
     }
     if (basicRefs) {
       const refs = [...basicRefs.entries()].filter(([p]) => p === at || p.startsWith(`${at}/`))
-      for (const [p, ref] of refs) if (typeof ref !== `string` || !isIdentifier(ref)) return { pointer: p, message: notId(`component id `, String(ref)) }
+      for (const [p, ref] of refs) {
+        const hit = idRef(ref, p)
+        if (hit) return hit
+      }
       if (refs.some(([p]) => p === at)) continue
     }
     const schema = def?.props[k]
     if ((schema?.type as string | undefined) === `componentId`) {
-      if (typeof v === `string` && !isIdentifier(v)) return { pointer: at, message: notId(`component id `, v) }
+      const hit = v === undefined ? null : idRef(v, at)
+      if (hit) return hit
       continue
     }
     if (schema && isDataSchema(schema)) continue

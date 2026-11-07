@@ -289,7 +289,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -317,7 +317,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -351,7 +351,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -383,7 +383,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -421,7 +421,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -458,7 +458,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -513,7 +513,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -547,7 +547,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.1",
@@ -595,7 +595,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -629,7 +629,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -677,7 +677,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -713,7 +713,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -773,7 +773,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -805,7 +805,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",

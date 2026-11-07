@@ -1,5 +1,5 @@
 // VAPP-191 (eApps Q2): expressions are type-checked at package validation.
-// Every `{"call": "expr", "args": {"expr": "<CEL>", "vars": {…}}}` anywhere
+// Every `{"@call": "expr", "args": {"expr": "<CEL>", "vars": {…}}}` anywhere
 // in a template is parsed and checked (src/cel.ts) against the types of its
 // vars: a literal's own type, a records binding's value (the kind's schema
 // fields) or the template data's; anything else is open (`dyn`). An issue
@@ -285,9 +285,9 @@ function rowScopes(template: Record<string, unknown>, records: unknown, queries:
  *  binding to a field a closed row has not is an issue at its path. */
 function varType(v: unknown, at: string, scope: Scope | null, template: Record<string, unknown>, records: unknown, queries: unknown, issues: ExpressionIssue[]): ExprType {
   if (isBinding(v)) {
-    const t = bindingType(v.path, scope, template, records, queries)
+    const t = bindingType(v[`@path`], scope, template, records, queries)
     if (`unknown` in t) {
-      issues.push({ path: `${at}/path`, message: `unknown field ${t.unknown} in ${v.path}` })
+      issues.push({ path: `${at}/@path`, message: `unknown field ${t.unknown} in ${v[`@path`]}` })
       return optionalType(`dyn`)
     }
     return t.type === `dyn` ? optionalType(t.type) : t.type
@@ -316,7 +316,7 @@ export function validatePackageExpressions(pkg: Record<string, unknown>): Expres
     const visit = (value: unknown, at: string) => {
       if (Array.isArray(value)) return value.forEach((v, i) => visit(v, `${at}/${i}`))
       if (!isObject(value)) return
-      if (value.call === `expr` && isObject(value.args)) {
+      if (value[`@call`] === `expr` && isObject(value.args)) {
         const args = value.args
         const here = `${at}/args`
         // VAPP-195: every expression binding shows a default when it fails.

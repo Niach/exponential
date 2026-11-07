@@ -5,6 +5,7 @@ export {
   CORE_LITE_CATALOG_ID,
   A2UI_BASIC_CATALOG_ID,
   A2UI_VERSION,
+  ACCEPT_V09,
   SUPPORTED_CATALOG_IDS,
   UNKNOWN_COMPONENT,
   TOKEN_GROUPS,
@@ -21,6 +22,8 @@ export {
 } from "./catalog"
 export type { CatalogView } from "./catalog"
 export * from "./catalog.generated"
+export { newSurfaceBridge, surfaceUpdates } from "./surface-updates"
+export type { SurfaceBridge, SurfaceRefusal, SurfaceUpdate, SurfaceUpdatesOptions } from "./surface-updates"
 export {
   STYLE_KEYS,
   STYLE_LAYOUT_KEYS,

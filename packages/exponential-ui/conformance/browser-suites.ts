@@ -22,7 +22,7 @@ import {
   UNKNOWN_COMPONENT,
   builtinTheme,
   checkGeometry,
-  clientCapabilities,
+  rendererCapabilities,
   combineDecisions,
   decideFunction,
   decideUrl,
@@ -329,7 +329,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       for (const c of p.sources) record(`host-policy`, `source: ${c.uri}`, () => canon(parseSource(c.uri)) === canon(c.expected))
       for (const c of p.sourceParams) record(`host-policy`, `sourceParams: ${c.expected}`, () => sourceWithParams(c.source, c.params) === c.expected)
       for (const c of p.negotiation)
-        record(`host-policy`, `negotiation: ${c.extensionIds.length}`, () => canon(supportedCatalogIds(c.extensionIds)) === canon(c.expected.supportedCatalogIds) && canon(clientCapabilities(c.extensionIds)) === canon(c.expected.clientCapabilities))
+        record(`host-policy`, `negotiation: ${c.extensionIds.length}`, () => canon(supportedCatalogIds(c.extensionIds)) === canon(c.expected.supportedCatalogIds) && canon(rendererCapabilities(c.extensionIds)) === canon(c.expected.rendererCapabilities))
       const r = fixture(`host-router.json`)
       const packages = r.packages as Record<string, AppPackage>
       for (const v of r.validation) record(`host-router`, `validation: ${v.package}`, () => canon(validatePackage(packages[v.package])) === canon(v.expected))

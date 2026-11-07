@@ -3,7 +3,7 @@
   "renderer": "gpui-cosmic-headless",
   "causes": [
     {
-      "id": "resp-drawer",
+      "id": "resp_drawer",
       "component": "Drawer",
       "kind": "size",
       "cases": 48,
@@ -39,7 +39,7 @@
       "decision": "Chart `height` is the WHOLE chart box (title, legend, axes inside; the plot takes what is left), so the frame never depends on text metrics or legend wrapping."
     },
     {
-      "id": "chart-donut",
+      "id": "chart_donut",
       "component": "Chart",
       "kind": "size",
       "cases": 24,
@@ -51,7 +51,7 @@
       "decision": "As `chart`: the frame = `height` (180)."
     },
     {
-      "id": "chart-line",
+      "id": "chart_line",
       "component": "Chart",
       "kind": "size",
       "cases": 24,
@@ -75,7 +75,7 @@
       "decision": "CodeBlock geometry comes only from its recipes: border + header (`CodeBlock/header` padding + the copy button + hairline) + one `lineHeight` per line, no extra body padding (a theme that wants padding sets it in a recipe)."
     },
     {
-      "id": "form-due",
+      "id": "form_due",
       "component": "DatePicker",
       "kind": "size",
       "cases": 24,
@@ -87,7 +87,7 @@
       "decision": "Picker triggers (Select, DatePicker, DateRangePicker, TimePicker) size to their content (text + glyph + padding + border); only text fields have the 160 px intrinsic width (catalog/layout.json `fieldIntrinsicWidth`)."
     },
     {
-      "id": "form-plan",
+      "id": "form_plan",
       "component": "Radio",
       "kind": "size",
       "cases": 24,
@@ -99,7 +99,7 @@
       "decision": "The Radio group's gap is `Radio/root` gap (`$spacing.sm`), and an option row is max(dot, label line) tall."
     },
     {
-      "id": "form-volume",
+      "id": "form_volume",
       "component": "Slider",
       "kind": "size",
       "cases": 24,
@@ -111,7 +111,7 @@
       "decision": "Slider = header (label + value line) + `$spacing.xs` + a track ROW as tall as the thumb (`Slider/thumb` height); the rail (`Slider/track` height 6) is centred in it. Thumbs are paint parts (not dumped)."
     },
     {
-      "id": "hdr-badge",
+      "id": "hdr_badge",
       "component": "Box",
       "kind": "size",
       "cases": 24,
@@ -123,7 +123,7 @@
       "decision": "A Badge is 2 × paddingHorizontal + its content; a part whose `$if` is false does not exist, so no gap is counted for it."
     },
     {
-      "id": "hdr-sub",
+      "id": "hdr_sub",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -135,7 +135,7 @@
       "decision": "Cascade of `hdr-badge` (the wider badge takes the text column's width)."
     },
     {
-      "id": "hdr-title",
+      "id": "hdr_title",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -147,7 +147,7 @@
       "decision": "Cascade of `hdr-badge`."
     },
     {
-      "id": "list-item.body.title",
+      "id": "list_item.body.title",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -160,7 +160,7 @@
       "decision": "The template node no longer renders in place (lifted into `templates`, §4); an empty Text lays out ZERO lines (0 height plus its padding) everywhere."
     },
     {
-      "id": "list-item.body.title.0",
+      "id": "list_item.body.title.0",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -172,7 +172,7 @@
       "decision": "Cascade of `list-item.meta.0` (0 px wide on gpui)."
     },
     {
-      "id": "list-item.body.title.1",
+      "id": "list_item.body.title.1",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -184,7 +184,7 @@
       "decision": "Cascade of `list-item.meta.1`."
     },
     {
-      "id": "list-item.body.title.2",
+      "id": "list_item.body.title.2",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -196,7 +196,7 @@
       "decision": "Cascade of `list-item.meta.2`."
     },
     {
-      "id": "list-item.meta.0",
+      "id": "list_item.meta.0",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -209,7 +209,7 @@
       "decision": "A number bound into a text prop SHOWS its displayString (`412`); the core's reconcile and gpui's events/paint stop reading it with as_str (fixtures/format.json `display`)."
     },
     {
-      "id": "list-item.meta.1",
+      "id": "list_item.meta.1",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -222,7 +222,7 @@
       "decision": "As `list-item.meta.0`."
     },
     {
-      "id": "list-item.meta.2",
+      "id": "list_item.meta.2",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -247,7 +247,7 @@
       "decision": "The default Menu trigger (no child) is an outline button with `icon` (when set) and `label`, NO chevron; the menu is layout-transparent like every overlay."
     },
     {
-      "id": "nav-inbox.count",
+      "id": "nav_inbox.count",
       "component": "Box",
       "kind": "size",
       "cases": 24,
@@ -259,7 +259,7 @@
       "decision": "As `hdr-badge`: the Row's trailing count Badge = padding + its text."
     },
     {
-      "id": "nav-inbox.label",
+      "id": "nav_inbox.label",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -271,7 +271,7 @@
       "decision": "Cascade of `nav-inbox.count`."
     },
     {
-      "id": "nf-files",
+      "id": "nf_files",
       "component": "FileUpload",
       "kind": "size",
       "cases": 24,
@@ -283,7 +283,7 @@
       "decision": "The drop zone holds icon, title, hint (when set) AND the Browse button (`$string.browse`, an outline `$control.buttonSm` button), each `FileUpload/dropzone` gap apart."
     },
     {
-      "id": "page-1",
+      "id": "page_1",
       "component": "Image",
       "kind": "size",
       "cases": 24,
@@ -295,7 +295,7 @@
       "decision": "An Image's box takes its `aspectRatio` (else 16:9 without a height): height = width / ratio, before and after the picture loads (no layout shift)."
     },
     {
-      "id": "progress-bound.label",
+      "id": "progress_bound.label",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -307,7 +307,7 @@
       "decision": "Cascade of `sparkline`."
     },
     {
-      "id": "progress-bound.track.fill",
+      "id": "progress_bound.track.fill",
       "component": "Box",
       "kind": "size",
       "cases": 24,
@@ -319,7 +319,7 @@
       "decision": "Cascade of `sparkline`."
     },
     {
-      "id": "resp-nav-inbox.count",
+      "id": "resp_nav_inbox.count",
       "component": "Box",
       "kind": "size",
       "cases": 24,
@@ -331,7 +331,7 @@
       "decision": "As `nav-inbox.count`."
     },
     {
-      "id": "resp-nav-inbox.label",
+      "id": "resp_nav_inbox.label",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -343,7 +343,7 @@
       "decision": "Cascade of `resp-nav-inbox.count`."
     },
     {
-      "id": "spark-label",
+      "id": "spark_label",
       "component": "Text",
       "kind": "size",
       "cases": 24,
@@ -391,7 +391,7 @@
       "decision": "A Segmented is content-sized (align-self start) unless `fill` or `variant: bar`; it never stretches across a column."
     },
     {
-      "id": "tree-guides",
+      "id": "tree_guides",
       "component": "TreeGuides",
       "kind": "size",
       "cases": 24,
@@ -417,7 +417,7 @@
       "decision": "Video gets an explicit `aspectRatio` prop (default 16:9 = `mediaAspectRatio`): height = width / ratio. The web's 300×150 browser default and gpui's fixed 180 are both gone."
     },
     {
-      "id": "hover-card-trigger",
+      "id": "hover_card_trigger",
       "component": "Link",
       "kind": "size",
       "cases": 20,
@@ -429,7 +429,7 @@
       "decision": "Layout-transparent overlays: the trigger IS the flex item, so a Link trigger stretches in a stretch row like any Text."
     },
     {
-      "id": "pill-1",
+      "id": "pill_1",
       "component": "Box",
       "kind": "size",
       "cases": 16,
@@ -441,7 +441,7 @@
       "decision": "As `hdr-badge`: no gap for the absent dot/icon parts."
     },
     {
-      "id": "alert-dialog",
+      "id": "alert_dialog",
       "component": "Dialog",
       "kind": "size",
       "cases": 14,
@@ -453,7 +453,7 @@
       "decision": "Layout-transparent: the frame is the trigger Button's (32/36/40 px), never the row's height."
     },
     {
-      "id": "card-row.body.subtitle",
+      "id": "card_row.body.subtitle",
       "component": "Text",
       "kind": "size",
       "cases": 12,
@@ -465,7 +465,7 @@
       "decision": "CSS flex: the card Row's icon and meta parts are content-sized; gpui gives a sibling part 30 px more (find it with `--details` once React marks every Row part)."
     },
     {
-      "id": "card-row.body.title",
+      "id": "card_row.body.title",
       "component": "Text",
       "kind": "size",
       "cases": 12,
@@ -501,7 +501,7 @@
       "decision": "As `alert-dialog`."
     },
     {
-      "id": "form-sub",
+      "id": "form_sub",
       "component": "Select",
       "kind": "size",
       "cases": 12,
@@ -513,7 +513,7 @@
       "decision": "Cascade of `form-due` (the 160 px DatePicker floor wraps the row)."
     },
     {
-      "id": "main-md",
+      "id": "main_md",
       "component": "Markdown",
       "kind": "size",
       "cases": 12,
@@ -525,7 +525,7 @@
       "decision": "A Markdown paragraph lays out like a Text of the same runs: no extra line for the bold run or the trailing newline (one line at 900/1280)."
     },
     {
-      "id": "nav-card",
+      "id": "nav_card",
       "component": "Box",
       "kind": "size",
       "cases": 12,
@@ -573,7 +573,7 @@
       "decision": "As `alert-dialog`."
     },
     {
-      "id": "footer-spacer",
+      "id": "footer_spacer",
       "component": "Box",
       "kind": "size",
       "cases": 8,
@@ -585,7 +585,7 @@
       "decision": "Cascade of `pill-1`."
     },
     {
-      "id": "pill-2",
+      "id": "pill_2",
       "component": "Box",
       "kind": "position",
       "cases": 8,
@@ -597,7 +597,7 @@
       "decision": "Cascade of `pill-1`."
     },
     {
-      "id": "pill-3",
+      "id": "pill_3",
       "component": "Box",
       "kind": "position",
       "cases": 8,
@@ -609,7 +609,7 @@
       "decision": "Cascade of `pill-1`."
     },
     {
-      "id": "pill-4",
+      "id": "pill_4",
       "component": "Box",
       "kind": "position",
       "cases": 8,
@@ -621,7 +621,7 @@
       "decision": "Cascade of `pill-1`."
     },
     {
-      "id": "tab-bar.item.1.icon",
+      "id": "tab_bar.item.1.icon",
       "component": "Icon",
       "kind": "size",
       "cases": 8,
@@ -633,7 +633,7 @@
       "decision": "`transform` is paint-only: the selected icon's scale(1.15) never changes its 20 px box. The web dump now measures with transforms off (conformance/dom.ts LAYOUT_ONLY_CSS)."
     },
     {
-      "id": "hover-card",
+      "id": "hover_card",
       "component": "Popover",
       "kind": "size",
       "cases": 4,

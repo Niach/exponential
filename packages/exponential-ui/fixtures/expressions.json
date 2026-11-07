@@ -1951,7 +1951,7 @@
     {
       "name": "dateTime",
       "call": {
-        "call": "dateTime",
+        "@call": "dateTime",
         "args": {
           "date": "2026-10-05",
           "time": "14:30"
@@ -1963,11 +1963,11 @@
     {
       "name": "mul",
       "call": {
-        "call": "mul",
+        "@call": "mul",
         "args": {
           "a": 2,
           "b": {
-            "path": "/h"
+            "@path": "/h"
           }
         }
       },
@@ -1977,7 +1977,7 @@
     {
       "name": "div by zero has no value",
       "call": {
-        "call": "div",
+        "@call": "div",
         "args": {
           "a": 1,
           "b": 0
@@ -1989,7 +1989,7 @@
     {
       "name": "mod",
       "call": {
-        "call": "mod",
+        "@call": "mod",
         "args": {
           "a": -7,
           "b": 3
@@ -2001,7 +2001,7 @@
     {
       "name": "round to digits",
       "call": {
-        "call": "round",
+        "@call": "round",
         "args": {
           "value": 1.005,
           "digits": 2
@@ -2013,7 +2013,7 @@
     {
       "name": "round without digits",
       "call": {
-        "call": "round",
+        "@call": "round",
         "args": {
           "value": 2.5
         }
@@ -2024,7 +2024,7 @@
     {
       "name": "floor",
       "call": {
-        "call": "floor",
+        "@call": "floor",
         "args": {
           "value": -1.5
         }
@@ -2035,7 +2035,7 @@
     {
       "name": "ceil",
       "call": {
-        "call": "ceil",
+        "@call": "ceil",
         "args": {
           "value": 1.2
         }
@@ -2046,10 +2046,10 @@
     {
       "name": "abs",
       "call": {
-        "call": "abs",
+        "@call": "abs",
         "args": {
           "value": {
-            "path": "/neg"
+            "@path": "/neg"
           }
         }
       },
@@ -2059,13 +2059,13 @@
     {
       "name": "min of values",
       "call": {
-        "call": "min",
+        "@call": "min",
         "args": {
           "values": [
             3,
             1,
             {
-              "path": "/h"
+              "@path": "/h"
             }
           ]
         }
@@ -2076,12 +2076,12 @@
     {
       "name": "max of values",
       "call": {
-        "call": "max",
+        "@call": "max",
         "args": {
           "values": [
             3,
             {
-              "path": "/h"
+              "@path": "/h"
             }
           ]
         }
@@ -2092,7 +2092,7 @@
     {
       "name": "strict numbers",
       "call": {
-        "call": "mul",
+        "@call": "mul",
         "args": {
           "a": "2",
           "b": 3
@@ -2104,7 +2104,7 @@
     {
       "name": "a missing argument",
       "call": {
-        "call": "dateAdd",
+        "@call": "dateAdd",
         "args": {
           "date": "2026-11-02",
           "n": 1
@@ -2115,7 +2115,7 @@
     {
       "name": "today",
       "call": {
-        "call": "today"
+        "@call": "today"
       },
       "value": "2026-11-02",
       "cel": "today()"
@@ -2123,7 +2123,7 @@
     {
       "name": "now",
       "call": {
-        "call": "now",
+        "@call": "now",
         "args": {}
       },
       "value": "2026-11-02T09:30:00.000Z",
@@ -2132,7 +2132,7 @@
     {
       "name": "dateAdd over DST",
       "call": {
-        "call": "dateAdd",
+        "@call": "dateAdd",
         "args": {
           "date": "2026-03-28T12:00:00Z",
           "n": 1,
@@ -2145,11 +2145,11 @@
     {
       "name": "dateDiff",
       "call": {
-        "call": "dateDiff",
+        "@call": "dateDiff",
         "args": {
           "a": "2026-10-01",
           "b": {
-            "path": "/d"
+            "@path": "/d"
           },
           "unit": "day"
         }
@@ -2160,10 +2160,10 @@
     {
       "name": "startOf",
       "call": {
-        "call": "startOf",
+        "@call": "startOf",
         "args": {
           "date": {
-            "path": "/d"
+            "@path": "/d"
           },
           "unit": "week"
         }
@@ -2174,7 +2174,7 @@
     {
       "name": "endOf",
       "call": {
-        "call": "endOf",
+        "@call": "endOf",
         "args": {
           "date": "2024-02-10",
           "unit": "month"
@@ -2186,7 +2186,7 @@
     {
       "name": "weekday",
       "call": {
-        "call": "weekday",
+        "@call": "weekday",
         "args": {
           "date": "2026-11-08"
         }
@@ -2197,7 +2197,7 @@
     {
       "name": "isoWeek",
       "call": {
-        "call": "isoWeek",
+        "@call": "isoWeek",
         "args": {
           "date": "2027-01-03"
         }
@@ -2208,7 +2208,7 @@
     {
       "name": "hours",
       "call": {
-        "call": "hours",
+        "@call": "hours",
         "args": {
           "minutes": 90
         }
@@ -2219,10 +2219,10 @@
     {
       "name": "formatDuration",
       "call": {
-        "call": "formatDuration",
+        "@call": "formatDuration",
         "args": {
           "hours": {
-            "path": "/h"
+            "@path": "/h"
           },
           "format": "h:mm"
         }
@@ -2233,12 +2233,12 @@
     {
       "name": "expr",
       "call": {
-        "call": "expr",
+        "@call": "expr",
         "args": {
           "expr": "formatDuration(h - 8, 'h:mm')",
           "vars": {
             "h": {
-              "path": "/h"
+              "@path": "/h"
             }
           }
         }
@@ -2249,12 +2249,12 @@
     {
       "name": "expr over rows",
       "call": {
-        "call": "expr",
+        "@call": "expr",
         "args": {
           "expr": "rows.map(r, r.hours).filter(x, x > 1)",
           "vars": {
             "rows": {
-              "path": "/rows"
+              "@path": "/rows"
             }
           }
         }
@@ -2268,7 +2268,7 @@
     {
       "name": "expr error has no value",
       "call": {
-        "call": "expr",
+        "@call": "expr",
         "args": {
           "expr": "1 / 0"
         }
@@ -2279,7 +2279,7 @@
     {
       "name": "expr syntax error has no value",
       "call": {
-        "call": "expr",
+        "@call": "expr",
         "args": {
           "expr": "1 +"
         }
@@ -2289,7 +2289,7 @@
     {
       "name": "expr without vars",
       "call": {
-        "call": "expr",
+        "@call": "expr",
         "args": {
           "expr": "today()"
         }
@@ -2300,7 +2300,7 @@
     {
       "name": "E2: a failing call shows its default",
       "call": {
-        "call": "div",
+        "@call": "div",
         "args": {
           "a": 1,
           "b": 0,
@@ -2312,7 +2312,7 @@
     {
       "name": "E2: a failing expr shows its default",
       "call": {
-        "call": "expr",
+        "@call": "expr",
         "args": {
           "expr": "1 / 0",
           "vars": {},
@@ -2324,10 +2324,10 @@
     {
       "name": "E2: orElse over a missing binding",
       "call": {
-        "call": "orElse",
+        "@call": "orElse",
         "args": {
           "value": {
-            "path": "/nope"
+            "@path": "/nope"
           },
           "default": 5
         }
@@ -2337,10 +2337,10 @@
     {
       "name": "E2: orElse over a value",
       "call": {
-        "call": "orElse",
+        "@call": "orElse",
         "args": {
           "value": {
-            "path": "/h"
+            "@path": "/h"
           },
           "default": 0
         }
@@ -2351,13 +2351,13 @@
     {
       "name": "a var bound to a missing field reads null (dogfood: a row without its optional field fell to the default)",
       "call": {
-        "call": "expr",
+        "@call": "expr",
         "args": {
           "expr": "c == null ? 'none' : c",
           "default": "fallback",
           "vars": {
             "c": {
-              "path": "/nope"
+              "@path": "/nope"
             }
           }
         }
@@ -2369,7 +2369,7 @@
     {
       "name": "hours left: a records value and template data",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2414,15 +2414,15 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "formatDuration(target - orElse(entries.sum, 0), 'h:mm')",
                     "vars": {
                       "target": {
-                        "path": "/target"
+                        "@path": "/target"
                       },
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -2447,7 +2447,7 @@
     {
       "name": "rows of a kind",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2492,12 +2492,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.rows.filter(r, orElse(r.done, false)).map(r, r.hours)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -2522,7 +2522,7 @@
     {
       "name": "a typo in a field",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2567,12 +2567,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "rows.map(r, r.hourz)",
                     "vars": {
                       "rows": {
-                        "path": "/entries/rows"
+                        "@path": "/entries/rows"
                       }
                     },
                     "default": null
@@ -2602,7 +2602,7 @@
     {
       "name": "a typo in the records value",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2647,12 +2647,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.summ / 60",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -2682,7 +2682,7 @@
     {
       "name": "a unit a date has not",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2727,12 +2727,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "dateAdd(orElse(entries.rows[0].date, today()), 1, 'hour')",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -2762,7 +2762,7 @@
     {
       "name": "a timestamp field",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2807,12 +2807,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "dateAdd(orElse(entries.rows[0].at, now()), 1, 'hour') > orElse(entries.rows[0].createdAt, now())",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -2837,7 +2837,7 @@
     {
       "name": "the Exponential spelling of a records binding",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2882,12 +2882,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.rows.map(r, r.hourz)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -2917,7 +2917,7 @@
     {
       "name": "a syntax error",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2962,7 +2962,7 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "1 +",
                     "default": null
@@ -2992,7 +2992,7 @@
     {
       "name": "a name with no var",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3037,7 +3037,7 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "target * 2",
                     "default": null
@@ -3067,7 +3067,7 @@
     {
       "name": "a literal var",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3112,7 +3112,7 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "x * 2",
                     "vars": {
@@ -3145,7 +3145,7 @@
     {
       "name": "a literal object var",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3190,7 +3190,7 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "goal.hours * goal.weeks",
                     "vars": {
@@ -3221,7 +3221,7 @@
     {
       "name": "a relative path is open",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3266,12 +3266,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "orElse(row.anything, 0) + 1",
                     "vars": {
                       "row": {
-                        "path": "hours"
+                        "@path": "hours"
                       }
                     },
                     "default": null
@@ -3296,7 +3296,7 @@
     {
       "name": "an unbound path is open",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3341,12 +3341,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "orElse(x.y, 0) * 2",
                     "vars": {
                       "x": {
-                        "path": "/nowhere"
+                        "@path": "/nowhere"
                       }
                     },
                     "default": null
@@ -3371,7 +3371,7 @@
     {
       "name": "a call var is open",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3416,12 +3416,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "orElse(x, 0) * 2",
                     "vars": {
                       "x": {
-                        "call": "add",
+                        "@call": "add",
                         "args": {
                           "a": 1,
                           "b": 2
@@ -3450,7 +3450,7 @@
     {
       "name": "template data types",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3495,15 +3495,15 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "target + label",
                     "vars": {
                       "target": {
-                        "path": "/target"
+                        "@path": "/target"
                       },
                       "label": {
-                        "path": "/label"
+                        "@path": "/label"
                       }
                     },
                     "default": null
@@ -3534,7 +3534,7 @@
     {
       "name": "expr is a string",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3579,7 +3579,7 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": 5,
                     "default": null
@@ -3609,7 +3609,7 @@
     {
       "name": "vars is an object",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3654,7 +3654,7 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "1",
                     "vars": [
@@ -3687,7 +3687,7 @@
     {
       "name": "too long",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3732,7 +3732,7 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1    ",
                     "default": null
@@ -3762,7 +3762,7 @@
     {
       "name": "an expression anywhere in a component",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3807,24 +3807,31 @@
                 "id": "root",
                 "component": "Text",
                 "visible": {
-                  "call": "not",
+                  "@call": "not",
                   "args": {
                     "value": {
-                      "call": "expr",
+                      "@call": "cond",
                       "args": {
-                        "expr": "entries.count > 'x'",
-                        "vars": {
-                          "entries": {
-                            "path": "/entries"
+                        "if": {
+                          "@call": "expr",
+                          "args": {
+                            "expr": "entries.count > 'x'",
+                            "vars": {
+                              "entries": {
+                                "@path": "/entries"
+                              }
+                            },
+                            "default": null
                           }
                         },
-                        "default": null
+                        "then": true,
+                        "else": false
                       }
                     }
                   }
                 },
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "1",
                     "default": null
@@ -3854,7 +3861,7 @@
     {
       "name": "E2: an unguarded optional field names its path",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3899,12 +3906,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.rows.filter(r, r.done).map(r, r.hours)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -3934,7 +3941,7 @@
     {
       "name": "E2: an optional field in arithmetic",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3979,12 +3986,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.rows[0].hours * 60",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": 0
@@ -4014,7 +4021,7 @@
     {
       "name": "E2: has() guards a ternary",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4059,12 +4066,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "has(entries.rows[0].hours) ? entries.rows[0].hours * 60 : 0",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": 0
@@ -4089,7 +4096,7 @@
     {
       "name": "E2: a null check guards",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4134,12 +4141,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.rows.map(r, r.hours != null ? r.hours : 0)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -4164,7 +4171,7 @@
     {
       "name": "E2: orElse narrows",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4209,12 +4216,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "round(orElse(entries.rows[0].hours, 0) * 60)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": 0
@@ -4239,7 +4246,7 @@
     {
       "name": "E2: a required field needs no guard",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4284,12 +4291,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.rows.map(r, r.date)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": []
@@ -4314,7 +4321,7 @@
     {
       "name": "E2: an expression binding needs a default",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4359,12 +4366,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.count + 1",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     }
                   }
@@ -4393,7 +4400,7 @@
     {
       "name": "VAPP-204: sum may be missing (no sum=)",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4438,12 +4445,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "formatDuration(160 - entries.sum, 'h:mm')",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -4473,7 +4480,7 @@
     {
       "name": "VAPP-204: a totals field may be missing",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4518,12 +4525,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.totals.hours + 1",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -4553,7 +4560,7 @@
     {
       "name": "VAPP-204: groups may be missing",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4598,12 +4605,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "size(entries.groups)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -4633,7 +4640,7 @@
     {
       "name": "VAPP-204: a list index may be past the end",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4678,12 +4685,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "size(entries.rows[0].id)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -4713,7 +4720,7 @@
     {
       "name": "VAPP-204: a row template types its relative paths",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4774,12 +4781,12 @@
                 "id": "id",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "size(id) > 0 ? 'x' : ''",
                     "vars": {
                       "id": {
-                        "path": "id"
+                        "@path": "id"
                       }
                     },
                     "default": null
@@ -4790,12 +4797,12 @@
                 "id": "hours",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "hours * 2",
                     "vars": {
                       "hours": {
-                        "path": "hours"
+                        "@path": "hours"
                       }
                     },
                     "default": null
@@ -4825,7 +4832,7 @@
     {
       "name": "VAPP-204: a typo in a row field",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4878,12 +4885,12 @@
                 "id": "row",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "orElse(h, 0) * 2",
                     "vars": {
                       "h": {
-                        "path": "hourz"
+                        "@path": "hourz"
                       }
                     },
                     "default": null
@@ -4913,7 +4920,7 @@
     {
       "name": "VAPP-204: a typo in a records path",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4958,12 +4965,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "size(orElse(e, []))",
                     "vars": {
                       "e": {
-                        "path": "/entries/rowz"
+                        "@path": "/entries/rowz"
                       }
                     },
                     "default": null
@@ -4993,7 +5000,7 @@
     {
       "name": "VAPP-204: the query decides: sum= makes sum a number",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5038,15 +5045,15 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "formatDuration(target - entries.sum, 'h:mm')",
                     "vars": {
                       "target": {
-                        "path": "/target"
+                        "@path": "/target"
                       },
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -5071,7 +5078,7 @@
     {
       "name": "VAPP-204: a month view is typed",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5116,15 +5123,15 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.month.label + entries.month.days[0].weekday",
                     "vars": {
                       "target": {
-                        "path": "/target"
+                        "@path": "/target"
                       },
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -5154,7 +5161,7 @@
     {
       "name": "VAPP-204: a typo in a month view",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5199,15 +5206,15 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.month.labl",
                     "vars": {
                       "target": {
-                        "path": "/target"
+                        "@path": "/target"
                       },
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -5237,7 +5244,7 @@
     {
       "name": "VAPP-214: computed fields type-check against the kind and read as typed row fields (minutes a number, week a number, the row keys readable)",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5278,12 +5285,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "size(entries.rows.map(r, r.minutes + r.week)) > 0 && entries.rows.all(r, r.mine)",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -5305,7 +5312,7 @@
     {
       "name": "VAPP-214: a computed field shadowing a schema field or a row key, reading another computed field, not a string, or not checking (unknown name, an unguarded optional, a type error) is an install issue at its path",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5351,12 +5358,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.count",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -5407,7 +5414,7 @@
     {
       "name": "VAPP-214: a template reading a computed field as the wrong type is an issue",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5446,12 +5453,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "size(entries.rows.map(r, r.week + 'x'))",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null
@@ -5478,7 +5485,7 @@
     {
       "name": "VAPP-214: at most 16 computed fields per kind",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5533,12 +5540,12 @@
                 "id": "root",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
                     "expr": "entries.count",
                     "vars": {
                       "entries": {
-                        "path": "/entries"
+                        "@path": "/entries"
                       }
                     },
                     "default": null

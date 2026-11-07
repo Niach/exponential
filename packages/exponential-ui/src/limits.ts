@@ -20,6 +20,9 @@ export const MAX_POINTER_BYTES: number = limitsJson.maxPointerBytes
 export const MAX_POINTER_SEGMENTS: number = limitsJson.maxPointerSegments
 
 /** The issue messages, byte-identical in every core. */
+/** Round 9 §6.5: how long a routed call waits for its agent. */
+export const AGENT_FUNCTION_TIMEOUT_MS: number = limitsJson.agentFunctionTimeoutMs
+
 export const LIMIT_ISSUES = {
   usedTwice: `id used twice; only its first place renders`,
   depth: `nesting deeper than ${MAX_DEPTH} levels`,

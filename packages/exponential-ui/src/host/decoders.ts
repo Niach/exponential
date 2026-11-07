@@ -247,7 +247,8 @@ export function messagesFromMcpResult(result: unknown): Decoded {
   return out
 }
 
-/** A client message as the MCP tools/call that carries it back. */
-export function mcpActionCall(message: ClientMessage, tool: string = MCP_ACTION_TOOL): { method: `tools/call`; params: { name: string; arguments: { message: ClientMessage } } } {
-  return { method: `tools/call`, params: { name: tool, arguments: { message } } }
+/** A renderer message as the MCP tools/call that carries it back (round 9
+ *  §10: `metadata` beside `message` when it has any). */
+export function mcpActionCall(message: ClientMessage, tool: string = MCP_ACTION_TOOL, metadata?: Record<string, unknown>): { method: `tools/call`; params: { name: string; arguments: { message: ClientMessage; metadata?: Record<string, unknown> } } } {
+  return { method: `tools/call`, params: { name: tool, arguments: metadata ? { message, metadata } : { message } } }
 }

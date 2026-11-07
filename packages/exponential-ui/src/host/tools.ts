@@ -1,15 +1,17 @@
 // VAPP-161: a package's TOOLS (docs/package-format.md "Tools"): the MCP
-// servers and scripts its functions call (`tools.<id>.<name>` for an MCP
-// tool, `tools.<id>` for a script), each behind the consent card the host
+// servers and scripts its functions call (`tools_<id>__<name>` for an MCP
+// tool, `tools_<id>` for a script), each behind the consent card the host
 // MUST show before the first call. Pure, so the Rust core mirrors it
 // (`host/tools.rs`); fixtures/host-router.json (validation) and
 // fixtures/host-package.json `consent` replay it.
 
 import type { PackageIssue } from "./package"
 import { canonicalJson } from "./signature"
+import { mangle } from "../ids"
 
-/** `^[a-z][a-z0-9_-]{0,31}$`: a tool's id. */
-export const TOOL_ID_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/
+/** Round 9 §12: a tool's id: `_`-separated words (no `-`, no `__`, no
+ *  leading or trailing `_`), at most 32 characters. */
+export const TOOL_ID_PATTERN = /^(?=.{1,32}$)[a-z][a-z0-9]*(_[a-z0-9]+)*$/
 export const TOOL_KINDS: readonly string[] = [`mcp`, `script`]
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -102,9 +104,30 @@ export function toolConsentKey(packageId: string, toolId: string, tool: PackageT
   return `${packageId}/${toolId}:${canonicalJson(tool)}`
 }
 
-/** The tool a host function name calls: `tools.<id>` (a script) or
- *  `tools.<id>.<name>` (an MCP server's tool); null = not a tool call. */
+/** The host function names a tool call starts with. */
+export const TOOL_FUNCTION_PREFIX = `tools_`
+
+/** Round 9 §6.3: the tool a host function name calls: `tools_<id>` (a
+ *  script) or `tools_<id>__<tool>` (an MCP server's tool, the MANGLED tool
+ *  name the host resolves against the live tools); null = not a tool call. */
 export function toolCall(name: string): { toolId: string; tool: string | null } | null {
-  const m = /^tools\.([a-z][a-z0-9_-]{0,31})(?:\.(.+))?$/.exec(name)
-  return m ? { toolId: m[1]!, tool: m[2] ?? null } : null
+  if (!name.startsWith(TOOL_FUNCTION_PREFIX)) return null
+  const rest = name.slice(TOOL_FUNCTION_PREFIX.length)
+  const at = rest.indexOf(`__`)
+  const id = at < 0 ? rest : rest.slice(0, at)
+  const tool = at < 0 ? null : rest.slice(at + 2)
+  if (tool === `` || !TOOL_ID_PATTERN.test(id)) return null
+  return { toolId: id, tool }
+}
+
+/** The flat function name of a tool (`tools_<id>`, `tools_<id>__<mangle(tool)>`). */
+export function toolFunctionName(toolId: string, tool?: string | null): string {
+  return tool === undefined || tool === null ? `${TOOL_FUNCTION_PREFIX}${toolId}` : `${TOOL_FUNCTION_PREFIX}${toolId}__${mangle(tool)}`
+}
+
+/** Round 9 §6.3: the ONE live tool whose `mangle` equals `mangled`: the tool,
+ *  or `none`/`ambiguous` as the refusal. */
+export function resolveMangled(mangled: string, live: readonly string[]): { tool: string } | { refused: `none` | `ambiguous` } {
+  const hits = live.filter((t) => mangle(t) === mangled)
+  return hits.length === 1 ? { tool: hits[0]! } : { refused: hits.length === 0 ? `none` : `ambiguous` }
 }

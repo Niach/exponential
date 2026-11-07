@@ -27,7 +27,7 @@
             },
             "children": [
               {
-                "id": "general-card",
+                "id": "general_card",
                 "component": "Card",
                 "props": {
                   "title": "General",
@@ -35,7 +35,7 @@
                 },
                 "children": [
                   {
-                    "id": "general-form",
+                    "id": "general_form",
                     "component": "Form",
                     "props": {
                       "name": "teamGeneral"
@@ -46,13 +46,13 @@
                           "name": "saveTeamSettings",
                           "context": {
                             "name": {
-                              "path": "/team/name"
+                              "@path": "/team/name"
                             },
                             "slug": {
-                              "path": "/team/slug"
+                              "@path": "/team/slug"
                             },
                             "timezone": {
-                              "path": "/team/timezone"
+                              "@path": "/team/timezone"
                             }
                           }
                         }
@@ -60,29 +60,29 @@
                     },
                     "children": [
                       {
-                        "id": "name-slug",
+                        "id": "name_slug",
                         "component": "FieldGroup",
                         "props": {
                           "columns": 2
                         },
                         "children": [
                           {
-                            "id": "name-input",
+                            "id": "name_input",
                             "component": "Input",
                             "props": {
                               "label": "Team name",
                               "name": "name",
                               "placeholder": "Acme Inc.",
                               "value": {
-                                "path": "/team/name"
+                                "@path": "/team/name"
                               },
                               "checks": [
                                 {
                                   "condition": {
-                                    "call": "required",
+                                    "@call": "required",
                                     "args": {
                                       "value": {
-                                        "path": "/team/name"
+                                        "@path": "/team/name"
                                       }
                                     }
                                   },
@@ -90,10 +90,10 @@
                                 },
                                 {
                                   "condition": {
-                                    "call": "length",
+                                    "@call": "length",
                                     "args": {
                                       "value": {
-                                        "path": "/team/name"
+                                        "@path": "/team/name"
                                       },
                                       "min": 2,
                                       "max": 64
@@ -105,22 +105,22 @@
                             }
                           },
                           {
-                            "id": "slug-input",
+                            "id": "slug_input",
                             "component": "Input",
                             "props": {
                               "label": "URL slug",
                               "name": "slug",
                               "placeholder": "acme-inc",
                               "value": {
-                                "path": "/team/slug"
+                                "@path": "/team/slug"
                               },
                               "checks": [
                                 {
                                   "condition": {
-                                    "call": "required",
+                                    "@call": "required",
                                     "args": {
                                       "value": {
-                                        "path": "/team/slug"
+                                        "@path": "/team/slug"
                                       }
                                     }
                                   },
@@ -128,10 +128,10 @@
                                 },
                                 {
                                   "condition": {
-                                    "call": "regex",
+                                    "@call": "regex",
                                     "args": {
                                       "value": {
-                                        "path": "/team/slug"
+                                        "@path": "/team/slug"
                                       },
                                       "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                     }
@@ -140,10 +140,10 @@
                                 },
                                 {
                                   "condition": {
-                                    "call": "length",
+                                    "@call": "length",
                                     "args": {
                                       "value": {
-                                        "path": "/team/slug"
+                                        "@path": "/team/slug"
                                       },
                                       "min": 3,
                                       "max": 40
@@ -157,17 +157,17 @@
                         ]
                       },
                       {
-                        "id": "url-preview",
+                        "id": "url_preview",
                         "component": "Text",
                         "props": {
                           "variant": "muted",
                           "text": {
-                            "call": "concat",
+                            "@call": "concat",
                             "args": {
                               "values": [
                                 "Your team lives at app.exponential.at/",
                                 {
-                                  "path": "/team/slug"
+                                  "@path": "/team/slug"
                                 }
                               ]
                             }
@@ -175,7 +175,7 @@
                         }
                       },
                       {
-                        "id": "tz-select",
+                        "id": "tz_select",
                         "component": "Select",
                         "props": {
                           "label": "Timezone",
@@ -183,18 +183,18 @@
                           "searchable": true,
                           "placeholder": "Choose a timezone",
                           "options": {
-                            "path": "/timezones"
+                            "@path": "/timezones"
                           },
                           "value": {
-                            "path": "/team/timezone"
+                            "@path": "/team/timezone"
                           },
                           "checks": [
                             {
                               "condition": {
-                                "call": "required",
+                                "@call": "required",
                                 "args": {
                                   "value": {
-                                    "path": "/team/timezone"
+                                    "@path": "/team/timezone"
                                   }
                                 }
                               },
@@ -204,7 +204,7 @@
                         }
                       },
                       {
-                        "id": "general-actions",
+                        "id": "general_actions",
                         "component": "FormActions",
                         "props": {
                           "submit": "Save changes"
@@ -215,7 +215,7 @@
                 ]
               },
               {
-                "id": "danger-card",
+                "id": "danger_card",
                 "component": "Card",
                 "props": {
                   "title": "Danger zone",
@@ -223,7 +223,7 @@
                 },
                 "children": [
                   {
-                    "id": "danger-row",
+                    "id": "danger_row",
                     "component": "Stack",
                     "props": {
                       "direction": {
@@ -239,14 +239,14 @@
                     },
                     "children": [
                       {
-                        "id": "danger-text",
+                        "id": "danger_text",
                         "component": "Stack",
                         "props": {
                           "gap": "xs"
                         },
                         "children": [
                           {
-                            "id": "danger-title",
+                            "id": "danger_title",
                             "component": "Text",
                             "props": {
                               "variant": "label",
@@ -255,7 +255,7 @@
                             }
                           },
                           {
-                            "id": "danger-desc",
+                            "id": "danger_desc",
                             "component": "Text",
                             "props": {
                               "variant": "muted",
@@ -265,7 +265,7 @@
                         ]
                       },
                       {
-                        "id": "delete-dialog",
+                        "id": "delete_dialog",
                         "component": "AlertDialog",
                         "props": {
                           "title": "Delete team?",
@@ -273,7 +273,7 @@
                           "confirmLabel": "Delete team",
                           "destructive": true,
                           "open": {
-                            "path": "/ui/confirmDeleteOpen"
+                            "@path": "/ui/confirmDeleteOpen"
                           }
                         },
                         "on": {
@@ -282,7 +282,7 @@
                               "name": "deleteTeam",
                               "context": {
                                 "slug": {
-                                  "path": "/team/slug"
+                                  "@path": "/team/slug"
                                 }
                               }
                             }
@@ -290,7 +290,7 @@
                         },
                         "slots": {
                           "trigger": {
-                            "id": "delete-btn",
+                            "id": "delete_btn",
                             "component": "Button",
                             "props": {
                               "label": "Delete team",
@@ -367,19 +367,19 @@
         "props": {
           "title": "Issues",
           "subtitle": {
-            "call": "pluralize",
+            "@call": "pluralize",
             "args": {
               "value": {
-                "call": "len",
+                "@call": "len",
                 "args": {
                   "value": {
-                    "call": "filter",
+                    "@call": "filter",
                     "args": {
                       "items": {
-                        "path": "/issues"
+                        "@path": "/issues"
                       },
                       "query": {
-                        "path": "/filters/query"
+                        "@path": "/filters/query"
                       },
                       "fields": [
                         "identifier",
@@ -388,10 +388,10 @@
                       ],
                       "where": {
                         "status": {
-                          "path": "/filters/status"
+                          "@path": "/filters/status"
                         },
                         "assignee": {
-                          "path": "/filters/assignee"
+                          "@path": "/filters/assignee"
                         }
                       }
                     }
@@ -419,7 +419,7 @@
                   "type": "search",
                   "placeholder": "Search by title, ID or assignee",
                   "value": {
-                    "path": "/filters/query"
+                    "@path": "/filters/query"
                   },
                   "validateOn": "change"
                 }
@@ -431,7 +431,7 @@
                   "label": "Status",
                   "name": "status",
                   "value": {
-                    "path": "/filters/status"
+                    "@path": "/filters/status"
                   },
                   "options": [
                     {
@@ -469,7 +469,7 @@
                   "name": "assignee",
                   "searchable": true,
                   "value": {
-                    "path": "/filters/assignee"
+                    "@path": "/filters/assignee"
                   },
                   "options": [
                     {
@@ -512,7 +512,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/filters",
                         "value": {
@@ -567,13 +567,13 @@
                     }
                   ],
                   "rows": {
-                    "call": "filter",
+                    "@call": "filter",
                     "args": {
                       "items": {
-                        "path": "/issues"
+                        "@path": "/issues"
                       },
                       "query": {
-                        "path": "/filters/query"
+                        "@path": "/filters/query"
                       },
                       "fields": [
                         "identifier",
@@ -582,10 +582,10 @@
                       ],
                       "where": {
                         "status": {
-                          "path": "/filters/status"
+                          "@path": "/filters/status"
                         },
                         "assignee": {
-                          "path": "/filters/assignee"
+                          "@path": "/filters/assignee"
                         }
                       }
                     }
@@ -711,21 +711,21 @@
                 "props": {
                   "label": "Online now",
                   "value": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "{online} of {total}",
                       "params": {
                         "online": {
-                          "call": "text",
+                          "@call": "text",
                           "args": {
                             "value": {
-                              "call": "len",
+                              "@call": "len",
                               "args": {
                                 "value": {
-                                  "call": "filter",
+                                  "@call": "filter",
                                   "args": {
                                     "items": {
-                                      "path": "/devices"
+                                      "@path": "/devices"
                                     },
                                     "query": "",
                                     "fields": [],
@@ -739,13 +739,13 @@
                           }
                         },
                         "total": {
-                          "call": "text",
+                          "@call": "text",
                           "args": {
                             "value": {
-                              "call": "len",
+                              "@call": "len",
                               "args": {
                                 "value": {
-                                  "path": "/devices"
+                                  "@path": "/devices"
                                 }
                               }
                             }
@@ -756,7 +756,7 @@
                   },
                   "tone": "success",
                   "trend": {
-                    "path": "/onlineTrend"
+                    "@path": "/onlineTrend"
                   }
                 }
               },
@@ -766,13 +766,13 @@
                 "props": {
                   "label": "Devices",
                   "value": {
-                    "call": "text",
+                    "@call": "text",
                     "args": {
                       "value": {
-                        "call": "len",
+                        "@call": "len",
                         "args": {
                           "value": {
-                            "path": "/devices"
+                            "@path": "/devices"
                           }
                         }
                       }
@@ -787,16 +787,16 @@
                 "props": {
                   "label": "Offline",
                   "value": {
-                    "call": "text",
+                    "@call": "text",
                     "args": {
                       "value": {
-                        "call": "len",
+                        "@call": "len",
                         "args": {
                           "value": {
-                            "call": "filter",
+                            "@call": "filter",
                             "args": {
                               "items": {
-                                "path": "/devices"
+                                "@path": "/devices"
                               },
                               "query": "",
                               "fields": [],
@@ -828,7 +828,7 @@
                   "type": "search",
                   "placeholder": "Name, owner or OS",
                   "value": {
-                    "path": "/query"
+                    "@path": "/query"
                   },
                   "validateOn": "change"
                 }
@@ -852,7 +852,7 @@
                     }
                   ],
                   "value": {
-                    "path": "/statusFilter"
+                    "@path": "/statusFilter"
                   }
                 }
               }
@@ -897,13 +897,13 @@
                 }
               ],
               "rows": {
-                "call": "filter",
+                "@call": "filter",
                 "args": {
                   "items": {
-                    "path": "/devices"
+                    "@path": "/devices"
                   },
                   "query": {
-                    "path": "/query"
+                    "@path": "/query"
                   },
                   "fields": [
                     "name",
@@ -913,7 +913,7 @@
                   ],
                   "where": {
                     "status": {
-                      "path": "/statusFilter"
+                      "@path": "/statusFilter"
                     }
                   }
                 }
@@ -939,13 +939,13 @@
                 "md": "right"
               },
               "title": {
-                "path": "/detail/name"
+                "@path": "/detail/name"
               },
               "description": {
-                "path": "/detail/owner"
+                "@path": "/detail/owner"
               },
               "open": {
-                "path": "/detail/open"
+                "@path": "/detail/open"
               }
             },
             "children": [
@@ -961,7 +961,7 @@
                       "title": "Status",
                       "icon": "wifi",
                       "value": {
-                        "path": "/detail/status"
+                        "@path": "/detail/status"
                       }
                     }
                   },
@@ -972,7 +972,7 @@
                       "title": "Operating system",
                       "icon": "monitor",
                       "value": {
-                        "path": "/detail/os"
+                        "@path": "/detail/os"
                       }
                     }
                   },
@@ -983,7 +983,7 @@
                       "title": "App version",
                       "icon": "package",
                       "value": {
-                        "path": "/detail/appVersion"
+                        "@path": "/detail/appVersion"
                       }
                     }
                   },
@@ -994,10 +994,10 @@
                       "title": "Last seen",
                       "icon": "clock",
                       "value": {
-                        "call": "formatRelativeTime",
+                        "@call": "formatRelativeTime",
                         "args": {
                           "value": {
-                            "path": "/detail/lastSeen"
+                            "@path": "/detail/lastSeen"
                           }
                         }
                       }
@@ -1010,7 +1010,7 @@
                       "title": "Serial number",
                       "icon": "hash",
                       "value": {
-                        "path": "/detail/serial"
+                        "@path": "/detail/serial"
                       }
                     }
                   }
@@ -1168,13 +1168,13 @@
                           "name": "signup.submit",
                           "context": {
                             "name": {
-                              "path": "/form/name"
+                              "@path": "/form/name"
                             },
                             "email": {
-                              "path": "/form/email"
+                              "@path": "/form/email"
                             },
                             "terms": {
-                              "path": "/form/terms"
+                              "@path": "/form/terms"
                             }
                           }
                         }
@@ -1196,15 +1196,15 @@
                               "name": "name",
                               "placeholder": "Jane Doe",
                               "value": {
-                                "path": "/form/name"
+                                "@path": "/form/name"
                               },
                               "checks": [
                                 {
                                   "condition": {
-                                    "call": "required",
+                                    "@call": "required",
                                     "args": {
                                       "value": {
-                                        "path": "/form/name"
+                                        "@path": "/form/name"
                                       }
                                     }
                                   },
@@ -1222,15 +1222,15 @@
                               "type": "email",
                               "placeholder": "you@example.com",
                               "value": {
-                                "path": "/form/email"
+                                "@path": "/form/email"
                               },
                               "checks": [
                                 {
                                   "condition": {
-                                    "call": "required",
+                                    "@call": "required",
                                     "args": {
                                       "value": {
-                                        "path": "/form/email"
+                                        "@path": "/form/email"
                                       }
                                     }
                                   },
@@ -1238,10 +1238,10 @@
                                 },
                                 {
                                   "condition": {
-                                    "call": "email",
+                                    "@call": "email",
                                     "args": {
                                       "value": {
-                                        "path": "/form/email"
+                                        "@path": "/form/email"
                                       }
                                     }
                                   },
@@ -1258,15 +1258,15 @@
                               "name": "password",
                               "type": "password",
                               "value": {
-                                "path": "/form/password"
+                                "@path": "/form/password"
                               },
                               "checks": [
                                 {
                                   "condition": {
-                                    "call": "length",
+                                    "@call": "length",
                                     "args": {
                                       "value": {
-                                        "path": "/form/password"
+                                        "@path": "/form/password"
                                       },
                                       "min": 8
                                     }
@@ -1283,12 +1283,12 @@
                               "label": "I agree to the Terms of Service and Privacy Policy",
                               "name": "terms",
                               "checked": {
-                                "path": "/form/terms"
+                                "@path": "/form/terms"
                               },
                               "checks": [
                                 {
                                   "condition": {
-                                    "path": "/form/terms"
+                                    "@path": "/form/terms"
                                   },
                                   "message": "You must accept the terms to continue."
                                 }
@@ -1330,10 +1330,10 @@
         "component": "Page",
         "props": {
           "title": {
-            "path": "/conversation/title"
+            "@path": "/conversation/title"
           },
           "subtitle": {
-            "path": "/conversation/subtitle"
+            "@path": "/conversation/subtitle"
           },
           "padded": false
         },
@@ -1375,10 +1375,10 @@
                       "gap": "sm",
                       "align": "end",
                       "justify": {
-                        "call": "cond",
+                        "@call": "cond",
                         "args": {
                           "if": {
-                            "path": "mine"
+                            "@path": "mine"
                           },
                           "then": "end",
                           "else": "start"
@@ -1391,15 +1391,15 @@
                         "component": "Avatar",
                         "props": {
                           "name": {
-                            "path": "sender"
+                            "@path": "sender"
                           },
                           "size": "sm"
                         },
                         "visible": {
-                          "call": "not",
+                          "@call": "not",
                           "args": {
                             "value": {
-                              "path": "mine"
+                              "@path": "mine"
                             }
                           }
                         }
@@ -1416,10 +1416,10 @@
                           "backgroundColor": "$color.muted"
                         },
                         "visible": {
-                          "call": "not",
+                          "@call": "not",
                           "args": {
                             "value": {
-                              "path": "mine"
+                              "@path": "mine"
                             }
                           }
                         },
@@ -1438,7 +1438,7 @@
                                 "props": {
                                   "variant": "label",
                                   "text": {
-                                    "path": "sender"
+                                    "@path": "sender"
                                   }
                                 }
                               },
@@ -1448,7 +1448,7 @@
                                 "props": {
                                   "variant": "body",
                                   "text": {
-                                    "path": "text"
+                                    "@path": "text"
                                   }
                                 }
                               },
@@ -1458,7 +1458,7 @@
                                 "props": {
                                   "variant": "caption",
                                   "text": {
-                                    "path": "time"
+                                    "@path": "time"
                                   }
                                 }
                               }
@@ -1479,7 +1479,7 @@
                           "color": "$color.primaryForeground"
                         },
                         "visible": {
-                          "path": "mine"
+                          "@path": "mine"
                         },
                         "children": [
                           {
@@ -1497,7 +1497,7 @@
                                 "props": {
                                   "variant": "body",
                                   "text": {
-                                    "path": "text"
+                                    "@path": "text"
                                   }
                                 },
                                 "style": {
@@ -1510,7 +1510,7 @@
                                 "props": {
                                   "variant": "caption",
                                   "text": {
-                                    "path": "time"
+                                    "@path": "time"
                                   }
                                 },
                                 "style": {
@@ -1544,7 +1544,7 @@
                     "props": {
                       "placeholder": "Message Design team",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       },
                       "attachments": true
                     },
@@ -1554,7 +1554,7 @@
                           "name": "send_message",
                           "context": {
                             "text": {
-                              "path": "/draft"
+                              "@path": "/draft"
                             }
                           }
                         }
@@ -1686,7 +1686,7 @@
         "props": {
           "title": "Sprint board",
           "subtitle": {
-            "path": "/sprint"
+            "@path": "/sprint"
           }
         },
         "children": [
@@ -1702,21 +1702,21 @@
             },
             "children": [
               {
-                "id": "col-todo",
+                "id": "col_todo",
                 "component": "Card",
                 "props": {
                   "padded": true
                 },
                 "children": [
                   {
-                    "id": "todo-stack",
+                    "id": "todo_stack",
                     "component": "Stack",
                     "props": {
                       "gap": "sm"
                     },
                     "children": [
                       {
-                        "id": "todo-header",
+                        "id": "todo_header",
                         "component": "Stack",
                         "props": {
                           "direction": "horizontal",
@@ -1724,7 +1724,7 @@
                         },
                         "children": [
                           {
-                            "id": "todo-title",
+                            "id": "todo_title",
                             "component": "Heading",
                             "props": {
                               "text": "Todo",
@@ -1732,18 +1732,18 @@
                             }
                           },
                           {
-                            "id": "todo-count",
+                            "id": "todo_count",
                             "component": "Badge",
                             "props": {
                               "variant": "secondary",
                               "text": {
-                                "call": "text",
+                                "@call": "text",
                                 "args": {
                                   "value": {
-                                    "call": "len",
+                                    "@call": "len",
                                     "args": {
                                       "value": {
-                                        "path": "/todo"
+                                        "@path": "/todo"
                                       }
                                     }
                                   }
@@ -1754,31 +1754,31 @@
                         ]
                       },
                       {
-                        "id": "todo-list",
+                        "id": "todo_list",
                         "component": "List",
                         "props": {
                           "gap": "sm"
                         },
                         "template": {
-                          "component": "issue-card",
+                          "component": "issue_card",
                           "path": "/todo",
                           "key": "id"
                         },
                         "children": [
                           {
-                            "id": "issue-card",
+                            "id": "issue_card",
                             "component": "Row",
                             "props": {
                               "surface": "card",
                               "pressable": true,
                               "identifier": {
-                                "path": "id"
+                                "@path": "id"
                               },
                               "title": {
-                                "path": "title"
+                                "@path": "title"
                               },
                               "subtitle": {
-                                "path": "assignee"
+                                "@path": "assignee"
                               }
                             },
                             "on": {
@@ -1787,7 +1787,7 @@
                                   "name": "openIssue",
                                   "context": {
                                     "id": {
-                                      "path": "id"
+                                      "@path": "id"
                                     }
                                   }
                                 }
@@ -1795,11 +1795,11 @@
                             },
                             "slots": {
                               "trailing": {
-                                "id": "issue-avatar",
+                                "id": "issue_avatar",
                                 "component": "Avatar",
                                 "props": {
                                   "name": {
-                                    "path": "assignee"
+                                    "@path": "assignee"
                                   },
                                   "size": "sm"
                                 }
@@ -1813,21 +1813,21 @@
                 ]
               },
               {
-                "id": "col-progress",
+                "id": "col_progress",
                 "component": "Card",
                 "props": {
                   "padded": true
                 },
                 "children": [
                   {
-                    "id": "progress-stack",
+                    "id": "progress_stack",
                     "component": "Stack",
                     "props": {
                       "gap": "sm"
                     },
                     "children": [
                       {
-                        "id": "progress-header",
+                        "id": "progress_header",
                         "component": "Stack",
                         "props": {
                           "direction": "horizontal",
@@ -1835,7 +1835,7 @@
                         },
                         "children": [
                           {
-                            "id": "progress-title",
+                            "id": "progress_title",
                             "component": "Heading",
                             "props": {
                               "text": "In progress",
@@ -1843,18 +1843,18 @@
                             }
                           },
                           {
-                            "id": "progress-count",
+                            "id": "progress_count",
                             "component": "Badge",
                             "props": {
                               "variant": "secondary",
                               "text": {
-                                "call": "text",
+                                "@call": "text",
                                 "args": {
                                   "value": {
-                                    "call": "len",
+                                    "@call": "len",
                                     "args": {
                                       "value": {
-                                        "path": "/inProgress"
+                                        "@path": "/inProgress"
                                       }
                                     }
                                   }
@@ -1865,31 +1865,31 @@
                         ]
                       },
                       {
-                        "id": "progress-list",
+                        "id": "progress_list",
                         "component": "List",
                         "props": {
                           "gap": "sm"
                         },
                         "template": {
-                          "component": "issue-card",
+                          "component": "issue_card",
                           "path": "/inProgress",
                           "key": "id"
                         },
                         "children": [
                           {
-                            "id": "issue-card",
+                            "id": "issue_card",
                             "component": "Row",
                             "props": {
                               "surface": "card",
                               "pressable": true,
                               "identifier": {
-                                "path": "id"
+                                "@path": "id"
                               },
                               "title": {
-                                "path": "title"
+                                "@path": "title"
                               },
                               "subtitle": {
-                                "path": "assignee"
+                                "@path": "assignee"
                               }
                             },
                             "on": {
@@ -1898,7 +1898,7 @@
                                   "name": "openIssue",
                                   "context": {
                                     "id": {
-                                      "path": "id"
+                                      "@path": "id"
                                     }
                                   }
                                 }
@@ -1906,11 +1906,11 @@
                             },
                             "slots": {
                               "trailing": {
-                                "id": "issue-avatar",
+                                "id": "issue_avatar",
                                 "component": "Avatar",
                                 "props": {
                                   "name": {
-                                    "path": "assignee"
+                                    "@path": "assignee"
                                   },
                                   "size": "sm"
                                 }
@@ -1924,21 +1924,21 @@
                 ]
               },
               {
-                "id": "col-done",
+                "id": "col_done",
                 "component": "Card",
                 "props": {
                   "padded": true
                 },
                 "children": [
                   {
-                    "id": "done-stack",
+                    "id": "done_stack",
                     "component": "Stack",
                     "props": {
                       "gap": "sm"
                     },
                     "children": [
                       {
-                        "id": "done-header",
+                        "id": "done_header",
                         "component": "Stack",
                         "props": {
                           "direction": "horizontal",
@@ -1946,7 +1946,7 @@
                         },
                         "children": [
                           {
-                            "id": "done-title",
+                            "id": "done_title",
                             "component": "Heading",
                             "props": {
                               "text": "Done",
@@ -1954,18 +1954,18 @@
                             }
                           },
                           {
-                            "id": "done-count",
+                            "id": "done_count",
                             "component": "Badge",
                             "props": {
                               "variant": "secondary",
                               "text": {
-                                "call": "text",
+                                "@call": "text",
                                 "args": {
                                   "value": {
-                                    "call": "len",
+                                    "@call": "len",
                                     "args": {
                                       "value": {
-                                        "path": "/done"
+                                        "@path": "/done"
                                       }
                                     }
                                   }
@@ -1976,31 +1976,31 @@
                         ]
                       },
                       {
-                        "id": "done-list",
+                        "id": "done_list",
                         "component": "List",
                         "props": {
                           "gap": "sm"
                         },
                         "template": {
-                          "component": "issue-card",
+                          "component": "issue_card",
                           "path": "/done",
                           "key": "id"
                         },
                         "children": [
                           {
-                            "id": "issue-card",
+                            "id": "issue_card",
                             "component": "Row",
                             "props": {
                               "surface": "card",
                               "pressable": true,
                               "identifier": {
-                                "path": "id"
+                                "@path": "id"
                               },
                               "title": {
-                                "path": "title"
+                                "@path": "title"
                               },
                               "subtitle": {
-                                "path": "assignee"
+                                "@path": "assignee"
                               }
                             },
                             "on": {
@@ -2009,7 +2009,7 @@
                                   "name": "openIssue",
                                   "context": {
                                     "id": {
-                                      "path": "id"
+                                      "@path": "id"
                                     }
                                   }
                                 }
@@ -2017,11 +2017,11 @@
                             },
                             "slots": {
                               "trailing": {
-                                "id": "issue-avatar",
+                                "id": "issue_avatar",
                                 "component": "Avatar",
                                 "props": {
                                   "name": {
-                                    "path": "assignee"
+                                    "@path": "assignee"
                                   },
                                   "size": "sm"
                                 }
@@ -2118,7 +2118,7 @@
         "props": {
           "title": "Invoices",
           "subtitle": {
-            "path": "/summary"
+            "@path": "/summary"
           }
         },
         "children": [
@@ -2133,13 +2133,13 @@
                 "props": {
                   "variant": "muted",
                   "text": {
-                    "call": "pluralize",
+                    "@call": "pluralize",
                     "args": {
                       "value": {
-                        "call": "len",
+                        "@call": "len",
                         "args": {
                           "value": {
-                            "path": "/selected"
+                            "@path": "/selected"
                           }
                         }
                       },
@@ -2166,21 +2166,21 @@
                       "name": "markPaid",
                       "context": {
                         "ids": {
-                          "path": "/selected"
+                          "@path": "/selected"
                         }
                       }
                     }
                   }
                 },
                 "visible": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "path": "/selected"
+                          "@path": "/selected"
                         }
                       }
                     }
@@ -2196,7 +2196,7 @@
               "rowKey": "id",
               "selectable": "multiple",
               "selected": {
-                "path": "/selected"
+                "@path": "/selected"
               },
               "stickyHeader": true,
               "emptyText": "No invoices yet",
@@ -2237,7 +2237,7 @@
                 }
               ],
               "rows": {
-                "path": "/invoices"
+                "@path": "/invoices"
               }
             }
           }
@@ -2452,10 +2452,10 @@
         "component": "Page",
         "props": {
           "title": {
-            "path": "/board/name"
+            "@path": "/board/name"
           },
           "subtitle": {
-            "path": "/board/team"
+            "@path": "/board/team"
           }
         },
         "children": [
@@ -2475,7 +2475,7 @@
                   "name": "createIssue",
                   "context": {
                     "boardId": {
-                      "path": "/board/id"
+                      "@path": "/board/id"
                     }
                   }
                 }
@@ -2502,7 +2502,7 @@
         "props": {
           "title": "Notifications",
           "subtitle": {
-            "path": "/summary"
+            "@path": "/summary"
           },
           "padded": false
         },
@@ -2526,16 +2526,16 @@
                 "component": "Row",
                 "props": {
                   "icon": {
-                    "path": "icon"
+                    "@path": "icon"
                   },
                   "title": {
-                    "path": "title"
+                    "@path": "title"
                   },
                   "subtitle": {
-                    "path": "preview"
+                    "@path": "preview"
                   },
                   "meta": {
-                    "path": "time"
+                    "@path": "time"
                   },
                   "pressable": true
                 },
@@ -2545,7 +2545,7 @@
                       "name": "openNotification",
                       "context": {
                         "id": {
-                          "path": "id"
+                          "@path": "id"
                         }
                       }
                     }
@@ -2564,7 +2564,7 @@
                       "backgroundColor": "$color.primary"
                     },
                     "visible": {
-                      "path": "unread"
+                      "@path": "unread"
                     }
                   }
                 }
@@ -2576,10 +2576,10 @@
                 "component": "Section",
                 "props": {
                   "title": {
-                    "path": "value"
+                    "@path": "value"
                   },
                   "count": {
-                    "path": "count"
+                    "@path": "count"
                   }
                 }
               }
@@ -2737,10 +2737,10 @@
                         "component": "Avatar",
                         "props": {
                           "name": {
-                            "path": "/user/name"
+                            "@path": "/user/name"
                           },
                           "src": {
-                            "path": "/user/avatarUrl"
+                            "@path": "/user/avatarUrl"
                           },
                           "size": "lg"
                         }
@@ -2758,7 +2758,7 @@
                             "component": "Heading",
                             "props": {
                               "text": {
-                                "path": "/user/name"
+                                "@path": "/user/name"
                               },
                               "level": "h3"
                             }
@@ -2768,7 +2768,7 @@
                             "component": "Badge",
                             "props": {
                               "text": {
-                                "path": "/user/role"
+                                "@path": "/user/role"
                               },
                               "variant": "secondary",
                               "icon": "briefcase"
@@ -2796,7 +2796,7 @@
                         "props": {
                           "icon": "mail",
                           "title": {
-                            "path": "/user/email"
+                            "@path": "/user/email"
                           },
                           "subtitle": "Email",
                           "density": "compact"
@@ -2808,13 +2808,13 @@
                         "props": {
                           "icon": "clock",
                           "title": {
-                            "call": "formatRelativeTime",
+                            "@call": "formatRelativeTime",
                             "args": {
                               "value": {
-                                "path": "/user/lastActive"
+                                "@path": "/user/lastActive"
                               },
                               "now": {
-                                "path": "/now"
+                                "@path": "/now"
                               }
                             }
                           },
@@ -2847,7 +2847,7 @@
                               "name": "editProfile",
                               "context": {
                                 "userId": {
-                                  "path": "/user/id"
+                                  "@path": "/user/id"
                                 }
                               }
                             }
@@ -2868,7 +2868,7 @@
                               "name": "messageUser",
                               "context": {
                                 "userId": {
-                                  "path": "/user/id"
+                                  "@path": "/user/id"
                                 }
                               }
                             }
@@ -2936,7 +2936,7 @@
                     "props": {
                       "name": "signIn",
                       "busy": {
-                        "path": "/ui/busy"
+                        "@path": "/ui/busy"
                       }
                     },
                     "on": {
@@ -2945,10 +2945,10 @@
                           "name": "signIn",
                           "context": {
                             "email": {
-                              "path": "/form/email"
+                              "@path": "/form/email"
                             },
                             "remember": {
-                              "path": "/form/remember"
+                              "@path": "/form/remember"
                             }
                           }
                         }
@@ -2971,15 +2971,15 @@
                               "type": "email",
                               "placeholder": "you@example.com",
                               "value": {
-                                "path": "/form/email"
+                                "@path": "/form/email"
                               },
                               "checks": [
                                 {
                                   "condition": {
-                                    "call": "required",
+                                    "@call": "required",
                                     "args": {
                                       "value": {
-                                        "path": "/form/email"
+                                        "@path": "/form/email"
                                       }
                                     }
                                   },
@@ -2987,10 +2987,10 @@
                                 },
                                 {
                                   "condition": {
-                                    "call": "email",
+                                    "@call": "email",
                                     "args": {
                                       "value": {
-                                        "path": "/form/email"
+                                        "@path": "/form/email"
                                       }
                                     }
                                   },
@@ -3007,15 +3007,15 @@
                               "name": "password",
                               "type": "password",
                               "value": {
-                                "path": "/form/password"
+                                "@path": "/form/password"
                               },
                               "checks": [
                                 {
                                   "condition": {
-                                    "call": "required",
+                                    "@call": "required",
                                     "args": {
                                       "value": {
-                                        "path": "/form/password"
+                                        "@path": "/form/password"
                                       }
                                     }
                                   },
@@ -3041,7 +3041,7 @@
                                   "label": "Remember me",
                                   "name": "remember",
                                   "checked": {
-                                    "path": "/form/remember"
+                                    "@path": "/form/remember"
                                   }
                                 }
                               },
@@ -3057,7 +3057,7 @@
                                       "name": "forgotPassword",
                                       "context": {
                                         "email": {
-                                          "path": "/form/email"
+                                          "@path": "/form/email"
                                         }
                                       }
                                     }
@@ -3152,7 +3152,7 @@
                 "component": "Segmented",
                 "props": {
                   "value": {
-                    "path": "/billing"
+                    "@path": "/billing"
                   },
                   "items": [
                     {
@@ -3200,22 +3200,22 @@
                         "props": {
                           "level": "h2",
                           "text": {
-                            "call": "cond",
+                            "@call": "cond",
                             "args": {
                               "if": {
-                                "call": "eq",
+                                "@call": "eq",
                                 "args": {
                                   "a": {
-                                    "path": "/billing"
+                                    "@path": "/billing"
                                   },
                                   "b": "yearly"
                                 }
                               },
                               "then": {
-                                "path": "/plans/free/yearly"
+                                "@path": "/plans/free/yearly"
                               },
                               "else": {
-                                "path": "/plans/free/monthly"
+                                "@path": "/plans/free/monthly"
                               }
                             }
                           }
@@ -3227,7 +3227,7 @@
                         "props": {
                           "variant": "muted",
                           "text": {
-                            "path": "/plans/free/period"
+                            "@path": "/plans/free/period"
                           }
                         }
                       },
@@ -3253,7 +3253,7 @@
                             "component": "Row",
                             "props": {
                               "title": {
-                                "path": "label"
+                                "@path": "label"
                               },
                               "icon": "check",
                               "density": "compact"
@@ -3275,7 +3275,7 @@
                               "context": {
                                 "plan": "free",
                                 "billing": {
-                                  "path": "/billing"
+                                  "@path": "/billing"
                                 }
                               }
                             }
@@ -3330,22 +3330,22 @@
                         "props": {
                           "level": "h2",
                           "text": {
-                            "call": "cond",
+                            "@call": "cond",
                             "args": {
                               "if": {
-                                "call": "eq",
+                                "@call": "eq",
                                 "args": {
                                   "a": {
-                                    "path": "/billing"
+                                    "@path": "/billing"
                                   },
                                   "b": "yearly"
                                 }
                               },
                               "then": {
-                                "path": "/plans/team/yearly"
+                                "@path": "/plans/team/yearly"
                               },
                               "else": {
-                                "path": "/plans/team/monthly"
+                                "@path": "/plans/team/monthly"
                               }
                             }
                           }
@@ -3357,7 +3357,7 @@
                         "props": {
                           "variant": "muted",
                           "text": {
-                            "path": "/plans/team/period"
+                            "@path": "/plans/team/period"
                           }
                         }
                       },
@@ -3383,7 +3383,7 @@
                             "component": "Row",
                             "props": {
                               "title": {
-                                "path": "label"
+                                "@path": "label"
                               },
                               "icon": "check",
                               "density": "compact"
@@ -3405,7 +3405,7 @@
                               "context": {
                                 "plan": "team",
                                 "billing": {
-                                  "path": "/billing"
+                                  "@path": "/billing"
                                 }
                               }
                             }
@@ -3437,22 +3437,22 @@
                         "props": {
                           "level": "h2",
                           "text": {
-                            "call": "cond",
+                            "@call": "cond",
                             "args": {
                               "if": {
-                                "call": "eq",
+                                "@call": "eq",
                                 "args": {
                                   "a": {
-                                    "path": "/billing"
+                                    "@path": "/billing"
                                   },
                                   "b": "yearly"
                                 }
                               },
                               "then": {
-                                "path": "/plans/business/yearly"
+                                "@path": "/plans/business/yearly"
                               },
                               "else": {
-                                "path": "/plans/business/monthly"
+                                "@path": "/plans/business/monthly"
                               }
                             }
                           }
@@ -3464,7 +3464,7 @@
                         "props": {
                           "variant": "muted",
                           "text": {
-                            "path": "/plans/business/period"
+                            "@path": "/plans/business/period"
                           }
                         }
                       },
@@ -3490,7 +3490,7 @@
                             "component": "Row",
                             "props": {
                               "title": {
-                                "path": "label"
+                                "@path": "label"
                               },
                               "icon": "check",
                               "density": "compact"
@@ -3512,7 +3512,7 @@
                               "context": {
                                 "plan": "business",
                                 "billing": {
-                                  "path": "/billing"
+                                  "@path": "/billing"
                                 }
                               }
                             }
@@ -3613,7 +3613,7 @@
         "props": {
           "title": "Files",
           "subtitle": {
-            "path": "/currentPath"
+            "@path": "/currentPath"
           }
         },
         "children": [
@@ -3657,13 +3657,13 @@
                 "props": {
                   "variant": "secondary",
                   "text": {
-                    "call": "pluralize",
+                    "@call": "pluralize",
                     "args": {
                       "value": {
-                        "call": "len",
+                        "@call": "len",
                         "args": {
                           "value": {
-                            "path": "/entries"
+                            "@path": "/entries"
                           }
                         }
                       },
@@ -3728,10 +3728,10 @@
                           "name": "entryAction",
                           "context": {
                             "id": {
-                              "path": "id"
+                              "@path": "id"
                             },
                             "name": {
-                              "path": "name"
+                              "@path": "name"
                             }
                           }
                         }
@@ -3744,19 +3744,19 @@
                         "props": {
                           "pressable": true,
                           "icon": {
-                            "path": "icon"
+                            "@path": "icon"
                           },
                           "title": {
-                            "path": "name"
+                            "@path": "name"
                           },
                           "subtitle": {
-                            "path": "modified"
+                            "@path": "modified"
                           },
                           "value": {
-                            "path": "size"
+                            "@path": "size"
                           },
                           "chevron": {
-                            "path": "chevron"
+                            "@path": "chevron"
                           }
                         },
                         "on": {
@@ -3765,10 +3765,10 @@
                               "name": "open",
                               "context": {
                                 "id": {
-                                  "path": "id"
+                                  "@path": "id"
                                 },
                                 "kind": {
-                                  "path": "kind"
+                                  "@path": "kind"
                                 }
                               }
                             }
@@ -3790,7 +3790,7 @@
               "title": "Upload files",
               "description": "Files are added to the current folder.",
               "open": {
-                "path": "/uploadOpen"
+                "@path": "/uploadOpen"
               }
             },
             "children": [
@@ -3803,7 +3803,7 @@
                   "maxSize": 104857600,
                   "hint": "Up to 100 MB per file",
                   "files": {
-                    "path": "/uploads"
+                    "@path": "/uploads"
                   }
                 },
                 "on": {
@@ -3812,7 +3812,7 @@
                       "name": "upload",
                       "context": {
                         "path": {
-                          "path": "/currentPath"
+                          "@path": "/currentPath"
                         }
                       }
                     }
@@ -3961,7 +3961,7 @@
                       "name": "saveEvent",
                       "context": {
                         "event": {
-                          "path": "/event"
+                          "@path": "/event"
                         }
                       }
                     }
@@ -3976,15 +3976,15 @@
                       "name": "title",
                       "placeholder": "Event title",
                       "value": {
-                        "path": "/event/title"
+                        "@path": "/event/title"
                       },
                       "checks": [
                         {
                           "condition": {
-                            "call": "required",
+                            "@call": "required",
                             "args": {
                               "value": {
-                                "path": "/event/title"
+                                "@path": "/event/title"
                               }
                             }
                           },
@@ -4000,10 +4000,10 @@
                       "label": "Dates",
                       "name": "dates",
                       "start": {
-                        "path": "/event/start"
+                        "@path": "/event/start"
                       },
                       "end": {
-                        "path": "/event/end"
+                        "@path": "/event/end"
                       }
                     }
                   },
@@ -4019,7 +4019,7 @@
                           "label": "Start time",
                           "name": "startTime",
                           "value": {
-                            "path": "/event/startTime"
+                            "@path": "/event/startTime"
                           }
                         }
                       },
@@ -4030,7 +4030,7 @@
                           "label": "End time",
                           "name": "endTime",
                           "value": {
-                            "path": "/event/endTime"
+                            "@path": "/event/endTime"
                           }
                         }
                       }
@@ -4044,10 +4044,10 @@
                       "name": "attendees",
                       "placeholder": "Add email and press Enter",
                       "values": {
-                        "path": "/event/attendees"
+                        "@path": "/event/attendees"
                       },
                       "suggestions": {
-                        "path": "/suggestions"
+                        "@path": "/suggestions"
                       }
                     }
                   },
@@ -4061,7 +4061,7 @@
                       "autosize": true,
                       "maxRows": 10,
                       "value": {
-                        "path": "/event/description"
+                        "@path": "/event/description"
                       }
                     }
                   },
@@ -4073,7 +4073,7 @@
                       "name": "reminder",
                       "description": "Notify attendees 15 minutes before start",
                       "checked": {
-                        "path": "/event/reminder"
+                        "@path": "/event/reminder"
                       }
                     }
                   },
@@ -4139,7 +4139,7 @@
         "props": {
           "title": "Metrics",
           "subtitle": {
-            "path": "/rangeLabel"
+            "@path": "/rangeLabel"
           }
         },
         "children": [
@@ -4168,14 +4168,14 @@
                     "props": {
                       "label": "Active users",
                       "value": {
-                        "path": "/stats/users/value"
+                        "@path": "/stats/users/value"
                       },
                       "delta": {
-                        "path": "/stats/users/delta"
+                        "@path": "/stats/users/delta"
                       },
                       "tone": "success",
                       "trend": {
-                        "path": "/stats/users/trend"
+                        "@path": "/stats/users/trend"
                       }
                     }
                   },
@@ -4185,14 +4185,14 @@
                     "props": {
                       "label": "Sessions",
                       "value": {
-                        "path": "/stats/sessions/value"
+                        "@path": "/stats/sessions/value"
                       },
                       "delta": {
-                        "path": "/stats/sessions/delta"
+                        "@path": "/stats/sessions/delta"
                       },
                       "tone": "success",
                       "trend": {
-                        "path": "/stats/sessions/trend"
+                        "@path": "/stats/sessions/trend"
                       }
                     }
                   },
@@ -4202,14 +4202,14 @@
                     "props": {
                       "label": "Errors",
                       "value": {
-                        "path": "/stats/errors/value"
+                        "@path": "/stats/errors/value"
                       },
                       "delta": {
-                        "path": "/stats/errors/delta"
+                        "@path": "/stats/errors/delta"
                       },
                       "tone": "danger",
                       "trend": {
-                        "path": "/stats/errors/trend"
+                        "@path": "/stats/errors/trend"
                       }
                     }
                   },
@@ -4219,14 +4219,14 @@
                     "props": {
                       "label": "p95 latency",
                       "value": {
-                        "path": "/stats/latency/value"
+                        "@path": "/stats/latency/value"
                       },
                       "delta": {
-                        "path": "/stats/latency/delta"
+                        "@path": "/stats/latency/delta"
                       },
                       "tone": "success",
                       "trend": {
-                        "path": "/stats/latency/trend"
+                        "@path": "/stats/latency/trend"
                       }
                     }
                   }
@@ -4246,10 +4246,10 @@
                     "props": {
                       "kind": "line",
                       "categories": {
-                        "path": "/daily/days"
+                        "@path": "/daily/days"
                       },
                       "series": {
-                        "path": "/daily/series"
+                        "@path": "/daily/series"
                       },
                       "height": 260,
                       "yLabel": "Sessions",
@@ -4315,7 +4315,7 @@
                         }
                       ],
                       "rows": {
-                        "path": "/pages"
+                        "@path": "/pages"
                       },
                       "density": "compact",
                       "striped": true
@@ -4609,7 +4609,7 @@
         "props": {
           "title": "Board settings",
           "subtitle": {
-            "path": "/board/name"
+            "@path": "/board/name"
           }
         },
         "children": [
@@ -4637,7 +4637,7 @@
                       "title": "Delete board “Mobile App”?",
                       "description": "This permanently deletes the board and all of its issues. This action can't be undone.",
                       "open": {
-                        "path": "/dialogOpen"
+                        "@path": "/dialogOpen"
                       }
                     },
                     "children": [
@@ -4653,10 +4653,10 @@
                               "name": "deleteBoard",
                               "context": {
                                 "boardId": {
-                                  "path": "/board/id"
+                                  "@path": "/board/id"
                                 },
                                 "confirmText": {
-                                  "path": "/confirmText"
+                                  "@path": "/confirmText"
                                 }
                               }
                             }
@@ -4686,16 +4686,16 @@
                                   "surface": "card",
                                   "icon": "kanban-square",
                                   "identifier": {
-                                    "path": "/board/key"
+                                    "@path": "/board/key"
                                   },
                                   "title": {
-                                    "path": "/board/name"
+                                    "@path": "/board/name"
                                   },
                                   "value": {
-                                    "call": "pluralize",
+                                    "@call": "pluralize",
                                     "args": {
                                       "value": {
-                                        "path": "/board/issueCount"
+                                        "@path": "/board/issueCount"
                                       },
                                       "one": "1 issue",
                                       "other": "42 issues"
@@ -4711,19 +4711,19 @@
                                   "label": "Type “Mobile App” to confirm",
                                   "placeholder": "Mobile App",
                                   "value": {
-                                    "path": "/confirmText"
+                                    "@path": "/confirmText"
                                   },
                                   "validateOn": "submit",
                                   "checks": [
                                     {
                                       "condition": {
-                                        "call": "eq",
+                                        "@call": "eq",
                                         "args": {
                                           "a": {
-                                            "path": "/confirmText"
+                                            "@path": "/confirmText"
                                           },
                                           "b": {
-                                            "path": "/board/name"
+                                            "@path": "/board/name"
                                           }
                                         }
                                       },
@@ -4751,7 +4751,7 @@
                                     "on": {
                                       "press": {
                                         "functionCall": {
-                                          "call": "set",
+                                          "@call": "set",
                                           "args": {
                                             "path": "/dialogOpen",
                                             "value": false
@@ -4770,16 +4770,16 @@
                                       "submit": true,
                                       "pendingLabel": "Deleting…",
                                       "disabled": {
-                                        "call": "not",
+                                        "@call": "not",
                                         "args": {
                                           "value": {
-                                            "call": "eq",
+                                            "@call": "eq",
                                             "args": {
                                               "a": {
-                                                "path": "/confirmText"
+                                                "@path": "/confirmText"
                                               },
                                               "b": {
-                                                "path": "/board/name"
+                                                "@path": "/board/name"
                                               }
                                             }
                                           }
@@ -4834,7 +4834,7 @@
         "props": {
           "title": "Search",
           "subtitle": {
-            "path": "/summary"
+            "@path": "/summary"
           }
         },
         "children": [
@@ -4850,10 +4850,10 @@
                   "name": "search",
                   "context": {
                     "query": {
-                      "path": "/query"
+                      "@path": "/query"
                     },
                     "scope": {
-                      "path": "/scope"
+                      "@path": "/scope"
                     }
                   }
                 }
@@ -4873,7 +4873,7 @@
                       "name": "query",
                       "type": "search",
                       "value": {
-                        "path": "/query"
+                        "@path": "/query"
                       }
                     },
                     "on": {
@@ -4882,10 +4882,10 @@
                           "name": "search",
                           "context": {
                             "query": {
-                              "path": "/query"
+                              "@path": "/query"
                             },
                             "scope": {
-                              "path": "/scope"
+                              "@path": "/scope"
                             }
                           }
                         }
@@ -4912,7 +4912,7 @@
             "component": "Segmented",
             "props": {
               "value": {
-                "path": "/scope"
+                "@path": "/scope"
               },
               "items": [
                 {
@@ -4942,10 +4942,10 @@
                   "name": "search",
                   "context": {
                     "query": {
-                      "path": "/query"
+                      "@path": "/query"
                     },
                     "scope": {
-                      "path": "/scope"
+                      "@path": "/scope"
                     }
                   }
                 }
@@ -4960,12 +4960,12 @@
               "size": "page",
               "title": "No results",
               "description": {
-                "call": "fill",
+                "@call": "fill",
                 "args": {
                   "template": "Nothing matched “{q}” across issues, people or files. Try a different term.",
                   "params": {
                     "q": {
-                      "path": "/query"
+                      "@path": "/query"
                     }
                   }
                 }
@@ -4978,7 +4978,7 @@
                   "name": "clearSearch"
                 },
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/query",
                     "value": ""
@@ -4987,10 +4987,10 @@
               }
             },
             "visible": {
-              "call": "eq",
+              "@call": "eq",
               "args": {
                 "a": {
-                  "path": "/total"
+                  "@path": "/total"
                 },
                 "b": 0
               }
@@ -5003,13 +5003,13 @@
               "gap": "lg"
             },
             "visible": {
-              "call": "not",
+              "@call": "not",
               "args": {
                 "value": {
-                  "call": "eq",
+                  "@call": "eq",
                   "args": {
                     "a": {
-                      "path": "/total"
+                      "@path": "/total"
                     },
                     "b": 0
                   }
@@ -5025,23 +5025,23 @@
                   "icon": "circle-dot",
                   "collapsible": true,
                   "count": {
-                    "call": "len",
+                    "@call": "len",
                     "args": {
                       "value": {
-                        "path": "/issues"
+                        "@path": "/issues"
                       }
                     }
                   }
                 },
                 "visible": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "path": "/issues"
+                          "@path": "/issues"
                         }
                       }
                     }
@@ -5058,19 +5058,19 @@
                     "component": "Row",
                     "props": {
                       "identifier": {
-                        "path": "key"
+                        "@path": "key"
                       },
                       "title": {
-                        "path": "title"
+                        "@path": "title"
                       },
                       "subtitle": {
-                        "path": "project"
+                        "@path": "project"
                       },
                       "meta": {
-                        "path": "updated"
+                        "@path": "updated"
                       },
                       "icon": {
-                        "path": "icon"
+                        "@path": "icon"
                       },
                       "chevron": "right",
                       "pressable": true
@@ -5081,7 +5081,7 @@
                           "name": "openIssue",
                           "context": {
                             "id": {
-                              "path": "id"
+                              "@path": "id"
                             }
                           }
                         }
@@ -5093,7 +5093,7 @@
                         "component": "Badge",
                         "props": {
                           "text": {
-                            "path": "status"
+                            "@path": "status"
                           },
                           "variant": "secondary"
                         }
@@ -5110,23 +5110,23 @@
                   "icon": "users",
                   "collapsible": true,
                   "count": {
-                    "call": "len",
+                    "@call": "len",
                     "args": {
                       "value": {
-                        "path": "/people"
+                        "@path": "/people"
                       }
                     }
                   }
                 },
                 "visible": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "path": "/people"
+                          "@path": "/people"
                         }
                       }
                     }
@@ -5143,13 +5143,13 @@
                     "component": "Row",
                     "props": {
                       "title": {
-                        "path": "name"
+                        "@path": "name"
                       },
                       "subtitle": {
-                        "path": "role"
+                        "@path": "role"
                       },
                       "meta": {
-                        "path": "email"
+                        "@path": "email"
                       },
                       "chevron": "right",
                       "pressable": true
@@ -5160,7 +5160,7 @@
                           "name": "openPerson",
                           "context": {
                             "id": {
-                              "path": "id"
+                              "@path": "id"
                             }
                           }
                         }
@@ -5172,7 +5172,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": {
-                            "path": "name"
+                            "@path": "name"
                           },
                           "size": "sm"
                         }
@@ -5189,23 +5189,23 @@
                   "icon": "folder",
                   "collapsible": true,
                   "count": {
-                    "call": "len",
+                    "@call": "len",
                     "args": {
                       "value": {
-                        "path": "/files"
+                        "@path": "/files"
                       }
                     }
                   }
                 },
                 "visible": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "path": "/files"
+                          "@path": "/files"
                         }
                       }
                     }
@@ -5222,19 +5222,19 @@
                     "component": "Row",
                     "props": {
                       "title": {
-                        "path": "name"
+                        "@path": "name"
                       },
                       "subtitle": {
-                        "path": "path"
+                        "@path": "path"
                       },
                       "meta": {
-                        "path": "size"
+                        "@path": "size"
                       },
                       "value": {
-                        "path": "modified"
+                        "@path": "modified"
                       },
                       "icon": {
-                        "path": "icon"
+                        "@path": "icon"
                       },
                       "chevron": "right",
                       "pressable": true
@@ -5245,7 +5245,7 @@
                           "name": "openFile",
                           "context": {
                             "id": {
-                              "path": "id"
+                              "@path": "id"
                             }
                           }
                         }
@@ -5352,10 +5352,10 @@
         "component": "Page",
         "props": {
           "title": {
-            "path": "/task"
+            "@path": "/task"
           },
           "subtitle": {
-            "path": "/status"
+            "@path": "/status"
           }
         },
         "children": [
@@ -5377,7 +5377,7 @@
                     "props": {
                       "icon": "file-text",
                       "title": {
-                        "path": "/steps/read1/title"
+                        "@path": "/steps/read1/title"
                       },
                       "description": "212 lines"
                     }
@@ -5388,7 +5388,7 @@
                     "props": {
                       "icon": "file-text",
                       "title": {
-                        "path": "/steps/read2/title"
+                        "@path": "/steps/read2/title"
                       },
                       "description": "48 lines"
                     }
@@ -5399,7 +5399,7 @@
                     "props": {
                       "icon": "file-text",
                       "title": {
-                        "path": "/steps/read3/title"
+                        "@path": "/steps/read3/title"
                       },
                       "description": "96 lines"
                     }
@@ -5410,7 +5410,7 @@
                     "props": {
                       "icon": "pencil",
                       "title": {
-                        "path": "/steps/edit/title"
+                        "@path": "/steps/edit/title"
                       },
                       "description": "+6 −2 · handle ISO week dates"
                     }
@@ -5421,13 +5421,13 @@
                     "props": {
                       "icon": "terminal",
                       "title": {
-                        "path": "/steps/tests/title"
+                        "@path": "/steps/tests/title"
                       },
                       "description": "1 failed, 23 passed · 4.2 s",
                       "status": "error",
                       "collapsible": true,
                       "open": {
-                        "path": "/steps/tests/open"
+                        "@path": "/steps/tests/open"
                       }
                     },
                     "children": [
@@ -5436,7 +5436,7 @@
                         "component": "CodeBlock",
                         "props": {
                           "code": {
-                            "path": "/testOutput"
+                            "@path": "/testOutput"
                           },
                           "language": "ansi",
                           "variant": "destructive",
@@ -5457,7 +5457,7 @@
                     "props": {
                       "icon": "loader",
                       "title": {
-                        "path": "/steps/current/title"
+                        "@path": "/steps/current/title"
                       },
                       "description": "Editing src/lib/parseDate.ts",
                       "status": "running"
@@ -5540,7 +5540,7 @@
             },
             "children": [
               {
-                "id": "invite-card",
+                "id": "invite_card",
                 "component": "Card",
                 "props": {
                   "title": "Send invites",
@@ -5548,7 +5548,7 @@
                 },
                 "children": [
                   {
-                    "id": "invite-form",
+                    "id": "invite_form",
                     "component": "Form",
                     "props": {
                       "name": "invite"
@@ -5559,13 +5559,13 @@
                           "name": "sendInvites",
                           "context": {
                             "emails": {
-                              "path": "/invite/emails"
+                              "@path": "/invite/emails"
                             },
                             "role": {
-                              "path": "/invite/role"
+                              "@path": "/invite/role"
                             },
                             "note": {
-                              "path": "/invite/note"
+                              "@path": "/invite/note"
                             }
                           }
                         }
@@ -5573,26 +5573,26 @@
                     },
                     "children": [
                       {
-                        "id": "emails-field",
+                        "id": "emails_field",
                         "component": "ChipInput",
                         "props": {
                           "label": "Email addresses",
                           "name": "emails",
                           "placeholder": "name@company.com",
                           "values": {
-                            "path": "/invite/emails"
+                            "@path": "/invite/emails"
                           },
                           "checks": [
                             {
                               "condition": {
-                                "call": "lt",
+                                "@call": "lt",
                                 "args": {
                                   "a": 0,
                                   "b": {
-                                    "call": "len",
+                                    "@call": "len",
                                     "args": {
                                       "value": {
-                                        "path": "/invite/emails"
+                                        "@path": "/invite/emails"
                                       }
                                     }
                                   }
@@ -5604,13 +5604,13 @@
                         }
                       },
                       {
-                        "id": "role-field",
+                        "id": "role_field",
                         "component": "Select",
                         "props": {
                           "label": "Role",
                           "name": "role",
                           "value": {
-                            "path": "/invite/role"
+                            "@path": "/invite/role"
                           },
                           "options": [
                             {
@@ -5627,7 +5627,7 @@
                         }
                       },
                       {
-                        "id": "note-field",
+                        "id": "note_field",
                         "component": "Textarea",
                         "props": {
                           "label": "Note (optional)",
@@ -5637,12 +5637,12 @@
                           "autosize": true,
                           "maxRows": 6,
                           "value": {
-                            "path": "/invite/note"
+                            "@path": "/invite/note"
                           }
                         }
                       },
                       {
-                        "id": "invite-actions",
+                        "id": "invite_actions",
                         "component": "FormActions",
                         "props": {
                           "submit": "Send invites"
@@ -5653,65 +5653,65 @@
                 ]
               },
               {
-                "id": "pending-section",
+                "id": "pending_section",
                 "component": "Section",
                 "props": {
                   "title": "Pending invites",
                   "icon": "mail",
                   "count": {
-                    "call": "len",
+                    "@call": "len",
                     "args": {
                       "value": {
-                        "path": "/pending"
+                        "@path": "/pending"
                       }
                     }
                   }
                 },
                 "children": [
                   {
-                    "id": "pending-list",
+                    "id": "pending_list",
                     "component": "List",
                     "props": {
                       "divided": true
                     },
                     "visible": {
-                      "call": "lt",
+                      "@call": "lt",
                       "args": {
                         "a": 0,
                         "b": {
-                          "call": "len",
+                          "@call": "len",
                           "args": {
                             "value": {
-                              "path": "/pending"
+                              "@path": "/pending"
                             }
                           }
                         }
                       }
                     },
                     "template": {
-                      "component": "pending-row",
+                      "component": "pending_row",
                       "path": "/pending",
                       "key": "id"
                     },
                     "children": [
                       {
-                        "id": "pending-row",
+                        "id": "pending_row",
                         "component": "Row",
                         "props": {
                           "icon": "mail",
                           "title": {
-                            "path": "email"
+                            "@path": "email"
                           },
                           "subtitle": {
-                            "path": "role"
+                            "@path": "role"
                           },
                           "meta": {
-                            "path": "sent"
+                            "@path": "sent"
                           }
                         },
                         "slots": {
                           "trailing": {
-                            "id": "revoke-button",
+                            "id": "revoke_button",
                             "component": "Button",
                             "props": {
                               "label": "Revoke",
@@ -5725,10 +5725,10 @@
                                   "name": "revokeInvite",
                                   "context": {
                                     "id": {
-                                      "path": "id"
+                                      "@path": "id"
                                     },
                                     "email": {
-                                      "path": "email"
+                                      "@path": "email"
                                     }
                                   }
                                 }
@@ -5740,7 +5740,7 @@
                     ]
                   },
                   {
-                    "id": "pending-empty",
+                    "id": "pending_empty",
                     "component": "EmptyState",
                     "props": {
                       "size": "list",
@@ -5748,13 +5748,13 @@
                       "title": "No pending invites"
                     },
                     "visible": {
-                      "call": "eq",
+                      "@call": "eq",
                       "args": {
                         "a": {
-                          "call": "len",
+                          "@call": "len",
                           "args": {
                             "value": {
-                              "path": "/pending"
+                              "@path": "/pending"
                             }
                           }
                         },
@@ -5809,7 +5809,7 @@
         "props": {
           "title": "Photos",
           "subtitle": {
-            "path": "/subtitle"
+            "@path": "/subtitle"
           }
         },
         "children": [
@@ -5857,12 +5857,12 @@
                       "name": "openPhoto",
                       "context": {
                         "id": {
-                          "path": "id"
+                          "@path": "id"
                         }
                       }
                     },
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/viewer/open",
                         "value": true
@@ -5876,10 +5876,10 @@
                     "component": "Image",
                     "props": {
                       "src": {
-                        "path": "thumb"
+                        "@path": "thumb"
                       },
                       "alt": {
-                        "path": "caption"
+                        "@path": "caption"
                       },
                       "aspectRatio": 1,
                       "fit": "cover",
@@ -5895,7 +5895,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "caption"
+                        "@path": "caption"
                       },
                       "variant": "caption",
                       "lines": 1
@@ -5910,10 +5910,10 @@
             "component": "Dialog",
             "props": {
               "open": {
-                "path": "/viewer/open"
+                "@path": "/viewer/open"
               },
               "title": {
-                "path": "/viewer/current/title"
+                "@path": "/viewer/current/title"
               }
             },
             "children": [
@@ -5922,10 +5922,10 @@
                 "component": "Image",
                 "props": {
                   "src": {
-                    "path": "/viewer/current/src"
+                    "@path": "/viewer/current/src"
                   },
                   "alt": {
-                    "path": "/viewer/current/caption"
+                    "@path": "/viewer/current/caption"
                   },
                   "aspectRatio": 1.5,
                   "fit": "contain",
@@ -5943,7 +5943,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "/viewer/current/caption"
+                    "@path": "/viewer/current/caption"
                   },
                   "variant": "body"
                 }
@@ -5953,7 +5953,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "/viewer/current/meta"
+                    "@path": "/viewer/current/meta"
                   },
                   "variant": "muted"
                 }
@@ -5973,10 +5973,10 @@
                       "icon": "chevron-left",
                       "variant": "outline",
                       "disabled": {
-                        "call": "not",
+                        "@call": "not",
                         "args": {
                           "value": {
-                            "path": "/viewer/hasPrev"
+                            "@path": "/viewer/hasPrev"
                           }
                         }
                       }
@@ -5987,7 +5987,7 @@
                           "name": "prevPhoto",
                           "context": {
                             "index": {
-                              "path": "/viewer/index"
+                              "@path": "/viewer/index"
                             }
                           }
                         }
@@ -5999,24 +5999,24 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "call": "fill",
+                        "@call": "fill",
                         "args": {
                           "template": "{n} of {total}",
                           "params": {
                             "n": {
-                              "call": "add",
+                              "@call": "add",
                               "args": {
                                 "a": {
-                                  "path": "/viewer/index"
+                                  "@path": "/viewer/index"
                                 },
                                 "b": 1
                               }
                             },
                             "total": {
-                              "call": "len",
+                              "@call": "len",
                               "args": {
                                 "value": {
-                                  "path": "/photos"
+                                  "@path": "/photos"
                                 }
                               }
                             }
@@ -6037,10 +6037,10 @@
                       "icon": "chevron-right",
                       "variant": "outline",
                       "disabled": {
-                        "call": "not",
+                        "@call": "not",
                         "args": {
                           "value": {
-                            "path": "/viewer/hasNext"
+                            "@path": "/viewer/hasNext"
                           }
                         }
                       }
@@ -6051,7 +6051,7 @@
                           "name": "nextPhoto",
                           "context": {
                             "index": {
-                              "path": "/viewer/index"
+                              "@path": "/viewer/index"
                             }
                           }
                         }
@@ -6156,10 +6156,10 @@
         "component": "Page",
         "props": {
           "title": {
-            "path": "/order/title"
+            "@path": "/order/title"
           },
           "subtitle": {
-            "path": "/order/placedText"
+            "@path": "/order/placedText"
           }
         },
         "children": [
@@ -6197,7 +6197,7 @@
                             "component": "Badge",
                             "props": {
                               "text": {
-                                "path": "/order/statusLabel"
+                                "@path": "/order/statusLabel"
                               },
                               "icon": "truck"
                             }
@@ -6208,7 +6208,7 @@
                             "props": {
                               "variant": "muted",
                               "text": {
-                                "path": "/order/carrier"
+                                "@path": "/order/carrier"
                               }
                             }
                           }
@@ -6237,7 +6237,7 @@
                             }
                           ],
                           "current": {
-                            "path": "/order/step"
+                            "@path": "/order/step"
                           }
                         }
                       },
@@ -6296,10 +6296,10 @@
                         }
                       ],
                       "rows": {
-                        "path": "/order/items"
+                        "@path": "/order/items"
                       },
                       "caption": {
-                        "path": "/order/totalText"
+                        "@path": "/order/totalText"
                       }
                     }
                   }
@@ -6320,15 +6320,15 @@
                     "props": {
                       "level": "h3",
                       "text": {
-                        "call": "concat",
+                        "@call": "concat",
                         "args": {
                           "values": [
                             "Total ",
                             {
-                              "call": "formatCurrency",
+                              "@call": "formatCurrency",
                               "args": {
                                 "value": {
-                                  "path": "/order/total"
+                                  "@path": "/order/total"
                                 },
                                 "currency": "EUR",
                                 "decimals": 2,
@@ -6354,7 +6354,7 @@
                           "name": "contactSupport",
                           "context": {
                             "orderId": {
-                              "path": "/order/id"
+                              "@path": "/order/id"
                             }
                           }
                         }
@@ -6412,14 +6412,14 @@
         "component": "SplitView",
         "props": {
           "open": {
-            "path": "/open"
+            "@path": "/open"
           },
           "width": 360
         },
         "on": {
           "back": {
             "functionCall": {
-              "call": "set",
+              "@call": "set",
               "args": {
                 "path": "/open",
                 "value": false
@@ -6433,7 +6433,7 @@
             "component": "Page",
             "props": {
               "title": {
-                "path": "/current/subject"
+                "@path": "/current/subject"
               }
             },
             "children": [
@@ -6458,7 +6458,7 @@
                         "component": "Avatar",
                         "props": {
                           "name": {
-                            "path": "/current/sender"
+                            "@path": "/current/sender"
                           },
                           "size": "lg"
                         }
@@ -6479,7 +6479,7 @@
                             "component": "Text",
                             "props": {
                               "text": {
-                                "path": "/current/sender"
+                                "@path": "/current/sender"
                               },
                               "variant": "label"
                             }
@@ -6489,7 +6489,7 @@
                             "component": "Text",
                             "props": {
                               "text": {
-                                "path": "/current/email"
+                                "@path": "/current/email"
                               },
                               "variant": "muted"
                             }
@@ -6501,7 +6501,7 @@
                         "component": "Text",
                         "props": {
                           "text": {
-                            "path": "/current/date"
+                            "@path": "/current/date"
                           },
                           "variant": "caption"
                         }
@@ -6518,7 +6518,7 @@
                     "component": "Markdown",
                     "props": {
                       "text": {
-                        "path": "/current/body"
+                        "@path": "/current/body"
                       }
                     }
                   }
@@ -6545,7 +6545,7 @@
                           "name": "reply",
                           "context": {
                             "id": {
-                              "path": "/current/id"
+                              "@path": "/current/id"
                             }
                           }
                         }
@@ -6566,7 +6566,7 @@
                           "name": "archive",
                           "context": {
                             "id": {
-                              "path": "/current/id"
+                              "@path": "/current/id"
                             }
                           }
                         }
@@ -6585,10 +6585,10 @@
             "props": {
               "title": "Inbox",
               "subtitle": {
-                "call": "pluralize",
+                "@call": "pluralize",
                 "args": {
                   "value": {
-                    "path": "/unreadCount"
+                    "@path": "/unreadCount"
                   },
                   "zero": "No unread",
                   "one": "1 unread",
@@ -6616,32 +6616,32 @@
                     "props": {
                       "pressable": true,
                       "title": {
-                        "path": "sender"
+                        "@path": "sender"
                       },
                       "subtitle": {
-                        "path": "subject"
+                        "@path": "subject"
                       },
                       "meta": {
-                        "path": "time"
+                        "@path": "time"
                       },
                       "icon": {
-                        "call": "cond",
+                        "@call": "cond",
                         "args": {
                           "if": {
-                            "path": "unread"
+                            "@path": "unread"
                           },
                           "then": "mail",
                           "else": "mail-open"
                         }
                       },
                       "selected": {
-                        "call": "eq",
+                        "@call": "eq",
                         "args": {
                           "a": {
-                            "path": "id"
+                            "@path": "id"
                           },
                           "b": {
-                            "path": "/current/id"
+                            "@path": "/current/id"
                           }
                         }
                       }
@@ -6652,12 +6652,12 @@
                           "name": "openMessage",
                           "context": {
                             "id": {
-                              "path": "id"
+                              "@path": "id"
                             }
                           }
                         },
                         "functionCall": {
-                          "call": "set",
+                          "@call": "set",
                           "args": {
                             "path": "/open",
                             "value": true
@@ -6773,13 +6773,13 @@
                         "props": {
                           "variant": "muted",
                           "text": {
-                            "call": "pluralize",
+                            "@call": "pluralize",
                             "args": {
                               "value": {
-                                "call": "len",
+                                "@call": "len",
                                 "args": {
                                   "value": {
-                                    "path": "/keys"
+                                    "@path": "/keys"
                                   }
                                 }
                               },
@@ -6799,7 +6799,7 @@
                           "title": "Create API key",
                           "description": "The full key is shown once after creation. Copy it somewhere safe.",
                           "open": {
-                            "path": "/createOpen"
+                            "@path": "/createOpen"
                           }
                         },
                         "children": [
@@ -6815,10 +6815,10 @@
                                   "name": "createKey",
                                   "context": {
                                     "name": {
-                                      "path": "/draft/name"
+                                      "@path": "/draft/name"
                                     },
                                     "scope": {
-                                      "path": "/draft/scope"
+                                      "@path": "/draft/scope"
                                     }
                                   }
                                 }
@@ -6833,15 +6833,15 @@
                                   "name": "name",
                                   "placeholder": "e.g. CI deploy",
                                   "value": {
-                                    "path": "/draft/name"
+                                    "@path": "/draft/name"
                                   },
                                   "checks": [
                                     {
                                       "condition": {
-                                        "call": "required",
+                                        "@call": "required",
                                         "args": {
                                           "value": {
-                                            "path": "/draft/name"
+                                            "@path": "/draft/name"
                                           }
                                         }
                                       },
@@ -6849,10 +6849,10 @@
                                     },
                                     {
                                       "condition": {
-                                        "call": "length",
+                                        "@call": "length",
                                         "args": {
                                           "value": {
-                                            "path": "/draft/name"
+                                            "@path": "/draft/name"
                                           },
                                           "min": 1,
                                           "max": 64
@@ -6870,7 +6870,7 @@
                                   "label": "Scope",
                                   "name": "scope",
                                   "value": {
-                                    "path": "/draft/scope"
+                                    "@path": "/draft/scope"
                                   },
                                   "options": [
                                     {
@@ -6892,10 +6892,10 @@
                                   "checks": [
                                     {
                                       "condition": {
-                                        "call": "required",
+                                        "@call": "required",
                                         "args": {
                                           "value": {
-                                            "path": "/draft/scope"
+                                            "@path": "/draft/scope"
                                           }
                                         }
                                       },
@@ -6914,7 +6914,7 @@
                                 "on": {
                                   "cancel": {
                                     "functionCall": {
-                                      "call": "set",
+                                      "@call": "set",
                                       "args": {
                                         "path": "/createOpen",
                                         "value": false
@@ -6983,7 +6983,7 @@
                         }
                       ],
                       "rows": {
-                        "path": "/keys"
+                        "@path": "/keys"
                       }
                     },
                     "slots": {
@@ -7002,10 +7002,10 @@
                               "name": "revokeKey",
                               "context": {
                                 "id": {
-                                  "path": "id"
+                                  "@path": "id"
                                 },
                                 "name": {
-                                  "path": "name"
+                                  "@path": "name"
                                 }
                               }
                             }
@@ -7083,19 +7083,19 @@
         "component": "Page",
         "props": {
           "title": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/loading"
+                "@path": "/loading"
               },
               "then": "Issue",
               "else": {
-                "path": "/issue/identifier"
+                "@path": "/issue/identifier"
               }
             }
           },
           "subtitle": {
-            "path": "/issue/project"
+            "@path": "/issue/project"
           },
           "back": true
         },
@@ -7121,7 +7121,7 @@
                   "gap": "sm"
                 },
                 "visible": {
-                  "path": "/loading"
+                  "@path": "/loading"
                 },
                 "children": [
                   {
@@ -7149,10 +7149,10 @@
                   "gap": "sm"
                 },
                 "visible": {
-                  "call": "not",
+                  "@call": "not",
                   "args": {
                     "value": {
-                      "path": "/loading"
+                      "@path": "/loading"
                     }
                   }
                 },
@@ -7163,7 +7163,7 @@
                     "props": {
                       "level": "h1",
                       "text": {
-                        "path": "/issue/title"
+                        "@path": "/issue/title"
                       }
                     }
                   },
@@ -7182,7 +7182,7 @@
                         "component": "Badge",
                         "props": {
                           "text": {
-                            "path": "/issue/status"
+                            "@path": "/issue/status"
                           },
                           "icon": "circle-dot"
                         }
@@ -7193,7 +7193,7 @@
                         "props": {
                           "variant": "outline",
                           "text": {
-                            "path": "/issue/priority"
+                            "@path": "/issue/priority"
                           },
                           "icon": "signal-high"
                         }
@@ -7203,7 +7203,7 @@
                         "component": "Chip",
                         "props": {
                           "label": {
-                            "path": "/issue/assignee"
+                            "@path": "/issue/assignee"
                           },
                           "shape": "rect",
                           "icon": "user"
@@ -7215,15 +7215,15 @@
                         "props": {
                           "variant": "muted",
                           "text": {
-                            "call": "concat",
+                            "@call": "concat",
                             "args": {
                               "values": [
                                 "Updated ",
                                 {
-                                  "call": "formatRelativeTime",
+                                  "@call": "formatRelativeTime",
                                   "args": {
                                     "value": {
-                                      "path": "/issue/updatedAt"
+                                      "@path": "/issue/updatedAt"
                                     }
                                   }
                                 }
@@ -7252,7 +7252,7 @@
                       "dot": false
                     },
                     "visible": {
-                      "path": "/loading"
+                      "@path": "/loading"
                     }
                   },
                   {
@@ -7260,14 +7260,14 @@
                     "component": "Markdown",
                     "props": {
                       "text": {
-                        "path": "/issue/description"
+                        "@path": "/issue/description"
                       }
                     },
                     "visible": {
-                      "call": "not",
+                      "@call": "not",
                       "args": {
                         "value": {
-                          "path": "/loading"
+                          "@path": "/loading"
                         }
                       }
                     }
@@ -7281,15 +7281,15 @@
                   "title": "Comments",
                   "icon": "message-square",
                   "count": {
-                    "call": "len",
+                    "@call": "len",
                     "args": {
                       "value": {
-                        "path": "/issue/comments"
+                        "@path": "/issue/comments"
                       }
                     }
                   },
                   "loading": {
-                    "path": "/loading"
+                    "@path": "/loading"
                   }
                 },
                 "children": [
@@ -7302,7 +7302,7 @@
                       "dot": true
                     },
                     "visible": {
-                      "path": "/loading"
+                      "@path": "/loading"
                     }
                   },
                   {
@@ -7312,10 +7312,10 @@
                       "gap": "sm"
                     },
                     "visible": {
-                      "call": "not",
+                      "@call": "not",
                       "args": {
                         "value": {
-                          "path": "/loading"
+                          "@path": "/loading"
                         }
                       }
                     },
@@ -7344,7 +7344,7 @@
                                 "component": "Avatar",
                                 "props": {
                                   "name": {
-                                    "path": "author"
+                                    "@path": "author"
                                   },
                                   "size": "sm"
                                 }
@@ -7371,7 +7371,7 @@
                                         "props": {
                                           "variant": "label",
                                           "text": {
-                                            "path": "author"
+                                            "@path": "author"
                                           }
                                         }
                                       },
@@ -7381,10 +7381,10 @@
                                         "props": {
                                           "variant": "caption",
                                           "text": {
-                                            "call": "formatRelativeTime",
+                                            "@call": "formatRelativeTime",
                                             "args": {
                                               "value": {
-                                                "path": "createdAt"
+                                                "@path": "createdAt"
                                               }
                                             }
                                           }
@@ -7397,7 +7397,7 @@
                                     "component": "Text",
                                     "props": {
                                       "text": {
-                                        "path": "body"
+                                        "@path": "body"
                                       }
                                     }
                                   }
@@ -7486,21 +7486,21 @@
                       "name": "feedback.submit",
                       "context": {
                         "rating": {
-                          "path": "/form/rating"
+                          "@path": "/form/rating"
                         },
                         "category": {
-                          "path": "/form/category"
+                          "@path": "/form/category"
                         },
                         "message": {
-                          "path": "/form/message"
+                          "@path": "/form/message"
                         },
                         "files": {
-                          "path": "/form/files"
+                          "@path": "/form/files"
                         }
                       }
                     },
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/toastOpen",
                         "value": true
@@ -7532,7 +7532,7 @@
                           "max": 5,
                           "size": "lg",
                           "value": {
-                            "path": "/form/rating"
+                            "@path": "/form/rating"
                           }
                         }
                       }
@@ -7546,7 +7546,7 @@
                       "name": "category",
                       "orientation": "horizontal",
                       "value": {
-                        "path": "/form/category"
+                        "@path": "/form/category"
                       },
                       "options": [
                         {
@@ -7568,10 +7568,10 @@
                       "checks": [
                         {
                           "condition": {
-                            "call": "required",
+                            "@call": "required",
                             "args": {
                               "value": {
-                                "path": "/form/category"
+                                "@path": "/form/category"
                               }
                             }
                           },
@@ -7591,15 +7591,15 @@
                       "autosize": true,
                       "maxRows": 12,
                       "value": {
-                        "path": "/form/message"
+                        "@path": "/form/message"
                       },
                       "checks": [
                         {
                           "condition": {
-                            "call": "required",
+                            "@call": "required",
                             "args": {
                               "value": {
-                                "path": "/form/message"
+                                "@path": "/form/message"
                               }
                             }
                           },
@@ -7607,10 +7607,10 @@
                         },
                         {
                           "condition": {
-                            "call": "length",
+                            "@call": "length",
                             "args": {
                               "value": {
-                                "path": "/form/message"
+                                "@path": "/form/message"
                               },
                               "min": 10,
                               "max": 2000
@@ -7631,7 +7631,7 @@
                       "maxSize": 10485760,
                       "hint": "PNG or JPG, up to 10 MB",
                       "files": {
-                        "path": "/form/files"
+                        "@path": "/form/files"
                       }
                     }
                   },
@@ -7654,7 +7654,7 @@
               "description": "We appreciate you taking the time to help us improve.",
               "type": "success",
               "open": {
-                "path": "/toastOpen"
+                "@path": "/toastOpen"
               },
               "duration": 5000
             }
@@ -7695,12 +7695,12 @@
             },
             "children": [
               {
-                "id": "player-card",
+                "id": "player_card",
                 "component": "Card",
                 "props": {},
                 "children": [
                   {
-                    "id": "player-body",
+                    "id": "player_body",
                     "component": "Stack",
                     "props": {
                       "gap": "md"
@@ -7711,10 +7711,10 @@
                         "component": "Image",
                         "props": {
                           "src": {
-                            "path": "/track/artUrl"
+                            "@path": "/track/artUrl"
                           },
                           "alt": {
-                            "path": "/track/album"
+                            "@path": "/track/album"
                           },
                           "aspectRatio": 1,
                           "fit": "cover",
@@ -7726,36 +7726,36 @@
                         }
                       },
                       {
-                        "id": "track-info",
+                        "id": "track_info",
                         "component": "Stack",
                         "props": {
                           "gap": "xs"
                         },
                         "children": [
                           {
-                            "id": "track-title",
+                            "id": "track_title",
                             "component": "Heading",
                             "props": {
                               "text": {
-                                "path": "/track/title"
+                                "@path": "/track/title"
                               },
                               "level": "h2"
                             }
                           },
                           {
-                            "id": "track-artist",
+                            "id": "track_artist",
                             "component": "Text",
                             "props": {
                               "text": {
-                                "call": "concat",
+                                "@call": "concat",
                                 "args": {
                                   "values": [
                                     {
-                                      "path": "/track/artist"
+                                      "@path": "/track/artist"
                                     },
                                     " · ",
                                     {
-                                      "path": "/track/album"
+                                      "@path": "/track/album"
                                     }
                                   ]
                                 }
@@ -7773,11 +7773,11 @@
                           "label": "Playback position",
                           "min": 0,
                           "max": {
-                            "path": "/track/durationSec"
+                            "@path": "/track/durationSec"
                           },
                           "step": 1,
                           "value": {
-                            "path": "/track/positionSec"
+                            "@path": "/track/positionSec"
                           }
                         },
                         "on": {
@@ -7786,7 +7786,7 @@
                               "name": "seek",
                               "context": {
                                 "positionSec": {
-                                  "path": "/track/positionSec"
+                                  "@path": "/track/positionSec"
                                 }
                               }
                             }
@@ -7806,7 +7806,7 @@
                             "component": "Text",
                             "props": {
                               "text": {
-                                "path": "/track/elapsedLabel"
+                                "@path": "/track/elapsedLabel"
                               },
                               "variant": "caption"
                             }
@@ -7816,7 +7816,7 @@
                             "component": "Text",
                             "props": {
                               "text": {
-                                "path": "/track/durationLabel"
+                                "@path": "/track/durationLabel"
                               },
                               "variant": "caption"
                             }
@@ -7833,7 +7833,7 @@
                         },
                         "children": [
                           {
-                            "id": "prev-btn",
+                            "id": "prev_btn",
                             "component": "Button",
                             "props": {
                               "icon": "skip-back",
@@ -7850,26 +7850,26 @@
                             }
                           },
                           {
-                            "id": "play-btn",
+                            "id": "play_btn",
                             "component": "Button",
                             "props": {
                               "size": "lg",
                               "variant": "default",
                               "icon": {
-                                "call": "cond",
+                                "@call": "cond",
                                 "args": {
                                   "if": {
-                                    "path": "/playing"
+                                    "@path": "/playing"
                                   },
                                   "then": "pause",
                                   "else": "play"
                                 }
                               },
                               "label": {
-                                "call": "cond",
+                                "@call": "cond",
                                 "args": {
                                   "if": {
-                                    "path": "/playing"
+                                    "@path": "/playing"
                                   },
                                   "then": "Pause",
                                   "else": "Play"
@@ -7879,14 +7879,14 @@
                             "on": {
                               "press": {
                                 "functionCall": {
-                                  "call": "set",
+                                  "@call": "set",
                                   "args": {
                                     "path": "/playing",
                                     "value": {
-                                      "call": "not",
+                                      "@call": "not",
                                       "args": {
                                         "value": {
-                                          "path": "/playing"
+                                          "@path": "/playing"
                                         }
                                       }
                                     }
@@ -7896,7 +7896,7 @@
                                   "name": "togglePlay",
                                   "context": {
                                     "playing": {
-                                      "path": "/playing"
+                                      "@path": "/playing"
                                     }
                                   }
                                 }
@@ -7904,7 +7904,7 @@
                             }
                           },
                           {
-                            "id": "next-btn",
+                            "id": "next_btn",
                             "component": "Button",
                             "props": {
                               "icon": "skip-forward",
@@ -7927,15 +7927,15 @@
                 ]
               },
               {
-                "id": "queue-section",
+                "id": "queue_section",
                 "component": "Section",
                 "props": {
                   "title": "Up next",
                   "count": {
-                    "call": "len",
+                    "@call": "len",
                     "args": {
                       "value": {
-                        "path": "/queue"
+                        "@path": "/queue"
                       }
                     }
                   },
@@ -7943,29 +7943,29 @@
                 },
                 "children": [
                   {
-                    "id": "queue-list",
+                    "id": "queue_list",
                     "component": "List",
                     "props": {
                       "divided": true
                     },
                     "template": {
-                      "component": "queue-row",
+                      "component": "queue_row",
                       "path": "/queue",
                       "key": "id"
                     },
                     "children": [
                       {
-                        "id": "queue-row",
+                        "id": "queue_row",
                         "component": "Row",
                         "props": {
                           "title": {
-                            "path": "title"
+                            "@path": "title"
                           },
                           "subtitle": {
-                            "path": "artist"
+                            "@path": "artist"
                           },
                           "meta": {
-                            "path": "duration"
+                            "@path": "duration"
                           },
                           "icon": "music",
                           "density": "compact",
@@ -7977,7 +7977,7 @@
                               "name": "playFromQueue",
                               "context": {
                                 "id": {
-                                  "path": "id"
+                                  "@path": "id"
                                 }
                               }
                             }
@@ -8094,7 +8094,7 @@
                     "props": {
                       "variant": "muted",
                       "text": {
-                        "path": "/run/duration"
+                        "@path": "/run/duration"
                       }
                     }
                   }
@@ -8106,15 +8106,15 @@
                 "props": {
                   "icon": "circle-x",
                   "text": {
-                    "call": "concat",
+                    "@call": "concat",
                     "args": {
                       "values": [
                         "Exit ",
                         {
-                          "call": "text",
+                          "@call": "text",
                           "args": {
                             "value": {
-                              "path": "/run/exitCode"
+                              "@path": "/run/exitCode"
                             }
                           }
                         }
@@ -8122,13 +8122,13 @@
                     }
                   },
                   "variant": {
-                    "call": "cond",
+                    "@call": "cond",
                     "args": {
                       "if": {
-                        "call": "eq",
+                        "@call": "eq",
                         "args": {
                           "a": {
-                            "path": "/run/exitCode"
+                            "@path": "/run/exitCode"
                           },
                           "b": 0
                         }
@@ -8146,7 +8146,7 @@
             "component": "CodeBlock",
             "props": {
               "code": {
-                "path": "/run/command"
+                "@path": "/run/command"
               },
               "language": "bash",
               "size": "sm",
@@ -8160,19 +8160,19 @@
             "props": {
               "title": "Output",
               "code": {
-                "path": "/run/output"
+                "@path": "/run/output"
               },
               "language": "ansi",
               "maxLines": 18,
               "copyable": false,
               "variant": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "call": "eq",
+                    "@call": "eq",
                     "args": {
                       "a": {
-                        "path": "/run/exitCode"
+                        "@path": "/run/exitCode"
                       },
                       "b": 0
                     }
@@ -8194,7 +8194,7 @@
                 "props": {
                   "variant": "caption",
                   "text": {
-                    "path": "/run/cwd"
+                    "@path": "/run/cwd"
                   },
                   "lines": 1
                 }
@@ -8224,10 +8224,10 @@
                           "name": "copy_output",
                           "context": {
                             "command": {
-                              "path": "/run/command"
+                              "@path": "/run/command"
                             },
                             "output": {
-                              "path": "/run/output"
+                              "@path": "/run/output"
                             }
                           }
                         }
@@ -8249,10 +8249,10 @@
                           "name": "run_again",
                           "context": {
                             "command": {
-                              "path": "/run/command"
+                              "@path": "/run/command"
                             },
                             "cwd": {
-                              "path": "/run/cwd"
+                              "@path": "/run/cwd"
                             }
                           }
                         }
@@ -8291,12 +8291,12 @@
             "component": "AppBar",
             "props": {
               "title": {
-                "path": "/page/title"
+                "@path": "/page/title"
               }
             },
             "slots": {
               "leading": {
-                "id": "team-menu",
+                "id": "team_menu",
                 "component": "Menu",
                 "props": {
                   "label": "Switch team",
@@ -8357,12 +8357,12 @@
                 },
                 "children": [
                   {
-                    "id": "team-button",
+                    "id": "team_button",
                     "component": "Button",
                     "props": {
                       "variant": "ghost",
                       "label": {
-                        "path": "/team/current"
+                        "@path": "/team/current"
                       },
                       "icon": "chevrons-up-down"
                     }
@@ -8370,11 +8370,11 @@
                 ]
               },
               "trailing": {
-                "id": "user-avatar",
+                "id": "user_avatar",
                 "component": "Avatar",
                 "props": {
                   "name": {
-                    "path": "/user/name"
+                    "@path": "/user/name"
                   },
                   "size": "sm"
                 }

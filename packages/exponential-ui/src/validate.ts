@@ -231,7 +231,7 @@ export function validateNode(
   const issues: PropIssue[] = []
   const view = viewOf(options.extensions)
   const def = view.components[node.component]
-  if (node.style !== undefined) for (const issue of validateStyle(node.style, { "@path": `style` })) issues.push(issue)
+  if (node.style !== undefined) for (const issue of validateStyle(node.style, { path: `style` })) issues.push(issue)
   for (const [k, v] of Object.entries(node.props)) checkPropCalls(v, def?.props[k], `props.${k}`, view, issues)
   if (node.visible !== undefined) checkCallsDeep(node.visible, `visible`, issues)
   for (const [event, action] of Object.entries(node.on ?? {})) checkActionCalls(action, `on.${event}`, issues)

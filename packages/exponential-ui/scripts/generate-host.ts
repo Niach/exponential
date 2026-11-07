@@ -17,7 +17,7 @@ import {
   HostRouter,
   JsonlDecoder,
   SseDecoder,
-  clientCapabilities,
+  rendererCapabilities,
   combineDecisions,
   decideFunction,
   decideUrl,
@@ -97,7 +97,7 @@ export function renderHost(): Record<string, string> {
   policy.sources = policy.sources.map((c: Case) => ({ ...c, expected: parseSource(c.uri as string) }))
   policy.negotiation = policy.negotiation.map((c: Case) => ({
     ...c,
-    expected: { supportedCatalogIds: supportedCatalogIds(c.extensionIds as string[]), clientCapabilities: clientCapabilities(c.extensionIds as string[]) },
+    expected: { supportedCatalogIds: supportedCatalogIds(c.extensionIds as string[]), rendererCapabilities: rendererCapabilities(c.extensionIds as string[]) },
   }))
 
   const router = read(`fixtures/host-router.json`)

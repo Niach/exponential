@@ -19,7 +19,7 @@ export interface FunctionPolicy {
   default?: `allow` | `ask` | `deny`
 }
 
-/** `harness.*` matches `harness.toast`; anything else is exact. */
+/** `harness_*` matches `harness_toast`; anything else is exact. */
 export function matchesPattern(pattern: string, name: string): boolean {
   return pattern.endsWith(`*`) ? name.startsWith(pattern.slice(0, -1)) : pattern === name
 }

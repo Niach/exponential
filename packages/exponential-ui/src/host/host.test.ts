@@ -79,7 +79,7 @@ describe(`host-policy.json`, () => {
   for (const c of policyFixture.negotiation)
     test(`negotiation: ${c.extensionIds.length} extension ids`, () => {
       expect(supportedCatalogIds(c.extensionIds)).toEqual(c.expected.supportedCatalogIds)
-      expect(clientCapabilities(c.extensionIds)).toEqual(c.expected.clientCapabilities)
+      expect(rendererCapabilities(c.extensionIds)).toEqual(c.expected.rendererCapabilities)
     })
   // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.),
   // round 2's two formatters, round 4's filter and VAPP-122's bind.

@@ -146,7 +146,7 @@
             "id": "row",
             "component": "Text",
             "text": {
-              "path": "note"
+              "@path": "note"
             }
           }
         ],
@@ -171,7 +171,7 @@
             "id": "row",
             "component": "Text",
             "text": {
-              "path": "note"
+              "@path": "note"
             }
           }
         ],
@@ -196,7 +196,7 @@
             "id": "row",
             "component": "Text",
             "text": {
-              "path": "note"
+              "@path": "note"
             }
           }
         ],
@@ -221,7 +221,7 @@
             "id": "row",
             "component": "Text",
             "text": {
-              "path": "note"
+              "@path": "note"
             }
           }
         ],
@@ -246,7 +246,7 @@
             "id": "row",
             "component": "Text",
             "text": {
-              "path": "note"
+              "@path": "note"
             }
           }
         ],
@@ -343,7 +343,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/open",
                     "value": true
@@ -359,7 +359,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "actions.log"
+                  "@call": "actions_log"
                 }
               }
             }
@@ -371,7 +371,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "app.navigate",
+                  "@call": "app_navigate",
                   "args": {
                     "screen": "x"
                   }
@@ -386,7 +386,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "bind",
+                  "@call": "bind",
                   "args": {
                     "path": "/m",
                     "source": "records:signup"
@@ -439,13 +439,13 @@
             "id": "root",
             "component": "Text",
             "text": {
-              "call": "expr",
+              "@call": "expr",
               "args": {
                 "expr": "a",
                 "default": "",
                 "vars": {
                   "a": {
-                    "path": "/list/rows/0/email"
+                    "@path": "/list/rows/0/email"
                   }
                 }
               }
@@ -465,13 +465,13 @@
             "id": "root",
             "component": "Text",
             "text": {
-              "call": "expr",
+              "@call": "expr",
               "args": {
                 "expr": "a + 1",
                 "default": "",
                 "vars": {
                   "a": {
-                    "path": "/list/sum"
+                    "@path": "/list/sum"
                   }
                 }
               }

@@ -6,8 +6,8 @@
 // locks it and the Rust core (`eui_core::read_only`) replays it.
 //
 // A writing control is:
-// - any node with an `on.<event>` action that calls a write: `records.*`
-//   (the app's rows) or `actions.*` (the package's actions, which write);
+// - any node with an `on.<event>` action that calls a write: `records_*`
+//   (the app's rows) or `actions_*` (the package's actions, which write);
 //   a Form whose submit writes is disabled, so its fields and buttons are
 //   too (the Form's own cascade);
 // - a form field with no action of its own: what it edits feeds a later
@@ -21,17 +21,17 @@ import type { UiNode } from "./types"
 export const READ_ONLY_FIELDS: readonly string[] = [`Input`, `Textarea`, `NumberField`, `Checkbox`, `Radio`, `ChoiceTiles`, `Switch`, `Select`, `ChipInput`, `DatePicker`, `DateRangePicker`, `TimePicker`, `FileUpload`, `Slider`]
 
 /** The call prefixes that write at app access `read`. */
-export const READ_ONLY_WRITE_PREFIXES: readonly string[] = [`records.`, `actions.`]
+export const READ_ONLY_WRITE_PREFIXES: readonly string[] = [`records_`, `actions_`]
 
-/** Does this function name write (`records.*`, `actions.*`)? */
+/** Does this function name write (`records_*`, `actions_*`)? */
 export function callWrites(name: string): boolean {
   return READ_ONLY_WRITE_PREFIXES.some((p) => name.startsWith(p))
 }
 
-/** Does this action (`{functionCall: {call}}`) call a write? */
+/** Does this action (`{functionCall: {"@call"}}`) call a write? */
 export function actionWrites(action: unknown): boolean {
   if (!action || typeof action !== `object`) return false
-  const call = (action as { functionCall?: { call?: unknown } }).functionCall?.call
+  const call = (action as { functionCall?: { "@call"?: unknown } }).functionCall?.[`@call`]
   return typeof call === `string` && callWrites(call)
 }
 

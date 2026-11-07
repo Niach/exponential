@@ -6,7 +6,10 @@
 import type { ClientMessage } from "./contract"
 import { JsonlDecoder, SseDecoder, decodeJsonl, mcpActionCall, messagesFromMcpResult } from "./decoders"
 import type { Decoded } from "./decoders"
-import type { Transport, TransportStatus } from "./runtime"
+import type { MessageMetadata, Transport, TransportStatus } from "./runtime"
+
+/** Round 9 §1.3: `{message, metadata}` only when metadata is present. */
+const wire = (message: ClientMessage, metadata?: MessageMetadata): unknown => (metadata ? { message, metadata } : message)
 
 type Receive = (message: unknown) => void
 type Status = (status: TransportStatus, detail?: string) => void
@@ -120,9 +123,9 @@ abstract class StreamTransport implements Transport {
     }
   }
 
-  async send(message: ClientMessage): Promise<void> {
+  async send(message: ClientMessage, metadata?: MessageMetadata): Promise<void> {
     const f = this.options.fetch ?? fetch
-    await f(this.options.postUrl ?? this.options.url, { method: `POST`, headers: { "content-type": `application/json`, ...this.options.headers }, body: JSON.stringify(message) })
+    await f(this.options.postUrl ?? this.options.url, { method: `POST`, headers: { "content-type": `application/json`, ...this.options.headers }, body: JSON.stringify(wire(message, metadata)) })
   }
 
   close(): void {
@@ -182,8 +185,8 @@ export class WebSocketTransport implements Transport {
     }
   }
 
-  send(message: ClientMessage): void {
-    if (this.socket?.readyState === 1) this.socket.send(JSON.stringify(message))
+  send(message: ClientMessage, metadata?: MessageMetadata): void {
+    if (this.socket?.readyState === 1) this.socket.send(JSON.stringify(wire(message, metadata)))
   }
 
   close(): void {
@@ -230,8 +233,8 @@ export class McpTransport implements Transport {
     })()
   }
 
-  async send(message: ClientMessage): Promise<void> {
-    const call = mcpActionCall(message, this.options.actionTool)
+  async send(message: ClientMessage, metadata?: MessageMetadata): Promise<void> {
+    const call = mcpActionCall(message, this.options.actionTool, metadata)
     const result = await this.rpc(call.method, call.params)
     if (this.receiveFn) messagesFromMcpResult(result).messages.forEach(this.receiveFn)
   }

@@ -13,17 +13,17 @@
   },
   "children": [
     {
-      "id": "dash-bar",
+      "id": "dash_bar",
       "component": "AppBar",
       "props": {
         "title": "Agent runs",
         "subtitle": {
-          "path": "/team"
+          "@path": "/team"
         }
       },
       "slots": {
         "trailing": {
-          "id": "dash-actions",
+          "id": "dash_actions",
           "component": "Stack",
           "props": {
             "direction": "horizontal",
@@ -32,7 +32,7 @@
           },
           "children": [
             {
-              "id": "dash-search",
+              "id": "dash_search",
               "component": "Button",
               "props": {
                 "icon": "search",
@@ -49,7 +49,7 @@
               }
             },
             {
-              "id": "dash-new",
+              "id": "dash_new",
               "component": "Button",
               "props": {
                 "label": "New run",
@@ -65,7 +65,7 @@
               }
             },
             {
-              "id": "dash-menu",
+              "id": "dash_menu",
               "component": "Menu",
               "props": {
                 "items": [
@@ -95,7 +95,7 @@
               },
               "children": [
                 {
-                  "id": "dash-menu-trigger",
+                  "id": "dash_menu_trigger",
                   "component": "Button",
                   "props": {
                     "icon": "ui-more",
@@ -122,11 +122,11 @@
       },
       "children": [
         {
-          "id": "kpi-1",
+          "id": "kpi_1",
           "component": "Card",
           "children": [
             {
-              "id": "kpi-1-body",
+              "id": "kpi_1_body",
               "component": "Stack",
               "props": {
                 "direction": "vertical",
@@ -134,7 +134,7 @@
               },
               "children": [
                 {
-                  "id": "kpi-1-label",
+                  "id": "kpi_1_label",
                   "component": "Text",
                   "props": {
                     "text": "Runs this week",
@@ -142,7 +142,7 @@
                   }
                 },
                 {
-                  "id": "kpi-1-row",
+                  "id": "kpi_1_row",
                   "component": "Stack",
                   "props": {
                     "direction": "horizontal",
@@ -152,7 +152,7 @@
                   },
                   "children": [
                     {
-                      "id": "kpi-1-value",
+                      "id": "kpi_1_value",
                       "component": "Heading",
                       "props": {
                         "text": "128",
@@ -160,7 +160,7 @@
                       }
                     },
                     {
-                      "id": "kpi-1-delta",
+                      "id": "kpi_1_delta",
                       "component": "Badge",
                       "props": {
                         "text": "+12%",
@@ -170,7 +170,7 @@
                   ]
                 },
                 {
-                  "id": "kpi-1-spark",
+                  "id": "kpi_1_spark",
                   "component": "Sparkline",
                   "props": {
                     "values": [
@@ -191,11 +191,11 @@
           ]
         },
         {
-          "id": "kpi-2",
+          "id": "kpi_2",
           "component": "Card",
           "children": [
             {
-              "id": "kpi-2-body",
+              "id": "kpi_2_body",
               "component": "Stack",
               "props": {
                 "direction": "vertical",
@@ -203,7 +203,7 @@
               },
               "children": [
                 {
-                  "id": "kpi-2-label",
+                  "id": "kpi_2_label",
                   "component": "Text",
                   "props": {
                     "text": "Median time to merge",
@@ -211,7 +211,7 @@
                   }
                 },
                 {
-                  "id": "kpi-2-row",
+                  "id": "kpi_2_row",
                   "component": "Stack",
                   "props": {
                     "direction": "horizontal",
@@ -221,7 +221,7 @@
                   },
                   "children": [
                     {
-                      "id": "kpi-2-value",
+                      "id": "kpi_2_value",
                       "component": "Heading",
                       "props": {
                         "text": "3h 40m",
@@ -229,7 +229,7 @@
                       }
                     },
                     {
-                      "id": "kpi-2-delta",
+                      "id": "kpi_2_delta",
                       "component": "Badge",
                       "props": {
                         "text": "-18%",
@@ -239,7 +239,7 @@
                   ]
                 },
                 {
-                  "id": "kpi-2-spark",
+                  "id": "kpi_2_spark",
                   "component": "Sparkline",
                   "props": {
                     "values": [
@@ -248,7 +248,7 @@
                       5.8,
                       4.9,
                       4.2,
-                      4.0,
+                      4,
                       3.7
                     ],
                     "tone": "info",
@@ -260,11 +260,11 @@
           ]
         },
         {
-          "id": "kpi-3",
+          "id": "kpi_3",
           "component": "Card",
           "children": [
             {
-              "id": "kpi-3-body",
+              "id": "kpi_3_body",
               "component": "Stack",
               "props": {
                 "direction": "vertical",
@@ -272,7 +272,7 @@
               },
               "children": [
                 {
-                  "id": "kpi-3-label",
+                  "id": "kpi_3_label",
                   "component": "Text",
                   "props": {
                     "text": "Monthly budget",
@@ -280,7 +280,7 @@
                   }
                 },
                 {
-                  "id": "kpi-3-row",
+                  "id": "kpi_3_row",
                   "component": "Stack",
                   "props": {
                     "direction": "horizontal",
@@ -290,7 +290,7 @@
                   },
                   "children": [
                     {
-                      "id": "kpi-3-value",
+                      "id": "kpi_3_value",
                       "component": "Heading",
                       "props": {
                         "text": "$412",
@@ -298,7 +298,7 @@
                       }
                     },
                     {
-                      "id": "kpi-3-delta",
+                      "id": "kpi_3_delta",
                       "component": "Badge",
                       "props": {
                         "text": "72%",
@@ -308,7 +308,7 @@
                   ]
                 },
                 {
-                  "id": "kpi-3-progress",
+                  "id": "kpi_3_progress",
                   "component": "Progress",
                   "props": {
                     "value": 72,
@@ -324,7 +324,7 @@
       ]
     },
     {
-      "id": "dash-tabs",
+      "id": "dash_tabs",
       "component": "Tabs",
       "props": {
         "tabs": [
@@ -345,7 +345,7 @@
           }
         ],
         "value": {
-          "path": "/ui/tab"
+          "@path": "/ui/tab"
         }
       },
       "on": {
@@ -357,14 +357,14 @@
       },
       "children": [
         {
-          "id": "tab-overview",
+          "id": "tab_overview",
           "component": "Text",
           "props": {
             "text": "Throughput, cost and review load across every board."
           }
         },
         {
-          "id": "tab-runs",
+          "id": "tab_runs",
           "component": "Stack",
           "props": {
             "direction": "vertical",
@@ -372,7 +372,7 @@
           },
           "children": [
             {
-              "id": "runs-toolbar",
+              "id": "runs_toolbar",
               "component": "Stack",
               "props": {
                 "direction": "horizontal",
@@ -382,7 +382,7 @@
               },
               "children": [
                 {
-                  "id": "runs-search",
+                  "id": "runs_search",
                   "component": "Input",
                   "props": {
                     "label": "Search runs",
@@ -390,7 +390,7 @@
                     "type": "search",
                     "placeholder": "Filter by title or owner",
                     "value": {
-                      "path": "/filter/q"
+                      "@path": "/filter/q"
                     }
                   },
                   "style": {
@@ -400,7 +400,7 @@
                   }
                 },
                 {
-                  "id": "runs-filter",
+                  "id": "runs_filter",
                   "component": "Segmented",
                   "props": {
                     "items": [
@@ -422,7 +422,7 @@
                       }
                     ],
                     "value": {
-                      "path": "/filter/state"
+                      "@path": "/filter/state"
                     },
                     "variant": "segmented"
                   },
@@ -437,7 +437,7 @@
               ]
             },
             {
-              "id": "runs-table",
+              "id": "runs_table",
               "component": "Table",
               "props": {
                 "columns": [
@@ -477,12 +477,12 @@
                   }
                 ],
                 "rows": {
-                  "path": "/runs"
+                  "@path": "/runs"
                 },
                 "rowKey": "id",
                 "selectable": "multiple",
                 "selected": {
-                  "path": "/ui/selected"
+                  "@path": "/ui/selected"
                 },
                 "sort": {
                   "key": "turns",
@@ -493,11 +493,11 @@
               },
               "slots": {
                 "ownerCell": {
-                  "id": "runs-owner",
+                  "id": "runs_owner",
                   "component": "Avatar",
                   "props": {
                     "name": {
-                      "path": "owner"
+                      "@path": "owner"
                     },
                     "size": "sm"
                   }
@@ -519,7 +519,7 @@
           ]
         },
         {
-          "id": "tab-reviews",
+          "id": "tab_reviews",
           "component": "Text",
           "props": {
             "text": "Open pull requests waiting for a review."
@@ -528,7 +528,7 @@
       ]
     },
     {
-      "id": "dash-lower",
+      "id": "dash_lower",
       "component": "Grid",
       "props": {
         "columns": {
@@ -539,7 +539,7 @@
       },
       "children": [
         {
-          "id": "activity-card",
+          "id": "activity_card",
           "component": "Card",
           "props": {
             "title": "Activity",
@@ -554,23 +554,23 @@
                 "divided": true
               },
               "template": {
-                "component": "activity-item",
+                "component": "activity_item",
                 "path": "/activity"
               },
               "children": []
             },
             {
-              "id": "activity-item",
+              "id": "activity_item",
               "component": "Row",
               "props": {
                 "title": {
-                  "path": "title"
+                  "@path": "title"
                 },
                 "subtitle": {
-                  "path": "who"
+                  "@path": "who"
                 },
                 "meta": {
-                  "path": "when"
+                  "@path": "when"
                 },
                 "icon": "ui-issue"
               }
@@ -578,14 +578,14 @@
           ]
         },
         {
-          "id": "reviews-card",
+          "id": "reviews_card",
           "component": "Card",
           "props": {
             "title": "Reviews"
           },
           "children": [
             {
-              "id": "reviews-range-row",
+              "id": "reviews_range_row",
               "component": "Stack",
               "props": {
                 "direction": "vertical",
@@ -594,7 +594,7 @@
               },
               "children": [
                 {
-                  "id": "reviews-range",
+                  "id": "reviews_range",
                   "component": "Segmented",
                   "props": {
                     "variant": "bar",
@@ -614,7 +614,7 @@
               ]
             },
             {
-              "id": "reviews-empty",
+              "id": "reviews_empty",
               "component": "EmptyState",
               "props": {
                 "icon": "pr-open",
@@ -635,7 +635,7 @@
       ]
     },
     {
-      "id": "dash-road",
+      "id": "dash_road",
       "component": "Timeline",
       "props": {
         "source": "/road",
@@ -644,7 +644,7 @@
       }
     },
     {
-      "id": "dash-footer",
+      "id": "dash_footer",
       "component": "Stack",
       "props": {
         "direction": "horizontal",
@@ -654,7 +654,7 @@
       },
       "children": [
         {
-          "id": "dash-export",
+          "id": "dash_export",
           "component": "Button",
           "props": {
             "label": "Export",
@@ -676,13 +676,13 @@
             "title": "Invite a member",
             "description": "They join the team and see every board.",
             "open": {
-              "path": "/ui/inviteOpen"
+              "@path": "/ui/inviteOpen"
             },
             "dismissible": true
           },
           "slots": {
             "trigger": {
-              "id": "invite-trigger",
+              "id": "invite_trigger",
               "component": "Button",
               "props": {
                 "label": "Invite member",
@@ -690,7 +690,7 @@
               }
             },
             "footer": {
-              "id": "invite-send",
+              "id": "invite_send",
               "component": "Button",
               "props": {
                 "label": "Send invite"
@@ -706,7 +706,7 @@
           },
           "children": [
             {
-              "id": "invite-form",
+              "id": "invite_form",
               "component": "Form",
               "props": {
                 "name": "invite",
@@ -721,7 +721,7 @@
               },
               "children": [
                 {
-                  "id": "invite-email",
+                  "id": "invite_email",
                   "component": "Input",
                   "props": {
                     "label": "Email",
@@ -729,15 +729,15 @@
                     "type": "email",
                     "placeholder": "you@example.com",
                     "value": {
-                      "path": "/invite/email"
+                      "@path": "/invite/email"
                     },
                     "checks": [
                       {
                         "condition": {
-                          "call": "email",
+                          "@call": "email",
                           "args": {
                             "value": {
-                              "path": "/invite/email"
+                              "@path": "/invite/email"
                             }
                           }
                         },
@@ -747,7 +747,7 @@
                   }
                 },
                 {
-                  "id": "invite-role",
+                  "id": "invite_role",
                   "component": "Select",
                   "props": {
                     "label": "Role",
@@ -763,12 +763,12 @@
                       }
                     ],
                     "value": {
-                      "path": "/invite/role"
+                      "@path": "/invite/role"
                     }
                   }
                 },
                 {
-                  "id": "invite-note",
+                  "id": "invite_note",
                   "component": "Textarea",
                   "props": {
                     "label": "Note",
@@ -776,7 +776,7 @@
                     "rows": 3,
                     "placeholder": "Optional",
                     "value": {
-                      "path": "/invite/note"
+                      "@path": "/invite/note"
                     }
                   }
                 }

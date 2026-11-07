@@ -50,7 +50,7 @@
           "id": "td",
           "component": "Text",
           "text": {
-            "path": "/user/name"
+            "@path": "/user/name"
           },
           "variant": "body"
         }
@@ -133,7 +133,7 @@
               "component": "Text",
               "props": {
                 "text": {
-                  "path": "/user/name"
+                  "@path": "/user/name"
                 },
                 "variant": "body"
               },
@@ -346,7 +346,7 @@
           "id": "ip",
           "component": "Icon",
           "name": {
-            "path": "M0 0h24v24H0z"
+            "@path": "M0 0h24v24H0z"
           }
         }
       ],
@@ -513,7 +513,7 @@
           "id": "item",
           "component": "Text",
           "text": {
-            "path": "name"
+            "@path": "name"
           }
         }
       ],
@@ -646,7 +646,7 @@
             "component": "Text",
             "props": {
               "text": {
-                "path": "name"
+                "@path": "name"
               },
               "variant": "body"
             },
@@ -668,7 +668,7 @@
             },
             {
               "title": {
-                "path": "/second"
+                "@path": "/second"
               },
               "child": "p2"
             }
@@ -697,7 +697,7 @@
               },
               {
                 "label": {
-                  "path": "/second"
+                  "@path": "/second"
                 },
                 "value": "p2"
               }
@@ -837,7 +837,7 @@
           "variant": "borderless",
           "action": {
             "function": {
-              "call": "openUrl",
+              "@call": "openUrl",
               "args": {
                 "url": "https://example.com"
               }
@@ -886,7 +886,7 @@
           "id": "b4l",
           "component": "Text",
           "text": {
-            "path": "/labels/cancel"
+            "@path": "/labels/cancel"
           }
         }
       ],
@@ -927,7 +927,7 @@
               "on": {
                 "press": {
                   "function": {
-                    "call": "openUrl",
+                    "@call": "openUrl",
                     "args": {
                       "url": "https://example.com"
                     }
@@ -986,7 +986,7 @@
               "props": {
                 "variant": "secondary",
                 "label": {
-                  "path": "/labels/cancel"
+                  "@path": "/labels/cancel"
                 }
               },
               "children": [],
@@ -1041,7 +1041,7 @@
           "label": "Notes",
           "variant": "longText",
           "value": {
-            "path": "/notes"
+            "@path": "/notes"
           }
         },
         {
@@ -1052,10 +1052,10 @@
           "checks": [
             {
               "condition": {
-                "call": "numeric",
+                "@call": "numeric",
                 "args": {
                   "value": {
-                    "path": "/age"
+                    "@path": "/age"
                   },
                   "min": 0
                 }
@@ -1075,7 +1075,7 @@
           "component": "TextField",
           "label": "Code",
           "value": {
-            "path": "/code"
+            "@path": "/code"
           },
           "validationRegexp": "^[A-Z]{3}$"
         }
@@ -1102,7 +1102,7 @@
               "props": {
                 "label": "Notes",
                 "value": {
-                  "path": "/notes"
+                  "@path": "/notes"
                 },
                 "name": "long"
               },
@@ -1116,10 +1116,10 @@
                 "checks": [
                   {
                     "condition": {
-                      "call": "numeric",
+                      "@call": "numeric",
                       "args": {
                         "value": {
-                          "path": "/age"
+                          "@path": "/age"
                         },
                         "min": 0
                       }
@@ -1148,17 +1148,17 @@
               "props": {
                 "label": "Code",
                 "value": {
-                  "path": "/code"
+                  "@path": "/code"
                 },
                 "name": "rx",
                 "type": "text",
                 "checks": [
                   {
                     "condition": {
-                      "call": "regex",
+                      "@call": "regex",
                       "args": {
                         "value": {
-                          "path": "/code"
+                          "@path": "/code"
                         },
                         "pattern": "^[A-Z]{3}$"
                       }
@@ -1204,7 +1204,7 @@
           "component": "CheckBox",
           "label": "I agree",
           "value": {
-            "path": "/agree"
+            "@path": "/agree"
           }
         },
         {
@@ -1236,7 +1236,7 @@
               "props": {
                 "label": "I agree",
                 "checked": {
-                  "path": "/agree"
+                  "@path": "/agree"
                 },
                 "name": "agree"
               },
@@ -1364,7 +1364,7 @@
             }
           ],
           "value": {
-            "path": "/labels"
+            "@path": "/labels"
           }
         },
         {
@@ -1460,7 +1460,7 @@
                 ],
                 "name": "multi",
                 "value": {
-                  "path": "/labels"
+                  "@path": "/labels"
                 },
                 "multiple": true
               },

@@ -203,7 +203,7 @@
           "component": "StatCard",
           "label": "Merged",
           "value": {
-            "path": "/merged"
+            "@path": "/merged"
           }
         }
       ],
@@ -384,7 +384,7 @@
                           "component": "Text",
                           "props": {
                             "text": {
-                              "path": "/merged"
+                              "@path": "/merged"
                             },
                             "variant": "title"
                           },

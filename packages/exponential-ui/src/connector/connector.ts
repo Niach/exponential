@@ -206,7 +206,7 @@ export class ExponentialConnector {
     }
   }
 
-  /** `exponential.mcp({tool, arguments})` for an ExponentialHost (gate it
+  /** `harness_mcp({tool, arguments})` for an ExponentialHost (gate it
    *  with an `ask` policy: it acts as the person). */
   functions(): Record<string, HostFunction> {
     return { "exponential.mcp": (args) => this.callTool(String(args.tool ?? ``), (args.arguments ?? {}) as Record<string, unknown>) }

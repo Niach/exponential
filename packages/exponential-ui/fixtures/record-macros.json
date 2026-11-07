@@ -143,15 +143,15 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/title"
+                  "@path": "/recordForm/f/title"
                 },
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/title"
+                          "@path": "/recordForm/f/title"
                         }
                       }
                     },
@@ -159,10 +159,10 @@
                   },
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/title"
+                          "@path": "/recordForm/f/title"
                         },
                         "max": 160
                       }
@@ -178,16 +178,16 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/amount"
+                  "@path": "/recordForm/f/amount"
                 },
                 "min": 0,
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/amount"
+                          "@path": "/recordForm/f/amount"
                         }
                       }
                     },
@@ -195,10 +195,10 @@
                   },
                   {
                     "condition": {
-                      "call": "numeric",
+                      "@call": "numeric",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/amount"
+                          "@path": "/recordForm/f/amount"
                         },
                         "min": 0
                       }
@@ -214,7 +214,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/close"
+                  "@path": "/recordForm/f/close"
                 }
               },
               {
@@ -224,16 +224,16 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/company"
+                  "@path": "/recordForm/f/company"
                 },
                 "placeholder": "The company's name",
                 "checks": [
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/company"
+                          "@path": "/recordForm/f/company"
                         },
                         "max": 120
                       }
@@ -249,7 +249,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/stage"
+                  "@path": "/recordForm/f/stage"
                 },
                 "options": [
                   {
@@ -268,30 +268,30 @@
               }
             ],
             "error": {
-              "path": "/recordForm/fError"
+              "@path": "/recordForm/fError"
             },
             "author": {
-              "path": "/recordForm/fAuthor"
+              "@path": "/recordForm/fAuthor"
             },
             "authorOptions": {
-              "call": "cond",
+              "@call": "cond",
               "args": {
                 "if": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "call": "filter",
+                          "@call": "filter",
                           "args": {
                             "items": {
-                              "path": "/recordMembers/rows"
+                              "@path": "/recordMembers/rows"
                             },
                             "where": {
                               "id": {
-                                "path": "/recordMembers/me"
+                                "@path": "/recordMembers/me"
                               },
                               "role": "owner"
                             }
@@ -302,7 +302,7 @@
                   }
                 },
                 "then": {
-                  "path": "/recordMembers/rows"
+                  "@path": "/recordMembers/rows"
                 },
                 "else": null
               }
@@ -310,47 +310,47 @@
             "on": {
               "submit": {
                 "functionCall": {
-                  "call": "records.upsert",
+                  "@call": "records_upsert",
                   "args": {
                     "kind": "deal",
                     "data": {
                       "title": {
-                        "path": "/recordForm/f/title"
+                        "@path": "/recordForm/f/title"
                       },
                       "amount": {
-                        "path": "/recordForm/f/amount"
+                        "@path": "/recordForm/f/amount"
                       },
                       "close": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/close"
+                              "@path": "/recordForm/f/close"
                             }
                           },
                           "default": null
                         }
                       },
                       "company": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/company"
+                              "@path": "/recordForm/f/company"
                             }
                           },
                           "default": null
                         }
                       },
                       "stage": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/stage"
+                              "@path": "/recordForm/f/stage"
                             }
                           },
                           "default": null
@@ -358,27 +358,27 @@
                       }
                     },
                     "author": {
-                      "call": "cond",
+                      "@call": "cond",
                       "args": {
                         "if": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "call": "lt",
+                              "@call": "lt",
                               "args": {
                                 "a": 0,
                                 "b": {
-                                  "call": "len",
+                                  "@call": "len",
                                   "args": {
                                     "value": {
-                                      "call": "filter",
+                                      "@call": "filter",
                                       "args": {
                                         "items": {
-                                          "path": "/recordMembers/rows"
+                                          "@path": "/recordMembers/rows"
                                         },
                                         "where": {
                                           "id": {
-                                            "path": "/recordMembers/me"
+                                            "@path": "/recordMembers/me"
                                           },
                                           "role": "owner"
                                         }
@@ -389,34 +389,34 @@
                               }
                             },
                             "then": {
-                              "path": "/recordMembers/rows"
+                              "@path": "/recordMembers/rows"
                             },
                             "else": null
                           }
                         },
                         "then": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "call": "or",
+                              "@call": "or",
                               "args": {
                                 "values": [
                                   {
-                                    "call": "not",
+                                    "@call": "not",
                                     "args": {
                                       "value": {
-                                        "path": "/recordForm/fAuthor"
+                                        "@path": "/recordForm/fAuthor"
                                       }
                                     }
                                   },
                                   {
-                                    "call": "eq",
+                                    "@call": "eq",
                                     "args": {
                                       "a": {
-                                        "path": "/recordForm/fAuthor"
+                                        "@path": "/recordForm/fAuthor"
                                       },
                                       "b": {
-                                        "path": "/recordForm/fAuthorBase"
+                                        "@path": "/recordForm/fAuthorBase"
                                       }
                                     }
                                   }
@@ -425,7 +425,7 @@
                             },
                             "then": null,
                             "else": {
-                              "path": "/recordForm/fAuthor"
+                              "@path": "/recordForm/fAuthor"
                             }
                           }
                         },
@@ -489,7 +489,7 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/hours"
+                  "@path": "/recordForm/f/hours"
                 },
                 "min": 0,
                 "max": 24,
@@ -498,10 +498,10 @@
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/hours"
+                          "@path": "/recordForm/f/hours"
                         }
                       }
                     },
@@ -509,10 +509,10 @@
                   },
                   {
                     "condition": {
-                      "call": "numeric",
+                      "@call": "numeric",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/hours"
+                          "@path": "/recordForm/f/hours"
                         },
                         "min": 0,
                         "max": 24
@@ -529,7 +529,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/billable"
+                  "@path": "/recordForm/f/billable"
                 }
               },
               {
@@ -539,7 +539,7 @@
                 "required": false,
                 "wide": true,
                 "value": {
-                  "path": "/recordForm/f/days"
+                  "@path": "/recordForm/f/days"
                 },
                 "multiple": true,
                 "options": [
@@ -560,10 +560,10 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/issue"
+                  "@path": "/recordForm/f/issue"
                 },
                 "options": {
-                  "path": "/recordIssues/rows"
+                  "@path": "/recordIssues/rows"
                 },
                 "searchable": true
               },
@@ -574,13 +574,13 @@
                 "required": false,
                 "wide": true,
                 "value": {
-                  "path": "/recordForm/f/loggedAt"
+                  "@path": "/recordForm/f/loggedAt"
                 },
                 "date": {
-                  "path": "/recordForm/fParts/loggedAt/date"
+                  "@path": "/recordForm/fParts/loggedAt/date"
                 },
                 "time": {
-                  "path": "/recordForm/fParts/loggedAt/time"
+                  "@path": "/recordForm/fParts/loggedAt/time"
                 }
               },
               {
@@ -590,15 +590,15 @@
                 "required": false,
                 "wide": true,
                 "value": {
-                  "path": "/recordForm/f/notes"
+                  "@path": "/recordForm/f/notes"
                 },
                 "checks": [
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/notes"
+                          "@path": "/recordForm/f/notes"
                         },
                         "max": 2000
                       }
@@ -614,10 +614,10 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/owner"
+                  "@path": "/recordForm/f/owner"
                 },
                 "options": {
-                  "path": "/recordMembers/rows"
+                  "@path": "/recordMembers/rows"
                 },
                 "searchable": true
               },
@@ -628,7 +628,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/startsAt"
+                  "@path": "/recordForm/f/startsAt"
                 }
               },
               {
@@ -638,36 +638,36 @@
                 "required": false,
                 "wide": true,
                 "value": {
-                  "path": "/recordForm/f/tags"
+                  "@path": "/recordForm/f/tags"
                 },
                 "max": 5
               }
             ],
             "error": {
-              "path": "/recordForm/fError"
+              "@path": "/recordForm/fError"
             },
             "author": {
-              "path": "/recordForm/fAuthor"
+              "@path": "/recordForm/fAuthor"
             },
             "authorOptions": {
-              "call": "cond",
+              "@call": "cond",
               "args": {
                 "if": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "call": "filter",
+                          "@call": "filter",
                           "args": {
                             "items": {
-                              "path": "/recordMembers/rows"
+                              "@path": "/recordMembers/rows"
                             },
                             "where": {
                               "id": {
-                                "path": "/recordMembers/me"
+                                "@path": "/recordMembers/me"
                               },
                               "role": "owner"
                             }
@@ -678,7 +678,7 @@
                   }
                 },
                 "then": {
-                  "path": "/recordMembers/rows"
+                  "@path": "/recordMembers/rows"
                 },
                 "else": null
               }
@@ -686,73 +686,73 @@
             "on": {
               "submit": {
                 "functionCall": {
-                  "call": "records.upsert",
+                  "@call": "records_upsert",
                   "args": {
                     "kind": "entry",
                     "data": {
                       "hours": {
-                        "path": "/recordForm/f/hours"
+                        "@path": "/recordForm/f/hours"
                       },
                       "billable": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/billable"
+                              "@path": "/recordForm/f/billable"
                             }
                           },
                           "default": null
                         }
                       },
                       "days": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/days"
+                              "@path": "/recordForm/f/days"
                             }
                           },
                           "default": null
                         }
                       },
                       "issue": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/issue"
+                              "@path": "/recordForm/f/issue"
                             }
                           },
                           "default": null
                         }
                       },
                       "loggedAt": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "call": "cond",
+                              "@call": "cond",
                               "args": {
                                 "if": {
-                                  "path": "/recordForm/fParts/loggedAt/date"
+                                  "@path": "/recordForm/fParts/loggedAt/date"
                                 },
                                 "then": {
-                                  "call": "dateTime",
+                                  "@call": "dateTime",
                                   "args": {
                                     "date": {
-                                      "path": "/recordForm/fParts/loggedAt/date"
+                                      "@path": "/recordForm/fParts/loggedAt/date"
                                     },
                                     "time": {
-                                      "path": "/recordForm/fParts/loggedAt/time"
+                                      "@path": "/recordForm/fParts/loggedAt/time"
                                     }
                                   }
                                 },
                                 "else": {
-                                  "path": "/recordForm/f/loggedAt"
+                                  "@path": "/recordForm/f/loggedAt"
                                 }
                               }
                             }
@@ -761,48 +761,48 @@
                         }
                       },
                       "notes": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/notes"
+                              "@path": "/recordForm/f/notes"
                             }
                           },
                           "default": null
                         }
                       },
                       "owner": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/owner"
+                              "@path": "/recordForm/f/owner"
                             }
                           },
                           "default": null
                         }
                       },
                       "startsAt": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/startsAt"
+                              "@path": "/recordForm/f/startsAt"
                             }
                           },
                           "default": null
                         }
                       },
                       "tags": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/tags"
+                              "@path": "/recordForm/f/tags"
                             }
                           },
                           "default": null
@@ -810,27 +810,27 @@
                       }
                     },
                     "author": {
-                      "call": "cond",
+                      "@call": "cond",
                       "args": {
                         "if": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "call": "lt",
+                              "@call": "lt",
                               "args": {
                                 "a": 0,
                                 "b": {
-                                  "call": "len",
+                                  "@call": "len",
                                   "args": {
                                     "value": {
-                                      "call": "filter",
+                                      "@call": "filter",
                                       "args": {
                                         "items": {
-                                          "path": "/recordMembers/rows"
+                                          "@path": "/recordMembers/rows"
                                         },
                                         "where": {
                                           "id": {
-                                            "path": "/recordMembers/me"
+                                            "@path": "/recordMembers/me"
                                           },
                                           "role": "owner"
                                         }
@@ -841,34 +841,34 @@
                               }
                             },
                             "then": {
-                              "path": "/recordMembers/rows"
+                              "@path": "/recordMembers/rows"
                             },
                             "else": null
                           }
                         },
                         "then": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "call": "or",
+                              "@call": "or",
                               "args": {
                                 "values": [
                                   {
-                                    "call": "not",
+                                    "@call": "not",
                                     "args": {
                                       "value": {
-                                        "path": "/recordForm/fAuthor"
+                                        "@path": "/recordForm/fAuthor"
                                       }
                                     }
                                   },
                                   {
-                                    "call": "eq",
+                                    "@call": "eq",
                                     "args": {
                                       "a": {
-                                        "path": "/recordForm/fAuthor"
+                                        "@path": "/recordForm/fAuthor"
                                       },
                                       "b": {
-                                        "path": "/recordForm/fAuthorBase"
+                                        "@path": "/recordForm/fAuthorBase"
                                       }
                                     }
                                   }
@@ -877,7 +877,7 @@
                             },
                             "then": null,
                             "else": {
-                              "path": "/recordForm/fAuthor"
+                              "@path": "/recordForm/fAuthor"
                             }
                           }
                         },
@@ -922,7 +922,7 @@
           "kind": "deal",
           "path": "/draft",
           "recordId": {
-            "path": "/draft/id"
+            "@path": "/draft/id"
           },
           "on": {
             "submit": {
@@ -949,7 +949,7 @@
             "kind": "deal",
             "path": "/draft",
             "recordId": {
-              "path": "/draft/id"
+              "@path": "/draft/id"
             },
             "on": {
               "submit": {
@@ -966,15 +966,15 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/draft/title"
+                  "@path": "/draft/title"
                 },
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/draft/title"
+                          "@path": "/draft/title"
                         }
                       }
                     },
@@ -982,10 +982,10 @@
                   },
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/draft/title"
+                          "@path": "/draft/title"
                         },
                         "max": 160
                       }
@@ -1001,16 +1001,16 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/draft/amount"
+                  "@path": "/draft/amount"
                 },
                 "min": 0,
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/draft/amount"
+                          "@path": "/draft/amount"
                         }
                       }
                     },
@@ -1018,10 +1018,10 @@
                   },
                   {
                     "condition": {
-                      "call": "numeric",
+                      "@call": "numeric",
                       "args": {
                         "value": {
-                          "path": "/draft/amount"
+                          "@path": "/draft/amount"
                         },
                         "min": 0
                       }
@@ -1037,7 +1037,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/draft/close"
+                  "@path": "/draft/close"
                 }
               },
               {
@@ -1047,16 +1047,16 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/draft/company"
+                  "@path": "/draft/company"
                 },
                 "placeholder": "The company's name",
                 "checks": [
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/draft/company"
+                          "@path": "/draft/company"
                         },
                         "max": 120
                       }
@@ -1072,7 +1072,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/draft/stage"
+                  "@path": "/draft/stage"
                 },
                 "options": [
                   {
@@ -1091,30 +1091,30 @@
               }
             ],
             "error": {
-              "path": "/draftError"
+              "@path": "/draftError"
             },
             "author": {
-              "path": "/draftAuthor"
+              "@path": "/draftAuthor"
             },
             "authorOptions": {
-              "call": "cond",
+              "@call": "cond",
               "args": {
                 "if": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "call": "filter",
+                          "@call": "filter",
                           "args": {
                             "items": {
-                              "path": "/recordMembers/rows"
+                              "@path": "/recordMembers/rows"
                             },
                             "where": {
                               "id": {
-                                "path": "/recordMembers/me"
+                                "@path": "/recordMembers/me"
                               },
                               "role": "owner"
                             }
@@ -1125,7 +1125,7 @@
                   }
                 },
                 "then": {
-                  "path": "/recordMembers/rows"
+                  "@path": "/recordMembers/rows"
                 },
                 "else": null
               }
@@ -1183,15 +1183,15 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/title"
+                  "@path": "/recordForm/f/title"
                 },
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/title"
+                          "@path": "/recordForm/f/title"
                         }
                       }
                     },
@@ -1199,10 +1199,10 @@
                   },
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/title"
+                          "@path": "/recordForm/f/title"
                         },
                         "max": 160
                       }
@@ -1218,16 +1218,16 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/amount"
+                  "@path": "/recordForm/f/amount"
                 },
                 "min": 0,
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/amount"
+                          "@path": "/recordForm/f/amount"
                         }
                       }
                     },
@@ -1235,10 +1235,10 @@
                   },
                   {
                     "condition": {
-                      "call": "numeric",
+                      "@call": "numeric",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/amount"
+                          "@path": "/recordForm/f/amount"
                         },
                         "min": 0
                       }
@@ -1254,7 +1254,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/close"
+                  "@path": "/recordForm/f/close"
                 }
               },
               {
@@ -1264,16 +1264,16 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/company"
+                  "@path": "/recordForm/f/company"
                 },
                 "placeholder": "The company's name",
                 "checks": [
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/recordForm/f/company"
+                          "@path": "/recordForm/f/company"
                         },
                         "max": 120
                       }
@@ -1289,7 +1289,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordForm/f/stage"
+                  "@path": "/recordForm/f/stage"
                 },
                 "options": [
                   {
@@ -1311,47 +1311,47 @@
             "on": {
               "submit": {
                 "functionCall": {
-                  "call": "records.upsert",
+                  "@call": "records_upsert",
                   "args": {
                     "kind": "deal",
                     "data": {
                       "title": {
-                        "path": "/recordForm/f/title"
+                        "@path": "/recordForm/f/title"
                       },
                       "amount": {
-                        "path": "/recordForm/f/amount"
+                        "@path": "/recordForm/f/amount"
                       },
                       "close": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/close"
+                              "@path": "/recordForm/f/close"
                             }
                           },
                           "default": null
                         }
                       },
                       "company": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/company"
+                              "@path": "/recordForm/f/company"
                             }
                           },
                           "default": null
                         }
                       },
                       "stage": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordForm/f/stage"
+                              "@path": "/recordForm/f/stage"
                             }
                           },
                           "default": null
@@ -1359,27 +1359,27 @@
                       }
                     },
                     "author": {
-                      "call": "cond",
+                      "@call": "cond",
                       "args": {
                         "if": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "call": "lt",
+                              "@call": "lt",
                               "args": {
                                 "a": 0,
                                 "b": {
-                                  "call": "len",
+                                  "@call": "len",
                                   "args": {
                                     "value": {
-                                      "call": "filter",
+                                      "@call": "filter",
                                       "args": {
                                         "items": {
-                                          "path": "/recordMembers/rows"
+                                          "@path": "/recordMembers/rows"
                                         },
                                         "where": {
                                           "id": {
-                                            "path": "/recordMembers/me"
+                                            "@path": "/recordMembers/me"
                                           },
                                           "role": "owner"
                                         }
@@ -1390,34 +1390,34 @@
                               }
                             },
                             "then": {
-                              "path": "/recordMembers/rows"
+                              "@path": "/recordMembers/rows"
                             },
                             "else": null
                           }
                         },
                         "then": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "call": "or",
+                              "@call": "or",
                               "args": {
                                 "values": [
                                   {
-                                    "call": "not",
+                                    "@call": "not",
                                     "args": {
                                       "value": {
-                                        "path": "/recordForm/fAuthor"
+                                        "@path": "/recordForm/fAuthor"
                                       }
                                     }
                                   },
                                   {
-                                    "call": "eq",
+                                    "@call": "eq",
                                     "args": {
                                       "a": {
-                                        "path": "/recordForm/fAuthor"
+                                        "@path": "/recordForm/fAuthor"
                                       },
                                       "b": {
-                                        "path": "/recordForm/fAuthorBase"
+                                        "@path": "/recordForm/fAuthorBase"
                                       }
                                     }
                                   }
@@ -1426,7 +1426,7 @@
                             },
                             "then": null,
                             "else": {
-                              "path": "/recordForm/fAuthor"
+                              "@path": "/recordForm/fAuthor"
                             }
                           }
                         },
@@ -1570,17 +1570,17 @@
               }
             ],
             "rows": {
-              "path": "/recordTable/t/rows/rows"
+              "@path": "/recordTable/t/rows/rows"
             },
             "count": {
-              "call": "pluralize",
+              "@call": "pluralize",
               "args": {
                 "value": {
-                  "call": "coalesce",
+                  "@call": "coalesce",
                   "args": {
                     "values": [
                       {
-                        "path": "/recordTable/t/rows/count"
+                        "@path": "/recordTable/t/rows/count"
                       },
                       0
                     ]
@@ -1591,10 +1591,10 @@
               }
             },
             "loading": {
-              "call": "not",
+              "@call": "not",
               "args": {
                 "value": {
-                  "path": "/recordTable/t/rows"
+                  "@path": "/recordTable/t/rows"
                 }
               }
             },
@@ -1612,15 +1612,15 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/recordTable/t/editor/draft/title"
+                  "@path": "/recordTable/t/editor/draft/title"
                 },
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/recordTable/t/editor/draft/title"
+                          "@path": "/recordTable/t/editor/draft/title"
                         }
                       }
                     },
@@ -1628,10 +1628,10 @@
                   },
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/recordTable/t/editor/draft/title"
+                          "@path": "/recordTable/t/editor/draft/title"
                         },
                         "max": 160
                       }
@@ -1647,16 +1647,16 @@
                 "required": true,
                 "wide": false,
                 "value": {
-                  "path": "/recordTable/t/editor/draft/amount"
+                  "@path": "/recordTable/t/editor/draft/amount"
                 },
                 "min": 0,
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/recordTable/t/editor/draft/amount"
+                          "@path": "/recordTable/t/editor/draft/amount"
                         }
                       }
                     },
@@ -1664,10 +1664,10 @@
                   },
                   {
                     "condition": {
-                      "call": "numeric",
+                      "@call": "numeric",
                       "args": {
                         "value": {
-                          "path": "/recordTable/t/editor/draft/amount"
+                          "@path": "/recordTable/t/editor/draft/amount"
                         },
                         "min": 0
                       }
@@ -1683,7 +1683,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordTable/t/editor/draft/close"
+                  "@path": "/recordTable/t/editor/draft/close"
                 }
               },
               {
@@ -1693,16 +1693,16 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordTable/t/editor/draft/company"
+                  "@path": "/recordTable/t/editor/draft/company"
                 },
                 "placeholder": "The company's name",
                 "checks": [
                   {
                     "condition": {
-                      "call": "length",
+                      "@call": "length",
                       "args": {
                         "value": {
-                          "path": "/recordTable/t/editor/draft/company"
+                          "@path": "/recordTable/t/editor/draft/company"
                         },
                         "max": 120
                       }
@@ -1718,7 +1718,7 @@
                 "required": false,
                 "wide": false,
                 "value": {
-                  "path": "/recordTable/t/editor/draft/stage"
+                  "@path": "/recordTable/t/editor/draft/stage"
                 },
                 "options": [
                   {
@@ -1738,30 +1738,30 @@
             ],
             "path": "/recordTable/t/editor/draft",
             "error": {
-              "path": "/recordTable/t/editor/draftError"
+              "@path": "/recordTable/t/editor/draftError"
             },
             "author": {
-              "path": "/recordTable/t/editor/draftAuthor"
+              "@path": "/recordTable/t/editor/draftAuthor"
             },
             "authorOptions": {
-              "call": "cond",
+              "@call": "cond",
               "args": {
                 "if": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "call": "filter",
+                          "@call": "filter",
                           "args": {
                             "items": {
-                              "path": "/recordMembers/rows"
+                              "@path": "/recordMembers/rows"
                             },
                             "where": {
                               "id": {
-                                "path": "/recordMembers/me"
+                                "@path": "/recordMembers/me"
                               },
                               "role": "owner"
                             }
@@ -1772,34 +1772,34 @@
                   }
                 },
                 "then": {
-                  "path": "/recordMembers/rows"
+                  "@path": "/recordMembers/rows"
                 },
                 "else": null
               }
             },
             "editorOpen": {
-              "path": "/recordTable/t/editor/open"
+              "@path": "/recordTable/t/editor/open"
             },
             "editorId": {
-              "path": "/recordTable/t/editor/draft/id"
+              "@path": "/recordTable/t/editor/draft/id"
             },
             "deleteOpen": {
-              "path": "/recordTable/t/delete/open"
+              "@path": "/recordTable/t/delete/open"
             },
             "on": {
               "add": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/recordTable/t/editor",
                     "value": {
                       "open": true,
                       "draft": {},
                       "draftAuthor": {
-                        "path": "/recordMembers/me"
+                        "@path": "/recordMembers/me"
                       },
                       "draftAuthorBase": {
-                        "path": "/recordMembers/me"
+                        "@path": "/recordMembers/me"
                       }
                     }
                   }
@@ -1807,29 +1807,29 @@
               },
               "edit": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/recordTable/t/editor",
                     "value": {
                       "open": true,
                       "draft": {
-                        "path": ""
+                        "@path": ""
                       },
                       "draftAuthor": {
-                        "call": "coalesce",
+                        "@call": "coalesce",
                         "args": {
                           "values": [
                             {
-                              "path": "authorId"
+                              "@path": "authorId"
                             },
                             {
-                              "path": "/recordMembers/me"
+                              "@path": "/recordMembers/me"
                             }
                           ]
                         }
                       },
                       "draftAuthorBase": {
-                        "path": "authorId"
+                        "@path": "authorId"
                       }
                     }
                   }
@@ -1837,13 +1837,13 @@
               },
               "delete": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/recordTable/t/delete",
                     "value": {
                       "open": true,
                       "id": {
-                        "path": "id"
+                        "@path": "id"
                       }
                     }
                   }
@@ -1851,50 +1851,50 @@
               },
               "submit": {
                 "functionCall": {
-                  "call": "records.upsert",
+                  "@call": "records_upsert",
                   "args": {
                     "kind": "deal",
                     "id": {
-                      "path": "/recordTable/t/editor/draft/id"
+                      "@path": "/recordTable/t/editor/draft/id"
                     },
                     "data": {
                       "title": {
-                        "path": "/recordTable/t/editor/draft/title"
+                        "@path": "/recordTable/t/editor/draft/title"
                       },
                       "amount": {
-                        "path": "/recordTable/t/editor/draft/amount"
+                        "@path": "/recordTable/t/editor/draft/amount"
                       },
                       "close": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordTable/t/editor/draft/close"
+                              "@path": "/recordTable/t/editor/draft/close"
                             }
                           },
                           "default": null
                         }
                       },
                       "company": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordTable/t/editor/draft/company"
+                              "@path": "/recordTable/t/editor/draft/company"
                             }
                           },
                           "default": null
                         }
                       },
                       "stage": {
-                        "call": "expr",
+                        "@call": "expr",
                         "args": {
                           "expr": "v == '' ? null : v",
                           "vars": {
                             "v": {
-                              "path": "/recordTable/t/editor/draft/stage"
+                              "@path": "/recordTable/t/editor/draft/stage"
                             }
                           },
                           "default": null
@@ -1902,27 +1902,27 @@
                       }
                     },
                     "author": {
-                      "call": "cond",
+                      "@call": "cond",
                       "args": {
                         "if": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "call": "lt",
+                              "@call": "lt",
                               "args": {
                                 "a": 0,
                                 "b": {
-                                  "call": "len",
+                                  "@call": "len",
                                   "args": {
                                     "value": {
-                                      "call": "filter",
+                                      "@call": "filter",
                                       "args": {
                                         "items": {
-                                          "path": "/recordMembers/rows"
+                                          "@path": "/recordMembers/rows"
                                         },
                                         "where": {
                                           "id": {
-                                            "path": "/recordMembers/me"
+                                            "@path": "/recordMembers/me"
                                           },
                                           "role": "owner"
                                         }
@@ -1933,34 +1933,34 @@
                               }
                             },
                             "then": {
-                              "path": "/recordMembers/rows"
+                              "@path": "/recordMembers/rows"
                             },
                             "else": null
                           }
                         },
                         "then": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "call": "or",
+                              "@call": "or",
                               "args": {
                                 "values": [
                                   {
-                                    "call": "not",
+                                    "@call": "not",
                                     "args": {
                                       "value": {
-                                        "path": "/recordTable/t/editor/draftAuthor"
+                                        "@path": "/recordTable/t/editor/draftAuthor"
                                       }
                                     }
                                   },
                                   {
-                                    "call": "eq",
+                                    "@call": "eq",
                                     "args": {
                                       "a": {
-                                        "path": "/recordTable/t/editor/draftAuthor"
+                                        "@path": "/recordTable/t/editor/draftAuthor"
                                       },
                                       "b": {
-                                        "path": "/recordTable/t/editor/draftAuthorBase"
+                                        "@path": "/recordTable/t/editor/draftAuthorBase"
                                       }
                                     }
                                   }
@@ -1969,7 +1969,7 @@
                             },
                             "then": null,
                             "else": {
-                              "path": "/recordTable/t/editor/draftAuthor"
+                              "@path": "/recordTable/t/editor/draftAuthor"
                             }
                           }
                         },
@@ -1985,7 +1985,7 @@
               },
               "cancel": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/recordTable/t/editor/open",
                     "value": false
@@ -1994,17 +1994,17 @@
               },
               "confirm": {
                 "functionCall": {
-                  "call": "records.delete",
+                  "@call": "records_delete",
                   "args": {
                     "id": {
-                      "path": "/recordTable/t/delete/id"
+                      "@path": "/recordTable/t/delete/id"
                     }
                   }
                 }
               },
               "cancelDelete": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/recordTable/t/delete/open",
                     "value": false
@@ -2017,14 +2017,14 @@
             "id": "t__row",
             "component": "Row",
             "title": {
-              "call": "coalesce",
+              "@call": "coalesce",
               "args": {
                 "values": [
                   {
-                    "call": "text",
+                    "@call": "text",
                     "args": {
                       "value": {
-                        "path": "title"
+                        "@path": "title"
                       }
                     }
                   },
@@ -2033,14 +2033,14 @@
               }
             },
             "subtitle": {
-              "call": "coalesce",
+              "@call": "coalesce",
               "args": {
                 "values": [
                   {
-                    "call": "text",
+                    "@call": "text",
                     "args": {
                       "value": {
-                        "path": "amount"
+                        "@path": "amount"
                       }
                     }
                   },
@@ -2049,39 +2049,39 @@
               }
             },
             "meta": {
-              "call": "formatRelativeTime",
+              "@call": "formatRelativeTime",
               "args": {
                 "value": {
-                  "path": "updatedAt"
+                  "@path": "updatedAt"
                 }
               }
             },
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/recordTable/t/editor",
                     "value": {
                       "open": true,
                       "draft": {
-                        "path": ""
+                        "@path": ""
                       },
                       "draftAuthor": {
-                        "call": "coalesce",
+                        "@call": "coalesce",
                         "args": {
                           "values": [
                             {
-                              "path": "authorId"
+                              "@path": "authorId"
                             },
                             {
-                              "path": "/recordMembers/me"
+                              "@path": "/recordMembers/me"
                             }
                           ]
                         }
                       },
                       "draftAuthorBase": {
-                        "path": "authorId"
+                        "@path": "authorId"
                       }
                     }
                   }
@@ -2104,13 +2104,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/recordTable/t/delete",
                     "value": {
                       "open": true,
                       "id": {
-                        "path": "id"
+                        "@path": "id"
                       }
                     }
                   }
@@ -2203,17 +2203,17 @@
               }
             ],
             "rows": {
-              "path": "/recordTable/t/rows/rows"
+              "@path": "/recordTable/t/rows/rows"
             },
             "count": {
-              "call": "pluralize",
+              "@call": "pluralize",
               "args": {
                 "value": {
-                  "call": "coalesce",
+                  "@call": "coalesce",
                   "args": {
                     "values": [
                       {
-                        "path": "/recordTable/t/rows/count"
+                        "@path": "/recordTable/t/rows/count"
                       },
                       0
                     ]
@@ -2224,10 +2224,10 @@
               }
             },
             "loading": {
-              "call": "not",
+              "@call": "not",
               "args": {
                 "value": {
-                  "path": "/recordTable/t/rows"
+                  "@path": "/recordTable/t/rows"
                 }
               }
             },
@@ -2242,14 +2242,14 @@
             "id": "t__row",
             "component": "Row",
             "title": {
-              "call": "coalesce",
+              "@call": "coalesce",
               "args": {
                 "values": [
                   {
-                    "call": "text",
+                    "@call": "text",
                     "args": {
                       "value": {
-                        "path": "stage"
+                        "@path": "stage"
                       }
                     }
                   },
@@ -2258,14 +2258,14 @@
               }
             },
             "subtitle": {
-              "call": "coalesce",
+              "@call": "coalesce",
               "args": {
                 "values": [
                   {
-                    "call": "text",
+                    "@call": "text",
                     "args": {
                       "value": {
-                        "path": "title"
+                        "@path": "title"
                       }
                     }
                   },
@@ -2274,10 +2274,10 @@
               }
             },
             "meta": {
-              "call": "formatRelativeTime",
+              "@call": "formatRelativeTime",
               "args": {
                 "value": {
-                  "path": "updatedAt"
+                  "@path": "updatedAt"
                 }
               }
             }
@@ -2394,17 +2394,17 @@
               }
             ],
             "rows": {
-              "path": "/recordTable/t/rows/rows"
+              "@path": "/recordTable/t/rows/rows"
             },
             "count": {
-              "call": "pluralize",
+              "@call": "pluralize",
               "args": {
                 "value": {
-                  "call": "coalesce",
+                  "@call": "coalesce",
                   "args": {
                     "values": [
                       {
-                        "path": "/recordTable/t/rows/count"
+                        "@path": "/recordTable/t/rows/count"
                       },
                       0
                     ]
@@ -2415,10 +2415,10 @@
               }
             },
             "loading": {
-              "call": "not",
+              "@call": "not",
               "args": {
                 "value": {
-                  "path": "/recordTable/t/rows"
+                  "@path": "/recordTable/t/rows"
                 }
               }
             },
@@ -2434,14 +2434,14 @@
             "id": "t__row",
             "component": "Row",
             "title": {
-              "call": "coalesce",
+              "@call": "coalesce",
               "args": {
                 "values": [
                   {
-                    "call": "text",
+                    "@call": "text",
                     "args": {
                       "value": {
-                        "path": "hours"
+                        "@path": "hours"
                       }
                     }
                   },
@@ -2450,14 +2450,14 @@
               }
             },
             "subtitle": {
-              "call": "coalesce",
+              "@call": "coalesce",
               "args": {
                 "values": [
                   {
-                    "call": "text",
+                    "@call": "text",
                     "args": {
                       "value": {
-                        "path": "billable"
+                        "@path": "billable"
                       }
                     }
                   },
@@ -2466,10 +2466,10 @@
               }
             },
             "meta": {
-              "call": "formatRelativeTime",
+              "@call": "formatRelativeTime",
               "args": {
                 "value": {
-                  "path": "updatedAt"
+                  "@path": "updatedAt"
                 }
               }
             }
@@ -2525,7 +2525,7 @@
     {
       "name": "clean: functions and sources allow the writes and the rows",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",
@@ -2589,7 +2589,7 @@
           }
         },
         "functions": [
-          "records.*"
+          "records_*"
         ],
         "sources": [
           "records:*"
@@ -2600,7 +2600,7 @@
     {
       "name": "RecordForm without records.upsert",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",
@@ -2674,7 +2674,7 @@
     {
       "name": "a read-only RecordForm writes nothing",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",
@@ -2744,7 +2744,7 @@
     {
       "name": "RecordTable without records.delete and outside sources",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",
@@ -2808,7 +2808,7 @@
           }
         },
         "functions": [
-          "records.upsert"
+          "records_upsert"
         ],
         "sources": [
           "exp:*"
@@ -2828,7 +2828,7 @@
     {
       "name": "a RecordTable that is not editable needs only its source",
       "package": {
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",

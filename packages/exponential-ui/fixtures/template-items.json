@@ -515,7 +515,7 @@
             "component": "Row",
             "props": {
               "title": {
-                "path": "title"
+                "@path": "title"
               }
             }
           },
@@ -536,7 +536,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "v"
+                    "@path": "v"
                   }
                 }
               }
@@ -598,7 +598,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "title"
+                        "@path": "title"
                       },
                       "variant": "body",
                       "lines": 1
@@ -664,7 +664,7 @@
             "component": "Text",
             "props": {
               "text": {
-                "path": "v"
+                "@path": "v"
               }
             },
             "children": []
@@ -682,7 +682,7 @@
           "children": [
             "list",
             "item",
-            "ghost-list"
+            "ghost_list"
           ]
         },
         {
@@ -706,7 +706,7 @@
           "id": "label",
           "component": "Text",
           "text": {
-            "path": "name"
+            "@path": "name"
           }
         },
         {
@@ -721,11 +721,11 @@
           "id": "tag",
           "component": "Badge",
           "text": {
-            "path": ""
+            "@path": ""
           }
         },
         {
-          "id": "ghost-list",
+          "id": "ghost_list",
           "component": "List",
           "children": {
             "componentId": "nowhere",
@@ -751,7 +751,7 @@
               }
             },
             {
-              "id": "ghost-list",
+              "id": "ghost_list",
               "component": "List",
               "props": {},
               "children": [],
@@ -779,7 +779,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "name"
+                    "@path": "name"
                   }
                 },
                 "children": []
@@ -806,7 +806,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": ""
+                    "@path": ""
                   },
                   "variant": "caption",
                   "lines": 1
@@ -1049,7 +1049,7 @@
           "id": "row",
           "component": "Text",
           "text": {
-            "path": "t"
+            "@path": "t"
           }
         }
       ],
@@ -1098,7 +1098,7 @@
             "component": "Text",
             "props": {
               "text": {
-                "path": "t"
+                "@path": "t"
               }
             },
             "children": []
@@ -2325,7 +2325,7 @@
                       "component": "Text",
                       "props": {
                         "text": {
-                          "path": "/leave/month/agenda/label"
+                          "@path": "/leave/month/agenda/label"
                         },
                         "variant": "label",
                         "lines": 1
@@ -2351,10 +2351,10 @@
                       "component": "Text",
                       "props": {
                         "text": {
-                          "call": "text",
+                          "@call": "text",
                           "args": {
                             "value": {
-                              "path": "/leave/month/agenda/count"
+                              "@path": "/leave/month/agenda/count"
                             }
                           }
                         },
@@ -2362,7 +2362,7 @@
                       },
                       "children": [],
                       "visible": {
-                        "path": "/leave/month/agenda/count"
+                        "@path": "/leave/month/agenda/count"
                       },
                       "recipe": {
                         "macro": "Section",
@@ -2406,7 +2406,7 @@
                     "borderRadius": "$radius.md"
                   },
                   "visible": {
-                    "path": "/leave/month/agenda/label"
+                    "@path": "/leave/month/agenda/label"
                   },
                   "recipe": {
                     "macro": "Section",
@@ -2504,7 +2504,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "weekday"
+                    "@path": "weekday"
                   },
                   "variant": "caption"
                 },
@@ -2527,7 +2527,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "initial"
+                    "@path": "initial"
                   },
                   "variant": "caption"
                 },
@@ -2579,7 +2579,7 @@
               "props": {
                 "view": "month",
                 "weekend": {
-                  "path": "weekend"
+                  "@path": "weekend"
                 }
               }
             }
@@ -2600,7 +2600,7 @@
               "props": {
                 "view": "month",
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 }
               }
             }
@@ -2622,7 +2622,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "day"
+                        "@path": "day"
                       },
                       "variant": "caption"
                     },
@@ -2633,10 +2633,10 @@
                       "props": {
                         "view": "month",
                         "inMonth": {
-                          "path": "inMonth"
+                          "@path": "inMonth"
                         },
                         "today": {
-                          "path": "today"
+                          "@path": "today"
                         }
                       }
                     }
@@ -2660,10 +2660,10 @@
                   "props": {
                     "view": "month",
                     "inMonth": {
-                      "path": "inMonth"
+                      "@path": "inMonth"
                     },
                     "today": {
-                      "path": "today"
+                      "@path": "today"
                     }
                   }
                 }
@@ -2683,7 +2683,7 @@
                         "component": "Text",
                         "props": {
                           "text": {
-                            "path": "day"
+                            "@path": "day"
                           },
                           "variant": "caption"
                         },
@@ -2694,10 +2694,10 @@
                           "props": {
                             "view": "month",
                             "inMonth": {
-                              "path": "inMonth"
+                              "@path": "inMonth"
                             },
                             "today": {
-                              "path": "today"
+                              "@path": "today"
                             }
                           }
                         }
@@ -2718,10 +2718,10 @@
                       "props": {
                         "view": "month",
                         "inMonth": {
-                          "path": "inMonth"
+                          "@path": "inMonth"
                         },
                         "today": {
-                          "path": "today"
+                          "@path": "today"
                         }
                       }
                     }
@@ -2768,7 +2768,7 @@
                   "props": {
                     "view": "month",
                     "selected": {
-                      "path": "selected"
+                      "@path": "selected"
                     }
                   }
                 }
@@ -2804,10 +2804,10 @@
             "accessibility": {
               "role": "button",
               "label": {
-                "path": "date"
+                "@path": "date"
               },
               "selected": {
-                "path": "selected"
+                "@path": "selected"
               }
             }
           },
@@ -2823,17 +2823,17 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "row/label"
+                    "@path": "row/label"
                   },
                   "variant": "caption",
                   "lines": 1
                 },
                 "children": [],
                 "visible": {
-                  "call": "eq",
+                  "@call": "eq",
                   "args": {
                     "a": {
-                      "path": "more"
+                      "@path": "more"
                     },
                     "b": 0
                   }
@@ -2851,12 +2851,12 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.calendarMore",
                       "params": {
                         "count": {
-                          "path": "more"
+                          "@path": "more"
                         }
                       }
                     }
@@ -2866,11 +2866,11 @@
                 },
                 "children": [],
                 "visible": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "path": "more"
+                      "@path": "more"
                     }
                   }
                 },
@@ -2892,28 +2892,28 @@
               "paddingHorizontal": "$spacing.xs",
               "borderRadius": "$radius.sm",
               "gridColumn": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "path": "col"
+                      "@path": "col"
                     },
                     " / span ",
                     {
-                      "path": "span"
+                      "@path": "span"
                     }
                   ]
                 }
               },
               "gridRow": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "call": "add",
+                      "@call": "add",
                       "args": {
                         "a": {
-                          "path": "lane"
+                          "@path": "lane"
                         },
                         "b": 1
                       }
@@ -2923,20 +2923,20 @@
                 }
               },
               "marginLeft": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "path": "contL"
+                    "@path": "contL"
                   },
                   "then": 0,
                   "else": "$spacing.xxs"
                 }
               },
               "marginRight": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "path": "contR"
+                    "@path": "contR"
                   },
                   "then": 0,
                   "else": "$spacing.xxs"
@@ -2949,22 +2949,22 @@
               "props": {
                 "view": "month",
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 },
                 "marker": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "path": "more"
+                      "@path": "more"
                     }
                   }
                 },
                 "contL": {
-                  "path": "contL"
+                  "@path": "contL"
                 },
                 "contR": {
-                  "path": "contR"
+                  "@path": "contR"
                 }
               }
             },
@@ -3100,7 +3100,7 @@
                   "props": {
                     "view": "month",
                     "tone": {
-                      "path": "tone"
+                      "@path": "tone"
                     }
                   }
                 }
@@ -3115,7 +3115,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "row/label"
+                        "@path": "row/label"
                       },
                       "variant": "body",
                       "lines": 1
@@ -3137,7 +3137,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "row/detail"
+                        "@path": "row/detail"
                       },
                       "variant": "muted",
                       "lines": 1,
@@ -3145,7 +3145,7 @@
                     },
                     "children": [],
                     "visible": {
-                      "path": "row/detail"
+                      "@path": "row/detail"
                     },
                     "recipe": {
                       "macro": "Row",
@@ -3183,14 +3183,14 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "row/status"
+                    "@path": "row/status"
                   },
                   "variant": "muted",
                   "lines": 1
                 },
                 "children": [],
                 "visible": {
-                  "path": "row/status"
+                  "@path": "row/status"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -3439,7 +3439,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "weekday"
+                    "@path": "weekday"
                   },
                   "variant": "caption"
                 },
@@ -3462,7 +3462,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "initial"
+                    "@path": "initial"
                   },
                   "variant": "caption"
                 },
@@ -3514,7 +3514,7 @@
               "props": {
                 "view": "week",
                 "weekend": {
-                  "path": "weekend"
+                  "@path": "weekend"
                 }
               }
             }
@@ -3535,7 +3535,7 @@
               "props": {
                 "view": "week",
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 }
               }
             }
@@ -3557,7 +3557,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "day"
+                        "@path": "day"
                       },
                       "variant": "caption"
                     },
@@ -3568,10 +3568,10 @@
                       "props": {
                         "view": "week",
                         "inMonth": {
-                          "path": "inMonth"
+                          "@path": "inMonth"
                         },
                         "today": {
-                          "path": "today"
+                          "@path": "today"
                         }
                       }
                     }
@@ -3595,10 +3595,10 @@
                   "props": {
                     "view": "week",
                     "inMonth": {
-                      "path": "inMonth"
+                      "@path": "inMonth"
                     },
                     "today": {
-                      "path": "today"
+                      "@path": "today"
                     }
                   }
                 }
@@ -3618,7 +3618,7 @@
                         "component": "Text",
                         "props": {
                           "text": {
-                            "path": "day"
+                            "@path": "day"
                           },
                           "variant": "caption"
                         },
@@ -3629,10 +3629,10 @@
                           "props": {
                             "view": "week",
                             "inMonth": {
-                              "path": "inMonth"
+                              "@path": "inMonth"
                             },
                             "today": {
-                              "path": "today"
+                              "@path": "today"
                             }
                           }
                         }
@@ -3653,10 +3653,10 @@
                       "props": {
                         "view": "week",
                         "inMonth": {
-                          "path": "inMonth"
+                          "@path": "inMonth"
                         },
                         "today": {
-                          "path": "today"
+                          "@path": "today"
                         }
                       }
                     }
@@ -3703,7 +3703,7 @@
                   "props": {
                     "view": "week",
                     "selected": {
-                      "path": "selected"
+                      "@path": "selected"
                     }
                   }
                 }
@@ -3732,10 +3732,10 @@
             "accessibility": {
               "role": "button",
               "label": {
-                "path": "date"
+                "@path": "date"
               },
               "selected": {
-                "path": "selected"
+                "@path": "selected"
               }
             }
           },
@@ -3751,17 +3751,17 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "row/title"
+                    "@path": "row/title"
                   },
                   "variant": "caption",
                   "lines": 1
                 },
                 "children": [],
                 "visible": {
-                  "call": "eq",
+                  "@call": "eq",
                   "args": {
                     "a": {
-                      "path": "more"
+                      "@path": "more"
                     },
                     "b": 0
                   }
@@ -3779,12 +3779,12 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.calendarMore",
                       "params": {
                         "count": {
-                          "path": "more"
+                          "@path": "more"
                         }
                       }
                     }
@@ -3794,11 +3794,11 @@
                 },
                 "children": [],
                 "visible": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "path": "more"
+                      "@path": "more"
                     }
                   }
                 },
@@ -3820,28 +3820,28 @@
               "paddingHorizontal": "$spacing.xs",
               "borderRadius": "$radius.sm",
               "gridColumn": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "path": "col"
+                      "@path": "col"
                     },
                     " / span ",
                     {
-                      "path": "span"
+                      "@path": "span"
                     }
                   ]
                 }
               },
               "gridRow": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "call": "add",
+                      "@call": "add",
                       "args": {
                         "a": {
-                          "path": "lane"
+                          "@path": "lane"
                         },
                         "b": 1
                       }
@@ -3851,20 +3851,20 @@
                 }
               },
               "marginLeft": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "path": "contL"
+                    "@path": "contL"
                   },
                   "then": 0,
                   "else": "$spacing.xxs"
                 }
               },
               "marginRight": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "path": "contR"
+                    "@path": "contR"
                   },
                   "then": 0,
                   "else": "$spacing.xxs"
@@ -3877,22 +3877,22 @@
               "props": {
                 "view": "week",
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 },
                 "marker": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "path": "more"
+                      "@path": "more"
                     }
                   }
                 },
                 "contL": {
-                  "path": "contL"
+                  "@path": "contL"
                 },
                 "contR": {
-                  "path": "contR"
+                  "@path": "contR"
                 }
               }
             }
@@ -3907,7 +3907,7 @@
         "component": "Meter",
         "props": {
           "segments": {
-            "path": "/disk"
+            "@path": "/disk"
           },
           "max": 100,
           "label": "Disk"
@@ -4006,10 +4006,10 @@
             "style": {
               "height": "100%",
               "width": {
-                "call": "percent",
+                "@call": "percent",
                 "args": {
                   "value": {
-                    "path": "value"
+                    "@path": "value"
                   },
                   "max": 100
                 }
@@ -4020,11 +4020,11 @@
               "part": "segment",
               "props": {
                 "tone": {
-                  "call": "coalesce",
+                  "@call": "coalesce",
                   "args": {
                     "values": [
                       {
-                        "path": "tone"
+                        "@path": "tone"
                       },
                       "neutral"
                     ]
@@ -4115,15 +4115,15 @@
                   "style": {
                     "display": "grid",
                     "gridTemplateColumns": {
-                      "call": "concat",
+                      "@call": "concat",
                       "args": {
                         "values": [
                           "repeat(",
                           {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           },
@@ -4151,18 +4151,18 @@
                 "flexDirection": "row",
                 "@media (form-factor: phone)": {
                   "minWidth": {
-                    "call": "add",
+                    "@call": "add",
                     "args": {
                       "a": 96,
                       "b": {
-                        "call": "mul",
+                        "@call": "mul",
                         "args": {
                           "a": 72,
                           "b": {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           }
@@ -4214,15 +4214,15 @@
                   "style": {
                     "display": "grid",
                     "gridTemplateColumns": {
-                      "call": "concat",
+                      "@call": "concat",
                       "args": {
                         "values": [
                           "repeat(",
                           {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           },
@@ -4251,18 +4251,18 @@
                 "borderTopWidth": "$border.hairline",
                 "@media (form-factor: phone)": {
                   "minWidth": {
-                    "call": "add",
+                    "@call": "add",
                     "args": {
                       "a": 96,
                       "b": {
-                        "call": "mul",
+                        "@call": "mul",
                         "args": {
                           "a": 72,
                           "b": {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           }
@@ -4288,18 +4288,18 @@
                 "flexDirection": "column",
                 "@media (form-factor: phone)": {
                   "minWidth": {
-                    "call": "add",
+                    "@call": "add",
                     "args": {
                       "a": 96,
                       "b": {
-                        "call": "mul",
+                        "@call": "mul",
                         "args": {
                           "a": 72,
                           "b": {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           }
@@ -4356,7 +4356,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "label"
+                    "@path": "label"
                   },
                   "variant": "label",
                   "lines": 1
@@ -4371,15 +4371,15 @@
             ],
             "style": {
               "gridColumn": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "path": "col"
+                      "@path": "col"
                     },
                     " / span ",
                     {
-                      "path": "span"
+                      "@path": "span"
                     }
                   ]
                 }
@@ -4405,7 +4405,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "label"
+                    "@path": "label"
                   },
                   "variant": "caption",
                   "lines": 1
@@ -4416,7 +4416,7 @@
                   "part": "columnLabel",
                   "props": {
                     "today": {
-                      "path": "today"
+                      "@path": "today"
                     }
                   }
                 }
@@ -4433,7 +4433,7 @@
               "part": "column",
               "props": {
                 "today": {
-                  "path": "today"
+                  "@path": "today"
                 }
               }
             }
@@ -4465,7 +4465,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "row/title"
+                    "@path": "row/title"
                   },
                   "variant": "caption",
                   "lines": 1
@@ -4488,28 +4488,28 @@
               "borderRadius": "$radius.sm",
               "marginHorizontal": "$spacing.xxs",
               "gridColumn": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "path": "col"
+                      "@path": "col"
                     },
                     " / span ",
                     {
-                      "path": "span"
+                      "@path": "span"
                     }
                   ]
                 }
               },
               "gridRow": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "call": "add",
+                      "@call": "add",
                       "args": {
                         "a": {
-                          "path": "lane"
+                          "@path": "lane"
                         },
                         "b": 1
                       }
@@ -4524,13 +4524,13 @@
               "part": "bar",
               "props": {
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 },
                 "contL": {
-                  "path": "contL"
+                  "@path": "contL"
                 },
                 "contR": {
-                  "path": "contR"
+                  "@path": "contR"
                 }
               }
             },
@@ -4557,7 +4557,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "key"
+                        "@path": "key"
                       },
                       "variant": "body",
                       "lines": 1
@@ -4574,10 +4574,10 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "call": "text",
+                        "@call": "text",
                         "args": {
                           "value": {
-                            "path": "count"
+                            "@path": "count"
                           }
                         }
                       },
@@ -4629,15 +4629,15 @@
                     "style": {
                       "display": "grid",
                       "gridTemplateColumns": {
-                        "call": "concat",
+                        "@call": "concat",
                         "args": {
                           "values": [
                             "repeat(",
                             {
-                              "call": "len",
+                              "@call": "len",
                               "args": {
                                 "value": {
-                                  "path": "/road/timeline/columns"
+                                  "@path": "/road/timeline/columns"
                                 }
                               }
                             },
@@ -4668,15 +4668,15 @@
                     "style": {
                       "display": "grid",
                       "gridTemplateColumns": {
-                        "call": "concat",
+                        "@call": "concat",
                         "args": {
                           "values": [
                             "repeat(",
                             {
-                              "call": "len",
+                              "@call": "len",
                               "args": {
                                 "value": {
-                                  "path": "/road/timeline/columns"
+                                  "@path": "/road/timeline/columns"
                                 }
                               }
                             },
@@ -4713,11 +4713,11 @@
                       "bottom": 0,
                       "width": "$control.hairline",
                       "left": {
-                        "call": "concat",
+                        "@call": "concat",
                         "args": {
                           "values": [
                             {
-                              "path": "/road/timeline/now/percent"
+                              "@path": "/road/timeline/now/percent"
                             },
                             "%"
                           ]
@@ -4725,7 +4725,7 @@
                       }
                     },
                     "visible": {
-                      "path": "/road/timeline/now"
+                      "@path": "/road/timeline/now"
                     },
                     "recipe": {
                       "macro": "Timeline",

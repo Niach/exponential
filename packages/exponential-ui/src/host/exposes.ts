@@ -65,14 +65,14 @@ export function exposeTemplatePaths(value: unknown): string[] {
   return out
 }
 
-/** The words of a function or tool name (`issues.update_status` → issues,
+/** The words of a function or tool name (`issues_update_status` → issues,
  *  update, status). */
 const words = (name: string): string[] => name.toLowerCase().split(/[^a-z]+/).filter(Boolean)
 
 /** An action reads when the last word of its name is a read word
- *  (`exponential.issues.list`); a verb writes. */
+ *  (`exponential_issues_list`); a verb writes. */
 export function exposeActionAccess(action: string): ExposeAccess {
-  const last = words(action.split(`.`).at(-1) ?? ``).at(-1)
+  const last = words(action).at(-1)
   return last !== undefined && READ_OP_WORDS.includes(last) ? `read` : `write`
 }
 

@@ -38,7 +38,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { A2UI_BASIC_CATALOG_ID, A2UI_VERSION, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, TOKEN_GROUPS, coreCatalog } from "../src/catalog"
+import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, TOKEN_GROUPS, coreCatalog } from "../src/catalog"
 import { splitDescriptions } from "../src/catalog.described"
 import { basicMap } from "../src/basic-map"
 import { catalogPrompt, componentPrompt, estimateTokens } from "../src/prompt"
@@ -140,8 +140,8 @@ function hostRuntime() {
   return {
     version: host.version,
     a2uiVersion: host.a2uiVersion,
-    messages: { a2ui: host.messages.a2ui, extensions: host.messages.extensions },
-    clientMessages: { errorCodes: host.clientMessages.errorCodes },
+    messages: { a2ui: host.messages.a2ui, host: host.messages.host },
+    clientMessages: { kinds: host.clientMessages.kinds, errorCodes: host.clientMessages.errorCodes },
     urls: { defaultSchemes: host.urls.defaultSchemes },
     media: { defaultSchemes: host.media.defaultSchemes, limits: host.media.limits },
     paint: { hook: host.paint.hook },

@@ -322,7 +322,7 @@ export function create<K extends string>(
   styles: Record<K, Style>
 ): Readonly<Record<K, Style>> {
   for (const [name, style] of Object.entries(styles)) {
-    const issues = validateStyle(style, { "@path": name })
+    const issues = validateStyle(style, { path: name })
     if (issues.length > 0)
       throw new Error(issues.map((i) => `${i.path}: ${i.message}`).join(`\n`))
   }

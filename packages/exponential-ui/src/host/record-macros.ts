@@ -5,7 +5,7 @@
 // every RecordForm / RecordTable node from its kind's schema: the fields
 // (one per schema field, typed, with its checks), the table columns (the
 // Data tab's typed widths), the row binding, the draft path and the
-// actions (`records.upsert`, `records.delete`, the drawer and confirm
+// actions (`records_upsert`, `records_delete`, the drawer and confirm
 // writes). The macro table then expands the filled node like any other.
 // Pure; the Rust core mirrors it (host::record_macros) and every
 // renderer gets it through `templateMessages`.
@@ -13,7 +13,7 @@
 import type { RecordField, RecordKind } from "./records"
 
 type Json = Record<string, unknown>
-type Binding = { path: string }
+type Binding = { "@path": string }
 
 /** One RecordForm field: `widget` picks the control (macros.json). */
 export interface RecordFormField {
@@ -62,13 +62,13 @@ export function isRecordMacroBinding(path: unknown, source: unknown): boolean {
 }
 
 /** A refused record write the form shows inline (invalid input) instead of a
- *  failed-action toast: `records.upsert` rejects with it, the runtime writes
+ *  failed-action toast: `records_upsert` rejects with it, the runtime writes
  *  the message at the call's `form.error`. */
 export class RecordRefusal extends Error {
   override name = `RecordRefusal`
 }
 
-/** A record form's targets in `records.upsert`'s args. */
+/** A record form's targets in `records_upsert`'s args. */
 export function recordFormTargets(args: Record<string, unknown>): { error?: string; close?: string } {
   const form = args.form
   if (!form || typeof form !== `object`) return {}
@@ -77,7 +77,7 @@ export function recordFormTargets(args: Record<string, unknown>): { error?: stri
 }
 
 const isObject = (v: unknown): v is Json => !!v && typeof v === `object` && !Array.isArray(v)
-const hasIssueRef = (fields: RecordFormField[]) => fields.some((f) => isObject(f.options) && f.options.path === `${RECORD_ISSUES_PATH}/rows`)
+const hasIssueRef = (fields: RecordFormField[]) => fields.some((f) => isObject(f.options) && f.options[`@path`] === `${RECORD_ISSUES_PATH}/rows`)
 
 /** `closeDate` / `close_date` → `Close date`. */
 export function fieldLabel(name: string): string {
@@ -106,12 +106,12 @@ export function recordFormFields(kind: RecordKind, path: string): RecordFormFiel
   return recordColumns(kind).flatMap((name): RecordFormField[] => {
     const f = kind.schema.properties[name]!
     if (isFile(f)) return []
-    const value = { path: `${path}/${name}` }
+    const value = { "@path": `${path}/${name}` }
     const out: RecordFormField = { name, label: fieldLabel(name), widget: `text`, required: required.includes(name), wide: false, value }
     if (f.description) out.placeholder = f.description
     const ref = refs[name]
-    if (ref === `member`) Object.assign(out, { widget: `select`, options: { path: `${RECORD_MEMBERS_PATH}/rows` }, searchable: true })
-    else if (ref === `issue`) Object.assign(out, { widget: `select`, options: { path: `${RECORD_ISSUES_PATH}/rows` }, searchable: true })
+    if (ref === `member`) Object.assign(out, { widget: `select`, options: { "@path": `${RECORD_MEMBERS_PATH}/rows` }, searchable: true })
+    else if (ref === `issue`) Object.assign(out, { widget: `select`, options: { "@path": `${RECORD_ISSUES_PATH}/rows` }, searchable: true })
     else if (f.type === `boolean`) out.widget = `switch`
     else if (f.type === `number` || f.type === `integer`) {
       out.widget = `number`
@@ -128,7 +128,7 @@ export function recordFormFields(kind: RecordKind, path: string): RecordFormFiel
     else if (f.format === `time`) out.widget = `time`
     else if (f.format === `date-time`) {
       const parts = `${path}Parts/${name}`
-      Object.assign(out, { widget: `datetime`, wide: true, date: { path: `${parts}/date` }, time: { path: `${parts}/time` } })
+      Object.assign(out, { widget: `datetime`, wide: true, date: { "@path": `${parts}/date` }, time: { "@path": `${parts}/time` } })
     }
     else if (f.maxLength === undefined || f.maxLength > RECORD_LONG_TEXT) Object.assign(out, { widget: `textarea`, wide: true })
     const checks: { condition: unknown; message: string }[] = []
@@ -189,15 +189,15 @@ const setOn = (node: Json, event: string, action: unknown) => {
  *  day picked = the draft's value as it is. */
 const dateTimeValue = (f: RecordFormField) => ({ "@call": `cond`, args: { if: f.date, then: { "@call": `dateTime`, args: { date: f.date, time: f.time } }, else: f.value } })
 
-const MY_ID = { path: `${RECORD_MEMBERS_PATH}/me` }
+const MY_ID = { "@path": `${RECORD_MEMBERS_PATH}/me` }
 
 /** The Author Select's options: the members for a team owner, else none (so
  *  no picker). */
 const AUTHOR_OPTIONS = {
   "@call": `cond`,
   args: {
-    if: { "@call": `lt`, args: { a: 0, b: { "@call": `len`, args: { value: { "@call": `filter`, args: { items: { path: `${RECORD_MEMBERS_PATH}/rows` }, where: { id: MY_ID, role: `owner` } } } } } } },
-    then: { path: `${RECORD_MEMBERS_PATH}/rows` },
+    if: { "@call": `lt`, args: { a: 0, b: { "@call": `len`, args: { value: { "@call": `filter`, args: { items: { "@path": `${RECORD_MEMBERS_PATH}/rows` }, where: { id: MY_ID, role: `owner` } } } } } } },
+    then: { "@path": `${RECORD_MEMBERS_PATH}/rows` },
     else: null,
   },
 }
@@ -208,7 +208,7 @@ const authorArg = (path: string) => ({
   "@call": `cond`,
   args: {
     if: AUTHOR_OPTIONS,
-    then: { "@call": `cond`, args: { if: { "@call": `or`, args: { values: [{ "@call": `not`, args: { value: { path: `${path}Author` } } }, { "@call": `eq`, args: { a: { path: `${path}Author` }, b: { path: `${path}AuthorBase` } } }] } }, then: null, else: { path: `${path}Author` } } },
+    then: { "@call": `cond`, args: { if: { "@call": `or`, args: { values: [{ "@call": `not`, args: { value: { "@path": `${path}Author` } } }, { "@call": `eq`, args: { a: { "@path": `${path}Author` }, b: { "@path": `${path}AuthorBase` } } }] } }, then: null, else: { "@path": `${path}Author` } } },
     else: null,
   },
 })
@@ -226,7 +226,7 @@ function editAction(base: string, fields: RecordFormField[]): Json {
   return set(`${base}/editor`, { open: true, draft: { "@path": `` }, ...author, ...(Object.keys(parts).length ? { draftParts: parts } : {}) })
 }
 
-/** The form's write: `records.upsert {kind, id?, data, author, form}`, data =
+/** The form's write: `records_upsert {kind, id?, data, author, form}`, data =
  *  one binding per field; `form` tells the host where a refusal shows
  *  (`error`) and which flag a landed write clears (`close`). VAPP-206: an
  *  optional field left "" (an unpicked Select, an emptied Input) writes null:
@@ -242,7 +242,7 @@ function upsertAction(kind: string, fields: RecordFormField[], recordId: unknown
   args.data = data
   args.author = authorArg(path)
   args.form = { error: `${path}Error`, ...(close ? { close } : {}) }
-  return { functionCall: { "@call": `records.upsert`, args } }
+  return { functionCall: { "@call": `records_upsert`, args } }
 }
 
 /** Every RecordForm / RecordTable of a template's flat component list,
@@ -278,8 +278,8 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
       node.fields = fields
       if (options.readOnly) node.readOnly = true
       if (node.readOnly !== true) {
-        node.error = { path: `${path}Error` }
-        node.author = { path: `${path}Author` }
+        node.error = { "@path": `${path}Error` }
+        node.author = { "@path": `${path}Author` }
         node.authorOptions = AUTHOR_OPTIONS
         bindOnce(MEMBERS_SOURCE, RECORD_MEMBERS_PATH)
       }
@@ -295,29 +295,29 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
     const fields = recordFormFields(kind, draft)
     node.title = kind.title ?? fieldLabel(kindName)
     node.cols = recordTableColumns(kind, columns, editable)
-    node.rows = { path: `${base}/rows/rows` }
-    node.count = { "@call": `pluralize`, args: { value: { "@call": `coalesce`, args: { values: [{ path: `${base}/rows/count` }, 0] } }, one: `$string.recordCountOne`, other: `$string.recordCount` } }
-    node.loading = { "@call": `not`, args: { value: { path: `${base}/rows` } } }
+    node.rows = { "@path": `${base}/rows/rows` }
+    node.count = { "@call": `pluralize`, args: { value: { "@call": `coalesce`, args: { values: [{ "@path": `${base}/rows/count` }, 0] } }, one: `$string.recordCountOne`, other: `$string.recordCount` } }
+    node.loading = { "@call": `not`, args: { value: { "@path": `${base}/rows` } } }
     if (options.readOnly) node.add = false
     node.editable = editable
     node.children = { componentId: `${id}__row`, path: `${base}/rows/rows`, key: `id` }
     if (editable) {
       node.fields = fields
       node.path = draft
-      node.error = { path: `${draft}Error` }
-      node.author = { path: `${draft}Author` }
+      node.error = { "@path": `${draft}Error` }
+      node.author = { "@path": `${draft}Author` }
       node.authorOptions = AUTHOR_OPTIONS
       bindOnce(MEMBERS_SOURCE, RECORD_MEMBERS_PATH)
       if (hasIssueRef(fields)) bindOnce(ISSUES_SOURCE, RECORD_ISSUES_PATH)
-      node.editorOpen = { path: `${base}/editor/open` }
-      node.editorId = { path: `${draft}/id` }
-      node.deleteOpen = { path: `${base}/delete/open` }
+      node.editorOpen = { "@path": `${base}/editor/open` }
+      node.editorId = { "@path": `${draft}/id` }
+      node.deleteOpen = { "@path": `${base}/delete/open` }
       setOn(node, `add`, set(`${base}/editor`, { open: true, draft: {}, draftAuthor: MY_ID, draftAuthorBase: MY_ID }))
       setOn(node, `edit`, editAction(base, fields))
       setOn(node, `delete`, set(`${base}/delete`, { open: true, id: { "@path": `id` } }))
-      setOn(node, `submit`, upsertAction(kindName, fields, { path: `${draft}/id` }, draft, `${base}/editor/open`))
+      setOn(node, `submit`, upsertAction(kindName, fields, { "@path": `${draft}/id` }, draft, `${base}/editor/open`))
       setOn(node, `cancel`, set(`${base}/editor/open`, false))
-      setOn(node, `confirm`, { functionCall: { "@call": `records.delete`, args: { id: { path: `${base}/delete/id` } } } })
+      setOn(node, `confirm`, { functionCall: { "@call": `records_delete`, args: { id: { "@path": `${base}/delete/id` } } } })
       setOn(node, `cancelDelete`, set(`${base}/delete/open`, false))
     } else node.add = false
     out.push(node)

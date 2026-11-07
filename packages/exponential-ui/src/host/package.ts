@@ -2,6 +2,7 @@
 // manifest + A2UI templates + bindings, data never code).
 
 import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID } from "../catalog"
+import { checkEntry } from "../entry"
 import { A2UI_VERSION } from "../catalog"
 import type { ExtensionDef, FlatComponent } from "../types"
 import type { ServerMessage } from "./contract"
@@ -32,9 +33,11 @@ import type { PackageScreen } from "./screens"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
- *  A package names it, and it is exactly this one: no older format is
- *  read (eApps keeps no backwards compatibility). */
-export const PACKAGE_FORMAT_VERSION = 5
+ *  A package names it, and it is exactly this one; format 5 is upgraded
+ *  through `upgrade09` while `ACCEPT_V09` holds (round 9 §12, §14). */
+export const PACKAGE_FORMAT_VERSION = 6
+/** The 0.9-era format the bridge upgrades. */
+export const PACKAGE_FORMAT_VERSION_09 = 5
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
  *  extension id in order, de-duplicated. */
@@ -44,9 +47,11 @@ export function supportedCatalogIds(extensionIds: readonly string[] = []): strin
   return out
 }
 
-/** A2UI's `a2uiClientCapabilities`. */
-export function clientCapabilities(extensionIds: readonly string[] = []): { "v0.9": { supportedCatalogIds: string[] } } {
-  return { "v0.9": { supportedCatalogIds: supportedCatalogIds(extensionIds) } }
+/** The renderer's negotiation object (round 9 §10): `supportedCatalogIds`
+ *  plus, with `inline`, the generated 1.0 catalog definitions of the
+ *  registered extensions, in registration order. */
+export function rendererCapabilities(extensionIds: readonly string[] = [], options: { inline?: readonly unknown[] } = {}): { "1.0": { supportedCatalogIds: string[]; inlineCatalogs?: unknown[] } } {
+  return { "1.0": { supportedCatalogIds: supportedCatalogIds(extensionIds), ...(options.inline ? { inlineCatalogs: [...options.inline] } : {}) } }
 }
 
 export interface TemplateBinding {
@@ -84,7 +89,7 @@ export interface AppPackage {
   /** VAPP-161: the format version the package was written for
    *  (`PACKAGE_FORMAT_VERSION`, required). */
   formatVersion: number
-  /** VAPP-161: MCP servers and scripts its functions call (`tools.<id>…`),
+  /** VAPP-161: MCP servers and scripts its functions call (`tools_<id>…`),
    *  each behind the host's consent card (`host/tools.ts`). */
   tools?: Record<string, PackageTool>
   /** VAPP-161: the extension catalogs it needs beyond `catalogId`. */
@@ -104,7 +109,7 @@ export interface AppPackage {
    *  versions (`host/record-migrations.ts`). */
   migrations?: import("./record-migrations").RecordMigration[]
   /** VAPP-194: named actions, the only place a package writes
-   *  (`host/actions.ts`): `{params?, steps}`, run by `actions.<name>`. */
+   *  (`host/actions.ts`): `{params?, steps}`, run by `actions_<name>`. */
   actions?: Record<string, unknown>
   /** VAPP-196: the package's tests (`host/tests.ts`), run at install. */
   tests?: unknown[]
@@ -176,7 +181,7 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
   if (pkg.formatVersion === undefined) issues.push({ path: `/formatVersion`, message: `formatVersion is required (${PACKAGE_FORMAT_VERSION})` })
   else if (typeof pkg.formatVersion !== `number` || !Number.isInteger(pkg.formatVersion) || pkg.formatVersion < 1) issues.push({ path: `/formatVersion`, message: `formatVersion is a positive integer` })
   else if (pkg.formatVersion > PACKAGE_FORMAT_VERSION) issues.push({ path: `/formatVersion`, message: `format version ${pkg.formatVersion} is newer than this host (${PACKAGE_FORMAT_VERSION})` })
-  else if (pkg.formatVersion < PACKAGE_FORMAT_VERSION) issues.push({ path: `/formatVersion`, message: `format version ${pkg.formatVersion} is no longer read: write ${PACKAGE_FORMAT_VERSION}` })
+  else if (pkg.formatVersion < PACKAGE_FORMAT_VERSION) issues.push({ path: `/formatVersion`, message: `format version ${pkg.formatVersion} is no longer read; ${PACKAGE_FORMAT_VERSION} is required` })
   for (const key of [`id`, `name`, `version`, `catalogId`])
     if (typeof pkg[key] !== `string` || !(pkg[key] as string)) issues.push({ path: `/${key}`, message: `${key} is a required string` })
   if (typeof pkg.catalogId === `string` && pkg.catalogId && !catalogIds.includes(pkg.catalogId))
@@ -193,13 +198,20 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
       if (!Array.isArray(components) || !components.length) issues.push({ path: `${at}/components`, message: `components is a non-empty array` })
       else {
         const ids = new Set<string>()
+        const catalogId = typeof pkg.catalogId === `string` ? pkg.catalogId : undefined
         components.forEach((c, i) => {
-          if (!isObject(c) || typeof c.id !== `string` || typeof c.component !== `string`) issues.push({ path: `${at}/components/${i}`, message: `a component needs an id and a component` })
-          else if (ids.has(c.id)) issues.push({ path: `${at}/components/${i}/id`, message: `duplicate id ${c.id}` })
-          else ids.add(c.id)
+          // Round 9 §12: the §5.2 entry check is an install issue.
+          const refused = checkEntry(c, { catalogId, extensions: (extensions ?? []).flatMap((e) => (e.def ? [e.def] : [])) })
+          if (refused) issues.push({ path: `${at}/components/${i}${refused.pointer}`, message: refused.message })
+          else {
+            const entry = c as { id: string }
+            if (ids.has(entry.id)) issues.push({ path: `${at}/components/${i}/id`, message: `duplicate id ${entry.id}` })
+            else ids.add(entry.id)
+          }
         })
         if (!ids.has(`root`)) issues.push({ path: `${at}/components`, message: `no component has the id root` })
       }
+      if (template.data !== undefined && !isObject(template.data)) issues.push({ path: `${at}/data`, message: `data is an object` })
       if (template.bindings !== undefined) {
         if (!Array.isArray(template.bindings)) issues.push({ path: `${at}/bindings`, message: `bindings is an array` })
         else
@@ -407,20 +419,17 @@ export function sourceAllowed(allowed: readonly string[] | undefined, source: st
   return allowed.some((p) => matchesPattern(p, name) || matchesPattern(p, source))
 }
 
-/** A template as the messages that create it: createSurface, the
- *  components, the merged initial data, one bindDataModel per binding. */
+/** Round 9 §2: a template as the messages that create it: ONE createSurface
+ *  (components + the merged initial data, when defined) plus one
+ *  bindDataModel per binding. */
 export function templateMessages(pkg: AppPackage, templateId: string, surfaceId: string, data?: unknown, options: RecordMacroOptions = {}): ServerMessage[] | null {
   const raw = pkg.templates[templateId]
   if (!raw) return null
   // VAPP-217: RecordForm / RecordTable are filled from the package's kinds.
   const template = usesRecordMacros(raw.components) ? { ...raw, ...fillRecordMacros(raw.components as unknown as Record<string, unknown>[], raw.bindings ?? [], pkg.records, options) } : raw
   const version = A2UI_VERSION
-  const out: ServerMessage[] = [
-    { version, createSurface: { surfaceId, catalogId: pkg.catalogId } },
-    { version, updateComponents: { surfaceId, components: template.components as AppTemplate[`components`] } },
-  ]
   const merged = mergeData(template.data, data)
-  if (merged !== undefined) out.push({ version, updateDataModel: { surfaceId, path: `/`, value: merged } })
+  const out: ServerMessage[] = [{ version, createSurface: { surfaceId, catalogId: pkg.catalogId, components: template.components as AppTemplate[`components`], ...(merged === undefined ? {} : { dataModel: merged as Record<string, unknown> }) } }]
   // VAPP-218: a screen's `${params.<key>}` in a source, from the data's params.
   const params = isObject(merged) ? merged.params : undefined
   for (const b of template.bindings ?? []) out.push({ version, bindDataModel: { surfaceId, path: b.path, source: fillScreenParams(b.source, params) } })
@@ -436,7 +445,7 @@ export function mergeData(base: unknown, over: unknown): unknown {
 }
 
 /** VAPP-217: a RecordForm or an editable RecordTable writes through
- *  `records.upsert` (a table also `records.delete`), and a RecordTable
+ *  `records_upsert` (a table also `records_delete`), and a RecordTable
  *  follows `records:<kind>`: each must pass the package's `functions` and
  *  `sources` allowlists, at the macro's component. */
 function recordMacroIssues(pkg: Record<string, unknown>): PackageIssue[] {
@@ -450,8 +459,8 @@ function recordMacroIssues(pkg: Record<string, unknown>): PackageIssue[] {
       if (!isObject(c) || (c.component !== `RecordForm` && c.component !== `RecordTable`)) return
       const at = `/templates/${id}/components/${i}`
       const writes = c.component === `RecordForm` ? c.readOnly !== true : c.editable !== false
-      if (writes && !allows(`records.upsert`)) issues.push({ path: at, message: `${c.component} writes with records.upsert: list it in functions` })
-      if (c.component === `RecordTable` && writes && !allows(`records.delete`)) issues.push({ path: at, message: `RecordTable deletes with records.delete: list it in functions` })
+      if (writes && !allows(`records_upsert`)) issues.push({ path: at, message: `${c.component} writes with records_upsert: list it in functions` })
+      if (c.component === `RecordTable` && writes && !allows(`records_delete`)) issues.push({ path: at, message: `RecordTable deletes with records_delete: list it in functions` })
       if (c.component === `RecordTable` && typeof c.kind === `string` && Array.isArray(pkg.sources) && !sourceAllowed(pkg.sources as string[], `records:${c.kind}`))
         issues.push({ path: at, message: `RecordTable reads records:${c.kind}: list it in sources` })
     })

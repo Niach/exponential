@@ -168,7 +168,7 @@
       "checks": [
         {
           "condition": {
-            "path": "/agreed"
+            "@path": "/agreed"
           },
           "message": "$string.required"
         }
@@ -184,7 +184,7 @@
       "checks": [
         {
           "condition": {
-            "path": "/agreed"
+            "@path": "/agreed"
           },
           "message": "Required"
         }
@@ -202,7 +202,7 @@
       "checks": [
         {
           "condition": {
-            "path": "/agreed"
+            "@path": "/agreed"
           },
           "message": "Required"
         }
@@ -220,7 +220,7 @@
       "checks": [
         {
           "condition": {
-            "path": "/agreed"
+            "@path": "/agreed"
           },
           "message": "Required"
         }
@@ -237,7 +237,7 @@
       "checks": [
         {
           "condition": {
-            "path": "/n"
+            "@path": "/n"
           },
           "message": "Pick one"
         }
@@ -256,7 +256,7 @@
       "checks": [
         {
           "condition": {
-            "path": "/n"
+            "@path": "/n"
           },
           "message": "Pick one"
         }
@@ -273,7 +273,7 @@
       "checks": [
         {
           "condition": {
-            "path": "/s"
+            "@path": "/s"
           },
           "message": "Empty"
         }
@@ -289,7 +289,7 @@
       "checks": [
         {
           "condition": {
-            "path": "/agreed"
+            "@path": "/agreed"
           },
           "message": "Required"
         },
@@ -1395,7 +1395,7 @@
         "icon": "settings-issues",
         "density": "compact",
         "open": {
-          "path": "/open"
+          "@path": "/open"
         }
       },
       "on": {
@@ -1650,10 +1650,10 @@
           }
         ],
         "expanded": {
-          "path": "/open"
+          "@path": "/open"
         },
         "value": {
-          "path": "/picked"
+          "@path": "/picked"
         }
       },
       "on": {
@@ -2135,10 +2135,10 @@
         "label": "Select all",
         "name": "all",
         "checked": {
-          "path": "/checked"
+          "@path": "/checked"
         },
         "indeterminate": {
-          "path": "/mixed"
+          "@path": "/mixed"
         }
       },
       "on": {

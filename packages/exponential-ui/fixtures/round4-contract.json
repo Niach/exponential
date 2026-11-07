@@ -435,7 +435,7 @@
         "on": {
           "press": {
             "functionCall": {
-              "call": "opneUrl",
+              "@call": "opneUrl",
               "args": {
                 "url": "https://ui.exponential.at/"
               }
@@ -461,7 +461,7 @@
         "on": {
           "press": {
             "functionCall": {
-              "call": "app.toast",
+              "@call": "app_toast",
               "args": {
                 "text": "Hi"
               }
@@ -485,10 +485,10 @@
               "name": "save",
               "context": {
                 "title": {
-                  "call": "trimm",
+                  "@call": "trimm",
                   "args": {
                     "value": {
-                      "path": "/title"
+                      "@path": "/title"
                     }
                   }
                 }
@@ -511,7 +511,7 @@
         "component": "Text",
         "props": {
           "text": {
-            "call": "concatt",
+            "@call": "concatt",
             "args": {
               "values": [
                 "a",
@@ -537,10 +537,10 @@
           "text": "x"
         },
         "visible": {
-          "call": "nott",
+          "@call": "nott",
           "args": {
             "value": {
-              "path": "/hide"
+              "@path": "/hide"
             }
           }
         }
@@ -594,7 +594,7 @@
           "options": [
             {
               "label": {
-                "call": "uppr",
+                "@call": "uppr",
                 "args": {
                   "value": "a"
                 }
@@ -626,11 +626,11 @@
         "on": {
           "press": {
             "functionCall": {
-              "call": "set",
+              "@call": "set",
               "args": {
                 "path": "/n",
                 "value": {
-                  "call": "ad",
+                  "@call": "ad",
                   "args": {
                     "a": 1,
                     "b": 2
@@ -672,16 +672,16 @@
             }
           ],
           "rows": {
-            "path": "/rows"
+            "@path": "/rows"
           }
         },
         "slots": {
           "state": {
-            "id": "state-cell",
+            "id": "state_cell",
             "component": "Badge",
             "props": {
               "text": {
-                "path": "status"
+                "@path": "status"
               }
             }
           }
@@ -717,20 +717,20 @@
             }
           ],
           "rows": {
-            "call": "filter",
+            "@call": "filter",
             "args": {
               "items": {
-                "path": "/rows"
+                "@path": "/rows"
               },
               "query": {
-                "path": "/query"
+                "@path": "/query"
               },
               "fields": [
                 "title"
               ],
               "where": {
                 "status": {
-                  "path": "/status"
+                  "@path": "/status"
                 }
               }
             }
@@ -738,11 +738,11 @@
         },
         "slots": {
           "status": {
-            "id": "status-cell",
+            "id": "status_cell",
             "component": "Badge",
             "props": {
               "text": {
-                "path": "status"
+                "@path": "status"
               }
             }
           }
@@ -1547,14 +1547,14 @@
                 "component": "Stack",
                 "children": [
                   {
-                    "id": "row-a",
+                    "id": "row_a",
                     "component": "Text",
                     "props": {
                       "text": "a"
                     }
                   },
                   {
-                    "id": "row-b",
+                    "id": "row_b",
                     "component": "Text",
                     "props": {
                       "text": "b"
@@ -2077,7 +2077,7 @@
               "name": "q",
               "label": "Search",
               "value": {
-                "path": "/query"
+                "@path": "/query"
               }
             },
             "on": {
@@ -2086,7 +2086,7 @@
                   "name": "search",
                   "context": {
                     "query": {
-                      "path": "/query"
+                      "@path": "/query"
                     }
                   }
                 }
@@ -2135,7 +2135,7 @@
               "name": "q",
               "label": "Search",
               "value": {
-                "path": "/query"
+                "@path": "/query"
               }
             },
             "on": {
@@ -2144,16 +2144,16 @@
                   "name": "search",
                   "context": {
                     "hits": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "call": "filter",
+                          "@call": "filter",
                           "args": {
                             "items": {
-                              "path": "/issues"
+                              "@path": "/issues"
                             },
                             "query": {
-                              "path": "/query"
+                              "@path": "/query"
                             },
                             "fields": [
                               "title"
@@ -2261,7 +2261,7 @@
               "name": "s",
               "label": "Notify",
               "checked": {
-                "path": "/notify"
+                "@path": "/notify"
               }
             },
             "on": {
@@ -2270,7 +2270,7 @@
                   "name": "toggled",
                   "context": {
                     "notify": {
-                      "path": "/notify"
+                      "@path": "/notify"
                     }
                   }
                 }
@@ -2320,7 +2320,7 @@
               "label": "Attachments",
               "multiple": true,
               "files": {
-                "path": "/att"
+                "@path": "/att"
               }
             },
             "on": {
@@ -2329,10 +2329,10 @@
                   "name": "uploaded",
                   "context": {
                     "count": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "path": "/att"
+                          "@path": "/att"
                         }
                       }
                     }
@@ -2479,7 +2479,7 @@
             "props": {
               "title": "New issue",
               "open": {
-                "path": "/open"
+                "@path": "/open"
               }
             },
             "on": {
@@ -2505,18 +2505,18 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2558,7 +2558,7 @@
             "props": {
               "title": "Filters",
               "open": {
-                "path": "/panel"
+                "@path": "/panel"
               },
               "side": "right"
             },
@@ -2578,18 +2578,18 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2629,7 +2629,7 @@
             "component": "Popover",
             "props": {
               "open": {
-                "path": "/pop"
+                "@path": "/pop"
               }
             },
             "children": [
@@ -2648,18 +2648,18 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2700,7 +2700,7 @@
             "props": {
               "title": "Edit",
               "open": {
-                "path": "/open"
+                "@path": "/open"
               }
             },
             "children": [
@@ -2709,12 +2709,12 @@
                 "component": "Popover",
                 "props": {
                   "open": {
-                    "path": "/pop"
+                    "@path": "/pop"
                   }
                 },
                 "slots": {
                   "trigger": {
-                    "id": "pop-trigger",
+                    "id": "pop_trigger",
                     "component": "Button",
                     "props": {
                       "label": "Filters"
@@ -2737,18 +2737,18 @@
                     },
                     "children": [
                       {
-                        "id": "f-title",
+                        "id": "f_title",
                         "component": "Input",
                         "props": {
                           "name": "title",
                           "label": "Title",
                           "value": {
-                            "path": "/draft"
+                            "@path": "/draft"
                           }
                         }
                       },
                       {
-                        "id": "f-go",
+                        "id": "f_go",
                         "component": "Button",
                         "props": {
                           "label": "Create",
@@ -2793,7 +2793,7 @@
             "props": {
               "title": "Required",
               "open": {
-                "path": "/open"
+                "@path": "/open"
               },
               "dismissible": false
             },
@@ -2813,18 +2813,18 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2865,7 +2865,7 @@
             "props": {
               "title": "Delete?",
               "open": {
-                "path": "/open"
+                "@path": "/open"
               }
             },
             "children": [
@@ -2884,18 +2884,18 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2945,18 +2945,18 @@
             },
             "children": [
               {
-                "id": "f-title",
+                "id": "f_title",
                 "component": "Input",
                 "props": {
                   "name": "title",
                   "label": "Title",
                   "value": {
-                    "path": "/draft"
+                    "@path": "/draft"
                   }
                 }
               },
               {
-                "id": "f-go",
+                "id": "f_go",
                 "component": "Button",
                 "props": {
                   "label": "Create",

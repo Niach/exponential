@@ -5,7 +5,7 @@
 // phones) and the app draws no chrome of its own. A screen is keyed by its
 // template. #EXP-1674: `nav: false` = a detail screen, left out of the
 // navigation; `exposed` = the public contract other apps link to.
-// `app.navigate {screen, params?}` (a press's functionCall or an action's call
+// `app_navigate {screen, params?}` (a press's functionCall or an action's call
 // step) opens one; its params become `/params/*` in the template data, and
 // a deep link carries the same pair. Pure: fixtures/host-router.json
 // (`screens`) locks it on every platform (Rust `eui_core::host::screens`).
@@ -22,7 +22,7 @@ export const MAX_SCREEN_TITLE = 32
 export const MAX_EXPOSED_DESCRIPTION = 200
 /** The host function (and action call) that opens a screen. Always allowed:
  *  it leaves the package's own surface and data untouched. */
-export const NAVIGATE_FUNCTION = `app.navigate`
+export const NAVIGATE_FUNCTION = `app_navigate`
 /** The template data key a screen's params land under (`/params/*`). */
 export const SCREEN_PARAMS_KEY = `params`
 
@@ -133,8 +133,8 @@ function celStringLiteral(v: unknown): string | null {
 }
 
 /** Every literal `navigate` target names a screen: a press's
- *  `functionCall {call: app.navigate, args: {screen}}` (a JSON string) and an
- *  action's `{call: app.navigate, args: {screen: <CEL string literal>}}`. */
+ *  `functionCall {"@call": app_navigate, args: {screen}}` (a JSON string) and an
+ *  action's `{call: app_navigate, args: {screen: <CEL string literal>}}`. */
 function navigateIssues(pkg: Record<string, unknown>, screens: ReadonlySet<string>): PackageIssue[] {
   const issues: PackageIssue[] = []
   const check = (screen: string | null, at: string) => {
@@ -149,7 +149,7 @@ function navigateIssues(pkg: Record<string, unknown>, screens: ReadonlySet<strin
         for (const event of Object.keys(c.on).sort()) {
           const handler = c.on[event]
           const fc = isObject(handler) && isObject(handler.functionCall) ? handler.functionCall : null
-          if (!fc || fc.call !== NAVIGATE_FUNCTION) continue
+          if (!fc || fc[`@call`] !== NAVIGATE_FUNCTION) continue
           const at = `/templates/${escape(id)}/components/${i}/on/${escape(event)}/functionCall/args`
           const args = fc.args
           if (!isObject(args)) issues.push({ path: at, message: `navigate takes {screen, params?}` })
