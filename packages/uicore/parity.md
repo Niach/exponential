@@ -89,7 +89,7 @@ Mint's icon-only `taskbar.json`). The IDE's Local desktops are `elocal`
 | Taskbar: applets + clock (right end) | the host's data (`/time`, tray, notifications) | Button (icon) ×n, Text, Popover | applet 32 |
 | Workspace badges | `workspaceBadges`, `workspace.switched` | Segmented (rail), Badge (count) | row 28 |
 | Sidebar section Workspaces | `sidebar.workspacesOpen` | Section (`collapsible`), Row, Badge | label 24, rows 28 |
-| Alt-Tab switcher | `altTab.*`, `altTabOrder` | Box, Image, Text (`switcher.json` today) | 760 × 196 overlay |
+| Alt-Tab switcher | `altTab.*`, `altTabOrder` | Box, Image, Text (`switcher.json` today) | overlay sized to its tiles (208 px each), 204 high |
 | Start menu (Mint's three columns: favourites + places + power, categories, apps; search at the bottom) | `startMenuApps`, `startMenuCategories`, `startMenu.query`, `startMenu.category` | Grid, List, Row (`icon`, `title`, `subtitle`), Input, Button, Separator | 760 × 620 |
 | Settings window (#EDE-47) | `settings.json`: the nav This device / Personal / Team beside the page | Sidebar, Section, Row, SettingsRow, Switch, Select, Slider, DatePicker (`inline`), EmptyState, Popover | 1080 × 680 centred on the output, nav 272, back row 40, rows 28, labels 24 |
 

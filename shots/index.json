@@ -2035,8 +2035,8 @@
         "file": "shots/ede-switcher/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 11594,
-        "sha256": "b4c5bfc99b3c73e3ce3a5763c6065bde80f86ee95edc80d18cff34710bb5f127"
+        "bytes": 11348,
+        "sha256": "604f962d4a31d9e3627614d77dc1387d1d0fd8049195d6cdbd16684351203d0e"
       }
     },
     "ede-tray-menu": {
