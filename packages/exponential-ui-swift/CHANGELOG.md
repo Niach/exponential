@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `Window` (VAPP-290): the macro paints through the Box / Text paths (no painter of their own): the 34-tall chrome bar with its three dots and the centred title, hidden from VoiceOver, over the body the one child fills; the root is a group named by `title`. `WindowTests`.
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).

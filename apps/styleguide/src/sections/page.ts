@@ -174,6 +174,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   outline: `Lists & rows`,
   tree: `Lists & rows`,
   mosaic: `Surfaces`,
+  window: `Surfaces`,
   [`zoomable-image`]: `Surfaces`,
   motion: `Feedback`,
   canvas: `Surfaces`,

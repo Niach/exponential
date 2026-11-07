@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- The `Window` macro (VAPP-290): a framed window (a 34 dp chrome strip with three dots and a centred title, hidden from TalkBack, over a body holding its one child; the root a group named by the title) through the Box / Text paths, nothing of its own. `WindowTest`.
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).

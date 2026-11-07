@@ -81,6 +81,8 @@ pub(crate) mod record_form;
 pub(crate) mod settings_row;
 pub(crate) mod record_table;
 pub(crate) mod mosaic;
+// VAPP-290: the window frame (the eUI Window macro).
+pub(crate) mod window;
 // EXP-1586: the lightbox picture (the eUI zoom view).
 pub(crate) mod zoomable_image;
 pub(crate) mod motion;
@@ -184,6 +186,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: outline::ID, owner: outline::OWNER, render: outline::render },
     Entry { id: tree::ID, owner: tree::OWNER, render: tree::render },
     Entry { id: mosaic::ID, owner: mosaic::OWNER, render: mosaic::render },
+    Entry { id: window::ID, owner: window::OWNER, render: window::render },
     Entry { id: zoomable_image::ID, owner: zoomable_image::OWNER, render: zoomable_image::render },
     Entry { id: motion::ID, owner: motion::OWNER, render: motion::render },
     Entry { id: canvas::ID, owner: canvas::OWNER, render: canvas::render },
