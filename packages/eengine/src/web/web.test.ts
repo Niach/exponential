@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from "bun:test"
 import capabilities from "../../fixtures/capabilities.json" with { type: "json" }
+import providers from "../../fixtures/providers.json" with { type: "json" }
 import {
   decodeBase64,
   type DirectoryHandleLike,
@@ -321,9 +322,13 @@ describe(`webCapabilities`, () => {
 
   test(`every native tool of a mounted capability answers; an unknown one is unavailable`, async () => {
     const caps = webCapabilities(fake())
+    // #VAPP-273: a capability only eDE's shell provides (windows, focus, launch, shell) has no web native.
+    const hosts = providers.hosts as Record<string, { capabilities?: { name: string }[] }>
+    const edeOnly = (hosts.ede!.capabilities ?? []).map((c) => c.name).filter((n) => !Object.entries(hosts).some(([h, c]) => h !== `ede` && (c.capabilities ?? []).some((x) => x.name === n)))
+    expect(edeOnly).toEqual([`shell`, `windows`, `focus`, `launch`])
     for (const t of tools.filter((t) => t.runs === `native`)) {
       const [cap] = splitTool(t.name)
-      expect(caps.some((c) => c.name === cap)).toBe(true)
+      expect(caps.some((c) => c.name === cap) || edeOnly.includes(cap!)).toBe(true)
     }
     expect(await errCall(caps, `print_pdf`)).toBe(`unavailable`)
     expect(await errCall(caps, `files_toString`)).toBe(`unavailable`)

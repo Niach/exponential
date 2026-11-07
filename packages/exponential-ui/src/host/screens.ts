@@ -41,6 +41,27 @@ export interface PackageScreen {
    *  checked params. Not access control: the target's own policy still decides
    *  what the viewer sees. */
   exposed?: ExposedScreen
+  /** C26 (#VAPP-273): the screen as a desktop widget: a compact template of
+   *  the package painted at one of `WIDGET_SIZES` (eDE's desktop; the phones'
+   *  home screens later), opened with the screen's params. */
+  widget?: ScreenWidget
+}
+
+export interface ScreenWidget {
+  template: string
+  size: WidgetSize
+}
+
+export type WidgetSize = `s` | `m` | `l`
+/** The widget size classes (catalog/host.json `package.screens.widgetSizes`). */
+export const WIDGET_SIZES: readonly WidgetSize[] = [`s`, `m`, `l`]
+
+/** A screen's widget as a host paints it. */
+export interface PackageWidget {
+  screen: string
+  template: string
+  size: WidgetSize
+  params: Record<string, string>
 }
 
 export interface ExposedScreen {
@@ -59,7 +80,8 @@ export interface ResolvedScreen {
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
 const own = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 const ICONS: ReadonlySet<string> = new Set(ICON_NAMES)
-const SCREEN_KEYS = [`template`, `title`, `icon`, `params`, `nav`, `exposed`]
+const SCREEN_KEYS = [`template`, `title`, `icon`, `params`, `nav`, `exposed`, `widget`]
+const WIDGET_KEYS = [`template`, `size`]
 const EXPOSED_KEYS = [`description`, `params`]
 const EXPOSED_PARAM_KEYS = [`required`, `description`]
 /** A param key `${params.<key>}` can fill. */
@@ -71,7 +93,7 @@ const escape = (k: string) => k.replace(/~/g, `~0`).replace(/\//g, `~1`)
 export function validatePackageScreens(pkg: Record<string, unknown>): PackageIssue[] {
   if (pkg.screens === undefined) return []
   const list = pkg.screens
-  if (!Array.isArray(list) || !list.length) return [{ path: `/screens`, message: `screens is a non-empty list of {template, title, icon?, params?, nav?, exposed?}` }]
+  if (!Array.isArray(list) || !list.length) return [{ path: `/screens`, message: `screens is a non-empty list of {template, title, icon?, params?, nav?, exposed?, widget?}` }]
   const issues: PackageIssue[] = []
   const inNav = list.filter((s) => !isObject(s) || s.nav !== false).length
   if (inNav > MAX_SCREENS) issues.push({ path: `/screens`, message: `at most ${MAX_SCREENS} screens in the navigation, got ${inNav}` })
@@ -80,7 +102,7 @@ export function validatePackageScreens(pkg: Record<string, unknown>): PackageIss
   const seen = new Set<string>()
   list.forEach((s, i) => {
     const at = `/screens/${i}`
-    if (!isObject(s)) return void issues.push({ path: at, message: `a screen is {template, title, icon?, params?, nav?, exposed?}` })
+    if (!isObject(s)) return void issues.push({ path: at, message: `a screen is {template, title, icon?, params?, nav?, exposed?, widget?}` })
     for (const k of Object.keys(s).sort()) if (!SCREEN_KEYS.includes(k)) issues.push({ path: `${at}/${escape(k)}`, message: `unknown screen key ${k}` })
     if (typeof s.template !== `string` || !s.template) issues.push({ path: `${at}/template`, message: `template is a required string` })
     else if (!own(templates, s.template)) issues.push({ path: `${at}/template`, message: `template ${s.template} names no package template` })
@@ -95,9 +117,26 @@ export function validatePackageScreens(pkg: Record<string, unknown>): PackageIss
     }
     if (s.nav !== undefined && s.nav !== false) issues.push({ path: `${at}/nav`, message: `nav is false or absent` })
     if (s.exposed !== undefined) issues.push(...exposedIssues(s.exposed, `${at}/exposed`))
+    if (s.widget !== undefined) issues.push(...widgetIssues(s.widget, templates, `${at}/widget`))
   })
   issues.push(...navigateIssues(pkg, seen))
   return issues
+}
+
+/** C26: what is wrong with a screen's `widget`. */
+function widgetIssues(widget: unknown, templates: Record<string, unknown>, at: string): PackageIssue[] {
+  if (!isObject(widget)) return [{ path: at, message: `widget is {template, size: s | m | l}` }]
+  const issues: PackageIssue[] = []
+  for (const k of Object.keys(widget).sort()) if (!WIDGET_KEYS.includes(k)) issues.push({ path: `${at}/${escape(k)}`, message: `unknown widget key ${k}` })
+  if (typeof widget.template !== `string` || !widget.template) issues.push({ path: `${at}/template`, message: `widget.template is a required string` })
+  else if (!own(templates, widget.template)) issues.push({ path: `${at}/template`, message: `widget template ${widget.template} names no package template` })
+  if (typeof widget.size !== `string` || !(WIDGET_SIZES as readonly string[]).includes(widget.size)) issues.push({ path: `${at}/size`, message: `widget.size is one of s, m, l` })
+  return issues
+}
+
+/** The widgets a package declares, in screen order (a valid package only). */
+export function packageWidgets(pkg: { screens?: PackageScreen[] }): PackageWidget[] {
+  return (pkg.screens ?? []).flatMap((s) => (s.widget ? [{ screen: s.template, template: s.widget.template, size: s.widget.size, params: { ...(s.params ?? {}) } }] : []))
 }
 
 /** #EXP-1674: what is wrong with a screen's `exposed`. */
