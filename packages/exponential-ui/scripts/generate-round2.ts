@@ -571,8 +571,8 @@ function benchFixture() {
     theme: `neutral`,
     catalogId: CORE_CATALOG_ID,
     components: [
-      { id: `root`, component: `List`, direction: `vertical`, divided: true, style: { height: 800 }, children: { componentId: `bench-row`, path: `/rows`, key: `id` } },
-      { id: `bench-row`, component: `Row`, title: { "@path": `title` }, meta: { "@path": `meta` }, pressable: true },
+      { id: `root`, component: `List`, direction: `vertical`, divided: true, style: { height: 800 }, children: { componentId: `bench_row`, path: `/rows`, key: `id` } },
+      { id: `bench_row`, component: `Row`, title: { "@path": `title` }, meta: { "@path": `meta` }, pressable: true },
     ],
     steps: { scroll: { count: 100, by: `viewport` }, scrollToIndex: { index: 50_000, align: `start` } },
     metrics: [`firstPaintMs`, `scrollStepMs`, `scrollToIndexMs`, `renderedItems`],

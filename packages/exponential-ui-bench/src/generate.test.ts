@@ -5,7 +5,7 @@
 import { describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { reduceNested, reduceSurface, MAX_DEPTH, MAX_TEMPLATE_ITEMS } from "@exponential_app/eui"
+import { isIdentifier, reduceNested, reduceSurface, MAX_DEPTH, MAX_TEMPLATE_ITEMS } from "@exponential_app/eui"
 import type { FlatComponent, NestedNode } from "@exponential_app/eui"
 import { generateItems, renderScenarios, SCENARIOS, type GeneratedData } from "./scenarios"
 import { resultsIndexSource } from "./results-index"
@@ -30,6 +30,15 @@ describe(`scenario fixtures (VAPP-105)`, () => {
       const r = `nested` in s.surface ? reduceNested(s.surface.nested as NestedNode, { catalogId: `https://ui.exponential.at/catalogs/core/v1` }) : reduceSurface(s.surface.components as FlatComponent[], { catalogId: `https://ui.exponential.at/catalogs/core/v1` })
       expect(r.issues.map((i) => `${i.id}: ${i.message}`), s.id).toEqual([])
       expect(r.root, s.id).not.toBeNull()
+    }
+  })
+
+  it(`every component id is an identifier (round 9 §4)`, () => {
+    const ids = (n: NestedNode): string[] => [n.id, ...(n.children ?? []).flatMap(ids), ...Object.values(n.slots ?? {}).flatMap(ids)]
+    for (const s of SCENARIOS) {
+      if (!s.surface) continue
+      const all = `nested` in s.surface ? ids(s.surface.nested) : s.surface.components.map((c) => c.id)
+      expect(all.filter((id) => !isIdentifier(id)), s.id).toEqual([])
     }
   })
 

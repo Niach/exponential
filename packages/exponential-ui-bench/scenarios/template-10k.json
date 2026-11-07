@@ -29,7 +29,7 @@
         "id": "item",
         "component": "Text",
         "text": {
-          "path": "title"
+          "@path": "title"
         },
         "variant": "muted",
         "lines": 1
