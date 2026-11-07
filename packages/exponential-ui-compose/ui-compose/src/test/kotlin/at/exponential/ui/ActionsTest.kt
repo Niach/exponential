@@ -45,7 +45,7 @@ class ActionsTest {
 
     private fun fixture(): JsonValue {
         Fixtures.require()
-        return Fixtures.json("actions.json")
+        return Fixtures.json("actions_json")
     }
 
     @Test
@@ -155,9 +155,9 @@ class ActionsTest {
                                 }
                             }
                         },
-                        "photos.pick" to fake("photos.pick"),
-                        "print.pdf" to fake("print.pdf"),
-                        "harness.toast" to fake("harness.toast"),
+                        "photos_pick" to fake("photos_pick"),
+                        "print_pdf" to fake("print_pdf"),
+                        "harness_toast" to fake("harness_toast"),
                     ),
                     packages = listOf(pkg.json),
                     policy = HostPolicy(functions = FunctionPolicy(deny = c["deny"]?.array.orEmpty().mapNotNull { it.string })),
@@ -168,7 +168,7 @@ class ActionsTest {
                 CoroutineScope(Dispatchers.Unconfined),
             )
             host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"main"}}"""))
-            val out = host.callFunction(FunctionCallInfo("s", "add", "actions.${c["action"]!!.string}", emptyMap()))
+            val out = host.callFunction(FunctionCallInfo("s", "add", "actions_${c["action"]!!.string}", emptyMap()))
             assertEquals(name, c["error"]?.string, out.error)
             same(JsonValue.Arr(called), c["called"] ?: JsonValue.Arr(emptyList()), "results host called: $name")
             same(JsonValue.Arr(rows.map { it["data"] ?: JsonValue.Null }), c["created"] ?: JsonValue.Arr(emptyList()), "results host created: $name")
@@ -225,10 +225,10 @@ class ActionsTest {
                                 }
                             }
                         },
-                        "harness.toast" to { args, _ -> toasts.add(args["message"]?.string.orEmpty()) },
+                        "harness_toast" to { args, _ -> toasts.add(args["message"]?.string.orEmpty()) },
                     ),
                     packages = listOf(pkg.json),
-                    policy = HostPolicy(functions = FunctionPolicy(ask = listOf("harness.toast")), onFunctionCall = { consent }),
+                    policy = HostPolicy(functions = FunctionPolicy(ask = listOf("harness_toast")), onFunctionCall = { consent }),
                     me = b["me"]?.string,
                     now = { instant(f["env"]!!["now"]!!.string!!) },
                     zone = FixedZone(f["env"]!!["offset"]!!.number!!.toInt()),
@@ -251,7 +251,7 @@ class ActionsTest {
         val s = Surface(fixture())
         assertNotNull(s.host.surface("s"))
         val epoch = s.host.surface("s")!!.surface.writeEpoch()
-        val out = s.call("actions.log", logArgs(2.0))
+        val out = s.call("actions_log", logArgs(2.0))
         assertNull(out.error)
         assertEquals(1, s.batches)
         // #VAPP-288: the plan's sets are programmatic writes (assignData).
@@ -266,7 +266,7 @@ class ActionsTest {
     fun aFalseRequireLandsNothingAndIsTheFailuresMessage() = runBlocking {
         val s = Surface(fixture())
         val before = s.rows
-        val out = s.call("actions.log", logArgs(0.0))
+        val out = s.call("actions_log", logArgs(0.0))
         assertEquals("Log more than 0 hours", out.error)
         assertEquals(listOf("Log more than 0 hours"), s.failed)
         assertSame(before, s.rows)
@@ -277,7 +277,7 @@ class ActionsTest {
     fun aRefusedWriteLandsNothingTheBatchIsOneUnit() = runBlocking {
         val s = Surface(fixture())
         val before = s.rows
-        val out = s.call("actions.swap", mapOf("a" to JsonValue.Str("e1"), "b" to JsonValue.Str("missing")))
+        val out = s.call("actions_swap", mapOf("a" to JsonValue.Str("e1"), "b" to JsonValue.Str("missing")))
         assertEquals("write 1: record missing not found", out.error)
         assertSame(before, s.rows)
     }
@@ -287,8 +287,8 @@ class ActionsTest {
         val s = Surface(fixture())
         s.consent = false
         val before = s.rows
-        val out = s.call("actions.log", logArgs(2.0))
-        assertEquals("harness.toast was not allowed", out.error)
+        val out = s.call("actions_log", logArgs(2.0))
+        assertEquals("harness_toast was not allowed", out.error)
         assertSame(before, s.rows)
         assertEquals(0, s.batches)
         assertEquals(JsonValue.Num(7.5), s.formHours)
@@ -318,7 +318,7 @@ class ActionsTest {
                 CoroutineScope(Dispatchers.Unconfined),
             )
             host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"main"}}"""))
-            val out = host.callFunction(FunctionCallInfo("s", "b", "actions.${c["action"]!!.string}", c["args"]?.obj.orEmpty()))
+            val out = host.callFunction(FunctionCallInfo("s", "b", "actions_${c["action"]!!.string}", c["args"]?.obj.orEmpty()))
             assertEquals(name, c["error"]?.string, out.error)
             assertEquals(name, c["opened"]?.array.orEmpty().mapNotNull { it.string }, opened)
             assertEquals(name, c["bound"]?.get("day")?.string, bound)

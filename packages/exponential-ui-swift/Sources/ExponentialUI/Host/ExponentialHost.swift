@@ -39,7 +39,7 @@ public struct HostOptions {
     /// message, a refused write or host call): the host's failed-action toast.
     public var onActionFailed: ((ActionFailure) -> Void)?
     /// VAPP-218 (U1): open one of the surface's package screens
-    /// (`app.navigate`, checked by `Screens.target`); the host's shell opens
+    /// (`app_navigate`, checked by `Screens.target`); the host's shell opens
     /// it. Nil = no shell, so a navigate is refused. True when it navigated.
     public var navigate: ((NavigateTarget) -> Bool)?
     /// #VAPP-252: `SurfaceOptions.liftsLayers` of every surface.
@@ -225,6 +225,13 @@ public final class ExponentialHost {
         receive(message.json, trusted: trusted)
     }
 
+    /// Round 9 §1.4: a fresh id to re-open a surface under: mint it, apply
+    /// the template onto it, repaint with the new id, then `deleteSurface` the
+    /// old one, so the old surface paints until the new one exists.
+    public func mintSurfaceId(_ base: String) -> String {
+        router.mintSurfaceId(base: base)
+    }
+
     /// A client message (JSON text) out over the transport.
     public func send(_ messageJSON: String) {
         if let t = options.transport {
@@ -335,7 +342,7 @@ public final class ExponentialHost {
     }
 
     /// An action `functionCall`: `openUrl` through the URL policy, `bind`
-    /// through the router (VAPP-122), `actions.<name>` = the surface's
+    /// through the router (VAPP-122), `actions_<name>` = the surface's
     /// package action (VAPP-194), anything else through the gate, the
     /// consent hook and the registry.
     @discardableResult
@@ -349,13 +356,13 @@ public final class ExponentialHost {
     }
 
     /// The policy gate and the consent hook: `.allow`, or the refusal (sent
-    /// as FUNCTION_NOT_FOUND / FUNCTION_DENIED).
+    /// as UNKNOWN_FUNCTION / INVALID_FUNCTION_CALL).
     private func gate(_ call: FunctionCallInfo) async -> FunctionOutcome {
-        // VAPP-218: app.navigate is always allowed (checked when it runs).
+        // VAPP-218: app_navigate is always allowed (checked when it runs).
         if call.name == Screens.navigateFunction { return FunctionOutcome(decision: .allow) }
         var decision = decide(surfaceId: call.surfaceId, name: call.name)
         if decision == .notFound {
-            send(errorMessageJson(code: "FUNCTION_NOT_FOUND", surfaceId: call.surfaceId, message: "no function \(call.name)", path: nil))
+            send(errorMessageJson(code: "UNKNOWN_FUNCTION", surfaceId: call.surfaceId, message: "no function \(call.name)", path: nil))
             return FunctionOutcome(decision: decision)
         }
         if decision == .ask {
@@ -363,7 +370,7 @@ public final class ExponentialHost {
             if !ok { decision = .deny }
         }
         if decision == .deny {
-            send(errorMessageJson(code: "FUNCTION_DENIED", surfaceId: call.surfaceId, message: "\(call.name) was not allowed", path: nil))
+            send(errorMessageJson(code: "INVALID_FUNCTION_CALL", surfaceId: call.surfaceId, message: "\(call.name) was not allowed", path: nil))
             return FunctionOutcome(decision: .deny)
         }
         return FunctionOutcome(decision: .allow)
@@ -392,17 +399,17 @@ public final class ExponentialHost {
         }
     }
 
-    /// VAPP-194: `actions.<name>` = the surface's package action, all or
+    /// VAPP-194: `actions_<name>` = the surface's package action, all or
     /// nothing: the plan over one snapshot (the args = params, the surface
     /// data, `me`, the clock), every host call's gate and consent, then the
-    /// record writes as ONE `records.batch`, then the sets, then the calls.
-    /// A failure before the commit lands nothing: ACTION_FAILED +
+    /// record writes as ONE `records_batch`, then the sets, then the calls.
+    /// A failure before the commit lands nothing: EXECUTION_ERROR +
     /// `onActionFailed` (the toast), the outcome's `error`. VAPP-271: a
     /// result call (`call` + `result`) is gated and run before the commit
     /// and the action re-runs over the same snapshot with its answer.
     private func runPackageAction(_ call: FunctionCallInfo, action: String) async -> FunctionOutcome {
         func failed(_ message: String) -> FunctionOutcome {
-            send(errorMessageJson(code: "ACTION_FAILED", surfaceId: call.surfaceId, message: message, path: nil))
+            send(errorMessageJson(code: "EXECUTION_ERROR", surfaceId: call.surfaceId, message: message, path: nil))
             options.onActionFailed?(ActionFailure(surfaceId: call.surfaceId, action: action, message: message))
             return FunctionOutcome(decision: .allow, error: message)
         }
@@ -463,11 +470,11 @@ public final class ExponentialHost {
     }
 
     /// VAPP-218: `app.navigate {screen, params?}` → the host's shell, when
-    /// the surface's package has that screen. A refusal = FUNCTION_DENIED.
+    /// the surface's package has that screen. A refusal = INVALID_FUNCTION_CALL.
     @discardableResult
     public func navigate(_ call: FunctionCallInfo) -> FunctionOutcome {
         func refuse(_ message: String) -> FunctionOutcome {
-            send(errorMessageJson(code: "FUNCTION_DENIED", surfaceId: call.surfaceId, message: message, path: nil))
+            send(errorMessageJson(code: "INVALID_FUNCTION_CALL", surfaceId: call.surfaceId, message: message, path: nil))
             return FunctionOutcome(decision: .deny, error: message)
         }
         guard let pkgId = router.packageIdOf(surfaceId: call.surfaceId), let pkg = packages[pkgId] else {

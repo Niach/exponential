@@ -304,7 +304,7 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
   - `send` goes out on the transport; an `UNSUPPORTED_CATALOG` also sets `unsupportedCatalog`.
 - **Painter events.**
   - An `action` becomes the A2UI client message on the transport (the plugin's `onAction` still fires).
-  - A `functionCall` goes through `callFunction`: `not_found` → `FUNCTION_NOT_FOUND`, `ask` → the `onFunctionCall` consent hook, `deny` → `FUNCTION_DENIED`, `allow` → the handler. A package surface's `functions` list narrows the decision.
+  - A `functionCall` goes through `callFunction`: `not_found` → `UNKNOWN_FUNCTION`, `ask` → the `onFunctionCall` consent hook, `deny` → `INVALID_FUNCTION_CALL`, `allow` → the handler. A package surface's `functions` list narrows the decision.
   - EVERY href (`openUrl`, `Link`, markdown links) goes through the URL policy (relative urls resolve against the media `baseUrl`), then `policy.openUrl` (default: the system opener); a denied href paints as plain text.
   - EVERY src (images, avatars, posters, markdown images) goes through `host.mediaRequest`: `resolveUrl`, then the media policy (`schemes`, `hosts`; the defaults without `media`), so the media rules' headers reach the fetch. A plain `HostPlugin` gets the same policy from its `mediaOptions`.
   - `paintError` forwards a failed painter as an A2UI `RENDER_FAILED` error at `/components/<id>`, once per surface + component + message (cleared when the surface's components change).

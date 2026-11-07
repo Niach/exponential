@@ -206,59 +206,88 @@ final class HostTests: XCTestCase {
         let host = ExponentialHost(HostOptions(
             transport: transport,
             functions: [
-                "harness.toast": { args, _ in ran.append("toast:\(args["text"]?.string ?? "")"); return nil },
-                "harness.wipe": { _, _ in ran.append("wipe"); return nil },
-                "app.save": { _, _ in ran.append("save"); return true },
+                "harness_toast": { args, _ in ran.append("toast:\(args["text"]?.string ?? "")"); return nil },
+                "harness_wipe": { _, _ in ran.append("wipe"); return nil },
+                "app_save": { _, _ in ran.append("save"); return true },
             ],
             sources: ["exp": { _, _ in nil }],
             packages: [package.json],
-            policy: HostPolicy(functions: FunctionPolicy(ask: ["app.*"], deny: ["harness.wipe"]), onFunctionCall: { call in asked.append(call.name); return consent })
+            policy: HostPolicy(functions: FunctionPolicy(ask: ["app_*"], deny: ["harness_wipe"]), onFunctionCall: { call in asked.append(call.name); return consent })
         ))
         host.connect()
         host.receive(create("s1"))
         func call(_ name: String, on surface: String = "s1", args: Props = [:]) async -> FunctionOutcome {
             await host.callFunction(SurfaceFunctionCall(surfaceId: surface, componentId: "c", name: name, args: args))
         }
-        var out = await call("harness.toast", args: ["text": .string("hi")])
+        var out = await call("harness_toast", args: ["text": .string("hi")])
         XCTAssertEqual(out.decision, .allow)
         XCTAssertEqual(ran, ["toast:hi"])
-        out = await call("harness.wipe")
+        out = await call("harness_wipe")
         XCTAssertEqual(out.decision, .deny)
         await settle()
-        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"], .string("FUNCTION_DENIED"))
-        XCTAssertEqual(transport.sentMessages.last?["error"]?["message"], .string("harness.wipe was not allowed"))
-        out = await call("app.save")
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"], .string("INVALID_FUNCTION_CALL"))
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["message"], .string("harness_wipe was not allowed"))
+        out = await call("app_save")
         XCTAssertEqual(out.decision, .deny, "ask without consent = deny")
-        XCTAssertEqual(asked, ["app.save"])
+        XCTAssertEqual(asked, ["app_save"])
         consent = true
-        out = await call("app.save")
+        out = await call("app_save")
         XCTAssertEqual(out.decision, .allow)
         XCTAssertEqual(out.result as? Bool, true)
         out = await call("nope")
         XCTAssertEqual(out.decision, .notFound)
         await settle()
-        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"], .string("FUNCTION_NOT_FOUND"))
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"], .string("UNKNOWN_FUNCTION"))
         XCTAssertEqual(transport.sentMessages.last?["error"]?["message"], .string("no function nope"))
         // A template surface: its package's `functions` narrow the gate.
         let ops = host.receive(msg("applyTemplate", .object(["surfaceId": .string("d1"), "templateId": .string("list"), "packageId": .string("acme.devices")])))
         XCTAssertEqual(ops.map { $0["op"]?.string ?? "" }, ["create", "components", "data", "bind"])
         XCTAssertEqual(host.surface("d1")?.data["title"], .string("Devices"))
-        XCTAssertEqual(host.decide(surfaceId: "d1", name: "harness.toast"), .allow)
-        XCTAssertEqual(host.decide(surfaceId: "d1", name: "app.save"), .deny)
-        XCTAssertEqual(host.decide(surfaceId: "s1", name: "app.save"), .ask)
+        XCTAssertEqual(host.decide(surfaceId: "d1", name: "harness_toast"), .allow)
+        XCTAssertEqual(host.decide(surfaceId: "d1", name: "app_save"), .deny)
+        XCTAssertEqual(host.decide(surfaceId: "s1", name: "app_save"), .ask)
         ran = []
-        out = await call("app.save", on: "d1")
+        out = await call("app_save", on: "d1")
         XCTAssertEqual(out.decision, .deny)
         XCTAssertEqual(ran, [])
+    }
+
+    /// Round 9 §1.4: a re-open mints, applies, and only then deletes the old surface.
+    func testAReopenedSurfacePaintsUnderAMintedId() async throws {
+        let transport = MemoryTransport()
+        let package = try Fixtures.json("host-router.json")["packages"]!["acme.devices"]!
+        let host = ExponentialHost(HostOptions(transport: transport, packages: [package.json]))
+        host.connect()
+        func apply(_ id: String) {
+            host.receive(msg("applyTemplate", .object(["surfaceId": .string(id), "templateId": .string("list"), "packageId": .string("acme.devices")])), trusted: true)
+        }
+        func delete(_ id: String) { host.receive(msg("deleteSurface", .object(["surfaceId": .string(id)]))) }
+        let first = host.mintSurfaceId("app")
+        apply(first)
+        XCTAssertNotNil(host.surface(first))
+        let second = host.mintSurfaceId("app")
+        XCTAssertNotEqual(first, second)
+        apply(second)
+        XCTAssertNotNil(host.surface(first), "the old surface paints until the new one exists")
+        delete(first)
+        XCTAssertNil(host.surface(first))
+        XCTAssertNotNil(host.surface(second))
+        await settle()
+        XCTAssertTrue(transport.sentMessages.allSatisfy { $0["error"] == nil })
+        // The fixed id the hosts used to re-apply is refused for good.
+        apply(first)
+        await settle()
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"], .string("INTEGRITY_ERROR"))
+        XCTAssertNil(host.surface(first))
     }
 
     func testAFunctionCallActionReachesTheGate() async throws {
         let transport = MemoryTransport()
         var got: [Props] = []
-        let host = ExponentialHost(HostOptions(transport: transport, functions: ["harness.toast": { args, _ in got.append(args); return nil }]))
+        let host = ExponentialHost(HostOptions(transport: transport, functions: ["harness_toast": { args, _ in got.append(args); return nil }]))
         host.connect()
         host.receive(create("s1"))
-        host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Stack"), "children": .array([.string("b")])]), .object(["id": .string("b"), "component": .string("Button"), "label": .string("Toast"), "on": .object(["press": .object(["functionCall": .object(["call": .string("harness.toast"), "args": .object(["text": .object(["path": .string("/t")])])])])])])]))
+        host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Stack"), "children": .array([.string("b")])]), .object(["id": .string("b"), "component": .string("Button"), "label": .string("Toast"), "on": .object(["press": .object(["functionCall": .object(["call": .string("harness_toast"), "args": .object(["text": .object(["path": .string("/t")])])])])])])]))
         host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string("/t"), "value": .string("saved")])))
         let model = try XCTUnwrap(host.surface("s1"))
         model.setViewport(width: 300, height: 400)

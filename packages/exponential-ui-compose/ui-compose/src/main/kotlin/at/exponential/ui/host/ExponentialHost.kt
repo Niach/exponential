@@ -81,7 +81,7 @@ data class HostOptions(
     val zone: HostZone? = null,
     /** VAPP-194: a package action that landed nothing (a false `require`'s message, a refused write or host call): the host's failed-action toast. */
     val onActionFailed: ((ActionFailure) -> Unit)? = null,
-    /** VAPP-218 (U1): open one of the surface's package screens (`app.navigate`, checked by [Screens.target]); the host's shell opens it. Null = no shell, so a navigate is refused. True when it navigated. */
+    /** VAPP-218 (U1): open one of the surface's package screens (`app_navigate`, checked by [Screens.target]); the host's shell opens it. Null = no shell, so a navigate is refused. True when it navigated. */
     val navigate: ((NavigateTarget) -> Boolean)? = null,
 )
 
@@ -261,6 +261,13 @@ class ExponentialHost(
     /** One server message; the ops performed. On the host's thread. */
     fun receive(message: JsonValue, trusted: Boolean = false): List<JsonValue> = receive(message.json, trusted)
 
+    /**
+     * Round 9 §1.4: a fresh id to re-open a surface under: mint it, apply the
+     * template onto it, repaint with the new id, then `deleteSurface` the old
+     * one, so the old surface paints until the new one exists.
+     */
+    fun mintSurfaceId(base: String): String = router.mintSurfaceId(base)
+
     private fun perform(ops: List<JsonValue>): List<JsonValue> {
         for (op in ops) perform(op)
         return ops
@@ -391,7 +398,7 @@ class ExponentialHost(
         return FunctionDecision.of(decision)
     }
 
-    /** An action `functionCall` to a host function: gate, consent, run; `actions.<name>` = the surface's package action (VAPP-194). A built-in other than `openUrl` and `bind` has no effect as an action. */
+    /** An action `functionCall` to a host function: gate, consent, run; `actions_<name>` = the surface's package action (VAPP-194). A built-in other than `openUrl` and `bind` has no effect as an action. */
     suspend fun callFunction(call: FunctionCallInfo): FunctionOutcome {
         runBuiltIn(call)?.let { return it }
         if (call.name == Screens.NAVIGATE_FUNCTION) return navigate(call)
@@ -401,10 +408,10 @@ class ExponentialHost(
         return run(call)
     }
 
-    /** VAPP-218: `app.navigate {screen, params?}` → the host's shell, when the surface's package has that screen. A refusal = FUNCTION_DENIED. */
+    /** VAPP-218: `app.navigate {screen, params?}` → the host's shell, when the surface's package has that screen. A refusal = INVALID_FUNCTION_CALL. */
     fun navigate(call: FunctionCallInfo): FunctionOutcome {
         fun refuse(message: String): FunctionOutcome {
-            sendError("FUNCTION_DENIED", call.surfaceId, message)
+            sendError("INVALID_FUNCTION_CALL", call.surfaceId, message)
             return FunctionOutcome(FunctionDecision.Deny, error = message)
         }
         val pkgId = packageOf[call.surfaceId] ?: return refuse("navigate: the surface has no package")
@@ -414,13 +421,13 @@ class ExponentialHost(
         return if (open(NavigateTarget(call.surfaceId, pkgId, screen, params))) FunctionOutcome(FunctionDecision.Allow) else refuse("navigate: $screen was not opened")
     }
 
-    /** The policy gate and the consent hook: `Allow`, or the refusal (sent as FUNCTION_NOT_FOUND / FUNCTION_DENIED). */
+    /** The policy gate and the consent hook: `Allow`, or the refusal (sent as UNKNOWN_FUNCTION / INVALID_FUNCTION_CALL). */
     private suspend fun gate(call: FunctionCallInfo): FunctionOutcome {
-        // VAPP-218: app.navigate is always allowed (checked when it runs).
+        // VAPP-218: app_navigate is always allowed (checked when it runs).
         if (call.name == Screens.NAVIGATE_FUNCTION) return FunctionOutcome(FunctionDecision.Allow)
         var decision = decide(call.surfaceId, call.name)
         if (decision == FunctionDecision.NotFound) {
-            sendError("FUNCTION_NOT_FOUND", call.surfaceId, "no function ${call.name}")
+            sendError("UNKNOWN_FUNCTION", call.surfaceId, "no function ${call.name}")
             return FunctionOutcome(decision)
         }
         if (decision == FunctionDecision.Ask) {
@@ -432,7 +439,7 @@ class ExponentialHost(
             if (!ok) decision = FunctionDecision.Deny
         }
         if (decision == FunctionDecision.Deny) {
-            sendError("FUNCTION_DENIED", call.surfaceId, "${call.name} was not allowed")
+            sendError("INVALID_FUNCTION_CALL", call.surfaceId, "${call.name} was not allowed")
             return FunctionOutcome(decision)
         }
         return FunctionOutcome(FunctionDecision.Allow)
@@ -460,11 +467,11 @@ class ExponentialHost(
     }
 
     /**
-     * VAPP-194: `actions.<name>` = the surface's package action, all or
+     * VAPP-194: `actions_<name>` = the surface's package action, all or
      * nothing: the plan over one snapshot (the args = params, the surface
      * data, `me`, the clock), every host call's gate and consent, then the
-     * record writes as ONE `records.batch`, then the sets, then the calls. A
-     * failure before the commit lands nothing: ACTION_FAILED +
+     * record writes as ONE `records_batch`, then the sets, then the calls. A
+     * failure before the commit lands nothing: EXECUTION_ERROR +
      * [HostOptions.onActionFailed] (the toast), the outcome's `error`.
      * VAPP-271: a result call (`call` + `result`) is gated and run before
      * the commit and the action re-runs over the same snapshot with its
@@ -472,7 +479,7 @@ class ExponentialHost(
      */
     private suspend fun runPackageAction(call: FunctionCallInfo, action: String): FunctionOutcome {
         fun failed(message: String): FunctionOutcome {
-            sendError("ACTION_FAILED", call.surfaceId, message)
+            sendError("EXECUTION_ERROR", call.surfaceId, message)
             options.onActionFailed?.invoke(ActionFailure(call.surfaceId, action, message))
             return FunctionOutcome(FunctionDecision.Allow, error = message)
         }

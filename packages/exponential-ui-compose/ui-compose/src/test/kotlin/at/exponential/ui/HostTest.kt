@@ -247,19 +247,19 @@ class HostTest {
         val ran = ArrayList<String>()
         var consent = true
         val asked = ArrayList<String>()
-        val pkg = """{"formatVersion":5,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness.toast"]}"""
+        val pkg = """{"formatVersion":5,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness_toast"]}"""
         val h = host(
             HostOptions(
                 transport = t,
                 functions = mapOf(
-                    "harness.toast" to { args, _ -> ran.add("toast ${args["text"]?.string}"); "ok" },
-                    "harness.wipe" to { _, _ -> ran.add("wipe") },
-                    "harness.ask" to { _, _ -> ran.add("ask") },
-                    "harness.boom" to { _, _ -> error("boom") },
+                    "harness_toast" to { args, _ -> ran.add("toast ${args["text"]?.string}"); "ok" },
+                    "harness_wipe" to { _, _ -> ran.add("wipe") },
+                    "harness_ask" to { _, _ -> ran.add("ask") },
+                    "harness_boom" to { _, _ -> error("boom") },
                 ),
                 packages = listOf(pkg),
                 policy = HostPolicy(
-                    functions = FunctionPolicy(deny = listOf("harness.wipe"), ask = listOf("harness.ask")),
+                    functions = FunctionPolicy(deny = listOf("harness_wipe"), ask = listOf("harness_ask")),
                     onFunctionCall = { asked.add(it.name); consent },
                 ),
             ),
@@ -268,20 +268,20 @@ class HostTest {
         t.feed(create("free"))
         fun call(name: String, surface: String = "free", args: Map<String, JsonValue> = emptyMap()) = FunctionCallInfo(surface, "c", name, args)
 
-        val ok = h.callFunction(call("harness.toast", args = mapOf("text" to JsonValue.Str("hi"))))
+        val ok = h.callFunction(call("harness_toast", args = mapOf("text" to JsonValue.Str("hi"))))
         assertEquals(FunctionDecision.Allow, ok.decision)
         assertEquals("ok", ok.result)
-        assertEquals(FunctionDecision.NotFound, h.callFunction(call("harness.nope")).decision)
-        assertEquals("FUNCTION_NOT_FOUND", errorCode(t.sent.last()))
-        assertEquals("no function harness.nope", t.sent.last()["error"]?.get("message")?.string)
-        assertEquals(FunctionDecision.Deny, h.callFunction(call("harness.wipe")).decision)
-        assertEquals("FUNCTION_DENIED", errorCode(t.sent.last()))
-        assertEquals("harness.wipe was not allowed", t.sent.last()["error"]?.get("message")?.string)
-        assertEquals(FunctionDecision.Allow, h.callFunction(call("harness.ask")).decision)
+        assertEquals(FunctionDecision.NotFound, h.callFunction(call("harness_nope")).decision)
+        assertEquals("UNKNOWN_FUNCTION", errorCode(t.sent.last()))
+        assertEquals("no function harness_nope", t.sent.last()["error"]?.get("message")?.string)
+        assertEquals(FunctionDecision.Deny, h.callFunction(call("harness_wipe")).decision)
+        assertEquals("INVALID_FUNCTION_CALL", errorCode(t.sent.last()))
+        assertEquals("harness_wipe was not allowed", t.sent.last()["error"]?.get("message")?.string)
+        assertEquals(FunctionDecision.Allow, h.callFunction(call("harness_ask")).decision)
         consent = false
-        assertEquals(FunctionDecision.Deny, h.callFunction(call("harness.ask")).decision)
-        assertEquals(listOf("harness.ask", "harness.ask"), asked)
-        assertEquals("boom", h.callFunction(call("harness.boom")).error)
+        assertEquals(FunctionDecision.Deny, h.callFunction(call("harness_ask")).decision)
+        assertEquals(listOf("harness_ask", "harness_ask"), asked)
+        assertEquals("boom", h.callFunction(call("harness_boom")).error)
         // A built-in value function is allowed and has no effect as an action.
         assertEquals(FunctionDecision.Allow, h.decide("free", "formatDate"))
 
@@ -289,12 +289,44 @@ class HostTest {
         t.feed(msg("""{"version":"v0.9","applyTemplate":{"surfaceId":"pkg","templateId":"list","packageId":"acme.devices"}}"""))
         assertNotNull(h.surface("pkg"))
         assertEquals("acme.devices", h.packageIdOf("pkg"))
-        assertEquals(FunctionDecision.Allow, h.decide("pkg", "harness.toast"))
-        assertEquals(FunctionDecision.Deny, h.decide("pkg", "harness.boom"))
-        assertEquals(FunctionDecision.Allow, h.decide("free", "harness.boom"))
+        assertEquals(FunctionDecision.Allow, h.decide("pkg", "harness_toast"))
+        assertEquals(FunctionDecision.Deny, h.decide("pkg", "harness_boom"))
+        assertEquals(FunctionDecision.Allow, h.decide("free", "harness_boom"))
         assertEquals(listOf("toast hi", "ask"), ran)
         // A broken package does not install.
         assertTrue(h.installPackage("""{"id":"broken","name":"","version":"1","catalogId":"x","templates":{}}""").isNotEmpty())
+    }
+
+    /** Round 9 §1.4: a re-open mints, applies, and only then deletes the old surface. */
+    @Test
+    fun aReopenedSurfacePaintsUnderAMintedId() {
+        val t = MemoryTransport()
+        val pkg = """{"formatVersion":6,"id":"acme.screens","name":"Screens","version":"1.0.0","catalogId":"$core","templates":{"one":{"components":[{"id":"root","component":"Text","text":"one"}]},"two":{"components":[{"id":"root","component":"Text","text":"two"}]}}}"""
+        val h = host(HostOptions(transport = t, packages = listOf(pkg)))
+        h.connect()
+        fun apply(id: String, template: String) = h.receive(msg("""{"version":"1.0","applyTemplate":{"surfaceId":"$id","templateId":"$template","packageId":"acme.screens"}}"""), trusted = true)
+        fun delete(id: String) = h.receive(msg("""{"version":"1.0","deleteSurface":{"surfaceId":"$id"}}"""))
+
+        val first = h.mintSurfaceId("app")
+        apply(first, "one")
+        assertNotNull(h.surface(first))
+        val second = h.mintSurfaceId("app")
+        assertTrue(first != second)
+        apply(second, "two")
+        assertNotNull("the old surface paints until the new one exists", h.surface(first))
+        delete(first)
+        assertNull(h.surface(first))
+        assertNotNull(h.surface(second))
+        val third = h.mintSurfaceId("app")
+        apply(third, "one")
+        delete(second)
+        assertNotNull(h.surface(third))
+        assertEquals(emptyList<String>(), t.sent.mapNotNull(::errorCode))
+
+        // The fixed id the hosts used to re-apply is refused for good.
+        apply(first, "two")
+        assertEquals(listOf("INTEGRITY_ERROR"), t.sent.mapNotNull(::errorCode))
+        assertNull(h.surface(first))
     }
 
     @Test
@@ -337,7 +369,7 @@ class HostTest {
         val h = host(
             HostOptions(
                 transport = t,
-                functions = mapOf("harness.toast" to { args, call -> calls.add("${call.componentId} ${args["text"]?.string}") }),
+                functions = mapOf("harness_toast" to { args, call -> calls.add("${call.componentId} ${args["text"]?.string}") }),
                 policy = HostPolicy(openUrl = { opened.add(it) }),
             ),
         )
@@ -348,7 +380,7 @@ class HostTest {
                 "s1",
                 """{"id":"root","component":"Stack","children":["go","fn","docs"]}""",
                 """{"id":"go","component":"Button","label":"Go","on":{"press":{"event":{"name":"refresh","context":{"note":{"path":"/note"}}}}}}""",
-                """{"id":"fn","component":"Button","label":"Toast","on":{"press":{"functionCall":{"call":"harness.toast","args":{"text":"hi"}}}}}""",
+                """{"id":"fn","component":"Button","label":"Toast","on":{"press":{"functionCall":{"call":"harness_toast","args":{"text":"hi"}}}}}""",
                 """{"id":"docs","component":"Button","label":"Docs","on":{"press":{"functionCall":{"call":"openUrl","args":{"url":"https://ui.exponential.at"}}}}}""",
             ),
         )

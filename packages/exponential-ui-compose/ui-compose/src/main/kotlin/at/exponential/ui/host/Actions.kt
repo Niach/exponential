@@ -10,7 +10,7 @@ import java.util.TimeZone
  * eui-core `host::actions`, `fixtures/actions.json`). Expressions are PURE;
  * a package's `actions: {<name>: {params?, steps}}` are the only place it
  * writes. A Button's `on.press` names one as the function call
- * `actions.<name>`; [ExponentialHost.callFunction] runs it: the PLAN ([run],
+ * `actions_<name>`; [ExponentialHost.callFunction] runs it: the PLAN ([run],
  * one snapshot), every host call's gate, the record writes as ONE
  * `records.batch`, the data sets, then the calls. This is the direct entry
  * for a host (and the tests).
@@ -24,7 +24,7 @@ object Actions {
         /** `set`, `records.upsert` / `.delete` / `.batch`. */
         Write("write"),
 
-        /** `openUrl`, `bind`, every `actions.` `harness.` `exponential.` `tools.` `upstream.` name and every Engine capability's (`photos.`, `files.`, `print.`, `share.`, …; VAPP-271). */
+        /** `openUrl`, `bind`, every `actions_` `harness_` `exponential_` `tools_` `upstream_` name and every Engine capability's (`photos_`, `files_`, `print_`, `share_`, …; VAPP-271). */
         Host("host"),
         ;
 
@@ -34,12 +34,12 @@ object Actions {
     }
 
     /** The function-call prefix that runs a package action. */
-    const val CALL_PREFIX = "actions."
+    const val CALL_PREFIX = "actions_"
 
     /** The host function a host commits an action's record writes through (args `{writes}`; answers `{ids}`). */
-    const val BATCH_FUNCTION = "records.batch"
+    const val BATCH_FUNCTION = "records_batch"
 
-    /** The action a call name runs (`actions.log` → `log`), else null. */
+    /** The action a call name runs (`actions_log` → `log`), else null. */
     fun actionName(call: String): String? = if (call.startsWith(CALL_PREFIX)) call.removePrefix(CALL_PREFIX) else null
 
     /** What one run plans, as the core spells it: `{writes, sets, calls}` ([json]). */
@@ -164,7 +164,7 @@ object Actions {
 /** A package action that landed nothing (a false `require`'s message, a refused write or host call): the host's failed-action toast. */
 data class ActionFailure(
     val surfaceId: String,
-    /** The action's name (`log` for `actions.log`). */
+    /** The action's name (`log` for `actions_log`). */
     val action: String,
     val message: String,
 )
