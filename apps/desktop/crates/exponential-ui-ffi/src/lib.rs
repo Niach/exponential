@@ -2586,6 +2586,15 @@ impl HostRouter {
     /// Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
     /// §1.1: a transport routes with `trusted = false`; only host code passes
     /// `true` (the host-internal `applyTemplate` / `bindDataModel`).
+    /// [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
+    pub fn route_with_bridge_json(&self, message_json: String, trusted: bool, accept_v09: bool) -> String {
+        shield("route_with_bridge_json", || "[]".to_string(), || {
+            let options = h::RouteOptions { trusted, accept_v09 };
+            let message: Value = serde_json::from_str(&message_json).unwrap_or(Value::Null);
+            Value::Array(self.inner.lock().unwrap_or_else(|e| e.into_inner()).route(&message, options)).to_string()
+        })
+    }
+
     pub fn route_json(&self, message_json: String, trusted: bool) -> String {
         shield("route_json", || "[]".to_string(), || {
             // VAPP-103: an oversized message is refused before it is parsed.
@@ -2985,6 +2994,35 @@ pub fn a2ui_version() -> String {
 #[uniffi::export]
 pub fn accept_v09() -> bool {
     eui_core::catalog::ACCEPT_V09
+}
+
+/// Round 9 §4.1: UAX #31 over the generated tables.
+#[uniffi::export]
+pub fn is_identifier(id: String) -> bool {
+    eui_core::ident::is_identifier(&id)
+}
+
+/// Round 9 §14.3: an id as an identifier.
+#[uniffi::export]
+pub fn mangle_id(id: String) -> String {
+    eui_core::ident::mangle(&id)
+}
+
+/// Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
+/// 1.0, `cardProblems`, its reduce over the core catalog).
+#[uniffi::export]
+pub fn card_v10_json(card_json: String, accept_v09: bool) -> Result<String, UiError> {
+    guarded("card_v10_json", || {
+        let card: Value = parse(&card_json)?;
+        Ok(match eui_core::reducer::card_v10(&card, accept_v09) {
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+            Ok(card) => {
+                let root: NestedNode = serde_json::from_value(card["root"].clone()).map_err(invalid)?;
+                let reduced = eui_core::reducer::reduce_nested(&root, &eui_core::reducer::ReduceOptions::new(eui_core::CORE_CATALOG_ID));
+                serde_json::json!({"card": card, "problems": eui_core::reducer::card_problems(&card["root"]), "issues": reduced.issues, "root": reduced.root}).to_string()
+            }
+        })
+    })
 }
 
 /// Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
