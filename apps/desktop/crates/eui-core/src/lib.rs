@@ -96,6 +96,7 @@ pub mod format;
 pub mod geometry;
 pub mod hold;
 pub mod host;
+pub mod ident;
 pub mod json;
 pub mod layout;
 pub mod layout_tree;
@@ -109,6 +110,7 @@ pub mod qr_code;
 pub mod read_only;
 pub mod recipes;
 pub mod reducer;
+pub mod regex;
 pub mod resizable;
 pub mod segmented;
 pub mod style;
@@ -124,6 +126,7 @@ pub mod themes;
 pub mod tracks;
 pub mod tree_guides;
 pub mod types;
+pub mod upgrade09;
 pub mod validate;
 
 #[cfg(feature = "shaping")]
