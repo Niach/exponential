@@ -519,23 +519,29 @@ first; each op needs the Core capability it names:
 
 | Op | Capability |
 |---|---|
-| `list_windows`, `list_outputs`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`) | any grant |
+| `list_windows`, `list_outputs`, `pointer_position`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`) | any grant |
 | `focus_window` (a minimized window comes back first, a parked one brings its workspace along), `close_window`, `move_window`, `minimize_window`, `restore_window` (#EDE-48: into the taskbar and back; a minimized window keeps its geometry and workspace, `WindowInfo.minimized`; `exponential-ctl minimize <id>` / `restore <id>`) | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
-| `input` (key, pointer motion, button; refused on protected surfaces and the lock) | `input:person` |
+| `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 
 The compositor writes the root token (every capability) to
 `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600) for the shell; `mint_grant`
 hands narrower, expiring grants to agents (never more than the minting grant
-holds, never outliving it). Any process of the same user can read the token
+holds, never outliving it). The root token is the shell's and
+`exponential-ctl`'s; every other client (the portal, ePilot, an agent)
+connects with `Client::connect_as(session, capabilities, expires)`, which
+mints its own grant and drops the root connection (#EDE-22: grants by
+default); a process handed a grant in `EDE_TOKEN` keeps that one. Any process of the same user can read the token
 file, so the boundary is between the shell and the agents it mints for (an
 agent sandbox does not see `$XDG_RUNTIME_DIR/exponential-desktop`). Agent spaces and window
 lending come with their own issues; captures are drawn in software for now.
 
 ```rust
-let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
+let mut ede = ede_protocol::Client::connect_env()?;   // the shell: $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
 for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
+// Anyone else: a grant of its own, minted from the root token and no wider than it needs.
+let mut agent = ede_protocol::Client::connect_as(SessionId::new("my-agent")?, vec![Capability::Capture], None)?;
 ```
 
 ## Apps (#EDE-20)

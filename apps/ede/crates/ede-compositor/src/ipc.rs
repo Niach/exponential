@@ -14,7 +14,7 @@ use std::{
 
 use ede_protocol::{
     events, take_frames, write_frame, Call, Capability, CaptureInfo, CaptureTarget, Envelope, ErrorCode, Failure, Grant, Hello, InputEvent, Message,
-    OutputInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, PROTOCOL_VERSION,
+    OutputInfo, PointerInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, PROTOCOL_VERSION,
 };
 use smithay::{
     backend::input::{ButtonState, KeyState},
@@ -37,6 +37,8 @@ pub struct Ipc {
     pub paths: Vec<PathBuf>,
     /// The portal's global shortcuts (#EDE-15).
     pub shortcuts: crate::shortcuts::Shortcuts,
+    /// The modifiers held for `InputEvent::Keysym` (#EDE-22).
+    pub keysyms: crate::keysym::Keysyms,
 }
 
 #[derive(Debug)]
@@ -385,6 +387,10 @@ impl Ede {
                             self.drive_pointer_motion(pos, now as u32)
                         }
                     }
+                    (InputEvent::Keysym { keysym, pressed }, bindings) => match self.drive_keysym(keysym, pressed, bindings, now as u32) {
+                        Ok(false) => return Err(fail(ErrorCode::NotFound, &format!("no key makes keysym {keysym:#x} on this layout"))),
+                        other => other.map(|_| ()),
+                    },
                     (InputEvent::PointerAxis { dx, dy }, _) => self.drive_pointer_axis((dx, dy), None, now as u32),
                     (InputEvent::PointerAxisDiscrete { dx, dy }, _) => self.drive_pointer_axis((dx as f64 * 15.0, dy as f64 * 15.0), Some((dx * 120, dy * 120)), now as u32),
                     (InputEvent::PointerMotion { x, y }, false) => self.drive_pointer_motion((x, y).into(), now as u32),
@@ -394,6 +400,10 @@ impl Ede {
                 };
                 refused.map_err(|r| fail(ErrorCode::Forbidden, if r == crate::protected::Refused::Locked { "the session is locked" } else { "a protected surface is never driven" }))?;
                 json(serde_json::Value::Null)
+            }
+            Request::PointerPosition => {
+                let at = self.seat.get_pointer().unwrap().current_location();
+                json(serde_json::to_value(PointerInfo { x: at.x, y: at.y }).unwrap())
             }
             Request::ReloadConfig => {
                 self.reload_config().map_err(|e| fail(ErrorCode::Invalid, &e))?;
