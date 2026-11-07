@@ -45,3 +45,5 @@
 - Incidencias y chats en Spotlight; Siri y Atajos crean una incidencia o un chat
 - Las pull requests muestran su estado de fusión con Fusionar ahora y Retener
 - El Markdown de incidencias, comentarios y chats se ve igual en todas las apps
+- Tu Asistente funciona en todos tus equipos
+- Los propietarios pueden elegir un agente Coordinador

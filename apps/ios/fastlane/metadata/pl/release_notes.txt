@@ -45,3 +45,5 @@
 - Zadania i czaty w Spotlight; Siri i Skróty tworzą zadanie lub czat
 - Pull requesty pokazują stan scalania z opcjami Scal teraz i Wstrzymaj
 - Markdown w zadaniach, komentarzach i czatach wygląda tak samo we wszystkich aplikacjach
+- Twój Asystent działa we wszystkich twoich zespołach
+- Właściciele zespołu mogą wskazać agenta Koordynatora

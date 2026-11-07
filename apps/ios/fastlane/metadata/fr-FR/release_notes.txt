@@ -45,3 +45,5 @@
 - Tickets et chats dans Spotlight ; Siri et Raccourcis créent un ticket ou un chat
 - Les pull requests affichent leur état de fusion avec Fusionner maintenant et Suspendre
 - Le Markdown des tickets, commentaires et chats est identique sur toutes les apps
+- Votre Assistant fonctionne dans toutes vos équipes
+- Les propriétaires peuvent désigner un agent Coordinateur

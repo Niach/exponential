@@ -45,3 +45,5 @@
 - Issues e chats no Spotlight; Siri e Atalhos criam um issue ou um chat
 - Os pull requests mostram o estado de merge com Fazer merge agora e Reter
 - O Markdown em issues, comentários e chats tem o mesmo aspeto em todas as apps
+- O teu Assistente funciona em todas as tuas equipas
+- Os proprietários podem escolher um agente Coordenador

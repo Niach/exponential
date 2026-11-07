@@ -45,3 +45,5 @@
 - Issues und Chats in Spotlight; Siri und Kurzbefehle legen ein Issue oder einen Chat an
 - Pull Requests zeigen ihren Merge-Status mit Jetzt mergen und Halten
 - Markdown in Issues, Kommentaren und Chats sieht in allen Apps gleich aus
+- Dein Assistent arbeitet in allen deinen Teams
+- Team-Inhaber können einen Koordinator-Agenten bestimmen

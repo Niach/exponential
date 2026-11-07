@@ -45,3 +45,5 @@
 - Zadaci i chatovi u Spotlightu; Siri i Prečaci stvaraju zadatak ili chat
 - Pull requestovi prikazuju status spajanja uz Spoji sada i Zadrži
 - Markdown u zadacima, komentarima i chatovima izgleda isto u svim aplikacijama
+- Tvoj Asistent radi u svim tvojim timovima
+- Vlasnici tima mogu odrediti agenta Koordinatora
