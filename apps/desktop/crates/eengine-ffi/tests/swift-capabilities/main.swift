@@ -99,7 +99,7 @@ func run(_ capability: Capability, _ tool: String, _ args: Any) -> (structured: 
     }
     let structured = result["structuredContent"] as! [String: Any]
     check(text(json(content[0]["text"] as! String)) == text(structured), "\(tool): the text is the structuredContent")
-    let name = "\(capability.name()).\(tool)"
+    let name = "\(capability.name())_\(tool)"
     let problems = violations(structured, tools[name]!["nativeOutputSchema"] as! [String: Any])
     check(problems.isEmpty, "\(name): off nativeOutputSchema \(problems) in \(text(structured))")
     return (structured, nil)
@@ -182,11 +182,11 @@ let notifications = NotificationsCapability(scheduler: scheduler, now: { now }, 
 let all: [Capability] = [photos, files, sharing, printing, notifications]
 
 for capability in all {
-    let served = (json(capability.toolsJson()) as! [[String: Any]]).map { "\(capability.name()).\($0["name"] as! String)" }.sorted()
-    let native = tools.values.filter { ($0["name"] as! String).hasPrefix("\(capability.name()).") && $0["runs"] as? String == "native" }.map { $0["name"] as! String }.sorted()
+    let served = (json(capability.toolsJson()) as! [[String: Any]]).map { "\(capability.name())_\($0["name"] as! String)" }.sorted()
+    let native = tools.values.filter { ($0["name"] as! String).hasPrefix("\(capability.name())_") && $0["runs"] as? String == "native" }.map { $0["name"] as! String }.sorted()
     check(served == native, "\(capability.name()) serves every native tool: \(served) vs \(native)")
 }
-check(Set(all.map { $0.name() }) == Set(tools.keys.map { String($0.split(separator: ".")[0]) }), "one capability per catalog name")
+check(Set(all.map { $0.name() }) == Set(tools.keys.map { String($0.split(separator: "_", maxSplits: 1)[0]) }), "one capability per catalog name")
 
 // MARK: bridgeCases: each native call answers its nativeResult.
 
@@ -197,22 +197,22 @@ for c in fixture["bridgeCases"] as! [[String: Any]] {
     let schema = tools[toolName]!["nativeOutputSchema"] as! [String: Any]
     let wanted = expected["structuredContent"] as? [String: Any]
     if expected["isError"] == nil && (wanted == nil || !violations(wanted!, schema).isEmpty) { continue } // the bridge's own refusals
-    let parts = toolName.split(separator: ".").map(String.init)
+    let parts = toolName.split(separator: "_", maxSplits: 1).map(String.init)
     let capability = all.first { $0.name() == parts[0] }!
     switch toolName {
-    case "photos.pick":
+    case "photos_pick":
         picker.answer = (wanted!["photos"] as! [[String: Any]]).map { PhotoFile(ref: photoRef($0), data: Base64.decode($0["data"] as! String)!) }
-    case "photos.list":
+    case "photos_list":
         library.refs = (wanted!["photos"] as! [[String: Any]]).map(photoRef) + [PhotoRef(id: "more", name: "x.jpg", mimeType: "image/jpeg", takenAt: nil)]
-    case "photos.get":
+    case "photos_get":
         library.refs = []
         if let photo = wanted?["photo"] as? [String: Any] { library.refs = [photoRef(photo)]; library.files[photo["id"] as! String] = Base64.decode(photo["data"] as! String) }
-    case "files.open":
+    case "files_open":
         documents.opened = (wanted!["files"] as! [[String: Any]]).map { PickedFile(name: $0["name"] as! String, mimeType: $0["mimeType"] as? String, data: Base64.decode($0["data"] as! String)!) }
-    case "files.save": documents.saveAnswer = wanted!["saved"] as! Bool
-    case "share.send": share.answer = wanted!["shared"] as! Bool
-    case "print.print": printer.answer = wanted!["printed"] as! Bool
-    case "notifications.cancel":
+    case "files_save": documents.saveAnswer = wanted!["saved"] as! Bool
+    case "share_send": share.answer = wanted!["shared"] as! Bool
+    case "print_print": printer.answer = wanted!["printed"] as! Bool
+    case "notifications_cancel":
         if wanted!["cancelled"] as! Bool { scheduler.delivered.insert(native["id"] as! String) }
     default: break
     }
@@ -223,7 +223,7 @@ for c in fixture["bridgeCases"] as! [[String: Any]] {
         continue
     }
     guard let got else { check(false, "\(name): failed \(error ?? "")"); continue }
-    if toolName == "photos.list" {
+    if toolName == "photos_list" {
         check(text(got["photos"]!) == text(wanted!["photos"]!), "\(name): \(text(got))")
         check(got["cursor"] as? String == PhotoCursor.encode(offset: 1), "\(name): the cursor \(text(got))")
     } else {
@@ -231,18 +231,18 @@ for c in fixture["bridgeCases"] as! [[String: Any]] {
     }
     // The native side received the bridge's arguments.
     switch toolName {
-    case "photos.pick": check(picker.limits.last == native["limit"] as? Int, "\(name): the picker's limit")
-    case "files.open": check(documents.multiple == native["multiple"] as? Bool && documents.types == [.item], "\(name): open \(documents.types)")
-    case "files.save", "print.print":
-        let file = toolName == "files.save" ? documents.saved.last! : printer.files.last!
+    case "photos_pick": check(picker.limits.last == native["limit"] as? Int, "\(name): the picker's limit")
+    case "files_open": check(documents.multiple == native["multiple"] as? Bool && documents.types == [.item], "\(name): open \(documents.types)")
+    case "files_save", "print_print":
+        let file = toolName == "files_save" ? documents.saved.last! : printer.files.last!
         check(file == PickedFile(name: native["name"] as! String, mimeType: native["mimeType"] as? String, data: Base64.decode(native["data"] as! String)!), "\(name): the file \(file)")
-    case "share.send":
+    case "share_send":
         let items = share.items.last!
         let f = native["file"] as? [String: Any]
         check(items.text == native["text"] as? String && items.url?.absoluteString == native["url"] as? String && items.title == native["title"] as? String
               && items.file == f.map { PickedFile(name: $0["name"] as! String, mimeType: $0["mimeType"] as? String, data: Base64.decode($0["data"] as! String)!) },
               "\(name): the items \(items)")
-    case "notifications.post":
+    case "notifications_post":
         let id = native["id"] as! String
         let planned = scheduler.pending[id]!
         check(planned.title == native["title"] as? String && planned.body == native["body"] as? String, "\(name): the content")
@@ -255,7 +255,7 @@ for c in fixture["bridgeCases"] as! [[String: Any]] {
             check(tap.map { text(json($0)) } == text(wantedTap), "\(name): the tap round trip \(tap ?? "nil")")
         } else { check(tap == nil, "\(name): no tap") }
         check(NotificationTaps.engineId(userInfo: planned.userInfo) == id, "\(name): the id rides along")
-    case "notifications.cancel":
+    case "notifications_cancel":
         check(scheduler.log.last == "remove [\"\(native["id"] as! String)\"]", "\(name): removed pending + delivered")
     default: break
     }
