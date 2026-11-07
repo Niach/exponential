@@ -1,6 +1,6 @@
 [package]
 name = "eengine"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 description = "Engine: the runtime that runs Apps in every host (Exponential, the softcoded app, eDE, Spezl, exported apps). App instances, lifecycle, sources, dispatch, the outbox, consent and the capability broker over host-provided storage, identity, vault and windows; replays packages/eengine."
@@ -20,7 +20,7 @@ publish = false
 [dependencies]
 # genUI's host: the Apps format and its pure logic (validation, screens,
 # the records query, policy). Themes are the painter's choice.
-eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.18.0", default-features = false }
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.19.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
