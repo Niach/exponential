@@ -27,7 +27,7 @@ import { APP_CSV_IMPORT, importAuthor } from "@exp/domain-contract/app-records"
 import { VIA_APP_RECORDS_FUNCTION, type ViaAppClaim } from "@exp/domain-contract/via-app"
 import { verifiedViaApp } from "@/lib/apps/via-app-claim"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
-import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions, flatAction } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 import { readUpstreamBinding } from "@/lib/emcp/upstream-reads"
@@ -132,7 +132,7 @@ function carriedGrants(current: readonly string[] | null | undefined, pkg: unkno
   const declared = packageActions(pkg)
   // VAPP-158: a stored grant that is no longer grantable (an owner-only or
   // destructive action) is dropped on the way.
-  return byOwner ? (current ?? []).filter((name) => declared.includes(name) && actionGrantable(name)) : []
+  return byOwner ? (current ?? []).filter((name) => declared.includes(flatAction(name)) && actionGrantable(name)) : []
 }
 
 /** A new version row = the new HEAD (the editor's draft), in one

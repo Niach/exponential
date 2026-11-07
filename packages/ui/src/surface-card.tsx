@@ -140,11 +140,6 @@ export function SurfaceCard({
     const out = cardV10(surface)
     return `card` in out ? out.card : surface
   }, [surface])
-  // Round 9 §13: a stored card without a version is the 0.9 form.
-  const upgraded = useMemo(() => {
-    const out = cardV10(surface)
-    return `card` in out ? out.card : surface
-  }, [surface])
   const state = useSurface({
     surfaceId: `surface-${testKey}`,
     catalogId: CORE_CATALOG_ID,
