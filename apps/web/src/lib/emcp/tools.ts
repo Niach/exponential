@@ -100,6 +100,7 @@ import {
 import { teamColumns } from "@/lib/team-columns"
 import {
   assertTeamMember,
+  getTeamMember,
   getAttachmentTeamContext,
   getIssueTeamContext,
   getBoardTeamId,
@@ -3083,6 +3084,15 @@ export function registerExponentialTools(
     prNumber: z.number().int().positive().optional(),
   }
 
+  /** #EXP-1711: `pr merge {force}` = Merge now for a team owner, or for a
+   *  session of a team agent (its root is an agent's conversation). */
+  async function mayMergeNow(teamId: string): Promise<boolean> {
+    const own = await loadCallerSession()
+    if (own?.rootAgentId && own.teamId === teamId) return true
+    const member = await getTeamMember(user.id, teamId).catch(() => null)
+    return member?.role === `owner`
+  }
+
   /** #EXP-1711: the switch may be scoped to some repositories. */
   async function repositoryFullName(repositoryId: string): Promise<string | null> {
     const [row] = await db.select({ fullName: repositories.fullName }).from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
@@ -3183,7 +3193,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `With auto-merge on (merge train): queue an open PR now and report where it stands (mergeQueue: state, position, testingWith); it lands by itself and pr_merge wakes you, so end your turn. Otherwise squash-merge it (via the GitHub App). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging your own PR never ends your session. When the server gates on CI, a red or running check refuses it; force: true merges anyway (only when a person says so).`,
+      description: `With auto-merge on (merge train): queue an open PR now and report where it stands (mergeQueue: state, position, testingWith); it lands by itself and pr_merge wakes you, so end your turn. Otherwise squash-merge it (via the GitHub App). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging your own PR never ends your session. With auto-merge, force: true from a team owner or a team agent = Merge now: next, alone, past any session wait (only when a person says so). Otherwise, when the server gates on CI, a red or running check refuses it; force: true merges anyway.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         ...prSelector,
@@ -3199,6 +3209,13 @@ export function registerExponentialTools(
         // reports the position; nothing merges here.
         const train = await import(`@/lib/merge-train/worker`)
         if (train.mergeTrainOn(await repositoryFullName(pr.repositoryId))) {
+          // #EXP-1711 (merge-train.json `merge_now`): force from a team owner
+          // or a team agent = Merge now: next, alone, past any session wait.
+          if (force && (await mayMergeNow(pr.teamId))) {
+            await train.mergeNowPullRequest(pr.id)
+            await train.runRepository(pr.repositoryId)
+            return ok({ ...prRef(pr), merged: false, queued: true, mergeNow: true, mergeQueue: await train.queueReport(pr.id), checks })
+          }
           await train.approvePullRequest(pr.id)
           await train.runRepository(pr.repositoryId)
           return ok({ ...prRef(pr), merged: false, queued: true, mergeQueue: await train.queueReport(pr.id), checks })

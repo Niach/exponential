@@ -106,6 +106,7 @@ const h = vi.hoisted(() => {
   const membership = {
     resolveTeamAccess: vi.fn(async () => undefined),
     assertTeamMember: vi.fn(async () => undefined),
+    getTeamMember: vi.fn(async (): Promise<{ role: string } | null> => ({ role: `member` })),
     getIssueTeamContext: vi.fn(async () => ({
       teamId: `ws-1`,
       boardId: `proj-1`,
@@ -318,6 +319,7 @@ const train = vi.hoisted(() => ({
   queueReport: vi.fn(async () => ({ state: `queued`, wait: null, position: 2, testingWith: 0, holdReason: null, attempts: 0 })),
   holdPullRequest: vi.fn(async () => null),
   resumePullRequest: vi.fn(async () => null),
+  mergeNowPullRequest: vi.fn(async () => null),
 }))
 vi.mock(`@/lib/merge-train/worker`, () => ({ ...train, mergeTrainOn: () => train.on }))
 const yoloEdge = vi.hoisted(() => vi.fn())
@@ -3095,6 +3097,39 @@ describe(`pull request tools (EXP-1291)`, () => {
     const result = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({}))
     expect(result).toMatchObject({ merged: true, checks: red })
     expect(prChecks.loadPullRequestChecks).not.toHaveBeenCalled()
+  })
+
+  it(`#EXP-1711: with the train on, force from an owner is Merge now; from a plain member it only queues`, async () => {
+    train.on = true
+    try {
+      dbRows.current = [callerRow()]
+      membership.getTeamMember.mockResolvedValueOnce({ role: `owner` })
+      const owner = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
+      expect(owner).toMatchObject({ queued: true, mergeNow: true })
+      expect(train.mergeNowPullRequest).toHaveBeenCalled()
+      expect(train.approvePullRequest).not.toHaveBeenCalled()
+      train.mergeNowPullRequest.mockClear()
+      dbRows.current = [callerRow()]
+      const member = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
+      expect(member).toMatchObject({ queued: true })
+      expect((member as { mergeNow?: boolean }).mergeNow).toBeUndefined()
+      expect(train.mergeNowPullRequest).not.toHaveBeenCalled()
+      expect(train.approvePullRequest).toHaveBeenCalled()
+    } finally {
+      train.on = false
+    }
+  })
+
+  it(`#EXP-1711: force from a team agent's session is Merge now`, async () => {
+    train.on = true
+    try {
+      dbRows.current = [callerRow({ rootAgentId: `agent-1`, teamId: `ws-1` }), callerRow({ rootAgentId: `agent-1`, teamId: `ws-1` })]
+      const result = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
+      expect(result).toMatchObject({ mergeNow: true })
+      expect(train.mergeNowPullRequest).toHaveBeenCalled()
+    } finally {
+      train.on = false
+    }
   })
 
   it(`with the merge train on, pr_merge queues the PR and reports its place; nothing merges`, async () => {
