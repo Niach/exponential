@@ -63,7 +63,7 @@ class ListBenchTest {
             m.scrollToIndex("root", 50000, "start")
             val jump = (System.nanoTime() - t2) / 1e6
             val list = m.indexOf("root")
-            val items = m.nodes.count { !it.hidden && it.parent == list && it.id.startsWith("bench-row") }
+            val items = m.nodes.count { !it.hidden && it.parent == list && it.id.startsWith("bench_row") }
             check(m.nodes.any { !it.hidden && it.props["title"]?.string == "Row 50000" || it.props["text"]?.string == "Row 50000" }) { "row 50000 rendered after the jump" }
             return mapOf("firstPaintMs" to first, "scrollStepMs" to step, "scrollToIndexMs" to jump, "renderedItems" to items.toDouble())
         }
