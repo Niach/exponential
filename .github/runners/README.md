@@ -35,9 +35,9 @@ docker compose up -d --build                        # later: rebuild/upgrade
 `<token>` = `gh api -X POST repos/Niach/exponential/actions/runners/registration-token -q .token`
 (valid one hour). Two runners: the Mint is Danny's desktop, and four at 16
 CPUs each made it lag (2026-11-03). Since 2026-11-07 the desktop wins by
-priority: the runners run in `exp-ci.slice` (`CPUWeight=idle`, a sibling of
+priority: the runners run in `expci.slice` (`CPUWeight=idle`, a sibling of
 user.slice), so CI only gets the cores nobody else wants. Install the slice
-before the first `up` (`sudo cp exp-ci.slice /etc/systemd/system/ && sudo
+before the first `up` (`sudo cp expci.slice /etc/systemd/system/ && sudo
 systemctl daemon-reload`). `RUNNER_CPUS` in a `.env` next to `compose.yaml`
 caps EACH runner (default 6; the Mint: 12).
 

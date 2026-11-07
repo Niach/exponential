@@ -6,10 +6,10 @@ x-runner: &runner
   build: .
   restart: unless-stopped
   # Leaves the desktop responsive by PRIORITY, not by a small cap: the
-  # runners live in exp-ci.slice (CPUWeight=idle, install it first), so the
+  # runners live in expci.slice (CPUWeight=idle, install it first), so the
   # desktop session always wins a core and CI takes the idle ones. The cap only
   # keeps two jobs from starving each other (the Mint: 12 + 12 of its 32).
-  cgroup_parent: exp-ci.slice
+  cgroup_parent: expci.slice
   cpus: ${RUNNER_CPUS:-6}
   environment: &env
     REPO_URL: https://github.com/Niach/exponential
