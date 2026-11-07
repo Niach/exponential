@@ -145,7 +145,6 @@ final class AppEditorModel {
     /// and sends on, its rows, and where the next send goes.
     private(set) var deviceId: String?
     private(set) var deviceRows: [DevicePickerDevice] = []
-    private(set) var deviceLocked = false
     private(set) var deviceMove = false
     private(set) var missing = false
     /// VAPP-177: I own the app's team (grants; delete and edit any app).
@@ -272,7 +271,6 @@ final class AppEditorModel {
         SessionComposerFooter.DeviceMenu(
             devices: deviceRows,
             current: deviceId,
-            locked: deviceLocked,
             onPick: { [weak self] picked in self?.pickDevice(picked) }
         )
     }
@@ -295,7 +293,7 @@ final class AppEditorModel {
 
     /// #FEED-204 (apps.json EDITOR DEVICE, `Apps.editorDevice`): the online
     /// devices of the app's team (with a root: the ones it may move to), the
-    /// remembered pick, a live root's own device locked.
+    /// remembered pick, a live root on its own device until a pick moves it.
     private func settleDevice() {
         guard let snapshot = lastSnapshot else { return }
         let root = snapshot.root
@@ -337,7 +335,6 @@ final class AppEditorModel {
         }
         deviceId = choice.deviceId
         deviceRows = rows
-        deviceLocked = choice.locked
         deviceMove = choice.move
     }
 }
