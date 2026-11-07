@@ -9,10 +9,10 @@ use serde_json::{json, Value};
 
 fn carousel(extra: Value) -> Surface {
     let mut s = Surface::new("s", SurfaceOptions::default());
-    s.apply(&json!({"version": "v0.9", "createSurface": {"surfaceId": "s", "catalogId": "https://ui.exponential.at/catalogs/core/v1"}})).unwrap();
+    s.apply(&json!({"version": "1.0", "createSurface": {"surfaceId": "s", "catalogId": "https://ui.exponential.at/catalogs/core/v1"}})).unwrap();
     let mut root = json!({"id": "root", "component": "Carousel", "children": ["a", "b", "c"]});
     root.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-    s.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s", "components": [
         root,
         {"id": "a", "component": "Text", "text": "1"},
         {"id": "b", "component": "Text", "text": "2"},
@@ -60,8 +60,8 @@ fn next_and_previous_page_and_loop_wraps() {
 #[test]
 fn one_page_has_no_controls() {
     let mut s = Surface::new("s", SurfaceOptions::default());
-    s.apply(&json!({"version": "v0.9", "createSurface": {"surfaceId": "s", "catalogId": "https://ui.exponential.at/catalogs/core/v1"}})).unwrap();
-    s.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [
+    s.apply(&json!({"version": "1.0", "createSurface": {"surfaceId": "s", "catalogId": "https://ui.exponential.at/catalogs/core/v1"}})).unwrap();
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s", "components": [
         {"id": "root", "component": "Carousel", "children": ["a"]},
         {"id": "a", "component": "Text", "text": "1"}
     ]}})).unwrap();

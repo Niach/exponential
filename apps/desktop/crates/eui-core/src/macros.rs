@@ -260,7 +260,7 @@ fn expand_template(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, 
                 let mut vars = ctx.vars.clone();
                 vars.insert(as_.to_string(), item);
                 vars.insert("index".to_string(), json::number(index as f64));
-                let item_ctx = ExprContext { id: ctx.id, props: ctx.props, vars };
+                let item_ctx = ExprContext { id: ctx.id, props: ctx.props, vars, types: ctx.types };
                 let visible = match decide_conditions(tpl, &item_ctx) {
                     Decided::Bool(false) => return None,
                     Decided::Bool(true) => None,
@@ -286,7 +286,7 @@ fn part_style(tpl: &MacroTemplate, exp: &Expansion, ctx: &ExprContext) -> Option
     let Some(Value::Object(mut style)) = eval_value(&Value::Object(template.clone()), ctx) else { return None };
     let mut previous = style.clone();
     for variant in &exp.variants {
-        let variant_ctx = ExprContext { id: ctx.id, props: &variant.props, vars: ctx.vars.clone() };
+        let variant_ctx = ExprContext { id: ctx.id, props: &variant.props, vars: ctx.vars.clone(), types: ctx.types };
         let Some(Value::Object(at)) = eval_value(&Value::Object(template.clone()), &variant_ctx) else { continue };
         let mut diff = Map::new();
         for (k, v) in &at {
@@ -494,7 +494,7 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
     // #VAPP-284: `{childCount}` = the author's children (an alternative root's test).
     let mut vars = IndexMap::new();
     vars.insert("childCount".to_string(), crate::json::number(node.children.len() as f64));
-    let ctx = ExprContext { id: &node.id, props: &base_props, vars };
+    let ctx = ExprContext { id: &node.id, props: &base_props, vars, types: view.components.get(&node.component).map(|d| &d.props) };
     let alternative = def.alternatives.iter().find(|a| matches!(eval_condition_value(Some(&a.if_), &ctx), Decided::Bool(true)));
     let mut root = match alternative {
         Some(a) => build_node(&a.root, &mut exp, &ctx, node.id.clone(), None),
@@ -599,7 +599,7 @@ fn apply_passes(node: &mut UiNode, def: &MacroDef) {
         return;
     }
     let base = props_at(&node.props, None);
-    let ctx = ExprContext { id: &node.id, props: &base, vars: IndexMap::new() };
+    let ctx = ExprContext { id: &node.id, props: &base, vars: IndexMap::new(), types: None };
     let mut handed = Vec::new();
     for pass in &def.pass {
         if pass.if_.is_some() && !matches!(eval_condition_value(pass.if_.as_ref(), &ctx), Decided::Bool(true)) {

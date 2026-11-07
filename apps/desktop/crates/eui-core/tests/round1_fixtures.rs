@@ -133,12 +133,12 @@ fn bind_time_the_audit_bugs_progress_pagination_collapsible() {
     let reduce = |n: Value| reduce_nested(&serde_json::from_value(n).unwrap(), &ReduceOptions::new(CORE_CATALOG_ID)).root;
     let data = json!({"v": 30, "page": 2, "open": false});
     let ctx = ResolveContext::new(&data, "");
-    let progress = bind_tree(&reduce(json!({"id": "p", "component": "Progress", "props": {"value": {"path": "/v"}, "max": 60}})), &ctx).unwrap();
+    let progress = bind_tree(&reduce(json!({"id": "p", "component": "Progress", "props": {"value": {"@path": "/v"}, "max": 60}})), &ctx).unwrap();
     let text = serde_json::to_string(&progress).unwrap();
     assert!(text.contains("\"50%\""), "{text}");
-    let pagination = bind_tree(&reduce(json!({"id": "pg", "component": "Pagination", "props": {"page": {"path": "/page"}, "totalPages": 5}})), &ctx).unwrap();
+    let pagination = bind_tree(&reduce(json!({"id": "pg", "component": "Pagination", "props": {"page": {"@path": "/page"}, "totalPages": 5}})), &ctx).unwrap();
     assert_eq!(find(&pagination, "pg.label").unwrap().props["text"], json!("2 / 5"));
-    let collapsible = reduce(json!({"id": "c", "component": "Collapsible", "props": {"title": "More", "open": {"path": "/open"}}, "children": [{"id": "x", "component": "Text", "props": {"text": "body"}}]}));
+    let collapsible = reduce(json!({"id": "c", "component": "Collapsible", "props": {"title": "More", "open": {"@path": "/open"}}, "children": [{"id": "x", "component": "Text", "props": {"text": "body"}}]}));
     assert!(find(&bind_tree(&collapsible, &ctx).unwrap(), "c.body").is_none(), "closed");
     let trigger = find(&collapsible, "c.trigger").unwrap();
     let outcome = run_action(&trigger.on.as_ref().unwrap()["press"], &ctx);

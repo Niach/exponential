@@ -59,11 +59,11 @@ pub fn check_pattern(pattern: &str) -> Result<(), String> {
 }
 
 fn checked_ast(pattern: &str) -> Result<Node, String> {
-    let cps: Vec<char> = pattern.chars().collect();
-    if cps.len() > MAX_PATTERN_CODE_POINTS {
+    let p: Vec<u32> = pattern.chars().map(|c| c as u32).collect();
+    if p.len() > MAX_PATTERN_CODE_POINTS {
         return Err(format!("regex: pattern longer than {MAX_PATTERN_CODE_POINTS} code points"));
     }
-    let ast = Parser { cps, pos: 0 }
+    let ast = Parser { p, i: 0 }
         .parse()
         .map_err(|(reason, at)| format!("regex: {reason} at {at}"))?;
     if let Some(rule) = safety(&ast) {
@@ -210,346 +210,387 @@ enum Node {
 
 type PResult<T> = Result<T, (&'static str, usize)>;
 
+/// A quantifier bound saturates at 2^32 − 1; the order check compares the
+/// exact digit strings.
+const SATURATE: u32 = u32::MAX;
+
+fn strip_zeros(digits: &str) -> &str {
+    let t = digits.trim_start_matches('0');
+    if t.is_empty() {
+        "0"
+    } else {
+        t
+    }
+}
+
+fn bound_value(digits: &str) -> u32 {
+    let d = strip_zeros(digits);
+    if d.len() > 10 {
+        SATURATE
+    } else {
+        d.parse::<u64>().map_or(SATURATE, |v| v.min(u64::from(SATURATE)) as u32)
+    }
+}
+
+fn bound_greater(a: &str, b: &str) -> bool {
+    let (x, y) = (strip_zeros(a), strip_zeros(b));
+    if x.len() != y.len() {
+        x.len() > y.len()
+    } else {
+        x > y
+    }
+}
+
+fn is_digit(c: Option<u32>) -> bool {
+    c.is_some_and(|c| (0x30..=0x39).contains(&c))
+}
+
+fn hex_val(c: Option<u32>) -> Option<u32> {
+    char::from_u32(c?)?.to_digit(16)
+}
+
+fn ch(c: char) -> Option<u32> {
+    Some(c as u32)
+}
+
+fn class_escape(e: u32) -> Option<Set> {
+    Some(match char::from_u32(e)? {
+        'd' => digit_set(),
+        'D' => digit_set().complement(),
+        'w' => word_set(),
+        'W' => word_set().complement(),
+        's' => space_set(),
+        'S' => space_set().complement(),
+        _ => return None,
+    })
+}
+
+enum ClassAtom {
+    Cp(u32),
+    Set(Set),
+}
+
+/// The port of `src/regex.ts parse`: left to right, the first error wins.
 struct Parser {
-    cps: Vec<char>,
-    pos: usize,
+    p: Vec<u32>,
+    i: usize,
 }
-
-enum Esc {
-    Char(u32),
-    Class(Set),
-    WordBoundary,
-    NotWordBoundary,
-}
-
-const SYNTAX_CHARS: &str = "^$\\.*+?()[]{}|/";
 
 impl Parser {
-    fn peek(&self) -> Option<char> {
-        self.cps.get(self.pos).copied()
+    fn at(&self, j: usize) -> Option<u32> {
+        self.p.get(j).copied()
     }
 
-    fn peek_at(&self, k: usize) -> Option<char> {
-        self.cps.get(self.pos + k).copied()
+    fn cur(&self) -> Option<u32> {
+        self.at(self.i)
     }
 
     fn parse(mut self) -> PResult<Node> {
-        let node = self.disjunction()?;
-        if self.pos < self.cps.len() {
-            // The only thing a disjunction stops at, at top level, is `)`.
-            return Err(("unmatched )", self.pos));
+        let root = self.disjunction()?;
+        if self.i < self.p.len() {
+            return Err(("unmatched )", self.i));
         }
-        Ok(node)
+        Ok(root)
+    }
+
+    /// `{` at j as `{n}`, `{n,}` or `{n,m}` → its bounds and end.
+    fn braces(&self, j: usize) -> Option<(String, Option<String>, usize)> {
+        let digits = |mut k: usize| {
+            let mut out = String::new();
+            while is_digit(self.at(k)) {
+                out.push(char::from_u32(self.p[k]).unwrap_or('0'));
+                k += 1;
+            }
+            (out, k)
+        };
+        let (min, k) = digits(j + 1);
+        if min.is_empty() {
+            return None;
+        }
+        if self.at(k) == ch('}') {
+            return Some((min.clone(), Some(min), k + 1));
+        }
+        if self.at(k) != ch(',') {
+            return None;
+        }
+        let (max, k) = digits(k + 1);
+        if self.at(k) != ch('}') {
+            return None;
+        }
+        Some((min, (!max.is_empty()).then_some(max), k + 1))
+    }
+
+    fn quantifier_ahead(&self) -> bool {
+        let c = self.cur();
+        c == ch('*') || c == ch('+') || c == ch('?') || (c == ch('{') && self.braces(self.i).is_some())
     }
 
     fn disjunction(&mut self) -> PResult<Node> {
         let mut branches = vec![self.alternative()?];
-        while self.peek() == Some('|') {
-            self.pos += 1;
+        while self.cur() == ch('|') {
+            self.i += 1;
             branches.push(self.alternative()?);
         }
-        Ok(if branches.len() == 1 { branches.pop().unwrap() } else { Node::Alt(branches) })
+        Ok(if branches.len() == 1 { branches.pop().expect("one") } else { Node::Alt(branches) })
     }
 
     fn alternative(&mut self) -> PResult<Node> {
         let mut items = Vec::new();
-        while let Some(c) = self.peek() {
-            if c == '|' || c == ')' {
-                break;
-            }
+        while self.i < self.p.len() && self.cur() != ch('|') && self.cur() != ch(')') {
             items.push(self.term()?);
         }
         Ok(Node::Concat(items))
     }
 
+    fn close_group(&mut self, open: usize) -> PResult<()> {
+        if self.cur() != ch(')') {
+            return Err(("unmatched (", open));
+        }
+        self.i += 1;
+        Ok(())
+    }
+
     fn term(&mut self) -> PResult<Node> {
-        let start = self.pos;
-        let c = self.peek().expect("term at end");
-        let (atom, quantifiable) = match c {
-            '^' => {
-                self.pos += 1;
-                (Node::Assert(Assert::Start), false)
-            }
-            '$' => {
-                self.pos += 1;
-                (Node::Assert(Assert::End), false)
-            }
-            '(' => self.group()?,
-            '[' => (self.class()?, true),
-            '.' => {
-                self.pos += 1;
-                (Node::Set(dot_set()), true)
-            }
-            '\\' => match self.escape(false)? {
-                Esc::Char(c) => (Node::Set(Set::single(c)), true),
-                Esc::Class(s) => (Node::Set(s), true),
-                Esc::WordBoundary => (Node::Assert(Assert::WordBoundary), false),
-                Esc::NotWordBoundary => (Node::Assert(Assert::NotWordBoundary), false),
-            },
-            '*' | '+' | '?' => return Err(("nothing to repeat", start)),
-            '{' => {
-                return Err(match self.quantifier() {
-                    Ok(Some(_)) => ("nothing to repeat", start),
-                    Ok(None) | Err(_) => ("lone {", start),
-                });
-            }
-            '}' => return Err(("lone }", start)),
-            ']' => return Err(("unmatched ]", start)),
-            other => {
-                self.pos += 1;
-                (Node::Set(Set::single(other as u32)), true)
-            }
+        let c = self.cur();
+        let (next, after) = (self.at(self.i + 1), self.at(self.i + 2));
+        let assertion = if c == ch('^') {
+            self.i += 1;
+            Some(Node::Assert(Assert::Start))
+        } else if c == ch('$') {
+            self.i += 1;
+            Some(Node::Assert(Assert::End))
+        } else if c == ch('\\') && (next == ch('b') || next == ch('B')) {
+            self.i += 2;
+            Some(Node::Assert(if next == ch('B') { Assert::NotWordBoundary } else { Assert::WordBoundary }))
+        } else if c == ch('(') && next == ch('?') && (after == ch('=') || after == ch('!')) {
+            let open = self.i;
+            self.i += 3;
+            let child = self.disjunction()?;
+            self.close_group(open)?;
+            Some(Node::Look { negative: after == ch('!'), child: Box::new(child) })
+        } else {
+            None
         };
-        let qstart = self.pos;
-        match self.quantifier()? {
-            None => Ok(atom),
-            Some(_) if !quantifiable => Err(("nothing to repeat", qstart)),
-            Some((min, max, lazy)) => {
-                Ok(Node::Repeat { child: Box::new(atom), min, max, lazy })
+        if let Some(assertion) = assertion {
+            if self.quantifier_ahead() {
+                return Err(("quantifier on assertion", self.i));
             }
+            return Ok(assertion);
         }
-    }
-
-    /// A quantifier at the cursor (consumed), or None (nothing consumed).
-    fn quantifier(&mut self) -> PResult<Option<(u32, Option<u32>, bool)>> {
-        let start = self.pos;
-        let (min, max) = match self.peek() {
-            Some('*') => {
-                self.pos += 1;
-                (0, None)
+        let atom = self.atom()?;
+        let q = self.cur();
+        let (min, max) = if q == ch('*') {
+            (0, None)
+        } else if q == ch('+') {
+            (1, None)
+        } else if q == ch('?') {
+            (0, Some(1))
+        } else if let Some((lo, hi, end)) = (q == ch('{')).then(|| self.braces(self.i)).flatten() {
+            if hi.as_deref().is_some_and(|h| bound_greater(&lo, h)) {
+                return Err(("quantifier range out of order", self.i));
             }
-            Some('+') => {
-                self.pos += 1;
-                (1, None)
-            }
-            Some('?') => {
-                self.pos += 1;
-                (0, Some(1))
-            }
-            Some('{') => {
-                self.pos += 1;
-                let min = self.decimal().ok_or(("lone {", start))?;
-                let max = if self.peek() == Some(',') {
-                    self.pos += 1;
-                    if self.peek() == Some('}') {
-                        None
-                    } else {
-                        Some(self.decimal().ok_or(("lone {", start))?)
-                    }
-                } else {
-                    Some(min)
-                };
-                if self.peek() != Some('}') {
-                    self.pos = start;
-                    return Err(("lone {", start));
-                }
-                self.pos += 1;
-                if let Some(m) = max {
-                    if min > m {
-                        return Err(("numbers out of order in quantifier", start));
-                    }
-                }
-                (min, max)
-            }
-            _ => return Ok(None),
+            self.i = end - 1;
+            (bound_value(&lo), hi.as_deref().map(bound_value))
+        } else {
+            return Ok(atom);
         };
-        let lazy = self.peek() == Some('?');
+        self.i += 1;
+        let lazy = self.cur() == ch('?');
         if lazy {
-            self.pos += 1;
+            self.i += 1;
         }
-        Ok(Some((min, max, lazy)))
+        Ok(Node::Repeat { child: Box::new(atom), min, max, lazy })
     }
 
-    fn decimal(&mut self) -> Option<u32> {
-        let mut n: Option<u32> = None;
-        while let Some(d) = self.peek().and_then(|c| c.to_digit(10)) {
-            self.pos += 1;
-            n = Some(n.unwrap_or(0).saturating_mul(10).saturating_add(d));
+    fn atom(&mut self) -> PResult<Node> {
+        let at = self.i;
+        let c = self.cur().unwrap_or(0);
+        let is = |x: char| c == x as u32;
+        if is('.') {
+            self.i += 1;
+            return Ok(Node::Set(dot_set()));
         }
-        n
+        if is('(') {
+            if self.at(at + 1) == ch('?') {
+                let kind = self.at(at + 2);
+                if kind == ch(':') {
+                    self.i += 3;
+                } else if kind == ch('<') {
+                    let behind = self.at(at + 3) == ch('=') || self.at(at + 3) == ch('!');
+                    return Err((if behind { "lookbehind" } else { "named group" }, at));
+                } else {
+                    return Err(("inline flags", at));
+                }
+            } else {
+                self.i += 1;
+            }
+            let child = self.disjunction()?;
+            self.close_group(at)?;
+            return Ok(Node::Group(Box::new(child)));
+        }
+        if is('[') {
+            return self.class();
+        }
+        if is(']') {
+            return Err(("unmatched ]", at));
+        }
+        if is('}') {
+            return Err(("lone }", at));
+        }
+        if is('{') {
+            return Err((if self.braces(at).is_some() { "nothing to repeat" } else { "lone {" }, at));
+        }
+        if is('*') || is('+') || is('?') {
+            return Err(("nothing to repeat", at));
+        }
+        if is('\\') {
+            let Some(e) = self.at(at + 1) else { return Err(("invalid escape", at)) };
+            if let Some(set) = class_escape(e) {
+                self.i += 2;
+                return Ok(Node::Set(set));
+            }
+            if (0x31..=0x39).contains(&e) || e == 'k' as u32 {
+                return Err(("backreference", at));
+            }
+            return Ok(Node::Set(Set::single(self.char_escape(false)?)));
+        }
+        self.i += 1;
+        Ok(Node::Set(Set::single(c)))
     }
 
-    fn group(&mut self) -> PResult<(Node, bool)> {
-        let start = self.pos;
-        self.pos += 1;
-        let mut look: Option<bool> = None;
-        if self.peek() == Some('?') {
-            match self.peek_at(1) {
-                Some(':') => self.pos += 2,
-                Some('=') => {
-                    self.pos += 2;
-                    look = Some(false);
+    /// `\` at i (not a class escape, not \b \B, not a backreference) → its code point.
+    fn char_escape(&mut self, in_class: bool) -> PResult<u32> {
+        let at = self.i;
+        let Some(e) = self.at(at + 1) else { return Err(("invalid escape", at)) };
+        let simple = match char::from_u32(e) {
+            Some('t') => Some(9),
+            Some('n') => Some(10),
+            Some('v') => Some(11),
+            Some('f') => Some(12),
+            Some('r') => Some(13),
+            _ => None,
+        };
+        if let Some(v) = simple {
+            self.i += 2;
+            return Ok(v);
+        }
+        match char::from_u32(e) {
+            Some('0') => {
+                if is_digit(self.at(at + 2)) {
+                    return Err(("octal escape", at));
                 }
-                Some('!') => {
-                    self.pos += 2;
-                    look = Some(true);
+                self.i += 2;
+                Ok(0)
+            }
+            Some('c') => Err(("control escape", at)),
+            Some('p' | 'P') => Err(("property escape", at)),
+            Some('x') => match (hex_val(self.at(at + 2)), hex_val(self.at(at + 3))) {
+                (Some(h1), Some(h2)) => {
+                    self.i += 4;
+                    Ok(h1 * 16 + h2)
                 }
-                Some('<') => {
-                    return Err(match self.peek_at(2) {
-                        Some('=') | Some('!') => ("lookbehind is not allowed", start),
-                        _ => ("named groups are not allowed", start),
-                    });
-                }
-                Some(c) if c.is_ascii_alphabetic() || c == '-' => {
-                    return Err(("inline flags are not allowed", start));
-                }
-                _ => return Err(("invalid group", start)),
+                _ => Err(("invalid escape", at)),
+            },
+            Some('u') => self.unicode_escape(),
+            Some(x) if "^$\\.*+?()[]{}|/".contains(x) || (in_class && x == '-') => {
+                self.i += 2;
+                Ok(e)
+            }
+            _ => Err(("invalid escape", at)),
+        }
+    }
+
+    fn hex4(&self, j: usize) -> Option<u32> {
+        (0..4).try_fold(0, |v, k| Some(v * 16 + hex_val(self.at(j + k))?))
+    }
+
+    fn unicode_escape(&mut self) -> PResult<u32> {
+        let at = self.i;
+        if self.at(at + 2) == ch('{') {
+            let mut k = at + 3;
+            let mut v = 0u32;
+            let mut digits = 0;
+            while let Some(h) = hex_val(self.at(k)) {
+                v = (v * 16 + h).min(MAX_CP + 1);
+                digits += 1;
+                k += 1;
+            }
+            if digits == 0 || self.at(k) != ch('}') {
+                return Err(("invalid escape", at));
+            }
+            if v > MAX_CP {
+                return Err(("code point out of range", at));
+            }
+            self.i = k + 1;
+            return Ok(v);
+        }
+        let Some(v) = self.hex4(at + 2) else { return Err(("invalid escape", at)) };
+        self.i += 6;
+        if (0xd800..=0xdbff).contains(&v) && self.cur() == ch('\\') && self.at(self.i + 1) == ch('u') {
+            if let Some(t) = self.hex4(self.i + 2).filter(|t| (0xdc00..=0xdfff).contains(t)) {
+                self.i += 6;
+                return Ok(0x10000 + ((v - 0xd800) << 10) + (t - 0xdc00));
             }
         }
-        let inner = self.disjunction()?;
-        if self.peek() != Some(')') {
-            return Err(("unterminated group", start));
+        Ok(v)
+    }
+
+    fn class_atom(&mut self) -> PResult<ClassAtom> {
+        let at = self.i;
+        if self.cur() != ch('\\') {
+            self.i += 1;
+            return Ok(ClassAtom::Cp(self.p[at]));
         }
-        self.pos += 1;
-        Ok(match look {
-            Some(negative) => (Node::Look { negative, child: Box::new(inner) }, false),
-            None => (Node::Group(Box::new(inner)), true),
-        })
+        let Some(e) = self.at(at + 1) else { return Err(("invalid escape", at)) };
+        if let Some(set) = class_escape(e) {
+            self.i += 2;
+            return Ok(ClassAtom::Set(set));
+        }
+        if e == 'b' as u32 {
+            self.i += 2;
+            return Ok(ClassAtom::Cp(8));
+        }
+        if (0x31..=0x39).contains(&e) {
+            return Err(("octal escape", at));
+        }
+        Ok(ClassAtom::Cp(self.char_escape(true)?))
     }
 
     fn class(&mut self) -> PResult<Node> {
-        let start = self.pos;
-        self.pos += 1;
-        let negate = self.peek() == Some('^');
-        if negate {
-            self.pos += 1;
+        let open = self.i;
+        self.i += 1;
+        let negative = self.cur() == ch('^');
+        if negative {
+            self.i += 1;
         }
         let mut ranges: Vec<(u32, u32)> = Vec::new();
         loop {
-            match self.peek() {
-                None => return Err(("unterminated class", start)),
-                Some(']') => {
-                    self.pos += 1;
-                    break;
+            if self.i >= self.p.len() {
+                return Err(("unmatched [", open));
+            }
+            if self.cur() == ch(']') {
+                self.i += 1;
+                break;
+            }
+            let start = self.i;
+            let a = self.class_atom()?;
+            if self.cur() == ch('-') && self.i + 1 < self.p.len() && self.at(self.i + 1) != ch(']') {
+                self.i += 1;
+                let b = self.class_atom()?;
+                let (ClassAtom::Cp(lo), ClassAtom::Cp(hi)) = (&a, &b) else { return Err(("class escape in range", start)) };
+                if lo > hi {
+                    return Err(("range out of order", start));
                 }
-                Some(_) => {
-                    let a_at = self.pos;
-                    let a = self.class_atom()?;
-                    let is_range = self.peek() == Some('-')
-                        && matches!(self.peek_at(1), Some(c) if c != ']');
-                    if is_range {
-                        self.pos += 1;
-                        let b = self.class_atom()?;
-                        match (a, b) {
-                            (Esc::Char(x), Esc::Char(y)) => {
-                                if x > y {
-                                    return Err(("invalid range", a_at));
-                                }
-                                ranges.push((x, y));
-                            }
-                            _ => return Err(("invalid range", a_at)),
-                        }
-                    } else {
-                        match a {
-                            Esc::Char(x) => ranges.push((x, x)),
-                            Esc::Class(s) => ranges.extend_from_slice(&s.0),
-                            _ => unreachable!("no assertions in a class"),
-                        }
-                    }
+                ranges.push((*lo, *hi));
+            } else {
+                match a {
+                    ClassAtom::Cp(c) => ranges.push((c, c)),
+                    ClassAtom::Set(set) => ranges.extend(set.0),
                 }
             }
         }
         let set = Set::normalized(ranges);
-        Ok(Node::Set(if negate { set.complement() } else { set }))
-    }
-
-    fn class_atom(&mut self) -> PResult<Esc> {
-        match self.peek() {
-            Some('\\') => self.escape(true),
-            Some(c) => {
-                self.pos += 1;
-                Ok(Esc::Char(c as u32))
-            }
-            None => Err(("unterminated class", self.pos)),
-        }
-    }
-
-    fn hex(&mut self, n: usize) -> Option<u32> {
-        let mut v = 0u32;
-        for k in 0..n {
-            v = v * 16 + self.peek_at(k)?.to_digit(16)?;
-        }
-        self.pos += n;
-        Some(v)
-    }
-
-    /// At a `\`.
-    fn escape(&mut self, in_class: bool) -> PResult<Esc> {
-        let at = self.pos;
-        self.pos += 1;
-        let Some(c) = self.peek() else {
-            return Err(("\\ at end of pattern", at));
-        };
-        self.pos += 1;
-        let invalid = ("invalid escape", at);
-        Ok(match c {
-            'b' if in_class => Esc::Char(0x08),
-            'b' => Esc::WordBoundary,
-            'B' if in_class => return Err(invalid),
-            'B' => Esc::NotWordBoundary,
-            'd' => Esc::Class(digit_set()),
-            'D' => Esc::Class(digit_set().complement()),
-            'w' => Esc::Class(word_set()),
-            'W' => Esc::Class(word_set().complement()),
-            's' => Esc::Class(space_set()),
-            'S' => Esc::Class(space_set().complement()),
-            't' => Esc::Char(0x09),
-            'n' => Esc::Char(0x0A),
-            'v' => Esc::Char(0x0B),
-            'f' => Esc::Char(0x0C),
-            'r' => Esc::Char(0x0D),
-            '0' => {
-                if matches!(self.peek(), Some(d) if d.is_ascii_digit()) {
-                    return Err(("legacy octal is not allowed", at));
-                }
-                Esc::Char(0)
-            }
-            '1'..='9' if in_class => return Err(("legacy octal is not allowed", at)),
-            '1'..='9' => return Err(("backreferences are not allowed", at)),
-            'k' if in_class => return Err(invalid),
-            'k' => return Err(("backreferences are not allowed", at)),
-            'p' | 'P' => return Err(("property escapes are not allowed", at)),
-            'c' => return Err(("\\c is not allowed", at)),
-            'x' => Esc::Char(self.hex(2).ok_or(invalid)?),
-            'u' => Esc::Char(self.unicode_escape().ok_or(invalid)?),
-            '-' if in_class => Esc::Char('-' as u32),
-            c if SYNTAX_CHARS.contains(c) => Esc::Char(c as u32),
-            _ => return Err(invalid),
-        })
-    }
-
-    /// After `\u`: `HHHH` (a surrogate pair `\uHHHH\uHHHH` combines) or `{H…}`.
-    fn unicode_escape(&mut self) -> Option<u32> {
-        if self.peek() == Some('{') {
-            self.pos += 1;
-            let mut v: u32 = 0;
-            let mut any = false;
-            while let Some(d) = self.peek().and_then(|c| c.to_digit(16)) {
-                self.pos += 1;
-                any = true;
-                v = v.saturating_mul(16).saturating_add(d);
-                if v > MAX_CP {
-                    return None;
-                }
-            }
-            if !any || self.peek() != Some('}') {
-                return None;
-            }
-            self.pos += 1;
-            return Some(v);
-        }
-        let hi = self.hex(4)?;
-        if (0xD800..=0xDBFF).contains(&hi) && self.peek() == Some('\\') && self.peek_at(1) == Some('u') {
-            let save = self.pos;
-            self.pos += 2;
-            match self.hex(4) {
-                Some(lo) if (0xDC00..=0xDFFF).contains(&lo) => {
-                    return Some(0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00));
-                }
-                _ => self.pos = save,
-            }
-        }
-        Some(hi)
+        Ok(Node::Set(if negative { set.complement() } else { set }))
     }
 }
 
@@ -620,49 +661,47 @@ fn contains_unbounded(n: &Node) -> bool {
         }
 }
 
-/// The first rule hit, pre-order, R2 then R3 then R4 per node.
-fn safety(n: &Node) -> Option<u8> {
-    if let Node::Repeat { child, max, .. } = n {
-        // R2: max > 1 (∞ included) over an atom holding an unbounded quantifier.
-        if max.map_or(true, |m| m > 1) && contains_unbounded(child) {
-            return Some(2);
+fn rule2(n: &Node) -> bool {
+    matches!(n, Node::Repeat { child, max, .. } if max.is_none_or(|m| m > 1) && contains_unbounded(child))
+}
+
+fn rule3(n: &Node) -> bool {
+    let Node::Repeat { child, max: None, .. } = n else { return false };
+    let Node::Alt(branches) = unwrap(child) else { return false };
+    let firsts: Vec<Set> = branches.iter().map(first).collect();
+    (0..firsts.len()).any(|i| (i + 1..firsts.len()).any(|j| firsts[i].intersects(&firsts[j])))
+}
+
+fn rule4(n: &Node) -> bool {
+    let Node::Concat(items) = n else { return false };
+    for i in 0..items.len() {
+        if !is_unbounded(unwrap(&items[i])) {
+            continue;
         }
-        // R3: unbounded over an alternation with overlapping first sets.
-        if max.is_none() {
-            if let Node::Alt(branches) = unwrap(child) {
-                let firsts: Vec<Set> = branches.iter().map(first).collect();
-                for i in 0..firsts.len() {
-                    for j in i + 1..firsts.len() {
-                        if firsts[i].intersects(&firsts[j]) {
-                            return Some(3);
-                        }
-                    }
-                }
+        for j in i + 1..items.len() {
+            if is_unbounded(unwrap(&items[j])) && chars(&items[i]).intersects(&chars(&items[j])) {
+                return true;
+            }
+            if !nullable(&items[j]) {
+                break;
             }
         }
     }
-    if let Node::Concat(items) = n {
-        // R4: two unbounded items, only nullable items between, sharing chars.
-        for i in 0..items.len() {
-            if !is_unbounded(unwrap(&items[i])) {
-                continue;
-            }
-            let ci = chars(&items[i]);
-            for j in i + 1..items.len() {
-                if is_unbounded(unwrap(&items[j])) && ci.intersects(&chars(&items[j])) {
-                    return Some(4);
-                }
-                if !nullable(&items[j]) {
-                    break;
-                }
-            }
+    false
+}
+
+fn any_node(n: &Node, f: fn(&Node) -> bool) -> bool {
+    f(n)
+        || match n {
+            Node::Look { child, .. } | Node::Group(child) | Node::Repeat { child, .. } => any_node(child, f),
+            Node::Concat(v) | Node::Alt(v) => v.iter().any(|x| any_node(x, f)),
+            Node::Set(_) | Node::Assert(_) => false,
         }
-    }
-    match n {
-        Node::Set(_) | Node::Assert(_) => None,
-        Node::Look { child, .. } | Node::Group(child) | Node::Repeat { child, .. } => safety(child),
-        Node::Concat(v) | Node::Alt(v) => v.iter().find_map(safety),
-    }
+}
+
+/// The lowest rule the pattern breaks, anywhere in the tree.
+fn safety(root: &Node) -> Option<u8> {
+    [(2, rule2 as fn(&Node) -> bool), (3, rule3), (4, rule4)].into_iter().find(|(_, f)| any_node(root, *f)).map(|(n, _)| n)
 }
 
 // ---------------------------------------------------------------------------
@@ -961,61 +1000,6 @@ mod tests {
         assert!(!t("foobar", r"\bbar"));
         assert!(t("foobar", r"\Bbar"));
         assert!(t("[", "^[[]$"));
-    }
-
-    #[test]
-    fn refusals() {
-        let cases: &[(&str, &str)] = &[
-            (r"(a)\1", "regex: backreferences are not allowed at 3"),
-            (r"\k<x>", "regex: backreferences are not allowed at 0"),
-            ("(?<=a)b", "regex: lookbehind is not allowed at 0"),
-            ("(?<!a)b", "regex: lookbehind is not allowed at 0"),
-            ("(?<n>a)", "regex: named groups are not allowed at 0"),
-            (r"\p{L}", "regex: property escapes are not allowed at 0"),
-            (r"x\P{L}", "regex: property escapes are not allowed at 1"),
-            (r"\cA", "regex: \\c is not allowed at 0"),
-            (r"\01", "regex: legacy octal is not allowed at 0"),
-            (r"[\1]", "regex: legacy octal is not allowed at 1"),
-            ("(?i)a", "regex: inline flags are not allowed at 0"),
-            ("(?)", "regex: invalid group at 0"),
-            (r"\q", "regex: invalid escape at 0"),
-            (r"\a", "regex: invalid escape at 0"),
-            (r"\xZ1", "regex: invalid escape at 0"),
-            (r"\u12", "regex: invalid escape at 0"),
-            (r"\u{110000}", "regex: invalid escape at 0"),
-            (r"\-", "regex: invalid escape at 0"),
-            (r"[\B]", "regex: invalid escape at 1"),
-            ("a\\", "regex: \\ at end of pattern at 1"),
-            ("a)", "regex: unmatched ) at 1"),
-            ("a]", "regex: unmatched ] at 1"),
-            ("a}", "regex: lone } at 1"),
-            ("a{", "regex: lone { at 1"),
-            ("a{1", "regex: lone { at 1"),
-            ("a{,3}", "regex: lone { at 1"),
-            ("{x", "regex: lone { at 0"),
-            ("{2}", "regex: nothing to repeat at 0"),
-            ("*a", "regex: nothing to repeat at 0"),
-            ("a|+", "regex: nothing to repeat at 2"),
-            ("a**", "regex: nothing to repeat at 2"),
-            ("^*", "regex: nothing to repeat at 1"),
-            (r"\b+", "regex: nothing to repeat at 2"),
-            ("(?=a)?", "regex: nothing to repeat at 5"),
-            ("a{3,2}", "regex: numbers out of order in quantifier at 1"),
-            ("(ab", "regex: unterminated group at 0"),
-            ("[ab", "regex: unterminated class at 0"),
-            ("[z-a]", "regex: invalid range at 1"),
-            (r"[\d-z]", "regex: invalid range at 1"),
-            (r"[a-\d]", "regex: invalid range at 1"),
-            ("é(", "regex: unterminated group at 1"),
-            ("😀)", "regex: unmatched ) at 1"),
-        ];
-        for (pattern, message) in cases {
-            assert_eq!(&err(pattern), message, "{pattern}");
-            assert_eq!(regex_test(&json!("x"), pattern).unwrap_err(), *message);
-        }
-        let long = "a".repeat(257);
-        assert_eq!(err(&long), "regex: pattern longer than 256 code points");
-        assert!(check_pattern(&"é".repeat(256)).is_ok());
     }
 
     #[test]

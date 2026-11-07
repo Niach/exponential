@@ -45,7 +45,7 @@ fn items(n: usize) -> Value {
 
 #[test]
 fn a_search_list_filters_highlights_the_top_row_and_picks_with_the_keys() {
-    let mut s = surface(json!([{"id": "sl", "component": "SearchList", "props": {"items": items(12), "value": {"path": "/picked"}}, "on": {"select": {"event": {"name": "pick"}}}}]));
+    let mut s = surface(json!([{"id": "sl", "component": "SearchList", "props": {"items": items(12), "value": {"@path": "/picked"}}, "on": {"select": {"event": {"name": "pick"}}}}]));
     let mut m = fixed();
     s.layout(&mut m);
     for part in ["sl.head", "sl.search", "sl.body", "sl.list", "sl.item.0", "sl.label.0", "sl.identifier.0", "sl.fade"] {

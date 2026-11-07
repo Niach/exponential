@@ -29,6 +29,26 @@ pub struct ExprContext<'a> {
     pub id: &'a str,
     pub props: &'a Props,
     pub vars: IndexMap<String, Value>,
+    /// VAPP-289: the macro component's prop schemas: a bound condition
+    /// operand `props.<boolean prop>` passes through unwrapped (§6.7).
+    pub types: Option<&'a IndexMap<String, crate::types::PropSchema>>,
+}
+
+/// Round 9 §6.7: a DYNAMIC condition operand of a macro (`$if`, `$any`,
+/// `$not`, `{!…}`) keeps PRESENCE semantics under the 1.0 boolean coercion:
+/// unless it is a call to a boolean function or the expression is
+/// `props.<name>` (optionally `|true`/`|false`) over a boolean-typed prop,
+/// it is wrapped as `cond {if: operand, then: true, else: false}`.
+pub fn presence_operand(value: Value, text: Option<&str>, ctx: &ExprContext) -> Value {
+    if call_name(&value).is_some_and(|n| matches!(crate::functions::return_type(n), Some("boolean" | "validationResult"))) {
+        return value;
+    }
+    let prop = text.map(str::trim).and_then(|t| t.strip_prefix("props.")).map(|t| t.strip_suffix("|true").or_else(|| t.strip_suffix("|false")).unwrap_or(t));
+    let boolean = prop.filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')).and_then(|p| ctx.types?.get(p)).is_some_and(|s| s.type_ == "boolean");
+    if boolean {
+        return value;
+    }
+    call("cond", vec![("if", Some(value)), ("then", Some(Value::Bool(true))), ("else", Some(Value::Bool(false)))])
 }
 
 /// The 1.0 binding key (`{"@path": "<pointer>"}`, round 9 §3).
@@ -374,8 +394,8 @@ pub fn eval_expr(expr: &str, ctx: &ExprContext) -> Option<Value> {
     }
     if let Some(rest) = text.strip_prefix('!') {
         let value = eval_expr(rest, ctx);
-        if is_dynamic_opt(&value) {
-            return Some(call("not", vec![("value", value)]));
+        if let Some(v) = value.as_ref().filter(|v| is_dynamic(v)) {
+            return Some(call("not", vec![("value", Some(presence_operand(v.clone(), Some(rest), ctx)))]));
         }
         return Some(Value::Bool(!truthy_opt(value.as_ref())));
     }
@@ -417,12 +437,26 @@ pub enum Decided {
 /// A condition: a string expression or a value object (`$eq` …). `Bool`
 /// when it can be decided now; the dynamic value when it cannot.
 pub fn eval_condition_value(cond: Option<&Value>, ctx: &ExprContext) -> Decided {
+    decide_condition(cond, ctx, true)
+}
+
+/// `wrap` = the presence wrap of a dynamic operand (§6.7); `cond.if` tests
+/// presence itself.
+fn decide_condition(cond: Option<&Value>, ctx: &ExprContext, wrap: bool) -> Decided {
     let value = match cond {
         Some(Value::String(s)) => eval_expr(s, ctx),
         other => eval_operand(other, ctx),
     };
     match value {
-        Some(v) if is_dynamic(&v) => Decided::Dynamic(v),
+        Some(v) if is_dynamic(&v) => {
+            if !wrap {
+                return Decided::Dynamic(v);
+            }
+            let whole = cond.and_then(Value::as_str).map(|c| {
+                c.strip_prefix('{').and_then(|t| t.strip_suffix('}')).filter(|t| !t.is_empty() && !t.contains(['{', '}'])).unwrap_or(c)
+            });
+            Decided::Dynamic(presence_operand(v, whole, ctx))
+        }
         other => Decided::Bool(truthy_opt(other.as_ref())),
     }
 }
@@ -533,7 +567,8 @@ fn eval_object(obj: &Map<String, Value>, ctx: &ExprContext) -> Option<Value> {
         return eval_operand(hit, ctx);
     }
     if let Some(args) = obj.get("$cond") {
-        let decided = eval_condition_value(arg(args, 0), ctx);
+        // `cond.if` tests presence itself: no wrap (round 9 §6.7).
+        let decided = decide_condition(arg(args, 0), ctx, false);
         return match decided {
             Decided::Dynamic(test) => {
                 Some(call("cond", vec![("if", Some(test)), ("then", eval_operand(arg(args, 1), ctx)), ("else", eval_operand(arg(args, 2), ctx))]))
@@ -785,14 +820,14 @@ mod tests {
         let mut vars = IndexMap::new();
         vars.insert("item".to_string(), json!({"value": "b", "label": "Bee"}));
         vars.insert("index".to_string(), json!(1));
-        let ctx = ExprContext { id: "n1", props: &props, vars };
+        let ctx = ExprContext { id: "n1", props: &props, vars, types: None };
         f(&ctx);
     }
 
     fn with_bound(f: impl FnOnce(&ExprContext)) {
         let props = json!({"page": {"@path": "/page"}, "total": 5, "open": {"@path": "/open"}, "value": {"@call": "len", "args": {"value": {"@path": "/xs"}}}});
         let props = props.as_object().unwrap().clone();
-        let ctx = ExprContext { id: "p", props: &props, vars: IndexMap::new() };
+        let ctx = ExprContext { id: "p", props: &props, vars: IndexMap::new(), types: None };
         f(&ctx);
     }
 
@@ -928,7 +963,7 @@ mod tests {
     fn range_is_clamped() {
         let props = json!({"huge": 1e8, "vast": 1e300, "neg": -3, "nan": "x"});
         let props = props.as_object().unwrap().clone();
-        let ctx = ExprContext { id: "r", props: &props, vars: IndexMap::new() };
+        let ctx = ExprContext { id: "r", props: &props, vars: IndexMap::new(), types: None };
         let len = |e: &str| ev(json!(e), &ctx).and_then(|v| v.as_array().map(Vec::len));
         assert_eq!(len("{range(props.huge)}"), Some(MAX_RANGE_ITEMS));
         assert_eq!(len("{range(props.vast)}"), Some(MAX_RANGE_ITEMS));

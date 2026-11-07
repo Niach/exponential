@@ -66,9 +66,9 @@ fn bound_macro_inputs_bind_at_layout_time() {
     let mut s = surface(json!({
         "id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "children": [
-            {"id": "p", "component": "Progress", "props": {"value": {"path": "/done"}, "max": 8}},
-            {"id": "pg", "component": "Pagination", "props": {"page": {"path": "/page"}, "totalPages": 5}},
-            {"id": "c", "component": "Collapsible", "props": {"title": "More", "open": {"path": "/open"}}, "children": [{"id": "body", "component": "Text", "props": {"text": "Body"}}]}
+            {"id": "p", "component": "Progress", "props": {"value": {"@path": "/done"}, "max": 8}},
+            {"id": "pg", "component": "Pagination", "props": {"page": {"@path": "/page"}, "totalPages": 5}},
+            {"id": "c", "component": "Collapsible", "props": {"title": "More", "open": {"@path": "/open"}}, "children": [{"id": "body", "component": "Text", "props": {"text": "Body"}}]}
         ]
     }));
     s.set_data("", Some(json!({"done": 2, "page": 2, "open": false}))).unwrap();
@@ -103,7 +103,7 @@ fn a_meter_with_bound_segments_paints_each_slice() {
     let mut s = surface(json!({
         "id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "children": [
-            {"id": "m", "component": "Meter", "props": {"segments": {"path": "/disk"}, "max": 100}},
+            {"id": "m", "component": "Meter", "props": {"segments": {"@path": "/disk"}, "max": 100}},
             {"id": "l", "component": "Meter", "props": {"segments": [{"value": 34, "tone": "primary"}], "max": 100}}
         ]
     }));
@@ -128,7 +128,7 @@ fn visible_drops_a_node_and_its_subtree_and_brings_it_back() {
         "id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"},
         "children": [
             {"id": "a", "component": "Text", "props": {"text": "Always"}},
-            {"id": "b", "component": "Box", "visible": {"path": "/show"}, "children": [{"id": "b1", "component": "Text", "props": {"text": "Sometimes"}}]},
+            {"id": "b", "component": "Box", "visible": {"@path": "/show"}, "children": [{"id": "b1", "component": "Text", "props": {"text": "Sometimes"}}]},
             {"id": "c", "component": "Text", "visible": false, "props": {"text": "Never"}}
         ]
     }));
@@ -304,7 +304,7 @@ fn a_data_write_through_and_a_tab_switch_reuse_every_unchanged_node() {
         "children": [
             {"id": "tabs", "component": "Tabs", "props": {"tabs": [{"label": "A", "value": "a"}, {"label": "B", "value": "b"}]},
              "children": [{"id": "pa", "component": "Text", "props": {"text": "Panel A"}}, {"id": "pb", "component": "Text", "props": {"text": "Panel B"}}]},
-            {"id": "name", "component": "Text", "props": {"text": {"path": "/name"}}},
+            {"id": "name", "component": "Text", "props": {"text": {"@path": "/name"}}},
             {"id": "other", "component": "Text", "props": {"text": "Static"}}
         ]
     }));
@@ -567,7 +567,7 @@ fn field_surface(field: Value) -> Surface {
 
 #[test]
 fn select_opens_a_layer_under_its_trigger_filters_and_writes_its_value() {
-    let mut s = field_surface(json!({"id": "sel", "component": "Select", "props": {"label": "Fruit", "name": "fruit", "searchable": true, "value": {"path": "/fruit"},
+    let mut s = field_surface(json!({"id": "sel", "component": "Select", "props": {"label": "Fruit", "name": "fruit", "searchable": true, "value": {"@path": "/fruit"},
         "options": [{"label": "Apple", "value": "apple"}, {"label": "Banana", "value": "banana"}, {"label": "Cherry", "value": "cherry", "disabled": true}]}}));
     let mut m = fixed();
     let closed = s.layout(&mut m);
@@ -610,7 +610,7 @@ fn select_and_radio_group_skip_options_that_are_not_objects() {
         s.set_viewport(390.0, 844.0, None);
         s
     };
-    let mut s = lenient(json!({"id": "sel", "component": "Select", "props": {"label": "Fruit", "name": "fruit", "value": {"path": "/fruit"},
+    let mut s = lenient(json!({"id": "sel", "component": "Select", "props": {"label": "Fruit", "name": "fruit", "value": {"@path": "/fruit"},
         "options": [null, {"label": "Apple", "value": "apple"}, 3, {"label": "Banana", "value": "banana"}]}}));
     let mut m = fixed();
     s.layout(&mut m);
@@ -674,7 +674,7 @@ fn date_picker_calendar_follows_the_locale_week_start_and_picks() {
 
 #[test]
 fn date_range_picks_in_two_steps_and_orders_them() {
-    let mut s = field_surface(json!({"id": "r", "component": "DateRangePicker", "props": {"label": "Sprint", "name": "sprint", "start": {"path": "/start"}, "end": {"path": "/end"}}}));
+    let mut s = field_surface(json!({"id": "r", "component": "DateRangePicker", "props": {"label": "Sprint", "name": "sprint", "start": {"@path": "/start"}, "end": {"@path": "/end"}}}));
     s.set_settings(eui_core::surface::SurfaceSettings { today: Some("2026-10-07".into()), ..s.settings().clone() });
     let mut m = fixed();
     s.layout(&mut m);
@@ -722,7 +722,7 @@ fn an_unbound_range_keeps_its_picks_locally() {
 fn number_field_steps_clamp_and_mirror_in_rtl() {
     for dir in ["ltr", "rtl"] {
         let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "direction": dir},
-            "children": [{"id": "n", "component": "NumberField", "props": {"label": "Seats", "name": "seats", "value": {"path": "/n"}, "min": 1, "max": 3, "unit": "seats"}}]}));
+            "children": [{"id": "n", "component": "NumberField", "props": {"label": "Seats", "name": "seats", "value": {"@path": "/n"}, "min": 1, "max": 3, "unit": "seats"}}]}));
         s.set_data("/n", Some(json!(2))).unwrap();
         s.set_viewport(390.0, 0.0, None);
         let mut m = fixed();
@@ -746,7 +746,7 @@ fn number_field_steps_clamp_and_mirror_in_rtl() {
 
 #[test]
 fn chip_input_adds_removes_and_suggests() {
-    let mut s = field_surface(json!({"id": "c", "component": "ChipInput", "props": {"label": "Labels", "name": "labels", "values": {"path": "/labels"}, "max": 3,
+    let mut s = field_surface(json!({"id": "c", "component": "ChipInput", "props": {"label": "Labels", "name": "labels", "values": {"@path": "/labels"}, "max": 3,
         "suggestions": [{"label": "bug", "value": "bug"}, {"label": "build", "value": "build"}, {"label": "ios", "value": "ios"}]}}));
     s.set_data("/labels", Some(json!(["ios"]))).unwrap();
     let mut m = fixed();
@@ -831,8 +831,8 @@ fn a_form_refuses_a_submit_with_failing_checks_then_submits_its_values() {
     let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "children": [{"id": "form", "component": "Form", "props": {"name": "signup", "summary": true}, "on": {"submit": {"event": {"name": "save"}}, "invalid": {"event": {"name": "invalid"}}},
             "children": [
-                {"id": "email", "component": "Input", "props": {"label": "Email", "name": "email", "value": {"path": "/email"}, "checks": [{"condition": {"call": "email", "args": {"value": {"path": "/email"}}}, "message": "Enter an email"}]}},
-                {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"path": "/agree"}, "checks": [{"condition": {"path": "/agree"}, "message": "Required"}]}},
+                {"id": "email", "component": "Input", "props": {"label": "Email", "name": "email", "value": {"@path": "/email"}, "checks": [{"condition": {"@call": "email", "args": {"value": {"@path": "/email"}}}, "message": "Enter an email"}]}},
+                {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"@path": "/agree"}, "checks": [{"condition": {"@path": "/agree"}, "message": "Required"}]}},
                 {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
             ]}]}));
     s.set_data("", Some(json!({"email": "nope", "agree": false}))).unwrap();
@@ -866,8 +866,8 @@ fn a_form_refuses_a_submit_with_failing_checks_then_submits_its_values() {
 #[test]
 fn validate_on_blur_and_change() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
-        {"id": "name", "component": "Input", "props": {"label": "Name", "name": "name", "value": {"path": "/name"}, "checks": [{"condition": {"call": "required", "args": {"value": {"path": "/name"}}}, "message": "Required"}]}},
-        {"id": "code", "component": "Input", "props": {"label": "Code", "name": "code", "validateOn": "change", "value": {"path": "/code"}, "checks": [{"condition": {"call": "length", "args": {"value": {"path": "/code"}, "min": 3}}, "message": "Too short"}]}}
+        {"id": "name", "component": "Input", "props": {"label": "Name", "name": "name", "value": {"@path": "/name"}, "checks": [{"condition": {"@call": "required", "args": {"value": {"@path": "/name"}}}, "message": "Required"}]}},
+        {"id": "code", "component": "Input", "props": {"label": "Code", "name": "code", "validateOn": "change", "value": {"@path": "/code"}, "checks": [{"condition": {"@call": "length", "args": {"value": {"@path": "/code"}, "min": 3}}, "message": "Too short"}]}}
     ]}));
     s.set_viewport(390.0, 0.0, None);
     let mut m = fixed();
@@ -918,7 +918,7 @@ fn a_context_menu_opens_at_the_point_and_a_submenu_opens_beside_its_row() {
         let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": 600, "direction": dir},
             "children": [{"id": "cm", "component": "Menu", "props": {"openOn": "contextmenu", "items": [
                 {"label": "Copy", "value": "copy", "shortcut": "⌘C"}, {"kind": "separator"}, {"kind": "label", "label": "View"},
-                {"label": "Show done", "value": "done", "kind": "checkbox", "checked": {"path": "/done"}},
+                {"label": "Show done", "value": "done", "kind": "checkbox", "checked": {"@path": "/done"}},
                 {"label": "Sort by", "kind": "submenu", "items": [{"label": "Priority", "value": "priority"}, {"label": "Updated", "value": "updated"}]}]},
                 "on": {"select": {"event": {"name": "menu"}}},
                 "children": [{"id": "target", "component": "Box", "style": {"height": 200, "alignSelf": "stretch"}}]}]}));
@@ -1037,7 +1037,7 @@ fn template_keys_keep_a_rows_slot_when_the_items_reorder() {
     let mut s = Surface::new("k", SurfaceOptions::default());
     s.set_components(serde_json::from_value(json!([
         {"id": "root", "component": "Box", "children": {"componentId": "row", "path": "/items", "key": "id"}},
-        {"id": "row", "component": "Text", "text": {"path": "name"}}
+        {"id": "row", "component": "Text", "text": {"@path": "name"}}
     ])).unwrap());
     s.set_data("/items", Some(json!([{"id": "a", "name": "Ann"}, {"id": "b", "name": "Bo"}]))).unwrap();
     s.set_viewport(300.0, 0.0, None);
@@ -1153,7 +1153,7 @@ fn every_pressable_part_of_the_kitchen_sink_survives_a_press_and_a_relayout() {
 
 #[test]
 fn a_busy_form_shows_its_submit_loading_and_a_disabled_one_makes_fields_inert() {
-    let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "f", "component": "Form", "props": {"name": "f", "busy": {"path": "/busy"}, "disabled": {"path": "/off"}}, "on": {"submit": {"event": {"name": "save"}}},
+    let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "f", "component": "Form", "props": {"name": "f", "busy": {"@path": "/busy"}, "disabled": {"@path": "/off"}}, "on": {"submit": {"event": {"name": "save"}}},
         "children": [{"id": "x", "component": "Input", "props": {"label": "X", "name": "x"}}, {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}]}]}));
     s.set_data("", Some(json!({"busy": true, "off": false}))).unwrap();
     s.set_viewport(390.0, 0.0, None);
@@ -1174,8 +1174,8 @@ fn a_busy_form_shows_its_submit_loading_and_a_disabled_one_makes_fields_inert() 
 #[test]
 fn an_opening_toast_and_a_changing_live_text_announce() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
-        {"id": "status", "component": "Text", "props": {"text": {"path": "/status"}, "live": "polite"}},
-        {"id": "t", "component": "Toast", "props": {"title": "Failed", "description": "Try again", "type": "error", "open": {"path": "/open"}}}]}));
+        {"id": "status", "component": "Text", "props": {"text": {"@path": "/status"}, "live": "polite"}},
+        {"id": "t", "component": "Toast", "props": {"title": "Failed", "description": "Try again", "type": "error", "open": {"@path": "/open"}}}]}));
     s.set_data("", Some(json!({"status": "Idle", "open": false}))).unwrap();
     s.set_viewport(390.0, 800.0, None);
     let mut m = fixed();
@@ -1233,7 +1233,7 @@ fn a_nested_surface_instantiates_its_list_template_per_item() {
     let mut s = Surface::new("tpl", SurfaceOptions::default());
     s.set_nested(serde_json::from_value::<NestedNode>(json!({"id": "root", "component": "Box", "children": [
         {"id": "feed", "component": "List", "template": {"component": "row", "path": "/rows"}, "children": []},
-        {"id": "row", "component": "Text", "props": {"text": {"path": "label"}}}
+        {"id": "row", "component": "Text", "props": {"text": {"@path": "label"}}}
     ]})).unwrap());
     s.set_data("/rows", Some(json!([{"label": "One"}, {"label": "Two"}]))).unwrap();
     s.set_viewport(300.0, 0.0, None);

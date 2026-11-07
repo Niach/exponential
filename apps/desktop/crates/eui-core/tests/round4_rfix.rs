@@ -64,7 +64,7 @@ fn the_reducer_checks_extension_calls_against_the_view() {
     let ext = define_extension(serde_json::from_value(file["extension"].clone()).unwrap()).expect("the example extension");
     let view = eui_core::catalog::CatalogView::with(&[ext]);
     let catalog = file["extension"]["id"].as_str().unwrap();
-    let node = serde_json::from_value(json!({"id": "t", "component": "TrendLine", "props": {"values": [1, {"call": "nope", "args": {}}]}})).unwrap();
+    let node = serde_json::from_value(json!({"id": "t", "component": "TrendLine", "props": {"values": [1, {"@call": "nope", "args": {}}]}})).unwrap();
     let issues = reduce_nested(&node, &ReduceOptions::new(catalog).with_view(view)).issues;
     assert!(issues.iter().any(|i| i.id == "t" && i.message.starts_with("props.values[1]") && i.message.contains("unknown function \"nope\"")), "{issues:?}");
 }
