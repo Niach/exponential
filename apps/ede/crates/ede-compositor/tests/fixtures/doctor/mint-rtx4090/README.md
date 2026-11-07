@@ -15,6 +15,9 @@ parameters are root-only, so they are absent here), `fbdev` at its default,
 Xwayland 23.2.6 from the distro, Vulkan: NVIDIA first, then the Intel iGPU, then
 lavapipe. The NVIDIA card is `card2` (pci 0000:01:00.0, `renderD129`) with two
 monitors (DP-2 2560x1440, HDMI-A-3 3840x2160); `card1` is the Intel i915 iGPU
-(`renderD128`) with nothing connected. `boot_vga` was NOT read on the box: this
+(`renderD128`) with nothing connected. The per-GPU file lives at
+`proc/driver/nvidia/gpus/0000-01-00.0/information` (dashes: the real path
+`gpus/0000:01:00.0` has colons, which Windows checkouts refuse; the doctor never
+reads it). `boot_vga` was NOT read on the box: this
 tree marks the NVIDIA card as the boot GPU; the rule for the other case is tested
 in `the_primary_card_is_the_one_with_the_displays`.
