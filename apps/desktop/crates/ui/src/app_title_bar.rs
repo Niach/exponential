@@ -27,6 +27,15 @@ use crate::screens::ScreensPanel;
 /// budget can never drift apart.
 const BAR_INSET: f32 = 8.;
 
+/// #EXP-1724: what the macOS traffic lights take past the 56 px rail.
+fn rail_lights_inset(window: &Window) -> f32 {
+    if cfg!(target_os = "macos") && !window.is_fullscreen() && crate::ui_prefs::rail() {
+        28.
+    } else {
+        0.
+    }
+}
+
 /// EXP-877: the height of the main window's tab band — the web's
 /// `WORK_TABS_BAND_CLASS` (`md:h-[44px]`), with the panel starting flush
 /// beneath it (`shell::PANEL_MARGIN_TOP` is 0).
@@ -222,7 +231,7 @@ impl Render for AppTitleBar {
             // rail and with it the Shell's traffic-light tongue). Fullscreen
             // hides the lights, so nothing is reserved for them either way.
             let rail_w = crate::shell::window_left_column_width(window, cx);
-            let left_inset = BAR_INSET;
+            let left_inset = BAR_INSET + rail_lights_inset(window);
             let fullscreen_inset = if window.is_fullscreen() { 12. } else { 0. };
             let right_reserve = if cfg!(target_os = "macos") {
                 BAR_INSET
@@ -260,7 +269,7 @@ impl Render for AppTitleBar {
             // traffic-light reserve is wrong — the left column is
             // at least `theme::tokens::sidebar::MIN_WIDTH` wide and clears the
             // cluster, so the bar itself only needs its normal inset.
-            .pl(px(BAR_INSET));
+            .pl(px(BAR_INSET + rail_lights_inset(window)));
 
         bar.child(
             // The strip content swallows its own mouse-downs (interactive

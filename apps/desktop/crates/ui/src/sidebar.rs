@@ -1168,11 +1168,20 @@ pub(crate) fn render_left_column_header(
                 .menu_with_icon("Join team", registry::UI_INVITE, Box::new(JoinTeam))
         }).anchor(gpui::Anchor::TopLeft);
 
-    h_flex()
-        .w_full()
+    let rail = crate::ui_prefs::rail();
+    let mut rail_toggle = Some(Button::new("rail-toggle")
+        .ghost()
+        .web_icon_sm()
+        .flex_shrink_0()
+        .icon(if rail { registry::NAV_RAIL_EXPAND } else { registry::NAV_RAIL_COLLAPSE })
+        .tooltip(if rail { "Expand the sidebar" } else { "Collapse the sidebar" })
+        .on_click(|_: &ClickEvent, _, cx| toggle_rail(cx)));
+    let row = if rail { v_flex() } else { h_flex() };
+    row.w_full()
         .gap_1()
         .items_center()
-        .child(div().flex_1().min_w_0().child(switcher))
+        .when(rail, |row| row.children(rail_toggle.take()))
+        .when(!rail, |row| row.child(div().flex_1().min_w_0().child(switcher)))
         // #FEED-191: the Inbox, a popover anchored under its icon.
         .child(crate::inbox_popover::InboxButton::new(nav.clone()))
         .child(
@@ -1209,6 +1218,15 @@ pub(crate) fn render_left_column_header(
                     }),
             )
         })
+        .when(!rail, |row| row.children(rail_toggle.take()))
+}
+
+/// #EXP-1724: the sidebar folds into its icon rail and back: the shell
+/// reducer's `rail.toggle` (`shell.json`), remembered, every window.
+fn toggle_rail(cx: &mut App) {
+    let state = uicore_model::ShellState { rail: crate::ui_prefs::rail(), ..Default::default() };
+    crate::ui_prefs::set_rail(uicore_model::reduce(&state, &uicore_model::ShellEvent::RailToggle).rail);
+    cx.refresh_windows();
 }
 
 impl RailView {
@@ -1415,7 +1433,10 @@ impl Render for RailView {
         );
 
         // #NEW-97: no tray host = the voice button beside the Computer one.
-        let voice_entry = self.rail_voice_entry(cx);
+        let mut voice_entry = self.rail_voice_entry(cx);
+        let mut computer_entry = Some(computer_entry);
+        let mut settings_entry = Some(settings_entry);
+        let rail = crate::ui_prefs::rail();
 
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
@@ -1438,8 +1459,8 @@ impl Render for RailView {
         // animates into Settings the rows are clipped instead of reflowing
         // frame by frame.
         v_flex()
-            .w(px(crate::resize_edge::panel_width(
-                crate::resize_edge::SidebarPanel::Main,
+            .w(px(crate::shell::left_column_width_for(
+                crate::shell::LeftOccupant::Rail,
                 crate::shell::window_extent(window),
             )))
             .flex_shrink_0()
@@ -1490,27 +1511,31 @@ impl Render for RailView {
                     .w_full()
                     .px_2()
                     .gap_1()
-                    .children(whats_new_card)
-                    .children(getting_started_icon)
-                    .children(self.render_sync_indicator(cx))
+                    .when(rail, |footer| footer.items_center())
+                    .when(!rail, |footer| {
+                        footer
+                            .children(whats_new_card)
+                            .children(getting_started_icon)
+                            .children(self.render_sync_indicator(cx))
+                    })
                     // EXP-340: one bottom row — the account button fills the
                     // width, the Computer menu and the gear ride its right
-                    // edge.
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .gap_1()
-                            .items_center()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(self.render_account_button(cx)),
-                            )
-                            .children(voice_entry)
-                            .child(computer_entry)
-                            .child(settings_entry),
-                    ),
+                    // edge. #EXP-1724: in the rail they stack.
+                    .when(rail, |footer| {
+                        footer.children(voice_entry.take()).children(computer_entry.take()).children(settings_entry.take())
+                    })
+                    .when(!rail, |footer| {
+                        footer.child(
+                            h_flex()
+                                .w_full()
+                                .gap_1()
+                                .items_center()
+                                .child(div().flex_1().min_w_0().child(self.render_account_button(cx)))
+                                .children(voice_entry.take())
+                                .children(computer_entry.take())
+                                .children(settings_entry.take()),
+                        )
+                    }),
             )
             .into_any_element()
     }

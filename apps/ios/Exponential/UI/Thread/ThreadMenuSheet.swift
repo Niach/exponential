@@ -364,7 +364,6 @@ struct ThreadComposerPlusMenu: View {
         // the launch's work picks).
         if row.kind != .toggle {
             let disabled = row.id == .addFile && !addFileEnabled
-                || row.id == .device && device?.locked == true
             Button {
                 if row.kind == .submenu {
                     page = row.id

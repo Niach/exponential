@@ -57,7 +57,6 @@ class AppsTest {
                 case["name"]!!.jsonPrimitive.content,
                 Apps.EditorDeviceChoice(
                     opt(expected, "deviceId"),
-                    expected["locked"]!!.jsonPrimitive.boolean,
                     expected["move"]!!.jsonPrimitive.boolean,
                 ),
                 Apps.editorDevice(

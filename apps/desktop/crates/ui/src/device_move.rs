@@ -379,8 +379,6 @@ pub(crate) struct EditorDevice {
     pub device_id: Option<String>,
     /// THE launch rows: (device id, picker line).
     pub rows: Vec<(String, String)>,
-    /// A live root: the row names its device, disabled.
-    pub locked: bool,
     /// An ended root's next send goes to `device_id`.
     pub moves: bool,
     pub on_pick: Rc<dyn Fn(String, &mut Window, &mut App)>,
@@ -397,7 +395,6 @@ impl EditorDevice {
     pub(crate) fn same_as(&self, other: &Self) -> bool {
         self.device_id == other.device_id
             && self.rows == other.rows
-            && self.locked == other.locked
             && self.moves == other.moves
     }
 
@@ -408,8 +405,7 @@ impl EditorDevice {
         Some((self.team_id.clone(), self.app_id.clone(), device_id))
     }
 
-    /// The "+" Device row: THE launch submenu, or (a live root) the same
-    /// label and value, disabled.
+    /// The "+" Device row: THE launch submenu.
     pub(crate) fn menu_row(
         &self,
         menu: gpui_component::menu::PopupMenu,
@@ -418,17 +414,6 @@ impl EditorDevice {
         cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
     ) -> gpui_component::menu::PopupMenu {
         let value = self.value();
-        if self.locked {
-            let icon = row.icon();
-            let label = row.label();
-            return menu.item(
-                gpui_component::menu::PopupMenuItem::element(move |_, cx| {
-                    let value = crate::controls::menu_row_value(value.clone().map(SharedString::from), false, cx);
-                    crate::controls::menu_row(icon.clone(), label, Some(value), true, cx)
-                })
-                .disabled(true),
-            );
-        }
         let rows = self.rows.clone();
         let picked = self.device_id.clone();
         let on_pick = self.on_pick.clone();
