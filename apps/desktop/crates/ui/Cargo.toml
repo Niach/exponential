@@ -122,6 +122,8 @@ gpui = { workspace = true, features = ["test-support"] }
 # the tree via the app crate).
 gpui_platform = { workspace = true, features = ["test-support"] }
 gpui-component-assets.workspace = true
+# #EXP-1739: headless tests mount the real `Root` (its overlay sweep).
+gpui-component = { workspace = true, features = ["test-support"] }
 
 # EXP-303 macos_blur: objc-runtime insertion of a working frosted backdrop
 # (NSGlassEffectView / NSVisualEffectView) into gpui's Blurred windows —
