@@ -41,7 +41,12 @@
 //! `ede.taskbar {app}` (Mint's click), `ede.taskbar_scroll {app, direction}`,
 //! `ede.previews {app|null}` (the hover previews), `ede.start_menu {open?,
 //! query?, category?}`, `ede.chat` (toggle), `ede.workspace {index}`,
-//! `ede.sidebar {section}` (fold a section).
+//! `ede.sidebar {section}` (fold a section); #EDE-56: `ede.switcher {action:
+//! pick|new|share|connect, kind?, id?}` (the Local desktops and the connected
+//! accounts' teams, `/shell/switcher/sections`), `ede.connect {action:
+//! start|code|open|cancel, instance?}` (Connect Exponential: `/connecting`,
+//! `/accounts`; `exponential-shell connect <url>` is the scheme handler's
+//! command, forwarding the browser's callback to the running shell).
 //!
 //! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
@@ -52,7 +57,9 @@
 //! machine's, so a golden never depends on what is installed;
 //! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail.
 
+mod accounts;
 mod assets;
+mod connect;
 mod dbus;
 mod settings;
 mod settings_pages;
@@ -95,12 +102,20 @@ fn parse_args() -> Options {
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
+            // #EDE-56: the exponential:// handler's command: hand the URL to the running shell.
+            "connect" => {
+                let Some(url) = args.next() else {
+                    eprintln!("usage: exponential-shell connect <url>");
+                    std::process::exit(2);
+                };
+                std::process::exit(if connect::forward_url(&url) { 0 } else { 1 });
+            }
             "--windowed" => o.windowed = true,
             "--popup" => o.popup.extend(args.next()),
             "--open" => o.open.extend(args.next()),
             "--exit-after" => o.exit_after = args.next().and_then(|v| v.parse().ok()),
             "-h" | "--help" => {
-                println!("usage: exponential-shell [--windowed] [--popup <document>] [--open <document>] [--exit-after <ms>]");
+                println!("usage: exponential-shell [--windowed] [--popup <document>] [--open <document>] [--exit-after <ms>] | connect <url>");
                 std::process::exit(0);
             }
             other => {
@@ -182,6 +197,10 @@ struct Shell {
     notifications: Notifications,
     dbus: Option<dbus::Dbus>,
     tray: Vec<dbus::TrayItem>,
+    /// #EDE-56: the Local desktops and the connected accounts' teams.
+    workspaces: accounts::Workspaces,
+    /// #EDE-56: Connect Exponential's state.
+    connect: connect::Connect,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -495,13 +514,56 @@ impl HostPlugin for Host {
                     Some("pick") => {
                         let kind: Option<uicore_model::SwitcherKind> = args.get("kind").cloned().and_then(|k| serde_json::from_value(k).ok());
                         if let (Some(entry_kind), Some(id)) = (kind, args.get("id").and_then(Value::as_str)) {
+                            if entry_kind == uicore_model::SwitcherKind::Local {
+                                // The desktops index remembers the current Local desktop.
+                                if let Err(e) = shell.borrow_mut().workspaces.desktops.set_current(id) {
+                                    tracing::warn!("desktops.json: {e}");
+                                }
+                            }
                             dispatch(&shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
                         }
                     }
-                    Some("connect") => launch_app(&shell.borrow(), "at.exponential"),
-                    // Local desktops and Share as a team come with #EDE-54 / #EDE-57.
-                    Some(other) => tracing::info!(action = other, "the switcher action comes with Local desktops (#EDE-54)"),
+                    Some("new") => {
+                        let created = shell.borrow_mut().workspaces.desktops.create(&next_desktop_name(&shell.borrow()));
+                        match created {
+                            Ok(entry) => {
+                                switcher_refresh_entries(&shell, cx);
+                                dispatch(&shell, ShellEvent::SwitcherPick { entry_kind: uicore_model::SwitcherKind::Local, id: entry.id }, cx);
+                            }
+                            Err(e) => tracing::warn!("new local desktop: {e}"),
+                        }
+                    }
+                    Some("connect") => {
+                        close(&shell, "start-menu", cx);
+                        open_on_demand(&shell, "connect", cx);
+                        refresh(&shell, cx);
+                    }
+                    // Share as a team comes with #EDE-57.
+                    Some(other) => tracing::info!(action = other, "the switcher action comes with Share as a team (#EDE-57)"),
                     None => {}
+                });
+            }
+            // #EDE-56: Connect Exponential.
+            "ede.connect" => {
+                let args = args.clone();
+                cx.defer(move |cx| {
+                    let instance = args.get("instance").and_then(Value::as_str).unwrap_or("").to_string();
+                    {
+                        let mut s = shell.borrow_mut();
+                        match args.get("action").and_then(Value::as_str) {
+                            Some("start") => s.connect.start(&instance),
+                            Some("code") => {
+                                let at = if instance.is_empty() { s.connect.instance.clone() } else { instance.clone() };
+                                s.connect.start_code(&at)
+                            }
+                            Some("open") => s.connect.open_page(),
+                            Some("cancel") => s.connect.cancel(),
+                            other => tracing::warn!(?other, "unknown connect action"),
+                        }
+                        let feed = s.connect.feed();
+                        s.feed.set("/connecting", feed);
+                    }
+                    refresh(&shell, cx);
                 });
             }
             "ede.taskbar_menu" => {
@@ -652,6 +714,25 @@ fn overlays_refresh(shell: &SharedShell) {
 }
 
 /// Launches the desktop entry `app` (its id, with or without `.desktop`).
+/// `Local`, then `Local 2`, `Local 3`… among the desktops that exist.
+fn next_desktop_name(shell: &Shell) -> String {
+    let taken: Vec<String> = shell.workspaces.desktops.active().iter().map(|d| d.name.clone()).collect();
+    if !taken.iter().any(|n| n == "Local") {
+        return "Local".into();
+    }
+    (2..).map(|n| format!("Local {n}")).find(|name| !taken.contains(name)).unwrap_or_else(|| "Local".into())
+}
+
+/// The switcher's entries from the desktops index and the accounts' teams
+/// (#EDE-56), into the model (the current entry stays when it is still listed).
+fn switcher_refresh_entries(shell: &SharedShell, cx: &mut App) {
+    let entries = shell.borrow().workspaces.entries();
+    if entries.is_empty() {
+        return;
+    }
+    dispatch(shell, ShellEvent::SwitcherSet { entries }, cx);
+}
+
 fn launch_app(shell: &Shell, app: &str) {
     let wanted = app.trim_end_matches(".desktop");
     match shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop") == wanted) {
@@ -1528,6 +1609,25 @@ fn main() {
     // Notifications and tray changes from the session bus.
     let (dbus_tx, dbus_rx) = mpsc::channel::<dbus::Event>();
     let dbus = if demo { None } else { dbus::Dbus::start(dbus_tx, clock::time) };
+    // #EDE-56: the Local desktops (desktops.json beside compositor.toml), the
+    // shared accounts and their teams; Connect Exponential's threads and the
+    // scheme handler's forwarded URLs.
+    let config_dir = settings::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
+    let workspaces = match accounts::Workspaces::open(&config_dir, demo) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("exponential-shell: {e}");
+            std::process::exit(2);
+        }
+    };
+    workspaces.start_sync();
+    let team_deltas = workspaces.deltas();
+    let (connect_tx, connect_rx) = mpsc::channel::<connect::Event>();
+    let (urls_tx, urls_rx) = mpsc::channel::<String>();
+    if !demo {
+        connect::listen_urls(urls_tx);
+    }
+    let connect = connect::Connect::new(workspaces.auth.clone(), connect_tx);
 
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
         gpui_component::init(cx);
@@ -1551,6 +1651,8 @@ fn main() {
             feed.set("/settings", state);
         }
         feed.set("/user", settings::user_json());
+        feed.set("/connecting", connect.feed());
+        feed.set("/accounts", workspaces.accounts_json());
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
             feed.set("/notifications", json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}));
@@ -1581,6 +1683,15 @@ fn main() {
         let rail = std::env::var_os("EDE_SHELL_RAIL").is_some_and(|v| !v.is_empty() && v != "0") || saved.get("rail").and_then(Value::as_bool).unwrap_or(false);
         if rail {
             model = reduce(&model, &ShellEvent::RailToggle);
+        }
+        // The switcher: the Local desktops and the accounts' teams, the
+        // index's current desktop selected.
+        let entries = workspaces.entries();
+        if !entries.is_empty() {
+            model = reduce(&model, &ShellEvent::SwitcherSet { entries });
+        }
+        if let Some(current) = workspaces.current_local() {
+            model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
         }
         let menu_apps: Vec<StartMenuApp> = installed.iter().map(apps::App::start_menu_app).collect();
         let favourites = model.taskbar.pinned.clone();
@@ -1618,6 +1729,8 @@ fn main() {
             notifications: Notifications::default(),
             dbus,
             tray: Vec::new(),
+            workspaces,
+            connect,
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
@@ -1694,6 +1807,31 @@ fn main() {
                 }
                 while let Ok((document, layers)) = hosted_rx.try_recv() {
                     cx.update(|cx| s.borrow_mut().surfaces.sync_hosted(&document, &layers, cx));
+                }
+                // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
+                let mut teams_changed = false;
+                while let Ok(delta) = team_deltas.try_recv() {
+                    if matches!(delta, sync::ShapeDelta::Applied { .. }) {
+                        teams_changed = true;
+                    }
+                }
+                while let Ok(url) = urls_rx.try_recv() {
+                    s.borrow_mut().connect.callback(&url);
+                }
+                while let Ok(event) = connect_rx.try_recv() {
+                    let signed = s.borrow_mut().connect.apply(event);
+                    if let Some(account) = signed {
+                        s.borrow().workspaces.start_account(&account);
+                        let accounts = s.borrow().workspaces.accounts_json();
+                        s.borrow_mut().feed.set("/accounts", accounts);
+                        teams_changed = true;
+                    }
+                    let feed = s.borrow().connect.feed();
+                    s.borrow_mut().feed.set("/connecting", feed);
+                    dirty = true;
+                }
+                if teams_changed {
+                    cx.update(|cx| switcher_refresh_entries(&s, cx));
                 }
                 let expired = s.borrow_mut().notifications.expire(Instant::now());
                 if !expired.is_empty() {

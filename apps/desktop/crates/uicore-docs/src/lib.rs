@@ -21,7 +21,7 @@ macro_rules! docs {
     };
 }
 
-docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network", "applet-sound", "chat", "expo", "ground", "history", "notification-center", "notifications", "osd", "scale", "settings", "sidebar", "start-menu", "switcher", "taskbar", "tray-menu"];
+docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network", "applet-sound", "chat", "connect", "expo", "ground", "history", "notification-center", "notifications", "osd", "scale", "settings", "sidebar", "start-menu", "switcher", "taskbar", "tray-menu"];
 
 impl Doc {
     /// The parsed document (the sources are checked by the tests).
