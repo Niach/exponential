@@ -8,8 +8,8 @@
     },
     "onDemand": true,
     "functions": [
-      "ede.focus",
-      "ede.close"
+      "ede_focus",
+      "ede_close"
     ]
   },
   "root": {

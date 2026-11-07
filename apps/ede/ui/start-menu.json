@@ -11,12 +11,12 @@
       }
     },
     "functions": [
-      "ede.launch",
-      "ede.lock",
-      "ede.logout",
-      "ede.power",
-      "ede.open_document",
-      "ede.start_menu"
+      "ede_launch",
+      "ede_lock",
+      "ede_logout",
+      "ede_power",
+      "ede_open_document",
+      "ede_start_menu"
     ]
   },
   "root": {

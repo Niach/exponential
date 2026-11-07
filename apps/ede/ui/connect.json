@@ -10,8 +10,8 @@
     "onDemand": true,
     "functions": [
       "set",
-      "ede.connect",
-      "ede.close_document"
+      "ede_connect",
+      "ede_close_document"
     ]
   },
   "root": {

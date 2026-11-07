@@ -82,8 +82,8 @@ fn theme_summary() -> String {
     ede_theme::Choice::resolve(&ede_theme::Overrides::read(&paths), &ede_theme::Installed::scan(&paths)).summary()
 }
 
-/// `ede.config {keyboard: {layout?, repeat_rate?, repeat_delay?}, theme: {bridge?}}`;
-/// `ede.settings` (settings_pages) adds `windows`.
+/// `ede_config {keyboard: {layout?, repeat_rate?, repeat_delay?}, theme: {bridge?}}`;
+/// `ede_settings` (settings_pages) adds `windows`.
 pub fn persist_config(args: &Value) -> Result<(), String> {
     let mut t = read_table();
     for section in ["keyboard", "theme", "windows"] {

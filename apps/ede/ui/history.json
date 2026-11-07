@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory version history (#EDE-53): the start menu's Version history entry opens it as an on-demand top layer surface in the middle of the screen: every edit of the shell's documents is a commit in ~/.config/exponential-desktop/ui (exponential-ui, #EDE-9), listed newest first (/history), with Undo (the newest edit reverted, ede.history undo) and Reset to factory (every document back as it ships, the edits stay in the history).",
+  "$comment": "Exponential Desktop's factory version history (#EDE-53): the start menu's Version history entry opens it as an on-demand top layer surface in the middle of the screen: every edit of the shell's documents is a commit in ~/.config/exponential-desktop/ui (exponential-ui, #EDE-9), listed newest first (/history), with Undo (the newest edit reverted, ede_history undo) and Reset to factory (every document back as it ships, the edits stay in the history).",
   "surface": {
     "layer": "top",
     "size": {
@@ -9,8 +9,8 @@
     "keyboard": "on-demand",
     "onDemand": true,
     "functions": [
-      "ede.history",
-      "ede.close_document"
+      "ede_history",
+      "ede_close_document"
     ]
   },
   "root": {
