@@ -658,8 +658,8 @@ pub enum Submitted {
     /// The server refused it (the entry is gone): the call fails. `invalid`
     /// = invalid input (BAD_REQUEST): a record form shows it inline.
     Refused { message: Option<String>, invalid: bool },
-    /// Offline, behind others, a retry or a drop: answer from the entry.
-    Queued,
+    /// Offline, behind others, a retry or a drop: the answer from the entry.
+    Queued { answer_json: String },
 }
 
 /// One account's records (`eengine::synced`): the O1 outbox across its apps
@@ -696,14 +696,19 @@ impl SyncedRecordStore {
         text(&self.0.visible_rows(&app, me.as_deref()))
     }
 
-    /// Persist a host call's entry; alone and `online` it replays now and
-    /// answers its first outcome, otherwise `Queued` (then call `flush`).
-    pub fn submit(&self, entry_json: String, online: bool) -> Result<Submitted, EngineError> {
-        let entry = serde_json::from_str(&entry_json).map_err(|e| invalid(format!("entry: {e}")))?;
+    /// A record write of an app (`records_upsert`, `records_delete`,
+    /// `records_batch`) as ONE entry: client ids, persisted; alone and
+    /// `online` it replays now and answers its first outcome, otherwise
+    /// `Queued` with the answer from the entry (then call `flush`).
+    pub fn submit_call(&self, app: String, function: String, args_json: String, online: bool) -> Result<Submitted, EngineError> {
+        let Some(call) = eengine::record_call(&function) else { return Err(invalid(format!("`{function}` is not a record write"))) };
+        let args = parse("args", &args_json)?;
+        let entry = self.0.entry(&app, call, &args);
+        let queued = entry.answer();
         Ok(match self.0.submit(entry, online)? {
             eengine::Submitted::Done(answer) => Submitted::Done { answer_json: text(&answer) },
             eengine::Submitted::Refused(pushed) => Submitted::Refused { message: pushed.message, invalid: pushed.invalid },
-            eengine::Submitted::Queued => Submitted::Queued,
+            eengine::Submitted::Queued => Submitted::Queued { answer_json: text(&queued) },
         })
     }
 

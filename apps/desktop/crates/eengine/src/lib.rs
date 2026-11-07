@@ -40,4 +40,4 @@ pub use instance::{brokered, AppInstance, CallResult, LoadError};
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteRecordStore;
 pub use stores::{FsBlobStore, LocalIdentity, MemoryRecordStore, MemoryVault};
-pub use synced::{OutboxLog, Submitted, SyncedListener, SyncedRecordStore};
+pub use synced::{record_call, OutboxLog, Submitted, SyncedListener, SyncedRecordStore};

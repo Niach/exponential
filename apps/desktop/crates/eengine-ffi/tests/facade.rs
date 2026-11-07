@@ -397,12 +397,16 @@ impl eengine_ffi::SyncTransport for Answers {
     }
 }
 
-const ENTRY: &str = r#"{"writeId":"w1","appId":"a","call":"upsert","writes":[{"op":"create","id":"r1","kind":"task","data":{"title":"t"}}],"at":"2026-11-07T09:00:00.000Z","state":"pending"}"#;
+const CREATE: &str = r#"{"kind":"task","data":{"title":"t"}}"#;
+
+fn synced(log: Arc<RoomLog>, reply: &'static str) -> Arc<eengine_ffi::SyncedRecordStore> {
+    eengine_ffi::SyncedRecordStore::new(log, Arc::new(Answers(reply)), None, None).unwrap()
+}
 
 #[test]
 fn the_synced_store_answers_the_server_s_own_answer() {
-    let store = eengine_ffi::SyncedRecordStore::new(Arc::new(RoomLog::default()), Arc::new(Answers(r#"{"ok":true,"answer":{"id":"r1"}}"#)), None, None).unwrap();
-    let got = store.submit(ENTRY.into(), true).unwrap();
+    let store = synced(Arc::default(), r#"{"ok":true,"answer":{"id":"r1"}}"#);
+    let got = store.submit_call("a".into(), "records_upsert".into(), CREATE.into(), true).unwrap();
     assert_eq!(got, eengine_ffi::Submitted::Done { answer_json: r#"{"id":"r1"}"#.into() });
     assert_eq!(store.pending_label("a".into()), None);
 }
@@ -410,11 +414,13 @@ fn the_synced_store_answers_the_server_s_own_answer() {
 #[test]
 fn the_synced_store_carries_a_refusal_and_queues_offline() {
     let log = Arc::new(RoomLog::default());
-    let store = eengine_ffi::SyncedRecordStore::new(log.clone(), Arc::new(Answers(r#"{"code":"BAD_REQUEST","message":"title","invalid":true}"#)), None, None).unwrap();
-    let got = store.submit(ENTRY.into(), true).unwrap();
+    let store = synced(log.clone(), r#"{"code":"BAD_REQUEST","message":"title","invalid":true}"#);
+    let got = store.submit_call("a".into(), "records_upsert".into(), CREATE.into(), true).unwrap();
     assert_eq!(got, eengine_ffi::Submitted::Refused { message: Some("title".into()), invalid: true });
     assert!(log.0.lock().unwrap().is_empty(), "the refused entry leaves the log");
-    assert_eq!(store.submit(ENTRY.into(), false).unwrap(), eengine_ffi::Submitted::Queued);
+    let eengine_ffi::Submitted::Queued { answer_json } = store.submit_call("a".into(), "records_upsert".into(), CREATE.into(), false).unwrap() else { panic!("queued") };
+    let id = serde_json::from_str::<Value>(&answer_json).unwrap()["id"].as_str().unwrap().to_string();
     assert_eq!(store.pending_label("a".into()).as_deref(), Some("1 change waiting to sync"));
-    assert!(store.visible_rows_json("a".into(), Some("me".into())).contains("\"r1\""));
+    assert!(store.visible_rows_json("a".into(), Some("me".into())).contains(&id));
+    assert!(store.submit_call("a".into(), "exponential_issues_update".into(), "{}".into(), false).is_err());
 }
