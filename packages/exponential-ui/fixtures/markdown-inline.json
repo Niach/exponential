@@ -1,5 +1,23 @@
 {
   "$comment": "Round 9 §9.1 (Markdown `profile: inline`, the basic Text): which recipes a part paints with, HAND-AUTHORED and replayed by src/recipes.test.ts, then by the native painters. `recipes` = RecipeQuery list, first to last, later rules over earlier: a paragraph IS Text/root of `variant`; a heading is what the Heading macro paints, Text/root `title` + Heading/root at `h<level>` (5 and 6 paint h4). No Markdown/paragraph or Markdown/heading type applies, the host's `chat` density included. `neutral` = the resolved neutral style tokens. The box: no leading or trailing block gap; between blocks the document gaps stay (web: paragraph margin-bottom $spacing.sm, heading margin $spacing.md top, $spacing.xs bottom, first and last child 0). Everything else (lists, quotes, code, links) stays the document profile. An inline Markdown never goes to a host's own Markdown painter.",
+  "documentPaint": {
+    "$comment": "Round 9 parity: what the document's inline code and lists paint, ×5, from the web's CSS. `code` = the `Markdown/code` recipe under neutral (no recipe = base-css's 0.925em, padding 0 0.3em, radius 4px): the fill spans the font's own ascent and descent around the block's baseline (+ paddingVertical, none under neutral), paddingHorizontal is reserved in the line on each side (a line break slices the box, no padding at the cut), and it paints in quotes and table cells too. A fenced block is none of this. `list`: `indentEm` = the marker column, rounded to a whole px on the natives; a disc `bulletEm` across at every depth, its centre `bulletCentreEm` into the column, on the first line's middle, in the text colour; an ordered marker in the text colour, ending one space before the text; `itemGap` = no `Markdown/listItem` margins under neutral. Replayed by src/markdown-inline.test.ts, Round9Test (Compose), Round9Tests (Swift), tests/round9.rs (gpui).",
+    "code": {
+      "neutral": {
+        "fontFamily": "$type.family.mono",
+        "fontSize": "$type.size.xs",
+        "backgroundColor": "$color.muted",
+        "borderRadius": "$radius.sm",
+        "paddingHorizontal": "$spacing.xs"
+      }
+    },
+    "list": {
+      "indentEm": 1.4,
+      "bulletEm": 0.36,
+      "bulletCentreEm": 0.46,
+      "itemGap": 0
+    }
+  },
   "cases": [
     {
       "part": "paragraph",

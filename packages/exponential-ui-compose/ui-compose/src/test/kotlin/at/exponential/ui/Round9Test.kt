@@ -132,6 +132,7 @@ class Round9Test {
     /** The styleguide's field states (web `ExponentialUiFieldStates`), revealed by the Form's submit. */
     private val fieldStates = """{"id":"f","component":"Form","props":{"name":"f"},"children":[{"id":"stack","component":"Stack","props":{"gap":"md"},"children":[
         ${input("email", "Email", "ada@", "/error")},${input("password", "Password", "hunter2", "/warning")},${input("nickname", "Nickname", "ada", "/info")},
+        {"id":"news","component":"Checkbox","props":{"label":"Newsletter (info)","name":"news","checked":true,"checks":[{"condition":{"@path":"/news"}}]}},
         {"id":"go","component":"Button","props":{"label":"Save","submit":true}}]}]}"""
 
     private fun result(severity: String, message: String) =
@@ -143,6 +144,7 @@ class Round9Test {
         m.setData("/error", result("error", "Not an email"))
         m.setData("/warning", result("warning", "Weak: add a few more characters"))
         m.setData("/info", result("info", "Shown on your profile"))
+        m.setData("/news", result("info", "Monthly at most"))
         return m
     }
 
@@ -175,8 +177,13 @@ class Round9Test {
             assertEquals(theme, m.style(m.idx("password.field")).borderColor, m.style(m.idx("nickname.field")).borderColor)
             assertNotEquals(theme, m.style(m.idx("password.field")).borderColor, m.style(m.idx("email.field")).borderColor)
         }
-        val m = fieldStatesModel()
+        // Pictured under neutral, what the web and desktop shots use.
+        val m = fieldStatesModel("neutral")
         m.press(m.idx("go"))
+        // A Checkbox's message sits under its label, the box on the first line.
+        val box = m.frame(m.idx("news.box"))
+        val message = m.frame(m.idx("news.error"))
+        assertTrue("$box $message", message.left >= box.right && message.top >= box.bottom - 4f)
         render(m)
         live("Not an email", LiveRegionMode.Assertive)
         live("Weak: add a few more characters", LiveRegionMode.Polite)
@@ -264,6 +271,35 @@ class Round9Test {
         """{"id":"root","component":"Box","children":[{"id":"m","component":"Markdown","props":{"text":${JsonValue.Str(text).json},"profile":"$profile","variant":"$variant"}}]}"""
 
     @Test
+    fun theDocumentPaintsTheFixturesCodeAndLists() {
+        val neutral = ThemeHandle.builtin("neutral")!!
+        val paint = Fixtures.json("markdown-inline.json")["documentPaint"]!!
+        val want = paint["code"]!!["neutral"]!!
+        val s = MarkdownPainter.styles(neutral, Mode.Dark, ResolvedTextStyle(14f, 400, 20f, null), emptyMap())
+        val code = s.chip.code
+        assertEquals(token(neutral, want["fontSize"]!!.string!!).number!!.toFloat(), code.size)
+        assertEquals(token(neutral, want["borderRadius"]!!.string!!).number!!.toFloat(), code.radius)
+        assertEquals(token(neutral, want["paddingHorizontal"]!!.string!!).number!!.toFloat(), code.padH)
+        assertEquals(0f, code.padV)
+        val list = paint["list"]!!
+        assertEquals(kotlin.math.round(14f * list["indentEm"]!!.number!!.toFloat()), s.listIndent)
+        assertEquals(list["bulletEm"]!!.number!!.toFloat(), at.exponential.ui.primitives.MARKDOWN_BULLET_EM)
+        assertEquals(list["bulletCentreEm"]!!.number!!.toFloat(), at.exponential.ui.primitives.MARKDOWN_BULLET_CENTRE_EM)
+        assertEquals(list["itemGap"]!!.number!!.toFloat(), s.itemTop)
+        assertEquals(list["itemGap"]!!.number!!.toFloat(), s.itemBottom)
+    }
+
+    @Test
+    fun inlineCodeReservesItsPaddingOnBothSides() {
+        val style = at.exponential.ui.primitives.MarkdownChipStyle(code = at.exponential.ui.primitives.MarkdownCodeStyle(size = 12f, padH = 4f, radius = 6f))
+        val spec = at.exponential.ui.primitives.MarkdownTextSpec(14f, 20f, 400, null)
+        val inlines = listOf(at.exponential.ui.primitives.MarkdownInline(text = "a "), at.exponential.ui.primitives.MarkdownInline(text = "code", code = true))
+        val pads = at.exponential.ui.primitives.markdownChipPlaceholders(inlines, spec, style, null) { _, _ -> 0f }
+        assertEquals(listOf(2 to 3, 7 to 8), pads.map { it.start to it.end })
+        assertEquals(listOf(4f, 4f), pads.map { it.item.width.value })
+    }
+
+    @Test
     fun anInlineMarkdownMeasuresItsVariantAndNoGapAroundIt() {
         val theme = ThemeHandle.builtin("neutral")!!
         val caption = theme.part("Text", "root", mapOf("variant" to JsonValue.Str("caption")), mode = Mode.Dark)
@@ -299,13 +335,14 @@ class Round9Test {
 
     @Test
     fun theMarkdownInlineSpecimen() {
-        val m = makeModel()
+        val m = makeModel(theme = "neutral")
         m.setNested(
             """{"id":"root","component":"Stack","props":{"gap":"lg"},"children":[
             {"id":"t","component":"Text","props":{"text":"A plain Text beside its inline twin"}},
             {"id":"body","component":"Markdown","props":{"text":"A plain Text beside its inline twin","profile":"inline"}},
             {"id":"caption","component":"Markdown","props":{"text":"Caption **strong**, with a [link](https://exponential.at) and `code`","profile":"inline","variant":"caption"}},
-            {"id":"headings","component":"Markdown","props":{"text":"# Heading 1\n\n## Heading 2\n\n### Heading 3\n\n#### Heading 4\n\n##### Heading 5 paints h4\n\n###### Heading 6 paints h4\n\nA paragraph under them.\n\n- a list stays\n- the document's","profile":"inline"}}]}""",
+            {"id":"headings","component":"Markdown","props":{"text":"# Heading 1\n\n## Heading 2\n\n### Heading 3\n\n#### Heading 4\n\n##### Heading 5 paints h4\n\n###### Heading 6 paints h4\n\nA paragraph under them.\n\n- a list stays\n- the document's","profile":"inline"}},
+            {"id":"doc","component":"Markdown","props":{"text":"## A title\n\nA **bold** paragraph with `code` and [a link](https://exponential.at).\n\n- one\n- two\n\nLast paragraph."}}]}""",
         )
         assertEquals(m.frame(m.idx("t")).height, m.frame(m.idx("body")).height, 0.01f)
         render(m)

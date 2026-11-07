@@ -8,6 +8,7 @@ import at.exponential.ui.primitives.MarkdownChip
 import at.exponential.ui.primitives.MarkdownChipKindStyle
 import at.exponential.ui.primitives.MarkdownChipLook
 import at.exponential.ui.primitives.MarkdownChipStyle
+import at.exponential.ui.primitives.MarkdownCodeStyle
 import at.exponential.ui.primitives.MarkdownStyles
 import at.exponential.ui.primitives.MarkdownTextSpec
 import at.exponential.ui.theme.Mode
@@ -98,7 +99,17 @@ object MarkdownPainter {
             )
             if (look != MarkdownChipKindStyle()) kinds[kind] = look
         }
-        s.chip = s.chip.copy(kinds = kinds)
+        // Round 9: inline code = the `Markdown/code` recipe, its type scaled with the rest.
+        val inlineCode = part("code")
+        s.chip = s.chip.copy(
+            kinds = kinds,
+            code = MarkdownCodeStyle(
+                size = inlineCode.px("fontSize")?.times(k),
+                padH = inlineCode.px("paddingHorizontal") ?: inlineCode.px("padding"),
+                padV = inlineCode.px("paddingVertical") ?: inlineCode.px("padding") ?: 0f,
+                radius = inlineCode.px("borderRadius") ?: 4f,
+            ),
+        )
         return s
     }
 

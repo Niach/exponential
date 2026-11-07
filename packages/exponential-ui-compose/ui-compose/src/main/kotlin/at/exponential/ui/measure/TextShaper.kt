@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.sp
 import at.exponential.ui.primitives.Markdown
 import at.exponential.ui.primitives.MarkdownChipStyle
 import at.exponential.ui.primitives.MarkdownInline
+import at.exponential.ui.primitives.MARKDOWN_CODE_PAD
+import at.exponential.ui.primitives.MarkdownCodeStyle
 import at.exponential.ui.primitives.markdownChipPlaceholders
 import at.exponential.ui.primitives.markdownChipWidth
 import at.exponential.ui.primitives.MarkdownTextMeasure
@@ -235,7 +237,7 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
      * The runs of some markdown spans in a base spec (bold / italic / code /
      * link / strike) as an AnnotatedString, painted with [markdownStyle].
      */
-    fun runs(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, mono: String?, ink: Color, link: Color, codeBackground: Color?): AnnotatedString {
+    fun runs(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, mono: String?, ink: Color, link: Color, codeBackground: Color?, code: MarkdownCodeStyle? = null): AnnotatedString {
         val b = AnnotatedString.Builder()
         for (span in inlines) {
             if (span.text.isEmpty()) continue
@@ -246,7 +248,11 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
                 b.append(chip.label)
                 continue
             }
+            // Round 9: inline code = its type between the side padding's placeholders.
+            val pill = span.code && code != null
+            if (pill) b.append(MARKDOWN_CODE_PAD)
             b.append(span.text)
+            if (pill) b.append(MARKDOWN_CODE_PAD)
             val decorations = listOfNotNull(
                 if (span.strike) TextDecoration.LineThrough else null,
                 if (span.link != null) TextDecoration.Underline else null,
@@ -256,6 +262,7 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
                     color = if (span.link != null) link else ink,
                     fontWeight = if (span.bold) FontWeight(max(spec.weight, 600)) else null,
                     fontStyle = if (span.italic) FontStyle.Italic else null,
+                    fontSize = if (pill) code!!.size(spec).sp else TextUnit.Unspecified,
                     fontFamily = if (span.code) family(mono ?: "ui-monospace") else null,
                     textDecoration = if (decorations.isEmpty()) null else TextDecoration.combine(decorations),
                     background = if (span.code && codeBackground != null) codeBackground else Color.Unspecified,
@@ -278,8 +285,8 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
 
 /** Markdown measurement through the shaper (the painter's `MdText`): what [Markdown.layout] asks. */
 class MarkdownShaper(val shaper: TextShaper, val mono: String?) : MarkdownTextMeasure {
-    private fun annotated(inlines: List<MarkdownInline>, spec: MarkdownTextSpec): AnnotatedString =
-        shaper.runs(inlines, spec, mono, Color.Black, Color.Black, null)
+    private fun annotated(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, code: MarkdownCodeStyle? = null): AnnotatedString =
+        shaper.runs(inlines, spec, mono, Color.Black, Color.Black, null, code)
 
     override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?): Float {
         val a = annotated(inlines, spec)
@@ -310,14 +317,14 @@ class MarkdownShaper(val shaper: TextShaper, val mono: String?) : MarkdownTextMe
         markdownChipPlaceholders(inlines, spec, chips, cap) { t, sp -> labelWidth(t, sp, chips) }
 
     override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?, chips: MarkdownChipStyle): Float {
-        if (inlines.none { it.chip != null }) return height(inlines, spec, width)
-        val a = annotated(inlines, spec)
+        if (inlines.none { it.chip != null || it.code }) return height(inlines, spec, width)
+        val a = annotated(inlines, spec, chips.code)
         return shaper.wrappedHeight(a, shaper.markdownStyle(spec), spec.lineHeight, width, placeholders(inlines, spec, chips, width))
     }
 
     override fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
-        if (inlines.none { it.chip != null }) return width(inlines, spec)
-        return shaper.lineWidth(annotated(inlines, spec), shaper.markdownStyle(spec), placeholders(inlines, spec, chips, null))
+        if (inlines.none { it.chip != null || it.code }) return width(inlines, spec)
+        return shaper.lineWidth(annotated(inlines, spec, chips.code), shaper.markdownStyle(spec), placeholders(inlines, spec, chips, null))
     }
 
     override fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
