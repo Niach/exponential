@@ -47,7 +47,7 @@ export interface ShellState {
   taskbar: { pinned: string[]; hover: string | null; previews: string | null; menu: string | null }
   startMenu: { open: boolean; query: string; category: string }
   chat: { open: boolean }
-  altTab: { open: boolean; selected: number }
+  altTab: { open: boolean; selected: number; shown: boolean; app: string | null }
 }
 
 export type ShellEvent =
@@ -78,6 +78,10 @@ export type ShellEvent =
   | { kind: `chat.toggle` }
   | { kind: `altTab.next` }
   | { kind: `altTab.prev` }
+  | { kind: `altTab.nextApp` }
+  | { kind: `altTab.prevApp` }
+  | { kind: `altTab.show` }
+  | { kind: `altTab.select`; index: number }
   | { kind: `altTab.commit` }
   | { kind: `altTab.cancel` }
 
@@ -92,7 +96,7 @@ export function hydrate(partial: Partial<ShellState> | undefined): ShellState {
 export const clone = (state: ShellState): ShellState => structuredClone(state)
 
 const closedStartMenu = (): ShellState[`startMenu`] => ({ open: false, query: ``, category: `all` })
-const closedAltTab = (): ShellState[`altTab`] => ({ open: false, selected: 0 })
+const closedAltTab = (): ShellState[`altTab`] => ({ open: false, selected: 0, shown: false, app: null })
 
 function focus(state: ShellState, id: string): void {
   if (!state.windows.some((w) => w.id === id)) return
@@ -240,12 +244,29 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
       s.chat.open = !s.chat.open
       break
     case `altTab.next`:
-    case `altTab.prev`: {
+    case `altTab.prev`:
+    case `altTab.nextApp`:
+    case `altTab.prevApp`: {
+      const forward = e.kind === `altTab.next` || e.kind === `altTab.nextApp`
+      if (s.altTab.open) {
+        const n = altTabOrder(s).length
+        if (n > 0) s.altTab.selected = (s.altTab.selected + (forward ? 1 : n - 1)) % n
+        break
+      }
+      const first = altTabOrder(s)[0]
+      if (first === undefined) break
+      const app = e.kind === `altTab.nextApp` || e.kind === `altTab.prevApp` ? (s.windows.find((w) => w.id === first)?.app ?? null) : null
+      s.altTab = { open: true, selected: 0, shown: false, app }
       const n = altTabOrder(s).length
-      if (n === 0) break
-      const forward = e.kind === `altTab.next`
-      if (!s.altTab.open) s.altTab = { open: true, selected: n >= 2 ? (forward ? 1 : n - 1) : 0 }
-      else s.altTab.selected = (s.altTab.selected + (forward ? 1 : n - 1)) % n
+      s.altTab.selected = n >= 2 ? (forward ? 1 : n - 1) : 0
+      break
+    }
+    case `altTab.show`:
+      if (s.altTab.open) s.altTab.shown = true
+      break
+    case `altTab.select`: {
+      const index = e.index as number
+      if (s.altTab.open && Number.isInteger(index) && index >= 0 && index < altTabOrder(s).length) s.altTab.selected = index
       break
     }
     case `altTab.commit`: {
@@ -352,12 +373,13 @@ export function switcherSections(state: ShellState): SwitcherSection[] {
   return sections
 }
 
-/** The switcher's order: the mru (minimized included), the active workspace's windows first, then the others. */
+/** The switcher's order: the active workspace's windows in mru order (minimized included); with `altTab.app` only that app's. */
 export function altTabOrder(state: ShellState): string[] {
-  const workspaceOf = new Map(state.windows.map((w) => [w.id, w.workspace]))
-  const here = state.mru.filter((id) => workspaceOf.get(id) === state.workspaces.active)
-  const elsewhere = state.mru.filter((id) => workspaceOf.has(id) && workspaceOf.get(id) !== state.workspaces.active)
-  return [...here, ...elsewhere]
+  const byId = new Map(state.windows.map((w) => [w.id, w]))
+  return state.mru.filter((id) => {
+    const w = byId.get(id)
+    return w !== undefined && w.workspace === state.workspaces.active && (state.altTab.app === null || w.app === state.altTab.app)
+  })
 }
 
 export interface StartMenuApp {

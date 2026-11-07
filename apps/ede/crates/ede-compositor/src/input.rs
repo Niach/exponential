@@ -134,7 +134,11 @@ impl Ede {
         } else if state == ButtonState::Pressed && !pointer.is_grabbed() {
             let location = pointer.current_location();
             let under = self.surface_under(location).map(|(s, _)| s);
-            let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| self.space.element_under(location).map(|(w, _)| w.clone()));
+            // A press on a shell layer (the Alt-Tab switcher, Expo, Scale)
+            // is the shell's: the window under it neither takes focus nor
+            // starts an Alt+drag (#EDE-65: Alt is held while a tile is clicked).
+            let on_layer = under.as_ref().is_some_and(|s| self.is_layer_surface(s));
+            let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| if on_layer { None } else { self.space.element_under(location).map(|(w, _)| w.clone()) });
             match (&window, under) {
                 (Some(_), _) => self.focus(window.clone()),
                 // A layer surface that takes the keyboard (the shell's menu,
@@ -199,7 +203,9 @@ impl Ede {
                 ede.hotkeys.fired = Some(crate::hotkeys::Hotkey::PopupsDismiss);
                 return FilterResult::Intercept(Action::Hotkey);
             }
-            let (keep, hotkey) = crate::hotkeys::decide(&mut ede.hotkeys, mods, sym, state, listening);
+            // The key above Tab is Alt+`'s by position, whatever the layout makes of it.
+            let hotkey_sym = if code == crate::hotkeys::ABOVE_TAB_KEYCODE && mods.alt { keysyms::KEY_grave } else { sym };
+            let (keep, hotkey) = crate::hotkeys::decide(&mut ede.hotkeys, mods, hotkey_sym, state, listening);
             if hotkey.is_some() {
                 ede.hotkeys.fired = hotkey;
             }
@@ -341,13 +347,22 @@ impl Ede {
     /// Is `surface` (or its root) a layer surface whose keyboard
     /// interactivity is not `none`?
     pub fn layer_takes_keyboard(&self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) -> bool {
+        self.layer_of(surface, |l| l.can_receive_keyboard_focus())
+    }
+
+    /// Is the surface (or the surface its subsurface hangs off) a layer surface?
+    pub fn is_layer_surface(&self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) -> bool {
+        self.layer_of(surface, |_| true)
+    }
+
+    fn layer_of(&self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface, test: impl Fn(&smithay::desktop::LayerSurface) -> bool) -> bool {
         let mut root = surface.clone();
         while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
             root = parent;
         }
         self.space.outputs().any(|o| {
             let map = smithay::desktop::layer_map_for_output(o);
-            map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(|l| l.can_receive_keyboard_focus())
+            map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(&test)
         })
     }
 
