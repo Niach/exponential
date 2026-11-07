@@ -1771,8 +1771,8 @@ fn main() {
         .expect("the events thread");
     let mut installed = if demo { apps::demo() } else { apps::scan() };
     installed.extend(builtin_apps(demo));
-    // #VAPP-273: the apps on the Engine, from the apps directory (the goldens only with EDE_APPS_DIR).
-    let engine_apps = if demo && std::env::var_os("EDE_APPS_DIR").is_none() { Vec::new() } else { engine::scan(&engine::apps_dir()) };
+    // #VAPP-273: the apps on the Engine: the factory ones, then the person's (the goldens only with EDE_APPS_DIR).
+    let engine_apps = if demo && std::env::var_os("EDE_APPS_DIR").is_none() { Vec::new() } else { engine::scan_installed(&engine::factory_apps_dir(), &engine::apps_dir()) };
     installed.extend(engine_apps.iter().map(engine::launcher_entry));
     installed.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     tracing::info!(apps = installed.len(), engine_apps = engine_apps.len(), demo, "desktop entries");

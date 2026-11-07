@@ -12,7 +12,8 @@
 # exponential-ui, exponential-shell, exponential-sealed (#EDE-17: lock,
 # polkit, consent), exponential-services (#EDE-13), exponential-theme
 # (#EDE-19) in /usr/bin, xdg-desktop-portal-exponential (#EDE-15), the
-# factory documents in /usr/share/exponential-desktop/ui, the session's
+# factory documents in /usr/share/exponential-desktop/ui, the factory apps in
+# /usr/share/exponential-desktop/apps (#VAPP-273), the session's
 # systemd user units (exponential-session.target starts
 # exponential-shell.service = `exponential-ui supervise -- exponential-shell`),
 # the login screen entries (/usr/share/wayland-sessions: GDM, LightDM, SDDM).
@@ -60,6 +61,9 @@ install -Dm644 "$here/portal/exponential-portals.conf" "$stage/usr/share/xdg-des
 install -Dm644 "$here/portal/org.freedesktop.impl.portal.desktop.exponential.service" "$stage/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.exponential.service"
 install -Dm644 "$here/portal/xdg-desktop-portal-exponential.service" "$stage/usr/lib/systemd/user/xdg-desktop-portal-exponential.service"
 for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/exponential-desktop/ui/$(basename "$f")"; done
+# #VAPP-273: the factory apps (Apps packages the shell runs on the Engine); a
+# person's ~/.config/exponential-desktop/apps/<name>.app.json replaces one by file name.
+for f in "$ede"/apps/*.app.json; do install -Dm644 "$f" "$stage/usr/share/exponential-desktop/apps/$(basename "$f")"; done
 for f in "$here"/wayland-sessions/*.desktop; do install -Dm644 "$f" "$stage/usr/share/wayland-sessions/$(basename "$f")"; done
 for f in "$here"/systemd/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/user/$(basename "$f")"; done
 install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/licenses/exponential-desktop/LICENSE"

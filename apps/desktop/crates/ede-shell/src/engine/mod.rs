@@ -50,6 +50,15 @@ pub struct EngineApp {
     pub file: Value,
 }
 
+/// The factory apps the package installs (`$EDE_FACTORY_APPS_DIR`, else
+/// `/usr/share/exponential-desktop/apps`); a person's file of the same name
+/// in [`apps_dir`] replaces one.
+pub const FACTORY_APPS_DIR: &str = "/usr/share/exponential-desktop/apps";
+
+pub fn factory_apps_dir() -> PathBuf {
+    std::env::var_os("EDE_FACTORY_APPS_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(FACTORY_APPS_DIR))
+}
+
 /// `$EDE_APPS_DIR`, else the `apps` directory next to the shell's `ui` one.
 pub fn apps_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("EDE_APPS_DIR").filter(|v| !v.is_empty()) {
@@ -70,6 +79,18 @@ pub fn data_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local").join("share"));
     data.join("exponential-desktop").join("apps")
+}
+
+/// The apps of the factory directory, then the person's own, a file of the
+/// same name in the person's directory replacing the factory one; by file name.
+pub fn scan_installed(factory: &Path, personal: &Path) -> Vec<EngineApp> {
+    let mut apps = scan(factory);
+    for app in scan(personal) {
+        apps.retain(|a| a.path.file_name() != app.path.file_name());
+        apps.push(app);
+    }
+    apps.sort_by(|a, b| a.path.file_name().cmp(&b.path.file_name()));
+    apps
 }
 
 /// Every `*.app.json` of `dir` that parses and names a package id, by file
@@ -451,6 +472,19 @@ mod tests {
         assert_eq!(window_max((1280, 720), false), (988, 652));
         assert_eq!(window_max((1280, 720), true), (1204, 652));
         assert_eq!(window_max((300, 200), false), (320, 240));
+    }
+
+    #[test]
+    fn a_persons_app_replaces_the_factory_one_by_file_name() {
+        let factory = tempfile::tempdir().unwrap();
+        let personal = tempfile::tempdir().unwrap();
+        std::fs::write(factory.path().join("notes.app.json"), SAMPLE).unwrap();
+        std::fs::write(factory.path().join("clock.app.json"), SAMPLE.replace("at.exponential.notes", "at.exponential.clock")).unwrap();
+        std::fs::write(personal.path().join("notes.app.json"), SAMPLE.replace("\"name\": \"Notes\"", "\"name\": \"My notes\"")).unwrap();
+        let apps = scan_installed(factory.path(), personal.path());
+        assert_eq!(apps.iter().map(|a| (a.id.as_str(), a.name.as_str())).collect::<Vec<_>>(), [("at.exponential.clock", "Notes"), ("at.exponential.notes", "My notes")]);
+        assert!(apps[1].path.starts_with(personal.path()));
+        assert!(scan_installed(Path::new("/nonexistent"), personal.path()).len() == 1);
     }
 
     #[test]
