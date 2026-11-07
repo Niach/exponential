@@ -1050,10 +1050,10 @@ mod tests {
         let data = json!({"n": 3, "email": "a@b.co", "price": 1234.5});
         let ctx = ResolveContext::new(&data, "");
         let call = |name: &str, args: Value| resolve_value(&json!({"@call": name, "args": args}), &ctx);
-        assert_eq!(call("required", json!({"value": {"@path": "/email"}})), Some(json!(true)));
-        assert_eq!(call("email", json!({"value": {"@path": "/email"}})), Some(json!(true)));
-        assert_eq!(call("regex", json!({"value": "ab12", "pattern": "^[a-z]+\\d{2}$"})), Some(json!(true)));
-        assert_eq!(call("regex", json!({"value": "ab1", "pattern": "^[a-z]+\\d{2}$"})), Some(json!(false)));
+        assert_eq!(call("required", json!({"value": {"@path": "/email"}})), Some(json!({"valid": true})));
+        assert_eq!(call("email", json!({"value": {"@path": "/email"}})), Some(json!({"valid": true})));
+        assert_eq!(call("regex", json!({"value": "ab12", "pattern": "^[a-z]+\\d{2}$"})), Some(json!({"valid": true})));
+        assert_eq!(call("regex", json!({"value": "ab1", "pattern": "^[a-z]+\\d{2}$"})), Some(json!({"valid": false})));
         assert_eq!(call("formatNumber", json!({"value": {"@path": "/price"}})), Some(json!("1,234.5")));
         assert_eq!(call("formatPercent", json!({"value": 0.256})), Some(json!("26%")));
         assert_eq!(call("formatNumber", json!({"value": 1234.5, "decimals": 2})), Some(json!("1,234.50")));
@@ -1066,8 +1066,11 @@ mod tests {
         assert_eq!(call("formatDate", json!({"value": "2026-10-07", "format": "EEE"})), Some(json!("Wed")));
         assert_eq!(call("and", json!({"values": [true, 1]})), Some(json!(true)));
         assert_eq!(call("not", json!({"value": ""})), Some(json!(true)));
-        assert_eq!(call("length", json!({"value": "abc", "min": 2, "max": 3})), Some(json!(true)));
-        assert_eq!(call("numeric", json!({"value": "12", "min": 10})), Some(json!(true)));
+        assert_eq!(call("length", json!({"value": "abc", "min": 2, "max": 3})), Some(json!({"valid": true})));
+        assert_eq!(call("numeric", json!({"value": "12", "min": 10})), Some(json!({"valid": true})));
+        assert_eq!(call("numeric", json!({"value": " "})), Some(json!({"valid": false})));
+        assert_eq!(call("email", json!({"value": "a@..b"})), Some(json!({"valid": true})));
+        assert_eq!(call("email", json!({"value": "a@b."})), Some(json!({"valid": false})));
     }
 
     #[test]

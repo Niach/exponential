@@ -52,7 +52,7 @@ fn pointer_json_a_landed_write_reads_back() {
 fn the_kitchen_sinks_list_template_renders_only_per_item() {
     let expanded = support::fixture("kitchen-sink.expanded.json");
     let templates: Vec<&String> = expanded["templates"].as_object().unwrap().keys().collect();
-    assert_eq!(templates, ["list-item"]);
+    assert_eq!(templates, ["list_item"]);
     let sink: eui_core::NestedNode = serde_json::from_value(support::fixture("kitchen-sink.json")).unwrap();
     let reduced = eui_core::reducer::reduce_nested(&sink, &eui_core::reducer::ReduceOptions::new(eui_core::CORE_CATALOG_ID));
     assert!(!eui_core::reducer::preorder(&reduced.root).contains(&"list-item".to_string()));

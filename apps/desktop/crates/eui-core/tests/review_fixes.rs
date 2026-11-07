@@ -497,7 +497,7 @@ fn a_partial_update_keeps_an_untouched_unbound_controls_local_value() {
 #[test]
 fn an_a2ui_function_call_on_a_two_way_macro_is_reported_not_silently_dropped() {
     let tree: NestedNode = serde_json::from_value(json!({"id": "c", "component": "Collapsible",
-        "props": {"title": "More", "open": {"@path": "/o"}}, "on": {"change": {"functionCall": {"@call": "harness.track"}}}})).unwrap();
+        "props": {"title": "More", "open": {"@path": "/o"}}, "on": {"change": {"functionCall": {"@call": "harness_track"}}}})).unwrap();
     let mut s = Surface::new("t", SurfaceOptions::default());
     let outcome = s.set_nested(tree);
     assert_eq!(outcome.issues.len(), 1, "{:?}", outcome.issues);

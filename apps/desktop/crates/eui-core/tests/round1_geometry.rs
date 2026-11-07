@@ -152,29 +152,29 @@ fn layout_geometry_round1_the_responsive_rules_show() {
     let x = |case: &str, id: &str| frame(case, id).unwrap()["x"].as_f64().unwrap();
     let w = |case: &str, id: &str| frame(case, id).unwrap()["w"].as_f64().unwrap();
     // The grid: 1 column on phones, 2 from sm (640), 3 from lg (1024).
-    assert_eq!(x("390", "resp-card-1"), x("390", "resp-card-2"));
-    assert_eq!(x("600", "resp-card-1"), x("600", "resp-card-2"), "600 < sm: still one column");
-    assert!(x("900", "resp-card-2") > x("900", "resp-card-1"));
-    assert_eq!(x("900", "resp-card-3"), x("900", "resp-card-1"), "two columns: the third wraps");
-    assert!(x("1280", "resp-card-3") > x("1280", "resp-card-2"), "three columns from lg");
+    assert_eq!(x("390", "resp_card_1"), x("390", "resp_card_2"));
+    assert_eq!(x("600", "resp_card_1"), x("600", "resp_card_2"), "600 < sm: still one column");
+    assert!(x("900", "resp_card_2") > x("900", "resp_card_1"));
+    assert_eq!(x("900", "resp_card_3"), x("900", "resp_card_1"), "two columns: the third wraps");
+    assert!(x("1280", "resp_card_3") > x("1280", "resp_card_2"), "three columns from lg");
     // The sm band (640–767): two columns already, the sidebar still hidden.
-    assert!(x("700", "resp-card-2") > x("700", "resp-card-1"), "700 ≥ sm: two columns");
-    assert_eq!(w("700", "resp-shell.sidebar"), 0.0, "700 < md");
+    assert!(x("700", "resp_card_2") > x("700", "resp_card_1"), "700 ≥ sm: two columns");
+    assert_eq!(w("700", "resp_shell.sidebar"), 0.0, "700 < md");
     // The sidebar column hides below md (768) and shows FROM it (exactly 768
     // included: `max-width: 768` means < 768).
-    assert_eq!(w("600", "resp-shell.sidebar"), 0.0);
-    assert_eq!(w("768", "resp-shell.sidebar"), 200.0, "the exact breakpoint is md");
-    assert_eq!(w("900", "resp-shell.sidebar"), 200.0);
+    assert_eq!(w("600", "resp_shell.sidebar"), 0.0);
+    assert_eq!(w("768", "resp_shell.sidebar"), 200.0, "the exact breakpoint is md");
+    assert_eq!(w("900", "resp_shell.sidebar"), 200.0);
     // Shown only narrow / only wide.
-    assert_eq!(w("390", "resp-only-wide"), 0.0);
-    assert!(w("390", "resp-only-narrow") > 0.0);
-    assert!(w("1280", "resp-only-wide") > 0.0);
-    assert_eq!(w("1280", "resp-only-narrow"), 0.0);
+    assert_eq!(w("390", "resp_only_wide"), 0.0);
+    assert!(w("390", "resp_only_narrow") > 0.0);
+    assert!(w("1280", "resp_only_wide") > 0.0);
+    assert_eq!(w("1280", "resp_only_narrow"), 0.0);
     // RTL mirrors: the sidebar sits at the right edge (root padding 16, the
     // Card's 1 px border and its padded body's 16, VAPP-91).
     let root_w = w("900-rtl", "root");
-    let sb = frame("900-rtl", "resp-shell.sidebar").unwrap();
+    let sb = frame("900-rtl", "resp_shell.sidebar").unwrap();
     assert!((sb["x"].as_f64().unwrap() + sb["w"].as_f64().unwrap() - (root_w - 16.0 - 1.0 - 16.0)).abs() < 1.5);
-    let shell = frame("900-rtl", "resp-shell").unwrap();
+    let shell = frame("900-rtl", "resp_shell").unwrap();
     assert!((sb["x"].as_f64().unwrap() + sb["w"].as_f64().unwrap() - (shell["x"].as_f64().unwrap() + shell["w"].as_f64().unwrap())).abs() < 0.01, "flush with the shell's end");
 }

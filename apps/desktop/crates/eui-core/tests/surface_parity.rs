@@ -46,7 +46,7 @@ fn a_template_row_press_fires_its_handler_with_the_item_scope() {
     s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s", "components": [
         {"id": "root", "component": "List", "children": {"componentId": "row", "path": "/rows"}},
         {"id": "row", "component": "Box", "pressable": true, "children": ["label"],
-         "on": {"press": {"functionCall": {"@call": "harness.toast", "args": {"id": {"@path": "id"}}}}}},
+         "on": {"press": {"functionCall": {"@call": "harness_toast", "args": {"id": {"@path": "id"}}}}}},
         {"id": "label", "component": "Text", "text": {"@path": "name"}}
     ]}})).unwrap();
     s.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "s", "path": "/rows", "value": [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}]}})).unwrap();
@@ -54,5 +54,5 @@ fn a_template_row_press_fires_its_handler_with_the_item_scope() {
     s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
     let index = s.nodes().iter().position(|n| n.id == "row.1").expect("row.1 laid out") as u32;
     let events = s.event(index, "press", None);
-    assert!(events.iter().any(|e| matches!(e, OutEvent::FunctionCall { name, args, .. } if name == "harness.toast" && args["id"] == "b")), "{events:?}");
+    assert!(events.iter().any(|e| matches!(e, OutEvent::FunctionCall { name, args, .. } if name == "harness_toast" && args["id"] == "b")), "{events:?}");
 }

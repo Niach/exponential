@@ -123,7 +123,7 @@ fn bind_time_extra_cases_replay_issues_and_row_slots_included() {
         let slot = &r["slots"]["status"];
         if slot.is_null() { Value::Null } else { serde_json::from_value::<UiNode>(slot.clone()).ok().and_then(|n| find(&n, "cell.label").map(|l| l.props["text"].clone())).unwrap_or(Value::Null) }
     }).collect();
-    assert_eq!(labels, vec![json!("ok"), Value::Null, json!(0)]);
+    assert_eq!(labels, vec![json!("ok"), Value::Null, Value::Null], "visible: 0 is false under the 1.0 coercion");
 }
 
 #[test]

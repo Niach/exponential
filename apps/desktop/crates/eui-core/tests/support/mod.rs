@@ -168,7 +168,7 @@ pub fn policy_cases() -> Vec<Case> {
     for c in list(&f, "negotiation") {
         let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
         let result = same(&to_value(&supported_catalog_ids(&ids)), &c["expected"]["supportedCatalogIds"])
-            .and_then(|_| same(&client_capabilities(&ids), &c["expected"]["clientCapabilities"]));
+            .and_then(|_| same(&client_capabilities(&ids), &c["expected"]["rendererCapabilities"]));
         out.push((format!("negotiation: {} extension ids", ids.len()), result));
     }
     out
@@ -323,7 +323,7 @@ pub fn package_cases() -> Vec<Case> {
         let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
         let available: Option<Vec<AvailableExtension>> = c.get("available").map(|a| serde_json::from_value(a.clone()).unwrap());
         let catalog_ids = supported_catalog_ids(&ids);
-        let pkg = serde_json::json!({"formatVersion": 5, "id": "x", "name": "X", "version": "1.0.0", "catalogId": catalog_ids[0], "templates": {"t": {"components": [{"id": "root", "component": "Text", "text": "Hi"}]}}, "extensions": c["extensions"]});
+        let pkg = serde_json::json!({"formatVersion": 6, "id": "x", "name": "X", "version": "1.0.0", "catalogId": catalog_ids[0], "templates": {"t": {"components": [{"id": "root", "component": "Text", "text": "Hi"}]}}, "extensions": c["extensions"]});
         let got = validate_package_with(&pkg, &catalog_ids, available.as_deref());
         out.push((format!("extensions: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
     }

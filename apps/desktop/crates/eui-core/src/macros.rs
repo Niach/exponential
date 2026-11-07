@@ -369,7 +369,8 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                     spec.prop
                 );
                 if !exp.issues.iter().any(|i| i.id == exp.source.id && i.message == message) {
-                    exp.issues.push(ReduceIssue::new(exp.source.id.clone(), message));
+                    let pointer = format!("/on/{}", macro_event.replace('~', "~0").replace('/', "~1"));
+                    exp.issues.push(ReduceIssue::at(exp.source.id.clone(), message, &pointer, "VALIDATION_FAILED"));
                 }
                 continue;
             }

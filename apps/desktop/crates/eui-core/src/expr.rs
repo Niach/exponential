@@ -918,7 +918,10 @@ mod tests {
                 Some(json!({"@call": "eq", "args": {"a": {"@call": "fallback", "args": {"value": {"@path": "/page"}, "default": 1}}, "b": 1}}))
             );
             assert_eq!(ev(json!("{props.page} / {props.total}"), ctx), Some(json!({"@call": "concat", "args": {"values": [{"@path": "/page"}, " / ", 5]}})));
-            assert_eq!(ev(json!("{!props.open}"), ctx), Some(json!({"@call": "not", "args": {"value": {"@path": "/open"}}})));
+            assert_eq!(
+                ev(json!("{!props.open}"), ctx),
+                Some(json!({"@call": "not", "args": {"value": {"@call": "cond", "args": {"if": {"@path": "/open"}, "then": true, "else": false}}}}))
+            );
             assert_eq!(ev(json!("{range(props.page)}"), ctx), None);
             assert_eq!(ev(json!({"$percent": ["{props.page}", 10]}), ctx), Some(json!({"@call": "percent", "args": {"value": {"@path": "/page"}, "max": 10}})));
             assert_eq!(ev(json!({"$cond": ["props.open", "a", "b"]}), ctx), Some(json!({"@call": "cond", "args": {"if": {"@path": "/open"}, "then": "a", "else": "b"}})));
@@ -931,7 +934,10 @@ mod tests {
                 ev(json!({"$clamp": ["{props.page|1}", 1, "{props.total}"]}), ctx),
                 Some(json!({"@call": "clamp", "args": {"value": {"@call": "fallback", "args": {"value": {"@path": "/page"}, "default": 1}}, "min": 1, "max": 5}}))
             );
-            assert_eq!(eval_condition_value(Some(&json!("props.open")), ctx), Decided::Dynamic(json!({"@path": "/open"})));
+            assert_eq!(
+                eval_condition_value(Some(&json!("props.open")), ctx),
+                Decided::Dynamic(json!({"@call": "cond", "args": {"if": {"@path": "/open"}, "then": true, "else": false}}))
+            );
             assert!(eval_condition(&json!("props.open"), ctx));
         });
     }

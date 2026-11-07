@@ -65,6 +65,6 @@ mod tests {
         ] {
             assert_eq!(limit(name), Some(v), "{name}");
         }
-        assert_eq!(g::LIMIT_NAMES.len(), 6);
+        assert_eq!(g::LIMIT_NAMES.len(), 7);
     }
 }

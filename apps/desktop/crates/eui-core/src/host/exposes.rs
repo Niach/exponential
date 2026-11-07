@@ -239,7 +239,7 @@ pub fn expose_issues(exposes: &Value, records: Option<&Value>, upstreams: Option
             level = if EXPOSE_READ_RECORD_OPS.contains(&op) { "read" } else { "write" };
         } else if let Some(action) = run.get("action") {
             let Some(action) = action.as_str().filter(|a| is_action_name(a)) else {
-                fail("action", "/run/action", "action is a function name like namespace.function".into());
+                fail("action", "/run/action", "action is a function name like namespace_function".into());
                 continue;
             };
             if expose_name_destructive(action) {

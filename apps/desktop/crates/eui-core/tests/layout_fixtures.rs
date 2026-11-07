@@ -112,8 +112,8 @@ fn layout_second_pass_at_the_same_width_costs_no_upcall_and_viewport_changes_res
     assert_eq!(narrow.upcalls, 0, "a width change re-uses the intrinsics");
     assert!(narrow.surface_height > first.surface_height);
     // Pressed → only the visual changes, geometry stays.
-    let scan = surface.index_of("hdr-scan").unwrap();
-    assert!(surface.set_pressed(&["hdr-scan".to_string()]));
+    let scan = surface.index_of("hdr_scan").unwrap();
+    assert!(surface.set_pressed(&["hdr_scan".to_string()]));
     let pressed = surface.layout(&mut measure);
     assert_eq!(pressed.frames, narrow.frames);
     assert_eq!(pressed.visual_changes, vec![scan]);
@@ -405,11 +405,11 @@ fn a2ui_messages_drive_the_surface_including_templates_and_basic_components() {
     surface.apply(&json!({"version": "1.0", "createSurface": {"surfaceId": "s1", "catalogId": eui_core::catalog::A2UI_BASIC_CATALOG_ID}})).unwrap();
     let outcome = surface.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s1", "components": [
         {"id": "root", "component": "Column", "children": ["title", "items", "btn"]},
-        {"id": "title", "component": "Text", "text": {"@path": "/title"}, "variant": "h2"},
+        {"id": "title", "component": "Text", "text": {"@path": "/title"}},
         {"id": "items", "component": "List", "children": {"componentId": "row", "path": "/rows"}},
         {"id": "row", "component": "Text", "text": {"@path": "name"}},
-        {"id": "btn", "component": "Button", "child": "btn-label", "action": {"event": {"name": "go", "context": {"n": {"@path": "/count"}}}}},
-        {"id": "btn-label", "component": "Text", "text": "Go"}
+        {"id": "btn", "component": "Button", "child": "btn_label", "action": {"event": {"name": "go", "context": {"n": {"@path": "/count"}}}}},
+        {"id": "btn_label", "component": "Text", "text": "Go"}
     ]}})).unwrap();
     assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
     surface.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "s1", "value": {"title": "Hello", "count": 2, "rows": [{"name": "one"}, {"name": "two"}, {"name": "three"}]}}})).unwrap();

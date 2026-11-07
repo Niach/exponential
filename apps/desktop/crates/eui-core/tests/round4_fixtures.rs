@@ -128,7 +128,8 @@ fn template_budget_items_charge_max_template_items_and_their_subtree_nodes_depth
             let built = (0..site["items"].as_u64().unwrap()).filter(|i| s.index_of(&format!("{template}{instance}.{i}")).and_then(|i| s.layout_node(i)).is_some()).count();
             assert_eq!(built as u64, site["built"].as_u64().unwrap(), "{}: {template}{instance}", c["name"]);
         }
-        assert_eq!(serde_json::to_value(s.issues()).unwrap(), c["issues"], "{}", c["name"]);
+        let issues: Vec<Value> = s.issues().iter().map(|i| json!({"id": i.id, "message": i.message})).collect();
+        assert_eq!(Value::Array(issues), c["issues"], "{}", c["name"]);
     }
 }
 
@@ -175,11 +176,11 @@ fn close_on_submit_the_nearest_dialog_or_drawer_around_the_form_closes() {
 }
 
 #[test]
-fn host_functions_are_namespaced() {
-    for ok in ["openUrl", "filter", "set", "formatRelativeTime", "app.toast", "harness.toast", "cart.add", "a.b.c"] {
+fn a_callable_name_is_known_or_an_identifier() {
+    for ok in ["openUrl", "filter", "set", "formatRelativeTime", "app_toast", "harness_toast", "@index", "cart_add", "toast"] {
         assert!(is_callable_name(ok), "{ok}");
     }
-    for bad in ["opneUrl", "toast", ".toast", "app.", "app..toast", ""] {
+    for bad in ["a.b.c", ".toast", "app.", "1st", ""] {
         assert!(!is_callable_name(bad), "{bad}");
     }
 }
