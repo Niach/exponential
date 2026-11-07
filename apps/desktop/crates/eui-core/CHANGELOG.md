@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.19.0 (2026-11-07)
+
 - An app's own file as a src (#VAPP-271): `host::app_file_id(src)` (the id of an `app-file:<fileId>` src, else `None`), `APP_FILE_SCHEME` / `APP_FILE_ID_PATTERN` (`catalog/host.json` `media.appFile`); no URL or media scheme, a host with app files resolves it before the media policy. Locked by `fixtures/host-policy.json` `appFiles`.
 - A call's answer (#VAPP-271): a package action's `call` step may name its answer, `result: <name>` (`ACTION_RESULT_PATTERN`, `catalog/host.json` `package.actions.resultPattern`), read by the later steps as `results.<name>`; `run_action` now answers `Result<ActionRun, String>` (`ActionRun::Plan` | `ActionRun::Pending(PendingCall {step, name, args, result})`), `ActionContext.results` carries the answers so far; a list of dyn items fits any list field at install; every Engine capability name (`camera.` … `share.`) is a host function; a package test's action takes `results` (`step <i>: <call> has no result in the test`).
 

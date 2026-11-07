@@ -47,3 +47,4 @@
 - Markdown i ärenden, kommentarer och chattar ser likadant ut i alla appar
 - Din Assistent fungerar i alla dina team
 - Teamägare kan välja en Koordinator-agent
+- Appar kan rita på en duk och reagera på tryck och dragningar

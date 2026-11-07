@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.19.0 (2026-11-07)
+
 - A call's answer (#VAPP-271): `run_package_action_json` takes a trailing `results_json` (`{<name>: answer}`, defaulted to none) and may answer `{"pending": {step, name, args, result}}`. Bindings regenerated.
 
 ## 0.18.0 (2026-11-06)

@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.19.0 (2026-11-07)
+
 - Round 8: Canvas and Checkbox `indeterminate` through the Solid painter.
 
 ## 0.18.0 (2026-11-06)

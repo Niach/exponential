@@ -47,3 +47,4 @@
 - Markdown näyttää samalta tehtävissä, kommenteissa ja keskusteluissa kaikissa sovelluksissa
 - Avustajasi toimii kaikissa tiimeissäsi
 - Tiimin omistajat voivat nimetä Koordinaattori-agentin
+- Sovellukset voivat piirtää kankaalle ja reagoida napautuksiin ja vetoihin

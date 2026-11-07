@@ -47,3 +47,4 @@
 - Il Markdown di issue, commenti e chat è identico su ogni app
 - Il tuo Assistente funziona in tutti i tuoi team
 - I proprietari possono scegliere un agente Coordinatore
+- Le app possono disegnare su una tela e rispondere a tocchi e trascinamenti

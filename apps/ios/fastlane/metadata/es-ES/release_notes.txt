@@ -47,3 +47,4 @@
 - El Markdown de incidencias, comentarios y chats se ve igual en todas las apps
 - Tu Asistente funciona en todos tus equipos
 - Los propietarios pueden elegir un agente Coordinador
+- Las apps pueden dibujar en un lienzo y responder a toques y arrastres

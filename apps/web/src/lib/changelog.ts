@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-07-canvas-and-a2ui`,
+    date: `2026-11-07`,
+    title: `Drawing in apps, and the next app format`,
+    summary: `Apps can draw on a canvas, show half-checked boxes and richer progress, and every app now reads the next version of the app format ahead of the switch.`,
+    body: `- **Canvas**: apps can draw shapes, text and paths on a canvas and react to taps and drags, the same on the web, desktop, iPhone and Android.
+- **Controls**: a checkbox can be half-checked, a progress bar can show its value as text with a detail line, and a stepper can collapse its finished steps.
+- **Checks and accessibility**: an app's checks can warn instead of only failing, and screen readers hear live updates and skip hidden parts.
+- **The next app format**: every app now reads A2UI 1.0 and still reads today's format, so apps keep working when the switch comes.`,
+  },
+  {
     id: `2026-11-07-assistant-in-every-team`,
     date: `2026-11-07`,
     title: `Your Assistant in every team, and team Coordinators`,
