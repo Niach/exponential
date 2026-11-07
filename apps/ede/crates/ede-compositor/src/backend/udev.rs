@@ -131,30 +131,50 @@ pub struct Udev {
     cursor_buffers: Vec<(xcursor::parser::Image, MemoryRenderBuffer)>,
     /// Whether the outputs ever drew (#EDE-40).
     health: super::FrameHealth,
+    /// Safe mode: software rendering on a real GPU is tolerated (#EDE-59),
+    /// so a broken driver still gets a desktop to fix it from.
+    safe_mode: bool,
 }
 
 type Shared = Rc<RefCell<Udev>>;
 
 /// Runs eDE as the session's compositor until the loop stops; `autostart`
-/// (if any) starts once clients can connect.
-pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+/// (if any) starts once clients can connect. `safe_mode` = the stock
+/// settings run (`--safe-mode`, `EDE_SAFE_MODE`): software rendering is
+/// tolerated on any GPU.
+pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: Vec<String>, safe_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
     let mut event_loop: EventLoop<'static, Ede> = EventLoop::try_new()?;
     let display: Display<Ede> = Display::new()?;
 
     let (session, notifier) = LibSeatSession::new().map_err(|e| format!("no seat session (run it from a TTY or a login manager): {e}"))?;
     let seat_name = session.seat();
 
+    // The GPU everything renders on: `EDE_DRM_DEVICE`, else the card with
+    // the displays (#EDE-59: a desktop whose monitors hang off the discrete
+    // card while the firmware booted on the iGPU renders on the discrete
+    // one, not through a copy per frame), else udev's boot GPU, else any.
+    let cards = crate::doctor::read_drm_cards(Path::new("/sys/class/drm"));
     let primary_gpu = match std::env::var("EDE_DRM_DEVICE") {
         Ok(path) => {
             let node = DrmNode::from_path(path)?;
             super::render_node_for(None, node.node_with_type(NodeType::Render).and_then(Result::ok), node)
         }
-        Err(_) => primary_gpu(&seat_name)?
-            .and_then(|p| DrmNode::from_path(p).ok()?.node_with_type(NodeType::Render)?.ok())
+        Err(_) => crate::doctor::primary_card(&cards)
+            .and_then(|c| DrmNode::from_path(Path::new("/dev/dri").join(&c.name)).ok()?.node_with_type(NodeType::Render)?.ok())
+            .or_else(|| primary_gpu(&seat_name).ok().flatten().and_then(|p| DrmNode::from_path(p).ok()?.node_with_type(NodeType::Render)?.ok()))
             .or_else(|| all_gpus(&seat_name).ok()?.into_iter().find_map(|p| DrmNode::from_path(p).ok()))
             .ok_or("no GPU found")?,
     };
-    tracing::info!("primary GPU {primary_gpu}");
+    match crate::doctor::primary_card(&cards) {
+        Some(card) => tracing::info!(
+            "primary GPU {primary_gpu} ({} {}{}: {})",
+            card.name,
+            card.driver.as_deref().unwrap_or("unknown driver"),
+            if card.boot_vga { ", boot GPU" } else { "" },
+            if card.connected.is_empty() { "nothing connected".to_string() } else { card.connected.join(", ") }
+        ),
+        None => tracing::info!("primary GPU {primary_gpu}"),
+    }
 
     let mut state = Ede::new(display, event_loop.handle(), event_loop.get_signal(), config);
     state.config_path = config_path;
@@ -173,6 +193,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         cursor: Cursor::load(),
         cursor_buffers: Vec::new(),
         health: super::FrameHealth::default(),
+        safe_mode,
     }));
 
     // Input.
@@ -201,11 +222,19 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
             }
             let nodes: Vec<_> = {
                 let mut udev = u.borrow_mut();
+                // Back from a VT switch or a suspend: every output draws a
+                // whole first frame from fresh buffers, and the cursor
+                // images are uploaded again. On NVIDIA without
+                // NVreg_PreserveVideoMemoryAllocations the GPU forgot its
+                // memory while asleep (#EDE-59; the doctor's "NVIDIA
+                // sleep" row), so nothing cached before is trusted.
+                udev.cursor_buffers.clear();
                 for device in udev.devices.values_mut() {
                     if let Err(e) = device.manager.activate(false) {
                         tracing::error!("DRM resume failed: {e}");
                     }
                     for s in device.surfaces.values_mut() {
+                        s.drm_output.reset_buffers();
                         s.queued = false;
                     }
                 }
@@ -222,21 +251,19 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     let mut devices: Vec<_> = udev_backend.device_list().map(|(id, path)| (id, path.to_path_buf())).collect();
     let primary_id = primary_gpu.node_with_type(NodeType::Primary).and_then(|n| n.ok()).map(|n| n.dev_id());
     devices.sort_by_key(|(id, _)| *id != primary_gpu.dev_id() && primary_id != Some(*id));
+    let mut failures: Vec<String> = Vec::new();
     for (id, path) in devices {
-        match DrmNode::from_dev_id(id) {
-            Ok(node) => {
-                if let Err(e) = device_added(&udev, &mut state, node, &path) {
-                    tracing::warn!("skipping {}: {e}", path.display());
-                }
-            }
-            Err(e) => tracing::warn!("skipping {}: {e}", path.display()),
+        let added = DrmNode::from_dev_id(id).map_err(|e| e.to_string()).and_then(|node| device_added(&udev, &mut state, node, &path).map_err(|e| e.to_string()));
+        if let Err(e) = added {
+            tracing::warn!("skipping {}: {e}", path.display());
+            failures.push(format!("{}: {e}", path.display()));
         }
     }
     if udev.borrow().devices.is_empty() {
-        // Typically another display server is the DRM master (eDE started
-        // from inside a running session): nothing to draw on, so stop here
-        // instead of holding the seat's input devices.
-        return Err("no GPU could be opened; is another display server running on this seat? (nested: run inside X11/Wayland without --udev)".into());
+        // Nothing to draw on: stop here with every card's reason instead of
+        // holding the seat's input devices (#EDE-59: a GPU whose driver
+        // stack is broken says so on the recovery screen).
+        return Err(super::no_gpu_message(&failures).into());
     }
     {
         let mut u = udev.borrow_mut();
@@ -370,17 +397,41 @@ fn device_added(udev: &Shared, state: &mut Ede, node: DrmNode, path: &Path) -> R
         tracing::info!("{node}: virtual GPU, the cursor plane carries the hotspot (one host cursor)");
     }
     let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
-    let gbm = GbmDevice::new(fd)?;
+    // What this card's KMS offers, in the journal (#EDE-59: the first run on
+    // real hardware tells whether atomic, the cursor plane, modifiers and
+    // explicit sync are there). Legacy KMS is never silent: no cursor
+    // plane, no direct scanout, and on NVIDIA it means modeset is off.
+    let kms = crate::doctor::KmsProbe::read(&fd);
+    let driver = kms.as_ref().map(|k| k.driver.clone()).unwrap_or_default();
+    match &kms {
+        Ok(probe) => tracing::info!("{node} {}", probe.describe()),
+        Err(e) => tracing::warn!("{node}: KMS capabilities unreadable: {e}"),
+    }
+    if !drm.is_atomic() {
+        if driver.contains("nvidia") {
+            return Err("nvidia-drm has no atomic modesetting: nvidia-drm.modeset=1 is not in effect (run `exponential-compositor doctor`)".into());
+        }
+        tracing::warn!("{node} ({driver}): legacy KMS only; no cursor plane, no direct scanout");
+    }
+    let gbm = GbmDevice::new(fd).map_err(|e| format!("GBM on {driver}: {e}"))?;
 
     // One render GPU: the node EGL's device names, else the card's own
     // render node (Mesa's software device names none: llvmpipe on vmwgfx
     // without 3D, a firmware framebuffer; #EDE-40), else the card itself.
-    let display = unsafe { EGLDisplay::new(gbm.clone())? };
+    let display = unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|e| {
+        let hint = if driver.contains("nvidia") { " (the driver's GBM backend nvidia-drm_gbm.so or its EGL GBM platform is missing; run `exponential-compositor doctor`)" } else { "" };
+        format!("EGL on {driver}'s GBM device failed: {e}{hint}")
+    })?;
     let egl_device = EGLDevice::device_for_display(&display)?;
     let egl_node = egl_device.try_get_render_node().ok().flatten();
     let render_node = super::render_node_for(egl_node, node.node_with_type(NodeType::Render).and_then(Result::ok), node);
     if egl_device.is_software() {
-        tracing::info!("{node}: software EGL device (llvmpipe); rendering through {render_node}");
+        // A real GPU in software is a broken driver, never a desktop to
+        // keep quiet about (#EDE-59): refused unless this is safe mode.
+        match crate::doctor::software_rendering(&driver, u.safe_mode) {
+            Ok(note) => tracing::warn!("{node}: {note}; rendering through {render_node}"),
+            Err(reason) => return Err(reason.into()),
+        }
     }
     u.gpus.as_mut().add_node(render_node, gbm.clone())?;
 
@@ -574,6 +625,7 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         };
         // Overlay planes break on NVIDIA's driver (anvil found the same).
         let nvidia = drm.get_driver().map(|d| d.name().to_string_lossy().to_lowercase().contains("nvidia")).unwrap_or(false);
+        let atomic = drm.is_atomic();
         if nvidia {
             planes.overlay.clear();
         }
@@ -601,6 +653,14 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         let feedback = {
             let render_formats = renderer.dmabuf_formats();
             let plane_formats = drm_output.with_compositor(|c| c.surface().plane_info().formats.clone());
+            let (cursor_planes, overlay_planes) = drm_output.with_compositor(|c| (c.surface().planes().cursor.len(), c.surface().planes().overlay.len()));
+            tracing::info!(
+                "output {name}: {} ({}), primary plane takes {} formats ({} with modifiers), {cursor_planes} cursor and {overlay_planes} overlay planes in use",
+                drm_output.format(),
+                if atomic { "atomic" } else { "legacy" },
+                plane_formats.iter().count(),
+                plane_formats.iter().filter(|f| !matches!(f.modifier, smithay::backend::allocator::Modifier::Invalid | smithay::backend::allocator::Modifier::Linear)).count()
+            );
             let render = DmabufFeedbackBuilder::new(device.render_node.dev_id(), render_formats.clone()).build().ok();
             let scanout = DmabufFeedbackBuilder::new(device.render_node.dev_id(), render_formats)
                 .add_preference_tranche(node.dev_id(), Some(smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags::Scanout), plane_formats)

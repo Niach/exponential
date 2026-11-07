@@ -28,6 +28,7 @@
     "./broker": "./src/broker.ts",
     "./stores": "./src/stores.ts",
     "./instance": "./src/instance.ts",
+    "./synced": "./src/synced.ts",
     "./web": "./src/web/index.ts",
     "./fixtures/*": "./fixtures/*"
   },

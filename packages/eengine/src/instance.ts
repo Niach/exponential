@@ -44,6 +44,16 @@ export interface WindowHost {
 /** An optional transport to an authority; absent = the store is the authority, no outbox. */
 export interface SyncTransport {
   push(app: string, call: OutboxCall, input: Record<string, unknown>): Promise<OutboxResult>
+  /** `push` with the server's answer, for a call that awaits its own entry. */
+  send?(app: string, call: OutboxCall, input: Record<string, unknown>): Promise<Pushed>
+}
+
+/** One replay as a transport answers it. */
+export interface Pushed {
+  result: OutboxResult
+  answer?: unknown
+  message?: string
+  invalid?: boolean
 }
 
 /** What a host hands the Engine (providers.json; no telemetry or update key: none exists). */

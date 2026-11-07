@@ -640,6 +640,18 @@ internal interface UniffiCallbackInterfaceConsentUiMethod0 : com.sun.jna.Callbac
 internal interface UniffiCallbackInterfaceEngineClockMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
+internal interface UniffiCallbackInterfaceOutboxLogMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceOutboxLogMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`entryJson`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceOutboxLogMethod2 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`writeId`: RustBuffer.ByValue,`at`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceOutboxLogMethod3 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`writeIds`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 internal interface UniffiCallbackInterfaceRecordStoreMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`app`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
@@ -657,6 +669,12 @@ internal interface UniffiCallbackInterfaceRecordStoreMethod4 : com.sun.jna.Callb
 }
 internal interface UniffiCallbackInterfaceSyncTransportMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`app`: RustBuffer.ByValue,`call`: RustBuffer.ByValue,`inputJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceSyncedListenerMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceSyncedListenerMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`entryJson`: RustBuffer.ByValue,`verb`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfaceVaultMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`key`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
@@ -777,6 +795,34 @@ internal open class UniffiVTableCallbackInterfaceEngineClock(
     }
 
 }
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "entriesJson", "push", "ack", "remove")
+internal open class UniffiVTableCallbackInterfaceOutboxLog(
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+    @JvmField internal var `entriesJson`: UniffiCallbackInterfaceOutboxLogMethod0? = null,
+    @JvmField internal var `push`: UniffiCallbackInterfaceOutboxLogMethod1? = null,
+    @JvmField internal var `ack`: UniffiCallbackInterfaceOutboxLogMethod2? = null,
+    @JvmField internal var `remove`: UniffiCallbackInterfaceOutboxLogMethod3? = null,
+) : Structure() {
+    class UniffiByValue(
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+        `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+        `entriesJson`: UniffiCallbackInterfaceOutboxLogMethod0? = null,
+        `push`: UniffiCallbackInterfaceOutboxLogMethod1? = null,
+        `ack`: UniffiCallbackInterfaceOutboxLogMethod2? = null,
+        `remove`: UniffiCallbackInterfaceOutboxLogMethod3? = null,
+    ): UniffiVTableCallbackInterfaceOutboxLog(`uniffiFree`,`uniffiClone`,`entriesJson`,`push`,`ack`,`remove`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceOutboxLog) {
+        `uniffiFree` = other.`uniffiFree`
+        `uniffiClone` = other.`uniffiClone`
+        `entriesJson` = other.`entriesJson`
+        `push` = other.`push`
+        `ack` = other.`ack`
+        `remove` = other.`remove`
+    }
+
+}
 @Structure.FieldOrder("uniffiFree", "uniffiClone", "rows", "write", "history", "subscribe", "unsubscribe")
 internal open class UniffiVTableCallbackInterfaceRecordStore(
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
@@ -824,6 +870,28 @@ internal open class UniffiVTableCallbackInterfaceSyncTransport(
         `uniffiFree` = other.`uniffiFree`
         `uniffiClone` = other.`uniffiClone`
         `push` = other.`push`
+    }
+
+}
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "changed", "refused")
+internal open class UniffiVTableCallbackInterfaceSyncedListener(
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+    @JvmField internal var `changed`: UniffiCallbackInterfaceSyncedListenerMethod0? = null,
+    @JvmField internal var `refused`: UniffiCallbackInterfaceSyncedListenerMethod1? = null,
+) : Structure() {
+    class UniffiByValue(
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+        `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+        `changed`: UniffiCallbackInterfaceSyncedListenerMethod0? = null,
+        `refused`: UniffiCallbackInterfaceSyncedListenerMethod1? = null,
+    ): UniffiVTableCallbackInterfaceSyncedListener(`uniffiFree`,`uniffiClone`,`changed`,`refused`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceSyncedListener) {
+        `uniffiFree` = other.`uniffiFree`
+        `uniffiClone` = other.`uniffiClone`
+        `changed` = other.`changed`
+        `refused` = other.`refused`
     }
 
 }
@@ -959,6 +1027,14 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_eengine_ffi_checksum_method_engineclock_now(
     ): Short
+    external fun uniffi_eengine_ffi_checksum_method_outboxlog_entries_json(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_outboxlog_push(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_outboxlog_ack(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_outboxlog_remove(
+    ): Short
     external fun uniffi_eengine_ffi_checksum_method_recordstore_rows(
     ): Short
     external fun uniffi_eengine_ffi_checksum_method_recordstore_write(
@@ -973,6 +1049,24 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_eengine_ffi_checksum_method_synctransport_push(
     ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedlistener_changed(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedlistener_refused(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_entries_json(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_flush(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_pending_label(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_prune(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_set_rows(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_method_syncedrecordstore_visible_rows_json(
+    ): Short
     external fun uniffi_eengine_ffi_checksum_method_vault_read(
     ): Short
     external fun uniffi_eengine_ffi_checksum_method_vault_write(
@@ -982,6 +1076,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_eengine_ffi_checksum_method_windowhost_present(
     ): Short
     external fun uniffi_eengine_ffi_checksum_constructor_engine_new(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_constructor_syncedrecordstore_new(
     ): Short
     external fun ffi_eengine_ffi_uniffi_contract_version(
     ): Int
@@ -1004,8 +1100,10 @@ internal object UniffiLib {
         uniffiCallbackInterfaceCapability.register(this)
         uniffiCallbackInterfaceConsentUi.register(this)
         uniffiCallbackInterfaceEngineClock.register(this)
+        uniffiCallbackInterfaceOutboxLog.register(this)
         uniffiCallbackInterfaceRecordStore.register(this)
         uniffiCallbackInterfaceSyncTransport.register(this)
+        uniffiCallbackInterfaceSyncedListener.register(this)
         uniffiCallbackInterfaceVault.register(this)
         uniffiCallbackInterfaceWindowHost.register(this)
         
@@ -1102,6 +1200,20 @@ external fun uniffi_eengine_ffi_fn_init_callback_vtable_engineclock(`vtable`: Un
 ): Unit
 external fun uniffi_eengine_ffi_fn_method_engineclock_now(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_clone_outboxlog(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_eengine_ffi_fn_free_outboxlog(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_init_callback_vtable_outboxlog(`vtable`: UniffiVTableCallbackInterfaceOutboxLog,
+): Unit
+external fun uniffi_eengine_ffi_fn_method_outboxlog_entries_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_method_outboxlog_push(`ptr`: Long,`entryJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_method_outboxlog_ack(`ptr`: Long,`writeId`: RustBuffer.ByValue,`at`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_method_outboxlog_remove(`ptr`: Long,`writeIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_eengine_ffi_fn_clone_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 external fun uniffi_eengine_ffi_fn_free_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1131,6 +1243,36 @@ external fun uniffi_eengine_ffi_fn_free_synctransport(`handle`: Long,uniffi_out_
 external fun uniffi_eengine_ffi_fn_init_callback_vtable_synctransport(`vtable`: UniffiVTableCallbackInterfaceSyncTransport,
 ): Unit
 external fun uniffi_eengine_ffi_fn_method_synctransport_push(`ptr`: Long,`app`: RustBuffer.ByValue,`call`: RustBuffer.ByValue,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_clone_syncedlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_eengine_ffi_fn_free_syncedlistener(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_init_callback_vtable_syncedlistener(`vtable`: UniffiVTableCallbackInterfaceSyncedListener,
+): Unit
+external fun uniffi_eengine_ffi_fn_method_syncedlistener_changed(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_method_syncedlistener_refused(`ptr`: Long,`entryJson`: RustBuffer.ByValue,`verb`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_clone_syncedrecordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_eengine_ffi_fn_free_syncedrecordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_constructor_syncedrecordstore_new(`log`: Long,`transport`: Long,`listener`: RustBuffer.ByValue,`clock`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_entries_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_pending_label(`ptr`: Long,`app`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_prune(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(`ptr`: Long,`app`: RustBuffer.ByValue,`rowsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_submit(`ptr`: Long,`entryJson`: RustBuffer.ByValue,`online`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_method_syncedrecordstore_visible_rows_json(`ptr`: Long,`app`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_eengine_ffi_fn_clone_vault(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
@@ -4302,6 +4444,429 @@ public object FfiConverterTypeEngineClock: FfiConverter<EngineClock, Long> {
 
 
 /**
+ * Where an account's outbox persists (GRDB, Room), oldest entry first.
+ */
+public interface OutboxLog {
+    
+    /**
+     * The entries as a JSON array; a row that no longer parses is left out.
+     */
+    fun `entriesJson`(): kotlin.String
+    
+    fun `push`(`entryJson`: kotlin.String)
+    
+    fun `ack`(`writeId`: kotlin.String, `at`: kotlin.String)
+    
+    fun `remove`(`writeIds`: List<kotlin.String>)
+    
+    companion object
+}
+
+/**
+ * Where an account's outbox persists (GRDB, Room), oldest entry first.
+ */
+open class OutboxLogImpl: Disposable, AutoCloseable, OutboxLog
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_eengine_ffi_fn_free_outboxlog(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_eengine_ffi_fn_clone_outboxlog(handle, status)
+        }
+    }
+
+    
+    /**
+     * The entries as a JSON array; a row that no longer parses is left out.
+     */
+    @Throws(EngineException::class)override fun `entriesJson`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_outboxlog_entries_json(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(EngineException::class)override fun `push`(`entryJson`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_outboxlog_push(
+        it,
+        FfiConverterString.lower(`entryJson`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(EngineException::class)override fun `ack`(`writeId`: kotlin.String, `at`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_outboxlog_ack(
+        it,
+        FfiConverterString.lower(`writeId`),FfiConverterString.lower(`at`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(EngineException::class)override fun `remove`(`writeIds`: List<kotlin.String>)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_outboxlog_remove(
+        it,
+        FfiConverterSequenceString.lower(`writeIds`),_status)
+}
+    }
+    
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceOutboxLog {
+    internal object `entriesJson`: UniffiCallbackInterfaceOutboxLogMethod0 {
+        override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeOutboxLog.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`entriesJson`(
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: EngineException -> FfiConverterTypeEngineError.lower(e) }
+            )
+        }
+    }
+    internal object `push`: UniffiCallbackInterfaceOutboxLogMethod1 {
+        override fun callback(`uniffiHandle`: Long,`entryJson`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeOutboxLog.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`push`(
+                    FfiConverterString.lift(`entryJson`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: EngineException -> FfiConverterTypeEngineError.lower(e) }
+            )
+        }
+    }
+    internal object `ack`: UniffiCallbackInterfaceOutboxLogMethod2 {
+        override fun callback(`uniffiHandle`: Long,`writeId`: RustBuffer.ByValue,`at`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeOutboxLog.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`ack`(
+                    FfiConverterString.lift(`writeId`),
+                    FfiConverterString.lift(`at`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: EngineException -> FfiConverterTypeEngineError.lower(e) }
+            )
+        }
+    }
+    internal object `remove`: UniffiCallbackInterfaceOutboxLogMethod3 {
+        override fun callback(`uniffiHandle`: Long,`writeIds`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeOutboxLog.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`remove`(
+                    FfiConverterSequenceString.lift(`writeIds`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: EngineException -> FfiConverterTypeEngineError.lower(e) }
+            )
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeOutboxLog.handleMap.remove(handle)
+        }
+    }
+
+    internal object uniffiClone: UniffiCallbackInterfaceClone {
+        override fun callback(handle: Long): Long {
+            return FfiConverterTypeOutboxLog.handleMap.clone(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceOutboxLog.UniffiByValue(
+        uniffiFree,
+        uniffiClone,
+        `entriesJson`,
+        `push`,
+        `ack`,
+        `remove`,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_eengine_ffi_fn_init_callback_vtable_outboxlog(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeOutboxLog: FfiConverter<OutboxLog, Long> {
+    internal val handleMap = UniffiHandleMap<OutboxLog>()
+
+    override fun lower(value: OutboxLog): Long {
+        if (value is OutboxLogImpl) {
+             // Rust-implemented object.  Clone the handle and return it
+            return value.uniffiCloneHandle()
+         } else {
+            // Kotlin object, generate a new vtable handle and return that.
+            return handleMap.insert(value)
+         }
+    }
+
+    override fun lift(value: Long): OutboxLog {
+        if ((value and 1.toLong()) == 0.toLong()) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return OutboxLogImpl(UniffiWithHandle, value)
+        } else {
+            // Kotlin-generated handle, get the object from the handle map
+            return handleMap.remove(value)
+        }
+    }
+
+    override fun read(buf: ByteBuffer): OutboxLog {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: OutboxLog) = 8UL
+
+    override fun write(value: OutboxLog, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
  * Where an app's records live; one store serves every app of a host.
  * Rows, batches and events are the Engine's JSON (`RecordRow`, `WriteBatch`,
  * `WriteAck`, `RecordEvent`).
@@ -5046,7 +5611,9 @@ public object FfiConverterTypeRecordsListener: FfiConverter<RecordsListener, Lon
 public interface SyncTransport {
     
     /**
-     * Replay one outbox entry; answers `{"ok":true}`, `{"transport":true}` or `{"code":"…"}`.
+     * Replay one outbox entry; answers `{"ok":true,"answer":…}`,
+     * `{"transport":true}` or `{"code":"…","message":"…","invalid":true}`
+     * (`answer`, `message` and `invalid` are optional).
      */
     fun `push`(`app`: kotlin.String, `call`: kotlin.String, `inputJson`: kotlin.String): kotlin.String
     
@@ -5155,7 +5722,9 @@ open class SyncTransportImpl: Disposable, AutoCloseable, SyncTransport
 
     
     /**
-     * Replay one outbox entry; answers `{"ok":true}`, `{"transport":true}` or `{"code":"…"}`.
+     * Replay one outbox entry; answers `{"ok":true,"answer":…}`,
+     * `{"transport":true}` or `{"code":"…","message":"…","invalid":true}`
+     * (`answer`, `message` and `invalid` are optional).
      */override fun `push`(`app`: kotlin.String, `call`: kotlin.String, `inputJson`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
@@ -5261,6 +5830,760 @@ public object FfiConverterTypeSyncTransport: FfiConverter<SyncTransport, Long> {
     override fun allocationSize(value: SyncTransport) = 8UL
 
     override fun write(value: SyncTransport, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * What the host hears from a [`SyncedRecordStore`], on the replaying thread.
+ */
+public interface SyncedListener {
+    
+    /**
+     * The entries moved.
+     */
+    fun `changed`()
+    
+    /**
+     * A replay nobody awaits was refused: the failed-action toast.
+     */
+    fun `refused`(`entryJson`: kotlin.String, `verb`: kotlin.String, `message`: kotlin.String?)
+    
+    companion object
+}
+
+/**
+ * What the host hears from a [`SyncedRecordStore`], on the replaying thread.
+ */
+open class SyncedListenerImpl: Disposable, AutoCloseable, SyncedListener
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_eengine_ffi_fn_free_syncedlistener(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_eengine_ffi_fn_clone_syncedlistener(handle, status)
+        }
+    }
+
+    
+    /**
+     * The entries moved.
+     */override fun `changed`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedlistener_changed(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * A replay nobody awaits was refused: the failed-action toast.
+     */override fun `refused`(`entryJson`: kotlin.String, `verb`: kotlin.String, `message`: kotlin.String?)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedlistener_refused(
+        it,
+        FfiConverterString.lower(`entryJson`),FfiConverterString.lower(`verb`),FfiConverterOptionalString.lower(`message`),_status)
+}
+    }
+    
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceSyncedListener {
+    internal object `changed`: UniffiCallbackInterfaceSyncedListenerMethod0 {
+        override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeSyncedListener.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`changed`(
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `refused`: UniffiCallbackInterfaceSyncedListenerMethod1 {
+        override fun callback(`uniffiHandle`: Long,`entryJson`: RustBuffer.ByValue,`verb`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeSyncedListener.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`refused`(
+                    FfiConverterString.lift(`entryJson`),
+                    FfiConverterString.lift(`verb`),
+                    FfiConverterOptionalString.lift(`message`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeSyncedListener.handleMap.remove(handle)
+        }
+    }
+
+    internal object uniffiClone: UniffiCallbackInterfaceClone {
+        override fun callback(handle: Long): Long {
+            return FfiConverterTypeSyncedListener.handleMap.clone(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceSyncedListener.UniffiByValue(
+        uniffiFree,
+        uniffiClone,
+        `changed`,
+        `refused`,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_eengine_ffi_fn_init_callback_vtable_syncedlistener(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSyncedListener: FfiConverter<SyncedListener, Long> {
+    internal val handleMap = UniffiHandleMap<SyncedListener>()
+
+    override fun lower(value: SyncedListener): Long {
+        if (value is SyncedListenerImpl) {
+             // Rust-implemented object.  Clone the handle and return it
+            return value.uniffiCloneHandle()
+         } else {
+            // Kotlin object, generate a new vtable handle and return that.
+            return handleMap.insert(value)
+         }
+    }
+
+    override fun lift(value: Long): SyncedListener {
+        if ((value and 1.toLong()) == 0.toLong()) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return SyncedListenerImpl(UniffiWithHandle, value)
+        } else {
+            // Kotlin-generated handle, get the object from the handle map
+            return handleMap.remove(value)
+        }
+    }
+
+    override fun read(buf: ByteBuffer): SyncedListener {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: SyncedListener) = 8UL
+
+    override fun write(value: SyncedListener, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * One account's records (`eengine::synced`): the O1 outbox across its apps
+ * over the host's [`OutboxLog`] and [`SyncTransport`], and the synced rows
+ * the host feeds in. `submit` and `flush` block on the transport: call them
+ * off the main thread.
+ */
+public interface SyncedRecordStoreInterface {
+    
+    /**
+     * Every entry, oldest first, as a JSON array.
+     */
+    fun `entriesJson`(): kotlin.String
+    
+    /**
+     * Replay the pending entries until none is left or one must retry.
+     */
+    fun `flush`()
+    
+    /**
+     * The header glyph's label for `app` (None = nothing pending).
+     */
+    fun `pendingLabel`(`app`: kotlin.String): kotlin.String?
+    
+    /**
+     * Drop the acked entries reflected or past the grace.
+     */
+    fun `prune`()
+    
+    /**
+     * Feed `app`'s synced rows in (JSON array of rows): acked entries they reflect leave.
+     */
+    fun `setRows`(`app`: kotlin.String, `rowsJson`: kotlin.String)
+    
+    /**
+     * Persist a host call's entry; alone and `online` it replays now and
+     * answers its first outcome, otherwise `Queued` (then call `flush`).
+     */
+    fun `submit`(`entryJson`: kotlin.String, `online`: kotlin.Boolean): Submitted
+    
+    /**
+     * `app`'s synced rows with its entries laid over them, as a JSON array.
+     */
+    fun `visibleRowsJson`(`app`: kotlin.String, `me`: kotlin.String?): kotlin.String
+    
+    companion object
+}
+
+/**
+ * One account's records (`eengine::synced`): the O1 outbox across its apps
+ * over the host's [`OutboxLog`] and [`SyncTransport`], and the synced rows
+ * the host feeds in. `submit` and `flush` block on the transport: call them
+ * off the main thread.
+ */
+open class SyncedRecordStore: Disposable, AutoCloseable, SyncedRecordStoreInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+    constructor(`log`: OutboxLog, `transport`: SyncTransport, `listener`: SyncedListener?, `clock`: EngineClock?) :
+        this(UniffiWithHandle, 
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_constructor_syncedrecordstore_new(
+    
+        FfiConverterTypeOutboxLog.lower(`log`),FfiConverterTypeSyncTransport.lower(`transport`),FfiConverterOptionalTypeSyncedListener.lower(`listener`),FfiConverterOptionalTypeEngineClock.lower(`clock`),_status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_eengine_ffi_fn_free_syncedrecordstore(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_eengine_ffi_fn_clone_syncedrecordstore(handle, status)
+        }
+    }
+
+    
+    /**
+     * Every entry, oldest first, as a JSON array.
+     */override fun `entriesJson`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_entries_json(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Replay the pending entries until none is left or one must retry.
+     */override fun `flush`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_flush(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * The header glyph's label for `app` (None = nothing pending).
+     */override fun `pendingLabel`(`app`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_pending_label(
+        it,
+        FfiConverterString.lower(`app`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Drop the acked entries reflected or past the grace.
+     */override fun `prune`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_prune(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Feed `app`'s synced rows in (JSON array of rows): acked entries they reflect leave.
+     */
+    @Throws(EngineException::class)override fun `setRows`(`app`: kotlin.String, `rowsJson`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(
+        it,
+        FfiConverterString.lower(`app`),FfiConverterString.lower(`rowsJson`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Persist a host call's entry; alone and `online` it replays now and
+     * answers its first outcome, otherwise `Queued` (then call `flush`).
+     */
+    @Throws(EngineException::class)override fun `submit`(`entryJson`: kotlin.String, `online`: kotlin.Boolean): Submitted {
+            return FfiConverterTypeSubmitted.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_submit(
+        it,
+        FfiConverterString.lower(`entryJson`),FfiConverterBoolean.lower(`online`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `app`'s synced rows with its entries laid over them, as a JSON array.
+     */override fun `visibleRowsJson`(`app`: kotlin.String, `me`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_method_syncedrecordstore_visible_rows_json(
+        it,
+        FfiConverterString.lower(`app`),FfiConverterOptionalString.lower(`me`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSyncedRecordStore: FfiConverter<SyncedRecordStore, Long> {
+    override fun lower(value: SyncedRecordStore): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): SyncedRecordStore {
+        return SyncedRecordStore(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): SyncedRecordStore {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: SyncedRecordStore) = 8UL
+
+    override fun write(value: SyncedRecordStore, buf: ByteBuffer) {
         buf.putLong(lower(value))
     }
 }
@@ -6832,6 +8155,122 @@ public object FfiConverterTypeRunnerFormFactor: FfiConverterRustBuffer<RunnerFor
 
 
 
+/**
+ * Every problem with a host config in its JSON spelling (providers.json
+ * `validateCases`): `[{key, code}]`, empty = valid.
+ * A host call's answer from the [`SyncedRecordStore`].
+ */
+sealed class Submitted {
+    
+    /**
+     * The server took it: its answer.
+     */
+    data class Done(
+        val `answerJson`: kotlin.String) : Submitted()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * The server refused it (the entry is gone): the call fails. `invalid`
+     * = invalid input (BAD_REQUEST): a record form shows it inline.
+     */
+    data class Refused(
+        val `message`: kotlin.String?, 
+        val `invalid`: kotlin.Boolean) : Submitted()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * Offline, behind others, a retry or a drop: answer from the entry.
+     */
+    object Queued : Submitted()
+    
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSubmitted : FfiConverterRustBuffer<Submitted>{
+    override fun read(buf: ByteBuffer): Submitted {
+        return when(buf.getInt()) {
+            1 -> Submitted.Done(
+                FfiConverterString.read(buf),
+                )
+            2 -> Submitted.Refused(
+                FfiConverterOptionalString.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            3 -> Submitted.Queued
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: Submitted) = when(value) {
+        is Submitted.Done -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`answerJson`)
+            )
+        }
+        is Submitted.Refused -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterOptionalString.allocationSize(value.`message`)
+                + FfiConverterBoolean.allocationSize(value.`invalid`)
+            )
+        }
+        is Submitted.Queued -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: Submitted, buf: ByteBuffer) {
+        when(value) {
+            is Submitted.Done -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`answerJson`, buf)
+                Unit
+            }
+            is Submitted.Refused -> {
+                buf.putInt(2)
+                FfiConverterOptionalString.write(value.`message`, buf)
+                FfiConverterBoolean.write(value.`invalid`, buf)
+                Unit
+            }
+            is Submitted.Queued -> {
+                buf.putInt(3)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 
 /**
  * @suppress
@@ -7092,6 +8531,38 @@ public object FfiConverterOptionalTypeSyncTransport: FfiConverterRustBuffer<Sync
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeSyncedListener: FfiConverterRustBuffer<SyncedListener?> {
+    override fun read(buf: ByteBuffer): SyncedListener? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeSyncedListener.read(buf)
+    }
+
+    override fun allocationSize(value: SyncedListener?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeSyncedListener.allocationSize(value)
+        }
+    }
+
+    override fun write(value: SyncedListener?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeSyncedListener.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeGrantValue: FfiConverterRustBuffer<GrantValue?> {
     override fun read(buf: ByteBuffer): GrantValue? {
         if (buf.get().toInt() == 0) {
@@ -7256,10 +8727,6 @@ public object FfiConverterSequenceTypeCapability: FfiConverterRustBuffer<List<Ca
     }
     
 
-        /**
-         * Every problem with a host config in its JSON spelling (providers.json
-         * `validateCases`): `[{key, code}]`, empty = valid.
-         */
     @Throws(EngineException::class) fun `validateHostConfig`(`configJson`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(EngineException) { _status ->

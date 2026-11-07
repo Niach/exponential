@@ -306,6 +306,34 @@ typedef void (*UniffiCallbackInterfaceEngineClockMethod0)(uint64_t, RustBuffer* 
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_OUTBOX_LOG_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_OUTBOX_LOG_METHOD0
+typedef void (*UniffiCallbackInterfaceOutboxLogMethod0)(uint64_t, RustBuffer* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_OUTBOX_LOG_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_OUTBOX_LOG_METHOD1
+typedef void (*UniffiCallbackInterfaceOutboxLogMethod1)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_OUTBOX_LOG_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_OUTBOX_LOG_METHOD2
+typedef void (*UniffiCallbackInterfaceOutboxLogMethod2)(uint64_t, RustBuffer, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_OUTBOX_LOG_METHOD3
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_OUTBOX_LOG_METHOD3
+typedef void (*UniffiCallbackInterfaceOutboxLogMethod3)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_RECORD_STORE_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_RECORD_STORE_METHOD0
 typedef void (*UniffiCallbackInterfaceRecordStoreMethod0)(uint64_t, RustBuffer, RustBuffer* _Nonnull, 
@@ -344,6 +372,20 @@ typedef void (*UniffiCallbackInterfaceRecordStoreMethod4)(uint64_t, uint64_t, vo
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_SYNC_TRANSPORT_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_SYNC_TRANSPORT_METHOD0
 typedef void (*UniffiCallbackInterfaceSyncTransportMethod0)(uint64_t, RustBuffer, RustBuffer, RustBuffer, RustBuffer* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_SYNCED_LISTENER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_SYNCED_LISTENER_METHOD0
+typedef void (*UniffiCallbackInterfaceSyncedListenerMethod0)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_SYNCED_LISTENER_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_SYNCED_LISTENER_METHOD1
+typedef void (*UniffiCallbackInterfaceSyncedListenerMethod1)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
@@ -425,6 +467,18 @@ typedef struct UniffiVTableCallbackInterfaceEngineClock {
 } UniffiVTableCallbackInterfaceEngineClock;
 
 #endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_OUTBOX_LOG
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_OUTBOX_LOG
+typedef struct UniffiVTableCallbackInterfaceOutboxLog {
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+    UniffiCallbackInterfaceClone _Nonnull uniffiClone;
+    UniffiCallbackInterfaceOutboxLogMethod0 _Nonnull entriesJson;
+    UniffiCallbackInterfaceOutboxLogMethod1 _Nonnull push;
+    UniffiCallbackInterfaceOutboxLogMethod2 _Nonnull ack;
+    UniffiCallbackInterfaceOutboxLogMethod3 _Nonnull remove;
+} UniffiVTableCallbackInterfaceOutboxLog;
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_RECORD_STORE
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_RECORD_STORE
 typedef struct UniffiVTableCallbackInterfaceRecordStore {
@@ -445,6 +499,16 @@ typedef struct UniffiVTableCallbackInterfaceSyncTransport {
     UniffiCallbackInterfaceClone _Nonnull uniffiClone;
     UniffiCallbackInterfaceSyncTransportMethod0 _Nonnull push;
 } UniffiVTableCallbackInterfaceSyncTransport;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_SYNCED_LISTENER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_SYNCED_LISTENER
+typedef struct UniffiVTableCallbackInterfaceSyncedListener {
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+    UniffiCallbackInterfaceClone _Nonnull uniffiClone;
+    UniffiCallbackInterfaceSyncedListenerMethod0 _Nonnull changed;
+    UniffiCallbackInterfaceSyncedListenerMethod1 _Nonnull refused;
+} UniffiVTableCallbackInterfaceSyncedListener;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_VAULT
@@ -697,6 +761,41 @@ void uniffi_eengine_ffi_fn_init_callback_vtable_engineclock(const UniffiVTableCa
 RustBuffer uniffi_eengine_ffi_fn_method_engineclock_now(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_OUTBOXLOG
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_OUTBOXLOG
+uint64_t uniffi_eengine_ffi_fn_clone_outboxlog(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FREE_OUTBOXLOG
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FREE_OUTBOXLOG
+void uniffi_eengine_ffi_fn_free_outboxlog(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_INIT_CALLBACK_VTABLE_OUTBOXLOG
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_INIT_CALLBACK_VTABLE_OUTBOXLOG
+void uniffi_eengine_ffi_fn_init_callback_vtable_outboxlog(const UniffiVTableCallbackInterfaceOutboxLog* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_OUTBOXLOG_ENTRIES_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_OUTBOXLOG_ENTRIES_JSON
+RustBuffer uniffi_eengine_ffi_fn_method_outboxlog_entries_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_OUTBOXLOG_PUSH
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_OUTBOXLOG_PUSH
+void uniffi_eengine_ffi_fn_method_outboxlog_push(uint64_t ptr, RustBuffer entry_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_OUTBOXLOG_ACK
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_OUTBOXLOG_ACK
+void uniffi_eengine_ffi_fn_method_outboxlog_ack(uint64_t ptr, RustBuffer write_id, RustBuffer at, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_OUTBOXLOG_REMOVE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_OUTBOXLOG_REMOVE
+void uniffi_eengine_ffi_fn_method_outboxlog_remove(uint64_t ptr, RustBuffer write_ids, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_RECORDSTORE
 #define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_RECORDSTORE
 uint64_t uniffi_eengine_ffi_fn_clone_recordstore(uint64_t handle, RustCallStatus *_Nonnull out_status
@@ -770,6 +869,81 @@ void uniffi_eengine_ffi_fn_init_callback_vtable_synctransport(const UniffiVTable
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCTRANSPORT_PUSH
 #define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCTRANSPORT_PUSH
 RustBuffer uniffi_eengine_ffi_fn_method_synctransport_push(uint64_t ptr, RustBuffer app, RustBuffer call, RustBuffer input_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_SYNCEDLISTENER
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_SYNCEDLISTENER
+uint64_t uniffi_eengine_ffi_fn_clone_syncedlistener(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FREE_SYNCEDLISTENER
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FREE_SYNCEDLISTENER
+void uniffi_eengine_ffi_fn_free_syncedlistener(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_INIT_CALLBACK_VTABLE_SYNCEDLISTENER
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_INIT_CALLBACK_VTABLE_SYNCEDLISTENER
+void uniffi_eengine_ffi_fn_init_callback_vtable_syncedlistener(const UniffiVTableCallbackInterfaceSyncedListener* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDLISTENER_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDLISTENER_CHANGED
+void uniffi_eengine_ffi_fn_method_syncedlistener_changed(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDLISTENER_REFUSED
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDLISTENER_REFUSED
+void uniffi_eengine_ffi_fn_method_syncedlistener_refused(uint64_t ptr, RustBuffer entry_json, RustBuffer verb, RustBuffer message, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_SYNCEDRECORDSTORE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_SYNCEDRECORDSTORE
+uint64_t uniffi_eengine_ffi_fn_clone_syncedrecordstore(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FREE_SYNCEDRECORDSTORE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FREE_SYNCEDRECORDSTORE
+void uniffi_eengine_ffi_fn_free_syncedrecordstore(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CONSTRUCTOR_SYNCEDRECORDSTORE_NEW
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CONSTRUCTOR_SYNCEDRECORDSTORE_NEW
+uint64_t uniffi_eengine_ffi_fn_constructor_syncedrecordstore_new(uint64_t log, uint64_t transport, RustBuffer listener, RustBuffer clock, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_ENTRIES_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_ENTRIES_JSON
+RustBuffer uniffi_eengine_ffi_fn_method_syncedrecordstore_entries_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_FLUSH
+void uniffi_eengine_ffi_fn_method_syncedrecordstore_flush(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_PENDING_LABEL
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_PENDING_LABEL
+RustBuffer uniffi_eengine_ffi_fn_method_syncedrecordstore_pending_label(uint64_t ptr, RustBuffer app, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_PRUNE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_PRUNE
+void uniffi_eengine_ffi_fn_method_syncedrecordstore_prune(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_SET_ROWS
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_SET_ROWS
+void uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(uint64_t ptr, RustBuffer app, RustBuffer rows_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_SUBMIT
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_SUBMIT
+RustBuffer uniffi_eengine_ffi_fn_method_syncedrecordstore_submit(uint64_t ptr, RustBuffer entry_json, int8_t online, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_VISIBLE_ROWS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_VISIBLE_ROWS_JSON
+RustBuffer uniffi_eengine_ffi_fn_method_syncedrecordstore_visible_rows_json(uint64_t ptr, RustBuffer app, RustBuffer me, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_CLONE_VAULT
@@ -1317,6 +1491,30 @@ uint16_t uniffi_eengine_ffi_checksum_method_engineclock_now(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_OUTBOXLOG_ENTRIES_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_OUTBOXLOG_ENTRIES_JSON
+uint16_t uniffi_eengine_ffi_checksum_method_outboxlog_entries_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_OUTBOXLOG_PUSH
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_OUTBOXLOG_PUSH
+uint16_t uniffi_eengine_ffi_checksum_method_outboxlog_push(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_OUTBOXLOG_ACK
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_OUTBOXLOG_ACK
+uint16_t uniffi_eengine_ffi_checksum_method_outboxlog_ack(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_OUTBOXLOG_REMOVE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_OUTBOXLOG_REMOVE
+uint16_t uniffi_eengine_ffi_checksum_method_outboxlog_remove(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_RECORDSTORE_ROWS
 #define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_RECORDSTORE_ROWS
 uint16_t uniffi_eengine_ffi_checksum_method_recordstore_rows(void
@@ -1359,6 +1557,60 @@ uint16_t uniffi_eengine_ffi_checksum_method_synctransport_push(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDLISTENER_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDLISTENER_CHANGED
+uint16_t uniffi_eengine_ffi_checksum_method_syncedlistener_changed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDLISTENER_REFUSED
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDLISTENER_REFUSED
+uint16_t uniffi_eengine_ffi_checksum_method_syncedlistener_refused(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_ENTRIES_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_ENTRIES_JSON
+uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_entries_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_FLUSH
+uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_flush(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_PENDING_LABEL
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_PENDING_LABEL
+uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_pending_label(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_PRUNE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_PRUNE
+uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_prune(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_SET_ROWS
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_SET_ROWS
+uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_set_rows(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_SUBMIT
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_SUBMIT
+uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_VISIBLE_ROWS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_VISIBLE_ROWS_JSON
+uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_visible_rows_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_VAULT_READ
 #define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_VAULT_READ
 uint16_t uniffi_eengine_ffi_checksum_method_vault_read(void
@@ -1386,6 +1638,12 @@ uint16_t uniffi_eengine_ffi_checksum_method_windowhost_present(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_CONSTRUCTOR_ENGINE_NEW
 #define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_CONSTRUCTOR_ENGINE_NEW
 uint16_t uniffi_eengine_ffi_checksum_constructor_engine_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_CONSTRUCTOR_SYNCEDRECORDSTORE_NEW
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_CONSTRUCTOR_SYNCEDRECORDSTORE_NEW
+uint16_t uniffi_eengine_ffi_checksum_constructor_syncedrecordstore_new(void
     
 );
 #endif

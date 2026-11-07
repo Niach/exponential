@@ -1,0 +1,1 @@
+BOOT_IMAGE=/vmlinuz-6.17.0-42-generic root=/dev/mapper/vgmint-root ro quiet splash
