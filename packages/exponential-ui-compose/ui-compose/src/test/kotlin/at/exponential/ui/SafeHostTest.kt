@@ -74,7 +74,7 @@ class SafeHostTest {
             """[{"id":"root","component":"Stack","children":["ok","bad","fn"]},
                {"id":"ok","component":"Link","label":"Docs","href":"https://ui.exponential.at"},
                {"id":"bad","component":"Link","label":"Evil","href":"javascript:alert(1)","external":true},
-               {"id":"fn","component":"Button","label":"Go","on":{"press":{"functionCall":{"call":"openUrl","args":{"url":"file:///etc/passwd"}}}}}]""",
+               {"id":"fn","component":"Button","label":"Go","on":{"press":{"functionCall":{"@call":"openUrl","args":{"url":"file:///etc/passwd"}}}}}]""",
         )
         m.fire(m.indexOf("ok")!!, "press")
         m.fire(m.indexOf("bad")!!, "press")
@@ -286,8 +286,8 @@ class SafeHostTest {
         )
         h.connect()
         fun update(vararg components: String) =
-            t.feed(msg("""{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[${components.joinToString(",")}]}}"""))
-        t.feed(msg("""{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
+            t.feed(msg("""{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[${components.joinToString(",")}]}}"""))
+        t.feed(msg("""{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
         update(
             """{"id":"root","component":"Stack","children":["chart","other"]}""",
             """{"id":"chart","component":"Text","text":"a"}""",

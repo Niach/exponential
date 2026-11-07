@@ -415,7 +415,7 @@ final class ConformanceTests: XCTestCase {
                     let m = try model("ks", theme: themeId, mode: mode)
                     let outcome = try m.setNested(json: sink.json)
                     if outcome.issuesJson != "[]" { return "issues \(outcome.issuesJson)" }
-                    try m.apply(json: #"{"version":"v0.9","updateDataModel":{"surfaceId":"ks","value":{"posts":[{"title":"One"},{"title":"Two"}],"ui":{"confirmOpen":false}}}}"#)
+                    try m.apply(json: #"{"version":"1.0","updateDataModel":{"surfaceId":"ks","value":{"posts":[{"title":"One"},{"title":"Two"}],"ui":{"confirmOpen":false}}}}"#)
                     for width in [390.0, 900.0] {
                         let painted = paint(m, width: width)
                         if let d = checkPainted(m, painted) { return "\(width): \(d)" }
@@ -582,7 +582,7 @@ final class ConformanceTests: XCTestCase {
                 for id in names(flow["inlineCatalogs"]) { router.registerInlineCatalog(id: id) }
                 for id in names(flow["packages"]) { _ = try router.installPackage(packageJson: packages[id]!.json) }
                 for (i, step) in (flow["steps"]?.array ?? []).enumerated() {
-                    let got = router.routeWithBridgeJson(messageJson: step["message"]!.json, trusted: step["trusted"]?.bool ?? false, acceptV09: step["acceptV09"]?.bool ?? true)
+                    let got = router.routeJson(messageJson: step["message"]!.json, trusted: step["trusted"]?.bool ?? false)
                     if let d = same(got, step["expected"]!) { return "step \(i): \(d)" }
                 }
                 return nil
@@ -628,7 +628,7 @@ final class ConformanceTests: XCTestCase {
         }
         for c in f["cards"]?.array ?? [] {
             out.append(run("card: \(c["name"]?.string ?? "")") {
-                same(try cardV10Json(cardJson: c["input"]!.json, acceptV09: c["acceptV09"]?.bool ?? true), c["expected"]!)
+                same(try cardV10Json(cardJson: c["input"]!.json), c["expected"]!)
             })
         }
         return out

@@ -14,7 +14,7 @@ import ExponentialUIPrimitives
 @MainActor
 final class SafeHostTests: XCTestCase {
     func msg(_ kind: String, _ body: JSONValue) -> String {
-        JSONValue.object(["version": .string("v0.9"), kind: body]).json
+        JSONValue.object(["version": .string("1.0"), kind: body]).json
     }
 
     func settle() async {

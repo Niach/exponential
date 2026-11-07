@@ -53,9 +53,9 @@ class HostTest {
 
     private fun host(options: HostOptions = HostOptions()) = ExponentialHost(options, CoroutineScope(Dispatchers.Unconfined))
 
-    private fun create(id: String = "s1", catalog: String = core) = msg("""{"version":"v0.9","createSurface":{"surfaceId":"$id","catalogId":"$catalog"}}""")
+    private fun create(id: String = "s1", catalog: String = core) = msg("""{"version":"1.0","createSurface":{"surfaceId":"$id","catalogId":"$catalog"}}""")
 
-    private fun components(id: String, vararg c: String) = msg("""{"version":"v0.9","updateComponents":{"surfaceId":"$id","components":[${c.joinToString(",")}]}}""")
+    private fun components(id: String, vararg c: String) = msg("""{"version":"1.0","updateComponents":{"surfaceId":"$id","components":[${c.joinToString(",")}]}}""")
 
     /** Round 9 §6.5: a function the host lacks goes to the surface's agent and the press gets the answer (fixtures a2ui10-functions.json `sequences`). */
     @Test
@@ -186,27 +186,27 @@ class HostTest {
         assertTrue(h.hasTransport)
         val m = h.surface("s1")
         assertNotNull(m)
-        t.feed(components("s1", """{"id":"root","component":"Stack","children":["a","b"]}""", """{"id":"a","component":"Text","text":"A"}""", """{"id":"b","component":"Text","text":{"path":"/b"}}"""))
+        t.feed(components("s1", """{"id":"root","component":"Stack","children":["a","b"]}""", """{"id":"a","component":"Text","text":"A"}""", """{"id":"b","component":"Text","text":{"@path":"/b"}}"""))
         // updateComponents MERGES by id (A2UI): only `a` changes.
         t.feed(components("s1", """{"id":"a","component":"Text","text":"A2"}"""))
         laidOut(m!!)
         assertEquals(m.issues.toString() + " " + m.surface.dataJson(), listOf("root", "a", "b"), m.nodes.map { it.id })
         assertEquals("A2", m.node(m.indexOf("a")!!)!!.props["text"]?.string)
         val epoch = m.surface.writeEpoch()
-        t.feed(msg("""{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/b","value":"B"}}"""))
+        t.feed(msg("""{"version":"1.0","updateDataModel":{"surfaceId":"s1","path":"/b","value":"B"}}"""))
         assertEquals("B", m.data["b"]?.string)
         // #VAPP-288: host data is not a programmatic write.
         assertEquals(epoch, m.surface.writeEpoch())
         // No `value` = remove the path; path "/" = the whole model.
-        t.feed(msg("""{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/b"}}"""))
+        t.feed(msg("""{"version":"1.0","updateDataModel":{"surfaceId":"s1","path":"/b","value":null}}"""))
         assertNull(m.data["b"])
-        t.feed(msg("""{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"x":1}}}"""))
+        t.feed(msg("""{"version":"1.0","updateDataModel":{"surfaceId":"s1","path":"/","value":{"x":1}}}"""))
         assertEquals("""{"x":1}""", m.data.json)
         // Round 9 §1.4: a live id is not created twice.
         t.feed(create())
         assertTrue(h.surface("s1") === m)
         assertEquals("INTEGRITY_ERROR", errorCode(t.sent.last()))
-        t.feed(msg("""{"version":"v0.9","deleteSurface":{"surfaceId":"s1"}}"""))
+        t.feed(msg("""{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}"""))
         assertNull(h.surface("s1"))
         assertEquals(emptyList<String>(), h.surfaceIds())
         assertEquals(listOf("create", "components", "components", "data", "data", "data", "send", "delete"), ops)
@@ -225,18 +225,18 @@ class HostTest {
         h.connect()
         t.feedJsonl(
             """
-            {"version":"v0.9","createSurface":{"surfaceId":"g","catalogId":"$core"}}
+            {"version":"1.0","createSurface":{"surfaceId":"g","catalogId":"$core"}}
             not json
-            {"version":"v0.9","updateComponents":{"surfaceId":"g","components":[{"id":"root","component":"Text","text":{"path":"/t"}}]}}
+            {"version":"1.0","updateComponents":{"surfaceId":"g","components":[{"id":"root","component":"Text","text":{"@path":"/t"}}]}}
 
-            {"version":"v0.9","updateDataModel":{"surfaceId":"g","path":"/t","value":"hello"}}
+            {"version":"1.0","updateDataModel":{"surfaceId":"g","path":"/t","value":"hello"}}
             """.trimIndent(),
         )
         val m = laidOut(h.surface("g")!!)
         assertEquals("hello", m.data["t"]?.string)
         assertEquals(1, m.nodes.size)
         // Client messages land in `sent` (+ onSend).
-        h.send(msg("""{"version":"v0.9","error":{"code":"VALIDATION_FAILED","surfaceId":"g","message":"x"}}"""))
+        h.send(msg("""{"version":"1.0","error":{"code":"VALIDATION_FAILED","surfaceId":"g","message":"x"}}"""))
         assertEquals(1, t.sent.size)
         assertEquals(t.sent, sent)
     }
@@ -257,7 +257,7 @@ class HostTest {
         val h = host(HostOptions(transport = t))
         h.connect()
         t.feed(create())
-        t.feed(msg("""{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"FileUpload","files":{"path":"/draft/files"}}]}}"""))
+        t.feed(msg("""{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"FileUpload","files":{"@path":"/draft/files"}}]}}"""))
         val m = h.surface("s1")!!
         assertEquals("/draft/files", m.components.first()["files"]?.get("@path")?.string)
         assertEquals("s1", FilePickRequest(m, "root", null, false).surfaceId)
@@ -284,20 +284,20 @@ class HostTest {
         )
         h.connect()
         t.feed(create())
-        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/devices","source":"exp:devices?team=t1"}}"""), trusted = true)
+        h.receive(msg("""{"version":"1.0","bindDataModel":{"surfaceId":"s1","path":"/devices","source":"exp:devices?team=t1"}}"""), trusted = true)
         assertEquals("exp:devices {team=t1}", seen)
         val m = h.surface("s1")!!
         assertEquals("""["d1"]""", m.data["devices"]?.json)
         emit!!(JsonValue.Arr(listOf(JsonValue.Str("d1"), JsonValue.Str("d2"))))
         assertEquals("""["d1","d2"]""", m.data["devices"]?.json)
         // No resolver for a scheme → VALIDATION_FAILED back to the server.
-        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/x","source":"acme:things"}}"""), trusted = true)
+        h.receive(msg("""{"version":"1.0","bindDataModel":{"surfaceId":"s1","path":"/x","source":"acme:things"}}"""), trusted = true)
         val err = t.sent.last()["error"]!!
         assertEquals("VALIDATION_FAILED", err["code"]?.string)
         assertEquals("no resolver for the source scheme acme", err["message"]?.string)
         assertEquals("/x", err["path"]?.string)
         // Deleting the surface cancels its subscriptions.
-        t.feed(msg("""{"version":"v0.9","deleteSurface":{"surfaceId":"s1"}}"""))
+        t.feed(msg("""{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}"""))
         assertEquals(1, cancelled)
     }
 
@@ -319,8 +319,8 @@ class HostTest {
         )
         h.connect()
         t.feed(create())
-        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/records","source":"records:entry"}}"""), trusted = true)
-        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/other","source":"exp:devices"}}"""), trusted = true)
+        h.receive(msg("""{"version":"1.0","bindDataModel":{"surfaceId":"s1","path":"/records","source":"records:entry"}}"""), trusted = true)
+        h.receive(msg("""{"version":"1.0","bindDataModel":{"surfaceId":"s1","path":"/other","source":"exp:devices"}}"""), trusted = true)
         val args = mapOf(
             "path" to JsonValue.Str("/records"),
             "source" to JsonValue.Str("records:entry"),
@@ -336,7 +336,7 @@ class HostTest {
         assertEquals(FunctionDecision.Deny, h.callFunction(FunctionCallInfo("s1", "c", "bind", mapOf("path" to JsonValue.Str("/x")))).decision)
         assertEquals(FunctionDecision.Deny, h.callFunction(FunctionCallInfo("nope", "c", "bind", args)).decision)
         // Deleting the surface cancels the remaining two.
-        t.feed(msg("""{"version":"v0.9","deleteSurface":{"surfaceId":"s1"}}"""))
+        t.feed(msg("""{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}"""))
         assertEquals(3, cancelled.size)
     }
 
@@ -360,7 +360,7 @@ class HostTest {
         val ran = ArrayList<String>()
         var consent = true
         val asked = ArrayList<String>()
-        val pkg = """{"formatVersion":5,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness_toast"]}"""
+        val pkg = """{"formatVersion":6,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness_toast"]}"""
         val h = host(
             HostOptions(
                 transport = t,
@@ -399,7 +399,7 @@ class HostTest {
         assertEquals(FunctionDecision.Allow, h.decide("free", "formatDate"))
 
         // A package surface: its `functions` list narrows the host's decision.
-        h.receive(msg("""{"version":"v0.9","applyTemplate":{"surfaceId":"pkg","templateId":"list","packageId":"acme.devices"}}"""), trusted = true)
+        h.receive(msg("""{"version":"1.0","applyTemplate":{"surfaceId":"pkg","templateId":"list","packageId":"acme.devices"}}"""), trusted = true)
         assertNotNull(h.surface("pkg"))
         assertEquals("acme.devices", h.packageIdOf("pkg"))
         assertEquals(FunctionDecision.Allow, h.decide("pkg", "harness_toast"))
@@ -492,12 +492,12 @@ class HostTest {
             components(
                 "s1",
                 """{"id":"root","component":"Stack","children":["go","fn","docs"]}""",
-                """{"id":"go","component":"Button","label":"Go","on":{"press":{"event":{"name":"refresh","context":{"note":{"path":"/note"}}}}}}""",
-                """{"id":"fn","component":"Button","label":"Toast","on":{"press":{"functionCall":{"call":"harness_toast","args":{"text":"hi"}}}}}""",
-                """{"id":"docs","component":"Button","label":"Docs","on":{"press":{"functionCall":{"call":"openUrl","args":{"url":"https://ui.exponential.at"}}}}}""",
+                """{"id":"go","component":"Button","label":"Go","on":{"press":{"event":{"name":"refresh","context":{"note":{"@path":"/note"}}}}}}""",
+                """{"id":"fn","component":"Button","label":"Toast","on":{"press":{"functionCall":{"@call":"harness_toast","args":{"text":"hi"}}}}}""",
+                """{"id":"docs","component":"Button","label":"Docs","on":{"press":{"functionCall":{"@call":"openUrl","args":{"url":"https://ui.exponential.at"}}}}}""",
             ),
         )
-        t.feed(msg("""{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/note","value":"n1"}}"""))
+        t.feed(msg("""{"version":"1.0","updateDataModel":{"surfaceId":"s1","path":"/note","value":"n1"}}"""))
         val m = laidOut(h.surface("s1")!!)
         m.fire(m.indexOf("go")!!, "press")
         val action = t.sent.last()["action"]!!

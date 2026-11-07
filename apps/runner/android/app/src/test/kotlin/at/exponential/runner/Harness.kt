@@ -99,6 +99,6 @@ val ALBUM = """
 
 /** A package without screens: the shell derives one, a plain launch opens it. */
 val BARE = """
-{"formatVersion":5,"id":"acme.bare","name":"Bare","version":"1.0.0","catalogId":"https://ui.exponential.at/catalogs/core/v1",
+{"formatVersion":6,"id":"acme.bare","name":"Bare","version":"1.0.0","catalogId":"https://ui.exponential.at/catalogs/core/v1",
  "templates":{"main":{"components":[{"id":"root","component":"Text","text":"Hi"}]}}}
 """

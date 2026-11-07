@@ -12,7 +12,7 @@ final class PainterCacheTests: XCTestCase {
         try XCTSkipUnless(Fixtures.available(), "fixtures not in this checkout")
     }
 
-    private static let template = #"[{"id":"root","component":"Box","style":{"display":"flex","flexDirection":"column","gap":2},"children":{"componentId":"item","path":"/items","key":"id"}},{"id":"item","component":"Button","label":{"path":"title"},"variant":"outline"}]"#
+    private static let template = #"[{"id":"root","component":"Box","style":{"display":"flex","flexDirection":"column","gap":2},"children":{"componentId":"item","path":"/items","key":"id"}},{"id":"item","component":"Button","label":{"@path":"title"},"variant":"outline"}]"#
 
     private func items(_ prefix: String, _ n: Int) -> JSONValue {
         .array((0..<n).map { .object(["id": .string("\(prefix)\($0)"), "title": .string("\(prefix) item \($0 % 7)")]) })

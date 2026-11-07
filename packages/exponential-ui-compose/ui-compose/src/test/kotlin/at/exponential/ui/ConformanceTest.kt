@@ -484,7 +484,7 @@ class ConformanceTest {
                     val m = paintedModel("ks", theme, mode)
                     val outcome = m.setNested(sink)
                     if (outcome.issuesJson != "[]") return@case "issues ${outcome.issuesJson}"
-                    m.apply("""{"version":"v0.9","updateDataModel":{"surfaceId":"ks","value":{"posts":[{"title":"One"},{"title":"Two"}],"ui":{"confirmOpen":false}}}}""")
+                    m.apply("""{"version":"1.0","updateDataModel":{"surfaceId":"ks","value":{"posts":[{"title":"One"},{"title":"Two"}],"ui":{"confirmOpen":false}}}}""")
                     val painted = paint(m)
                     m.nodes.firstOrNull { it.component == "Unknown" }?.let { return@case "Unknown at ${it.id}" }
                     if (painted.size < 50) return@case "only ${painted.size} nodes painted"
@@ -621,7 +621,7 @@ class ConformanceTest {
                     names(flow, "inlineCatalogs").forEach(router::registerInlineCatalog)
                     for (id in names(flow, "packages")) router.installPackage(packages[id]!!.json)
                     for ((i, step) in list(flow, "steps").withIndex()) {
-                        val got = router.routeWithBridgeJson(step["message"]!!.json, step["trusted"]?.bool == true, step["acceptV09"]?.bool ?: true)
+                        val got = router.routeJson(step["message"]!!.json, step["trusted"]?.bool == true)
                         same(got, step["expected"]!!)?.let { return@case "step $i: $it" }
                     }
                     null
@@ -669,7 +669,7 @@ class ConformanceTest {
             )
         }
         for (c in list(f, "cards")) {
-            out.add(case("card: ${s(c, "name")}") { same(cardV10Json(c["input"]!!.json, c["acceptV09"]?.bool ?: true), c["expected"]!!) })
+            out.add(case("card: ${s(c, "name")}") { same(cardV10Json(c["input"]!!.json), c["expected"]!!) })
         }
         return out
     }
