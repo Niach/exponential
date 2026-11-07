@@ -573,6 +573,25 @@ pub fn shown_result(results: &[Value]) -> Option<&Value> {
     ["error", "warning", "info"].iter().find_map(|severity| results.iter().find(|r| check_failed(r) && check_severity(r) == *severity))
 }
 
+/// Round 9 §6.6 (TS `fieldChecks`): every failing `error` message in checks
+/// order, and the ONE message the field paints. A failing result without a
+/// message reads `fallback` ($string.checkFailed).
+pub fn field_checks(results: &[Value], text: impl Fn(&Value) -> String) -> (Vec<String>, Option<crate::layout_tree::FieldMessage>) {
+    let errors = results.iter().filter(|r| check_failed(r) && check_severity(r) == "error").map(&text).collect();
+    let shown = shown_result(results).map(|r| crate::layout_tree::FieldMessage { severity: check_severity(r).to_string(), message: text(r) });
+    (errors, shown)
+}
+
+/// Do RESOLVED `checks` hold a failing `error`? (A Button's `disabled`.)
+pub fn checks_block(checks: Option<&Value>) -> bool {
+    checks.and_then(Value::as_array).is_some_and(|checks| {
+        checks.iter().filter(|c| c.get("condition").is_some()).any(|c| {
+            let r = check_result(c.get("condition"), c.get("message"), None);
+            check_failed(&r) && check_severity(&r) == "error"
+        })
+    })
+}
+
 /// Is a ValidationResult failing? (`valid` false.)
 pub fn check_failed(result: &Value) -> bool {
     result.get("valid") != Some(&Value::Bool(true))

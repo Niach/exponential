@@ -136,9 +136,9 @@ describe(`form registry`, () => {
     expect(failed).toEqual({ ok: false, errors: [{ name: `b`, message: `b1` }, { name: `b`, message: `b2` }], first: b })
     bad = false
     expect(reg.stillFailing([{ name: `b`, message: `b1` }])).toEqual([])
-    expect(reg.check()).toEqual({ ok: true, values: { a: 1, b: 2 } })
+    expect(reg.check()).toEqual({ ok: true, values: { a: 1, b: 2 }, advised: false })
     off()
-    expect(reg.check()).toEqual({ ok: true, values: { a: 1 } })
+    expect(reg.check()).toEqual({ ok: true, values: { a: 1 }, advised: false })
     expect(fieldErrorsVisible({ validateOn: `blur`, submitted: false, attempts: 0, dirty: true, touched: false })).toBe(false)
     expect(fieldErrorsVisible({ validateOn: `change`, submitted: false, attempts: 0, dirty: true, touched: false })).toBe(true)
   })

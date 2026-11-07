@@ -37,6 +37,23 @@ interface CheckCase {
   submitted: boolean
 }
 
+interface SeverityCase {
+  name: string
+  data: Record<string, unknown>
+  checks: unknown[]
+  submitted: boolean
+  errors: string[]
+  shown: { severity: string; message: string } | null
+  invalid: boolean
+}
+
+interface ButtonCheckCase {
+  name: string
+  data: Record<string, unknown>
+  checks: unknown[]
+  disabled: boolean
+}
+
 interface SortCase {
   name: string
   column: TableColumn
@@ -86,6 +103,48 @@ describe(`fixtures/interactions-round1.json`, () => {
       const errors = ((invalid?.context.errors ?? []) as { message: string }[]).map((e) => e.message)
       expect(errors).toEqual(c.failing)
       expect(actions.some((a) => a.name === `submit`)).toBe(c.submitted)
+    })
+  }
+
+  // Round 9 §6.6: what a field does with each severity.
+  for (const c of fixture.checkSeverities as SeverityCase[]) {
+    it(`checkSeverities: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const root = tree({
+        id: `f`,
+        component: `Form`,
+        props: { name: `f` },
+        on: { submit: { event: { name: `submit` } }, invalid: { event: { name: `invalid` } } },
+        children: [
+          { id: `x`, component: `Input`, props: { label: `X`, name: `x`, value: `v`, validateOn: `submit`, checks: c.checks } },
+          { id: `go`, component: `Button`, props: { label: `Send`, submit: true } },
+        ],
+      } as NestedNode)
+      const { container } = render(<ExponentialSurface root={root} data={c.data} theme="neutral" id={`sv`} host={{ onAction: (e) => void actions.push(e) }} />)
+      fireEvent.click(container.querySelector(`[data-xui-id="go"]`)!)
+      const invalid = actions.find((a) => a.name === `invalid`)
+      expect(((invalid?.context.errors ?? []) as { message: string }[]).map((e) => e.message)).toEqual(c.errors)
+      expect(actions.some((a) => a.name === `submit`)).toBe(c.submitted)
+      const part = container.querySelector(`[data-xui-id="x.error"]`)
+      if (!c.shown) expect(part).toBeNull()
+      else {
+        expect(part!.textContent).toBe(c.shown.message)
+        expect(part!.getAttribute(`role`)).toBe(c.shown.severity === `error` ? `alert` : `status`)
+        expect(part!.getAttribute(`data-xs`)).toBe(c.shown.severity === `error` ? null : c.shown.severity)
+      }
+      expect(container.querySelector(`[data-xui-id="x.field"] input, input[data-xui-id="x.field"]`)!.hasAttribute(`aria-invalid`)).toBe(c.invalid)
+    })
+  }
+
+  for (const c of fixture.buttonChecks as ButtonCheckCase[]) {
+    it(`buttonChecks: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const root = tree({ id: `b`, component: `Button`, props: { label: `Go`, checks: c.checks }, on: { press: { event: { name: `press` } } } })
+      const { container } = render(<ExponentialSurface root={root} data={c.data} theme="neutral" id={`bc`} host={{ onAction: (e) => void actions.push(e) }} />)
+      const button = container.querySelector(`[data-xui-id="b"]`) as HTMLButtonElement
+      expect(button.disabled).toBe(c.disabled)
+      fireEvent.click(button)
+      expect(actions.some((a) => a.name === `press`)).toBe(!c.disabled)
     })
   }
 

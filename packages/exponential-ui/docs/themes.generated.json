@@ -2347,7 +2347,9 @@
     "open",
     "selected",
     "invalid",
-    "dragover"
+    "dragover",
+    "warning",
+    "info"
   ],
   "keys": [
     "backgroundColor",
@@ -2604,7 +2606,9 @@
       "props": [
         "density",
         "level",
-        "chip"
+        "chip",
+        "profile",
+        "variant"
       ]
     },
     {
@@ -3460,7 +3464,8 @@
         "box",
         "check",
         "label",
-        "description"
+        "description",
+        "error"
       ],
       "props": [
         "checked",
@@ -3476,7 +3481,8 @@
         "item",
         "dot",
         "label",
-        "items"
+        "items",
+        "error"
       ],
       "props": [
         "orientation"
@@ -3490,7 +3496,8 @@
         "tile",
         "picture",
         "label",
-        "description"
+        "description",
+        "error"
       ],
       "props": [
         "type",
@@ -3557,7 +3564,8 @@
         "search",
         "item",
         "check",
-        "empty"
+        "empty",
+        "error"
       ],
       "props": [
         "multiple",

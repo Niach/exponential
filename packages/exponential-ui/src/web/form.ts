@@ -3,7 +3,8 @@
 // framework-free. A Form collects every named field beneath it; submit runs
 // EVERY field's checks regardless of `validateOn` and, on any failure,
 // yields every message (document order) and the first invalid field to
-// focus; otherwise the values by name. A field shows its errors once it was
+// focus; otherwise the values by name. Only a failing `error` fails (round 9
+// §6.6): a `warning` / `info` shows and never blocks. A field shows its errors once it was
 // submitted, the Form refused a submit, or its `validateOn` moment passed.
 
 import { coreCatalog } from "@exponential_app/eui"
@@ -14,6 +15,9 @@ export interface FormField {
   domId: string
   value: () => unknown
   errors: () => string[]
+  /** Round 9 §6.6: a failing `warning` / `info` it would show (advisory:
+   *  never blocks, a submit reveals it). */
+  advisory?: () => boolean
   focus: () => void
   element: () => Element | null
 }
@@ -23,7 +27,7 @@ export interface FormError {
   message: string
 }
 
-export type FormCheck<F extends FormField = FormField> = { ok: false; errors: FormError[]; first: F | null } | { ok: true; values: Record<string, unknown> }
+export type FormCheck<F extends FormField = FormField> = { ok: false; errors: FormError[]; first: F | null } | { ok: true; values: Record<string, unknown>; advised: boolean }
 
 const VALIDATE_ON: Record<string, string> = Object.fromEntries(
   Object.entries(coreCatalog.components).flatMap(([name, def]) => {
@@ -75,7 +79,7 @@ export class FormRegistry<F extends FormField = FormField> {
     if (errors.length) return { ok: false, errors, first }
     const values: Record<string, unknown> = {}
     for (const f of list) values[f.name] = f.value()
-    return { ok: true, values }
+    return { ok: true, values, advised: list.some((f) => f.advisory?.() === true) }
   }
 
   /** The summary entries whose field still fails with that message (they

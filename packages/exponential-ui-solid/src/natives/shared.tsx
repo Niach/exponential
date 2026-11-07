@@ -48,14 +48,14 @@
 
 import { createMemo, type JSX } from "solid-js"
 import { displayString, nativeRecipeProps } from "@exponential_app/eui"
-import { PLACED, arr, bool, builtinIconName, failingCheck, failingChecks, formatFileSize, num, objects, partClass, phrase, propAttribute, str } from "@exponential_app/eui/web"
+import { PLACED, arr, bool, builtinIconName, failingCheck, failingChecks, resolvedFieldChecks, formatFileSize, num, objects, partClass, phrase, propAttribute, str } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { useInstance, useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 
 export type Attrs = Record<string, unknown>
 
-export { str, num, bool, arr, objects, phrase, formatFileSize, failingChecks, failingCheck, builtinIconName }
+export { str, num, bool, arr, objects, phrase, formatFileSize, failingChecks, resolvedFieldChecks, failingCheck, builtinIconName }
 export { css, px } from "../style"
 export type { StyleInput, SolidStyle } from "../style"
 

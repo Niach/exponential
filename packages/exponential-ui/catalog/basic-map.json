@@ -145,7 +145,8 @@
             "borderless": "ghost"
           },
           "default": "secondary"
-        }
+        },
+        "checks": "checks"
       },
       "transform": "buttonChild"
     },

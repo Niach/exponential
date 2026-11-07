@@ -1738,6 +1738,9 @@
         "disabled": {
           "description": "Shows it inert."
         },
+        "checks": {
+          "description": "Validation rules: a failing `error` disables it (warning and info never do)."
+        },
         "loading": {
           "description": "Pending: refuses presses, then shows a spinner."
         },

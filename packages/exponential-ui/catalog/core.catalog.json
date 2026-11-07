@@ -4314,6 +4314,14 @@
           "bindable": true,
           "description": "Shows it inert."
         },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          },
+          "description": "Validation rules: a failing `error` disables it (warning and info never do)."
+        },
         "loading": {
           "type": "boolean",
           "default": false,

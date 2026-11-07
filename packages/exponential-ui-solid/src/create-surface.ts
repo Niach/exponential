@@ -5,10 +5,9 @@
 // model (live getters), and hand the result to
 // `<ExponentialSurface surface={…}>`.
 
-import { batch, createMemo, createSignal } from "solid-js"
-import { CORE_CATALOG_ID, newSurfaceBridge, reduceNested, reduceSurface, surfaceUpdates } from "@exponential_app/eui"
+import { batch, createSignal } from "solid-js"
+import { CORE_CATALOG_ID, SurfaceStore } from "@exponential_app/eui"
 import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential_app/eui"
-import { setPointer } from "@exponential_app/eui/web"
 import type { DataModel } from "@exponential_app/eui/web"
 
 export interface A2uiMessage {
@@ -62,93 +61,60 @@ export interface SurfaceState {
   reset: () => void
 }
 
-interface Inner {
-  catalogId: string
-  components: FlatComponent[]
-  nested: NestedNode | null
-  deleted: boolean
-}
-
 export function createSurface(options: CreateSurfaceOptions = {}): SurfaceState {
   const surfaceId = options.surfaceId ?? `main`
   const extensions = options.extensions ?? []
-  const initial: Inner = { catalogId: options.catalogId ?? CORE_CATALOG_ID, components: [], nested: options.initial ?? null, deleted: false }
-  const initialData = options.data ?? {}
-  // The tree and the data are two signals: a data write never re-reduces.
-  const [inner, setInner] = createSignal<Inner>(initial)
-  const [data, setDataModel] = createSignal<DataModel>(initialData)
-  const [writeEpoch, setWriteEpoch] = createSignal(0)
-
-  const bridge = newSurfaceBridge(options.catalogId ?? CORE_CATALOG_ID)
-  const apply = (message: A2uiMessage) => {
-    // Round 9 §1.5: the core parses the message (version, bridge, entries).
-    const { updates } = surfaceUpdates(message, bridge, { extensions: extensions as ExtensionDef[] })
+  const start = { catalogId: options.catalogId ?? CORE_CATALOG_ID, nested: options.initial ?? null, data: options.data ?? {} }
+  const store = new SurfaceStore(surfaceId, start.catalogId, () => extensions, { nested: start.nested ?? undefined, data: start.data })
+  // The tree and the data are separate signals: a data write never touches
+  // what reads the tree (and the store never re-reduces for it).
+  const [tree, setTree] = createSignal(store.treeVersion)
+  const [data, setDataModel] = createSignal<DataModel>(store.data)
+  const [writeEpoch, setWriteEpoch] = createSignal(store.writeEpoch)
+  store.subscribe(() =>
     batch(() => {
-      for (const update of updates) {
-        if (update.surfaceId !== surfaceId) continue
-        if (update.kind === `create`) {
-          const { catalogId, components, dataModel } = update
-          setInner((cur) => ({ ...cur, catalogId: catalogId ?? cur.catalogId, components, nested: null, deleted: false }))
-          if (dataModel) setDataModel(dataModel)
-        } else if (update.kind === `components`) {
-          // A later update replaces components by id and keeps the rest.
-          setInner((cur) => {
-            const byId = new Map(cur.components.map((c) => [c.id, c]))
-            for (const c of update.components) byId.set(c.id, c)
-            return { ...cur, components: [...byId.values()], nested: null, deleted: false }
-          })
-        } else if (update.kind === `data`) setDataModel((cur) => setPointer(cur, update.path, update.value))
-        else setInner((cur) => ({ ...cur, components: [], nested: null, deleted: true }))
-      }
+      setTree(store.treeVersion)
+      setDataModel(store.data)
+      setWriteEpoch(store.writeEpoch)
     })
+  )
+  const fromTree = <T>(read: () => T): T => {
+    tree()
+    return read()
   }
-
-  const reduced = createMemo((): { root: UiNode | null; issues: ReduceIssue[]; templates?: Record<string, UiNode> } => {
-    const cur = inner()
-    if (cur.deleted) return { root: null, issues: [] }
-    if (cur.nested) return reduceNested(cur.nested, { catalogId: cur.catalogId, extensions: extensions as ExtensionDef[] })
-    if (cur.components.length === 0) return { root: null, issues: [] }
-    return reduceSurface(cur.components, { catalogId: cur.catalogId, extensions: extensions as ExtensionDef[] })
-  })
 
   return {
     surfaceId,
     get catalogId() {
-      return inner().catalogId
+      return fromTree(() => store.catalogId ?? start.catalogId)
     },
     get root() {
-      return reduced().root
+      return fromTree(() => store.root)
     },
     get issues() {
-      return reduced().issues
+      return fromTree(() => store.issues)
     },
     get templates() {
-      return reduced().templates
+      return fromTree(() => store.templates)
     },
     get data() {
       return data()
     },
     get deleted() {
-      return inner().deleted
+      return fromTree(() => store.deleted)
     },
     get writeEpoch() {
       return writeEpoch()
     },
     get components() {
-      return inner().components
+      return fromTree(() => store.components)
     },
     extensions,
-    apply,
-    setData: (pointer, value) => setDataModel((cur) => setPointer(cur, pointer, value)),
-    assign: (pointer, value) =>
-      batch(() => {
-        setDataModel((cur) => setPointer(cur, pointer, value))
-        setWriteEpoch((n) => n + 1)
-      }),
-    setNested: (tree) => setInner((cur) => ({ ...cur, nested: tree, components: [], deleted: false })),
-    reset: () => {
-      setInner(initial)
-      setDataModel(initialData)
-    },
+    // Round 9 §1.5: `SurfaceStore.apply` is the one entry (version, bridge, entries).
+    apply: (message) => batch(() => void store.apply(message)),
+    setData: (pointer, value) => void store.setData(pointer, value),
+    assign: (pointer, value) => void store.assign(pointer, value),
+    setNested: (tree) => store.setNested(tree),
+    reset: () => store.restore(start.catalogId, start.nested, start.data),
   }
 }

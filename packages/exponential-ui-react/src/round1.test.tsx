@@ -393,7 +393,7 @@ describe(`Form`, () => {
       { id: `go`, component: `Button`, props: { label: `Send`, submit: true } },
     ],
   })
-  it(`a failed submit: invalid {errors}, ALL messages under each field, linked, summary, focus, announce`, () => {
+  it(`a failed submit: invalid {errors}, ONE message under each field (round 9 §6.6), linked, summary, focus, announce`, () => {
     vi.useFakeTimers()
     const actions: SurfaceActionEvent[] = []
     const { container } = render(<ExponentialSurface root={tree(form())} data={{ email: ``, age: 12 }} theme="neutral" id="fm" host={{ onAction: (e) => void actions.push(e) }} />)
@@ -406,7 +406,7 @@ describe(`Form`, () => {
     ])
     expect(actions.some((a) => a.name === `submit`)).toBe(false)
     const err = container.querySelector(`[id="email.error"]`)!
-    expect(Array.from(err.querySelectorAll(`.xui-field-error`)).map((e) => e.textContent)).toEqual([`Required`, `Not an email`])
+    expect(Array.from(err.querySelectorAll(`.xui-field-error`)).map((e) => e.textContent)).toEqual([`Required`])
     expect(err.getAttribute(`role`)).toBe(`alert`)
     const input = container.querySelector(`[data-xui-id="email"] input`)!
     expect(input.getAttribute(`aria-describedby`)).toContain(`email.error`)

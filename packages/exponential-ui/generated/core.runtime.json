@@ -3332,6 +3332,13 @@
           "default": false,
           "bindable": true
         },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        },
         "loading": {
           "type": "boolean",
           "default": false

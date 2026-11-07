@@ -17,7 +17,7 @@ import { CHROME, IconGlyph } from "../icons"
 import { useBoundState } from "./bound"
 import { ButtonHold, linkHref } from "@exponential_app/eui/web"
 import type { NativeProps } from "../node-view"
-import { bool, str, useParts } from "./shared"
+import { bool, failingChecks, str, useParts } from "./shared"
 
 export function usePending() {
   const [pending, setPending] = useState(false)
@@ -51,7 +51,8 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   const loading = bool(props.loading) || pending || (submit && form.busy)
   // EXP-1556: loading refuses presses but keeps the idle look (the spinner
   // shows it); only `disabled` dims, as on desktop, iOS and Android.
-  const disabled = bool(props.disabled)
+  // Round 9 §6.6: a failing `error` check disables it (warning / info never do).
+  const disabled = bool(props.disabled) || failingChecks(props.checks).length > 0
   const inert = disabled || loading
   const iconOnly = props.size === `icon`
   const Spinner = CHROME.spinner

@@ -106,3 +106,15 @@ export function nativeRecipeProps(
   }
   return out
 }
+
+/** Round 9 §9.1 (fixtures/markdown-inline.json): the recipes an INLINE-profile
+ *  Markdown part paints with, first to last (later rules over earlier): a
+ *  paragraph IS a Text of its `variant`, a heading a Heading of its level
+ *  (the `Heading` macro: Text `title` + `Heading/root`; h5, h6 paint h4). */
+export function markdownInlineRecipes(part: `paragraph` | `heading`, options: { variant?: string; level?: number } = {}): RecipeQuery[] {
+  if (part === `paragraph`) return [{ component: `Text`, part: `root`, props: { variant: options.variant ?? `body` } }]
+  return [
+    { component: `Text`, part: `root`, props: { variant: `title` } },
+    { component: `Heading`, part: `root`, props: { level: `h${Math.min(Math.max(options.level ?? 2, 1), 4)}` } },
+  ]
+}

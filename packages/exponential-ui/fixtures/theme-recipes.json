@@ -15,7 +15,9 @@
     "open",
     "selected",
     "invalid",
-    "dragover"
+    "dragover",
+    "warning",
+    "info"
   ],
   "cases": [
     {
@@ -1818,7 +1820,10 @@
     {
       "component": "Markdown",
       "part": "root",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -1905,7 +1910,10 @@
     {
       "component": "Markdown",
       "part": "heading",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -1984,7 +1992,10 @@
     {
       "component": "Markdown",
       "part": "link",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -2039,7 +2050,10 @@
     {
       "component": "Markdown",
       "part": "code",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -2130,7 +2144,10 @@
     {
       "component": "Markdown",
       "part": "codeBlock",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -2237,7 +2254,10 @@
     {
       "component": "Markdown",
       "part": "quote",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -2316,7 +2336,10 @@
     {
       "component": "Markdown",
       "part": "table",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -2387,7 +2410,10 @@
     {
       "component": "Markdown",
       "part": "listItem",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -2438,7 +2464,10 @@
     {
       "component": "Markdown",
       "part": "image",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -2493,7 +2522,10 @@
     {
       "component": "Markdown",
       "part": "headerCell",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -2552,7 +2584,10 @@
     {
       "component": "Markdown",
       "part": "cell",
-      "props": {},
+      "props": {
+        "profile": "document",
+        "variant": "body"
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -37469,6 +37504,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -37476,6 +37521,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -37485,6 +37540,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -37492,6 +37557,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -37501,6 +37576,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
             }
           },
           "dark": {
@@ -37508,6 +37593,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
             }
           }
         },
@@ -37517,6 +37612,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -37524,6 +37629,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         }
@@ -38338,6 +38453,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -38345,6 +38470,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -38354,6 +38489,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -38361,6 +38506,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -38370,6 +38525,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
             }
           },
           "dark": {
@@ -38377,6 +38542,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
             }
           }
         },
@@ -38386,6 +38561,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -38393,6 +38578,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         }
@@ -39897,6 +40092,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -39904,6 +40109,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -39913,6 +40128,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -39920,6 +40145,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -39929,6 +40164,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
             }
           },
           "dark": {
@@ -39936,6 +40181,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
             }
           }
         },
@@ -39945,6 +40200,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -39952,6 +40217,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         }
@@ -40840,6 +41115,161 @@
       }
     },
     {
+      "component": "Checkbox",
+      "part": "error",
+      "props": {
+        "checked": false,
+        "disabled": false,
+        "indeterminate": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Radio",
       "part": "root",
       "props": {
@@ -41332,6 +41762,159 @@
               "lineHeight": 20,
               "fontWeight": 500,
               "color": "#fafafa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Radio",
+      "part": "error",
+      "props": {
+        "orientation": "vertical"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         }
@@ -42358,6 +42941,160 @@
             "default": {
               "fontSize": 12,
               "lineHeight": 16,
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "ChoiceTiles",
+      "part": "error",
+      "props": {
+        "type": "single",
+        "columns": 2
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
               "color": "#a1a1a1"
             }
           }
@@ -46426,6 +47163,161 @@
       }
     },
     {
+      "component": "Select",
+      "part": "error",
+      "props": {
+        "multiple": false,
+        "searchable": false,
+        "disabled": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "SearchList",
       "part": "root",
       "props": {},
@@ -48737,6 +49629,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -48744,6 +49646,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -48753,6 +49665,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -48760,6 +49682,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -48769,6 +49701,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
             }
           },
           "dark": {
@@ -48776,6 +49718,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
             }
           }
         },
@@ -48785,6 +49737,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -48792,6 +49754,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         }
@@ -54416,6 +55388,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -54423,6 +55405,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#f59e0b"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -54432,6 +55424,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -54439,6 +55441,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         },
@@ -54448,6 +55460,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e11d48"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#d97706"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#6b5b8a"
             }
           },
           "dark": {
@@ -54455,6 +55477,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#fb7185"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#fbbf24"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#c4b5fd"
             }
           }
         },
@@ -54464,6 +55496,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#e7000b"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#737373"
             }
           },
           "dark": {
@@ -54471,6 +55513,16 @@
               "fontSize": 14,
               "lineHeight": 20,
               "color": "#ff6467"
+            },
+            "warning": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#facc15"
+            },
+            "info": {
+              "fontSize": 14,
+              "lineHeight": 20,
+              "color": "#a1a1a1"
             }
           }
         }

@@ -2,24 +2,27 @@
 // named control speaks. A Form collects every field beneath it that has a
 // `name` (a nested Form collects its own). Submit — a `submit` Button or
 // Enter in a single-line field — runs EVERY field's checks regardless of
-// `validateOn`; any failure: no `submit`, `invalid {errors}` fires, every
-// failing field shows ALL its messages (id `<field id>.error`, linked by
-// aria-describedby), `summary` also lists them above the fields, focus
+// `validateOn`; any failing `error`: no `submit`, `invalid {errors}` fires,
+// every failing field shows ONE message (round 9 §6.6: its first `error`,
+// else `warning`, else `info`; id `<field id>.error`, linked by
+// aria-describedby), `summary` lists every error above the fields, focus
 // moves to the first invalid field (document order) and `invalidFields` is
-// announced. `busy` refuses submits (the submit Button shows loading),
+// announced. A `warning` / `info` never blocks. `busy` refuses submits (the submit Button shows loading),
 // `disabled` makes every field inert (a disabled fieldset).
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { FormRegistry, fieldErrorsVisible, joinIds, validateOnDefault } from "@exponential_app/eui/web"
+import type { FieldChecks } from "@exponential_app/eui"
 import { useSurfaceContext } from "./context"
 import type { NativeProps } from "./node-view"
-import { bool, failingChecks, str, useParts, type PartFn } from "./natives/shared"
+import { bool, resolvedFieldChecks, str, useParts, type PartFn } from "./natives/shared"
 
 export interface FieldHandle {
   name: string
   domId: string
   value: () => unknown
   errors: () => string[]
+  advisory: () => boolean
   focus: () => void
   element: () => HTMLElement | null
 }
@@ -75,6 +78,8 @@ export function FormNative({ node, props, rootProps, emit, children }: NativePro
       return
     }
     setSummary([])
+    // A submit reveals the advisories it let through (round 9 §6.6).
+    if (result.advised) setAttempts((n) => n + 1)
     void emit(`submit`, { values: result.values })
     closeOverlay?.()
   }, [emit, ctx, closeOverlay, fields])
@@ -125,9 +130,11 @@ export interface FieldOptions {
 }
 
 export interface FieldState {
-  /** The messages to SHOW now (all failing checks once validation shows). */
+  /** The `error` message to SHOW now (at most one, round 9 §6.6). */
   errors: string[]
   invalid: boolean
+  /** The one message shown now (any severity), null = none. */
+  shown: FieldChecks[`shown`]
   /** `<field id>.error` — put it in the control's aria-describedby. */
   errorId: string
   describedBy: string | undefined
@@ -142,14 +149,16 @@ export interface FieldState {
 export function useField({ node, domId, props, value, focusRef }: FieldOptions): FieldState {
   const form = useForm()
   const ctx = useSurfaceContext()
-  const all = failingChecks(props.checks, ctx.t(`invalidValue`))
+  const checks = resolvedFieldChecks(props.checks, ctx.t(`checkFailed`))
+  const all = checks.errors
+  const advised = checks.shown !== null && checks.shown.severity !== `error`
   const [touched, setTouched] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const on = str(props.validateOn, validateOnDefault(node.component) ?? `blur`)
   const show = fieldErrorsVisible({ validateOn: on, submitted, attempts: form?.attempts ?? 0, dirty, touched })
-  const latest = useRef({ value, all })
-  latest.current = { value, all }
+  const latest = useRef({ value, all, advised })
+  latest.current = { value, all, advised }
   const name = str(props.name)
   useEffect(() => {
     if (!form || !name) return
@@ -158,17 +167,20 @@ export function useField({ node, domId, props, value, focusRef }: FieldOptions):
       domId,
       value: () => latest.current.value,
       errors: () => latest.current.all,
+      advisory: () => latest.current.advised,
       focus: () => focusRef.current?.focus(),
       element: () => focusRef.current,
     })
   }, [form, name, domId, focusRef])
-  const errors = show ? all : []
+  const shown = show ? checks.shown : null
+  const errors = shown?.severity === `error` ? [shown.message] : []
   const errorId = `${domId}.error`
   return {
     errors,
     invalid: errors.length > 0,
+    shown,
     errorId,
-    describedBy: errors.length ? errorId : undefined,
+    describedBy: shown ? errorId : undefined,
     touch: () => setTouched(true),
     change: (v: unknown) => {
       setDirty(true)
@@ -182,16 +194,16 @@ export function useField({ node, domId, props, value, focusRef }: FieldOptions):
   }
 }
 
-/** Every failing message under a field, linked by `errorId`. */
+/** The field's one message, linked by `errorId`: an `error` is an alert in
+ *  the `error` part; a `warning` / `info` the same part in that recipe state,
+ *  a quiet `status`. */
 export function FieldErrors({ part, field }: { part: PartFn; field: FieldState }) {
-  if (!field.errors.length) return null
+  const shown = field.shown
+  if (!shown) return null
+  const severe = shown.severity === `error`
   return (
-    <div {...(part(`error`) as Record<string, string>)} id={field.errorId} role="alert">
-      {field.errors.map((m, i) => (
-        <span key={i} className="xui-field-error">
-          {m}
-        </span>
-      ))}
+    <div {...(part(`error`, !severe && shown.severity) as Record<string, string>)} id={field.errorId} role={severe ? `alert` : `status`}>
+      <span className="xui-field-error">{shown.message}</span>
     </div>
   )
 }

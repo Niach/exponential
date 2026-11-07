@@ -113,6 +113,70 @@ fn check_cases_fail_and_pass_like_the_reference() {
     }
 }
 
+fn states(s: &Surface, id: &str) -> Vec<String> {
+    s.nodes().into_iter().find(|n| n.id == id).map(|n| n.states.clone()).unwrap_or_default()
+}
+
+/// Round 9 §6.6: what a field does with each severity.
+#[test]
+fn check_severities_show_one_message_and_only_an_error_blocks() {
+    let f = fixture();
+    for c in f["checkSeverities"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface_with_issues(json!({"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"submit": {"event": {"name": "submit"}}, "invalid": {"event": {"name": "invalid"}}},
+            "children": [
+                {"id": "x", "component": "Input", "props": {"label": "X", "name": "x", "value": "v", "validateOn": "submit", "checks": c["checks"]}},
+                {"id": "go", "component": "Button", "props": {"label": "Send", "submit": true}}
+            ]}));
+        s.set_data("", Some(c["data"].clone())).unwrap();
+        let mut m = fixed();
+        s.layout(&mut m);
+        let go = s.index_of("go").unwrap();
+        let events = s.event(go, "press", None);
+        let errors: Vec<Value> = events
+            .iter()
+            .filter_map(|e| match e {
+                OutEvent::Action { name, context, .. } if name == "invalid" => Some(context["errors"].as_array().unwrap().iter().map(|e| e["message"].clone()).collect::<Vec<_>>()),
+                _ => None,
+            })
+            .next()
+            .unwrap_or_default();
+        assert_eq!(json!(errors), c["errors"], "{name}: errors");
+        let submitted = events.iter().any(|e| matches!(e, OutEvent::Action { name, .. } if name == "submit"));
+        assert_eq!(json!(submitted), c["submitted"], "{name}: submitted");
+        s.layout(&mut m);
+        let part = s.nodes().into_iter().find(|n| n.id == "x.error");
+        match c["shown"].as_object() {
+            None => assert!(part.is_none(), "{name}: no message"),
+            Some(shown) => {
+                let part = part.unwrap_or_else(|| panic!("{name}: no x.error"));
+                assert_eq!(part.props["text"], shown["message"], "{name}: message");
+                let state = if shown["severity"] == "error" { "invalid" } else { shown["severity"].as_str().unwrap() };
+                assert_eq!(part.states, vec![state.to_string()], "{name}: part state");
+            }
+        }
+        assert_eq!(json!(states(&s, "x.field").contains(&"invalid".to_string())), c["invalid"], "{name}: field invalid");
+    }
+}
+
+#[test]
+fn button_checks_disable_on_an_error_alone() {
+    let f = fixture();
+    for c in f["buttonChecks"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface_with_issues(json!({"id": "root", "component": "Box", "children": [
+            {"id": "b", "component": "Button", "props": {"label": "Go", "checks": c["checks"]}, "on": {"press": {"event": {"name": "press"}}}}
+        ]}));
+        s.set_data("", Some(c["data"].clone())).unwrap();
+        let mut m = fixed();
+        s.layout(&mut m);
+        let b = s.index_of("b").unwrap();
+        let events = s.event(b, "press", None);
+        let pressed = events.iter().any(|e| matches!(e, OutEvent::Action { name, .. } if name == "press"));
+        assert_eq!(json!(!pressed), c["disabled"], "{name}: press");
+    }
+}
+
 #[test]
 fn table_sort_cases_order_rows_like_the_reference() {
     let f = fixture();

@@ -196,8 +196,8 @@ describe(`the surface Formatter (§3)`, () => {
 })
 
 describe(`built-in strings replace the hard-coded labels (§3)`, () => {
-  it(`invalidValue, message, codeBlock, dialog, table, carousel, slide`, () => {
-    const strings = { invalidValue: `Ungültig`, message: `Nachricht`, codeBlock: `Quelltext`, dialog: `Fenster`, table: `Tabelle`, carousel: `Karussell`, slide: `Folie` }
+  it(`checkFailed, message, codeBlock, dialog, table, carousel, slide`, () => {
+    const strings = { checkFailed: `Ungültig`, message: `Nachricht`, codeBlock: `Quelltext`, dialog: `Fenster`, table: `Tabelle`, carousel: `Karussell`, slide: `Folie` }
     const r = reduced({
       id: `b`,
       component: `Box`,
