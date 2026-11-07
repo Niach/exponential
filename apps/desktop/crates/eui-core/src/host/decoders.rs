@@ -321,7 +321,16 @@ pub fn messages_from_mcp_result(result: &Value) -> Decoded {
 /// A client message as the MCP tools/call that carries it back (`tool`
 /// defaults to `a2ui_event`).
 pub fn mcp_action_call(message: &Value, tool: Option<&str>) -> Value {
-    json!({"method": "tools/call", "params": {"name": tool.unwrap_or(MCP_ACTION_TOOL), "arguments": {"message": message}}})
+    mcp_action_call_with(message, tool, None)
+}
+
+/// [`mcp_action_call`] with the §1.3 metadata beside the message.
+pub fn mcp_action_call_with(message: &Value, tool: Option<&str>, metadata: Option<&Value>) -> Value {
+    let arguments = match metadata {
+        Some(metadata) => json!({"message": message, "metadata": metadata}),
+        None => json!({"message": message}),
+    };
+    json!({"method": "tools/call", "params": {"name": tool.unwrap_or(MCP_ACTION_TOOL), "arguments": arguments}})
 }
 
 #[cfg(test)]

@@ -1430,6 +1430,11 @@ impl Surface {
     /// Round 9 §6.8: the reactive failures since the last call, as JSON
     /// `[{code, message, functionCallId?, path?}]`, each once for the
     /// surface's lifetime: the host sends them as `error` messages.
+    /// Round 9 §6.5: a routed value settled; the next layout binds again.
+    pub fn rebind(&self) {
+        self.shield("rebind", || (), || self.core().rebind())
+    }
+
     pub fn take_failures_json(&self) -> String {
         self.shield("take_failures_json", || "[]".to_string(), || serde_json::to_string(&self.core().take_failures()).unwrap_or_default())
     }
@@ -2652,6 +2657,125 @@ impl HostRouter {
 
 /// A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
 /// Both return `{"messages": […], "issues": [{at, message}]}`.
+/// Round 9 §6.5–§6.8, §18.3: the host's routed calls (`eui_core::host::CallHub`):
+/// the ONE entry a Swift or Compose host has for the agent channel, reactive
+/// caching and pending, timeouts and the capped, once-per-lifetime errors.
+#[derive(uniffi::Object)]
+pub struct HostCalls {
+    inner: h::SharedCalls,
+}
+
+impl HostCalls {
+    fn hub(&self) -> std::sync::MutexGuard<'_, h::CallHub> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+#[uniffi::export]
+impl HostCalls {
+    /// `agent` = the transport's far end reads renderer → agent messages.
+    #[uniffi::constructor]
+    pub fn new(agent: bool) -> Arc<Self> {
+        Arc::new(HostCalls { inner: h::CallHub::shared(agent) })
+    }
+
+    /// The host's function policy (`FunctionPolicy` JSON; `None` = allow).
+    pub fn set_policy_json(&self, policy_json: Option<String>) -> Result<(), UiError> {
+        guarded("set_policy_json", || {
+            let policy = policy_json.as_deref().map(parse).transpose()?;
+            self.hub().set_policy(policy);
+            Ok(())
+        })
+    }
+
+    pub fn set_registered(&self, names: Vec<String>) {
+        shield("set_registered", || (), || self.hub().set_registered(&names));
+    }
+
+    /// Every `routeJson` answer goes through here AFTER the host performed
+    /// it. Answers the action calls that settled: `[SettledCall]` JSON.
+    pub fn observe_json(&self, ops_json: String, router: Arc<HostRouter>) -> Result<String, UiError> {
+        guarded("observe_json", || {
+            let ops: Vec<Value> = parse(&ops_json)?;
+            let router = router.inner.lock().unwrap_or_else(|e| e.into_inner());
+            Ok(serde_json::to_string(&self.hub().observe(&ops, &router)).unwrap_or_default())
+        })
+    }
+
+    /// A surface resolves its reactive calls here.
+    pub fn attach_surface(&self, surface_id: String, surface: Arc<Surface>) {
+        shield("attach_surface", || (), || surface.core().set_call_route(Some(h::route_handle(&self.inner, &surface_id))));
+    }
+
+    /// After a layout: the surface's issues and failures go to the outbox.
+    pub fn flush_surface(&self, surface_id: String, surface: Arc<Surface>) {
+        shield("flush_surface", || (), || self.hub().flush_surface(&surface_id, &mut surface.core()));
+    }
+
+    /// An action's function call: `PressRoute` JSON. On `ask` press again
+    /// with the consent's answer.
+    pub fn press_json(&self, surface_id: String, name: String, catalog_id: Option<String>, args_json: String, consent: Option<bool>) -> Result<String, UiError> {
+        guarded("press_json", || {
+            let args: serde_json::Map<String, Value> = parse(&args_json)?;
+            Ok(serde_json::to_string(&self.hub().press(&surface_id, &name, catalog_id.as_deref(), &args, consent)).unwrap_or_default())
+        })
+    }
+
+    pub fn local_failed(&self, surface_id: String, message: String) {
+        shield("local_failed", || (), || self.hub().local_failed(&surface_id, &message));
+    }
+
+    /// The answer to an `ask` effect.
+    pub fn consent(&self, ticket: u64, allowed: bool) {
+        shield("consent", || (), || self.hub().consent(ticket, allowed));
+    }
+
+    /// The answer to a `runLocal` effect: its value JSON, or its error.
+    pub fn settle_local(&self, ticket: u64, value_json: Option<String>, error: Option<String>) -> Result<(), UiError> {
+        guarded("settle_local", || {
+            let answer = match error {
+                Some(e) => Err(e),
+                None => Ok(value_json.as_deref().map(parse).transpose()?.unwrap_or(Value::Null)),
+            };
+            self.hub().settle_local(ticket, answer);
+            Ok(())
+        })
+    }
+
+    /// The calls past their deadline: `[SettledCall]` JSON.
+    pub fn expire_json(&self) -> String {
+        shield("expire_json", || "[]".to_string(), || serde_json::to_string(&self.hub().expire()).unwrap_or_default())
+    }
+
+    /// When to call [`Self::expire_json`] next (epoch ms).
+    pub fn next_deadline_ms(&self) -> Option<f64> {
+        shield("next_deadline_ms", || None, || self.hub().next_deadline_ms())
+    }
+
+    /// §1.3: the metadata to send beside `message_json`, or `None`.
+    pub fn data_model_metadata_json(&self, message_json: String, data_json: String) -> Result<Option<String>, UiError> {
+        guarded("data_model_metadata_json", || {
+            let (message, data): (Value, Value) = (parse(&message_json)?, parse(&data_json)?);
+            Ok(self.hub().data_model_metadata(&message, &|_| Some(data.clone())).map(|m| m.to_string()))
+        })
+    }
+
+    /// What must leave on the transport, in order (JSON array).
+    pub fn take_outbox_json(&self) -> String {
+        shield("take_outbox_json", || "[]".to_string(), || Value::Array(self.hub().take_outbox()).to_string())
+    }
+
+    /// `[CallEffect]` JSON: what the host must run for reactive calls.
+    pub fn take_effects_json(&self) -> String {
+        shield("take_effects_json", || "[]".to_string(), || serde_json::to_string(&self.hub().take_effects()).unwrap_or_default())
+    }
+
+    /// The surfaces to bind again (`Surface.rebind`).
+    pub fn take_dirty(&self) -> Vec<String> {
+        shield("take_dirty", Vec::new, || self.hub().take_dirty())
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct JsonlDecoder {
     inner: Mutex<h::JsonlDecoder>,
@@ -2725,10 +2849,11 @@ pub fn messages_from_mcp_result_json(result_json: String) -> Result<String, UiEr
 /// A client message as the MCP `tools/call` that carries it back (`tool`
 /// defaults to `a2ui_event`).
 #[uniffi::export]
-pub fn mcp_action_call_json(message_json: String, tool: Option<String>) -> Result<String, UiError> {
+pub fn mcp_action_call_json(message_json: String, tool: Option<String>, metadata_json: Option<String>) -> Result<String, UiError> {
     guarded("mcp_action_call_json", || {
         let message: Value = parse(&message_json)?;
-        Ok(h::mcp_action_call(&message, tool.as_deref()).to_string())
+        let metadata: Option<Value> = metadata_json.as_deref().map(serde_json::from_str).transpose().map_err(|e| UiError::Invalid { reason: format!("metadata: {e}") })?;
+        Ok(h::mcp_action_call_with(&message, tool.as_deref(), metadata.as_ref()).to_string())
     })
 }
 

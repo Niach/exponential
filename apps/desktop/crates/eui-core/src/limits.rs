@@ -49,6 +49,9 @@ pub fn message_bytes_issue() -> String {
     format!("message larger than {MAX_MESSAGE_BYTES} bytes")
 }
 
+/// Round 9 §6.5: `agentFunctionTimeoutMs`, a routed call past this fails.
+pub const AGENT_FUNCTION_TIMEOUT_MS: u64 = 30_000;
+
 #[cfg(test)]
 mod tests {
     use super::*;

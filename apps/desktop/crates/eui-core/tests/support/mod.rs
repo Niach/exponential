@@ -124,7 +124,7 @@ pub fn transport_cases() -> Vec<Case> {
         out.push((format!("mcp: {}", c["name"].as_str().unwrap()), same(&to_value(&messages_from_mcp_result(&c["result"])), &c["expected"])));
     }
     for c in list(&f, "mcpAction") {
-        let got = mcp_action_call(&c["message"], c.get("tool").and_then(Value::as_str));
+        let got = eui_core::host::mcp_action_call_with(&c["message"], c.get("tool").and_then(Value::as_str), c.get("metadata"));
         out.push((format!("mcpAction: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
     }
     out

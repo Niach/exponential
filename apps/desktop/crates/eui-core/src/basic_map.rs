@@ -388,7 +388,7 @@ fn choice_picker(out: &mut MappedComponent, flat: &FlatView) {
 
 fn apply_transform(name: &str, out: &mut MappedComponent, flat: &FlatView, lookup: &dyn Fn(&str) -> Option<FlatComponent>, catalog_of: &dyn Fn(&FlatComponent) -> String) {
     match name {
-        "textMarkdown" | "textVariant" => text_markdown(out, flat),
+        "textMarkdown" => text_markdown(out, flat),
         "sliderSteps" => slider_steps(out, flat),
         "imageVariant" => image_variant(out, flat),
         "iconName" => icon_name(out, flat),
@@ -464,12 +464,10 @@ mod tests {
     #[test]
     fn every_listed_transform_is_implemented() {
         let listed: Vec<&str> = BASIC_MAP.transforms.keys().map(String::as_str).collect();
-        for name in BASIC_TRANSFORM_NAMES {
-            assert!(listed.contains(name) || *name == "sliderSteps" || *name == "textMarkdown", "{name}");
-        }
+        assert_eq!(listed, BASIC_TRANSFORM_NAMES);
         for rule in BASIC_MAP.components.values() {
             if let Some(t) = &rule.transform {
-                assert!(BASIC_TRANSFORM_NAMES.contains(&t.as_str()) || t == "textVariant", "{t}");
+                assert!(BASIC_TRANSFORM_NAMES.contains(&t.as_str()), "{t}");
             }
         }
     }

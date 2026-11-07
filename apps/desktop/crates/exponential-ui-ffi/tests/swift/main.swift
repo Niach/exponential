@@ -373,7 +373,7 @@ for c in transport["mcp"] as! [[String: Any]] {
     equal(try! messagesFromMcpResultJson(resultJson: text(c["result"]!)), c["expected"]!, "mcp \(c["name"]!)")
 }
 for c in transport["mcpAction"] as! [[String: Any]] {
-    equal(try! mcpActionCallJson(messageJson: text(c["message"]!), tool: c["tool"] as? String), c["expected"]!, "mcpAction \(c["name"]!)")
+    equal(try! mcpActionCallJson(messageJson: text(c["message"]!), tool: c["tool"] as? String, metadataJson: c["metadata"].map(text)), c["expected"]!, "mcpAction \(c["name"]!)")
 }
 let policy = load("host-policy.json") as! [String: Any]
 for c in policy["functions"] as! [[String: Any]] {

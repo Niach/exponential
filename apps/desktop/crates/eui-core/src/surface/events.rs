@@ -211,6 +211,10 @@ impl Surface {
     /// a literal Table row's scope, the row standing in for its pointer.
     fn resolve_ctx<'s>(&'s self, scope: &'s str) -> ResolveContext<'s> {
         let ctx = ResolveContext::new(&self.data, scope).with_strings(&self.strings).with_formatter(&*self.formatter);
+        let ctx = match &self.call_route {
+            Some(route) => ctx.with_route(&**route),
+            None => ctx,
+        };
         let ctx = match self.clock {
             Some(now) => ctx.with_now(now),
             None => ctx,
@@ -291,18 +295,7 @@ impl Surface {
             self.needs_build = true;
             out.push(OutEvent::DataChanged { path, value });
         }
-        if let Some(ev) = outcome.event {
-            let mut context = match ev.context {
-                Some(Value::Object(m)) => m,
-                _ => Map::new(),
-            };
-            if let Some(Value::Object(p)) = &payload {
-                for (k, v) in p {
-                    context.insert(k.clone(), v.clone());
-                }
-            }
-            out.push(OutEvent::Action { name: ev.name, component_id: id.to_string(), event: event.to_string(), context: Value::Object(context), payload, user_message: ev.user_message });
-        }
+        // Round 9 §6.8: the function runs first, then the event.
         if let Some(call) = outcome.call {
             if call.call == "openUrl" {
                 if let Some(url) = call.args.get("url").and_then(Value::as_str) {
@@ -314,6 +307,18 @@ impl Surface {
                 // a source). The other built-ins are value functions: no effect.
                 out.push(OutEvent::FunctionCall { component_id: id.to_string(), name: call.call, args: Value::Object(call.args) });
             }
+        }
+        if let Some(ev) = outcome.event {
+            let mut context = match ev.context {
+                Some(Value::Object(m)) => m,
+                _ => Map::new(),
+            };
+            if let Some(Value::Object(p)) = &payload {
+                for (k, v) in p {
+                    context.insert(k.clone(), v.clone());
+                }
+            }
+            out.push(OutEvent::Action { name: ev.name, component_id: id.to_string(), event: event.to_string(), context: Value::Object(context), payload, user_message: ev.user_message });
         }
         out
     }

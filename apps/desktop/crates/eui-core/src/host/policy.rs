@@ -112,6 +112,116 @@ pub fn combine_decisions(a: FunctionDecision, b: FunctionDecision) -> FunctionDe
     }
 }
 
+/// Round 9 §6.5: what routing one call needs to know.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteDecisionInput {
+    pub name: String,
+    /// The call's own `catalogId`.
+    #[serde(default)]
+    pub catalog_id: Option<String>,
+    /// The surface default (`createSurface.catalogId`).
+    #[serde(default)]
+    pub surface_catalog_id: Option<String>,
+    /// The router's available set (§5.5).
+    #[serde(default)]
+    pub available: Vec<String>,
+    /// `reactive` | `action`.
+    pub position: crate::data::Position,
+    #[serde(default)]
+    pub policy: Option<FunctionPolicy>,
+    /// The surface's package `functions`, when it has a package.
+    #[serde(default)]
+    pub package_functions: Option<Vec<String>>,
+    /// A function the host registered under this name.
+    #[serde(default)]
+    pub registered: bool,
+    /// The surface has an agent (§6.5).
+    #[serde(default)]
+    pub agent: bool,
+}
+
+/// `index` = §6.2; `catalog` = a catalog function runs locally; `local` = a
+/// registered host function; `ask` = the consent hook decides, then as
+/// allowed; `agent` = callAgentFunction; `fail` = the failure of §6.8.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "route")]
+pub enum RouteDecision {
+    Index,
+    Catalog {
+        #[serde(rename = "catalogId")]
+        catalog_id: String,
+    },
+    Local {
+        #[serde(rename = "catalogId")]
+        catalog_id: String,
+    },
+    Ask {
+        #[serde(rename = "catalogId")]
+        catalog_id: String,
+    },
+    Agent {
+        #[serde(rename = "catalogId")]
+        catalog_id: String,
+    },
+    Fail {
+        code: String,
+        message: String,
+    },
+}
+
+fn route_failure(code: &str, message: String) -> RouteDecision {
+    RouteDecision::Fail { code: code.to_string(), message }
+}
+
+/// Round 9 §6.5's table, the first rule that applies decides. Pure;
+/// `fixtures/a2ui10-functions.json` `routing` locks it.
+pub fn decide_route(input: &RouteDecisionInput) -> RouteDecision {
+    let name = input.name.as_str();
+    if name == crate::functions::INDEX_FUNCTION {
+        return RouteDecision::Index;
+    }
+    let reactive = input.position == crate::data::Position::Reactive;
+    let Some(catalog_id) = input.catalog_id.clone().or_else(|| input.surface_catalog_id.clone()) else {
+        return route_failure("EXPRESSION_ERROR", "no catalog for this call".into());
+    };
+    if !input.available.contains(&catalog_id) {
+        return route_failure("EXPRESSION_ERROR", format!("catalog {catalog_id} is not available"));
+    }
+    if crate::functions::declared_function(&catalog_id, name).is_some() {
+        if reactive && crate::functions::is_effect_function(name) {
+            return route_failure("EXPRESSION_ERROR", format!("{name} cannot run in a binding"));
+        }
+        return RouteDecision::Catalog { catalog_id };
+    }
+    if reactive && crate::functions::is_host_function_name(name) {
+        return route_failure("EXPRESSION_ERROR", format!("{name} cannot run in a binding"));
+    }
+    let mut decision = decide_function(input.policy.as_ref(), name, true);
+    if let Some(functions) = &input.package_functions {
+        decision = combine_decisions(decision, decide_function(Some(&package_policy(Some(functions))), name, true));
+    }
+    if decision == FunctionDecision::Deny {
+        return route_failure("INVALID_FUNCTION_CALL", format!("{name} was not allowed"));
+    }
+    if !input.registered && !input.agent {
+        return route_failure("UNKNOWN_FUNCTION", format!("no function {name}"));
+    }
+    if decision == FunctionDecision::Ask {
+        return RouteDecision::Ask { catalog_id };
+    }
+    if input.registered {
+        RouteDecision::Local { catalog_id }
+    } else {
+        RouteDecision::Agent { catalog_id }
+    }
+}
+
+/// Round 9 §6.5: what identical reactive routed calls share.
+pub fn routed_call_key(catalog_id: &str, name: &str, args: &serde_json::Value) -> String {
+    format!("{catalog_id}\u{0}{name}\u{0}{}", super::signature::canonical_json(args))
+}
+
 /// A declarative package's `functions` list as a policy: listed = allow,
 /// anything else = deny.
 pub fn package_policy(functions: Option<&[String]>) -> FunctionPolicy {

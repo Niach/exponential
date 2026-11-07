@@ -586,7 +586,7 @@ fn host_suite(id: &str) -> Vec<Case> {
                 out.push((format!("mcp: {}", c["name"].as_str().unwrap()), same(&to_value(&messages_from_mcp_result(&c["result"])), &c["expected"])));
             }
             for c in list(&f, "mcpAction") {
-                out.push((format!("mcpAction: {}", c["name"].as_str().unwrap()), same(&mcp_action_call(&c["message"], c.get("tool").and_then(Value::as_str)), &c["expected"])));
+                out.push((format!("mcpAction: {}", c["name"].as_str().unwrap()), same(&eui_core::host::mcp_action_call_with(&c["message"], c.get("tool").and_then(Value::as_str), c.get("metadata")), &c["expected"])));
             }
         }
         "host-policy" => {

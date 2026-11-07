@@ -884,6 +884,51 @@ pub fn preorder(root: &UiNode) -> Vec<String> {
     out
 }
 
+/// Round 9 §13: what a card refuses beyond [`reduce_nested`]'s issues: the
+/// entry check on every node (§5.2) and any name no card can reach (no agent
+/// channel, §6.5). Each `<node id>: <reason>`.
+pub fn card_problems(root: &Value) -> Vec<String> {
+    fn known(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::Array(items) => items.iter().for_each(|i| known(i, out)),
+            Value::Object(o) => {
+                if let Some(call) = o.get("@call").and_then(Value::as_str) {
+                    if !crate::validate::is_known_function_name(call) {
+                        out.push(format!("unknown function {call}"));
+                    }
+                }
+                o.values().for_each(|i| known(i, out));
+            }
+            _ => {}
+        }
+    }
+    fn walk(n: &Value, out: &mut Vec<String>) {
+        let Some(o) = n.as_object() else { return };
+        let mut entry: serde_json::Map<String, Value> = o.iter().filter(|(k, _)| !matches!(k.as_str(), "props" | "children" | "slots" | "template")).map(|(k, v)| (k.clone(), v.clone())).collect();
+        if let Some(props) = o.get("props").and_then(Value::as_object) {
+            entry.extend(props.clone());
+        }
+        if let Some((at, message)) = crate::host::check_entry(&Value::Object(entry), Some(crate::catalog::CORE_CATALOG_ID), &CatalogView::core()) {
+            let id = o.get("id").map(crate::json::to_js_string).unwrap_or_else(|| "undefined".into());
+            out.push(format!("{id}: {} {message}", if at.is_empty() { "/" } else { at.as_str() }));
+        }
+        for k in ["props", "on", "visible", "accessibility"] {
+            if let Some(v) = o.get(k) {
+                known(v, out);
+            }
+        }
+        for c in o.get("children").and_then(Value::as_array).into_iter().flatten() {
+            walk(c, out);
+        }
+        for c in o.get("slots").and_then(Value::as_object).into_iter().flatten() {
+            walk(c.1, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, &mut out);
+    out
+}
+
 /// Round 9 §13 / §1.5: a card surface (`{version, root, data}`) at 1.0:
 /// a card without `version` is the 0.9 form, upgraded while `accept_v09`
 /// (`upgradeCard09`) and refused after; any other version is refused.

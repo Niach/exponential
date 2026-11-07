@@ -272,7 +272,7 @@ fun main(args: Array<String>) {
     for (c in list(transport["jsonl"]).map(::obj)) { val d = JsonlDecoder(); equal(Json.write(decodeFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "jsonl ${c["name"]}") }
     for (c in list(transport["sse"]).map(::obj)) { val d = SseDecoder(); equal(Json.write(decodeFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "sse ${c["name"]}") }
     for (c in list(transport["mcp"]).map(::obj)) equal(messagesFromMcpResultJson(Json.write(c["result"])), c["expected"], "mcp ${c["name"]}")
-    for (c in list(transport["mcpAction"]).map(::obj)) equal(mcpActionCallJson(Json.write(c["message"]), c["tool"] as String?), c["expected"], "mcpAction ${c["name"]}")
+    for (c in list(transport["mcpAction"]).map(::obj)) equal(mcpActionCallJson(Json.write(c["message"]), c["tool"] as String?, (c["metadata"])?.let { Json.write(it) }), c["expected"], "mcpAction ${c["name"]}")
     val policy = load("host-policy.json")
     for (c in list(policy["functions"]).map(::obj)) {
         val got = decideFunction(if (c.containsKey("policy")) Json.write(c["policy"]) else null, c["fn"] as String, c["registered"] as Boolean)

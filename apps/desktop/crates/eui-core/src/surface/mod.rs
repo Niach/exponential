@@ -532,6 +532,8 @@ pub struct Surface {
     pub(crate) build_issues: Vec<ReduceIssue>,
     /// Round 9 §6.8: reactive failures since the last [`Surface::take_failures`].
     pub(crate) failures: Arc<std::sync::Mutex<Vec<crate::data::Failure>>>,
+    /// Round 9 §6.5: where reactive calls that are no local function go.
+    pub(crate) call_route: Option<CallRoute>,
     /// What [`Surface::take_failures`] already answered (once per lifetime).
     sent_failures: HashSet<(String, String, String)>,
     pub(crate) style_issues: Vec<ReduceIssue>,
@@ -621,6 +623,9 @@ pub struct Surface {
     upgrade_state: crate::upgrade09::Upgrade09State,
 }
 
+/// What [`Surface::set_call_route`] takes.
+pub type CallRoute = Arc<dyn Fn(crate::data::RoutedCall) -> crate::data::RouteAnswer + Send + Sync>;
+
 // SAFETY: taffy's `CompactLength` carries a `*const ()` slot for `calc()`
 // expressions, which makes `Style` `!Send`. This crate never builds a calc
 // value (every length is a number/percent/auto), so the slot is always the
@@ -655,6 +660,7 @@ impl Surface {
             reduce_issues: Vec::new(),
             build_issues: Vec::new(),
             failures: Default::default(),
+            call_route: None,
             sent_failures: HashSet::new(),
             style_issues: Vec::new(),
             local: LocalState::default(),
@@ -1365,6 +1371,18 @@ impl Surface {
             return Ok(ApplyOutcome { structure_changed: true, issues: Vec::new() });
         }
         Err("unknown message: expected createSurface | updateComponents | updateDataModel | deleteSurface".into())
+    }
+
+    /// Round 9 §6.5: route this surface's reactive calls through the host
+    /// (`host::route_handle`).
+    pub fn set_call_route(&mut self, route: Option<CallRoute>) {
+        self.call_route = route;
+        self.needs_build = true;
+    }
+
+    /// A routed value settled (`CallHub::take_dirty`): bind again.
+    pub fn rebind(&mut self) {
+        self.needs_build = true;
     }
 
     /// Round 9 §6.8: the reactive failures (bindings, `visible`) of the

@@ -588,7 +588,7 @@ fn the_host_transport_fixture_replays_through_the_facade() {
         eq(&messages_from_mcp_result_json(c["result"].to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
     }
     for c in f["mcpAction"].as_array().unwrap() {
-        let got = mcp_action_call_json(c["message"].to_string(), c.get("tool").and_then(Value::as_str).map(str::to_string)).unwrap();
+        let got = mcp_action_call_json(c["message"].to_string(), c.get("tool").and_then(Value::as_str).map(str::to_string), c.get("metadata").map(Value::to_string)).unwrap();
         eq(&got, &c["expected"], c["name"].as_str().unwrap());
     }
     eq(&decode_jsonl_json("[{\"a\":1}]".into()), &json!({"messages": [{"a": 1}], "issues": []}), "decodeJsonl");

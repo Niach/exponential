@@ -45,12 +45,14 @@ pub use components::validate_package_components;
 pub use contract::*;
 pub use expressions::{literal_type, record_row_type, records_value_type, schema_type, validate_package_expressions, validate_record_computed};
 pub use exposes::{expose_action_access, expose_issues, expose_name_destructive, expose_template_paths, validate_package_exposes, validate_upstreams, ExposeIssue};
-pub use decoders::{decode_jsonl, mcp_action_call, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
+pub use decoders::{decode_jsonl, mcp_action_call, mcp_action_call_with, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
 pub use package::{
     available_extensions, client_capabilities, merge_data, renderer_capabilities, package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package, validate_package_in, validate_package_with, version_satisfies, AvailableExtension, PackageIssue,
     PACKAGE_FORMAT_VERSION,
 };
-pub use policy::{
+pub mod calls;
+pub use calls::{route_handle, CallEffect, CallHub, PressRoute, SettledCall, SharedCalls, MAX_SENT_ISSUES};
+pub use policy::{decide_route, routed_call_key, RouteDecision, RouteDecisionInput, 
     app_file_id, combine_decisions, decide_function, decide_url, expand_link_base, image_dimensions, image_frames, image_header, is_builtin_function, is_private_host, media_image_check, ImageHeader, matches_pattern, media_image_within_limits, media_request, media_within_limits, package_policy, svg_dimensions,
     police_text_links, safe_href, FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, MediaRule, TextLink, UrlDecision, UrlPolicy, APP_FILE_ID_PATTERN, APP_FILE_SCHEME, BUILTIN_FUNCTIONS,
 };
