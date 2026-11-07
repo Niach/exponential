@@ -881,6 +881,9 @@ pub(crate) fn render_left_column_header(
     // EXP-449: `active_board_id` falls back to the team's first board, so
     // this is `None` only when nothing is in scope at all.
     let board_id = active_board_id(nav, cx);
+    // #EXP-1727: the Local desktops head the menu.
+    let locals = crate::local_desktops::entries(cx);
+    let on_local = locals.iter().any(|(_, _, current)| *current);
 
     let switcher = crate::controls::PointerMenu::for_button(Button::new("rail-team-switcher")
         .ghost().cursor_pointer()
@@ -934,7 +937,25 @@ pub(crate) fn render_left_column_header(
             // Flat checked rows (the menu builder has no submenus); always
             // shown, even with a single team (EXP-434: no teams=1 special
             // case anywhere).
-            let mut menu = menu;
+            let mut menu = menu.label("Local desktops");
+            for (id, name, current) in &locals {
+                let id = id.clone();
+                menu = menu.item(crate::controls::pointer_check_item(name.clone(), *current, move |window, cx| {
+                    crate::local_desktops::enter(&id, cx);
+                    window.refresh();
+                }));
+            }
+            menu = menu.item(crate::controls::pointer_label_item("New local desktop", false).icon(Icon::new(registry::UI_ADD)).on_click(|_, window, cx| {
+                crate::local_desktops::create(cx);
+                window.refresh();
+            }));
+            if on_local {
+                return menu.separator().item(crate::controls::pointer_label_item("Connect Exponential", false).icon(Icon::from(ExpIcon::Logo)).on_click(|_, window, cx| {
+                    crate::local_desktops::leave(cx);
+                    window.refresh();
+                }));
+            }
+            menu = menu.separator();
             for (id, name, active, dot, icon) in &teams {
                 let label = SharedString::from(name.clone());
                 let icon = icon.clone();

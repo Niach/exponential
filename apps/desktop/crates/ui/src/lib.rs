@@ -249,6 +249,7 @@ mod x11_dialog_type;
 pub mod window_size;
 mod shell;
 mod shell_regions;
+mod local_desktops;
 #[cfg(test)]
 mod alert_gallery;
 #[cfg(test)]
