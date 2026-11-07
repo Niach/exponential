@@ -102,15 +102,15 @@ describe(`records on a host (VAPP-161)`, () => {
     const seen: unknown[] = []
     const cancel = records.sources[RECORDS_SCHEME]!(parseSource(`records:entry?sort=date&order=asc`)!, (v) => seen.push(v))
     expect(seen.at(-1)).toEqual({ rows: [], count: 0 })
-    const { id } = (await records.functions[`records.upsert`]!({ kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })) as { id: string }
-    await records.functions[`records.upsert`]!({ kind: `entry`, data: { date: `2026-10-04` } })
+    const { id } = (await records.functions[`records_upsert`]!({ kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })) as { id: string }
+    await records.functions[`records_upsert`]!({ kind: `entry`, data: { date: `2026-10-04` } })
     expect((seen.at(-1) as { rows: { date: string; author: string }[] }).rows.map((r) => r.date)).toEqual([`2026-10-04`, `2026-10-05`])
-    await records.functions[`records.upsert`]!({ id, data: { hours: 4 } })
+    await records.functions[`records_upsert`]!({ id, data: { hours: 4 } })
     expect((seen.at(-1) as { rows: { id: string; hours?: number; author: string }[] }).rows.find((r) => r.id === id)).toMatchObject({ hours: 4, date: `2026-10-05`, author: `Ada` })
-    await expect(records.functions[`records.upsert`]!({ kind: `entry`, data: { hours: 1 } })).rejects.toThrow(`/date required`)
-    await expect(records.functions[`records.upsert`]!({ id, data: { date: `soon` } })).rejects.toThrow(`/date`)
-    await expect(records.functions[`records.upsert`]!({ kind: `nope`, data: {} })).rejects.toThrow(`no kind nope`)
-    await records.functions[`records.delete`]!({ id })
+    await expect(records.functions[`records_upsert`]!({ kind: `entry`, data: { hours: 1 } })).rejects.toThrow(`/date required`)
+    await expect(records.functions[`records_upsert`]!({ id, data: { date: `soon` } })).rejects.toThrow(`/date`)
+    await expect(records.functions[`records_upsert`]!({ kind: `nope`, data: {} })).rejects.toThrow(`no kind nope`)
+    await records.functions[`records_delete`]!({ id })
     expect((seen.at(-1) as { count: number }).count).toBe(1)
     const undeclared: unknown[] = []
     records.sources[RECORDS_SCHEME]!(parseSource(`records:other`)!, (v) => undeclared.push(v))

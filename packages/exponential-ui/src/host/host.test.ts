@@ -131,9 +131,9 @@ describe(`ExponentialHost`, () => {
     const host = new ExponentialHost({ transport })
     transport.feedJsonl(
       [
-        JSON.stringify({ version: `v0.9`, createSurface: { surfaceId: `s1`, catalogId: CORE_CATALOG_ID } }),
-        JSON.stringify({ version: `v0.9`, updateComponents: { surfaceId: `s1`, components: [{ id: `root`, component: `Text`, text: { "@path": `/name` } }] } }),
-        JSON.stringify({ version: `v0.9`, updateDataModel: { surfaceId: `s1`, path: `/name`, value: `Ada` } }),
+        JSON.stringify({ version: `1.0`, createSurface: { surfaceId: `s1`, catalogId: CORE_CATALOG_ID } }),
+        JSON.stringify({ version: `1.0`, updateComponents: { surfaceId: `s1`, components: [{ id: `root`, component: `Text`, text: { "@path": `/name` } }] } }),
+        JSON.stringify({ version: `1.0`, updateDataModel: { surfaceId: `s1`, path: `/name`, value: `Ada` } }),
       ].join(`\n`)
     )
     host.connect()
@@ -141,7 +141,7 @@ describe(`ExponentialHost`, () => {
     const s = host.surface(`s1`)!
     expect(s.root?.component).toBe(`Text`)
     expect(s.data).toEqual({ name: `Ada` })
-    transport.feed({ version: `v0.9`, deleteSurface: { surfaceId: `s1` } })
+    transport.feed({ version: `1.0`, deleteSurface: { surfaceId: `s1` } })
     expect(host.surface(`s1`)).toBeUndefined()
   })
 
@@ -149,7 +149,7 @@ describe(`ExponentialHost`, () => {
     const transport = new MemoryTransport()
     const host = new ExponentialHost({ transport })
     host.connect()
-    transport.feed({ version: `v0.9`, createSurface: { surfaceId: `s1`, catalogId: `https://ui.exponential.at/catalogs/core/v2` } })
+    transport.feed({ version: `1.0`, createSurface: { surfaceId: `s1`, catalogId: `https://ui.exponential.at/catalogs/core/v2` } })
     expect(host.unsupportedCatalog).toBe(`https://ui.exponential.at/catalogs/core/v2`)
     expect((transport.sent[0] as { error: { code: string } }).error.code).toBe(`UNSUPPORTED_CATALOG`)
   })
@@ -168,21 +168,21 @@ describe(`ExponentialHost`, () => {
         },
       },
     })
-    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `d`, templateId: `list`, data: { filter: `online` } } })
+    host.applyTemplate({ surfaceId: `d`, templateId: `list`, data: { filter: `online` } })
     const s = host.surface(`d`)!
     expect(s.data).toEqual({ title: `Devices`, filter: `online`, devices: [{ id: `d1`, name: `MacBook` }] })
     emit([])
     expect(s.data.devices).toEqual([])
-    host.receive({ version: `v0.9`, deleteSurface: { surfaceId: `d` } })
+    host.receive({ version: `1.0`, deleteSurface: { surfaceId: `d` } })
     expect(cancelled).toBe(1)
   })
 
   test(`a bind without a resolver reports VALIDATION_FAILED`, () => {
     const sent: ClientMessage[] = []
     const host = new ExponentialHost({ onSend: (m) => sent.push(m) })
-    host.receive({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
-    host.receive({ version: `v0.9`, bindDataModel: { surfaceId: `s`, path: `/x`, source: `acme:things` } })
-    expect(sent).toEqual([{ version: `v0.9`, error: { code: `VALIDATION_FAILED`, surfaceId: `s`, message: `no resolver for the source scheme acme`, path: `/x` } }])
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    host.receive({ version: `1.0`, bindDataModel: { surfaceId: `s`, path: `/x`, source: `acme:things` } })
+    expect(sent).toEqual([{ version: `1.0`, error: { code: `VALIDATION_FAILED`, surfaceId: `s`, message: `no resolver for the source scheme acme`, path: `/x` } }])
   })
 
   test(`functions: registered + allowed runs, ask goes through consent, a package narrows`, async () => {
@@ -193,22 +193,22 @@ describe(`ExponentialHost`, () => {
       onSend: (m) => sent.push(m),
       packages: [devicesPackage],
       sources: { exp: () => {} },
-      functions: { "harness.toast": (a) => calls.push(`toast ${a.message}`), "harness.mcp": () => (calls.push(`mcp`), 42) },
-      policy: { functions: { ask: [`harness.mcp`] }, onFunctionCall: () => consent },
+      functions: { "harness_toast": (a) => calls.push(`toast ${a.message}`), "harness_mcp": () => (calls.push(`mcp`), 42) },
+      policy: { functions: { ask: [`harness_mcp`] }, onFunctionCall: () => consent },
     })
-    host.receive({ version: `v0.9`, createSurface: { surfaceId: `free`, catalogId: CORE_CATALOG_ID } })
-    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `pkg`, templateId: `list` } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `free`, catalogId: CORE_CATALOG_ID } })
+    host.applyTemplate({ surfaceId: `pkg`, templateId: `list` })
     const info = (surfaceId: string, name: string) => ({ surfaceId, componentId: `b`, name, args: { message: `hi` } })
-    expect(await host.callFunction(info(`free`, `harness.toast`))).toEqual({ decision: `allow`, result: 1 })
-    expect((await host.callFunction(info(`free`, `harness.mcp`))).decision).toBe(`deny`)
+    expect(await host.callFunction(info(`free`, `harness_toast`))).toEqual({ decision: `allow`, result: 1 })
+    expect((await host.callFunction(info(`free`, `harness_mcp`))).decision).toBe(`deny`)
     consent = true
-    expect(await host.callFunction(info(`free`, `harness.mcp`))).toEqual({ decision: `allow`, result: 42 })
-    // the package lists only harness.toast
-    expect((await host.callFunction(info(`pkg`, `harness.mcp`))).decision).toBe(`deny`)
-    expect((await host.callFunction(info(`pkg`, `harness.toast`))).decision).toBe(`allow`)
+    expect(await host.callFunction(info(`free`, `harness_mcp`))).toEqual({ decision: `allow`, result: 42 })
+    // the package lists only harness_toast
+    expect((await host.callFunction(info(`pkg`, `harness_mcp`))).decision).toBe(`deny`)
+    expect((await host.callFunction(info(`pkg`, `harness_toast`))).decision).toBe(`allow`)
     expect((await host.callFunction(info(`free`, `nope`))).decision).toBe(`not_found`)
     expect(calls).toEqual([`toast hi`, `mcp`, `toast hi`])
-    expect(sent.map((m) => (`error` in m ? m.error.code : `action`))).toEqual([`FUNCTION_DENIED`, `FUNCTION_DENIED`, `FUNCTION_NOT_FOUND`])
+    expect(sent.map((m) => (`error` in m ? m.error.code : `action`))).toEqual([`INVALID_FUNCTION_CALL`, `INVALID_FUNCTION_CALL`, `UNKNOWN_FUNCTION`])
   })
 
   test(`openUrl obeys the URL policy; actions become A2UI client messages`, async () => {
@@ -222,7 +222,7 @@ describe(`ExponentialHost`, () => {
     expect(opened).toEqual([`https://exponential.at/x`, `https://exponential.at/y`])
     host.connect()
     host.action({ surfaceId: `s`, componentId: `btn`, name: `save`, context: { id: 1 }, payload: { value: `a` }, timestamp: `2026-10-08T00:00:00.000Z` })
-    expect(transport.sent).toEqual([{ version: `v0.9`, action: { name: `save`, surfaceId: `s`, sourceComponentId: `btn`, timestamp: `2026-10-08T00:00:00.000Z`, context: { id: 1 }, payload: { value: `a` } } }])
+    expect(transport.sent).toEqual([{ version: `1.0`, action: { name: `save`, surfaceId: `s`, sourceComponentId: `btn`, timestamp: `2026-10-08T00:00:00.000Z`, context: { id: 1 }, payload: { value: `a` } } }])
   })
 
   test(`negotiation follows registered extensions`, () => {
@@ -249,20 +249,20 @@ describe(`ExponentialHost`, () => {
     const transport = new MemoryTransport()
     const host = new ExponentialHost({ transport })
     host.connect()
-    transport.feed({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
-    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`c`, `d`] }, { id: `c`, component: `Markdown`, text: `x` }, { id: `d`, component: `Text`, text: `d` }] } })
+    transport.feed({ version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    transport.feed({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`c`, `d`] }, { id: `c`, component: `Markdown`, text: `x` }, { id: `d`, component: `Text`, text: `d` }] } })
     const e = { surfaceId: `s`, componentId: `c`, message: `boom` }
     host.paintError(e)
     host.paintError(e)
     // Another message for the same component is the same failure.
     host.paintError({ ...e, message: `boom at 12:01` })
-    expect(transport.sent).toEqual([{ version: `v0.9`, error: { code: `RENDER_FAILED`, surfaceId: `s`, message: `boom`, path: `/components/c` } }])
+    expect(transport.sent).toEqual([{ version: `1.0`, error: { code: `RENDER_FAILED`, surfaceId: `s`, message: `boom`, path: `/components/c` } }])
     // An update to ANOTHER component keeps c reported.
-    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `d`, component: `Text`, text: `d2` }] } })
+    transport.feed({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `d`, component: `Text`, text: `d2` }] } })
     host.paintError(e)
     expect(transport.sent).toHaveLength(1)
     // c's props change: it may fail anew.
-    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `c`, component: `Markdown`, text: `y` }] } })
+    transport.feed({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `c`, component: `Markdown`, text: `y` }] } })
     host.paintError(e)
     expect(transport.sent).toHaveLength(2)
     // A part id counts under its component.
@@ -277,15 +277,15 @@ describe(`review fixes`, () => {
   test(`createSurface.theme: a built-in id or a theme JSON lands on the store; an unusable one is an issue`, () => {
     const sent: ClientMessage[] = []
     const host = new ExponentialHost({ onSend: (m) => sent.push(m) })
-    host.receive({ version: `v0.9`, createSurface: { surfaceId: `a`, catalogId: CORE_CATALOG_ID, theme: `neutral` } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `a`, catalogId: CORE_CATALOG_ID, theme: `neutral` } })
     expect(host.surface(`a`)!.theme?.id).toBe(`neutral`)
-    host.receive({ version: `v0.9`, createSurface: { surfaceId: `b`, catalogId: CORE_CATALOG_ID, theme: { ...neutralTheme, id: `acme` } } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `b`, catalogId: CORE_CATALOG_ID, theme: { ...neutralTheme, id: `acme` } } })
     expect(host.surface(`b`)!.theme?.id).toBe(`acme`)
-    host.receive({ version: `v0.9`, createSurface: { surfaceId: `c`, catalogId: CORE_CATALOG_ID } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `c`, catalogId: CORE_CATALOG_ID } })
     expect(host.surface(`c`)!.theme).toBeUndefined()
     expect(sent).toEqual([])
-    host.receive({ version: `v0.9`, createSurface: { surfaceId: `d`, catalogId: CORE_CATALOG_ID, theme: `nope` } })
-    host.receive({ version: `v0.9`, createSurface: { surfaceId: `e`, catalogId: CORE_CATALOG_ID, theme: { id: `broken` } } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `d`, catalogId: CORE_CATALOG_ID, theme: `nope` } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `e`, catalogId: CORE_CATALOG_ID, theme: { id: `broken` } } })
     expect(host.surface(`d`)!.theme).toBeUndefined()
     expect(host.surface(`e`)!.theme).toBeUndefined()
     expect(sent.map((m) => (`error` in m ? [m.error.code, m.error.surfaceId, m.error.path] : null))).toEqual([
@@ -303,8 +303,8 @@ describe(`review fixes`, () => {
     const sent: ClientMessage[] = []
     let ran = 0
     const make = (hook: () => boolean | Promise<boolean>) =>
-      new ExponentialHost({ onSend: (m) => sent.push(m), functions: { "harness.mcp": () => ++ran }, policy: { functions: { ask: [`harness.mcp`] }, onFunctionCall: hook } })
-    const call = { surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: {} }
+      new ExponentialHost({ onSend: (m) => sent.push(m), functions: { "harness_mcp": () => ++ran }, policy: { functions: { ask: [`harness_mcp`] }, onFunctionCall: hook } })
+    const call = { surfaceId: `s`, componentId: `b`, name: `harness_mcp`, args: {} }
     expect(
       await make(() => {
         throw new Error(`card unmounted`)
@@ -313,8 +313,8 @@ describe(`review fixes`, () => {
     expect(await make(() => Promise.reject(new Error(`dialog closed`))).callFunction(call)).toEqual({ decision: `deny`, error: `dialog closed` })
     expect(ran).toBe(0)
     expect(sent.map((m) => (`error` in m ? `${m.error.code}: ${m.error.message}` : ``))).toEqual([
-      `FUNCTION_DENIED: harness.mcp was not allowed: the consent hook failed: card unmounted`,
-      `FUNCTION_DENIED: harness.mcp was not allowed: the consent hook failed: dialog closed`,
+      `INVALID_FUNCTION_CALL: harness_mcp was not allowed: the consent hook failed: card unmounted`,
+      `INVALID_FUNCTION_CALL: harness_mcp was not allowed: the consent hook failed: dialog closed`,
     ])
   })
 
@@ -327,7 +327,7 @@ describe(`review fixes`, () => {
     const issues = host.installPackage(broken)
     expect(issues.length).toBeGreaterThan(0)
     expect(host.issues.map((i) => [i.code, i.path])).toEqual(issues.map((i) => [`PACKAGE_INVALID`, i.path]))
-    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `devices`, templateId: `list` } })
+    host.applyTemplate({ surfaceId: `devices`, templateId: `list` })
     expect(host.surface(`devices`)).toBeUndefined()
     expect(host.issues.at(-1)).toEqual({ code: `TEMPLATE_NOT_FOUND`, surfaceId: `devices`, message: `no installed package has the template list` })
     expect(seen).toEqual([...host.issues])
@@ -335,9 +335,9 @@ describe(`review fixes`, () => {
 
   test(`the store keeps the reducer's lifted templates; a new extension re-reduces`, () => {
     const host = new ExponentialHost()
-    host.receive({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    host.receive({ version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
     host.receive({
-      version: `v0.9`,
+      version: `1.0`,
       updateComponents: {
         surfaceId: `s`,
         components: [
@@ -370,7 +370,7 @@ function streamFetch(bodies: (string | Error)[]) {
 }
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms))
-const line = (surfaceId: string) => JSON.stringify({ version: `v0.9`, createSurface: { surfaceId, catalogId: CORE_CATALOG_ID } }) + `\n`
+const line = (surfaceId: string) => JSON.stringify({ version: `1.0`, createSurface: { surfaceId, catalogId: CORE_CATALOG_ID } }) + `\n`
 
 describe(`stream transports`, () => {
   test(`a clean end of stream closes the transport: no reconnect, no re-delivery`, async () => {

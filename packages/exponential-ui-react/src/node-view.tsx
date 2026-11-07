@@ -118,15 +118,15 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   let pending: unknown
   if (fn && args) {
-    if (fn.call === `set`) {
+    if (fn[`@call`] === `set`) {
       // #VAPP-288: a PROGRAMMATIC write (bumps the write epoch).
       if (typeof args.path === `string`) ctx.assignData(absolutePath(args.path, scope), args.value)
     } else {
-      const f = ctx.functions[fn.call]
+      const f = ctx.functions[fn[`@call`]]
       // A name outside the client functions is a HOST function (VAPP-91):
       // the host's registry + policy gate (`ExponentialHost.callFunction`).
       if (f) f(args, rctx)
-      else pending = ctx.host.onFunctionCall?.({ surfaceId: ctx.surfaceId, componentId: domId, name: fn.call, args })
+      else pending = ctx.host.onFunctionCall?.({ surfaceId: ctx.surfaceId, componentId: domId, name: fn[`@call`], args })
     }
   }
   if (pending instanceof Promise) {

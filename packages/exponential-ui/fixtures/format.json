@@ -6,7 +6,7 @@
     {
       "name": "number/default",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": 1234.5678
         }
@@ -16,7 +16,7 @@
     {
       "name": "number/decimals",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": 1234.5,
           "decimals": 2
@@ -27,7 +27,7 @@
     {
       "name": "number/no-grouping",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": 1234567.891,
           "grouping": false
@@ -38,7 +38,7 @@
     {
       "name": "number/half-away",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": 2.5,
           "decimals": 0
@@ -49,7 +49,7 @@
     {
       "name": "number/negative-half",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": -2.5,
           "decimals": 0
@@ -60,7 +60,7 @@
     {
       "name": "number/shortest-decimal",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": 1.005,
           "decimals": 2
@@ -71,7 +71,7 @@
     {
       "name": "number/large",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": 1e+21
         }
@@ -81,7 +81,7 @@
     {
       "name": "number/tiny",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": 0.0001
         }
@@ -91,7 +91,7 @@
     {
       "name": "number/float-noise",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": 0.30000000000000004
         }
@@ -101,7 +101,7 @@
     {
       "name": "number/string",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": "42"
         }
@@ -111,7 +111,7 @@
     {
       "name": "number/not-a-number",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": "abc"
         }
@@ -121,7 +121,7 @@
     {
       "name": "number/string-whitespace",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": " 12 "
         }
@@ -131,7 +131,7 @@
     {
       "name": "number/string-exponent",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": "1e3"
         }
@@ -141,7 +141,7 @@
     {
       "name": "number/string-leading-point",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": "-.5"
         }
@@ -151,7 +151,7 @@
     {
       "name": "number/string-hex-is-not",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": "0x10"
         }
@@ -161,7 +161,7 @@
     {
       "name": "number/string-infinity-is-not",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": "Infinity"
         }
@@ -171,7 +171,7 @@
     {
       "name": "number/string-grouped-is-not",
       "call": {
-        "call": "formatNumber",
+        "@call": "formatNumber",
         "args": {
           "value": "1,000"
         }
@@ -181,7 +181,7 @@
     {
       "name": "plural/string-one",
       "call": {
-        "call": "pluralize",
+        "@call": "pluralize",
         "args": {
           "value": " 1 ",
           "one": "one item",
@@ -193,7 +193,7 @@
     {
       "name": "currency/usd",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": 1234.5,
           "currency": "USD"
@@ -204,7 +204,7 @@
     {
       "name": "currency/eur-negative",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": -0.5,
           "currency": "EUR"
@@ -215,7 +215,7 @@
     {
       "name": "currency/jpy-no-minor",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": 1234.5,
           "currency": "JPY"
@@ -226,7 +226,7 @@
     {
       "name": "currency/code-prefix",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": 1234.5,
           "currency": "CHF"
@@ -237,7 +237,7 @@
     {
       "name": "currency/three-digits",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": 1.2345,
           "currency": "KWD"
@@ -248,7 +248,7 @@
     {
       "name": "currency/xof",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": 1000,
           "currency": "XOF"
@@ -259,7 +259,7 @@
     {
       "name": "currency/lower-case",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": 9.99,
           "currency": "gbp"
@@ -270,7 +270,7 @@
     {
       "name": "currency/decimals",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": 1234.5,
           "currency": "USD",
@@ -282,7 +282,7 @@
     {
       "name": "currency/bad-code",
       "call": {
-        "call": "formatCurrency",
+        "@call": "formatCurrency",
         "args": {
           "value": 1,
           "currency": "dollars"
@@ -293,7 +293,7 @@
     {
       "name": "percent/default",
       "call": {
-        "call": "formatPercent",
+        "@call": "formatPercent",
         "args": {
           "value": 0.256
         }
@@ -303,7 +303,7 @@
     {
       "name": "percent/decimals",
       "call": {
-        "call": "formatPercent",
+        "@call": "formatPercent",
         "args": {
           "value": 0.25678,
           "decimals": 1
@@ -314,7 +314,7 @@
     {
       "name": "percent/negative",
       "call": {
-        "call": "formatPercent",
+        "@call": "formatPercent",
         "args": {
           "value": -0.05
         }
@@ -324,7 +324,7 @@
     {
       "name": "percent/over-100",
       "call": {
-        "call": "formatPercent",
+        "@call": "formatPercent",
         "args": {
           "value": 12.5
         }
@@ -334,7 +334,7 @@
     {
       "name": "percent/exact-shift",
       "call": {
-        "call": "formatPercent",
+        "@call": "formatPercent",
         "args": {
           "value": 0.07,
           "decimals": 2
@@ -345,7 +345,7 @@
     {
       "name": "date/day-pattern",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14",
           "format": "MMM d, yyyy"
@@ -356,7 +356,7 @@
     {
       "name": "date/style-short",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14",
           "style": "short"
@@ -367,7 +367,7 @@
     {
       "name": "date/style-medium",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14"
         }
@@ -377,7 +377,7 @@
     {
       "name": "date/style-long",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14",
           "style": "long"
@@ -388,7 +388,7 @@
     {
       "name": "date/style-full",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14",
           "style": "full"
@@ -399,7 +399,7 @@
     {
       "name": "date/instant-time",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14T14:30:05Z",
           "time": true
@@ -410,7 +410,7 @@
     {
       "name": "date/instant-long-time",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14T14:30:05Z",
           "style": "long",
@@ -422,7 +422,7 @@
     {
       "name": "date/offset-to-utc",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14T00:30:00+02:00",
           "format": "yyyy-MM-dd HH:mm"
@@ -433,7 +433,7 @@
     {
       "name": "date/no-offset-is-utc",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14T09:05",
           "format": "h:mm a"
@@ -444,7 +444,7 @@
     {
       "name": "date/epoch-ms",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": 946684799000,
           "format": "EEEE, d MMMM yy 'at' HH:mm:ss"
@@ -455,7 +455,7 @@
     {
       "name": "date/quote-escape",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-01-05",
           "format": "'It''s' E, MMMM d"
@@ -466,7 +466,7 @@
     {
       "name": "date/unreadable",
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "next tuesday",
           "format": "yyyy"
@@ -477,7 +477,7 @@
     {
       "name": "relative/now",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1791979200000,
           "now": 1791979200000
@@ -488,7 +488,7 @@
     {
       "name": "relative/seconds-ago",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1791979170000,
           "now": 1791979200000
@@ -499,7 +499,7 @@
     {
       "name": "relative/in-seconds",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1791979259000,
           "now": 1791979200000
@@ -510,7 +510,7 @@
     {
       "name": "relative/minute-ago",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1791979139000,
           "now": 1791979200000
@@ -521,7 +521,7 @@
     {
       "name": "relative/in-2-hours",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1791986400000,
           "now": 1791979200000
@@ -532,7 +532,7 @@
     {
       "name": "relative/hour-ago",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1791975600000,
           "now": 1791979200000
@@ -543,7 +543,7 @@
     {
       "name": "relative/yesterday",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1791892800000,
           "now": 1791979200000
@@ -554,7 +554,7 @@
     {
       "name": "relative/in-6-days",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1792501200000,
           "now": 1791979200000
@@ -565,7 +565,7 @@
     {
       "name": "relative/last-week",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1791374400000,
           "now": 1791979200000
@@ -576,7 +576,7 @@
     {
       "name": "relative/in-4-weeks",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1794484800000,
           "now": 1791979200000
@@ -587,7 +587,7 @@
     {
       "name": "relative/last-month",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1789300800000,
           "now": 1791979200000
@@ -598,7 +598,7 @@
     {
       "name": "relative/in-6-months",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1809259200000,
           "now": 1791979200000
@@ -609,7 +609,7 @@
     {
       "name": "relative/12-months-ago",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1760529600000,
           "now": 1791979200000
@@ -620,7 +620,7 @@
     {
       "name": "relative/last-year",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 1760443200000,
           "now": 1791979200000
@@ -631,7 +631,7 @@
     {
       "name": "relative/in-1200-years",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": 39635179200000,
           "now": 1791979200000
@@ -642,7 +642,7 @@
     {
       "name": "relative/iso-now-arg",
       "call": {
-        "call": "formatRelativeTime",
+        "@call": "formatRelativeTime",
         "args": {
           "value": "2026-10-13",
           "now": "2026-10-14T12:00:00Z"
@@ -653,7 +653,7 @@
     {
       "name": "plural/count",
       "call": {
-        "call": "pluralize",
+        "@call": "pluralize",
         "args": {
           "value": 1200,
           "zero": "No blockers",
@@ -666,7 +666,7 @@
     {
       "name": "plural/zero-arm",
       "call": {
-        "call": "pluralize",
+        "@call": "pluralize",
         "args": {
           "value": 0,
           "zero": "none",
@@ -679,7 +679,7 @@
     {
       "name": "plural/zero-other",
       "call": {
-        "call": "pluralize",
+        "@call": "pluralize",
         "args": {
           "value": 0,
           "one": "one item",
@@ -691,7 +691,7 @@
     {
       "name": "plural/one",
       "call": {
-        "call": "pluralize",
+        "@call": "pluralize",
         "args": {
           "value": 1,
           "one": "one item",
@@ -703,7 +703,7 @@
     {
       "name": "plural/two",
       "call": {
-        "call": "pluralize",
+        "@call": "pluralize",
         "args": {
           "value": 2,
           "one": "one item",
@@ -715,7 +715,7 @@
     {
       "name": "plural/fraction",
       "call": {
-        "call": "pluralize",
+        "@call": "pluralize",
         "args": {
           "value": 1.5,
           "one": "one item",
@@ -731,7 +731,7 @@
       "timeZone": "Europe/Berlin",
       "offsetMinutes": 120,
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14T22:30:00Z",
           "format": "yyyy-MM-dd HH:mm"
@@ -744,7 +744,7 @@
       "timeZone": "America/New_York",
       "offsetMinutes": -300,
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-01-15T03:00:00Z",
           "time": true
@@ -757,7 +757,7 @@
       "timeZone": "Asia/Kolkata",
       "offsetMinutes": 330,
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14T20:00:00Z",
           "style": "full",
@@ -771,7 +771,7 @@
       "timeZone": "America/Los_Angeles",
       "offsetMinutes": -420,
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": 1783131300000,
           "format": "EEE MMM d h:mm a"
@@ -784,7 +784,7 @@
       "timeZone": "Pacific/Kiritimati",
       "offsetMinutes": 840,
       "call": {
-        "call": "formatDate",
+        "@call": "formatDate",
         "args": {
           "value": "2026-10-14",
           "style": "long"

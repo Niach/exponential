@@ -48,14 +48,14 @@ describe(`record macros: the host fill (fixtures/record-macros.json)`, () => {
       packages: [pkg],
       policy: { functions: { allow: [`*`] } },
       functions: {
-        "records.upsert": () => {
+        "records_upsert": () => {
           if (refuse) throw new RecordRefusal(`bad`)
           return { id: `r` }
         },
       },
     } as never)
-    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, templateId: `main`, packageId: (pkg as { id: string }).id } } as never)
-    const call = { surfaceId: `s`, componentId: `f`, name: `records.upsert`, args: { form: { error: `/e`, close: `/open` } } }
+    host.receive({ version: `1.0`, applyTemplate: { surfaceId: `s`, templateId: `main`, packageId: (pkg as { id: string }).id } } as never)
+    const call = { surfaceId: `s`, componentId: `f`, name: `records_upsert`, args: { form: { error: `/e`, close: `/open` } } }
     host.surface(`s`)!.setData(`/open`, true)
     await host.callFunction(call)
     expect(host.surface(`s`)!.data).toMatchObject({ e: `bad`, open: true })

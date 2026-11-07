@@ -369,8 +369,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       const press = (node: UiNode, data: unknown) => {
         let out = data as DataModel
         let call: { call: string; args: Record<string, unknown> } | undefined
-        const fn = node.on?.press as { functionCall?: { call: string } } | undefined
-        const name = fn?.functionCall?.call
+        const fn = node.on?.press as { functionCall?: { "@call": string } } | undefined
+        const name = fn?.functionCall?.[`@call`]
         const functions = Object.fromEntries(Object.entries(CLIENT_FUNCTIONS).map(([k, f]) => [k, (args: Record<string, unknown>, c: ResolveContext) => {
           if (k === name) call = { call: k, args }
           return f(args, { ...c, openUrl: () => {} })
@@ -400,7 +400,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
               for (const r of t.rows)
                 for (const [name, slot] of Object.entries(r.slots)) {
                   const literal = `${LITERAL_ROWS_ROOT}/${t.id}/${r.index}`
-                  const got = isBinding(rowsProp) ? bindTree(table.slots![name], rctx(d.data, `${absolutePath(rowsProp.path)}/${r.index}`)) : bindTree(table.slots![name], rctx(setPointer(d.data as DataModel, literal, rows[r.index]), literal))
+                  const got = isBinding(rowsProp) ? bindTree(table.slots![name], rctx(d.data, `${absolutePath(rowsProp[`@path`])}/${r.index}`)) : bindTree(table.slots![name], rctx(setPointer(d.data as DataModel, literal, rows[r.index]), literal))
                   if (canon(got) !== canon(slot)) return `row ${r.index}`
                 }
             }

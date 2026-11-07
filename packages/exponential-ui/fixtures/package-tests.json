@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-196 (eApps T1, spec docs/spec/apps.md §11): PACKAGE TESTS, one fixture for the TS reference (src/host/tests.ts) and the Rust core (eui_core::host::tests); Swift and Kotlin replay `validate` through validatePackage over the FFI. A package's `tests: [{name, records?, now?, as?, expr | query | action, expect}]` (at most limits.tests): `records` = {<kind>: [rows]} seeding the test's OWN in-memory store (a row = the kind's data, checked against its schema, plus optional `id` (default `<kind>-<n>`, n from 1 per kind) and `author` (default the fixed seed author defaults.as, never the test's `as`: VAPP-207); every row stamped `now`); `now` = an ISO instant (default defaults.now; the zone is UTC); `as` = the member id the test runs as (default defaults.as: `mine`, `me`); `role` = their team role, member | owner (default defaults.role). eApps R3: the store holds every seeded row, but the test READS only the rows `as` may read under each kind's `policy` (record-policy.json `readable`), and its action's writes are judged by the policy (record-policy.json; a write to a row it may not read = not found): a refusal = {error: `write <i>: <copy>`}; an action's result lists only the rows it may read. Exactly one of: `expr: {expr, vars?}` (CEL; a var `{source: \"records:<kind>?…\"}` = that binding's value over the store, `?query=<name>` expanded; anything else a literal) → the value or {error}; `query: {name, params?}` (a package query over `records:<from>?query=<name>&<params>`) → the records value; `action: {name, params?, data?}` (runAction as `as` at `now`, then the plan's writes applied to the store, new ids `new-<n>`) → {records: {<kind>: [{…data, id, author}] in store order}, sets, calls} or {error}. `matches`: testMatches(expect, got): an object matches by the keys it names (a missing key reads null), recursively; a list item by item with the same length; anything else by JSON equality. `runs`: runPackageTests → [{name, pass, got}]. `validate`: validatePackage of the base `package` with a case's `with` keys replaced: the tests' SHAPE issues first (`/tests…`); a malformed test list runs no test, and nor does a package with any other issue; else every failing test is ONE issue at `/tests/<i>`: `<name>: expected <canonical JSON>, got <canonical JSON>` (got cut at limits.gotMax code points + `…`). VAPP-271: an action test may give `results` ({<name>: answer}, an object: else `results is an object`), the answers of its `call` steps with a `result` (actions.json `results`); a step whose answer the test leaves out = {error: `step <i>: <call> has no result in the test`}.",
+  "$comment": "VAPP-196 (eApps T1, spec docs/spec/apps.md §11): PACKAGE TESTS, one fixture for the TS reference (src/host/tests.ts) and the Rust core (eui_core::host::tests); Swift and Kotlin replay `validate` through validatePackage over the FFI. A package's `tests: [{name, records?, now?, as?, expr | query | action, expect}]` (at most limits.tests): `records` = {<kind>: [rows]} seeding the test's OWN in-memory store (a row = the kind's data, checked against its schema, plus optional `id` (default `<kind>-<n>`, n from 1 per kind) and `author` (default the fixed seed author defaults.as, never the test's `as`: VAPP-207); every row stamped `now`); `now` = an ISO instant (default defaults.now; the zone is UTC); `as` = the member id the test runs as (default defaults.as: `mine`, `me`); `role` = their team role, member | owner (default defaults.role). eApps R3: the store holds every seeded row, but the test READS only the rows `as` may read under each kind's `policy` (record-policy.json `readable`), and its action's writes are judged by the policy (record-policy.json; a write to a row it may not read = not found): a refusal = {error: `write <i>: <copy>`}; an action's result lists only the rows it may read. Exactly one of: `expr: {expr, vars?}` (CEL; a var `{source: \"records:<kind>?…\"}` = that binding's value over the store, `?query=<name>` expanded; anything else a literal) → the value or {error}; `query: {name, params?}` (a package query over `records:<from>?query=<name>&<params>`) → the records value; `action: {name, params?, data?}` (runAction as `as` at `now`, then the plan's writes applied to the store, new ids `new-<n>`) → {records: {<kind>: [{…data, id, author}] in store order}, sets, calls} or {error}. `matches`: testMatches(expect, got): an object matches by the keys it names (a missing key reads null), recursively; a list item by item with the same length; anything else by JSON equality. `runs`: runPackageTests → [{name, pass, got}]. `validate`: validatePackage of the base `package` with a case's `with` keys replaced: the tests' SHAPE issues first (`/tests…`); a malformed test list runs no test, and nor does a package with any other issue; else every failing test is ONE issue at `/tests/<i>`: `<name>: expected <canonical JSON>, got <canonical JSON>` (got cut at limits.gotMax code points + `…`). VAPP-271: an action test may give `results` ({<name>: answer}, an object: else `results is an object`), the answers of its `call` steps with a `result` (actions_json `results`); a step whose answer the test leaves out = {error: `step <i>: <call> has no result in the test`}.",
   "limits": {
     "tests": 50,
     "gotMax": 300
@@ -170,7 +170,7 @@
             }
           },
           {
-            "@call": "harness_toast",
+            "call": "harness_toast",
             "args": {
               "message": "'Logged ' + formatDuration(params.hours, 'h:mm')"
             }
@@ -488,7 +488,7 @@
           ],
           "calls": [
             {
-              "name": "harness.toast",
+              "name": "harness_toast",
               "args": {
                 "message": "Logged 2:00"
               }
@@ -767,7 +767,7 @@
           "name": "tagged"
         },
         "expect": {
-          "error": "step 0: harness.toast has no result in the test"
+          "error": "step 0: harness_toast has no result in the test"
         }
       }
     ],
@@ -873,7 +873,7 @@
           ],
           "calls": [
             {
-              "name": "harness.toast",
+              "name": "harness_toast",
               "args": {
                 "message": "Logged 2:00"
               }
@@ -979,7 +979,7 @@
         "name": "VAPP-271: an answer the test leaves out",
         "pass": true,
         "got": {
-          "error": "step 0: harness.toast has no result in the test"
+          "error": "step 0: harness_toast has no result in the test"
         }
       }
     ]
@@ -1167,7 +1167,7 @@
               ],
               "calls": [
                 {
-                  "name": "harness.toast",
+                  "name": "harness_toast",
                   "args": {
                     "message": "Logged 2:00"
                   }
@@ -1375,7 +1375,7 @@
       "issues": [
         {
           "path": "/tests/0",
-          "message": "one row too many: expected {\"records\":{\"entry\":[{},{},{}]}}, got {\"calls\":[{\"args\":{\"message\":\"Logged 1:00\"},\"name\":\"harness.toast\"}],\"records\":{\"entry\":[{\"author\":\"member\",\"date\":\"2026-11-02\",\"hours\":2,\"id\":\"entry-1\"},{\"author\":\"ada\",\"date\":\"2026-11-03\",\"hours\":3,\"id\":\"entry-2\"},{\"author\":\"member\",\"date\":\"2026-10-20\",\"hours\":8,\"id\":\"old\"},{\"author\":\"member\",\"dat…"
+          "message": "one row too many: expected {\"records\":{\"entry\":[{},{},{}]}}, got {\"calls\":[{\"args\":{\"message\":\"Logged 1:00\"},\"name\":\"harness_toast\"}],\"records\":{\"entry\":[{\"author\":\"member\",\"date\":\"2026-11-02\",\"hours\":2,\"id\":\"entry-1\"},{\"author\":\"ada\",\"date\":\"2026-11-03\",\"hours\":3,\"id\":\"entry-2\"},{\"author\":\"member\",\"date\":\"2026-10-20\",\"hours\":8,\"id\":\"old\"},{\"author\":\"member\",\"dat…"
         }
       ]
     },

@@ -558,7 +558,9 @@
         "issues": [
           {
             "id": "x",
-            "message": "unknown component Gauge"
+            "message": "unknown component Gauge",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/x/component"
           }
         ]
       }
@@ -590,11 +592,10 @@
           "children": [
             {
               "id": "x",
-              "component": "TrendLine",
+              "component": "Unknown",
               "props": {
-                "values": [
-                  1
-                ]
+                "component": "TrendLine",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1"
               },
               "children": []
             }
@@ -613,7 +614,14 @@
             "props": {}
           }
         },
-        "issues": []
+        "issues": [
+          {
+            "id": "x",
+            "message": "unknown component TrendLine",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/x/component"
+          }
+        ]
       }
     }
   ]

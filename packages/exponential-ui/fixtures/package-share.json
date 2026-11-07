@@ -1095,11 +1095,11 @@
       "issues": [
         {
           "path": "/share/0/template",
-          "message": "template presses calls actions.log: a guest's page only reads"
+          "message": "template presses calls actions_log: a guest's page only reads"
         },
         {
           "path": "/share/0/template",
-          "message": "template presses calls app.navigate: a guest's page only reads"
+          "message": "template presses calls app_navigate: a guest's page only reads"
         },
         {
           "path": "/share/0/template",

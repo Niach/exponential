@@ -63,78 +63,62 @@
           "children": [
             {
               "id": "t1",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "Page",
-                "variant": "title"
+                "profile": "inline",
+                "variant": "body"
               },
-              "children": [],
-              "recipe": {
-                "macro": "Heading",
-                "part": "root",
-                "props": {
-                  "level": "h1"
-                }
-              },
-              "accessibility": {
-                "role": "heading",
-                "level": 1
-              }
+              "children": []
             },
             {
               "id": "t4",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "Section",
-                "variant": "title"
+                "profile": "inline",
+                "variant": "body"
               },
-              "children": [],
-              "recipe": {
-                "macro": "Heading",
-                "part": "root",
-                "props": {
-                  "level": "h4"
-                }
-              },
-              "accessibility": {
-                "role": "heading",
-                "level": 4
-              }
+              "children": []
             },
             {
               "id": "t5",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "Label",
-                "variant": "label"
+                "profile": "inline",
+                "variant": "body"
               },
               "children": []
             },
             {
               "id": "tc",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "Caption",
+                "profile": "inline",
                 "variant": "caption"
               },
               "children": []
             },
             {
               "id": "tb",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "Body",
+                "profile": "inline",
                 "variant": "body"
               },
               "children": []
             },
             {
               "id": "td",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": {
                   "@path": "/user/name"
                 },
+                "profile": "inline",
                 "variant": "body"
               },
               "children": []
@@ -154,7 +138,26 @@
             "props": {}
           }
         },
-        "issues": []
+        "issues": [
+          {
+            "id": "t1",
+            "message": "variant: h1 is not caption|body",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/t1/variant"
+          },
+          {
+            "id": "t4",
+            "message": "variant: h4 is not caption|body",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/t4/variant"
+          },
+          {
+            "id": "t5",
+            "message": "variant: h5 is not caption|body",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/t5/variant"
+          }
+        ]
       }
     },
     {
@@ -376,7 +379,76 @@
               "id": "ip",
               "component": "Icon",
               "props": {
-                "name": "ui-icon-placeholder"
+                "name": {
+                  "@call": "map",
+                  "args": {
+                    "value": {
+                      "@path": "M0 0h24v24H0z"
+                    },
+                    "cases": {
+                      "accountCircle": "ui-assignee",
+                      "add": "ui-add",
+                      "arrowBack": "ui-back",
+                      "arrowForward": "ui-arrow-right",
+                      "attachFile": "ui-attach",
+                      "calendarToday": "calendar",
+                      "call": "phone",
+                      "camera": "camera",
+                      "check": "ui-check",
+                      "close": "ui-close",
+                      "delete": "ui-delete",
+                      "download": "ui-download",
+                      "edit": "ui-edit",
+                      "event": "ui-due-date",
+                      "error": "ui-error",
+                      "fastForward": "media-fast-forward",
+                      "favorite": "heart",
+                      "favoriteOff": "ui-favorite-off",
+                      "folder": "ui-folder",
+                      "help": "ui-help",
+                      "home": "house",
+                      "info": "ui-info",
+                      "locationOn": "map-pin",
+                      "lock": "ui-private",
+                      "lockOpen": "ui-unlock",
+                      "mail": "ui-mail",
+                      "menu": "ui-menu",
+                      "moreVert": "ui-more-vertical",
+                      "moreHoriz": "ui-more",
+                      "notificationsOff": "ui-unsubscribe",
+                      "notifications": "ui-subscribe",
+                      "pause": "run-pause",
+                      "payment": "credit-card",
+                      "person": "ui-avatar-placeholder",
+                      "phone": "smartphone",
+                      "photo": "image",
+                      "play": "action-run",
+                      "print": "ui-print",
+                      "refresh": "ui-refresh",
+                      "rewind": "media-rewind",
+                      "search": "nav-search",
+                      "send": "ui-send",
+                      "settings": "nav-settings",
+                      "share": "ui-share",
+                      "shoppingCart": "shopping-cart",
+                      "skipNext": "media-skip-next",
+                      "skipPrevious": "media-skip-previous",
+                      "star": "star",
+                      "starHalf": "ui-star-half",
+                      "starOff": "ui-star-off",
+                      "stop": "ui-stop",
+                      "upload": "sc-push",
+                      "visibility": "ui-watch",
+                      "visibilityOff": "ui-hide",
+                      "volumeDown": "media-volume-down",
+                      "volumeMute": "media-volume-mute",
+                      "volumeOff": "media-volume-off",
+                      "volumeUp": "media-volume-up",
+                      "warning": "ui-warning"
+                    },
+                    "default": "ui-icon-placeholder"
+                  }
+                }
               },
               "children": []
             }
@@ -540,9 +612,10 @@
                       "children": [
                         {
                           "id": "t",
-                          "component": "Text",
+                          "component": "Markdown",
                           "props": {
                             "text": "In a card",
+                            "profile": "inline",
                             "variant": "body"
                           },
                           "children": []
@@ -643,11 +716,12 @@
         "templates": {
           "item": {
             "id": "item",
-            "component": "Text",
+            "component": "Markdown",
             "props": {
               "text": {
                 "@path": "name"
               },
+              "profile": "inline",
               "variant": "body"
             },
             "children": []
@@ -707,18 +781,20 @@
           "children": [
             {
               "id": "p1",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "One",
+                "profile": "inline",
                 "variant": "body"
               },
               "children": []
             },
             {
               "id": "p2",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "Two",
+                "profile": "inline",
                 "variant": "body"
               },
               "children": []
@@ -768,9 +844,10 @@
           "children": [
             {
               "id": "body",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "Inside the modal",
+                "profile": "inline",
                 "variant": "body"
               },
               "children": []
@@ -949,9 +1026,10 @@
                   "children": [
                     {
                       "id": "b3t",
-                      "component": "Text",
+                      "component": "Markdown",
                       "props": {
                         "text": "Nested",
+                        "profile": "inline",
                         "variant": "body"
                       },
                       "children": []
@@ -1092,7 +1170,8 @@
               "props": {
                 "label": "Name",
                 "name": "short",
-                "type": "text"
+                "type": "text",
+                "value": ""
               },
               "children": []
             },
@@ -1128,7 +1207,8 @@
                   }
                 ],
                 "name": "num",
-                "type": "number"
+                "type": "number",
+                "value": ""
               },
               "children": []
             },
@@ -1138,7 +1218,8 @@
               "props": {
                 "label": "Password",
                 "name": "pw",
-                "type": "password"
+                "type": "password",
+                "value": ""
               },
               "children": []
             },
@@ -1151,21 +1232,7 @@
                   "@path": "/code"
                 },
                 "name": "rx",
-                "type": "text",
-                "checks": [
-                  {
-                    "condition": {
-                      "@call": "regex",
-                      "args": {
-                        "value": {
-                          "@path": "/code"
-                        },
-                        "pattern": "^[A-Z]{3}$"
-                      }
-                    },
-                    "message": "Invalid value"
-                  }
-                ]
+                "type": "text"
               },
               "children": []
             }
@@ -1184,7 +1251,26 @@
             "props": {}
           }
         },
-        "issues": []
+        "issues": [
+          {
+            "id": "short",
+            "message": "value: required",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/short/value"
+          },
+          {
+            "id": "num",
+            "message": "value: required",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/num/value"
+          },
+          {
+            "id": "pw",
+            "message": "value: required",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/pw/value"
+          }
+        ]
       }
     },
     {
@@ -1535,15 +1621,16 @@
               "component": "Unknown",
               "props": {
                 "component": "Gauge",
-                "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+                "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
               },
               "children": []
             },
             {
               "id": "t",
-              "component": "Text",
+              "component": "Markdown",
               "props": {
                 "text": "Still rendered",
+                "profile": "inline",
                 "variant": "body"
               },
               "children": []
@@ -1566,7 +1653,9 @@
         "issues": [
           {
             "id": "g",
-            "message": "basic component Gauge has no mapping"
+            "message": "basic component Gauge has no mapping",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/g"
           }
         ]
       }
@@ -1608,7 +1697,7 @@
               "component": "Unknown",
               "props": {
                 "component": "#nope",
-                "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+                "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
               },
               "children": []
             },
@@ -1627,7 +1716,7 @@
                       "component": "Unknown",
                       "props": {
                         "component": "Row",
-                        "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+                        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
                       },
                       "children": []
                     }
@@ -1679,11 +1768,15 @@
         "issues": [
           {
             "id": "nope",
-            "message": "no component with this id"
+            "message": "no component with this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/nope"
           },
           {
             "id": "a",
-            "message": "cycle through this id"
+            "message": "cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/a"
           }
         ]
       }

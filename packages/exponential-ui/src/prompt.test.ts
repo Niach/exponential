@@ -37,7 +37,7 @@ describe(`catalog prompt`, () => {
       }
     }
     // Round 4: every function with its arguments, the action shapes, updateDataModel, filter, token-only colours.
-    for (const needle of [`Functions ({call, args}`, `regex(value:str,pattern:str)→bool`, `filter(items:array,query:str,fields:array,where:obj)→array`, `set(path:str,value:any)→void`, `{event: {name, context?}}`, `{functionCall: {call, args}}`, `updateDataModel{surfaceId, path, value}`, `never #hex`, `closes the Dialog or Drawer`, `app.toast`])
+    for (const needle of [`Functions ({call, args}`, `regex(value:str,pattern:str)→bool`, `filter(items:array,query:str,fields:array,where:obj)→array`, `set(path:str,value:any)→void`, `{event: {name, context?}}`, `{functionCall: {call, args}}`, `updateDataModel{surfaceId, path, value}`, `never #hex`, `closes the Dialog or Drawer`, `app_toast`])
       expect(full, needle).toContain(needle)
     // VAPP-191: same signatures share an entry (add|sub(…)); the expression
     // functions are reached through expr (the apps catalog lists them).

@@ -2447,6 +2447,50 @@
       }
     },
     {
+      "name": "Markdown/profile=document",
+      "node": {
+        "id": "markdown",
+        "component": "Markdown",
+        "props": {
+          "text": "**Bold** and a list:\n\n- one\n- two",
+          "profile": "document"
+        }
+      }
+    },
+    {
+      "name": "Markdown/profile=inline",
+      "node": {
+        "id": "markdown",
+        "component": "Markdown",
+        "props": {
+          "text": "**Bold** and a list:\n\n- one\n- two",
+          "profile": "inline"
+        }
+      }
+    },
+    {
+      "name": "Markdown/variant=body",
+      "node": {
+        "id": "markdown",
+        "component": "Markdown",
+        "props": {
+          "text": "**Bold** and a list:\n\n- one\n- two",
+          "variant": "body"
+        }
+      }
+    },
+    {
+      "name": "Markdown/variant=caption",
+      "node": {
+        "id": "markdown",
+        "component": "Markdown",
+        "props": {
+          "text": "**Bold** and a list:\n\n- one\n- two",
+          "variant": "caption"
+        }
+      }
+    },
+    {
       "name": "CodeBlock/example",
       "node": {
         "id": "code-block",
@@ -12976,15 +13020,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -12999,7 +13043,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13010,7 +13054,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13030,7 +13074,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ]
@@ -13052,15 +13096,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13075,7 +13119,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13086,7 +13130,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13106,7 +13150,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13129,15 +13173,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13152,7 +13196,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13163,7 +13207,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13183,7 +13227,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13206,15 +13250,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13229,7 +13273,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13240,7 +13284,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13260,7 +13304,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13283,15 +13327,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13306,7 +13350,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13317,7 +13361,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13337,7 +13381,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13360,15 +13404,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13383,7 +13427,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13394,7 +13438,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13414,7 +13458,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13437,15 +13481,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13460,7 +13504,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13471,7 +13515,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13491,7 +13535,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13554,15 +13598,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13577,7 +13621,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13588,7 +13632,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13608,7 +13652,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13673,15 +13717,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13696,7 +13740,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13707,7 +13751,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13727,7 +13771,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13793,15 +13837,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13816,7 +13860,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13827,7 +13871,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13847,7 +13891,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -13913,15 +13957,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -13936,7 +13980,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -13947,7 +13991,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -13967,7 +14011,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14033,15 +14077,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -14056,7 +14100,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -14067,7 +14111,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -14087,7 +14131,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14153,15 +14197,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -14176,7 +14220,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -14187,7 +14231,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -14207,7 +14251,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14273,15 +14317,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -14296,7 +14340,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -14307,7 +14351,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -14327,7 +14371,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14393,15 +14437,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -14416,7 +14460,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -14427,7 +14471,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -14447,7 +14491,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14512,15 +14556,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -14535,7 +14579,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -14546,7 +14590,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -14566,7 +14610,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14631,15 +14675,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -14654,7 +14698,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -14665,7 +14709,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -14685,7 +14729,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14750,15 +14794,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -14773,7 +14817,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -14784,7 +14828,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -14804,7 +14848,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14869,15 +14913,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -14892,7 +14936,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -14903,7 +14947,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -14923,7 +14967,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],
@@ -14989,15 +15033,15 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/title"
+                "@path": "/recordForm/deal/title"
               },
               "checks": [
                 {
                   "condition": {
-                    "call": "required",
+                    "@call": "required",
                     "args": {
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       }
                     }
                   },
@@ -15012,7 +15056,7 @@
               "required": true,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/amount"
+                "@path": "/recordForm/deal/amount"
               },
               "min": 0
             },
@@ -15023,7 +15067,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/stage"
+                "@path": "/recordForm/deal/stage"
               },
               "options": [
                 {
@@ -15043,7 +15087,7 @@
               "required": false,
               "wide": false,
               "value": {
-                "path": "/recordForm/deal/close"
+                "@path": "/recordForm/deal/close"
               }
             }
           ],

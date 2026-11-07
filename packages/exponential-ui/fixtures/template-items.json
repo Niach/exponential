@@ -682,7 +682,7 @@
           "children": [
             "list",
             "item",
-            "ghost_list"
+            "ghost-list"
           ]
         },
         {
@@ -725,7 +725,7 @@
           }
         },
         {
-          "id": "ghost_list",
+          "id": "ghost-list",
           "component": "List",
           "children": {
             "componentId": "nowhere",
@@ -751,7 +751,7 @@
               }
             },
             {
-              "id": "ghost_list",
+              "id": "ghost-list",
               "component": "List",
               "props": {},
               "children": [],
@@ -765,7 +765,9 @@
         "issues": [
           {
             "id": "nowhere",
-            "message": "template: no component with this id"
+            "message": "template: no component with this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/nowhere"
           }
         ],
         "templates": {
@@ -880,7 +882,9 @@
         "issues": [
           {
             "id": "l",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/l"
           }
         ]
       }
@@ -940,7 +944,9 @@
         "issues": [
           {
             "id": "col",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/col"
           }
         ]
       }
@@ -983,7 +989,9 @@
         "issues": [
           {
             "id": "root",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/root"
           }
         ]
       }
@@ -1085,11 +1093,15 @@
         "issues": [
           {
             "id": "t1",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/t1"
           },
           {
             "id": "t2",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/t2"
           }
         ],
         "templates": {
@@ -1159,7 +1171,9 @@
         "issues": [
           {
             "id": "shared",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/shared"
           }
         ]
       }
@@ -1366,51 +1380,75 @@
         "issues": [
           {
             "id": "n12",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n12"
           },
           {
             "id": "n11",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n11"
           },
           {
             "id": "n10",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n10"
           },
           {
             "id": "n9",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n9"
           },
           {
             "id": "n8",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n8"
           },
           {
             "id": "n7",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n7"
           },
           {
             "id": "n6",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n6"
           },
           {
             "id": "n5",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n5"
           },
           {
             "id": "n4",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n4"
           },
           {
             "id": "n3",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n3"
           },
           {
             "id": "n2",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n2"
           },
           {
             "id": "n1",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n1"
           }
         ]
       }
@@ -1477,7 +1515,9 @@
         "issues": [
           {
             "id": "label",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/label"
           }
         ],
         "templates": {
@@ -2206,7 +2246,9 @@
         "issues": [
           {
             "id": "n48",
-            "message": "nesting deeper than 48 levels"
+            "message": "nesting deeper than 48 levels",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n48"
           }
         ]
       }
@@ -2362,7 +2404,14 @@
                       },
                       "children": [],
                       "visible": {
-                        "@path": "/leave/month/agenda/count"
+                        "@call": "cond",
+                        "args": {
+                          "if": {
+                            "@path": "/leave/month/agenda/count"
+                          },
+                          "then": true,
+                          "else": false
+                        }
                       },
                       "recipe": {
                         "macro": "Section",
@@ -2406,7 +2455,14 @@
                     "borderRadius": "$radius.md"
                   },
                   "visible": {
-                    "@path": "/leave/month/agenda/label"
+                    "@call": "cond",
+                    "args": {
+                      "if": {
+                        "@path": "/leave/month/agenda/label"
+                      },
+                      "then": true,
+                      "else": false
+                    }
                   },
                   "recipe": {
                     "macro": "Section",
@@ -3145,7 +3201,14 @@
                     },
                     "children": [],
                     "visible": {
-                      "@path": "row/detail"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "row/detail"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     },
                     "recipe": {
                       "macro": "Row",
@@ -3190,7 +3253,14 @@
                 },
                 "children": [],
                 "visible": {
-                  "@path": "row/status"
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "row/status"
+                    },
+                    "then": true,
+                    "else": false
+                  }
                 },
                 "recipe": {
                   "macro": "Row",
@@ -4725,7 +4795,14 @@
                       }
                     },
                     "visible": {
-                      "@path": "/road/timeline/now"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/road/timeline/now"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     },
                     "recipe": {
                       "macro": "Timeline",

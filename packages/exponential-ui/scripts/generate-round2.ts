@@ -141,8 +141,8 @@ function formatFixture() {
     $comment: `${HEADER} Round 2 (docs/round-2-contract.md §3). \`calls\`: each format function (A2UI basic formatNumber/formatCurrency/formatDate/pluralize + core formatPercent/formatRelativeTime) through the ENGLISH fallback Formatter (src/format.ts englishFormatter; catalog/locale.json \`englishFallback\`; = Intl en-US, ICU 74+), instants in UTC, \`now\` explicit: the Rust core's fallback (and any renderer without ICU) replays them EXACTLY — the conformance run uses the fallback. A platform Formatter (Foundation, android.icu) may be checked too after mapping U+202F and U+00A0 to a space on both sides (newer ICU puts U+202F before AM/PM). A numeric string = optional whitespace, sign, decimal digits, fraction, exponent; hex, Infinity and separators are not numbers. \`zoned\`: the same functions in a non-UTC surface zone: the fallback takes \`offsetMinutes\` (the host's UTC offset at that instant), an ICU Formatter takes \`timeZone\`; a calendar day never shifts. \`display\`: what a string/markdown prop SHOWS for a bound value (src/format.ts displayString: ECMAScript Number→String, booleans, nothing for null/objects); no locale.`,
     locale: `en-US`,
     timeZone: `UTC`,
-    calls: FORMAT_CALLS.map((c) => ({ name: c.name, call: { call: c.call, args: c.args }, expected: resolveDynamic({ call: c.call, args: c.args }, {}) })),
-    zoned: ZONED_CALLS.map((c) => ({ name: c.name, timeZone: c.timeZone, offsetMinutes: c.offsetMinutes, call: { call: c.call, args: c.args }, expected: formatFunctions(englishFormatter(fixedOffset(c.offsetMinutes)))[c.call as `formatDate`](c.args) })),
+    calls: FORMAT_CALLS.map((c) => ({ name: c.name, call: { "@call": c.call, args: c.args }, expected: resolveDynamic({ "@call": c.call, args: c.args }, {}) })),
+    zoned: ZONED_CALLS.map((c) => ({ name: c.name, timeZone: c.timeZone, offsetMinutes: c.offsetMinutes, call: { "@call": c.call, args: c.args }, expected: formatFunctions(englishFormatter(fixedOffset(c.offsetMinutes)))[c.call as `formatDate`](c.args) })),
     display: DISPLAY_VALUES.map((d) => ({ name: d.name, value: d.value, expected: displayString(d.value) })),
   }
 }

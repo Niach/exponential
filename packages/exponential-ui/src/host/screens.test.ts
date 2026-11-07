@@ -1,5 +1,5 @@
-// VAPP-218 (eApps U1): `app.navigate` on a host: a press and an action's
-// call step reach the host's shell; a refusal is FUNCTION_DENIED.
+// VAPP-218 (eApps U1): `app_navigate` on a host: a press and an action's
+// call step reach the host's shell; a refusal is INVALID_FUNCTION_CALL.
 import { describe, expect, test } from "bun:test"
 import routerFixture from "../../fixtures/host-router.json" with { type: "json" }
 import { ExponentialHost } from "./runtime"
@@ -12,11 +12,11 @@ const pkg = (routerFixture.packages as unknown as Record<string, AppPackage>)[`a
 const host = (navigate?: (t: { screen: string; params: Record<string, string> }) => boolean | void) => {
   const errors: string[] = []
   const h = new ExponentialHost({ packages: [pkg], navigate, onIssue: (i) => void errors.push(`${i.code}: ${i.message}`) })
-  h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, packageId: pkg.id, templateId: `pipeline` } })
+  h.applyTemplate({ surfaceId: `s`, packageId: pkg.id, templateId: `pipeline` })
   return { h, errors }
 }
 
-describe(`app.navigate`, () => {
+describe(`app_navigate`, () => {
   test(`a press reaches the shell, without the package listing it`, async () => {
     const seen: unknown[] = []
     const { h } = host((t) => void seen.push(t))
@@ -27,16 +27,16 @@ describe(`app.navigate`, () => {
   test(`an action's call step navigates after its plan`, async () => {
     const seen: string[] = []
     const { h } = host((t) => void seen.push(`${t.screen}:${t.params.stage}`))
-    const out = await h.callFunction({ surfaceId: `s`, componentId: `x`, name: `actions.won`, args: {} })
+    const out = await h.callFunction({ surfaceId: `s`, componentId: `x`, name: `actions_won`, args: {} })
     expect(out.error).toBeUndefined()
     expect(seen).toEqual([`deals:won`])
   })
-  test(`no screen or no shell = FUNCTION_DENIED`, async () => {
+  test(`no screen or no shell = INVALID_FUNCTION_CALL`, async () => {
     const a = host(() => true)
     expect((await a.h.callFunction({ surfaceId: `s`, componentId: `go`, name: NAVIGATE_FUNCTION, args: { screen: `settings` } })).error).toBe(`navigate: settings is not a screen`)
     const b = host()
     expect((await b.h.callFunction({ surfaceId: `s`, componentId: `go`, name: NAVIGATE_FUNCTION, args: { screen: `deals` } })).decision).toBe(`deny`)
-    expect(b.errors.some((e) => e.startsWith(`FUNCTION_DENIED`))).toBe(true)
+    expect(b.errors.some((e) => e.startsWith(`INVALID_FUNCTION_CALL`))).toBe(true)
   })
   // #EXP-1674: params are data: opening a screen runs nothing, whatever a link
   // carries; only a person's press does.
@@ -63,7 +63,7 @@ describe(`app.navigate`, () => {
     const target = crossAppTarget(opened, `deal`, { run: `app.record` })
     if (`error` in target) throw new Error(target.error)
     const screen = resolveScreen(opened, target.screen, target.params)!
-    h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `o`, packageId: opened.id, templateId: screen.screen, data: screenData(screen) } })
+    h.applyTemplate({ surfaceId: `o`, packageId: opened.id, templateId: screen.screen, data: screenData(screen) })
     await Promise.resolve()
     expect(h.surface(`o`)!.data).toEqual({ params: { run: `app.record` } })
     expect(called).toEqual([])
@@ -71,7 +71,7 @@ describe(`app.navigate`, () => {
   test(`a screen's params land under /params`, () => {
     const h = new ExponentialHost({ packages: [pkg] })
     const screen = resolveScreen(pkg, `deals`, { stage: `won` })!
-    h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `d`, packageId: pkg.id, templateId: screen.screen, data: screenData(screen) } })
+    h.applyTemplate({ surfaceId: `d`, packageId: pkg.id, templateId: screen.screen, data: screenData(screen) })
     expect(h.surface(`d`)!.data).toEqual({ params: { stage: `won` } })
   })
 })
@@ -102,7 +102,7 @@ test(`a row's press opens ~/ with its own data through the URL policy`, async ()
     },
   } as unknown as AppPackage
   const h = new ExponentialHost({ packages: [pkg], policy: { urls: { baseUrl: `https://app.example`, linkBase: `/t/acme` }, openUrl: (url) => void opened.push(url) } })
-  h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `l`, packageId: pkg.id, templateId: `t` } })
+  h.applyTemplate({ surfaceId: `l`, packageId: pkg.id, templateId: `t` })
   expect(h.openUrl(`~/issues/EXP-1`)).toBe(true)
   expect(opened).toEqual([`https://app.example/t/acme/issues/EXP-1`])
 })

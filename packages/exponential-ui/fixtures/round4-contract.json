@@ -296,7 +296,9 @@
       "issues": [
         {
           "id": "card24",
-          "message": "nesting deeper than 48 levels"
+          "message": "nesting deeper than 48 levels",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/card24"
         }
       ]
     },
@@ -312,7 +314,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.fontColor: not in the Box style whitelist"
+          "message": "style.fontColor: not in the Box style whitelist",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/fontColor"
         }
       ]
     },
@@ -328,7 +332,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.gap: gap: expected px, \"N%\", \"auto\" or a numeric token"
+          "message": "style.gap: gap: expected px, \"N%\", \"auto\" or a numeric token",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/gap"
         }
       ]
     },
@@ -345,7 +351,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.backgroundColor: backgroundColor: expected $color.<name>"
+          "message": "style.backgroundColor: backgroundColor: expected $color.<name>",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/backgroundColor"
         }
       ]
     },
@@ -363,7 +371,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.@media (min-width: $breakpoint.md).borderColor: borderColor: expected $color.<name>"
+          "message": "style.@media (min-width: $breakpoint.md).borderColor: borderColor: expected $color.<name>",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/@media (min-width: $breakpoint/md)/borderColor"
         }
       ]
     },
@@ -391,7 +401,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.backgroundGradient: backgroundGradient: expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops"
+          "message": "style.backgroundGradient: backgroundGradient: expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/backgroundGradient"
         }
       ]
     },
@@ -408,7 +420,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "props.dot: expected $color.<name>"
+          "message": "props.dot: expected $color.<name>",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/dot"
         }
       ]
     },
@@ -443,12 +457,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "on.press.functionCall: unknown function \"opneUrl\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "action: a namespaced host function passes",
@@ -461,7 +470,7 @@
         "on": {
           "press": {
             "functionCall": {
-              "@call": "app_toast",
+              "@call": "app.toast",
               "args": {
                 "text": "Hi"
               }
@@ -469,7 +478,14 @@
           }
         }
       },
-      "issues": []
+      "issues": [
+        {
+          "id": "root",
+          "message": "on.press.functionCall: unknown function \"app.toast\"; known: the catalog functions, a host function (app_toast), or an agent function (an identifier)",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/on/press/functionCall"
+        }
+      ]
     },
     {
       "name": "action: an unknown function inside the event context",
@@ -497,12 +513,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "on.press.event.context.title: unknown function \"trimm\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "prop: an unknown function in a binding",
@@ -521,12 +532,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "props.text: unknown function \"concatt\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "visible: an unknown function",
@@ -545,12 +551,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "visible: unknown function \"nott\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "data: a literal Table row with a call key is a row, never a function",
@@ -608,12 +609,7 @@
           ]
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "props.options[0].label: unknown function \"uppr\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "action: an unknown function nested in another call's args",
@@ -641,12 +637,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "on.press.functionCall.args.value: unknown function \"ad\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "Table: a slot column naming a missing slot",
@@ -677,7 +668,7 @@
         },
         "slots": {
           "state": {
-            "id": "state_cell",
+            "id": "state-cell",
             "component": "Badge",
             "props": {
               "text": {
@@ -690,11 +681,15 @@
       "issues": [
         {
           "id": "root",
-          "message": "props.columns[1].slot: no slot \"status\" on this Table; slots: state"
+          "message": "props.columns[1].slot: no slot \"status\" on this Table; slots: state",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/columns/1/slot"
         },
         {
           "id": "root",
-          "message": "props.columns[2].slot: a slot column names one of the Table's slots"
+          "message": "props.columns[2].slot: a slot column names one of the Table's slots",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/columns/2/slot"
         }
       ]
     },
@@ -738,7 +733,7 @@
         },
         "slots": {
           "status": {
-            "id": "status_cell",
+            "id": "status-cell",
             "component": "Badge",
             "props": {
               "text": {
@@ -1046,7 +1041,9 @@
       "issues": [
         {
           "id": "card24",
-          "message": "nesting deeper than 48 levels"
+          "message": "nesting deeper than 48 levels",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/card24"
         }
       ],
       "placeholders": [
@@ -1240,7 +1237,9 @@
       "issues": [
         {
           "id": "tcard24",
-          "message": "nesting deeper than 48 levels"
+          "message": "nesting deeper than 48 levels",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/tcard24"
         }
       ],
       "placeholders": [
@@ -1404,7 +1403,9 @@
       "issues": [
         {
           "id": "nope",
-          "message": "unknown component NoSuchComponent"
+          "message": "unknown component NoSuchComponent",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/nope/component"
         }
       ],
       "placeholders": [
@@ -1547,14 +1548,14 @@
                 "component": "Stack",
                 "children": [
                   {
-                    "id": "row_a",
+                    "id": "row-a",
                     "component": "Text",
                     "props": {
                       "text": "a"
                     }
                   },
                   {
-                    "id": "row_b",
+                    "id": "row-b",
                     "component": "Text",
                     "props": {
                       "text": "b"
@@ -2505,7 +2506,7 @@
                 },
                 "children": [
                   {
-                    "id": "f_title",
+                    "id": "f-title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2516,7 +2517,7 @@
                     }
                   },
                   {
-                    "id": "f_go",
+                    "id": "f-go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2578,7 +2579,7 @@
                 },
                 "children": [
                   {
-                    "id": "f_title",
+                    "id": "f-title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2589,7 +2590,7 @@
                     }
                   },
                   {
-                    "id": "f_go",
+                    "id": "f-go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2648,7 +2649,7 @@
                 },
                 "children": [
                   {
-                    "id": "f_title",
+                    "id": "f-title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2659,7 +2660,7 @@
                     }
                   },
                   {
-                    "id": "f_go",
+                    "id": "f-go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2714,7 +2715,7 @@
                 },
                 "slots": {
                   "trigger": {
-                    "id": "pop_trigger",
+                    "id": "pop-trigger",
                     "component": "Button",
                     "props": {
                       "label": "Filters"
@@ -2737,7 +2738,7 @@
                     },
                     "children": [
                       {
-                        "id": "f_title",
+                        "id": "f-title",
                         "component": "Input",
                         "props": {
                           "name": "title",
@@ -2748,7 +2749,7 @@
                         }
                       },
                       {
-                        "id": "f_go",
+                        "id": "f-go",
                         "component": "Button",
                         "props": {
                           "label": "Create",
@@ -2813,7 +2814,7 @@
                 },
                 "children": [
                   {
-                    "id": "f_title",
+                    "id": "f-title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2824,7 +2825,7 @@
                     }
                   },
                   {
-                    "id": "f_go",
+                    "id": "f-go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2884,7 +2885,7 @@
                 },
                 "children": [
                   {
-                    "id": "f_title",
+                    "id": "f-title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2895,7 +2896,7 @@
                     }
                   },
                   {
-                    "id": "f_go",
+                    "id": "f-go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2945,7 +2946,7 @@
             },
             "children": [
               {
-                "id": "f_title",
+                "id": "f-title",
                 "component": "Input",
                 "props": {
                   "name": "title",
@@ -2956,7 +2957,7 @@
                 }
               },
               {
-                "id": "f_go",
+                "id": "f-go",
                 "component": "Button",
                 "props": {
                   "label": "Create",

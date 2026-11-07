@@ -63,14 +63,14 @@ describe(`a package action on a host`, () => {
     const h = new ExponentialHost({
       packages: [pkg],
       sources: records.sources,
-      functions: { ...records.functions, "harness.toast": (args) => void opts.toasts?.push(String(args.message)) },
+      functions: { ...records.functions, "harness_toast": (args) => void opts.toasts?.push(String(args.message)) },
       me: `u1`,
       now: () => now,
       zone: () => fixture.env.offset,
       onActionFailed: (f) => void opts.failed?.push(f.message),
-      policy: { functions: { ask: [`harness.toast`] }, onFunctionCall: () => opts.consent ?? true },
+      policy: { functions: { ask: [`harness_toast`] }, onFunctionCall: () => opts.consent ?? true },
     })
-    h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, packageId: pkg.id, templateId: `month` } })
+    h.applyTemplate({ surfaceId: `s`, packageId: pkg.id, templateId: `month` })
     let rows: readonly RecordRow[] = []
     store.subscribe((r) => (rows = r))
     return { h, store, rows: () => rows, data: () => h.surface(`s`)!.data }
@@ -80,7 +80,7 @@ describe(`a package action on a host`, () => {
   test(`the plan lands: one batch, the sets, then the calls`, async () => {
     const toasts: string[] = []
     const s = surface({ toasts })
-    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions.log`, args: { date: `2026-11-03`, hours: 2 } })
+    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions_log`, args: { date: `2026-11-03`, hours: 2 } })
     expect(out.error).toBeUndefined()
     expect(s.rows().map((r) => r.data)).toContainEqual({ date: `2026-11-03`, hours: 2 })
     expect((s.data() as { form: { hours: number } }).form.hours).toBe(0)
@@ -94,10 +94,10 @@ describe(`a package action on a host`, () => {
     const s = surface()
     const store = s.h.surface(`s`)!
     const start = store.writeEpoch
-    s.h.receive({ version: `v0.9`, updateDataModel: { surfaceId: `s`, path: `/form/hours`, value: 3 } })
+    s.h.receive({ version: `1.0`, updateDataModel: { surfaceId: `s`, path: `/form/hours`, value: 3 } })
     expect((s.data() as { form: { hours: number } }).form.hours).toBe(3)
     expect(store.writeEpoch).toBe(start)
-    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions.log`, args: { date: `2026-11-03`, hours: 2 } })
+    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions_log`, args: { date: `2026-11-03`, hours: 2 } })
     expect(out.error).toBeUndefined()
     expect((s.data() as { form: { hours: number } }).form.hours).toBe(0)
     expect(store.writeEpoch).toBeGreaterThan(start)
@@ -107,7 +107,7 @@ describe(`a package action on a host`, () => {
     const failed: string[] = []
     const s = surface({ failed })
     const before = s.rows()
-    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions.log`, args: { date: `2026-11-03`, hours: 0 } })
+    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions_log`, args: { date: `2026-11-03`, hours: 0 } })
     expect(out.error).toBe(`Log more than 0 hours`)
     expect(failed).toEqual([`Log more than 0 hours`])
     expect(s.rows()).toBe(before)
@@ -117,7 +117,7 @@ describe(`a package action on a host`, () => {
   test(`a refused write lands nothing: the batch is one unit`, async () => {
     const s = surface()
     const before = s.rows()
-    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `x`, name: `actions.swap`, args: { a: `e1`, b: `missing` } })
+    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `x`, name: `actions_swap`, args: { a: `e1`, b: `missing` } })
     expect(out.error).toBe(`write 1: record missing not found`)
     expect(s.rows()).toBe(before)
   })
@@ -125,8 +125,8 @@ describe(`a package action on a host`, () => {
   test(`a host call the person refuses lands nothing`, async () => {
     const s = surface({ consent: false })
     const before = s.rows()
-    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions.log`, args: { date: `2026-11-03`, hours: 2 } })
-    expect(out.error).toBe(`harness.toast was not allowed`)
+    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions_log`, args: { date: `2026-11-03`, hours: 2 } })
+    expect(out.error).toBe(`harness_toast was not allowed`)
     expect(s.rows()).toBe(before)
   })
 
@@ -146,7 +146,7 @@ describe(`a package action on a host`, () => {
         },
         policy: { openUrl: (url) => void opened.push(url) },
       })
-      h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, packageId: pkg.id, templateId: `main` } })
+      h.applyTemplate({ surfaceId: `s`, packageId: pkg.id, templateId: `main` })
       const out = await h.callFunction({ surfaceId: `s`, componentId: `b`, name: `actions.${c.action}`, args: c.args })
       expect(out.error).toBe(c.error as never)
       expect(opened).toEqual(c.opened)
@@ -185,13 +185,13 @@ describe(`actions.json results`, () => {
       const h = new ExponentialHost({
         packages: [pkg],
         sources: records.sources,
-        functions: { ...records.functions, "photos.pick": fake(`photos.pick`), "print.pdf": fake(`print.pdf`), "harness.toast": fake(`harness.toast`) },
+        functions: { ...records.functions, "photos.pick": fake(`photos.pick`), "print.pdf": fake(`print.pdf`), "harness_toast": fake(`harness_toast`) },
         me: `u1`,
         now: () => now,
         zone: () => fixture.env.offset,
         policy: { functions: { deny: c.deny ?? [] } },
       })
-      h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, packageId: pkg.id, templateId: `main` } })
+      h.applyTemplate({ surfaceId: `s`, packageId: pkg.id, templateId: `main` })
       let rows: readonly RecordRow[] = []
       store.subscribe((x) => (rows = x))
       const out = await h.callFunction({ surfaceId: `s`, componentId: `add`, name: `actions.${c.action}`, args: {} })

@@ -11,12 +11,12 @@
         "props": {},
         "children": [
           {
-            "id": "app-bar",
+            "id": "app_bar",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "app-bar.back",
+                "id": "app_bar.back",
                 "component": "Button",
                 "props": {
                   "icon": "ui-back",
@@ -39,12 +39,12 @@
                 }
               },
               {
-                "id": "app-bar.body",
+                "id": "app_bar.body",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "app-bar.body.title",
+                    "id": "app_bar.body.title",
                     "component": "Text",
                     "props": {
                       "text": "Inbox",
@@ -63,18 +63,25 @@
                     }
                   },
                   {
-                    "id": "app-bar.body.subtitle",
+                    "id": "app_bar.body.subtitle",
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "/ui/teamName"
+                        "@path": "/ui/teamName"
                       },
                       "variant": "muted",
                       "lines": 1
                     },
                     "children": [],
                     "visible": {
-                      "path": "/ui/teamName"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/ui/teamName"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     },
                     "recipe": {
                       "macro": "AppBar",
@@ -96,7 +103,7 @@
                 }
               },
               {
-                "id": "app-bar-search",
+                "id": "app_bar_search",
                 "component": "Button",
                 "props": {
                   "icon": "search",
@@ -505,7 +512,7 @@
                 "accessibility": {
                   "role": "link",
                   "label": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.outlineRow",
                       "params": {
@@ -600,7 +607,7 @@
                 "accessibility": {
                   "role": "link",
                   "label": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.outlineRow",
                       "params": {
@@ -1279,7 +1286,7 @@
         "props": {},
         "children": [
           {
-            "id": "hdr-avatar",
+            "id": "hdr_avatar",
             "component": "Avatar",
             "props": {
               "name": "Alex Chen",
@@ -1288,12 +1295,12 @@
             "children": []
           },
           {
-            "id": "hdr-text",
+            "id": "hdr_text",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "hdr-title",
+                "id": "hdr_title",
                 "component": "Text",
                 "props": {
                   "text": "Reddit radar",
@@ -1313,7 +1320,7 @@
                 }
               },
               {
-                "id": "hdr-sub",
+                "id": "hdr_sub",
                 "component": "Text",
                 "props": {
                   "text": "Kitchen sink · one catalog on every client",
@@ -1345,12 +1352,12 @@
             }
           },
           {
-            "id": "hdr-badge",
+            "id": "hdr_badge",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "hdr-badge.label",
+                "id": "hdr_badge.label",
                 "component": "Text",
                 "props": {
                   "text": "3",
@@ -1386,7 +1393,7 @@
             }
           },
           {
-            "id": "hdr-scan",
+            "id": "hdr_scan",
             "component": "Button",
             "props": {
               "label": "Scan now",
@@ -1428,27 +1435,27 @@
         "props": {},
         "children": [
           {
-            "id": "nav-card",
+            "id": "nav_card",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "nav-card.body",
+                "id": "nav_card.body",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "nav-rows",
+                    "id": "nav_rows",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "nav-rows.header",
+                        "id": "nav_rows.header",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "nav-rows.header.icon",
+                            "id": "nav_rows.header.icon",
                             "component": "Icon",
                             "props": {
                               "name": "nav-boards",
@@ -1467,7 +1474,7 @@
                             }
                           },
                           {
-                            "id": "nav-rows.header.title",
+                            "id": "nav_rows.header.title",
                             "component": "Text",
                             "props": {
                               "text": "Sources",
@@ -1491,7 +1498,7 @@
                             }
                           },
                           {
-                            "id": "nav-rows.header.count",
+                            "id": "nav_rows.header.count",
                             "component": "Text",
                             "props": {
                               "text": "3",
@@ -1510,7 +1517,7 @@
                             }
                           },
                           {
-                            "id": "nav-rows.header.spacer",
+                            "id": "nav_rows.header.spacer",
                             "component": "Box",
                             "props": {},
                             "children": [],
@@ -1555,7 +1562,7 @@
                         }
                       },
                       {
-                        "id": "nav-rows.body",
+                        "id": "nav_rows.body",
                         "component": "List",
                         "props": {
                           "divided": true,
@@ -1563,19 +1570,19 @@
                         },
                         "children": [
                           {
-                            "id": "row-1",
+                            "id": "row_1",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "row-1.body",
+                                "id": "row_1.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "row-1.body.title",
+                                    "id": "row_1.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "r/selfhosted",
@@ -1615,7 +1622,7 @@
                                 }
                               },
                               {
-                                "id": "row-1.meta",
+                                "id": "row_1.meta",
                                 "component": "Text",
                                 "props": {
                                   "text": "312 posts",
@@ -1670,14 +1677,14 @@
                             }
                           },
                           {
-                            "id": "row-2",
+                            "id": "row_2",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "row-2.guides",
+                                "id": "row_2.guides",
                                 "component": "TreeGuides",
                                 "props": {
                                   "depth": 1,
@@ -1698,7 +1705,7 @@
                                 }
                               },
                               {
-                                "id": "row-2.icon",
+                                "id": "row_2.icon",
                                 "component": "Icon",
                                 "props": {
                                   "name": "ui-folder",
@@ -1717,12 +1724,12 @@
                                 }
                               },
                               {
-                                "id": "row-2.body",
+                                "id": "row_2.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "row-2.body.title",
+                                    "id": "row_2.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "r/opensource",
@@ -1742,7 +1749,7 @@
                                     }
                                   },
                                   {
-                                    "id": "row-2.body.subtitle",
+                                    "id": "row_2.body.subtitle",
                                     "component": "Text",
                                     "props": {
                                       "text": "Open source",
@@ -1783,7 +1790,7 @@
                                 }
                               },
                               {
-                                "id": "row-2.meta",
+                                "id": "row_2.meta",
                                 "component": "Text",
                                 "props": {
                                   "text": "88 posts",
@@ -1828,14 +1835,14 @@
                             }
                           },
                           {
-                            "id": "row-3",
+                            "id": "row_3",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "row-3.guides",
+                                "id": "row_3.guides",
                                 "component": "TreeGuides",
                                 "props": {
                                   "depth": 1,
@@ -1856,12 +1863,12 @@
                                 }
                               },
                               {
-                                "id": "row-3.body",
+                                "id": "row_3.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "row-3.body.title",
+                                    "id": "row_3.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "r/webdev",
@@ -1901,7 +1908,7 @@
                                 }
                               },
                               {
-                                "id": "row-3.meta",
+                                "id": "row_3.meta",
                                 "component": "Text",
                                 "props": {
                                   "text": "1.2k posts",
@@ -1921,7 +1928,7 @@
                                 }
                               },
                               {
-                                "id": "row-3.chevron",
+                                "id": "row_3.chevron",
                                 "component": "Icon",
                                 "props": {
                                   "name": "ui-chevron-right",
@@ -1966,14 +1973,14 @@
                             }
                           },
                           {
-                            "id": "row-4",
+                            "id": "row_4",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "row-4.guides",
+                                "id": "row_4.guides",
                                 "component": "TreeGuides",
                                 "props": {
                                   "depth": 2,
@@ -1996,12 +2003,12 @@
                                 }
                               },
                               {
-                                "id": "row-4.body",
+                                "id": "row_4.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "row-4.body.title",
+                                    "id": "row_4.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "r/reactjs",
@@ -2041,7 +2048,7 @@
                                 }
                               },
                               {
-                                "id": "row-4.meta",
+                                "id": "row_4.meta",
                                 "component": "Text",
                                 "props": {
                                   "text": "640 posts",
@@ -2086,14 +2093,14 @@
                             }
                           },
                           {
-                            "id": "row-5",
+                            "id": "row_5",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "row-5.guides",
+                                "id": "row_5.guides",
                                 "component": "TreeGuides",
                                 "props": {
                                   "depth": 1,
@@ -2114,12 +2121,12 @@
                                 }
                               },
                               {
-                                "id": "row-5.body",
+                                "id": "row_5.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "row-5.body.title",
+                                    "id": "row_5.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "r/rust",
@@ -2159,7 +2166,7 @@
                                 }
                               },
                               {
-                                "id": "row-5.meta",
+                                "id": "row_5.meta",
                                 "component": "Text",
                                 "props": {
                                   "text": "402 posts",
@@ -2204,14 +2211,14 @@
                             }
                           },
                           {
-                            "id": "row-6",
+                            "id": "row_6",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "row-6.identifier",
+                                "id": "row_6.identifier",
                                 "component": "Text",
                                 "props": {
                                   "text": "HL",
@@ -2234,12 +2241,12 @@
                                 }
                               },
                               {
-                                "id": "row-6.body",
+                                "id": "row_6.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "row-6.body.title",
+                                    "id": "row_6.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "r/homelab",
@@ -2279,7 +2286,7 @@
                                 }
                               },
                               {
-                                "id": "row-6.meta",
+                                "id": "row_6.meta",
                                 "component": "Text",
                                 "props": {
                                   "text": "57 posts",
@@ -2356,7 +2363,7 @@
                     }
                   },
                   {
-                    "id": "nav-div",
+                    "id": "nav_div",
                     "component": "Box",
                     "props": {},
                     "children": [],
@@ -2376,7 +2383,7 @@
                     }
                   },
                   {
-                    "id": "nav-toggle",
+                    "id": "nav_toggle",
                     "component": "Switch",
                     "props": {
                       "label": "Auto-scan",
@@ -2423,17 +2430,17 @@
             }
           },
           {
-            "id": "main-card",
+            "id": "main_card",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "main-card.header",
+                "id": "main_card.header",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "main-card.header.title",
+                    "id": "main_card.header.title",
                     "component": "Text",
                     "props": {
                       "text": "Drafts",
@@ -2447,7 +2454,7 @@
                     }
                   },
                   {
-                    "id": "main-card.header.description",
+                    "id": "main_card.header.description",
                     "component": "Text",
                     "props": {
                       "text": "Two ready to send",
@@ -2475,7 +2482,7 @@
                 }
               },
               {
-                "id": "main-card.body",
+                "id": "main_card.body",
                 "component": "Box",
                 "props": {},
                 "children": [
@@ -2485,7 +2492,7 @@
                     "props": {},
                     "children": [
                       {
-                        "id": "media-img",
+                        "id": "media_img",
                         "component": "Image",
                         "props": {
                           "alt": "Cover",
@@ -2498,14 +2505,14 @@
                         }
                       },
                       {
-                        "id": "media-badge",
+                        "id": "media_badge",
                         "component": "Box",
                         "props": {
                           "pressable": false
                         },
                         "children": [
                           {
-                            "id": "media-badge.label",
+                            "id": "media_badge.label",
                             "component": "Text",
                             "props": {
                               "text": "LIVE",
@@ -2566,7 +2573,7 @@
                     }
                   },
                   {
-                    "id": "main-md",
+                    "id": "main_md",
                     "component": "Markdown",
                     "props": {
                       "text": "**Looking for a Linear alternative** — self-hostable, with agents.\n\n- Draft reply ready\n- 2 sources cited"
@@ -2577,17 +2584,17 @@
                     }
                   },
                   {
-                    "id": "main-progress",
+                    "id": "main_progress",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "main-progress.header",
+                        "id": "main_progress.header",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "main-progress.header.label",
+                            "id": "main_progress.header.label",
                             "component": "Text",
                             "props": {
                               "text": "Scanning",
@@ -2624,12 +2631,12 @@
                         }
                       },
                       {
-                        "id": "main-progress.track",
+                        "id": "main_progress.track",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "main-progress.track.fill",
+                            "id": "main_progress.track.fill",
                             "component": "Box",
                             "props": {},
                             "children": [],
@@ -2684,17 +2691,17 @@
                     }
                   },
                   {
-                    "id": "main-meter",
+                    "id": "main_meter",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "main-meter.header",
+                        "id": "main_meter.header",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "main-meter.header.label",
+                            "id": "main_meter.header.label",
                             "component": "Text",
                             "props": {
                               "text": "Quota",
@@ -2712,7 +2719,7 @@
                             }
                           },
                           {
-                            "id": "main-meter.header.value",
+                            "id": "main_meter.header.value",
                             "component": "Text",
                             "props": {
                               "text": "65%",
@@ -2739,12 +2746,12 @@
                         }
                       },
                       {
-                        "id": "main-meter.track",
+                        "id": "main_meter.track",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "main-meter.track.segment.0",
+                            "id": "main_meter.track.segment.0",
                             "component": "Box",
                             "props": {},
                             "children": [],
@@ -2761,7 +2768,7 @@
                             }
                           },
                           {
-                            "id": "main-meter.track.segment.1",
+                            "id": "main_meter.track.segment.1",
                             "component": "Box",
                             "props": {},
                             "children": [],
@@ -2846,29 +2853,29 @@
             }
           },
           {
-            "id": "footer-card",
+            "id": "footer_card",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "footer-card.body",
+                "id": "footer_card.body",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "footer-pills",
+                    "id": "footer_pills",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "pill-1",
+                        "id": "pill_1",
                         "component": "Box",
                         "props": {
                           "pressable": true
                         },
                         "children": [
                           {
-                            "id": "pill-1.label",
+                            "id": "pill_1.label",
                             "component": "Text",
                             "props": {
                               "text": "All",
@@ -2922,14 +2929,14 @@
                         }
                       },
                       {
-                        "id": "pill-2",
+                        "id": "pill_2",
                         "component": "Box",
                         "props": {
                           "pressable": true
                         },
                         "children": [
                           {
-                            "id": "pill-2.label",
+                            "id": "pill_2.label",
                             "component": "Text",
                             "props": {
                               "text": "Drafts",
@@ -2973,14 +2980,14 @@
                         }
                       },
                       {
-                        "id": "pill-3",
+                        "id": "pill_3",
                         "component": "Box",
                         "props": {
                           "pressable": false
                         },
                         "children": [
                           {
-                            "id": "pill-3.dot",
+                            "id": "pill_3.dot",
                             "component": "Box",
                             "props": {},
                             "children": [],
@@ -3002,7 +3009,7 @@
                             }
                           },
                           {
-                            "id": "pill-3.label",
+                            "id": "pill_3.label",
                             "component": "Text",
                             "props": {
                               "text": "Bug",
@@ -3045,14 +3052,14 @@
                         }
                       },
                       {
-                        "id": "pill-4",
+                        "id": "pill_4",
                         "component": "Box",
                         "props": {
                           "pressable": false
                         },
                         "children": [
                           {
-                            "id": "pill-4.icon",
+                            "id": "pill_4.icon",
                             "component": "Icon",
                             "props": {
                               "name": "ui-archive",
@@ -3070,7 +3077,7 @@
                             }
                           },
                           {
-                            "id": "pill-4.label",
+                            "id": "pill_4.label",
                             "component": "Text",
                             "props": {
                               "text": "Archived",
@@ -3113,7 +3120,7 @@
                         }
                       },
                       {
-                        "id": "footer-spacer",
+                        "id": "footer_spacer",
                         "component": "Box",
                         "props": {},
                         "children": [],
@@ -3125,7 +3132,7 @@
                         }
                       },
                       {
-                        "id": "footer-more",
+                        "id": "footer_more",
                         "component": "Button",
                         "props": {
                           "label": "More",
@@ -3252,22 +3259,22 @@
             "props": {},
             "children": [
               {
-                "id": "echo-field",
+                "id": "echo_field",
                 "component": "Input",
                 "props": {
                   "label": "Title",
                   "name": "title",
                   "placeholder": "Title (echoes after 150 ms)",
                   "value": {
-                    "path": "/draft/title"
+                    "@path": "/draft/title"
                   },
                   "checks": [
                     {
                       "condition": {
-                        "call": "required",
+                        "@call": "required",
                         "args": {
                           "value": {
-                            "path": "/draft/title"
+                            "@path": "/draft/title"
                           }
                         }
                       },
@@ -3279,7 +3286,7 @@
                 "children": []
               },
               {
-                "id": "form-body",
+                "id": "form_body",
                 "component": "Textarea",
                 "props": {
                   "label": "Body",
@@ -3293,12 +3300,12 @@
                 }
               },
               {
-                "id": "form-row",
+                "id": "form_row",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "form-sub",
+                    "id": "form_sub",
                     "component": "Select",
                     "props": {
                       "label": "Subreddit",
@@ -3328,7 +3335,7 @@
                     }
                   },
                   {
-                    "id": "form-due",
+                    "id": "form_due",
                     "component": "DatePicker",
                     "props": {
                       "label": "Send on",
@@ -3339,12 +3346,12 @@
                     "children": []
                   },
                   {
-                    "id": "form-actions",
+                    "id": "form_actions",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "form-cancel",
+                        "id": "form_cancel",
                         "component": "Button",
                         "props": {
                           "label": "Cancel",
@@ -3358,7 +3365,7 @@
                         }
                       },
                       {
-                        "id": "form-send",
+                        "id": "form_send",
                         "component": "Button",
                         "props": {
                           "label": "Send",
@@ -3413,7 +3420,7 @@
                 }
               },
               {
-                "id": "form-plan",
+                "id": "form_plan",
                 "component": "Radio",
                 "props": {
                   "label": "Tone",
@@ -3434,7 +3441,7 @@
                 "children": []
               },
               {
-                "id": "form-design",
+                "id": "form_design",
                 "component": "ChoiceTiles",
                 "props": {
                   "name": "design",
@@ -3456,7 +3463,7 @@
                 "children": []
               },
               {
-                "id": "form-agree",
+                "id": "form_agree",
                 "component": "Checkbox",
                 "props": {
                   "label": "Cite sources",
@@ -3466,7 +3473,7 @@
                 "children": []
               },
               {
-                "id": "form-volume",
+                "id": "form_volume",
                 "component": "Slider",
                 "props": {
                   "label": "Length",
@@ -3478,7 +3485,7 @@
                 "children": []
               },
               {
-                "id": "form-link",
+                "id": "form_link",
                 "component": "Link",
                 "props": {
                   "label": "Posting guidelines",
@@ -3518,17 +3525,17 @@
         }
       },
       {
-        "id": "flex-demo",
+        "id": "flex_demo",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "fx-1",
+            "id": "fx_1",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "fx-1-t",
+                "id": "fx_1_t",
                 "component": "Text",
                 "props": {
                   "text": "basis 30% · grow 1",
@@ -3550,12 +3557,12 @@
             }
           },
           {
-            "id": "fx-2",
+            "id": "fx_2",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "fx-2-t",
+                "id": "fx_2_t",
                 "component": "Text",
                 "props": {
                   "text": "160 · shrink 0",
@@ -3576,12 +3583,12 @@
             }
           },
           {
-            "id": "fx-3",
+            "id": "fx_3",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "fx-3-t",
+                "id": "fx_3_t",
                 "component": "Text",
                 "props": {
                   "text": "grow 2 · max 50%",
@@ -3603,12 +3610,12 @@
             }
           },
           {
-            "id": "fx-4",
+            "id": "fx_4",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "fx-4-t",
+                "id": "fx_4_t",
                 "component": "Text",
                 "props": {
                   "text": "25%",
@@ -3642,17 +3649,17 @@
         "props": {},
         "children": [
           {
-            "id": "stat-1",
+            "id": "stat_1",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "stat-1.header",
+                "id": "stat_1.header",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "stat-1.header.title",
+                    "id": "stat_1.header.title",
                     "component": "Text",
                     "props": {
                       "text": "Posts",
@@ -3680,12 +3687,12 @@
                 }
               },
               {
-                "id": "stat-1.body",
+                "id": "stat_1.body",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "stat-1-v",
+                    "id": "stat_1_v",
                     "component": "Text",
                     "props": {
                       "text": "312",
@@ -3724,17 +3731,17 @@
             }
           },
           {
-            "id": "stat-2",
+            "id": "stat_2",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "stat-2.header",
+                "id": "stat_2.header",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "stat-2.header.title",
+                    "id": "stat_2.header.title",
                     "component": "Text",
                     "props": {
                       "text": "Drafts",
@@ -3762,12 +3769,12 @@
                 }
               },
               {
-                "id": "stat-2.body",
+                "id": "stat_2.body",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "stat-2-v",
+                    "id": "stat_2_v",
                     "component": "Text",
                     "props": {
                       "text": "2",
@@ -3806,17 +3813,17 @@
             }
           },
           {
-            "id": "stat-3",
+            "id": "stat_3",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "stat-3.header",
+                "id": "stat_3.header",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "stat-3.header.title",
+                    "id": "stat_3.header.title",
                     "component": "Text",
                     "props": {
                       "text": "Sent",
@@ -3844,12 +3851,12 @@
                 }
               },
               {
-                "id": "stat-3.body",
+                "id": "stat_3.body",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "stat-3-v",
+                    "id": "stat_3_v",
                     "component": "Text",
                     "props": {
                       "text": "17",
@@ -3900,17 +3907,17 @@
         }
       },
       {
-        "id": "nav-demo",
+        "id": "nav_demo",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "nav-demo.header",
+            "id": "nav_demo.header",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "nav-demo.header.title",
+                "id": "nav_demo.header.title",
                 "component": "Text",
                 "props": {
                   "text": "Navigation",
@@ -3938,7 +3945,7 @@
             }
           },
           {
-            "id": "nav-demo.body",
+            "id": "nav_demo.body",
             "component": "Box",
             "props": {},
             "children": [
@@ -3962,7 +3969,7 @@
                 },
                 "children": [
                   {
-                    "id": "tab-issue",
+                    "id": "tab_issue",
                     "component": "Text",
                     "props": {
                       "text": "The issue panel"
@@ -3970,7 +3977,7 @@
                     "children": []
                   },
                   {
-                    "id": "tab-run",
+                    "id": "tab_run",
                     "component": "Text",
                     "props": {
                       "text": "The run panel"
@@ -4047,7 +4054,7 @@
                 },
                 "children": [
                   {
-                    "id": "acc-details",
+                    "id": "acc_details",
                     "component": "Text",
                     "props": {
                       "text": "Everything about it"
@@ -4055,7 +4062,7 @@
                     "children": []
                   },
                   {
-                    "id": "acc-history",
+                    "id": "acc_history",
                     "component": "Text",
                     "props": {
                       "text": "What happened"
@@ -4090,7 +4097,7 @@
                           "part": "chevron",
                           "props": {
                             "open": {
-                              "path": "/ui/advancedOpen"
+                              "@path": "/ui/advancedOpen"
                             }
                           }
                         }
@@ -4143,21 +4150,21 @@
                       "part": "trigger",
                       "props": {
                         "open": {
-                          "path": "/ui/advancedOpen"
+                          "@path": "/ui/advancedOpen"
                         }
                       }
                     },
                     "on": {
                       "press": {
                         "functionCall": {
-                          "call": "set",
+                          "@call": "set",
                           "args": {
                             "path": "/ui/advancedOpen",
                             "value": {
-                              "call": "not",
+                              "@call": "not",
                               "args": {
                                 "value": {
-                                  "path": "/ui/advancedOpen"
+                                  "@path": "/ui/advancedOpen"
                                 }
                               }
                             }
@@ -4168,7 +4175,7 @@
                     "accessibility": {
                       "role": "button",
                       "expanded": {
-                        "path": "/ui/advancedOpen"
+                        "@path": "/ui/advancedOpen"
                       }
                     }
                   },
@@ -4178,7 +4185,7 @@
                     "props": {},
                     "children": [
                       {
-                        "id": "coll-body",
+                        "id": "coll_body",
                         "component": "Text",
                         "props": {
                           "text": "Hidden until opened",
@@ -4194,7 +4201,7 @@
                       "paddingHorizontal": "$spacing.sm"
                     },
                     "visible": {
-                      "path": "/ui/advancedOpen"
+                      "@path": "/ui/advancedOpen"
                     },
                     "recipe": {
                       "macro": "Collapsible",
@@ -4228,17 +4235,17 @@
                       "size": "icon",
                       "label": "$string.previous",
                       "disabled": {
-                        "call": "not",
+                        "@call": "not",
                         "args": {
                           "value": {
-                            "call": "lt",
+                            "@call": "lt",
                             "args": {
                               "a": 1,
                               "b": {
-                                "call": "fallback",
+                                "@call": "fallback",
                                 "args": {
                                   "value": {
-                                    "path": "/ui/page"
+                                    "@path": "/ui/page"
                                   },
                                   "default": 1
                                 }
@@ -4260,16 +4267,16 @@
                           "name": "page",
                           "context": {
                             "page": {
-                              "call": "clamp",
+                              "@call": "clamp",
                               "args": {
                                 "value": {
-                                  "call": "add",
+                                  "@call": "add",
                                   "args": {
                                     "a": {
-                                      "call": "fallback",
+                                      "@call": "fallback",
                                       "args": {
                                         "value": {
-                                          "path": "/ui/page"
+                                          "@path": "/ui/page"
                                         },
                                         "default": 1
                                       }
@@ -4284,20 +4291,20 @@
                           }
                         },
                         "functionCall": {
-                          "call": "set",
+                          "@call": "set",
                           "args": {
                             "path": "/ui/page",
                             "value": {
-                              "call": "clamp",
+                              "@call": "clamp",
                               "args": {
                                 "value": {
-                                  "call": "add",
+                                  "@call": "add",
                                   "args": {
                                     "a": {
-                                      "call": "fallback",
+                                      "@call": "fallback",
                                       "args": {
                                         "value": {
-                                          "path": "/ui/page"
+                                          "@path": "/ui/page"
                                         },
                                         "default": 1
                                       }
@@ -4319,14 +4326,14 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "call": "concat",
+                        "@call": "concat",
                         "args": {
                           "values": [
                             {
-                              "call": "fallback",
+                              "@call": "fallback",
                               "args": {
                                 "value": {
-                                  "path": "/ui/page"
+                                  "@path": "/ui/page"
                                 },
                                 "default": 1
                               }
@@ -4347,15 +4354,15 @@
                     "accessibility": {
                       "role": "status",
                       "label": {
-                        "call": "fill",
+                        "@call": "fill",
                         "args": {
                           "template": "$string.pageOf",
                           "params": {
                             "page": {
-                              "call": "fallback",
+                              "@call": "fallback",
                               "args": {
                                 "value": {
-                                  "path": "/ui/page"
+                                  "@path": "/ui/page"
                                 },
                                 "default": 1
                               }
@@ -4375,16 +4382,16 @@
                       "size": "icon",
                       "label": "$string.next",
                       "disabled": {
-                        "call": "not",
+                        "@call": "not",
                         "args": {
                           "value": {
-                            "call": "lt",
+                            "@call": "lt",
                             "args": {
                               "a": {
-                                "call": "fallback",
+                                "@call": "fallback",
                                 "args": {
                                   "value": {
-                                    "path": "/ui/page"
+                                    "@path": "/ui/page"
                                   },
                                   "default": 1
                                 }
@@ -4407,16 +4414,16 @@
                           "name": "page",
                           "context": {
                             "page": {
-                              "call": "clamp",
+                              "@call": "clamp",
                               "args": {
                                 "value": {
-                                  "call": "add",
+                                  "@call": "add",
                                   "args": {
                                     "a": {
-                                      "call": "fallback",
+                                      "@call": "fallback",
                                       "args": {
                                         "value": {
-                                          "path": "/ui/page"
+                                          "@path": "/ui/page"
                                         },
                                         "default": 1
                                       }
@@ -4431,20 +4438,20 @@
                           }
                         },
                         "functionCall": {
-                          "call": "set",
+                          "@call": "set",
                           "args": {
                             "path": "/ui/page",
                             "value": {
-                              "call": "clamp",
+                              "@call": "clamp",
                               "args": {
                                 "value": {
-                                  "call": "add",
+                                  "@call": "add",
                                   "args": {
                                     "a": {
-                                      "call": "fallback",
+                                      "@call": "fallback",
                                       "args": {
                                         "value": {
-                                          "path": "/ui/page"
+                                          "@path": "/ui/page"
                                         },
                                         "default": 1
                                       }
@@ -4479,7 +4486,7 @@
                 }
               },
               {
-                "id": "button-group",
+                "id": "button_group",
                 "component": "Segmented",
                 "props": {
                   "items": [
@@ -4632,7 +4639,7 @@
                       "role": "listitem",
                       "current": false,
                       "label": {
-                        "call": "fill",
+                        "@call": "fill",
                         "args": {
                           "template": "$string.stepDone",
                           "params": {
@@ -4770,7 +4777,7 @@
                       "role": "listitem",
                       "current": "step",
                       "label": {
-                        "call": "fill",
+                        "@call": "fill",
                         "args": {
                           "template": "$string.stepCurrent",
                           "params": {
@@ -4891,7 +4898,7 @@
                       "role": "listitem",
                       "current": false,
                       "label": {
-                        "call": "fill",
+                        "@call": "fill",
                         "args": {
                           "template": "$string.stepUpcoming",
                           "params": {
@@ -4953,17 +4960,17 @@
         }
       },
       {
-        "id": "feedback-demo",
+        "id": "feedback_demo",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "feedback-demo.header",
+            "id": "feedback_demo.header",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "feedback-demo.header.title",
+                "id": "feedback_demo.header.title",
                 "component": "Text",
                 "props": {
                   "text": "Feedback",
@@ -4991,7 +4998,7 @@
             }
           },
           {
-            "id": "feedback-demo.body",
+            "id": "feedback_demo.body",
             "component": "Box",
             "props": {},
             "children": [
@@ -5091,12 +5098,12 @@
                 }
               },
               {
-                "id": "alert-warn",
+                "id": "alert_warn",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "alert-warn.icon",
+                    "id": "alert_warn.icon",
                     "component": "Icon",
                     "props": {
                       "name": "ui-warning",
@@ -5113,12 +5120,12 @@
                     }
                   },
                   {
-                    "id": "alert-warn.body",
+                    "id": "alert_warn.body",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "alert-warn.body.title",
+                        "id": "alert_warn.body.title",
                         "component": "Text",
                         "props": {
                           "text": "Quota at 80%",
@@ -5170,7 +5177,7 @@
                 }
               },
               {
-                "id": "status-row",
+                "id": "status_row",
                 "component": "Box",
                 "props": {},
                 "children": [
@@ -5213,7 +5220,7 @@
                     "children": []
                   },
                   {
-                    "id": "skeleton-round",
+                    "id": "skeleton_round",
                     "component": "Skeleton",
                     "props": {
                       "width": "24px",
@@ -5238,7 +5245,7 @@
                 }
               },
               {
-                "id": "voice-wave",
+                "id": "voice_wave",
                 "component": "VoiceWave",
                 "props": {
                   "activity": "listening",
@@ -5253,7 +5260,7 @@
                 },
                 "children": [
                   {
-                    "id": "voice-wave-mark",
+                    "id": "voice_wave_mark",
                     "component": "Icon",
                     "props": {
                       "name": "mic"
@@ -5322,7 +5329,7 @@
                 }
               },
               {
-                "id": "chart-drawing",
+                "id": "chart_drawing",
                 "component": "Canvas",
                 "props": {
                   "size": [
@@ -5729,17 +5736,17 @@
                 }
               },
               {
-                "id": "bubble-out",
+                "id": "bubble_out",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "bubble-out.bubble",
+                    "id": "bubble_out.bubble",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "bubble-out.bubble.text",
+                        "id": "bubble_out.bubble.text",
                         "component": "Markdown",
                         "props": {
                           "text": "Is the printer fixed?"
@@ -5755,12 +5762,12 @@
                         }
                       },
                       {
-                        "id": "bubble-out.bubble.footer",
+                        "id": "bubble_out.bubble.footer",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "bubble-out.bubble.footer.time",
+                            "id": "bubble_out.bubble.footer.time",
                             "component": "Text",
                             "props": {
                               "text": "18:00",
@@ -5778,7 +5785,7 @@
                             }
                           },
                           {
-                            "id": "bubble-out.bubble.footer.status",
+                            "id": "bubble_out.bubble.footer.status",
                             "component": "Icon",
                             "props": {
                               "name": "ui-read",
@@ -5861,17 +5868,17 @@
                 }
               },
               {
-                "id": "bubble-in",
+                "id": "bubble_in",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "bubble-in.bubble",
+                    "id": "bubble_in.bubble",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "bubble-in.bubble.author",
+                        "id": "bubble_in.bubble.author",
                         "component": "Text",
                         "props": {
                           "text": "spezl",
@@ -5888,7 +5895,7 @@
                         }
                       },
                       {
-                        "id": "bubble-in.bubble.text",
+                        "id": "bubble_in.bubble.text",
                         "component": "Markdown",
                         "props": {
                           "text": "Yes, try again."
@@ -5903,12 +5910,12 @@
                         }
                       },
                       {
-                        "id": "bubble-in.bubble.footer",
+                        "id": "bubble_in.bubble.footer",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "bubble-in.bubble.footer.time",
+                            "id": "bubble_in.bubble.footer.time",
                             "component": "Text",
                             "props": {
                               "text": "18:02",
@@ -6552,12 +6559,12 @@
                 }
               },
               {
-                "id": "empty-list",
+                "id": "empty_list",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "empty-list.icon",
+                    "id": "empty_list.icon",
                     "component": "Icon",
                     "props": {
                       "name": "nav-issues",
@@ -6574,7 +6581,7 @@
                     }
                   },
                   {
-                    "id": "empty-list.title",
+                    "id": "empty_list.title",
                     "component": "Text",
                     "props": {
                       "text": "No issues yet",
@@ -6659,7 +6666,7 @@
                   "rowKey": "id",
                   "selectable": "multiple",
                   "selected": {
-                    "path": "/ui/selectedMembers"
+                    "@path": "/ui/selectedMembers"
                   },
                   "sort": {
                     "key": "runs",
@@ -6683,18 +6690,18 @@
                 },
                 "slots": {
                   "statusCell": {
-                    "id": "table-status",
+                    "id": "table_status",
                     "component": "Box",
                     "props": {
                       "pressable": false
                     },
                     "children": [
                       {
-                        "id": "table-status.label",
+                        "id": "table_status.label",
                         "component": "Text",
                         "props": {
                           "text": {
-                            "path": "status"
+                            "@path": "status"
                           },
                           "variant": "caption",
                           "lines": 1
@@ -6771,12 +6778,12 @@
                 "children": []
               },
               {
-                "id": "charts-row",
+                "id": "charts_row",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "chart-line",
+                    "id": "chart_line",
                     "component": "Chart",
                     "props": {
                       "kind": "line",
@@ -6812,7 +6819,7 @@
                     "children": []
                   },
                   {
-                    "id": "chart-donut",
+                    "id": "chart_donut",
                     "component": "Chart",
                     "props": {
                       "kind": "donut",
@@ -6851,12 +6858,12 @@
                 }
               },
               {
-                "id": "spark-row",
+                "id": "spark_row",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "spark-label",
+                    "id": "spark_label",
                     "component": "Text",
                     "props": {
                       "text": "Runs this week",
@@ -6904,17 +6911,17 @@
                     }
                   },
                   {
-                    "id": "progress-bound",
+                    "id": "progress_bound",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "progress-bound.header",
+                        "id": "progress_bound.header",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "progress-bound.header.label",
+                            "id": "progress_bound.header.label",
                             "component": "Text",
                             "props": {
                               "text": "Upload",
@@ -6951,22 +6958,22 @@
                         }
                       },
                       {
-                        "id": "progress-bound.track",
+                        "id": "progress_bound.track",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "progress-bound.track.fill",
+                            "id": "progress_bound.track.fill",
                             "component": "Box",
                             "props": {},
                             "children": [],
                             "style": {
                               "height": "100%",
                               "width": {
-                                "call": "percent",
+                                "@call": "percent",
                                 "args": {
                                   "value": {
-                                    "path": "/ui/upload"
+                                    "@path": "/ui/upload"
                                   },
                                   "max": 100
                                 }
@@ -7018,7 +7025,7 @@
                       "role": "progressbar",
                       "label": "Upload",
                       "valueNow": {
-                        "path": "/ui/upload"
+                        "@path": "/ui/upload"
                       },
                       "valueMin": 0,
                       "valueMax": 100
@@ -7070,12 +7077,12 @@
         }
       },
       {
-        "id": "rows-demo",
+        "id": "rows_demo",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "rows-demo.title",
+            "id": "rows_demo.title",
             "component": "Text",
             "props": {
               "text": "Properties",
@@ -7092,19 +7099,19 @@
             }
           },
           {
-            "id": "rows-demo.body",
+            "id": "rows_demo.body",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "prop-assignee",
+                "id": "prop_assignee",
                 "component": "Box",
                 "props": {
                   "pressable": false
                 },
                 "children": [
                   {
-                    "id": "prop-assignee.icon",
+                    "id": "prop_assignee.icon",
                     "component": "Icon",
                     "props": {
                       "name": "ui-assignee",
@@ -7123,12 +7130,12 @@
                     }
                   },
                   {
-                    "id": "prop-assignee.body",
+                    "id": "prop_assignee.body",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "prop-assignee.body.title",
+                        "id": "prop_assignee.body.title",
                         "component": "Text",
                         "props": {
                           "text": "Assignee",
@@ -7168,7 +7175,7 @@
                     }
                   },
                   {
-                    "id": "prop-assignee.value",
+                    "id": "prop_assignee.value",
                     "component": "Text",
                     "props": {
                       "text": "Alex Chen",
@@ -7213,14 +7220,14 @@
                 }
               },
               {
-                "id": "pick-status",
+                "id": "pick_status",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "pick-status.icon",
+                    "id": "pick_status.icon",
                     "component": "Icon",
                     "props": {
                       "name": "settings-statuses",
@@ -7239,12 +7246,12 @@
                     }
                   },
                   {
-                    "id": "pick-status.body",
+                    "id": "pick_status.body",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "pick-status.body.title",
+                        "id": "pick_status.body.title",
                         "component": "Text",
                         "props": {
                           "text": "Status",
@@ -7284,7 +7291,7 @@
                     }
                   },
                   {
-                    "id": "pick-status.value",
+                    "id": "pick_status.value",
                     "component": "Text",
                     "props": {
                       "text": "In progress",
@@ -7305,7 +7312,7 @@
                     }
                   },
                   {
-                    "id": "pick-status.chevron",
+                    "id": "pick_status.chevron",
                     "component": "Icon",
                     "props": {
                       "name": "ui-selector",
@@ -7357,19 +7364,19 @@
                 }
               },
               {
-                "id": "pick-label",
+                "id": "pick_label",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "pick-label.body",
+                    "id": "pick_label.body",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "pick-label.body.title",
+                        "id": "pick_label.body.title",
                         "component": "Text",
                         "props": {
                           "text": "Labels",
@@ -7409,7 +7416,7 @@
                     }
                   },
                   {
-                    "id": "pick-label.value",
+                    "id": "pick_label.value",
                     "component": "Text",
                     "props": {
                       "text": "Add a label",
@@ -7430,7 +7437,7 @@
                     }
                   },
                   {
-                    "id": "pick-label.chevron",
+                    "id": "pick_label.chevron",
                     "component": "Icon",
                     "props": {
                       "name": "ui-selector",
@@ -7475,14 +7482,14 @@
                 }
               },
               {
-                "id": "nav-inbox",
+                "id": "nav_inbox",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "nav-inbox.icon",
+                    "id": "nav_inbox.icon",
                     "component": "Icon",
                     "props": {
                       "name": "nav-inbox",
@@ -7501,12 +7508,12 @@
                     }
                   },
                   {
-                    "id": "nav-inbox.body",
+                    "id": "nav_inbox.body",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "nav-inbox.body.title",
+                        "id": "nav_inbox.body.title",
                         "component": "Text",
                         "props": {
                           "text": "Inbox",
@@ -7546,12 +7553,12 @@
                     }
                   },
                   {
-                    "id": "nav-inbox-count",
+                    "id": "nav_inbox_count",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "nav-inbox-count.label",
+                        "id": "nav_inbox_count.label",
                         "component": "Text",
                         "props": {
                           "text": "3",
@@ -7612,14 +7619,14 @@
                 }
               },
               {
-                "id": "nav-reviews",
+                "id": "nav_reviews",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "nav-reviews.icon",
+                    "id": "nav_reviews.icon",
                     "component": "Icon",
                     "props": {
                       "name": "pr-open",
@@ -7638,12 +7645,12 @@
                     }
                   },
                   {
-                    "id": "nav-reviews.body",
+                    "id": "nav_reviews.body",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "nav-reviews.body.title",
+                        "id": "nav_reviews.body.title",
                         "component": "Text",
                         "props": {
                           "text": "Reviews",
@@ -7721,7 +7728,7 @@
             }
           },
           {
-            "id": "rows-demo.footer",
+            "id": "rows_demo.footer",
             "component": "Text",
             "props": {
               "text": "Read-only unless you own the board.",
@@ -7755,19 +7762,19 @@
         }
       },
       {
-        "id": "chips-demo",
+        "id": "chips_demo",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "card-row",
+            "id": "card_row",
             "component": "Box",
             "props": {
               "pressable": true
             },
             "children": [
               {
-                "id": "card-row.icon",
+                "id": "card_row.icon",
                 "component": "Icon",
                 "props": {
                   "name": "ui-device",
@@ -7786,12 +7793,12 @@
                 }
               },
               {
-                "id": "card-row.body",
+                "id": "card_row.body",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "card-row.body.title",
+                    "id": "card_row.body.title",
                     "component": "Text",
                     "props": {
                       "text": "MacBook Pro",
@@ -7811,7 +7818,7 @@
                     }
                   },
                   {
-                    "id": "card-row.body.subtitle",
+                    "id": "card_row.body.subtitle",
                     "component": "Text",
                     "props": {
                       "text": "Online · 2 sessions",
@@ -7852,7 +7859,7 @@
                 }
               },
               {
-                "id": "card-row.meta",
+                "id": "card_row.meta",
                 "component": "Text",
                 "props": {
                   "text": "now",
@@ -7903,14 +7910,14 @@
             }
           },
           {
-            "id": "chip-board",
+            "id": "chip_board",
             "component": "Box",
             "props": {
               "pressable": true
             },
             "children": [
               {
-                "id": "chip-board.icon",
+                "id": "chip_board.icon",
                 "component": "Icon",
                 "props": {
                   "name": "nav-boards",
@@ -7928,7 +7935,7 @@
                 }
               },
               {
-                "id": "chip-board.label",
+                "id": "chip_board.label",
                 "component": "Text",
                 "props": {
                   "text": "Sprint 12",
@@ -7947,7 +7954,7 @@
                 }
               },
               {
-                "id": "chip-board.detail",
+                "id": "chip_board.detail",
                 "component": "Text",
                 "props": {
                   "text": "APP",
@@ -7966,7 +7973,7 @@
                 }
               },
               {
-                "id": "chip-board.remove",
+                "id": "chip_board.remove",
                 "component": "Button",
                 "props": {
                   "icon": "ui-close",
@@ -8025,14 +8032,14 @@
             }
           },
           {
-            "id": "chip-user",
+            "id": "chip_user",
             "component": "Box",
             "props": {
               "pressable": true
             },
             "children": [
               {
-                "id": "chip-user.image",
+                "id": "chip_user.image",
                 "component": "Image",
                 "props": {
                   "src": "https://example.com/alex.png",
@@ -8056,7 +8063,7 @@
                 }
               },
               {
-                "id": "chip-user.label",
+                "id": "chip_user.label",
                 "component": "Text",
                 "props": {
                   "text": "Alex Chen",
@@ -8115,17 +8122,17 @@
         }
       },
       {
-        "id": "media-demo",
+        "id": "media_demo",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "media-demo.header",
+            "id": "media_demo.header",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "media-demo.header.title",
+                "id": "media_demo.header.title",
                 "component": "Text",
                 "props": {
                   "text": "Media",
@@ -8153,7 +8160,7 @@
             }
           },
           {
-            "id": "media-demo.body",
+            "id": "media_demo.body",
             "component": "Box",
             "props": {},
             "children": [
@@ -8171,7 +8178,7 @@
                 },
                 "children": [
                   {
-                    "id": "page-1",
+                    "id": "page_1",
                     "component": "Image",
                     "props": {
                       "src": "https://example.com/1.jpg",
@@ -8181,7 +8188,7 @@
                     "children": []
                   },
                   {
-                    "id": "page-2",
+                    "id": "page_2",
                     "component": "Image",
                     "props": {
                       "src": "https://example.com/2.jpg",
@@ -8385,7 +8392,7 @@
                                 "component": "Text",
                                 "props": {
                                   "text": {
-                                    "call": "fill",
+                                    "@call": "fill",
                                     "args": {
                                       "template": "$string.morePictures",
                                       "params": {
@@ -8451,7 +8458,7 @@
                         "accessibility": {
                           "role": "button",
                           "label": {
-                            "call": "fill",
+                            "@call": "fill",
                             "args": {
                               "template": "$string.morePicturesLabel",
                               "params": {
@@ -8525,7 +8532,7 @@
                 },
                 "children": [],
                 "template": {
-                  "component": "list-item",
+                  "component": "list_item",
                   "path": "/posts"
                 }
               }
@@ -8560,7 +8567,7 @@
         }
       },
       {
-        "id": "overlay-demo",
+        "id": "overlay_demo",
         "component": "Box",
         "props": {},
         "children": [
@@ -8571,13 +8578,13 @@
               "title": "Delete board?",
               "description": "This cannot be undone.",
               "open": {
-                "path": "/ui/confirmOpen"
+                "@path": "/ui/confirmOpen"
               },
               "dismissible": true
             },
             "children": [
               {
-                "id": "dialog-body",
+                "id": "dialog_body",
                 "component": "Text",
                 "props": {
                   "text": "Issues move to the trash for 48 hours."
@@ -8587,7 +8594,7 @@
             ],
             "slots": {
               "trigger": {
-                "id": "dialog-trigger",
+                "id": "dialog_trigger",
                 "component": "Button",
                 "props": {
                   "label": "Delete",
@@ -8596,7 +8603,7 @@
                 "children": []
               },
               "footer": {
-                "id": "dialog-footer",
+                "id": "dialog_footer",
                 "component": "Button",
                 "props": {
                   "label": "Delete for good",
@@ -8623,7 +8630,7 @@
             },
             "children": [
               {
-                "id": "drawer-body",
+                "id": "drawer_body",
                 "component": "Checkbox",
                 "props": {
                   "label": "Only mine",
@@ -8634,7 +8641,7 @@
             ],
             "slots": {
               "trigger": {
-                "id": "drawer-trigger",
+                "id": "drawer_trigger",
                 "component": "Button",
                 "props": {
                   "label": "Filters",
@@ -8655,7 +8662,7 @@
             },
             "children": [
               {
-                "id": "sheet-body",
+                "id": "sheet_body",
                 "component": "Text",
                 "props": {
                   "text": "Everything in a bottom sheet."
@@ -8665,7 +8672,7 @@
             ],
             "slots": {
               "trigger": {
-                "id": "sheet-trigger",
+                "id": "sheet_trigger",
                 "component": "Button",
                 "props": {
                   "label": "Details",
@@ -8683,7 +8690,7 @@
             },
             "children": [
               {
-                "id": "popover-body",
+                "id": "popover_body",
                 "component": "Text",
                 "props": {
                   "text": "A small anchored panel.",
@@ -8694,7 +8701,7 @@
             ],
             "slots": {
               "trigger": {
-                "id": "popover-trigger",
+                "id": "popover_trigger",
                 "component": "Button",
                 "props": {
                   "icon": "ui-info",
@@ -8715,7 +8722,7 @@
             },
             "children": [
               {
-                "id": "tooltip-anchor",
+                "id": "tooltip_anchor",
                 "component": "Button",
                 "props": {
                   "icon": "ui-link",
@@ -8751,7 +8758,7 @@
             },
             "children": [
               {
-                "id": "menu-trigger",
+                "id": "menu_trigger",
                 "component": "Button",
                 "props": {
                   "label": "More",
@@ -8770,13 +8777,13 @@
             }
           },
           {
-            "id": "alert-dialog",
+            "id": "alert_dialog",
             "component": "Dialog",
             "props": {
               "title": "Discard draft?",
               "description": "Your text will be lost.",
               "open": {
-                "path": "/ui/discardOpen"
+                "@path": "/ui/discardOpen"
               },
               "dismissible": false
             },
@@ -8793,7 +8800,7 @@
             },
             "slots": {
               "trigger": {
-                "id": "alert-dialog-trigger",
+                "id": "alert_dialog_trigger",
                 "component": "Button",
                 "props": {
                   "label": "Discard",
@@ -8802,12 +8809,12 @@
                 "children": []
               },
               "footer": {
-                "id": "alert-dialog.footer",
+                "id": "alert_dialog.footer",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "alert-dialog.footer.cancel",
+                    "id": "alert_dialog.footer.cancel",
                     "component": "Button",
                     "props": {
                       "label": "$string.cancel",
@@ -8824,7 +8831,7 @@
                     "on": {
                       "press": {
                         "functionCall": {
-                          "call": "set",
+                          "@call": "set",
                           "args": {
                             "path": "/ui/discardOpen",
                             "value": false
@@ -8837,7 +8844,7 @@
                     }
                   },
                   {
-                    "id": "alert-dialog.footer.confirm",
+                    "id": "alert_dialog.footer.confirm",
                     "component": "Button",
                     "props": {
                       "label": "$string.confirm",
@@ -8857,7 +8864,7 @@
                           "name": "discard"
                         },
                         "functionCall": {
-                          "call": "set",
+                          "@call": "set",
                           "args": {
                             "path": "/ui/discardOpen",
                             "value": false
@@ -8885,19 +8892,19 @@
             }
           },
           {
-            "id": "dock-card",
+            "id": "dock_card",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "dock-card.trigger",
+                "id": "dock_card.trigger",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "dock-card.trigger.icon",
+                    "id": "dock_card.trigger.icon",
                     "component": "Icon",
                     "props": {
                       "name": "coding-plan",
@@ -8917,17 +8924,17 @@
                     }
                   },
                   {
-                    "id": "dock-card.trigger.body",
+                    "id": "dock_card.trigger.body",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "dock-card.trigger.body.header",
+                        "id": "dock_card.trigger.body.header",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "dock-card.trigger.body.header.label",
+                            "id": "dock_card.trigger.body.header.label",
                             "component": "Text",
                             "props": {
                               "text": "Plan ready",
@@ -8945,7 +8952,7 @@
                             }
                           },
                           {
-                            "id": "dock-card.trigger.body.header.caption",
+                            "id": "dock_card.trigger.body.header.caption",
                             "component": "Text",
                             "props": {
                               "text": "Ask dock",
@@ -8966,7 +8973,7 @@
                             }
                           },
                           {
-                            "id": "dock-card.trigger.body.header.spacer",
+                            "id": "dock_card.trigger.body.header.spacer",
                             "component": "Box",
                             "props": {},
                             "children": [],
@@ -8983,7 +8990,7 @@
                             }
                           },
                           {
-                            "id": "dock-card.trigger.body.header.meta",
+                            "id": "dock_card.trigger.body.header.meta",
                             "component": "Text",
                             "props": {
                               "text": "3 questions",
@@ -9015,12 +9022,12 @@
                         }
                       },
                       {
-                        "id": "dock-card.trigger.body.row",
+                        "id": "dock_card.trigger.body.row",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "dock-card.trigger.body.row.title",
+                            "id": "dock_card.trigger.body.row.title",
                             "component": "Text",
                             "props": {
                               "text": "Fold the composer into the Dock",
@@ -9040,7 +9047,7 @@
                             }
                           },
                           {
-                            "id": "dock-card.trigger.body.row.chevron",
+                            "id": "dock_card.trigger.body.row.chevron",
                             "component": "Icon",
                             "props": {
                               "name": "ui-chevron-right",
@@ -9106,7 +9113,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/ui/dockOpen",
                         "value": true
@@ -9120,19 +9127,19 @@
                 }
               },
               {
-                "id": "dock-card.sheet",
+                "id": "dock_card.sheet",
                 "component": "Drawer",
                 "props": {
                   "title": "Plan ready",
                   "description": "Ask dock",
                   "open": {
-                    "path": "/ui/dockOpen"
+                    "@path": "/ui/dockOpen"
                   },
                   "side": "bottom"
                 },
                 "children": [
                   {
-                    "id": "dock-card-body",
+                    "id": "dock_card_body",
                     "component": "Text",
                     "props": {
                       "text": "Move the waiting cards above the composer and open each one as a bottom sheet."
@@ -9149,12 +9156,12 @@
                 },
                 "slots": {
                   "footer": {
-                    "id": "dock-card-footer",
+                    "id": "dock_card_footer",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "dock-card-no",
+                        "id": "dock_card_no",
                         "component": "Button",
                         "props": {
                           "label": "No, keep planning",
@@ -9163,7 +9170,7 @@
                         "children": []
                       },
                       {
-                        "id": "dock-card-yes",
+                        "id": "dock_card_yes",
                         "component": "Button",
                         "props": {
                           "label": "Yes"
@@ -9201,7 +9208,7 @@
             }
           },
           {
-            "id": "hover-card",
+            "id": "hover_card",
             "component": "Popover",
             "props": {
               "side": "top",
@@ -9209,12 +9216,12 @@
             },
             "children": [
               {
-                "id": "hover-card-body",
+                "id": "hover_card_body",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "hover-card-avatar",
+                    "id": "hover_card_avatar",
                     "component": "Avatar",
                     "props": {
                       "name": "Alex Chen"
@@ -9222,7 +9229,7 @@
                     "children": []
                   },
                   {
-                    "id": "hover-card-name",
+                    "id": "hover_card_name",
                     "component": "Text",
                     "props": {
                       "text": "Alex Chen · Owner",
@@ -9248,7 +9255,7 @@
             ],
             "slots": {
               "trigger": {
-                "id": "hover-card-trigger",
+                "id": "hover_card_trigger",
                 "component": "Link",
                 "props": {
                   "label": "@alex"
@@ -9258,7 +9265,7 @@
             }
           },
           {
-            "id": "context-menu",
+            "id": "context_menu",
             "component": "Menu",
             "props": {
               "items": [
@@ -9280,7 +9287,7 @@
                   "value": "showDone",
                   "kind": "checkbox",
                   "checked": {
-                    "path": "/ui/showDone"
+                    "@path": "/ui/showDone"
                   }
                 },
                 {
@@ -9310,17 +9317,17 @@
             },
             "children": [
               {
-                "id": "context-menu-target",
+                "id": "context_menu_target",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "context-menu-target.header",
+                    "id": "context_menu_target.header",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "context-menu-target.header.title",
+                        "id": "context_menu_target.header.title",
                         "component": "Text",
                         "props": {
                           "text": "Right-click me",
@@ -9348,7 +9355,7 @@
                     }
                   },
                   {
-                    "id": "context-menu-target.body",
+                    "id": "context_menu_target.body",
                     "component": "Box",
                     "props": {},
                     "children": [],
@@ -9398,7 +9405,7 @@
               "description": "Your changes are live.",
               "type": "success",
               "open": {
-                "path": "/ui/toastOpen"
+                "@path": "/ui/toastOpen"
               },
               "actionLabel": "Undo",
               "duration": 5000
@@ -9471,22 +9478,22 @@
             "props": {},
             "children": [
               {
-                "id": "resp-grid",
+                "id": "resp_grid",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "resp-card-1",
+                    "id": "resp_card_1",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "resp-card-1.header",
+                        "id": "resp_card_1.header",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "resp-card-1.header.title",
+                            "id": "resp_card_1.header.title",
                             "component": "Text",
                             "props": {
                               "text": "Throughput",
@@ -9500,7 +9507,7 @@
                             }
                           },
                           {
-                            "id": "resp-card-1.header.description",
+                            "id": "resp_card_1.header.description",
                             "component": "Text",
                             "props": {
                               "text": "Runs per day",
@@ -9528,12 +9535,12 @@
                         }
                       },
                       {
-                        "id": "resp-card-1.body",
+                        "id": "resp_card_1.body",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "resp-value-1",
+                            "id": "resp_value_1",
                             "component": "Text",
                             "props": {
                               "text": "128",
@@ -9572,17 +9579,17 @@
                     }
                   },
                   {
-                    "id": "resp-card-2",
+                    "id": "resp_card_2",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "resp-card-2.header",
+                        "id": "resp_card_2.header",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "resp-card-2.header.title",
+                            "id": "resp_card_2.header.title",
                             "component": "Text",
                             "props": {
                               "text": "Latency",
@@ -9596,7 +9603,7 @@
                             }
                           },
                           {
-                            "id": "resp-card-2.header.description",
+                            "id": "resp_card_2.header.description",
                             "component": "Text",
                             "props": {
                               "text": "p95 in ms",
@@ -9624,12 +9631,12 @@
                         }
                       },
                       {
-                        "id": "resp-card-2.body",
+                        "id": "resp_card_2.body",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "resp-value-2",
+                            "id": "resp_value_2",
                             "component": "Text",
                             "props": {
                               "text": "412",
@@ -9668,17 +9675,17 @@
                     }
                   },
                   {
-                    "id": "resp-card-3",
+                    "id": "resp_card_3",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "resp-card-3.header",
+                        "id": "resp_card_3.header",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "resp-card-3.header.title",
+                            "id": "resp_card_3.header.title",
                             "component": "Text",
                             "props": {
                               "text": "Errors",
@@ -9692,7 +9699,7 @@
                             }
                           },
                           {
-                            "id": "resp-card-3.header.description",
+                            "id": "resp_card_3.header.description",
                             "component": "Text",
                             "props": {
                               "text": "Last 24 h",
@@ -9720,12 +9727,12 @@
                         }
                       },
                       {
-                        "id": "resp-card-3.body",
+                        "id": "resp_card_3.body",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "resp-value-3",
+                            "id": "resp_value_3",
                             "component": "Text",
                             "props": {
                               "text": "3",
@@ -9785,29 +9792,29 @@
                 }
               },
               {
-                "id": "resp-shell",
+                "id": "resp_shell",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "resp-shell.sidebar",
+                    "id": "resp_shell.sidebar",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "resp-nav",
+                        "id": "resp_nav",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "resp-nav-inbox",
+                            "id": "resp_nav_inbox",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "resp-nav-inbox.icon",
+                                "id": "resp_nav_inbox.icon",
                                 "component": "Icon",
                                 "props": {
                                   "name": "nav-inbox",
@@ -9826,12 +9833,12 @@
                                 }
                               },
                               {
-                                "id": "resp-nav-inbox.body",
+                                "id": "resp_nav_inbox.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "resp-nav-inbox.body.title",
+                                    "id": "resp_nav_inbox.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "Inbox",
@@ -9871,12 +9878,12 @@
                                 }
                               },
                               {
-                                "id": "resp-nav-inbox-count",
+                                "id": "resp_nav_inbox_count",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "resp-nav-inbox-count.label",
+                                    "id": "resp_nav_inbox_count.label",
                                     "component": "Text",
                                     "props": {
                                       "text": "2",
@@ -9937,14 +9944,14 @@
                             }
                           },
                           {
-                            "id": "resp-nav-issues",
+                            "id": "resp_nav_issues",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "resp-nav-issues.icon",
+                                "id": "resp_nav_issues.icon",
                                 "component": "Icon",
                                 "props": {
                                   "name": "nav-issues",
@@ -9963,12 +9970,12 @@
                                 }
                               },
                               {
-                                "id": "resp-nav-issues.body",
+                                "id": "resp_nav_issues.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "resp-nav-issues.body.title",
+                                    "id": "resp_nav_issues.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "Issues",
@@ -10052,10 +10059,10 @@
                       }
                     },
                     "visible": {
-                      "call": "not",
+                      "@call": "not",
                       "args": {
                         "value": {
-                          "path": "/ui/sidebarCollapsed"
+                          "@path": "/ui/sidebarCollapsed"
                         }
                       }
                     },
@@ -10071,17 +10078,17 @@
                     }
                   },
                   {
-                    "id": "resp-shell.main",
+                    "id": "resp_shell.main",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "resp-main",
+                        "id": "resp_main",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "resp-main-text",
+                            "id": "resp_main_text",
                             "component": "Text",
                             "props": {
                               "text": "The column hides below md; this stack turns into a row at md.",
@@ -10090,12 +10097,12 @@
                             "children": []
                           },
                           {
-                            "id": "resp-only-wide",
+                            "id": "resp_only_wide",
                             "component": "Box",
                             "props": {},
                             "children": [
                               {
-                                "id": "resp-only-wide.label",
+                                "id": "resp_only_wide.label",
                                 "component": "Text",
                                 "props": {
                                   "text": "Wide",
@@ -10138,12 +10145,12 @@
                             }
                           },
                           {
-                            "id": "resp-only-narrow",
+                            "id": "resp_only_narrow",
                             "component": "Box",
                             "props": {},
                             "children": [
                               {
-                                "id": "resp-only-narrow.label",
+                                "id": "resp_only_narrow.label",
                                 "component": "Text",
                                 "props": {
                                   "text": "Narrow",
@@ -10247,14 +10254,14 @@
                 }
               },
               {
-                "id": "resp-states",
+                "id": "resp_states",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "resp-states-icon",
+                    "id": "resp_states_icon",
                     "component": "Icon",
                     "props": {
                       "name": "ui-info",
@@ -10263,7 +10270,7 @@
                     "children": []
                   },
                   {
-                    "id": "resp-states-text",
+                    "id": "resp_states_text",
                     "component": "Text",
                     "props": {
                       "text": "Hover, keyboard focus and press restyle this box; it stacks below sm.",
@@ -10315,7 +10322,7 @@
                 }
               },
               {
-                "id": "resp-drawer",
+                "id": "resp_drawer",
                 "component": "Drawer",
                 "props": {
                   "title": "Filters",
@@ -10324,13 +10331,13 @@
                     "md": "right"
                   },
                   "open": {
-                    "path": "/ui/filtersOpen"
+                    "@path": "/ui/filtersOpen"
                   },
                   "dragToDismiss": true
                 },
                 "children": [
                   {
-                    "id": "resp-drawer-body",
+                    "id": "resp_drawer_body",
                     "component": "Text",
                     "props": {
                       "text": "A bottom sheet on phones, a side panel from md.",
@@ -10341,7 +10348,7 @@
                 ],
                 "slots": {
                   "trigger": {
-                    "id": "resp-drawer-trigger",
+                    "id": "resp_drawer_trigger",
                     "component": "Button",
                     "props": {
                       "label": "Filters",
@@ -10353,19 +10360,19 @@
                 }
               },
               {
-                "id": "resp-scroll",
+                "id": "resp_scroll",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "resp-chip-0",
+                    "id": "resp_chip_0",
                     "component": "Box",
                     "props": {
                       "pressable": false
                     },
                     "children": [
                       {
-                        "id": "resp-chip-0.label",
+                        "id": "resp_chip_0.label",
                         "component": "Text",
                         "props": {
                           "text": "Bug",
@@ -10412,14 +10419,14 @@
                     }
                   },
                   {
-                    "id": "resp-chip-1",
+                    "id": "resp_chip_1",
                     "component": "Box",
                     "props": {
                       "pressable": false
                     },
                     "children": [
                       {
-                        "id": "resp-chip-1.label",
+                        "id": "resp_chip_1.label",
                         "component": "Text",
                         "props": {
                           "text": "iOS",
@@ -10466,14 +10473,14 @@
                     }
                   },
                   {
-                    "id": "resp-chip-2",
+                    "id": "resp_chip_2",
                     "component": "Box",
                     "props": {
                       "pressable": false
                     },
                     "children": [
                       {
-                        "id": "resp-chip-2.label",
+                        "id": "resp_chip_2.label",
                         "component": "Text",
                         "props": {
                           "text": "Android",
@@ -10520,14 +10527,14 @@
                     }
                   },
                   {
-                    "id": "resp-chip-3",
+                    "id": "resp_chip_3",
                     "component": "Box",
                     "props": {
                       "pressable": false
                     },
                     "children": [
                       {
-                        "id": "resp-chip-3.label",
+                        "id": "resp_chip_3.label",
                         "component": "Text",
                         "props": {
                           "text": "Desktop",
@@ -10574,14 +10581,14 @@
                     }
                   },
                   {
-                    "id": "resp-chip-4",
+                    "id": "resp_chip_4",
                     "component": "Box",
                     "props": {
                       "pressable": false
                     },
                     "children": [
                       {
-                        "id": "resp-chip-4.label",
+                        "id": "resp_chip_4.label",
                         "component": "Text",
                         "props": {
                           "text": "Web",
@@ -10628,14 +10635,14 @@
                     }
                   },
                   {
-                    "id": "resp-chip-5",
+                    "id": "resp_chip_5",
                     "component": "Box",
                     "props": {
                       "pressable": false
                     },
                     "children": [
                       {
-                        "id": "resp-chip-5.label",
+                        "id": "resp_chip_5.label",
                         "component": "Text",
                         "props": {
                           "text": "Infra",
@@ -10682,14 +10689,14 @@
                     }
                   },
                   {
-                    "id": "resp-chip-6",
+                    "id": "resp_chip_6",
                     "component": "Box",
                     "props": {
                       "pressable": false
                     },
                     "children": [
                       {
-                        "id": "resp-chip-6.label",
+                        "id": "resp_chip_6.label",
                         "component": "Text",
                         "props": {
                           "text": "Docs",
@@ -10784,23 +10791,23 @@
         }
       },
       {
-        "id": "new-form",
+        "id": "new_form",
         "component": "Form",
         "props": {
           "name": "settings",
           "summary": true,
           "busy": {
-            "path": "/ui/saving"
+            "@path": "/ui/saving"
           }
         },
         "children": [
           {
-            "id": "nf-label",
+            "id": "nf_label",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "nf-label.text",
+                "id": "nf_label.text",
                 "component": "Text",
                 "props": {
                   "text": "Seats",
@@ -10816,7 +10823,7 @@
                 }
               },
               {
-                "id": "nf-label.mark",
+                "id": "nf_label.mark",
                 "component": "Text",
                 "props": {
                   "text": "*",
@@ -10848,13 +10855,13 @@
             }
           },
           {
-            "id": "nf-seats",
+            "id": "nf_seats",
             "component": "NumberField",
             "props": {
               "label": "Seats",
               "name": "seats",
               "value": {
-                "path": "/form/seats"
+                "@path": "/form/seats"
               },
               "min": 1,
               "max": 50,
@@ -10862,10 +10869,10 @@
               "checks": [
                 {
                   "condition": {
-                    "call": "numeric",
+                    "@call": "numeric",
                     "args": {
                       "value": {
-                        "path": "/form/seats"
+                        "@path": "/form/seats"
                       },
                       "min": 1,
                       "max": 50
@@ -10878,25 +10885,25 @@
             "children": []
           },
           {
-            "id": "nf-stack",
+            "id": "nf_stack",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "nf-time",
+                "id": "nf_time",
                 "component": "TimePicker",
                 "props": {
                   "label": "Daily digest",
                   "name": "digestAt",
                   "value": {
-                    "path": "/form/digestAt"
+                    "@path": "/form/digestAt"
                   },
                   "step": 30
                 },
                 "children": []
               },
               {
-                "id": "nf-range",
+                "id": "nf_range",
                 "component": "DateRangePicker",
                 "props": {
                   "label": "Sprint",
@@ -10922,13 +10929,13 @@
             }
           },
           {
-            "id": "nf-labels",
+            "id": "nf_labels",
             "component": "ChipInput",
             "props": {
               "label": "Labels",
               "name": "labels",
               "values": {
-                "path": "/form/labels"
+                "@path": "/form/labels"
               },
               "suggestions": [
                 {
@@ -10949,7 +10956,7 @@
             "children": []
           },
           {
-            "id": "nf-files",
+            "id": "nf_files",
             "component": "FileUpload",
             "props": {
               "label": "Attachments",
@@ -10981,19 +10988,19 @@
             }
           },
           {
-            "id": "nf-rating",
+            "id": "nf_rating",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "nf-rating.star.0",
+                "id": "nf_rating.star.0",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "nf-rating.star.0.icon",
+                    "id": "nf_rating.star.0.icon",
                     "component": "Icon",
                     "props": {
                       "name": "star",
@@ -11007,14 +11014,14 @@
                         "size": "default",
                         "readOnly": false,
                         "filled": {
-                          "call": "lt",
+                          "@call": "lt",
                           "args": {
                             "a": 0,
                             "b": {
-                              "call": "fallback",
+                              "@call": "fallback",
                               "args": {
                                 "value": {
-                                  "path": "/form/rating"
+                                  "@path": "/form/rating"
                                 },
                                 "default": 0
                               }
@@ -11037,14 +11044,14 @@
                     "size": "default",
                     "readOnly": false,
                     "filled": {
-                      "call": "lt",
+                      "@call": "lt",
                       "args": {
                         "a": 0,
                         "b": {
-                          "call": "fallback",
+                          "@call": "fallback",
                           "args": {
                             "value": {
-                              "path": "/form/rating"
+                              "@path": "/form/rating"
                             },
                             "default": 0
                           }
@@ -11056,7 +11063,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/form/rating",
                         "value": 1
@@ -11067,7 +11074,7 @@
                 "accessibility": {
                   "role": "button",
                   "label": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.ratingStar",
                       "params": {
@@ -11077,14 +11084,14 @@
                     }
                   },
                   "pressed": {
-                    "call": "eq",
+                    "@call": "eq",
                     "args": {
                       "a": 1,
                       "b": {
-                        "call": "fallback",
+                        "@call": "fallback",
                         "args": {
                           "value": {
-                            "path": "/form/rating"
+                            "@path": "/form/rating"
                           },
                           "default": 0
                         }
@@ -11094,14 +11101,14 @@
                 }
               },
               {
-                "id": "nf-rating.star.1",
+                "id": "nf_rating.star.1",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "nf-rating.star.1.icon",
+                    "id": "nf_rating.star.1.icon",
                     "component": "Icon",
                     "props": {
                       "name": "star",
@@ -11115,14 +11122,14 @@
                         "size": "default",
                         "readOnly": false,
                         "filled": {
-                          "call": "lt",
+                          "@call": "lt",
                           "args": {
                             "a": 1,
                             "b": {
-                              "call": "fallback",
+                              "@call": "fallback",
                               "args": {
                                 "value": {
-                                  "path": "/form/rating"
+                                  "@path": "/form/rating"
                                 },
                                 "default": 0
                               }
@@ -11145,14 +11152,14 @@
                     "size": "default",
                     "readOnly": false,
                     "filled": {
-                      "call": "lt",
+                      "@call": "lt",
                       "args": {
                         "a": 1,
                         "b": {
-                          "call": "fallback",
+                          "@call": "fallback",
                           "args": {
                             "value": {
-                              "path": "/form/rating"
+                              "@path": "/form/rating"
                             },
                             "default": 0
                           }
@@ -11164,7 +11171,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/form/rating",
                         "value": 2
@@ -11175,7 +11182,7 @@
                 "accessibility": {
                   "role": "button",
                   "label": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.ratingStar",
                       "params": {
@@ -11185,14 +11192,14 @@
                     }
                   },
                   "pressed": {
-                    "call": "eq",
+                    "@call": "eq",
                     "args": {
                       "a": 2,
                       "b": {
-                        "call": "fallback",
+                        "@call": "fallback",
                         "args": {
                           "value": {
-                            "path": "/form/rating"
+                            "@path": "/form/rating"
                           },
                           "default": 0
                         }
@@ -11202,14 +11209,14 @@
                 }
               },
               {
-                "id": "nf-rating.star.2",
+                "id": "nf_rating.star.2",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "nf-rating.star.2.icon",
+                    "id": "nf_rating.star.2.icon",
                     "component": "Icon",
                     "props": {
                       "name": "star",
@@ -11223,14 +11230,14 @@
                         "size": "default",
                         "readOnly": false,
                         "filled": {
-                          "call": "lt",
+                          "@call": "lt",
                           "args": {
                             "a": 2,
                             "b": {
-                              "call": "fallback",
+                              "@call": "fallback",
                               "args": {
                                 "value": {
-                                  "path": "/form/rating"
+                                  "@path": "/form/rating"
                                 },
                                 "default": 0
                               }
@@ -11253,14 +11260,14 @@
                     "size": "default",
                     "readOnly": false,
                     "filled": {
-                      "call": "lt",
+                      "@call": "lt",
                       "args": {
                         "a": 2,
                         "b": {
-                          "call": "fallback",
+                          "@call": "fallback",
                           "args": {
                             "value": {
-                              "path": "/form/rating"
+                              "@path": "/form/rating"
                             },
                             "default": 0
                           }
@@ -11272,7 +11279,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/form/rating",
                         "value": 3
@@ -11283,7 +11290,7 @@
                 "accessibility": {
                   "role": "button",
                   "label": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.ratingStar",
                       "params": {
@@ -11293,14 +11300,14 @@
                     }
                   },
                   "pressed": {
-                    "call": "eq",
+                    "@call": "eq",
                     "args": {
                       "a": 3,
                       "b": {
-                        "call": "fallback",
+                        "@call": "fallback",
                         "args": {
                           "value": {
-                            "path": "/form/rating"
+                            "@path": "/form/rating"
                           },
                           "default": 0
                         }
@@ -11310,14 +11317,14 @@
                 }
               },
               {
-                "id": "nf-rating.star.3",
+                "id": "nf_rating.star.3",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "nf-rating.star.3.icon",
+                    "id": "nf_rating.star.3.icon",
                     "component": "Icon",
                     "props": {
                       "name": "star",
@@ -11331,14 +11338,14 @@
                         "size": "default",
                         "readOnly": false,
                         "filled": {
-                          "call": "lt",
+                          "@call": "lt",
                           "args": {
                             "a": 3,
                             "b": {
-                              "call": "fallback",
+                              "@call": "fallback",
                               "args": {
                                 "value": {
-                                  "path": "/form/rating"
+                                  "@path": "/form/rating"
                                 },
                                 "default": 0
                               }
@@ -11361,14 +11368,14 @@
                     "size": "default",
                     "readOnly": false,
                     "filled": {
-                      "call": "lt",
+                      "@call": "lt",
                       "args": {
                         "a": 3,
                         "b": {
-                          "call": "fallback",
+                          "@call": "fallback",
                           "args": {
                             "value": {
-                              "path": "/form/rating"
+                              "@path": "/form/rating"
                             },
                             "default": 0
                           }
@@ -11380,7 +11387,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/form/rating",
                         "value": 4
@@ -11391,7 +11398,7 @@
                 "accessibility": {
                   "role": "button",
                   "label": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.ratingStar",
                       "params": {
@@ -11401,14 +11408,14 @@
                     }
                   },
                   "pressed": {
-                    "call": "eq",
+                    "@call": "eq",
                     "args": {
                       "a": 4,
                       "b": {
-                        "call": "fallback",
+                        "@call": "fallback",
                         "args": {
                           "value": {
-                            "path": "/form/rating"
+                            "@path": "/form/rating"
                           },
                           "default": 0
                         }
@@ -11418,14 +11425,14 @@
                 }
               },
               {
-                "id": "nf-rating.star.4",
+                "id": "nf_rating.star.4",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "nf-rating.star.4.icon",
+                    "id": "nf_rating.star.4.icon",
                     "component": "Icon",
                     "props": {
                       "name": "star",
@@ -11439,14 +11446,14 @@
                         "size": "default",
                         "readOnly": false,
                         "filled": {
-                          "call": "lt",
+                          "@call": "lt",
                           "args": {
                             "a": 4,
                             "b": {
-                              "call": "fallback",
+                              "@call": "fallback",
                               "args": {
                                 "value": {
-                                  "path": "/form/rating"
+                                  "@path": "/form/rating"
                                 },
                                 "default": 0
                               }
@@ -11469,14 +11476,14 @@
                     "size": "default",
                     "readOnly": false,
                     "filled": {
-                      "call": "lt",
+                      "@call": "lt",
                       "args": {
                         "a": 4,
                         "b": {
-                          "call": "fallback",
+                          "@call": "fallback",
                           "args": {
                             "value": {
-                              "path": "/form/rating"
+                              "@path": "/form/rating"
                             },
                             "default": 0
                           }
@@ -11488,7 +11495,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "set",
+                      "@call": "set",
                       "args": {
                         "path": "/form/rating",
                         "value": 5
@@ -11499,7 +11506,7 @@
                 "accessibility": {
                   "role": "button",
                   "label": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.ratingStar",
                       "params": {
@@ -11509,14 +11516,14 @@
                     }
                   },
                   "pressed": {
-                    "call": "eq",
+                    "@call": "eq",
                     "args": {
                       "a": 5,
                       "b": {
-                        "call": "fallback",
+                        "@call": "fallback",
                         "args": {
                           "value": {
-                            "path": "/form/rating"
+                            "@path": "/form/rating"
                           },
                           "default": 0
                         }
@@ -11546,12 +11553,12 @@
             }
           },
           {
-            "id": "nf-keys",
+            "id": "nf_keys",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "nf-keys-text",
+                "id": "nf_keys_text",
                 "component": "Text",
                 "props": {
                   "text": "Save with",
@@ -11560,12 +11567,12 @@
                 "children": []
               },
               {
-                "id": "nf-kbd",
+                "id": "nf_kbd",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "nf-kbd.label",
+                    "id": "nf_kbd.label",
                     "component": "Text",
                     "props": {
                       "text": "⌘S",
@@ -11611,7 +11618,7 @@
             }
           },
           {
-            "id": "nf-submit",
+            "id": "nf_submit",
             "component": "Button",
             "props": {
               "label": "Save",
@@ -11653,17 +11660,17 @@
         "props": {},
         "children": [
           {
-            "id": "trace-think",
+            "id": "trace_think",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "trace-think.line",
+                "id": "trace_think.line",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "trace-think.line.icon",
+                    "id": "trace_think.line.icon",
                     "component": "Icon",
                     "props": {
                       "name": "trace-reasoning",
@@ -11686,7 +11693,7 @@
                     }
                   },
                   {
-                    "id": "trace-think.line.title",
+                    "id": "trace_think.line.title",
                     "component": "Text",
                     "props": {
                       "text": "Thought for 5s",
@@ -11749,19 +11756,19 @@
             }
           },
           {
-            "id": "trace-run",
+            "id": "trace_run",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "trace-run.line",
+                "id": "trace_run.line",
                 "component": "Box",
                 "props": {
                   "pressable": true
                 },
                 "children": [
                   {
-                    "id": "trace-run.line.icon",
+                    "id": "trace_run.line.icon",
                     "component": "Icon",
                     "props": {
                       "name": "trace-terminal",
@@ -11785,7 +11792,7 @@
                     }
                   },
                   {
-                    "id": "trace-run.line.title",
+                    "id": "trace_run.line.title",
                     "component": "Text",
                     "props": {
                       "text": "Ran bun test",
@@ -11811,7 +11818,7 @@
                     }
                   },
                   {
-                    "id": "trace-run.line.chevron",
+                    "id": "trace_run.line.chevron",
                     "component": "Icon",
                     "props": {
                       "name": "trace-chevron",
@@ -11863,12 +11870,12 @@
                 }
               },
               {
-                "id": "trace-run.content",
+                "id": "trace_run.content",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "trace-out",
+                    "id": "trace_out",
                     "component": "CodeBlock",
                     "props": {
                       "code": "\u001b[32m(pass)\u001b[0m Store > put\n\u001b[31m(fail)\u001b[0m Store > get\n\n 1 pass\n 1 fail",
@@ -11921,17 +11928,17 @@
             }
           },
           {
-            "id": "trace-edit",
+            "id": "trace_edit",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "trace-edit.line",
+                "id": "trace_edit.line",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "trace-edit.line.icon",
+                    "id": "trace_edit.line.icon",
                     "component": "Icon",
                     "props": {
                       "name": "trace-edit",
@@ -11955,7 +11962,7 @@
                     }
                   },
                   {
-                    "id": "trace-edit.line.title",
+                    "id": "trace_edit.line.title",
                     "component": "Text",
                     "props": {
                       "text": "Editing src/store.ts",
@@ -12021,17 +12028,17 @@
             }
           },
           {
-            "id": "trace-next",
+            "id": "trace_next",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "trace-next.line",
+                "id": "trace_next.line",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "trace-next.line.icon",
+                    "id": "trace_next.line.icon",
                     "component": "Icon",
                     "props": {
                       "name": "trace-terminal",
@@ -12055,7 +12062,7 @@
                     }
                   },
                   {
-                    "id": "trace-next.line.title",
+                    "id": "trace_next.line.title",
                     "component": "Text",
                     "props": {
                       "text": "Run the suite again",
@@ -12153,7 +12160,7 @@
         }
       },
       {
-        "id": "tab-bar",
+        "id": "tab_bar",
         "component": "Segmented",
         "props": {
           "items": [
@@ -12174,7 +12181,7 @@
             }
           ],
           "value": {
-            "path": "/ui/tab"
+            "@path": "/ui/tab"
           },
           "variant": "bar",
           "fill": true
@@ -12213,7 +12220,7 @@
         },
         "children": [
           {
-            "id": "panels-nav",
+            "id": "panels_nav",
             "component": "Text",
             "props": {
               "text": "Boards",
@@ -12225,7 +12232,7 @@
             }
           },
           {
-            "id": "panels-main",
+            "id": "panels_main",
             "component": "Text",
             "props": {
               "text": "Drag the handle; arrow keys move it by 10.",
@@ -12242,7 +12249,7 @@
         }
       },
       {
-        "id": "search-list",
+        "id": "search_list",
         "component": "SearchList",
         "props": {
           "placeholder": "Search issues",
@@ -12271,17 +12278,17 @@
         "children": []
       },
       {
-        "id": "macros-demo",
+        "id": "macros_demo",
         "component": "Box",
         "props": {},
         "children": [
           {
-            "id": "macros-demo.header",
+            "id": "macros_demo.header",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "macros-demo.header.title",
+                "id": "macros_demo.header.title",
                 "component": "Text",
                 "props": {
                   "text": "Layout macros",
@@ -12309,22 +12316,22 @@
             }
           },
           {
-            "id": "macros-demo.body",
+            "id": "macros_demo.body",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "macros-page",
+                "id": "macros_page",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "macros-page.header",
+                    "id": "macros_page.header",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "macros-page.header.back",
+                        "id": "macros_page.header.back",
                         "component": "Button",
                         "props": {
                           "icon": "ui-back",
@@ -12340,12 +12347,12 @@
                         }
                       },
                       {
-                        "id": "macros-page.header.body",
+                        "id": "macros_page.header.body",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "macros-page.header.body.title",
+                            "id": "macros_page.header.body.title",
                             "component": "Text",
                             "props": {
                               "text": "Settings",
@@ -12364,7 +12371,7 @@
                             }
                           },
                           {
-                            "id": "macros-page.header.body.subtitle",
+                            "id": "macros_page.header.body.subtitle",
                             "component": "Text",
                             "props": {
                               "text": "Acme",
@@ -12392,7 +12399,7 @@
                         }
                       },
                       {
-                        "id": "macros-page-more",
+                        "id": "macros_page_more",
                         "component": "Button",
                         "props": {
                           "icon": "ui-more",
@@ -12423,17 +12430,17 @@
                     }
                   },
                   {
-                    "id": "macros-page.body",
+                    "id": "macros_page.body",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "macros-toolbar",
+                        "id": "macros_toolbar",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "macros-search",
+                            "id": "macros_search",
                             "component": "Input",
                             "props": {
                               "name": "q",
@@ -12447,7 +12454,7 @@
                             }
                           },
                           {
-                            "id": "macros-filter",
+                            "id": "macros_filter",
                             "component": "Button",
                             "props": {
                               "label": "Filter",
@@ -12456,7 +12463,7 @@
                             "children": []
                           },
                           {
-                            "id": "macros-toolbar.spacer",
+                            "id": "macros_toolbar.spacer",
                             "component": "Box",
                             "props": {},
                             "children": [],
@@ -12471,7 +12478,7 @@
                             }
                           },
                           {
-                            "id": "macros-new",
+                            "id": "macros_new",
                             "component": "Button",
                             "props": {
                               "label": "New issue",
@@ -12498,7 +12505,7 @@
                         }
                       },
                       {
-                        "id": "macros-fields",
+                        "id": "macros_fields",
                         "component": "Box",
                         "props": {},
                         "children": [
@@ -12542,17 +12549,17 @@
                         }
                       },
                       {
-                        "id": "macros-setting",
+                        "id": "macros_setting",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "macros-setting.text",
+                            "id": "macros_setting.text",
                             "component": "Box",
                             "props": {},
                             "children": [
                               {
-                                "id": "macros-setting.text.label",
+                                "id": "macros_setting.text.label",
                                 "component": "Text",
                                 "props": {
                                   "text": "Notify watchers",
@@ -12566,7 +12573,7 @@
                                 }
                               },
                               {
-                                "id": "macros-setting.text.description",
+                                "id": "macros_setting.text.description",
                                 "component": "Text",
                                 "props": {
                                   "text": "Email everyone who follows the issue.",
@@ -12596,12 +12603,12 @@
                             }
                           },
                           {
-                            "id": "macros-setting.control",
+                            "id": "macros_setting.control",
                             "component": "Box",
                             "props": {},
                             "children": [
                               {
-                                "id": "macros-setting-switch",
+                                "id": "macros_setting_switch",
                                 "component": "Switch",
                                 "props": {
                                   "label": "",
@@ -12658,12 +12665,12 @@
                         }
                       },
                       {
-                        "id": "macros-actions",
+                        "id": "macros_actions",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "macros-actions.cancel",
+                            "id": "macros_actions.cancel",
                             "component": "Button",
                             "props": {
                               "label": "$string.cancel",
@@ -12677,7 +12684,7 @@
                             }
                           },
                           {
-                            "id": "macros-actions.submit",
+                            "id": "macros_actions.submit",
                             "component": "Button",
                             "props": {
                               "label": "Save",
@@ -12748,34 +12755,34 @@
                 }
               },
               {
-                "id": "macros-split",
+                "id": "macros_split",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "macros-split.list",
+                    "id": "macros_split.list",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "macros-split-list",
+                        "id": "macros_split_list",
                         "component": "List",
                         "props": {},
                         "children": [
                           {
-                            "id": "macros-split-r1",
+                            "id": "macros_split_r1",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "macros-split-r1.body",
+                                "id": "macros_split_r1.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "macros-split-r1.body.title",
+                                    "id": "macros_split_r1.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "Inbox",
@@ -12840,19 +12847,19 @@
                             }
                           },
                           {
-                            "id": "macros-split-r2",
+                            "id": "macros_split_r2",
                             "component": "Box",
                             "props": {
                               "pressable": true
                             },
                             "children": [
                               {
-                                "id": "macros-split-r2.body",
+                                "id": "macros_split_r2.body",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "macros-split-r2.body.title",
+                                    "id": "macros_split_r2.body.title",
                                     "component": "Text",
                                     "props": {
                                       "text": "Drafts",
@@ -12930,10 +12937,10 @@
                         "width": "100%",
                         "flexShrink": 1,
                         "display": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "path": "/ui/splitOpen"
+                              "@path": "/ui/splitOpen"
                             },
                             "then": "none",
                             "else": "flex"
@@ -12951,7 +12958,7 @@
                     }
                   },
                   {
-                    "id": "macros-split.divider",
+                    "id": "macros_split.divider",
                     "component": "Box",
                     "props": {},
                     "children": [],
@@ -12974,17 +12981,17 @@
                     }
                   },
                   {
-                    "id": "macros-split.detail",
+                    "id": "macros_split.detail",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "macros-split.detail.backBar",
+                        "id": "macros_split.detail.backBar",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "macros-split.detail.backBar.back",
+                            "id": "macros_split.detail.backBar.back",
                             "component": "Button",
                             "props": {
                               "icon": "ui-back",
@@ -13001,7 +13008,7 @@
                             "on": {
                               "press": {
                                 "functionCall": {
-                                  "call": "set",
+                                  "@call": "set",
                                   "args": {
                                     "path": "/ui/splitOpen",
                                     "value": false
@@ -13028,7 +13035,7 @@
                         }
                       },
                       {
-                        "id": "macros-split-detail",
+                        "id": "macros_split_detail",
                         "component": "Text",
                         "props": {
                           "text": "The open item."
@@ -13044,10 +13051,10 @@
                       "minHeight": 0,
                       "@media (max-width: $breakpoint.md)": {
                         "display": {
-                          "call": "cond",
+                          "@call": "cond",
                           "args": {
                             "if": {
-                              "path": "/ui/splitOpen"
+                              "@path": "/ui/splitOpen"
                             },
                             "then": "flex",
                             "else": "none"
@@ -13084,32 +13091,32 @@
                 }
               },
               {
-                "id": "macros-tiles",
+                "id": "macros_tiles",
                 "component": "Box",
                 "props": {},
                 "children": [
                   {
-                    "id": "macros-tile-1",
+                    "id": "macros_tile_1",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "macros-tile-1.card",
+                        "id": "macros_tile_1.card",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "macros-tile-1.card.body",
+                            "id": "macros_tile_1.card.body",
                             "component": "Box",
                             "props": {},
                             "children": [
                               {
-                                "id": "macros-tile-1.card.header",
+                                "id": "macros_tile_1.card.header",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "macros-tile-1.card.header.label",
+                                    "id": "macros_tile_1.card.header.label",
                                     "component": "Text",
                                     "props": {
                                       "text": "Active users",
@@ -13129,7 +13136,7 @@
                                     }
                                   },
                                   {
-                                    "id": "macros-tile-1.card.header.delta",
+                                    "id": "macros_tile_1.card.header.delta",
                                     "component": "Text",
                                     "props": {
                                       "text": "+12 %",
@@ -13157,7 +13164,7 @@
                                 }
                               },
                               {
-                                "id": "macros-tile-1.card.value",
+                                "id": "macros_tile_1.card.value",
                                 "component": "Text",
                                 "props": {
                                   "text": "1,284",
@@ -13172,7 +13179,7 @@
                                 }
                               },
                               {
-                                "id": "macros-tile-1.card.trend",
+                                "id": "macros_tile_1.card.trend",
                                 "component": "Chart",
                                 "props": {
                                   "kind": "sparkline",
@@ -13253,27 +13260,27 @@
                     }
                   },
                   {
-                    "id": "macros-tile-2",
+                    "id": "macros_tile_2",
                     "component": "Box",
                     "props": {},
                     "children": [
                       {
-                        "id": "macros-tile-2.card",
+                        "id": "macros_tile_2.card",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "macros-tile-2.card.body",
+                            "id": "macros_tile_2.card.body",
                             "component": "Box",
                             "props": {},
                             "children": [
                               {
-                                "id": "macros-tile-2.card.header",
+                                "id": "macros_tile_2.card.header",
                                 "component": "Box",
                                 "props": {},
                                 "children": [
                                   {
-                                    "id": "macros-tile-2.card.header.label",
+                                    "id": "macros_tile_2.card.header.label",
                                     "component": "Text",
                                     "props": {
                                       "text": "Error rate",
@@ -13293,7 +13300,7 @@
                                     }
                                   },
                                   {
-                                    "id": "macros-tile-2.card.header.delta",
+                                    "id": "macros_tile_2.card.header.delta",
                                     "component": "Text",
                                     "props": {
                                       "text": "-0.01",
@@ -13321,7 +13328,7 @@
                                 }
                               },
                               {
-                                "id": "macros-tile-2.card.value",
+                                "id": "macros_tile_2.card.value",
                                 "component": "Text",
                                 "props": {
                                   "text": "0.04 %",
@@ -13438,24 +13445,24 @@
   },
   "issues": [],
   "templates": {
-    "list-item": {
-      "id": "list-item",
+    "list_item": {
+      "id": "list_item",
       "component": "Box",
       "props": {
         "pressable": false
       },
       "children": [
         {
-          "id": "list-item.body",
+          "id": "list_item.body",
           "component": "Box",
           "props": {},
           "children": [
             {
-              "id": "list-item.body.title",
+              "id": "list_item.body.title",
               "component": "Text",
               "props": {
                 "text": {
-                  "path": "title"
+                  "@path": "title"
                 },
                 "variant": "body",
                 "lines": 1
@@ -13493,18 +13500,25 @@
           }
         },
         {
-          "id": "list-item.meta",
+          "id": "list_item.meta",
           "component": "Text",
           "props": {
             "text": {
-              "path": "score"
+              "@path": "score"
             },
             "variant": "muted",
             "lines": 1
           },
           "children": [],
           "visible": {
-            "path": "score"
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "score"
+              },
+              "then": true,
+              "else": false
+            }
           },
           "recipe": {
             "macro": "Row",

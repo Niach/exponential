@@ -548,7 +548,7 @@
     {
       "name": "bound: every row, shown and open as calls",
       "expanded": {
-        "path": "/open"
+        "@path": "/open"
       },
       "rows": [
         {
@@ -565,12 +565,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps"
               },
@@ -578,15 +578,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps"
                   },
@@ -596,12 +596,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps"
               },
@@ -611,15 +611,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps"
                   },
@@ -638,12 +638,12 @@
           "level": 2,
           "kind": "branch",
           "shown": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == a0)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "a0": "apps"
               },
@@ -657,12 +657,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps/web"
               },
@@ -670,15 +670,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps/web"
                   },
@@ -688,12 +688,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps/web"
               },
@@ -703,15 +703,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps/web"
                   },
@@ -730,12 +730,12 @@
           "level": 3,
           "kind": "leaf",
           "shown": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == a0) && e.exists(x, x == a1)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "a0": "apps",
                 "a1": "apps/web"
@@ -759,12 +759,12 @@
           "level": 3,
           "kind": "leaf",
           "shown": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == a0) && e.exists(x, x == a1)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "a0": "apps",
                 "a1": "apps/web"
@@ -787,12 +787,12 @@
           "level": 2,
           "kind": "branch",
           "shown": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == a0)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "a0": "apps"
               },
@@ -806,12 +806,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps/desktop"
               },
@@ -819,15 +819,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps/desktop"
                   },
@@ -837,12 +837,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps/desktop"
               },
@@ -852,15 +852,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps/desktop"
                   },
@@ -879,12 +879,12 @@
           "level": 3,
           "kind": "loading",
           "shown": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == a0) && e.exists(x, x == a1)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "a0": "apps",
                 "a1": "apps/desktop"
@@ -913,12 +913,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "packages"
               },
@@ -926,15 +926,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "packages"
                   },
@@ -944,12 +944,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "packages"
               },
@@ -959,15 +959,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "packages"
                   },
@@ -986,12 +986,12 @@
           "level": 2,
           "kind": "branch",
           "shown": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == a0)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "a0": "packages"
               },
@@ -1005,12 +1005,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "packages/ui"
               },
@@ -1018,15 +1018,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "packages/ui"
                   },
@@ -1036,12 +1036,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "packages/ui"
               },
@@ -1051,15 +1051,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "packages/ui"
                   },
@@ -1390,7 +1390,7 @@
         "apps/desktop"
       ],
       "rail": {
-        "path": "/collapsed"
+        "@path": "/collapsed"
       },
       "rows": [
         {
@@ -1434,10 +1434,10 @@
           "level": 3,
           "kind": "leaf",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": true,
               "else": false
@@ -1459,10 +1459,10 @@
           "level": 3,
           "kind": "leaf",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": true,
               "else": false
@@ -1500,10 +1500,10 @@
           "level": 3,
           "kind": "loading",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": false,
               "else": true
@@ -1540,10 +1540,10 @@
           "level": 2,
           "kind": "branch",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": true,
               "else": false
@@ -1595,10 +1595,10 @@
     {
       "name": "bound rail and bound expanded",
       "expanded": {
-        "path": "/open"
+        "@path": "/open"
       },
       "rail": {
-        "path": "/collapsed"
+        "@path": "/collapsed"
       },
       "rows": [
         {
@@ -1615,12 +1615,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps"
               },
@@ -1628,15 +1628,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps"
                   },
@@ -1646,12 +1646,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps"
               },
@@ -1661,15 +1661,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps"
                   },
@@ -1688,19 +1688,19 @@
           "level": 2,
           "kind": "branch",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": true,
               "else": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == a0)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "a0": "apps"
                   },
@@ -1716,12 +1716,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps/web"
               },
@@ -1729,15 +1729,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps/web"
                   },
@@ -1747,12 +1747,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps/web"
               },
@@ -1762,15 +1762,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps/web"
                   },
@@ -1789,19 +1789,19 @@
           "level": 3,
           "kind": "leaf",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": true,
               "else": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == a0) && e.exists(x, x == a1)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "a0": "apps",
                     "a1": "apps/web"
@@ -1827,19 +1827,19 @@
           "level": 3,
           "kind": "leaf",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": true,
               "else": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == a0) && e.exists(x, x == a1)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "a0": "apps",
                     "a1": "apps/web"
@@ -1864,19 +1864,19 @@
           "level": 2,
           "kind": "branch",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": true,
               "else": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == a0)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "a0": "apps"
                   },
@@ -1892,12 +1892,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps/desktop"
               },
@@ -1905,15 +1905,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps/desktop"
                   },
@@ -1923,12 +1923,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "apps/desktop"
               },
@@ -1938,15 +1938,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "apps/desktop"
                   },
@@ -1965,19 +1965,19 @@
           "level": 3,
           "kind": "loading",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": false,
               "else": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == a0) && e.exists(x, x == a1)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "a0": "apps",
                     "a1": "apps/desktop"
@@ -2008,12 +2008,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "packages"
               },
@@ -2021,15 +2021,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "packages"
                   },
@@ -2039,12 +2039,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "packages"
               },
@@ -2054,15 +2054,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "packages"
                   },
@@ -2081,19 +2081,19 @@
           "level": 2,
           "kind": "branch",
           "shown": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "path": "/collapsed"
+                "@path": "/collapsed"
               },
               "then": true,
               "else": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == a0)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "a0": "packages"
                   },
@@ -2109,12 +2109,12 @@
           "toggleOn": "toggle",
           "pressable": true,
           "open": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i)",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "packages/ui"
               },
@@ -2122,15 +2122,15 @@
             }
           },
           "next": {
-            "call": "not",
+            "@call": "not",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "packages/ui"
                   },
@@ -2140,12 +2140,12 @@
             }
           },
           "toggled": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]",
               "vars": {
                 "e": {
-                  "path": "/open"
+                  "@path": "/open"
                 },
                 "i": "packages/ui"
               },
@@ -2155,15 +2155,15 @@
             }
           },
           "icon": {
-            "call": "cond",
+            "@call": "cond",
             "args": {
               "if": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "e.exists(x, x == i)",
                   "vars": {
                     "e": {
-                      "path": "/open"
+                      "@path": "/open"
                     },
                     "i": "packages/ui"
                   },

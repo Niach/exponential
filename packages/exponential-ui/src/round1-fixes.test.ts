@@ -224,9 +224,9 @@ describe(`$set meets an author function (§1, review minor)`, () => {
   })
 
   test(`an A2UI functionCall counts as the author's function too (VAPP-99)`, () => {
-    const { root, issues } = reduce({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/o` } }, on: { change: { functionCall: { "@call": `harness.track` } } } })
+    const { root, issues } = reduce({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/o` } }, on: { change: { functionCall: { "@call": `harness_track` } } } })
     const press = byId(root, `c.trigger`)!.on!.press as Record<string, unknown>
-    expect(press).toEqual({ functionCall: { "@call": `harness.track` } })
+    expect(press).toEqual({ functionCall: { "@call": `harness_track` } })
     expect(issues).toEqual([{ id: `c`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event` }])
   })
 })

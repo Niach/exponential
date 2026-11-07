@@ -3035,15 +3035,15 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/title"
+              "@path": "/recordForm/deal/title"
             },
             "checks": [
               {
                 "condition": {
-                  "call": "required",
+                  "@call": "required",
                   "args": {
                     "value": {
-                      "path": "/recordForm/deal/title"
+                      "@path": "/recordForm/deal/title"
                     }
                   }
                 },
@@ -3058,7 +3058,7 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/amount"
+              "@path": "/recordForm/deal/amount"
             },
             "min": 0
           },
@@ -3069,7 +3069,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/stage"
+              "@path": "/recordForm/deal/stage"
             },
             "options": [
               {
@@ -3089,7 +3089,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/close"
+              "@path": "/recordForm/deal/close"
             }
           }
         ]
@@ -3206,15 +3206,15 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/title"
+              "@path": "/recordForm/deal/title"
             },
             "checks": [
               {
                 "condition": {
-                  "call": "required",
+                  "@call": "required",
                   "args": {
                     "value": {
-                      "path": "/recordForm/deal/title"
+                      "@path": "/recordForm/deal/title"
                     }
                   }
                 },
@@ -3229,7 +3229,7 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/amount"
+              "@path": "/recordForm/deal/amount"
             },
             "min": 0
           },
@@ -3240,7 +3240,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/stage"
+              "@path": "/recordForm/deal/stage"
             },
             "options": [
               {
@@ -3260,7 +3260,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/close"
+              "@path": "/recordForm/deal/close"
             }
           }
         ],

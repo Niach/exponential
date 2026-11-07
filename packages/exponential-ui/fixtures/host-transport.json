@@ -376,28 +376,7 @@
         ]
       },
       "expected": {
-        "messages": [
-          {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            }
-          },
-          {
-            "version": "v0.9",
-            "updateComponents": {
-              "surfaceId": "s1",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Text",
-                  "text": "Hi"
-                }
-              ]
-            }
-          }
-        ],
+        "messages": [],
         "issues": []
       }
     },
@@ -504,21 +483,8 @@
         ]
       },
       "expected": {
-        "messages": [
-          {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            }
-          }
-        ],
-        "issues": [
-          {
-            "at": 1,
-            "message": "content[0]: line 2 is not JSON"
-          }
-        ]
+        "messages": [],
+        "issues": []
       }
     }
   ],

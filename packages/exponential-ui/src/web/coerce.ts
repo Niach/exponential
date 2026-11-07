@@ -4,7 +4,7 @@
 // the built-in glyph names of `core.catalog.json` `builtinIcons`. Pure:
 // every web renderer paints with the same values.
 
-import { DEFAULT_STRINGS, coreCatalog } from "@exponential_app/eui"
+import { DEFAULT_STRINGS, checkResult, coreCatalog } from "@exponential_app/eui"
 
 export const str = (v: unknown, fallback = ``): string => (v === undefined || v === null ? fallback : typeof v === `object` ? JSON.stringify(v) : String(v))
 export const num = (v: unknown, fallback = 0): number => (typeof v === `number` && Number.isFinite(v) ? v : typeof v === `string` && v.trim() !== `` && Number.isFinite(Number(v)) ? Number(v) : fallback)
@@ -71,11 +71,15 @@ export function acceptsFile(accept: string, file: { name: string; type: string }
 }
 
 /** A control's `checks` evaluated: EVERY failing message, in order (a
- *  check without one says `$string.invalidValue`: pass the surface's). */
+ *  check without one says `$string.invalidValue`: pass the surface's). The
+ *  condition is already resolved; round 9 §6.6 turns it into a
+ *  ValidationResult (`checkResult`). */
 export function failingChecks(checks: unknown, fallback: string = DEFAULT_STRINGS.invalidValue): string[] {
   const out: string[] = []
   for (const check of objects<{ condition?: unknown; message?: unknown }>(checks)) {
-    if (check && typeof check === `object` && `condition` in check && (check.condition === false || check.condition === null || check.condition === undefined || check.condition === ``)) out.push(str(check.message, fallback))
+    if (!check || typeof check !== `object` || !(`condition` in check)) continue
+    const result = checkResult(check.condition, check.message)
+    if (!result.valid) out.push(result.message ?? fallback)
   }
   return out
 }

@@ -573,7 +573,7 @@ function boundMacroCases(): ComponentCase[] {
     if (def.kind !== `macro`) continue
     const base = { ...(def.example ?? {}) }
     for (const [prop, schema] of Object.entries(def.props)) {
-      if (schema.bindable) cases.push(makeCase(name, def, `bound:${prop}`, { ...base, [prop]: { path: `/${prop}` } }))
+      if (schema.bindable) cases.push(makeCase(name, def, `bound:${prop}`, { ...base, [prop]: { "@path": `/${prop}` } }))
       if (schema.responsive) cases.push(makeCase(name, def, `responsive:${prop}`, { ...base, [prop]: responsiveSample(schema) }))
     }
   }
@@ -1153,8 +1153,8 @@ function inlineBindings(value: unknown, data: Record<string, unknown>): unknown 
   if (Array.isArray(value)) return value.map((v) => inlineBindings(v, data))
   if (!value || typeof value !== `object`) return value
   const o = value as Record<string, unknown>
-  if (Object.keys(o).length === 1 && typeof o.path === `string`) {
-    const got = o.path.split(`/`).filter(Boolean).reduce<unknown>((at, k) => (at && typeof at === `object` ? (at as Record<string, unknown>)[k] : undefined), data)
+  if (Object.keys(o).length === 1 && typeof o[`@path`] === `string`) {
+    const got = (o[`@path`] as string).split(`/`).filter(Boolean).reduce<unknown>((at, k) => (at && typeof at === `object` ? (at as Record<string, unknown>)[k] : undefined), data)
     if (got === undefined) throw new Error(`specimen source: ${o.path} has no data`)
     return got
   }

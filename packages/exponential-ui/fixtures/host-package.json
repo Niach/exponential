@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-161: the package format's pure rules beyond validation (docs/package-format.md; validation is fixtures/host-router.json). Inputs hand-written; `expected` (and `signed`, `signedText`) filled by scripts/generate-host.ts from src/host/ (tools.ts, signature.ts), except `signatures[].expected`, which is hand-written and checked by the TS test against verifyPackageFile (WebCrypto is async; the generator signs with node:crypto). `consent`: toolConsent(package) and toolConsentKey per tool (`keys`, by id). `toolCalls`: toolCall(name). `extensions`: validatePackage(a one-template package with these `extensions`, catalogIds, available). `canonical`: canonicalJson(JSON.parse(text)) (RFC 8785; the input stays text so `1.0`, `-0.0` and escapes survive the generator). `signatures`: `file` signed with `key.seed` as `key.name` when `sign` (then `tamper` = [pointer, value] pairs applied), the result as `signed`; `signedText` = the context + the canonical JSON the signature covers (what a host's own Ed25519 signs and verifies); `expected` = verifyPackageFile(signed). The key is the RFC 8032 §7.1 TEST 1 keypair: public, NEVER a real author's. VAPP-189: the records query cases moved to fixtures/records-query.json. The Rust core replays consent, toolCalls, extensions, canonical and signedText.",
+  "$comment": "VAPP-161: the package format's pure rules beyond validation (docs/package-format.md; validation is fixtures/host-router.json). Inputs hand-written; `expected` (and `signed`, `signedText`) filled by scripts/generate-host.ts from src/host/ (tools_ts, signature.ts), except `signatures[].expected`, which is hand-written and checked by the TS test against verifyPackageFile (WebCrypto is async; the generator signs with node:crypto). `consent`: toolConsent(package) and toolConsentKey per tool (`keys`, by id). `toolCalls`: toolCall(name). `extensions`: validatePackage(a one-template package with these `extensions`, catalogIds, available). `canonical`: canonicalJson(JSON.parse(text)) (RFC 8785; the input stays text so `1.0`, `-0.0` and escapes survive the generator). `signatures`: `file` signed with `key.seed` as `key.name` when `sign` (then `tamper` = [pointer, value] pairs applied), the result as `signed`; `signedText` = the context + the canonical JSON the signature covers (what a host's own Ed25519 signs and verifies); `expected` = verifyPackageFile(signed). The key is the RFC 8032 §7.1 TEST 1 keypair: public, NEVER a real author's. VAPP-189: the records query cases moved to fixtures/records-query.json. The Rust core replays consent, toolCalls, extensions, canonical and signedText.",
   "key": {
     "name": "Test Author",
     "seed": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
@@ -87,21 +87,21 @@
   ],
   "toolCalls": [
     {
-      "name": "tools.weather.forecast",
+      "name": "tools_weather__forecast",
       "expected": {
         "toolId": "weather",
         "tool": "forecast"
       }
     },
     {
-      "name": "tools.lint",
+      "name": "tools_lint",
       "expected": {
         "toolId": "lint",
         "tool": null
       }
     },
     {
-      "name": "tools.files.read_file.v2",
+      "name": "tools_files__read_file.v2",
       "expected": {
         "toolId": "files",
         "tool": "read_file.v2"
@@ -116,7 +116,7 @@
       "expected": null
     },
     {
-      "name": "harness.toast",
+      "name": "harness_toast",
       "expected": null
     }
   ],
@@ -145,7 +145,12 @@
           ]
         }
       ],
-      "expected": []
+      "expected": [
+        {
+          "path": "/formatVersion",
+          "message": "format version 5 is no longer read; 6 is required"
+        }
+      ]
     },
     {
       "name": "a lower minor does not satisfy",
@@ -165,6 +170,10 @@
         }
       ],
       "expected": [
+        {
+          "path": "/formatVersion",
+          "message": "format version 5 is no longer read; 6 is required"
+        },
         {
           "path": "/extensions/0/version",
           "message": "extension https://acme.example/catalogs/charts/v1 1.3.9 does not satisfy ^1.4.0"
@@ -189,6 +198,10 @@
         }
       ],
       "expected": [
+        {
+          "path": "/formatVersion",
+          "message": "format version 5 is no longer read; 6 is required"
+        },
         {
           "path": "/extensions/0/version",
           "message": "extension https://acme.example/catalogs/charts/v1 2.0.0 does not satisfy ^1.4.0"
@@ -220,6 +233,10 @@
       ],
       "expected": [
         {
+          "path": "/formatVersion",
+          "message": "format version 5 is no longer read; 6 is required"
+        },
+        {
           "path": "/extensions/0/components/1",
           "message": "extension https://acme.example/catalogs/charts/v1 has no component Pie"
         }
@@ -239,7 +256,12 @@
       "extensionIds": [
         "https://acme.example/catalogs/charts/v1"
       ],
-      "expected": []
+      "expected": [
+        {
+          "path": "/formatVersion",
+          "message": "format version 5 is no longer read; 6 is required"
+        }
+      ]
     },
     {
       "name": "not registered",
@@ -252,6 +274,10 @@
       "extensionIds": [],
       "available": [],
       "expected": [
+        {
+          "path": "/formatVersion",
+          "message": "format version 5 is no longer read; 6 is required"
+        },
         {
           "path": "/extensions/0/id",
           "message": "extension https://acme.example/catalogs/charts/v1 is not available on this host"
@@ -335,7 +361,7 @@
           }
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":5,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":6,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "unsigned"
       }
@@ -405,7 +431,7 @@
           "key": "ed25519:nope"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:nope\",\"name\":\"Someone\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":5,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:nope\",\"name\":\"Someone\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":6,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "unsigned"
       }
@@ -490,10 +516,10 @@
         },
         "signature": {
           "alg": "ed25519",
-          "value": "jZkX-bBLh1rFJjCC9V6XoixMFQWv3BFv9AqDNS5lz0eJFhY7kGZVTyqmoS4TaMtbOhY3zAOrVv_JtY2Sf2rpAw"
+          "value": "vzpZEZ5E75d3ptWMMe6Jf0ovJGuF0CKogoRvopA8Pibwbm7kJnHePJ_nKKhpCvw8XRcTwOgeZA2HYfsoNnZsBQ"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":5,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"},\"records\":[{\"data\":{\"hours\":1.5,\"note\":\"€😀\"},\"kind\":\"entry\"}]}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":6,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"},\"records\":[{\"data\":{\"hours\":1.5,\"note\":\"€😀\"},\"kind\":\"entry\"}]}",
       "expected": {
         "status": "valid",
         "author": {
@@ -570,10 +596,10 @@
         },
         "signature": {
           "alg": "ed25519",
-          "value": "ULRoDmnDu2XxdtvNPft3ADynmo64FD9U4CQ-04uoLQTcCepoEyiOtJccNZx9nQcQ1fA5ZO7HRheIhssjuRBXCg"
+          "value": "PnsvxPFE0VcpiSgkxXegPyyXQhPu8OajCuo-A0hpWFl-6nmvz-22h97YbYKAET6pNYMPejwVepySOqz8sPNlAg"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":5,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.1\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":6,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.1\"}}",
       "expected": {
         "status": "invalid",
         "issues": [
@@ -652,10 +678,10 @@
         },
         "signature": {
           "alg": "ed25519",
-          "value": "ULRoDmnDu2XxdtvNPft3ADynmo64FD9U4CQ-04uoLQTcCepoEyiOtJccNZx9nQcQ1fA5ZO7HRheIhssjuRBXCg"
+          "value": "PnsvxPFE0VcpiSgkxXegPyyXQhPu8OajCuo-A0hpWFl-6nmvz-22h97YbYKAET6pNYMPejwVepySOqz8sPNlAg"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Mallory\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":5,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Mallory\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":6,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "invalid",
         "issues": [
@@ -739,7 +765,7 @@
           "value": "!!"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:AAAA\",\"name\":\"\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":5,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:AAAA\",\"name\":\"\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":6,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "invalid",
         "issues": [
@@ -827,7 +853,7 @@
           "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":5,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":6,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "invalid",
         "issues": [
