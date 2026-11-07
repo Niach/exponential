@@ -53,6 +53,7 @@ struct TeamsPickPage: View {
                 AnyView(TeamAvatar(iconUrl: byId[item.value]?.iconUrl, size: 20).foregroundStyle(.white))
             }
         )
+        .pickerCheckMarks()
         .accessibilityIdentifier("agent-composer-teams-picker")
     }
 }

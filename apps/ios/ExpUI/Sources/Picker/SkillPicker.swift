@@ -72,5 +72,6 @@ public struct SkillPicker<Trigger: View>: View {
             sheetIdentifier: "skill-picker",
             trigger: trigger
         )
+        .pickerCheckMarks()
     }
 }

@@ -293,8 +293,10 @@ object PickerDefaults {
      * what makes the list read as plain rows on the sheet instead of a stack
      * of cards.
      */
-    fun mark(mode: PickerMode, checked: PickerChecked): PickerMark = when {
+    fun mark(mode: PickerMode, checked: PickerChecked, checkMarks: Boolean = false): PickerMark = when {
         checked == PickerChecked.None -> PickerMark.None
+        // The composer's search-list submenus: a pick is the trailing check.
+        checkMarks -> PickerMark.Check
         // Tri-state is the bulk edit's, so it can only ever reach the multi
         // arm; a single pick is one value and is either it or not.
         mode == PickerMode.Single -> PickerMark.Check
@@ -402,6 +404,13 @@ fun <T : Any> Picker(
      * the assignee picker's avatar (a picker glyph is an icon, never a photo).
      */
     renderItem: (@Composable RowScope.(item: PickerItem<T>) -> Unit)? = null,
+    /**
+     * The composer "+" menu's search-list submenus (composer-menu.json: MCP
+     * servers, Skills, Teams) mark a MULTI pick with the trailing check, as
+     * web, the IDE and iOS draw those rows; every other multi picker keeps
+     * the row's own highlight.
+     */
+    checkMarks: Boolean = false,
     /** The caller's explicit presentation; null = the host decides (N-6). */
     presentation: PickerPresentation? = null,
     trigger: @Composable (open: () -> Unit) -> Unit = {},
@@ -505,7 +514,7 @@ fun <T : Any> Picker(
             items(rows, key = { it.value }) { item ->
                 PickerRow(
                     item = item,
-                    mark = PickerDefaults.mark(mode, PickerRules.checked(item, value)),
+                    mark = PickerDefaults.mark(mode, PickerRules.checked(item, value), checkMarks),
                     onClick = {
                         val next = PickerRules.select(mode, value, item) ?: return@PickerRow
                         onChange(next)

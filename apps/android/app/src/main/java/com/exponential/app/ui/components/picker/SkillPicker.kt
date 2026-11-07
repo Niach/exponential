@@ -37,6 +37,7 @@ fun SkillPicker(
     Picker(
         items = skillPickerItems(skills),
         mode = PickerMode.Multi,
+        checkMarks = true,
         value = value.toSet(),
         onChange = { next ->
             val added = next.firstOrNull { it !in value }

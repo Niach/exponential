@@ -54,6 +54,7 @@ internal fun ComposerTeamsPage(binding: TeamsPickBinding, close: () -> Unit) {
     Picker(
         items = binding.teams.map { PickerItem(value = it.id, label = it.name, keywords = listOf(it.name)) },
         mode = PickerMode.Multi,
+        checkMarks = true,
         value = TeamsPick.pickedIds(binding.picked, binding.ids).toSet(),
         // The last checked team stays: a turn always touches one.
         onChange = { next -> if (next.isNotEmpty()) binding.onChange(TeamsPick.next(next, binding.ids)) },

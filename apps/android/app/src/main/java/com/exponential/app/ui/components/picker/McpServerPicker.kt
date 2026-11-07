@@ -40,6 +40,7 @@ fun McpServerPicker(
     Picker(
         items = mcpServerPickerItems(servers),
         mode = PickerMode.Multi,
+        checkMarks = true,
         value = value.toSet(),
         onChange = { next ->
             val added = next.firstOrNull { it !in value }
