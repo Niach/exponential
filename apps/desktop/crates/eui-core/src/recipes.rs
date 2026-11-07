@@ -175,6 +175,18 @@ pub fn native_recipe_props(component: &str, props: &Props) -> Props {
     CORE_INDEX.native_recipe_props(component, props)
 }
 
+/// Round 9 §9.1 (TS `markdownInlineRecipes`, `fixtures/markdown-inline.json`):
+/// the recipes an INLINE-profile Markdown part paints with, first to last
+/// (later rules over earlier): a paragraph IS a Text of its `variant`, a
+/// heading a Heading of its level (Text `title` + `Heading/root`; h5, h6 = h4).
+pub fn markdown_inline_recipes(part: &str, variant: Option<&str>, level: Option<u8>) -> Vec<crate::theme::RecipeQuery> {
+    let query = |component: &str, prop: &str, value: String| crate::theme::RecipeQuery::new(component, "root", crate::types::Props::from_iter([(prop.to_string(), serde_json::Value::from(value))]), Vec::new());
+    if part == "paragraph" {
+        return vec![query("Text", "variant", variant.unwrap_or("body").to_string())];
+    }
+    vec![query("Text", "variant", "title".to_string()), query("Heading", "level", format!("h{}", level.unwrap_or(2).clamp(1, 4)))]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
