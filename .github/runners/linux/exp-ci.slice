@@ -1,0 +1,12 @@
+# The Mint's CI runners run in this slice (compose.yaml `cgroup_parent`), a
+# sibling of user.slice: CPUWeight=idle makes their work SCHED_IDLE against
+# the desktop session, so a game or a browser always wins a core and CI takes
+# only what nobody else wants (.github/runners/README.md). Install once:
+#   sudo cp exp-ci.slice /etc/systemd/system/ && sudo systemctl daemon-reload
+[Unit]
+Description=Exponential CI runners (idle CPU priority)
+Before=slices.target
+
+[Slice]
+CPUWeight=idle
+IOWeight=10

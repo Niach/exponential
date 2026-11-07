@@ -33,10 +33,20 @@ docker compose up -d --build                        # later: rebuild/upgrade
 ```
 
 `<token>` = `gh api -X POST repos/Niach/exponential/actions/runners/registration-token -q .token`
-(valid one hour). Two runners, each capped, on purpose: the Mint is Danny's
-desktop, and four at 16 CPUs each made it lag (2026-11-03). `RUNNER_CPUS` in a
-`.env` next to `compose.yaml` caps EACH runner (default 6; the Mint: 8, so CI
-never takes more than 16 of its 32 cores). The caches (sccache, cargo, rustup,
+(valid one hour). Two runners: the Mint is Danny's desktop, and four at 16
+CPUs each made it lag (2026-11-03). Since 2026-11-07 the desktop wins by
+priority: the runners run in `exp-ci.slice` (`CPUWeight=idle`, a sibling of
+user.slice), so CI only gets the cores nobody else wants. Install the slice
+before the first `up` (`sudo cp exp-ci.slice /etc/systemd/system/ && sudo
+systemctl daemon-reload`). `RUNNER_CPUS` in a `.env` next to `compose.yaml`
+caps EACH runner (default 6; the Mint: 12).
+
+Overflow: when the exp-linux jobs already waiting exceed two per online
+runner, `pick-runner.yml` sends the run to GitHub-hosted instead (input
+`linux-overflow`; 2026-11-03..07 the Mint queued 16 min at p90).
+
+Disk: `prune.sh` (a weekly user crontab line, see its header) drops images
+and build cache nothing used for a week, never volumes. The caches (sccache, cargo, rustup,
 gradle, bun, tool cache) are named volumes (per runner except sccache, the tool
 cache and the read-only Gradle dependency cache); `docker compose down -v`
 drops them and the registration.

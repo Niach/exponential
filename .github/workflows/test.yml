@@ -87,16 +87,21 @@ jobs:
             printf 'desktop=true\neui=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # The Rust legs (desktop, eUI, eDE, Android) skip prose: a package's
+          # markdown and the eUI skills feed no build or test (nothing under
+          # packages/ is include_str!-ed as .md); markdown inside apps/ does
+          # (runbook.md, the editor's test.md), so it stays.
+          rfiles="$(grep -vE '^packages/.*\.md$|^packages/exponential-ui/skills/' <<<"$files" || true)"
           desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
-          echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          echo "desktop=$(grep -qE "$desktop" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
-          echo "eui=$(grep -qE "$eui" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          echo "eui=$(grep -qE "$eui" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
-          echo "ede=$(grep -qE "$ede" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          echo "ede=$(grep -qE "$ede" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
           ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore|ztracing|ztracing_macro)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
-          echo "ede_shell=$(grep -qE "$ede_shell" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          echo "ede_shell=$(grep -qE "$ede_shell" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
           echo "ios=$(grep -qE "$ios" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
@@ -112,12 +117,12 @@ jobs:
           # unit tests read, the eNet / eUI facades (committed Kotlin bindings +
           # the host library the tests load through JNA).
           android='^(apps/android/|packages/(domain-contract|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi|eengine|eengine-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
-          echo "android=$(grep -qE "$android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          echo "android=$(grep -qE "$android" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-267: the Android runner, the modules it builds from (eUI
           # Compose, the Engine AAR + its facade and core) and the fixtures its
           # JVM tests replay.
           runner_android='^(apps/runner/android/|packages/(exponential-ui-compose|eengine|icons)/|apps/desktop/crates/(eengine|eengine-ffi|exponential-ui-ffi|eengine-bundle)/|scripts/runner-kits/android\.sh$|apps/android/app/src/main/java/com/exponential/app/ui/icons/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
-          echo "runner_android=$(grep -qE "$runner_android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          echo "runner_android=$(grep -qE "$runner_android" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # exponential.at: the site, what it renders (eUI, Motion's WASM,
           # the shot store) and the repo markdown its reference pages read.
           site='^(apps/site/|shots/|docs/|INSTALL\.md$|packages/exponential-ui(-react)?/|apps/web/src/lib/(changelog\.ts|emcp/)|apps/desktop/crates/cli/src/main\.rs$|\.github/workflows/test\.yml$)'
