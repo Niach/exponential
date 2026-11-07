@@ -158,8 +158,8 @@ fn the_router_tracks_surfaces_packages_and_extensions() {
     let f = fixture("host-router.json");
     let mut router = host::HostRouter::new::<&str>(&[]);
     assert!(router.install_package(&f["packages"]["acme.devices"]).is_empty());
-    router.route(&json!({"version": "v0.9", "applyTemplate": {"surfaceId": "d", "templateId": "list"}}));
-    router.route(&json!({"version": "v0.9", "createSurface": {"surfaceId": "free", "catalogId": eui_core::CORE_CATALOG_ID}}));
+    router.route(&json!({"version": "1.0", "applyTemplate": {"surfaceId": "d", "templateId": "list"}}), eui_core::host::RouteOptions::trusted());
+    router.route(&json!({"version": "1.0", "createSurface": {"surfaceId": "free", "catalogId": eui_core::CORE_CATALOG_ID}}), Default::default());
     assert_eq!(router.surface_ids(), ["d", "free"]);
     assert_eq!(router.package_id_of("d").as_deref(), Some("acme.devices"));
     assert_eq!(router.package_id_of("free"), None);
@@ -167,7 +167,7 @@ fn the_router_tracks_surfaces_packages_and_extensions() {
     router.register_extension("https://acme.example/catalog/v1");
     assert_eq!(router.supported_catalog_ids().last().map(String::as_str), Some("https://acme.example/catalog/v1"));
     assert_eq!(router.supported_catalog_ids().len(), 4);
-    router.route(&json!({"version": "v0.9", "deleteSurface": {"surfaceId": "d"}}));
+    router.route(&json!({"version": "1.0", "deleteSurface": {"surfaceId": "d"}}), Default::default());
     assert_eq!(router.surface_ids(), ["free"]);
 }
 
@@ -195,15 +195,15 @@ fn a_router_with_extensions_checks_versions_and_components_of_registered_ones() 
 fn client_messages_match_the_reference_shapes() {
     assert_eq!(
         host::action_message("s", "btn", "save", json!({"id": 1}), Some(json!({"value": "a"})), "2026-10-08T00:00:00.000Z"),
-        json!({"version": "v0.9", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "2026-10-08T00:00:00.000Z", "context": {"id": 1}, "payload": {"value": "a"}}})
+        json!({"version": "1.0", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "2026-10-08T00:00:00.000Z", "context": {"id": 1}, "payload": {"value": "a"}}})
     );
     assert_eq!(
         host::action_message("s", "btn", "save", Value::Null, Some(json!({})), "t"),
-        json!({"version": "v0.9", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {}}})
+        json!({"version": "1.0", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {}}})
     );
     assert_eq!(
         host::error_message("VALIDATION_FAILED", "s", "no resolver for the source scheme acme", Some("/x")),
-        json!({"version": "v0.9", "error": {"code": "VALIDATION_FAILED", "surfaceId": "s", "message": "no resolver for the source scheme acme", "path": "/x"}})
+        json!({"version": "1.0", "error": {"code": "VALIDATION_FAILED", "surfaceId": "s", "message": "no resolver for the source scheme acme", "path": "/x"}})
     );
     assert_eq!(host::error_message("FUNCTION_DENIED", "s", "m", None)["error"].get("path"), None);
     let policy = host::package_policy(Some(&["harness.toast".to_string()]));
@@ -272,7 +272,7 @@ fn an_event_and_a_function_call_on_one_handler_both_fire() {
 fn a_basic_catalog_button_action_function_call_reaches_the_host() {
     let mut surface = Surface::new("s1", SurfaceOptions { catalog_id: eui_core::A2UI_BASIC_CATALOG_ID.into(), ..SurfaceOptions::default() });
     let outcome = surface
-        .apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s1", "components": [
+        .apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s1", "components": [
             {"id": "root", "component": "Column", "children": ["btn"]},
             {"id": "btn", "component": "Button", "child": "l", "action": {"functionCall": {"call": "harness.toast", "args": {"message": "hey"}}}},
             {"id": "l", "component": "Text", "text": "Go"}

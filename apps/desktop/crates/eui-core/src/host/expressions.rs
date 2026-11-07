@@ -288,11 +288,11 @@ fn walk(t: Value, segments: &[String], strict: bool) -> Result<Value, String> {
 }
 
 fn is_binding(v: &Value) -> bool {
-    v.as_object().is_some_and(|o| o.len() == 1 && o.get("path").is_some_and(Value::is_string))
+    v.as_object().is_some_and(|o| o.len() == 1 && o.get("@path").is_some_and(Value::is_string))
 }
 
 fn is_call(v: &Value) -> bool {
-    v.as_object().is_some_and(|o| o.get("call").is_some_and(Value::is_string))
+    v.as_object().is_some_and(|o| o.get("@call").is_some_and(Value::is_string))
 }
 
 /// A kind whose rows have only their schema's fields and the row keys.
@@ -411,10 +411,10 @@ fn row_scopes(ctx: &Ctx) -> HashMap<String, Option<Scope>> {
 /// binding to a field a closed row has not is an issue at its path.
 fn var_type(v: &Value, at: &str, scope: Option<&Scope>, ctx: &Ctx, issues: &mut Vec<PackageIssue>) -> Value {
     if is_binding(v) {
-        let path = v["path"].as_str().unwrap_or_default();
+        let path = v["@path"].as_str().unwrap_or_default();
         return match binding_type(path, scope, ctx).t {
             Err(field) => {
-                issues.push(PackageIssue { path: format!("{at}/path"), message: format!("unknown field {field} in {path}") });
+                issues.push(PackageIssue { path: format!("{at}/@path"), message: format!("unknown field {field} in {path}") });
                 optional_type(ty("dyn"))
             }
             Ok(t) if t == ty("dyn") => optional_type(t),
@@ -439,7 +439,7 @@ fn visit(value: &Value, at: &str, scope: Option<&Scope>, ctx: &Ctx, issues: &mut
             }
         }
         Value::Object(obj) => {
-            if let (Some("expr"), Some(Value::Object(args))) = (obj.get("call").and_then(Value::as_str), obj.get("args")) {
+            if let (Some("expr"), Some(Value::Object(args))) = (obj.get("@call").and_then(Value::as_str), obj.get("args")) {
                 let here = format!("{at}/args");
                 // VAPP-195: every expression binding shows a default when it fails.
                 if !args.contains_key("default") {

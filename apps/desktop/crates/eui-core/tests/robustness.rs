@@ -257,14 +257,14 @@ fn data_pointers_refuse_gaps_huge_indices_and_long_paths() {
 #[test]
 fn the_router_refuses_an_oversized_message() {
     let mut router = HostRouter::new::<&str>(&[]);
-    router.route(&json!({"version": "v0.9", "createSurface": {"surfaceId": "s", "catalogId": CORE}}));
+    router.route(&json!({"version": "1.0", "createSurface": {"surfaceId": "s", "catalogId": CORE}}), Default::default());
     let big = "x".repeat(MAX_MESSAGE_BYTES);
-    let ops = router.route(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [{"id": "root", "component": "Text", "text": big}]}}));
+    let ops = router.route(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s", "components": [{"id": "root", "component": "Text", "text": big}]}}), Default::default());
     assert_eq!(ops.len(), 1);
     assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
     assert_eq!(ops[0]["message"]["error"]["surfaceId"], "s");
     assert_eq!(ops[0]["message"]["error"]["message"], limits::message_bytes_issue());
-    let ok = router.route(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [{"id": "root", "component": "Text", "text": "x".repeat(1000)}]}}));
+    let ok = router.route(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s", "components": [{"id": "root", "component": "Text", "text": "x".repeat(1000)}]}}), Default::default());
     assert_eq!(ok[0]["op"], "components");
 }
 

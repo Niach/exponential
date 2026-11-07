@@ -213,7 +213,7 @@ fn navigate_issues(pkg: &Map<String, Value>, screens: &[String]) -> Vec<PackageI
                 let Some(on) = c.get("on").and_then(Value::as_object) else { continue };
                 for event in sorted_keys(on) {
                     let Some(fc) = on[event].get("functionCall").filter(|f| f.is_object()) else { continue };
-                    if fc.get("call").and_then(Value::as_str) != Some(NAVIGATE_FUNCTION) {
+                    if fc.get("@call").and_then(Value::as_str) != Some(NAVIGATE_FUNCTION) {
                         continue;
                     }
                     let at = format!("/templates/{}/components/{i}/on/{}/functionCall/args", escape(id), escape(event));

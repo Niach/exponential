@@ -11,7 +11,7 @@ use eui_core::host::{
     source_with_params, supported_catalog_ids, validate_package, validate_record, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, SseDecoder, UrlPolicy,
 };
 use eui_core::json;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub const PKG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui");
 
@@ -232,7 +232,13 @@ pub fn router_cases() -> Vec<Case> {
             result = result.and_then(|_| same(&to_value(&got), &flow["installIssues"][id]).map_err(|e| format!("install {id}: {e}")));
         }
         for (i, step) in list(flow, "steps").iter().enumerate() {
-            let got = Value::Array(router.route(&step["message"]));
+            let trusted = step.get("trusted").or(flow.get("trusted")).and_then(Value::as_bool).unwrap_or(false);
+            let accept_v09 = step.get("acceptV09").or(flow.get("acceptV09")).and_then(Value::as_bool).unwrap_or(eui_core::catalog::ACCEPT_V09);
+            let got = if let Some(base) = step.get("mint").and_then(Value::as_str) {
+                json!(router.mint_surface_id(base))
+            } else {
+                Value::Array(router.route(&step["message"], eui_core::host::RouteOptions { trusted, accept_v09 }))
+            };
             result = result.and_then(|_| same(&got, &step["expected"]).map_err(|e| format!("step {i}: {e}")));
         }
         out.push((format!("flow: {name}"), result));

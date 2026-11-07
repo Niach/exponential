@@ -411,10 +411,10 @@ fn pure(value: &Value, at: &str, issues: &mut Vec<PackageIssue>) {
             }
         }
         Value::Object(obj) => {
-            if let Some(call) = obj.get("call").and_then(Value::as_str) {
+            if let Some(call) = obj.get("@call").and_then(Value::as_str) {
                 let effect = function_effect(call);
                 if effect != FunctionEffect::Pure {
-                    issues.push(issue(format!("{at}/call"), format!("{}: a binding is pure, name an action in on.press", effect_words(call, effect))));
+                    issues.push(issue(format!("{at}/@call"), format!("{}: a binding is pure, name an action in on.press", effect_words(call, effect))));
                 }
             }
             for (k, v) in obj {
@@ -454,10 +454,10 @@ pub fn validate_package_effects(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                             pure(hv, &format!("{hat}/{}", escape(hk)), &mut issues);
                             continue;
                         };
-                        let call = fc.get("call").and_then(Value::as_str).unwrap_or("");
+                        let call = fc.get("@call").and_then(Value::as_str).unwrap_or("");
                         if let Some(action) = action_call_name(call) {
                             if !actions.contains_key(action) {
-                                issues.push(issue(format!("{hat}/functionCall/call"), format!("action {action} names no package action")));
+                                issues.push(issue(format!("{hat}/functionCall/@call"), format!("action {action} names no package action")));
                             }
                             // VAPP-204: a press's args are the action's params.
                             if let Some(def) = actions.get(action).and_then(Value::as_object) {
@@ -469,7 +469,7 @@ pub fn validate_package_effects(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                             bind_source_issues(pkg, fc.get("args"), &format!("{hat}/functionCall/args"), &mut issues);
                         }
                         for (fk, fv) in fc {
-                            if fk != "call" {
+                            if fk != "@call" {
                                 pure(fv, &format!("{hat}/functionCall/{}", escape(fk)), &mut issues);
                             }
                         }
