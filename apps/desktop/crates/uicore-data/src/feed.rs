@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
-use uicore_model::{alt_tab_order, start_menu_apps, start_menu_categories, taskbar_buttons, workspace_badges, ShellState, StartMenuApp};
+use uicore_model::{alt_tab_order, start_menu_apps, start_menu_categories, switcher_sections, taskbar_buttons, workspace_badges, ShellState, StartMenuApp};
 
 /// The data every open surface sees: `path` (`/windows`) → value. A host
 /// sets what changed and pushes the whole feed into its views.
@@ -69,7 +69,11 @@ pub fn shell_feed(state: &ShellState, apps: &[StartMenuApp], favourites: &[Strin
     json!({
         "rail": state.rail,
         "sidebar": state.sidebar,
-        "switcher": state.switcher,
+        "switcher": {
+            "current": state.switcher.current,
+            "entries": state.switcher.entries,
+            "sections": switcher_sections(state),
+        },
         "workspaces": {
             "active": state.workspaces.active,
             "count": state.workspaces.count,

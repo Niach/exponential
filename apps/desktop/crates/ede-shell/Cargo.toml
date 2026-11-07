@@ -16,6 +16,11 @@ ede-protocol = { path = "../ede-protocol" }
 uicore-model = { path = "../uicore-model" }
 uicore-data = { path = "../uicore-data" }
 uicore-gpui = { path = "../uicore-gpui" }
+# #EDE-56: Local desktops (elocal), the accounts (api) and their teams (sync, no gpui).
+api = { path = "../api" }
+elocal = { path = "../elocal" }
+sync = { path = "../sync", default-features = false }
+flume.workspace = true
 ede-ui = { path = "../../../ede/crates/ede-ui" }
 # The services data source (#EDE-13): /services/<domain> in every document.
 ede-services = { path = "../../../ede/crates/ede-services" }

@@ -1,0 +1,480 @@
+{
+  "$comment": "Exponential Desktop's factory Connect Exponential (#EDE-56): the switcher's and Settings' Connect Exponential rows open it as an on-demand top layer surface in the middle of the screen. The person names the instance (app.exponential.at by default) and signs in the way the IDE does: the browser (the PKCE flow; the exponential:// callback comes back to the shell when it is the registered handler) or a code (the device-code flow: the code and the page to enter it at, the shell polls). The host feeds /connecting {state idle|browser|code|done|failed, code, uri, email, error}; the instance is the document's own data (/connect/instance). On success the account joins accounts.json (the IDE's too) and its teams join the switcher.",
+  "surface": {
+    "layer": "top",
+    "size": {
+      "width": 520,
+      "height": 360
+    },
+    "keyboard": "on-demand",
+    "onDemand": true,
+    "functions": [
+      "set",
+      "ede.connect",
+      "ede.close_document"
+    ]
+  },
+  "root": {
+    "id": "connect",
+    "component": "Box",
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "gap": "$spacing.md",
+      "padding": "$spacing.lg",
+      "width": 520,
+      "height": 360,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.lg"
+    },
+    "children": [
+      {
+        "id": "connect-head",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center",
+          "justify": "between"
+        },
+        "children": [
+          {
+            "id": "connect-title",
+            "component": "Heading",
+            "props": {
+              "text": "Connect Exponential",
+              "level": "h3"
+            }
+          },
+          {
+            "id": "connect-close",
+            "component": "Button",
+            "props": {
+              "icon": "ui-close",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "Close"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "ede.close_document",
+                  "args": {
+                    "name": "connect"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "connect-idle",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "md"
+        },
+        "visible": {
+          "call": "eq",
+          "args": {
+            "a": {
+              "path": "/connecting/state"
+            },
+            "b": "idle"
+          }
+        },
+        "children": [
+          {
+            "id": "connect-instance",
+            "component": "Input",
+            "props": {
+              "type": "url",
+              "name": "instance",
+              "label": "Instance",
+              "placeholder": "https://app.exponential.at",
+              "value": {
+                "path": "/connect/instance"
+              }
+            }
+          },
+          {
+            "id": "connect-actions",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "center"
+            },
+            "children": [
+              {
+                "id": "connect-browser",
+                "component": "Button",
+                "props": {
+                  "label": "Continue in the browser",
+                  "variant": "default",
+                  "icon": "brand-exponential"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "ede.connect",
+                      "args": {
+                        "action": "start",
+                        "instance": {
+                          "path": "/connect/instance"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "connect-code-instead",
+                "component": "Button",
+                "props": {
+                  "label": "Use a code instead",
+                  "variant": "outline"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "ede.connect",
+                      "args": {
+                        "action": "code",
+                        "instance": {
+                          "path": "/connect/instance"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "connect-browser-wait",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "md"
+        },
+        "visible": {
+          "call": "eq",
+          "args": {
+            "a": {
+              "path": "/connecting/state"
+            },
+            "b": "browser"
+          }
+        },
+        "children": [
+          {
+            "id": "connect-browser-text",
+            "component": "Text",
+            "props": {
+              "text": "Finish signing in in your browser.",
+              "variant": "body"
+            }
+          },
+          {
+            "id": "connect-browser-hint",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/connecting/instance"
+              },
+              "variant": "muted",
+              "lines": 1
+            }
+          },
+          {
+            "id": "connect-browser-actions",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "center"
+            },
+            "children": [
+              {
+                "id": "connect-browser-code",
+                "component": "Button",
+                "props": {
+                  "label": "Use a code instead",
+                  "variant": "outline"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "ede.connect",
+                      "args": {
+                        "action": "code"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "connect-browser-cancel",
+                "component": "Button",
+                "props": {
+                  "label": "Cancel",
+                  "variant": "ghost"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "ede.connect",
+                      "args": {
+                        "action": "cancel"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "connect-code",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "md"
+        },
+        "visible": {
+          "call": "eq",
+          "args": {
+            "a": {
+              "path": "/connecting/state"
+            },
+            "b": "code"
+          }
+        },
+        "children": [
+          {
+            "id": "connect-code-value",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/connecting/code"
+              },
+              "variant": "title",
+              "align": "center"
+            }
+          },
+          {
+            "id": "connect-code-where",
+            "component": "Text",
+            "props": {
+              "text": "Enter this code at",
+              "variant": "muted",
+              "align": "center"
+            }
+          },
+          {
+            "id": "connect-code-uri",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/connecting/uri"
+              },
+              "variant": "label",
+              "align": "center",
+              "lines": 1
+            }
+          },
+          {
+            "id": "connect-code-actions",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "center",
+              "justify": "center"
+            },
+            "children": [
+              {
+                "id": "connect-code-open",
+                "component": "Button",
+                "props": {
+                  "label": "Open the page",
+                  "variant": "default",
+                  "icon": "ui-external-link"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "ede.connect",
+                      "args": {
+                        "action": "open"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "connect-code-cancel",
+                "component": "Button",
+                "props": {
+                  "label": "Cancel",
+                  "variant": "ghost"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "ede.connect",
+                      "args": {
+                        "action": "cancel"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "connect-code-waiting",
+            "component": "Text",
+            "props": {
+              "text": "Waiting for the approval…",
+              "variant": "muted",
+              "align": "center"
+            }
+          }
+        ]
+      },
+      {
+        "id": "connect-done",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "md"
+        },
+        "visible": {
+          "call": "eq",
+          "args": {
+            "a": {
+              "path": "/connecting/state"
+            },
+            "b": "done"
+          }
+        },
+        "children": [
+          {
+            "id": "connect-done-text",
+            "component": "Text",
+            "props": {
+              "text": "Connected as",
+              "variant": "muted"
+            }
+          },
+          {
+            "id": "connect-done-email",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/connecting/email"
+              },
+              "variant": "title",
+              "lines": 1
+            }
+          },
+          {
+            "id": "connect-done-hint",
+            "component": "Text",
+            "props": {
+              "text": "Your teams are in the switcher.",
+              "variant": "body"
+            }
+          },
+          {
+            "id": "connect-done-close",
+            "component": "Button",
+            "props": {
+              "label": "Done",
+              "variant": "default"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "ede.close_document",
+                  "args": {
+                    "name": "connect"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "connect-failed",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "md"
+        },
+        "visible": {
+          "call": "eq",
+          "args": {
+            "a": {
+              "path": "/connecting/state"
+            },
+            "b": "failed"
+          }
+        },
+        "children": [
+          {
+            "id": "connect-error",
+            "component": "Alert",
+            "props": {
+              "title": "Could not connect",
+              "message": {
+                "path": "/connecting/error"
+              },
+              "type": "error"
+            }
+          },
+          {
+            "id": "connect-retry",
+            "component": "Button",
+            "props": {
+              "label": "Try again",
+              "variant": "outline"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "ede.connect",
+                  "args": {
+                    "action": "cancel"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "data": {
+    "connect": {
+      "instance": "https://app.exponential.at"
+    },
+    "connecting": {
+      "state": "idle",
+      "instance": "",
+      "code": "",
+      "uri": "",
+      "email": "",
+      "error": ""
+    }
+  }
+}

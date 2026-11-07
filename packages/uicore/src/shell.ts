@@ -13,6 +13,17 @@ export interface SwitcherEntry {
   kind: SwitcherKind
   id: string
   name: string
+  /** EDE-56: the Exponential account a team belongs to (its id); a local desktop has none. */
+  account?: string
+  /** EDE-56: the account's email, the section's label. */
+  accountName?: string
+}
+
+export interface SwitcherSection {
+  kind: `local` | `account`
+  id: string
+  label: string
+  entries: (SwitcherEntry & { current: boolean })[]
 }
 
 export interface ShellWindow {
@@ -321,6 +332,24 @@ export function workspaceBadges(state: ShellState): WorkspaceBadge[] {
     active: index === state.workspaces.active,
     count: state.windows.filter((w) => w.workspace === index).length,
   }))
+}
+
+/** EDE-56: the switcher's sections: the Local desktops first, then one per account in first-appearance order. */
+export function switcherSections(state: ShellState): SwitcherSection[] {
+  const current = state.switcher.current
+  const mark = (e: SwitcherEntry) => ({ ...e, current: e.kind === current.kind && e.id === current.id })
+  const sections: SwitcherSection[] = [{ kind: `local`, id: `local`, label: `Local desktops`, entries: state.switcher.entries.filter((e) => e.kind === `local`).map(mark) }]
+  for (const entry of state.switcher.entries) {
+    if (entry.kind === `local`) continue
+    const id = entry.account ?? ``
+    let section = sections.find((s) => s.kind === `account` && s.id === id)
+    if (!section) {
+      section = { kind: `account`, id, label: entry.accountName ?? (id || `Exponential`), entries: [] }
+      sections.push(section)
+    }
+    section.entries.push(mark(entry))
+  }
+  return sections
 }
 
 /** The switcher's order: the mru (minimized included), the active workspace's windows first, then the others. */

@@ -1913,6 +1913,15 @@
         "sha256": "986e9f40b368652aabeea1ec367caeeb30b931a0ef33d7763ba2ed3d6ace7a24"
       }
     },
+    "ede-connect": {
+      "ede": {
+        "file": "shots/ede-connect/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 14586,
+        "sha256": "82486d6afa8c360009f8819e4cd8a852d21d494167bd39f0181632735d316ee4"
+      }
+    },
     "ede-expo": {
       "ede": {
         "file": "shots/ede-expo/ede.webp",
@@ -2008,8 +2017,8 @@
         "file": "shots/ede-settings-team/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 13960,
-        "sha256": "7856fcdc7cb2c20e40ad33d678d46d761f42e05931f642f954bed02126be4f38"
+        "bytes": 16266,
+        "sha256": "dd8ebe5e5f3236fb22c3e33cdf212d40b37f88951f6223ae723f697b60606d18"
       }
     },
     "ede-switcher": {
