@@ -210,7 +210,7 @@ impl Surface {
     /// The resolve context of a scope: the data model, the strings and, for
     /// a literal Table row's scope, the row standing in for its pointer.
     fn resolve_ctx<'s>(&'s self, scope: &'s str) -> ResolveContext<'s> {
-        let ctx = ResolveContext::new(&self.data, scope).with_strings(&self.strings).with_formatter(&*self.formatter);
+        let ctx = ResolveContext::new(&self.data, scope).with_strings(&self.strings).with_formatter(&*self.formatter).with_catalog(&self.catalog_id, None);
         let ctx = match &self.call_route {
             Some(route) => ctx.with_route(&**route),
             None => ctx,

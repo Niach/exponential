@@ -433,6 +433,7 @@ impl CallHub {
         for failure in surface.take_failures() {
             self.report_failure(surface_id, &failure, None);
         }
+        surface.mark_flushed();
     }
 
     /// §1.3: the metadata beside a message about a `sendDataModel` surface;

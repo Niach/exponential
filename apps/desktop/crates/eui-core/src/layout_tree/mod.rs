@@ -305,6 +305,8 @@ pub struct BuildContext<'a> {
     pub on_failure: &'a dyn Fn(&crate::data::Failure, &str),
     /// Round 9 §6.5: the host's routing of reactive calls.
     pub route: Option<&'a dyn Fn(crate::data::RoutedCall) -> crate::data::RouteAnswer>,
+    /// Round 9 §5.5: the surface's default catalog.
+    pub catalog_id: &'a str,
     pub view: &'a CatalogView,
     pub recipes: &'a RecipeIndex,
     pub data: &'a Value,
@@ -517,7 +519,7 @@ pub(crate) fn js(v: &Value) -> String {
 
 impl<'a, 'b> Builder<'a, 'b> {
     pub(crate) fn resolve_ctx<'s>(&'s self, scope: &'s str) -> ResolveContext<'s> {
-        let ctx = ResolveContext::new(self.ctx.data, scope).with_strings(self.ctx.strings).with_formatter(self.ctx.formatter).with_now(self.ctx.now);
+        let ctx = ResolveContext::new(self.ctx.data, scope).with_strings(self.ctx.strings).with_formatter(self.ctx.formatter).with_now(self.ctx.now).with_catalog(self.ctx.catalog_id, None);
         let ctx = match self.ctx.route {
             Some(route) => ctx.with_route(route),
             None => ctx,

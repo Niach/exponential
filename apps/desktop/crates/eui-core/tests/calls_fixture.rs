@@ -68,15 +68,14 @@ fn sequences() {
                 let ops = router.route(&json!({"version": "1.0", "agentFunctionResponse": step["respond"]}), RouteOptions::default());
                 calls.lock().unwrap().observe(&ops, &router);
             }
-            sent.extend(calls.lock().unwrap().take_outbox());
-        }
-        // `sendDataModel rides beside the message`: the TS recording ended
-        // before its un-awaited press sent anything; here it left at once.
-        if name == "sendDataModel rides beside the message" {
-            let message = &sent[0];
-            let meta = calls.lock().unwrap().data_model_metadata(message, &|_| Some(data.clone()));
-            assert_eq!(meta, Some(json!({"a2uiRendererDataModel": {"version": "1.0", "surfaces": {"s": {"a": 1}}}})));
-            continue;
+            let hub = &mut *calls.lock().unwrap();
+            for message in hub.take_outbox() {
+                // §1.3: `{message, metadata}` when it has metadata.
+                sent.push(match hub.data_model_metadata(&message, &|_| Some(data.clone())) {
+                    Some(metadata) => json!({"message": message, "metadata": metadata}),
+                    None => message,
+                });
+            }
         }
         assert_eq!(Value::Array(sent), c["expectedSent"], "{name}: sent");
         assert_eq!(Value::Array(ran), c["expectedRan"], "{name}: ran");
@@ -114,4 +113,26 @@ fn issues_past_the_cap_are_summed_up_once() {
     assert_eq!(out[32]["error"]["message"], "3 more issues were dropped");
     hub.send_issues("s", &issues);
     assert_eq!(hub.take_outbox().len(), 3, "the rest, each once");
+}
+
+/// Round 9 §5.5: a basic surface's calls resolve to the basic catalog on the
+/// wire; its reduced tree still reads the core's functions.
+#[test]
+fn a_call_on_a_basic_surface_names_the_basic_catalog() {
+    use eui_core::surface::{Surface, SurfaceOptions};
+    let basic = eui_core::A2UI_BASIC_CATALOG_ID;
+    let calls = CallHub::shared(true);
+    let mut router = HostRouter::new::<&str>(&[]);
+    let ops = router.route(&json!({"version": "1.0", "createSurface": {"surfaceId": "s", "catalogId": basic}}), RouteOptions::default());
+    calls.lock().unwrap().observe(&ops, &router);
+    let mut s = Surface::new("s", SurfaceOptions { catalog_id: basic.into(), ..SurfaceOptions::default() });
+    s.set_call_route(Some(route_handle(&calls, "s")));
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s", "components": [
+        {"id": "root", "component": "Text", "text": {"@call": "lookup"}, "visible": {"@call": "cond", "args": {"if": true, "then": true, "else": false}}}
+    ]}})).unwrap();
+    s.set_viewport(390.0, 0.0, None);
+    s.layout(&mut eui_core::measure::FixedMeasure { sizes: Default::default(), wrap: true });
+    assert!(s.take_failures().is_empty());
+    let sent = calls.lock().unwrap().take_outbox();
+    assert_eq!(sent[0]["callAgentFunction"]["callFunction"]["catalogId"], basic);
 }

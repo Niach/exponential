@@ -1129,7 +1129,7 @@ impl SurfaceView {
         };
         let wall_ns = started.elapsed().as_nanos() as u64;
         self.after_layout(out, changed, old_nodes, pre, theme.as_deref(), mode, window, cx);
-        if self.surface.has_failures() || !self.surface.issues().is_empty() {
+        if self.surface.needs_flush() {
             let (host, surface_id) = (self.host.clone(), self.surface.id.clone());
             cx.defer(move |cx| host.after_layout(&surface_id, cx));
         }

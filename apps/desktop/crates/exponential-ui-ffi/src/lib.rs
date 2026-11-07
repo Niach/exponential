@@ -1430,6 +1430,11 @@ impl Surface {
     /// Round 9 §6.8: the reactive failures since the last call, as JSON
     /// `[{code, message, functionCallId?, path?}]`, each once for the
     /// surface's lifetime: the host sends them as `error` messages.
+    /// After a layout: anything for `HostCalls.flushSurface`?
+    pub fn needs_flush(&self) -> bool {
+        self.shield("needs_flush", || false, || self.core().needs_flush())
+    }
+
     /// Round 9 §6.5: a routed value settled; the next layout binds again.
     pub fn rebind(&self) {
         self.shield("rebind", || (), || self.core().rebind())
@@ -2723,6 +2728,12 @@ impl HostCalls {
 
     pub fn local_failed(&self, surface_id: String, message: String) {
         shield("local_failed", || (), || self.hub().local_failed(&surface_id, &message));
+    }
+
+    /// §6.5: does the surface have an agent? No agent = a press of an
+    /// unregistered name is UNKNOWN_FUNCTION without going through the hub.
+    pub fn has_agent(&self, surface_id: String) -> bool {
+        shield("has_agent", || false, || self.hub().has_agent(&surface_id))
     }
 
     /// The answer to an `ask` effect.

@@ -85,6 +85,9 @@ export async function renderSequence(c: Any): Promise<Any> {
   host.connect()
   host.receive({ version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID, ...(c.sendDataModel ? { sendDataModel: true } : {}), dataModel: c.data ?? {} } }, c.trusted ? { trusted: true } : {})
   const steps: Any[] = []
+  // An un-awaited press has sent its call once the microtasks ran.
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const presses: Promise<unknown>[] = []
   for (const step of c.steps) {
     if (step.read) {
       const { value, failure } = resolveWithFailure(step.read, host.surface(`s`)!.data, { route: host.reactiveRoute(`s`), catalogId: CORE_CATALOG_ID })
@@ -99,11 +102,11 @@ export async function renderSequence(c: Any): Promise<Any> {
       steps.push(step)
     } else {
       host.receive({ version: `1.0`, agentFunctionResponse: step.respond })
-      await Promise.resolve()
-      await Promise.resolve()
+      await settle()
       steps.push(step)
     }
   }
+  await Promise.all(presses)
   return { ...c, steps, expectedSent: sent.map((m) => (`metadata` in m ? m : m.message)), expectedRan: ran }
 }
 

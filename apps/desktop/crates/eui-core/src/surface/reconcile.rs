@@ -86,6 +86,7 @@ impl Surface {
             };
             let mut ctx = BuildContext {
                 on_failure: &on_failure,
+                catalog_id: &self.catalog_id,
                 route: self.call_route.as_deref().map(|r| r as &dyn Fn(crate::data::RoutedCall) -> crate::data::RouteAnswer),
                 view: &self.view,
                 recipes: &self.recipes,

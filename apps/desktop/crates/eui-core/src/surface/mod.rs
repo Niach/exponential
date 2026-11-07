@@ -536,6 +536,8 @@ pub struct Surface {
     pub(crate) call_route: Option<CallRoute>,
     /// A reactive call went through [`Self::call_route`] since the last ask.
     routed: Arc<std::sync::atomic::AtomicBool>,
+    /// [`Self::issues`]' length at the last [`Self::mark_flushed`].
+    flushed_issues: std::sync::atomic::AtomicUsize,
     /// What [`Surface::take_failures`] already answered (once per lifetime).
     sent_failures: HashSet<(String, String, String)>,
     pub(crate) style_issues: Vec<ReduceIssue>,
@@ -664,6 +666,7 @@ impl Surface {
             failures: Default::default(),
             call_route: None,
             routed: Default::default(),
+            flushed_issues: Default::default(),
             sent_failures: HashSet::new(),
             style_issues: Vec::new(),
             local: LocalState::default(),
@@ -1389,11 +1392,20 @@ impl Surface {
         self.needs_build = true;
     }
 
-    /// Must the host flush after this layout: a reactive failure, or a call
-    /// that went through the route (it may have queued a message)? Once.
-    pub fn has_failures(&self) -> bool {
-        let routed = self.routed.swap(false, std::sync::atomic::Ordering::Relaxed);
-        routed || self.failures.lock().map(|l| !l.is_empty()).unwrap_or(false)
+    /// Must the host flush after this layout: a reactive failure, a call
+    /// that went through the route (it may have queued a message), or
+    /// issues it has not seen? (`CallHub::flush_surface`.)
+    pub fn needs_flush(&mut self) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.routed.load(Relaxed) || self.issues().len() != self.flushed_issues.load(Relaxed) || self.failures.lock().map(|l| !l.is_empty()).unwrap_or(false)
+    }
+
+    /// The host flushed.
+    pub fn mark_flushed(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.routed.store(false, Relaxed);
+        let seen = self.issues().len();
+        self.flushed_issues.store(seen, Relaxed);
     }
 
     /// A routed value settled (`CallHub::take_dirty`): bind again.

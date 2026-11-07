@@ -547,6 +547,13 @@ the capabilities.
   Host functions (§6.3) are available in EVERY catalog. An unresolvable
   catalog fails the call (§6.8) and is never routed.
 
+  The surface default reaches the evaluator in both cores. One refinement
+  for a basic surface: its reduced tree is core vocabulary (`basic-map.json`
+  and the macros emit `cond`, `map`, `div`, …), so a call WITHOUT its own
+  `catalogId` looks its local function up in the core's table, while the
+  resolved catalog on the wire (`callAgentFunction`, the routing key) stays
+  basic. A call that names the basic catalog itself gets the 14.
+
 All mixed catalogs are 1.0 catalogs (`protocolVersion: "1.0"`). There is no
 mixing with 0.9.
 

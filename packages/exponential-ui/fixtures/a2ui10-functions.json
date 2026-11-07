@@ -1742,6 +1742,12 @@
       "steps": [
         {
           "pressAsync": "lookup"
+        },
+        {
+          "respond": {
+            "functionCallId": "s:1",
+            "value": 1
+          }
         }
       ],
       "expectedSent": [

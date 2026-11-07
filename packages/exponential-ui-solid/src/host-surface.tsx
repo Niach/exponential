@@ -24,6 +24,9 @@ export function hostPlugin(host: ExponentialHost, base: HostPlugin = {}): HostPl
       await base.onFunctionCall?.(call)
       return outcome
     },
+    routeCall: (surfaceId, call) => host.reactiveRoute(surfaceId)(call),
+    reportFailure: (surfaceId, failure) => queueMicrotask(() => host.reportFailure(surfaceId, failure)),
+    surfaceCatalogId: (surfaceId) => host.surface(surfaceId)?.catalogId,
     openUrl: (url) => {
       host.openUrl(url)
     },

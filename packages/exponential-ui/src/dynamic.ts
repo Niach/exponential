@@ -393,7 +393,8 @@ function evaluateCallIn(call: FunctionCall, data: unknown, options: ResolveOptio
     return at + (typeof offset === `number` ? offset : Number(offset) || 0)
   }
   // 2. The call's catalog: its own, else the surface default.
-  const catalogId = typeof call.catalogId === `string` ? call.catalogId : (options.catalogId ?? CORE_CATALOG_ID)
+  const ownCatalog = typeof call.catalogId === `string` ? call.catalogId : undefined
+  const catalogId = ownCatalog ?? options.catalogId ?? CORE_CATALOG_ID
   if (options.available && !options.available.includes(catalogId)) return fail(box, { code: `EXPRESSION_ERROR`, message: `catalog ${catalogId} is not available` })
   // 3. The args, at any depth; a failing arg fails the call.
   const before = box.failure
@@ -405,7 +406,10 @@ function evaluateCallIn(call: FunctionCall, data: unknown, options: ResolveOptio
   if (name === `expr` && isPlainObject(call.args?.vars) && isPlainObject(args.vars))
     for (const k of Object.keys(call.args.vars)) if (!(k in (args.vars as object))) (args.vars as Record<string, unknown>)[k] = null
   // 4. A catalog function of the resolved catalog.
-  if (catalogFunctionNames(catalogId).has(name)) {
+  // §5.5: a reduced tree is core vocabulary: the map and the macros emit core
+  // functions, so a call without its own catalog on a basic surface reads the
+  // core's table; `catalogId` stays basic on the wire (routed calls).
+  if (catalogFunctionNames(ownCatalog ?? (catalogId === A2UI_BASIC_CATALOG_ID ? CORE_CATALOG_ID : catalogId)).has(name)) {
     if (reactive && EFFECT_FUNCTIONS.has(name)) return fail(box, { code: `EXPRESSION_ERROR`, message: `${name} cannot run in a binding` })
     if (name === `formatString`) return formatStringValue(args.value, data, options)
     const run = (fn: (args: Record<string, unknown>) => unknown): unknown => {

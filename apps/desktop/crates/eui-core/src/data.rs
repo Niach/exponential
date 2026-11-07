@@ -669,7 +669,8 @@ fn evaluate_call_in(call: &Value, ctx: &ResolveContext) -> Option<Value> {
         return Some(json::number(index as f64 + if offset.is_nan() { 0.0 } else { offset }));
     }
     // 2. The call's catalog: its own, else the surface default.
-    let catalog = call.get("catalogId").and_then(Value::as_str).or(ctx.catalog_id).filter(|c| !c.is_empty()).unwrap_or(CORE_CATALOG_ID);
+    let own = call.get("catalogId").and_then(Value::as_str);
+    let catalog = own.or(ctx.catalog_id).filter(|c| !c.is_empty()).unwrap_or(CORE_CATALOG_ID);
     if ctx.available.is_some_and(|ids| !ids.iter().any(|id| id == catalog)) {
         return failed_call(Failure::new(EXPRESSION_ERROR, format!("catalog {catalog} is not available")), None, ctx);
     }
@@ -695,7 +696,11 @@ fn evaluate_call_in(call: &Value, ctx: &ResolveContext) -> Option<Value> {
     }
     let effect = crate::functions::is_effect_function(name);
     // 4. A catalog function of the resolved catalog.
-    if crate::functions::declared_function(catalog, name).is_some() {
+    // §5.5: a reduced tree is core vocabulary: the map and the macros emit core
+    // functions, so a call without its own catalog on a basic surface reads
+    // the core's table; `catalog` stays basic on the wire (routed calls).
+    let table = if own.is_none() && crate::functions::is_basic_catalog(catalog) { CORE_CATALOG_ID } else { catalog };
+    if crate::functions::declared_function(table, name).is_some() {
         if reactive && effect {
             return failed_call(Failure::new(EXPRESSION_ERROR, format!("{name} cannot run in a binding")), None, ctx);
         }

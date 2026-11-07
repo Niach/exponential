@@ -8,8 +8,8 @@
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { BIND_FUNCTIONS, CORE_FUNCTIONS, EFFECT_FUNCTIONS, EXPRESSION_CALL_NAMES, INDEX_FUNCTION, coerceBoolean, isBinding, isCall, callExpressionFunction, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, writePointer } from "@exponential_app/eui"
-import type { CatalogView, DataBinding, ExtensionDef, Formatter, FunctionCall } from "@exponential_app/eui"
+import { BIND_FUNCTIONS, CORE_CATALOG_ID, CORE_FUNCTIONS, EFFECT_FUNCTIONS, EXPRESSION_CALL_NAMES, INDEX_FUNCTION, coerceBoolean, isBinding, isCall, callExpressionFunction, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, writePointer } from "@exponential_app/eui"
+import type { CatalogView, DataBinding, ExtensionDef, Failure, Formatter, FunctionCall, RouteAnswer, RoutedCall } from "@exponential_app/eui"
 
 export type DataModel = Record<string, unknown> | unknown[]
 
@@ -67,6 +67,13 @@ export interface ResolveContext {
   formatter?: Formatter
   /** The clock `formatRelativeTime` reads without a `now` argument. */
   now?: () => number
+  /** Round 9 §5.5: the surface's default catalog (a call's own wins). */
+  catalogId?: string
+  /** Round 9 §6.5: a name with no local function: the host's routing
+   *  (`ExponentialHost.reactiveRoute`). Absent = no value. */
+  route?: (call: RoutedCall) => RouteAnswer
+  /** Round 9 §6.8: a routed call failed (the host sends it, once). */
+  onFailure?: (failure: Failure) => void
 }
 
 /** The synthetic root a Table's LITERAL rows are mounted under in a slot
@@ -207,9 +214,17 @@ export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
     // Round 9 §6.4: an effect never runs in a reactive position.
     if (EFFECT_FUNCTIONS.has(name) && !Object.prototype.hasOwnProperty.call(ctx.functions ?? {}, name)) return null
     const fn = ctx.functions?.[name] ?? CLIENT_FUNCTIONS[name]
-    if (!fn) return undefined
+    if (!fn && !ctx.route) return undefined
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value.args ?? {})) args[k] = resolveValue(v, ctx)
+    if (!fn) {
+      const catalogId = typeof value.catalogId === `string` ? value.catalogId : (ctx.catalogId ?? CORE_CATALOG_ID)
+      const answer = ctx.route!({ name, catalogId, args, position: `reactive` })
+      if (`value` in answer) return answer.value
+      if (args.default !== undefined) return args.default
+      ctx.onFailure?.(answer.failure)
+      return null
+    }
     try {
       return fn(args, ctx)
     } catch {
