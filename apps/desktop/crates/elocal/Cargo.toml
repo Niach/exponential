@@ -13,6 +13,11 @@ publish = false
 api = { path = "../api" }
 sync = { path = "../sync", default-features = false }
 domain = { path = "../domain" }
+# #EDE-58: local agent runs: the CLIs over ACP, the orchestration reducer, the in-process MCP hub.
+eagent = { path = "../eagent" }
+eagent-hub-core = { path = "../eagent-hub-core" }
+emcp = { path = "../emcp" }
+ecore = { path = "../ecore" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

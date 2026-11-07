@@ -8414,7 +8414,7 @@
       "id": "ede-chat",
       "group": "ede",
       "title": "Exponential Desktop · chat",
-      "blurb": "The chat button's surface (apps/ede/ui/chat.json): the Assistant's composer in the middle of the screen; until the desktop is connected to an account the text goes to the Exponential app.",
+      "blurb": "The chat button's surface (apps/ede/ui/chat.json): on a Local desktop the desktop's own agent (#EDE-58: the person's CLI over ACP, the conversation as Markdown, the composer sends into it); on a team the Assistant lives in the Exponential app and the text goes there.",
       "order": 10,
       "ede": {
         "size": "1280x720",

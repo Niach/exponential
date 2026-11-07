@@ -127,21 +127,32 @@ pub fn hydrate(mut row: Map<String, Value>) -> Map<String, Value> {
 
 pub struct LocalStore {
     shapes: ShapeStore,
-    deltas: flume::Sender<LocalDelta>,
-    receiver: Mutex<Option<flume::Receiver<LocalDelta>>>,
+    subscribers: Mutex<Vec<flume::Sender<LocalDelta>>>,
 }
 
 impl LocalStore {
     /// Opens (creating) the desktop's store at `path`.
     pub fn open(path: &std::path::Path) -> Result<Self, sync::store::StoreError> {
         let shapes = ShapeStore::open(path)?;
-        let (deltas, receiver) = flume::unbounded();
-        Ok(Self { shapes, deltas, receiver: Mutex::new(Some(receiver)) })
+        Ok(Self { shapes, subscribers: Mutex::new(Vec::new()) })
     }
 
-    /// The change stream, taken once by the host that redraws.
+    /// A change stream: every write from now on (the host that redraws,
+    /// the runner that claims sessions; each subscriber hears every delta).
+    pub fn subscribe(&self) -> flume::Receiver<LocalDelta> {
+        let (tx, rx) = flume::unbounded();
+        self.subscribers.lock().expect("subscribers").push(tx);
+        rx
+    }
+
+    /// [`Self::subscribe`].
     pub fn deltas(&self) -> Option<flume::Receiver<LocalDelta>> {
-        self.receiver.lock().ok()?.take()
+        Some(self.subscribe())
+    }
+
+    fn emit(&self, delta: LocalDelta) {
+        let mut subscribers = self.subscribers.lock().expect("subscribers");
+        subscribers.retain(|tx| tx.send(delta.clone()).is_ok());
     }
 
     /// The shape of a table, or `None` for a table the store does not hold.
@@ -188,7 +199,7 @@ impl LocalStore {
             })
             .collect::<Result<_, String>>()?;
         self.shapes.apply_batch(spec, &msgs, None).map_err(|e| e.to_string())?;
-        let _ = self.deltas.send(LocalDelta { table: spec.name, keys });
+        self.emit(LocalDelta { table: spec.name, keys });
         Ok(())
     }
 
@@ -201,7 +212,7 @@ impl LocalStore {
         let spec = Self::spec_of(table)?;
         let msgs: Vec<ShapeMessage> = keys.iter().map(|k| ShapeMessage::Delete { key: parse_key(spec, k) }).collect();
         self.shapes.apply_batch(spec, &msgs, None).map_err(|e| e.to_string())?;
-        let _ = self.deltas.send(LocalDelta { table: spec.name, keys: keys.to_vec() });
+        self.emit(LocalDelta { table: spec.name, keys: keys.to_vec() });
         Ok(())
     }
 }

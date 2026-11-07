@@ -19,6 +19,7 @@ uicore-gpui = { path = "../uicore-gpui" }
 # #EDE-56: Local desktops (elocal), the accounts (api) and their teams (sync, no gpui).
 api = { path = "../api" }
 elocal = { path = "../elocal" }
+eagent = { path = "../eagent" }
 sync = { path = "../sync", default-features = false }
 flume.workspace = true
 ede-ui = { path = "../../../ede/crates/ede-ui" }
