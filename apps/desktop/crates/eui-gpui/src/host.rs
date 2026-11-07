@@ -132,6 +132,10 @@ impl<F: Fn(&str) -> Option<Vec<u8>> + Send + Sync + 'static> AppFiles for F {
 
 /// The embedding app's side of the painter.
 pub trait HostPlugin: 'static {
+    /// Round 9 §5.2, §6.8: a layout left issues or reactive failures on the
+    /// surface: the host sends them (`CallHub::flush_surface`).
+    fn after_layout(&self, _surface_id: &str, _cx: &mut gpui::App) {}
+
     /// An icon registry CONCEPT name (`ui-send`, `nav-inbox`…) → an SVG asset
     /// path for gpui `svg().path(..)`. `None` = the painter's built-in chrome
     /// glyph when it has one, else the placeholder circle.

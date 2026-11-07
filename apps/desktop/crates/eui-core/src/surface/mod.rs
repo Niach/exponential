@@ -1380,6 +1380,11 @@ impl Surface {
         self.needs_build = true;
     }
 
+    /// Is there anything for [`Self::take_failures`]?
+    pub fn has_failures(&self) -> bool {
+        self.failures.lock().map(|l| !l.is_empty()).unwrap_or(false)
+    }
+
     /// A routed value settled (`CallHub::take_dirty`): bind again.
     pub fn rebind(&mut self) {
         self.needs_build = true;

@@ -903,6 +903,26 @@ impl SurfaceView {
         &self.surface
     }
 
+    /// Round 9 §6.5: route the reactive calls through the host.
+    pub fn set_call_route(&mut self, route: eui_core::surface::CallRoute) {
+        self.surface.set_call_route(Some(route));
+    }
+
+    /// Round 9 §5.2, §6.8: the surface's issues and failures to the hub
+    /// (no relayout: nothing painted changed).
+    pub fn flush_calls(&mut self, hub: &mut eui_core::host::CallHub) {
+        let id = self.surface.id.clone();
+        hub.flush_surface(&id, &mut self.surface);
+    }
+
+    /// A routed value settled: bind again.
+    pub fn rebind(&mut self, cx: &mut Context<Self>) {
+        self.surface.rebind();
+        self.changed = true;
+        self.nodes_dirty = true;
+        cx.notify();
+    }
+
     /// Direct access; the next frame re-reads the node list.
     pub fn surface_mut(&mut self) -> &mut Surface {
         self.changed = true;
@@ -1109,6 +1129,10 @@ impl SurfaceView {
         };
         let wall_ns = started.elapsed().as_nanos() as u64;
         self.after_layout(out, changed, old_nodes, pre, theme.as_deref(), mode, window, cx);
+        if self.surface.has_failures() || !self.surface.issues().is_empty() {
+            let (host, surface_id) = (self.host.clone(), self.surface.id.clone());
+            cx.defer(move |cx| host.after_layout(&surface_id, cx));
+        }
         self.follow_thumbnails(cx);
         self.stats.measure_calls = calls;
         self.stats.layout_ns = layout_ns;

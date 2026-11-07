@@ -753,3 +753,23 @@ fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
     let out = call(json!({"screen": "companies"}), cx);
     assert_eq!(out.error.as_deref(), Some("navigate: this host has no screens"));
 }
+
+/// Round 9 §6.5: a function the host lacks goes to an agent's surface:
+/// reactive reads share one call and rebind, a press waits for its answer.
+#[gpui::test]
+fn the_agent_answers_what_the_host_lacks(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), agent: true, ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([create("s")]);
+    cx.run_until_parked();
+    let task = host.update(cx, |h, cx| h.call_function(FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: "lookup".into(), args: json!({"q": "a"}) }, cx));
+    cx.run_until_parked();
+    let sent = t.sent();
+    assert_eq!(sent[0]["callAgentFunction"]["functionCallId"], "s:1");
+    t.feed([json!({"version": VERSION, "agentFunctionResponse": {"functionCallId": "s:1", "value": 7}})]);
+    cx.run_until_parked();
+    let out = outcome(task, cx);
+    assert_eq!((out.decision, out.result), (FunctionDecision::Allow, Some(json!(7))));
+}

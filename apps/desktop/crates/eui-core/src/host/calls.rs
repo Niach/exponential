@@ -54,7 +54,7 @@ struct SurfaceCalls {
 #[derive(Debug)]
 enum Pending {
     Reactive { surface_id: String, key: String },
-    Action { surface_id: String },
+    Action,
 }
 
 #[derive(Debug)]
@@ -218,7 +218,7 @@ impl CallHub {
                 self.settle_reactive(&surface_id, &key, answer);
                 None
             }
-            Pending::Action { .. } => Some(match answer {
+            Pending::Action => Some(match answer {
                 Ok(value) => SettledCall { function_call_id: id, value: Some(value), error: None },
                 Err(failure) => {
                     self.outbox.push(error_message_to(&failure.code, ErrorTarget::FunctionCall(&id), &failure.message, None));
@@ -378,7 +378,7 @@ impl CallHub {
             RouteDecision::Agent { catalog_id } => catalog_id,
             RouteDecision::Local { .. } | RouteDecision::Catalog { .. } | RouteDecision::Index => return PressRoute::Local,
         };
-        let function_call_id = self.call_agent(surface_id, name, &target, args, Pending::Action { surface_id: surface_id.to_string() });
+        let function_call_id = self.call_agent(surface_id, name, &target, args, Pending::Action);
         PressRoute::Agent { function_call_id }
     }
 
