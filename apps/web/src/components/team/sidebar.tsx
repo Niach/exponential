@@ -479,8 +479,6 @@ export function TeamSidebar({
                         teamId={team.id}
                         teamSlug={teamSlug}
                         apps={apps}
-                        me={session?.user?.id ?? null}
-                        isOwner={isOwner}
                         activeAppSlug={activeAppSlug}
                       />
                     )}
