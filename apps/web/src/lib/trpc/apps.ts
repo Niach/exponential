@@ -259,6 +259,8 @@ export const appUpdateInputSchema = z.object({
     .array(
       z
         .string()
+        // Round 9 §14: a client older than the flag day still sends dotted names.
+        .transform(flatAction)
         .refine((name) => APP_ACTIONS.includes(name), { message: `not an offered action` })
         // The ruling: a destructive or owner-only action (VAPP-158) can never
         // be granted; it always asks.
