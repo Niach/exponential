@@ -227,6 +227,28 @@ fn the_inline_styles_are_the_fixture_s() {
     assert_eq!(document.heading_levels[0].as_ref().unwrap().size, 18.0, "the document profile keeps Markdown/heading");
 }
 
+/// `documentPaint`: inline code = the recipe, lists = the web's column and disc.
+#[test]
+fn the_document_paints_the_fixture_s_code_and_lists() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/markdown-inline.json");
+    let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let paint = &fixture["documentPaint"];
+    let t = builtin_theme("neutral").unwrap();
+    let token = |key: &str| -> f32 {
+        let path = paint["code"]["neutral"][key].as_str().unwrap().trim_start_matches('$').replace('.', "/");
+        let tokens = serde_json::to_value(&t.tokens).unwrap();
+        tokens.pointer(&format!("/{path}")).unwrap().as_f64().unwrap() as f32
+    };
+    let s = styles(json!({}), false);
+    let code = s.inline_code;
+    assert_eq!((code.size, code.pad_h, code.pad_v, code.radius), (Some(token("fontSize")), Some(token("paddingHorizontal")), 0.0, token("borderRadius")));
+    let list = &paint["list"];
+    let em = |key: &str| list[key].as_f64().unwrap() as f32;
+    assert_eq!(s.list_indent, (14.0 * em("indentEm")).round());
+    assert_eq!((eui_gpui::paint::markdown::BULLET_EM, eui_gpui::paint::markdown::BULLET_CENTRE_EM), (em("bulletEm"), em("bulletCentreEm")));
+    assert_eq!((s.item_top, s.item_bottom), (em("itemGap"), em("itemGap")));
+}
+
 struct OwnMarkdown(Rc<Cell<u32>>);
 impl HostPlugin for OwnMarkdown {
     fn markdown(&self, _text: &str, _style: &eui_core::measure::TextStyle, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<gpui::AnyElement> {

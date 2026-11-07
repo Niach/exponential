@@ -1163,6 +1163,25 @@ pub struct TextSpec {
     pub family: Option<String>,
 }
 
+/// Round 9 (`fixtures/markdown-inline.json` `documentPaint`): inline code,
+/// the `Markdown/code` recipe: its type (`size`; `None` = 0.925 em of the
+/// run), a `radius`-cornered fill, `pad_h` (`None` = 0.3 em) reserved in the
+/// line on each side and `pad_v` over the font's own ascent and descent, as
+/// the web's inline box.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InlineCode {
+    pub size: Option<f32>,
+    pub pad_h: Option<f32>,
+    pub pad_v: f32,
+    pub radius: f32,
+}
+
+impl Default for InlineCode {
+    fn default() -> Self {
+        InlineCode { size: None, pad_h: None, pad_v: 0.0, radius: 4.0 }
+    }
+}
+
 /// Resolved metrics of the `Markdown` recipe parts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MdStyles {
@@ -1202,6 +1221,8 @@ pub struct MdStyles {
     /// with each other and, at a list's end, with the block gap).
     pub item_top: f32,
     pub item_bottom: f32,
+    /// Round 9: inline code (`Markdown/code`).
+    pub inline_code: InlineCode,
     /// #VAPP-258: a fenced block's border (`Markdown/codeBlock`
     /// borderWidth), inside its box: the box grows by it on each side.
     pub code_border: f32,
@@ -1289,6 +1310,18 @@ pub struct AttachMetrics {
     pub file_name: TextSpec,
 }
 
+impl InlineCode {
+    /// Its side padding on a run of `base`.
+    pub fn pad_h(&self, base: &TextSpec) -> f32 {
+        self.pad_h.unwrap_or(base.size * 0.3)
+    }
+
+    /// Its type on a run of `base`.
+    pub fn spec(&self, base: &TextSpec, family: Option<String>) -> TextSpec {
+        TextSpec { size: self.size.unwrap_or(base.size * 0.925), family, ..base.clone() }
+    }
+}
+
 impl MdStyles {
     /// #VAPP-258 (`markdown.options.imageMaxHeight`): these styles with the
     /// host's image cap and the window height an uncapped image stops at
@@ -1338,6 +1371,7 @@ impl MdStyles {
             heading_bottoms: vec![None; 6],
             item_top: 0.0,
             item_bottom: 0.0,
+            inline_code: InlineCode::default(),
             code_border: 0.0,
         }
     }
@@ -1408,6 +1442,13 @@ impl MdStyles {
         let item = part("listItem");
         s.item_top = px_prop(&item, "marginTop").unwrap_or(0.0);
         s.item_bottom = px_prop(&item, "marginBottom").unwrap_or(0.0);
+        let inline_code = part("code");
+        s.inline_code = InlineCode {
+            size: px_prop(&inline_code, "fontSize"),
+            pad_h: px_prop(&inline_code, "paddingHorizontal").or_else(|| px_prop(&inline_code, "padding")),
+            pad_v: px_prop(&inline_code, "paddingVertical").or_else(|| px_prop(&inline_code, "padding")).unwrap_or(0.0),
+            radius: px_prop(&inline_code, "borderRadius").unwrap_or(4.0),
+        };
         let code = part("codeBlock");
         s.code = spec(&code, &TextSpec { family: mono_family(theme), ..s.code.clone() });
         s.code_pad = px_prop(&code, "padding").or_else(|| px_prop(&code, "paddingHorizontal")).unwrap_or(s.code_pad);
@@ -1536,6 +1577,10 @@ pub trait MdText {
     /// #VAPP-258: one line of `text` shaped in `spec` (bold / italic as a
     /// run of these flags paints it): a chip's label, its placeholder.
     fn run_width(&mut self, text: &str, spec: &TextSpec, bold: bool, italic: bool) -> f32;
+    /// Round 9: [`Self::run_width`] in the code font.
+    fn code_width(&mut self, text: &str, spec: &TextSpec, bold: bool, italic: bool) -> f32 {
+        self.run_width(text, spec, bold, italic)
+    }
     /// #VAPP-258: where each byte offset `at` of `inlines` wrapped at `width`
     /// lands: `(x in its line, that line's top, that line's width)` — the
     /// painter places the inline chips there.
@@ -1594,20 +1639,42 @@ fn cell_text_width(width: f32, cols: usize, s: &MdStyles) -> f32 {
     (width / cols.max(1) as f32 - 2.0 * s.cell_pad_h).floor().max(1.0)
 }
 
+/// A chip's `kind` for inline code: gpui shapes a text in ONE size, so a code
+/// span is a placeholder in the line under its own box, like a chip. One wider
+/// than its line stays a breaking mono run in the block's size.
+pub const CODE_CHIP: &str = "code";
+
 /// #VAPP-258: every inline chip sized (the label shaped in the caption
 /// style, capped at its block's wrap width `width` wide) and its run's text
 /// swapped for the placeholder that reserves that width, so the measurer
-/// and the painter wrap the SAME runs. `None` = no chip.
+/// and the painter wrap the SAME runs. Round 9: inline code too. `None` = no
+/// chip.
 pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut dyn MdText) -> Option<Vec<Block>> {
-    let has_chip = |list: &[Inline]| list.iter().any(|i| i.chip.is_some());
-    let any = blocks.iter().any(|b| has_chip(&b.inlines) || matches!(&b.kind, BlockKind::Table { header, rows } if header.iter().chain(rows.iter().flatten()).any(|c| has_chip(c))));
+    let has_chip = |list: &[Inline]| list.iter().any(|i| i.chip.is_some() || i.code);
+    let any = blocks.iter().any(|b| (b.kind != BlockKind::CodeBlock && has_chip(&b.inlines)) || matches!(&b.kind, BlockKind::Table { header, rows } if header.iter().chain(rows.iter().flatten()).any(|c| has_chip(c))));
     if !any {
         return None;
     }
     let mut size = |list: &mut Vec<Inline>, spec: &TextSpec, cap: f32| {
         for span in list.iter_mut() {
             let (bold, italic) = (span.bold, span.italic);
+            if span.code {
+                let (type_, pad) = (s.inline_code.spec(spec, s.code.family.clone()), s.inline_code.pad_h(spec));
+                let width = text.code_width(&span.text, &type_, bold, italic) + 2.0 * pad;
+                if width <= cap {
+                    span.chip = Some(InlineChip { kind: CODE_CHIP.to_string(), label: span.text.clone(), source: span.text.clone(), width, ..InlineChip::default() });
+                    span.code = false;
+                }
+            }
             let Some(chip) = span.chip.as_mut() else { continue };
+            if chip.kind == CODE_CHIP {
+                let wide = text.run_width(&CHIP_FILL[0].to_string(), spec, bold, italic);
+                let narrow = text.run_width(&CHIP_FILL[1].to_string(), spec, bold, italic);
+                let (fill, total) = chip_fill(chip.width, cap, wide, narrow);
+                span.text = fill;
+                chip.width = total.min(cap);
+                continue;
+            }
             let m = s.chip.resolved(&chip.kind);
             let label = text.run_width(&chip.label, &m.caption, false, false);
             let ident = chip.ident.as_ref().map(|i| text.run_width(i, &m.ident_spec(s.code.family.clone()), false, false));
@@ -1641,7 +1708,7 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
                     for cell in rows.iter_mut().flatten() {
                         size(cell, &s.body, cap);
                     }
-                } else {
+                } else if b.kind != BlockKind::CodeBlock {
                     size(&mut b.inlines, &spec, cap);
                 }
                 b
@@ -2173,10 +2240,62 @@ fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &Sh
         for (k, ((_, chip, href), (x, top, line_w))) in chips.into_iter().zip(spots).enumerate() {
             // A right-aligned (RTL) line starts where its width leaves off.
             let x = if p.rtl { x + (wrap - line_w).max(0.0) } else { x };
-            el = el.child(inline_chip(format!("{id}.chip{k}").into(), chip, href.cloned(), (x, top + (spec.line_height - h) / 2.0, h), p, colors.ink));
+            let cid: SharedString = format!("{id}.chip{k}").into();
+            el = el.child(if chip.kind == CODE_CHIP {
+                inline_code(cid, chip, href.cloned(), (x, top), spec, p, colors)
+            } else {
+                inline_chip(cid, chip, href.cloned(), (x, top + (spec.line_height - h) / 2.0, h), p, colors.ink)
+            });
         }
     }
     el.into_any_element()
+}
+
+/// Round 9: an inline code span on its line (`top`) at `x`: the
+/// `Markdown/code` box from the font's descent to its ascent around the
+/// block's baseline (+ `paddingVertical`), the label in the code type on that
+/// baseline, centred across the placeholder.
+fn inline_code(id: SharedString, chip: &InlineChip, href: Option<String>, (x, top): (f32, f32), spec: &TextSpec, p: &MdPaint, colors: RunColors) -> AnyElement {
+    let code = &p.styles.inline_code;
+    let type_ = code.spec(spec, None);
+    let color = if href.is_some() { colors.link } else { colors.ink };
+    let font = Font { family: p.mono.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(type_.weight as f32), style: FontStyle::Normal };
+    let body = Font { family: p.family.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(spec.weight as f32), style: FontStyle::Normal };
+    let (ascent, descent, baseline) = p.text_system.as_ref().map_or((type_.size, type_.size * 0.25, spec.line_height * 0.75), |ts| {
+        let (mono, base) = (ts.resolve_font(&font), ts.resolve_font(&body));
+        // As a line lays out: half-leading + ascent (`descent` reads negative here).
+        let (a, d) = (f32::from(ts.ascent(base, px(spec.size))), f32::from(ts.descent(base, px(spec.size))).abs());
+        (f32::from(ts.ascent(mono, px(type_.size))), f32::from(ts.descent(mono, px(type_.size))).abs(), (spec.line_height - a - d) / 2.0 + a)
+    });
+    let label: SharedString = chip.label.clone().into();
+    let runs = p.fallback(&label, vec![TextRun { len: label.len(), font, color, background_color: None, underline: href.as_ref().map(|_| UnderlineStyle { thickness: px(1.0), color: Some(colors.link), wavy: false }), strikethrough: None }]);
+    let row = div()
+        .id(id)
+        .absolute()
+        .left(px(x))
+        .top(px(top + baseline - ascent - code.pad_v))
+        .w(px(chip.width))
+        .h(px(ascent + descent + 2.0 * code.pad_v))
+        .rounded(px(code.radius))
+        .when_some(colors.code_bg, |d, bg| d.bg(bg))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(type_.size))
+        .line_height(px(ascent + descent))
+        .whitespace_nowrap()
+        .text_color(color)
+        .child(StyledText::new(label).with_runs(runs));
+    match href {
+        Some(href) => {
+            let on_link = p.on_link.clone();
+            row.cursor_pointer()
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, window, cx| on_link(&href, window, cx))
+                .into_any_element()
+        }
+        None => row.into_any_element(),
+    }
 }
 
 /// #VAPP-258: the inline chip box at `(x, y)` `h` tall in its text block: the
@@ -2267,6 +2386,10 @@ pub fn table_cell_left(c: usize, cols: usize, col_w: f32, rtl: bool) -> f32 {
     visual as f32 * col_w
 }
 
+/// The bullet's width and its centre's distance from the indent's edge, in em.
+pub const BULLET_EM: f32 = 0.36;
+pub const BULLET_CENTRE_EM: f32 = 0.46;
+
 /// Paint `blocks` laid out at `width` (`lay` from [`layout`] at that width).
 pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint, text: &mut dyn MdText) -> AnyElement {
     let s = &p.styles;
@@ -2321,9 +2444,18 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                         };
                         gutter.h(px(s.body.line_height)).flex().items_center().when(p.rtl, |d| d.justify_end()).child(task_box)
                     }
+                    // The web's outside `disc` at every depth
+                    // (`fixtures/markdown-inline.json` `documentPaint`).
+                    None if marker == "•" => {
+                        let d = s.body.size * BULLET_EM;
+                        let from_edge = s.body.size * BULLET_CENTRE_EM - d / 2.0;
+                        let x = if p.rtl { s.list_indent - from_edge - d } else { from_edge };
+                        gutter.h(px(s.body.line_height)).child(div().absolute().left(px(x)).top(px((s.body.line_height - d) / 2.0)).size(px(d)).rounded_full().bg(p.colors.ink))
+                    }
+                    // Its outside `3.`, one space before the item's text.
                     None => {
-                        let marker = if *depth > 0 && marker == "•" { "◦".to_string() } else { marker.clone() };
-                        gutter.text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).when(p.rtl, |d| d.text_right()).child(SharedString::from(marker))
+                        let space = text.run_width(" ", &s.body, false, false);
+                        gutter.text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).map(|d| if p.rtl { d.pl(px(space)) } else { d.text_right().pr(px(space)) }).child(SharedString::from(marker.clone()))
                     }
                 };
                 placed
@@ -3131,6 +3263,22 @@ mod tests {
         let deep = |k: usize| format!("{}a{}", "[".repeat(k), "](x)".repeat(k));
         assert!(parse_inline(&deep(32)).iter().all(|s| s.link.as_deref() == Some("x")));
         assert!(parse_inline(&deep(33)).iter().any(|s| s.text.contains('[')));
+    }
+
+    /// Round 9: inline code is a placeholder under its own box, its padding
+    /// in the line; one wider than the line, and a fence, stay text.
+    #[test]
+    fn inline_code_reserves_its_box_and_a_fence_does_not() {
+        let mut s = MdStyles::plain(body());
+        s.inline_code = InlineCode { size: Some(12.0), pad_h: Some(4.0), pad_v: 0.0, radius: 6.0 };
+        let blocks = parse("see `code`\n\n```\nfenced\n```");
+        let sized = size_chips(&blocks, &s, Some(300.0), &mut Fixed).expect("a code span");
+        let chip = sized[0].inlines[1].chip.as_ref().expect("the code chip");
+        assert_eq!((chip.kind.as_str(), chip.label.as_str()), (CODE_CHIP, "code"));
+        assert!(chip.width >= Fixed.code_width("code", &s.body, false, false) + 8.0);
+        assert!(sized[1].inlines[0].chip.is_none(), "a fence stays text");
+        let narrow = size_chips(&blocks, &s, Some(10.0), &mut Fixed).expect("a code span");
+        assert!(narrow[0].inlines.iter().all(|i| i.chip.is_none()), "wider than its line: it breaks");
     }
 
     #[test]
