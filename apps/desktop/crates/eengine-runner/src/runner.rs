@@ -136,6 +136,8 @@ impl Opens {
 
 /// The providers a platform hands in (the gpui half: SQLite, files, the keystore, the E5 natives).
 pub struct Providers {
+    /// providers.json `hosts`: `exported` for a bundle, `ede` for Exponential Desktop's shell (#VAPP-273).
+    pub host_kind: String,
     pub platform: String,
     pub locale: String,
     pub storage: Arc<dyn RecordStore>,
@@ -174,11 +176,11 @@ pub struct Runner {
 
 impl Runner {
     /// One Engine instance over the bundle's package file: identity `local`,
-    /// host kind `exported`, network = the config's. `signature` / `invalid` = the failure to paint.
+    /// the providers' host kind, network = the config's. `signature` / `invalid` = the failure to paint.
     pub fn boot(config: RunnerConfig, file: &Value, providers: Providers, form: FormFactor) -> Result<Runner, RunnerFailure> {
         let opens = Arc::new(Opens::default());
         let device = crate::vault::device_id(providers.vault.as_ref());
-        let host = HostInfo { kind: "exported".into(), platform: providers.platform, form_factor: form_name(form).into(), locale: providers.locale };
+        let host = HostInfo { kind: providers.host_kind, platform: providers.platform, form_factor: form_name(form).into(), locale: providers.locale };
         let host_config = HostConfig {
             host,
             storage: providers.storage.clone(),

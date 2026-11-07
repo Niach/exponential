@@ -11,10 +11,10 @@ manifest on the mirrors), so an app Mint seeds only on the ISO and never
 updates would be missing here.
 
 Rules: keep everything that needs a heavy engine (a browser, mail, office,
-media, games); rewrite only small apps, and only as eApps packages once the
-`eapps` crate exists (#EXP-1420, "remaining"); until then the shell's own
-documents (#EDE-12, #EDE-14) stand in where they can. Apache-2: behaviour
-may be copied from GPL apps, code never.
+media, games); rewrite only small apps, and only as Apps packages on the
+Engine (#VAPP-273: the shell hosts `eengine`, README "Apps on the Engine");
+the shell's own documents (#EDE-12, #EDE-14) stand in where they can.
+Apache-2: behaviour may be copied from GPL apps, code never.
 
 ## Keep as they are
 
@@ -69,12 +69,13 @@ may be copied from GPL apps, code never.
 | gnome-screenshot 41.0 | the compositor's screenshot hotkey and the portal's Screenshot | #EDE-12, #EDE-15 |
 | slick-greeter 2.2.2 (the login screen) | stays; eDE is a session entry under it (`wayland-sessions/exponential.desktop`) | packaging |
 
-## Rewrite as eApps packages, parked until the `eapps` crate (#EXP-1420)
+## Rewrite as Apps packages on the Engine (#VAPP-273)
 
-The issue names three. None is started: an eApps package needs the
-runtime (`eapps`, tag `eapps-v*`), which is still on #EXP-1420's remaining
-list, and writing them as shell documents would make them Tier C surfaces
-of the shell process, not apps (wrong process, wrong grants, no window).
+The issue names three. None is started yet: the runtime is there since
+#VAPP-273 (the shell hosts `eengine`; a package in
+`~/.config/exponential-desktop/apps/` runs with a window and widgets), and
+writing them as shell documents would make them Tier C surfaces of the
+shell process, not apps (wrong process, wrong grants, no window).
 
 | App | Mint today | What the eApps version is | What exists now |
 |---|---|---|---|
@@ -82,7 +83,7 @@ of the shell process, not apps (wrong process, wrong grants, no window).
 | System Monitor | `gnome-system-monitor` 46.0 | processes, CPU/memory/network as the styleguide's Chart and Sparkline over a `processes` domain of exponential-services (not written: it needs a `kill` action with its own capability) | the About page's static facts; `exponential-services` has power and disks, not processes |
 | Software | `mintinstall` 8.3.8 (Software Manager, apt + Flatpak) and `gnome-software` 46.0 | search and install over PackageKit (or apt + flatpak as the `updates` domain does), reviews and screenshots from AppStream, the same `mcp_calls`-shaped audit for an agent installing on a person's behalf | the Apps & updates page (updates only) and its Software button, which opens `mintinstall` or `gnome-software` |
 
-Order when the crate lands: Calculator (a weekend, proves the package
+Order: Calculator (a weekend, proves the package
 format on eDE), System Monitor (needs the `processes` domain first), then
 Software (needs the PackageKit face and a consent prompt through
 `exponential-sealed consent` for installs).

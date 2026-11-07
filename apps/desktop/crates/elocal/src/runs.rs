@@ -127,6 +127,8 @@ pub struct LocalRuns {
     desktop: Arc<LocalDesktop>,
     runner: Arc<dyn Runner>,
     cwd: PathBuf,
+    /// What the brief says about the host's tools (`HostTools::note`).
+    host_note: Option<String>,
     server: Server,
     hub: Mutex<HubState>,
     /// The hub's message ids (`m<seq>`) → the store's rows.
@@ -154,17 +156,64 @@ fn mirror_columns(session: &eagent_hub_core::HubSession) -> Map<String, Value> {
     m
 }
 
+/// Tools the HOST adds to every run's hub next to the noun subset
+/// (#VAPP-273: Exponential Desktop's shell serves `shell_edit`, its
+/// host-only `shell.edit`), with the line the brief tells the agent.
+pub struct HostTools {
+    pub provider: Arc<dyn ToolProvider>,
+    pub note: String,
+}
+
+/// The noun subset and the host's tools behind one server: a name the host
+/// lists goes to the host, every other one to the store.
+struct Merged {
+    local: Arc<LocalTools>,
+    host: Arc<dyn ToolProvider>,
+}
+
+impl Merged {
+    fn host_has(&self, name: &str) -> bool {
+        self.host.tools().unwrap_or_default().iter().any(|t| t.get("name").and_then(Value::as_str) == Some(name))
+    }
+}
+
+impl ToolProvider for Merged {
+    fn tools(&self) -> Result<Vec<Value>, String> {
+        let mut tools = self.local.tools()?;
+        tools.extend(self.host.tools()?);
+        Ok(tools)
+    }
+
+    fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value {
+        if self.host_has(name) {
+            self.host.call(caller, name, arguments)
+        } else {
+            self.local.call(caller, name, arguments)
+        }
+    }
+}
+
 impl LocalRuns {
     /// Starts the runner for `desktop`: the MCP hub, the hub state from the
     /// store's live sessions, the worker thread.
     pub fn start(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf) -> Result<Arc<Self>, String> {
-        let tools = Arc::new(LocalTools { desktop: desktop.clone() });
+        Self::start_with(desktop, runner, cwd, None)
+    }
+
+    /// [`Self::start`] with the host's tools on the same hub.
+    pub fn start_with(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf, host: Option<HostTools>) -> Result<Arc<Self>, String> {
+        let local = Arc::new(LocalTools { desktop: desktop.clone() });
+        let (provider, note): (Arc<dyn ToolProvider>, Option<String>) = match host {
+            Some(host) => (Arc::new(Merged { local, host: host.provider }), Some(host.note)),
+            None => (local, None),
+        };
         let info = ServerInfo { name: "exponential".into(), version: env!("CARGO_PKG_VERSION").into(), instructions: Some("The Local desktop: its issues, comments, boards, statuses and labels; sessions_send and show.".into()) };
-        let server = Server::serve(info, tools)?;
+        let server = Server::serve(info, provider)?;
         let runs = Arc::new(Self {
             desktop,
             runner,
             cwd,
+            host_note: note,
             server,
             hub: Mutex::new(HubState::default()),
             ids: Mutex::new(HashMap::new()),
@@ -401,7 +450,12 @@ impl LocalRuns {
         let endpoint = format!("{}", self.server.url());
         let identity = self.desktop.executor.identity();
         let grant = HubGrant::new(endpoint, token).server("exponential", HubLevel::Write).acting_for(Some(self.desktop.executor.team_id().to_string()), Some(identity.user_id));
-        let brief = Brief::new(sid, text).cwd(self.cwd.clone()).system_append("You work on a Local desktop of Exponential Desktop: there is no server; the exponential tools reach this desktop's own store.");
+        let mut system = String::from("You work on a Local desktop of Exponential Desktop: there is no server; the exponential tools reach this desktop's own store.");
+        if let Some(note) = &self.host_note {
+            system.push(' ');
+            system.push_str(note);
+        }
+        let brief = Brief::new(sid, text).cwd(self.cwd.clone()).system_append(&system);
         let sink: Arc<dyn EventSink> = Arc::new(Sink { session_id: session_id.to_string(), tx: self.events.0.clone() });
         match self.runner.start(brief, grant, sink) {
             Ok(run) => {
@@ -727,6 +781,33 @@ mod tests {
             assert!(std::time::Instant::now() < deadline, "the condition never held within 120 s");
             let _ = changes.recv_timeout(Duration::from_secs(5));
         }
+    }
+
+    struct HostEdit;
+
+    impl ToolProvider for HostEdit {
+        fn tools(&self) -> Result<Vec<Value>, String> {
+            Ok(vec![tool("shell_edit", "Write a shell document.", json!({"name": {"type": "string"}}), &["name"])])
+        }
+        fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value {
+            content(json!({"tool": name, "by": caller.session_id.as_str(), "name": arguments["name"]}))
+        }
+    }
+
+    #[test]
+    fn the_hosts_tools_sit_next_to_the_nouns_on_one_hub() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let merged = Merged { local: Arc::new(LocalTools { desktop }), host: Arc::new(HostEdit) };
+        let names: Vec<String> = merged.tools().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        assert!(names.contains(&"exponential_issues".to_string()) && names.last() == Some(&"shell_edit".to_string()));
+        let caller = Caller { session_id: SessionId::new("run-1").unwrap(), label: "test".into() };
+        let out = merged.call(&caller, "shell_edit", json!({"name": "taskbar"}));
+        assert_eq!(out["structuredContent"]["tool"], json!("shell_edit"));
+        assert_eq!(out["structuredContent"]["by"], json!("run-1"));
+        let out = merged.call(&caller, "exponential_boards", json!({"op": "list"}));
+        assert!(out["structuredContent"].is_array());
     }
 
     #[test]

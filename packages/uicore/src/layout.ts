@@ -17,9 +17,18 @@ export interface ShellLayout {
   appletButtonSize: number
   startMenu: { width: number; height: number }
   previewsTile: { width: number; height: number }
+  /** #VAPP-273 (C26): the desktop widgets' grid: cells per size class, the cell, the gap, the margin. */
+  widgets: { cell: number; gap: number; margin: number; sizes: Record<string, [number, number]> }
 }
 
 export const LAYOUT: ShellLayout = fixture
 
 /** The sidebar's width for a rail state: the full column or the icon rail. */
 export const sidebarWidth = (rail: boolean): number => (rail ? LAYOUT.railWidth : LAYOUT.sidebarWidth)
+
+/** A widget's size in px for its class (`s` when unknown). */
+export function widgetSize(size: string): { width: number; height: number } {
+  const { cell, gap, sizes } = LAYOUT.widgets
+  const [cols, rows] = sizes[size] ?? [1, 1]
+  return { width: cols * cell + Math.max(cols - 1, 0) * gap, height: rows * cell + Math.max(rows - 1, 0) * gap }
+}

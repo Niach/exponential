@@ -649,12 +649,58 @@ is `hold_input` on a connection of its own, so the IDE's banner and Esc
 work as on X11. Headless test: `EDE_COMPOSITOR=<target>/debug/exponential-compositor
 cargo test -p epilot headless_ede` (in `apps/desktop`).
 
-## Apps (#EDE-20)
+## Apps (#EDE-20, #VAPP-273)
 
 `APPS.md`: Mint's default apps against what eDE keeps, replaces with the
-shell and settings, or rewrites as eApps packages once the `eapps` crate
-exists (#EXP-1420); Calculator, System Monitor and Software are parked
-there with what each needs first.
+shell and settings, or rewrites as Apps packages on the Engine; Calculator,
+System Monitor and Software are listed there with what each needs first.
+
+### Apps on the Engine (#VAPP-273)
+
+The shell hosts `eengine` (docs/spec/apps.md §16): every
+`~/.config/exponential-desktop/apps/*.app.json` (next to the `ui/`
+documents; `EDE_APPS_DIR` overrides) is one app, validated by genUI's own
+validator at boot (a refused one is logged and skipped) and run as an
+exported app would run on the desktop runner: the same `app`, `consent`,
+`permissions` and `toast` surfaces (`packages/eengine/fixtures/runner.json`),
+the identity `local` (this device, no account), the host kind `ede`.
+Records of every app live in one `SqliteRecordStore`
+(`~/.local/share/exponential-desktop/apps/records.sqlite`; `EDE_APPS_DATA_DIR`
+overrides), their files next to it, each app's grants in the keyring (or
+its `vault.json` without one).
+
+- **The window:** the start menu lists each app with the installed
+  applications; `ede_launch {app: <package id>}` opens its window, a plain
+  toplevel of the shell process whose app id is the package id (the
+  taskbar groups it under the launcher's entry; `--open-app <id>` opens one
+  at start, for the goldens). Closing it leaves the app in the background;
+  a widget's press or a notification tap opens it again.
+- **Widgets (C26):** a screen with `widget: {template, size: s | m | l}`
+  paints that template on its own layer surface on the `bottom` layer
+  (over the ground, under the windows), stacked down the top-right of the
+  panel at `shell-layout.json` `widgets` (160 px cells, 16 px gap, 16 px
+  margin inside the panel's 10): `s` = 160×160, `m` = 336×160, `l` =
+  336×336. Its `records:` sources stay live while the window is closed; a
+  press that navigates opens the window on that screen.
+- **Capabilities:** the desktop's natives (`files`, `notifications`,
+  `photos`, `print` over the portals, `eengine-desktop`) and eDE's own
+  `windows` (`windows_list`), `focus` (`focus_window`) and `launch`
+  (`launch_app`), each an `ask` scope the package's manifest must declare
+  (the consent sheet asks once, in the window). They reach the compositor
+  over ede-protocol with one `ui` grant minted for the apps, never the
+  shell's root token; `launch` starts the launcher's desktop entries.
+  `shell.edit` stays host-only: no app can declare it.
+- **`shell_edit`, the desktop's own agent:** the chat's local runs (#EDE-58)
+  get one more tool on their hub, next to the noun subset: `shell_edit
+  {name, document}` writes a shell document after genUI's validation (a
+  refused one answers its issues, nothing written), asks the person once
+  per run in the sealed consent dialog, then runs `exponential-ui set`,
+  so the edit is committed and Version history undoes it. That is the
+  host-only `shell.edit` of the catalog: the shell's agent has it, no
+  app ever does.
+- **A sample:** `apps/ede/apps/notes.app.json` (Notes: a records kind, an
+  action, a screen with a widget). Copy it into the apps directory to try
+  it; `exponential-shell`'s tests boot it on the Engine.
 
 ## The theme bridge: `exponential-theme` (#EDE-19)
 
