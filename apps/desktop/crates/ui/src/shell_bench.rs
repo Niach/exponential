@@ -17,6 +17,32 @@ const SIDEBAR: (f32, f32) = (272., 900.);
 
 #[test]
 #[ignore]
+fn shell_local_desktop() {
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().to_path_buf();
+    cx.update(|cx| {
+        crate::init(cx);
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        crate::local_desktops::install(path, cx);
+        assert!(crate::local_desktops::enter_current(cx));
+    });
+    let handle = open(&mut cx, size(px(SIDEBAR.0), px(SIDEBAR.1)));
+    let window: gpui::AnyWindowHandle = handle.into();
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::Path::new(&dir).join("ide-local.png")).expect("the PNG");
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}
+
+#[test]
+#[ignore]
 fn shell_tab_bar_frames() {
     let mut cx = headless();
     cx.update(seeded);
