@@ -1178,7 +1178,8 @@ impl SurfaceView {
         let mut row = lcx.row(lcx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))).items_center().gap(px(gap)).whitespace_nowrap();
         if lead > 0.0 {
             if let Some(icon) = n.props.get("icon").and_then(Value::as_str) {
-                row = row.child(div().flex_none().child(icons::concept_mirrored(lcx.host, icon, 16.0, lcx.ink, lcx.rtl)));
+                let own = lcx.host.icon_element(icon, 16.0, lcx.ink, cx);
+                row = row.child(div().flex_none().child(own.unwrap_or_else(|| icons::concept_mirrored(lcx.host, icon, 16.0, lcx.ink, lcx.rtl))));
             }
         }
         let align = if owner == "Tabs" { "center" } else { lcx.align() };

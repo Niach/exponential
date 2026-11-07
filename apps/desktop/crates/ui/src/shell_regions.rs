@@ -14,12 +14,13 @@ use eui_gpui::{
     host::{ActionEvent, FunctionCallEvent, HostPlugin, InputEvent},
     view::SurfaceView,
 };
+use crate::controls::PointerContextMenuExt as _;
 use gpui::{anchored, deferred, div, point, prelude::*, px, AnyElement, AnyWindowHandle, App, Entity, Hsla, SharedString, Window};
 use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 use serde_json::{json, Value};
 use sync::Store;
 use uicore_model::{reduce, ShellEvent, ShellState, StartMenuApp};
-use uicore_model::ide::{ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeDot, IdePinInput, IdeSidebarInput};
+use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeDot, IdePinInput, IdeSidebarInput};
 
 use crate::navigation::{self, active_board_id, active_team_id, navigate, resolved_screen, Navigation, Screen};
 use crate::settings::SettingsSection;
@@ -645,6 +646,256 @@ impl HostPlugin for RegionHost {
                     crate::pins::toggle_pin(team_id, domain::contract::PIN_KIND_ISSUE, id, cx);
                 }
             }
+            _ => {}
+        }
+    }
+}
+
+/// A tab's lead (`ide:tab:<key>`) and its screen, by key.
+#[derive(Default)]
+struct OpenTabs {
+    screens: HashMap<String, Screen>,
+    leads: HashMap<String, crate::surface::RichTabStatus>,
+}
+
+fn tab_key(screen: &Screen) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hash::hash(&format!("{screen:?}"), &mut hasher);
+    format!("{:x}", std::hash::Hasher::finish(&hasher))
+}
+
+/// The bottom tab bar (#EXP-1726): `docs/tabbar.json` in the window, over
+/// the screens panel's tabs. Terminals and work tabs are one strip.
+pub(crate) struct TabBarRegion {
+    view: Entity<SurfaceView>,
+    doc: uicore_gpui::inline::Document,
+    tabs: Rc<RefCell<OpenTabs>>,
+    hover: Rc<RefCell<Option<usize>>>,
+    keys: Vec<String>,
+    shown: Option<Value>,
+    more: Option<Vec<String>>,
+    _observers: Vec<gpui::Subscription>,
+}
+
+impl TabBarRegion {
+    pub(crate) fn new(window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx: &mut gpui::Context<Self>| {
+            let tabs = Rc::new(RefCell::new(OpenTabs::default()));
+            let hover = Rc::new(RefCell::new(None));
+            let host = Rc::new(TabHost { tabs: tabs.clone(), hover: hover.clone(), window: window.window_handle(), region: cx.weak_entity() });
+            let doc = uicore_gpui::inline::document(&uicore_docs::TABBAR);
+            let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
+            let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
+            let nav = crate::navigation::nav_for_window(window, cx);
+            Self { view, doc, tabs, hover, keys: Vec::new(), shown: None, more: None, _observers: vec![cx.observe(&nav, |_, _, cx| cx.notify())] }
+        })
+    }
+
+    fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(panel) = crate::screens::screens_for_window(window, cx) else { return };
+        if self._observers.len() == 1 {
+            self._observers.push(cx.observe(&panel, |_, _, cx| cx.notify()));
+        }
+        let items = panel.read(cx).tab_items(cx);
+        let nav = crate::navigation::nav_for_window(window, cx);
+        let active = resolved_screen(&nav, cx);
+        let mut open = OpenTabs::default();
+        let inputs: Vec<IdeTabInput> = items
+            .into_iter()
+            .map(|item| {
+                let key = tab_key(&item.screen);
+                open.screens.insert(key.clone(), item.screen);
+                open.leads.insert(key.clone(), item.status);
+                IdeTabInput { icon: format!("ide:tab:{key}"), key, title: item.title }
+            })
+            .collect();
+        self.keys = inputs.iter().map(|t| t.key.clone()).collect();
+        *self.tabs.borrow_mut() = open;
+        let active = active.as_ref().map(tab_key);
+        let projected = uicore_model::ide::ide_tabs(&inputs, active.as_deref());
+        let more: Vec<Value> = self.more.iter().flatten().filter_map(|key| projected.tabs.iter().find(|t| &t.value == key)).map(|t| json!(t)).collect();
+        let mut value = serde_json::to_value(&projected).expect("the tabs serialize");
+        value["more"] = Value::Array(more);
+        value["moreOpen"] = json!(self.more.is_some());
+        if self.shown.as_ref() != Some(&value) {
+            let tabs_changed = self.shown.as_ref().map(|s| &s["tabs"]) != Some(&value["tabs"]);
+            self.shown = Some(value.clone());
+            self.apply(&value, tabs_changed, cx);
+        }
+        // A lead is host-painted: its state changes without the data.
+        self.view.update(cx, |_, cx| cx.notify());
+    }
+
+    fn apply(&mut self, value: &Value, tabs_changed: bool, cx: &mut gpui::Context<Self>) {
+        if tabs_changed {
+            uicore_gpui::inline::set_prop(&mut self.doc, "ide_tabs", "tabs", value["tabs"].clone());
+            uicore_gpui::inline::reload(&self.view, &self.doc, cx);
+        }
+        self.view.update(cx, |view, cx| {
+            for (key, value) in value.as_object().expect("an object") {
+                if key != "tabs" {
+                    let _ = view.set_data(&format!("/shell/ide/{key}"), Some(value.clone()), cx);
+                }
+            }
+        });
+    }
+
+    /// A sample strip, for the pictures.
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, titles: &[&str], cx: &mut gpui::Context<Self>) {
+        let inputs: Vec<IdeTabInput> = titles.iter().enumerate().map(|(i, title)| IdeTabInput { key: format!("t{i}"), title: title.to_string(), icon: "nav-threads".into() }).collect();
+        let value = serde_json::to_value(uicore_model::ide::ide_tabs(&inputs, Some("t1"))).unwrap();
+        self.apply(&value, true, cx);
+    }
+
+    /// The tab under the pointer, for the context menu and middle-click.
+    fn hovered(&self) -> Option<Screen> {
+        let index = (*self.hover.borrow())?;
+        let key = self.keys.get(index)?;
+        self.tabs.borrow().screens.get(key).cloned()
+    }
+}
+
+fn with_panel(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut crate::screens::ScreensPanel, &mut Window, &mut gpui::Context<crate::screens::ScreensPanel>)) {
+    if let Some(panel) = crate::screens::screens_for_window(window, cx) {
+        panel.update(cx, |panel, cx| f(panel, window, cx));
+    }
+}
+
+impl Render for TabBarRegion {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.refresh(window, cx);
+        let region = cx.weak_entity();
+        let menu_region = region.clone();
+        div()
+            .id("tab-bar")
+            .size_full()
+            .child(uicore_gpui::inline::region(&self.view))
+            .on_mouse_down(gpui::MouseButton::Middle, move |_, window, cx| {
+                let Some(screen) = region.read_with(cx, |region, _| region.hovered()).ok().flatten() else { return };
+                cx.stop_propagation();
+                with_panel(window, cx, |panel, window, cx| panel.close_screen(&screen, window, cx));
+            })
+            .pointer_context_menu(move |menu, _, cx| {
+                let Some(screen) = menu_region.read_with(cx, |region, _| region.hovered()).ok().flatten() else { return menu };
+                let (close, others, undock) = (screen.clone(), screen.clone(), screen.clone());
+                let undockable = matches!(screen, Screen::Terminal { .. }) || screen.undockable();
+                let menu = if undockable {
+                    menu.item(crate::controls::pointer_label_item("Open in new window", false).on_click(move |_, window, cx| {
+                        let undock = undock.clone();
+                        with_panel(window, cx, |panel, window, cx| panel.undock_screen(&undock, window, cx));
+                    }))
+                } else {
+                    menu
+                };
+                menu.item(crate::controls::pointer_label_item("Close", false).on_click(move |_, window, cx| {
+                    let close = close.clone();
+                    with_panel(window, cx, |panel, window, cx| panel.close_screen(&close, window, cx));
+                }))
+                .item(crate::controls::pointer_label_item("Close others", false).on_click(move |_, window, cx| {
+                    let others = others.clone();
+                    with_panel(window, cx, |panel, window, cx| panel.close_others_of(&others, window, cx));
+                }))
+                .item(crate::controls::pointer_label_item("Close all", false).on_click(|_, window, cx| {
+                    with_panel(window, cx, |panel, window, cx| panel.close_every_tab(window, cx));
+                }))
+            })
+    }
+}
+
+struct TabHost {
+    tabs: Rc<RefCell<OpenTabs>>,
+    hover: Rc<RefCell<Option<usize>>>,
+    window: AnyWindowHandle,
+    region: gpui::WeakEntity<TabBarRegion>,
+}
+
+impl TabHost {
+    fn in_window(&self, cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 'static) {
+        let handle = self.window;
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, cx| f(window, cx));
+        });
+    }
+
+    fn screen(&self, key: &str) -> Option<Screen> {
+        self.tabs.borrow().screens.get(key).cloned()
+    }
+}
+
+/// A strip part's tab index: `<tabs>…​.<index>`.
+fn tab_index(component: &str) -> Option<usize> {
+    component.contains("ide_tabs").then(|| component.rsplit('.').next()?.parse().ok()).flatten()
+}
+
+impl HostPlugin for TabHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        crate::exponential_ui_host::icon_path(name)
+    }
+
+    fn icon_element(&self, name: &str, size: f32, _color: Hsla, _cx: &App) -> Option<AnyElement> {
+        let key = name.strip_prefix("ide:tab:")?;
+        let tabs = self.tabs.borrow();
+        Some(match tabs.leads.get(key)? {
+            crate::surface::RichTabStatus::Dot(tone) => crate::sidebar::rail_dot(*tone).into_any_element(),
+            crate::surface::RichTabStatus::Glyph(icon) => icon.clone().with_size(gpui::px(size)).into_any_element(),
+            crate::surface::RichTabStatus::None => div().size(gpui::px(size)).into_any_element(),
+        })
+    }
+
+    fn on_hover(&self, component_id: &str, hovered: bool, _cx: &mut App) {
+        let Some(index) = tab_index(component_id) else { return };
+        let mut hover = self.hover.borrow_mut();
+        if hovered {
+            *hover = Some(index);
+        } else if *hover == Some(index) {
+            *hover = None;
+        }
+    }
+
+    fn on_action(&self, event: &ActionEvent, cx: &mut App) {
+        if event.name != "ide_tab" {
+            return;
+        }
+        let action = event.context["action"].as_str().unwrap_or_default().to_string();
+        let payload = event.payload.clone().unwrap_or(Value::Null);
+        let chosen = event.context["value"].as_str().or(payload["value"].as_str()).map(str::to_string);
+        let region = self.region.clone();
+        match action.as_str() {
+            "open" => {
+                let Some(screen) = chosen.and_then(|key| self.screen(&key)) else { return };
+                self.in_window(cx, move |window, cx| {
+                    let _ = region.update(cx, |region, cx| {
+                        region.more = None;
+                        cx.notify();
+                    });
+                    with_panel(window, cx, |panel, window, cx| panel.open_screen(screen, window, cx));
+                });
+            }
+            "close" => {
+                let Some(screen) = chosen.and_then(|key| self.screen(&key)) else { return };
+                self.in_window(cx, move |window, cx| with_panel(window, cx, |panel, window, cx| panel.close_screen(&screen, window, cx)));
+            }
+            "new" => self.in_window(cx, |window, cx| crate::session_bar::open_new_shell(window, cx)),
+            "reorder" => {
+                let Some((screen, to)) = chosen.and_then(|key| self.screen(&key)).zip(payload["to"].as_u64()) else { return };
+                self.in_window(cx, move |window, cx| with_panel(window, cx, |panel, _, cx| panel.move_tab(&screen, to as usize, cx)));
+            }
+            "more" => {
+                let hidden: Vec<String> = payload["values"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
+                self.in_window(cx, move |_, cx| {
+                    let _ = region.update(cx, |region, cx| {
+                        region.more = Some(hidden);
+                        cx.notify();
+                    });
+                });
+            }
+            "more_closed" if payload["open"] == json!(false) => self.in_window(cx, move |_, cx| {
+                let _ = region.update(cx, |region, cx| {
+                    region.more = None;
+                    cx.notify();
+                });
+            }),
             _ => {}
         }
     }

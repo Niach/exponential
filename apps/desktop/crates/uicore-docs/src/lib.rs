@@ -23,6 +23,9 @@ macro_rules! docs {
 
 docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network", "applet-sound", "chat", "connect", "expo", "ground", "history", "notification-center", "notifications", "osd", "scale", "settings", "sidebar", "start-menu", "switcher", "taskbar", "tray-menu"];
 
+/// The tab bar only the IDE draws (eDE has Mint's taskbar).
+pub const TABBAR: Doc = Doc { name: "tabbar", source: include_str!("../../../../../packages/uicore/docs/tabbar.json") };
+
 impl Doc {
     /// The parsed document (the sources are checked by the tests).
     pub fn json(&self) -> Value {
@@ -57,6 +60,12 @@ mod tests {
             assert!(v.get("surface").is_some(), "{}: a shell document has a surface header", d.name);
             assert!(v.get("root").is_some() || v.get("components").is_some(), "{}: a body", d.name);
         }
+    }
+
+    #[test]
+    fn the_tabbar_is_a_document() {
+        let v = TABBAR.json();
+        assert!(v.get("surface").is_some() && v.get("root").is_some());
     }
 
     /// #EDE-60: a layer surface floats over windows, so its root must be

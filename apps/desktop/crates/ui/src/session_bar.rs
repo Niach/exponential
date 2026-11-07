@@ -51,9 +51,9 @@
 //! bar/manager only surface the exit edge.
 
 use gpui::{
-    actions, div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Bounds,
+    actions, div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _,
     ClickEvent, Entity, Focusable as _, InteractiveElement, IntoElement, KeyBinding,
-    ParentElement, Pixels, Render, SharedString, Styled, Subscription, Window, WindowId,
+    ParentElement, Render, SharedString, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -70,7 +70,6 @@ use crate::navigation::{self, Screen};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup};
 
 /// The bar's height — the web strip's `h-9`.
-pub(crate) const SESSION_BAR_H: f32 = 36.;
 
 /// Keymap scope for the terminal-screen bindings — an ancestor of the focused
 /// terminal view in the dispatch path, so the chords work while typing in
@@ -111,14 +110,6 @@ impl gpui::Global for SessionBarRegistry {}
 /// undocked window has none).
 pub(crate) fn host_for_window(window: &Window, cx: &App) -> Option<Entity<SessionBar>> {
     host_for_window_id(window.window_handle().window_id(), cx)
-}
-
-/// EXP-791: whether the bar has anything to show — a terminal tab in this
-/// window's screens panel. The shell folds the bar's band to zero height
-/// otherwise (the panel then takes the plain bottom margin).
-pub(crate) fn bar_visible(window: &Window, cx: &App) -> bool {
-    crate::screens::screens_for_window(window, cx)
-        .is_some_and(|screens| screens.read(cx).has_terminal_tabs())
 }
 
 /// EXP-791: open a plain shell tab in this window — the rail footer's
@@ -199,13 +190,6 @@ pub struct SessionBar {
     /// window closed with live holds leaks its refresh loops until quit —
     /// bounded and rare; sessions normally end by tab close.)
     agent_shell_holds: HashMap<TabId, PathBuf>,
-    /// EXP-497: the painted width of the bar's chip slot (the `flex_1`
-    /// container the chips + the two buttons render into), recorded by an
-    /// `on_children_prepainted` listener on the bar. Unlike the center strip,
-    /// this width is NOT derivable from window chrome — the bar sits under a
-    /// user-resizable split. `None` until the first paint (renders every
-    /// chip; `overflow_x_hidden` covers that one frame).
-    chips_slot_width: Option<f32>,
     /// This window — the screens panel is poked by id (see
     /// [`Self::poke_screens`]).
     window_id: WindowId,
@@ -335,7 +319,6 @@ impl SessionBar {
         Self {
             manager,
             agent_shell_holds: HashMap::new(),
-            chips_slot_width: None,
             window_id,
             _observe_screens: None,
             _subscription: subscription,
@@ -589,22 +572,6 @@ impl SessionBar {
         self.activate_visible_step(false, window, cx);
     }
 
-    /// The `+`: a plain shell, straight away (cmd-t's click twin). The
-    /// agent launches the old dropdown carried belong to the Start-coding
-    /// dialog and the rail's Agent entry now.
-    fn new_terminal_button(&self, cx: &gpui::Context<Self>) -> AnyElement {
-        Button::new("session-bar-new-terminal")
-            .ghost()
-            .web_icon_xs()
-            .icon(Icon::new(registry::UI_ADD))
-            .tooltip("New terminal")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                cx.stop_propagation();
-                this.new_shell_tab(window, cx);
-            }))
-            .into_any_element()
-    }
-
     /// The EXP-325 promptless agent launch: background
     /// [`coding::prepare_agent_shell`] (doctor → token → clone/autopull →
     /// MCP wiring → promptless argv with the agent's settings defaults) →
@@ -820,80 +787,10 @@ fn hint(glyph: crate::icons::ExpIcon, copy: &'static str, cx: &App) -> AnyElemen
 }
 
 impl Render for SessionBar {
-    /// The bar: the screens panel's terminal tabs with the `+` button riding
-    /// right after the last one — the web strip's `h-9 px-2 gap-1`. EXP-771:
-    /// it renders OUTSIDE the cutout panel, on the window's bare ground under
-    /// the card (`shell::Shell::render` owns the band's 10px horizontal
-    /// margins), so it carries no fill and no hairline of its own — the head
-    /// toolbar's twin at the bottom, chips inset 8px from the card's left
-    /// edge by the `px_2` below. EXP-791: ZERO height without a terminal tab
-    /// (the rail footer's terminal button opens the first one); the entity
-    /// stays mounted so the screens observer below is always armed.
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        if self._observe_screens.is_none() {
-            if let Some(screens) = crate::screens::screens_for_window(window, cx) {
-                self._observe_screens = Some(cx.observe(&screens, |_, _, cx| cx.notify()));
-            }
-        }
-        if !bar_visible(window, cx) {
-            return h_flex().id("session-bar").w_full().h_0().into_any_element();
-        }
-        // EXP-497: the `+` rides INSIDE the slot after the chips — one 24px
-        // circle plus its gap comes off the partition budget.
-        let button_reserve = theme::tokens::size::CONTROL_SM + crate::screens::chip_gap(window);
-        let available = self
-            .chips_slot_width
-            .map_or(f32::MAX, |slot| (slot - button_reserve).max(0.));
-        let trailing = vec![self.new_terminal_button(cx)];
-        let tabs = crate::screens::screens_for_window(window, cx).map(|screens| {
-            screens.update(cx, |screens, cx| {
-                screens.render_session_bar_tabs(available, trailing, window, cx)
-            })
-        });
-        h_flex()
-            // EXP-497: record the chip slot's painted width (the `flex_1`
-            // child below, a pure-stretch flex item the chips cannot
-            // inflate) so the partition budgets against the real layout.
-            // Change-gated: only a real width change repaints. (On the bare
-            // `Div` — the method is not exposed on `Stateful`, so it rides
-            // ahead of `.id()`.)
-            .on_children_prepainted({
-                let bar = cx.entity().downgrade();
-                move |bounds: Vec<Bounds<Pixels>>, _window, cx| {
-                    let Some(slot) = bounds.first() else {
-                        return;
-                    };
-                    let width = f32::from(slot.size.width);
-                    let _ = bar.update(cx, |this, cx| {
-                        if this
-                            .chips_slot_width
-                            .is_none_or(|prev| (prev - width).abs() > 0.5)
-                        {
-                            this.chips_slot_width = Some(width);
-                            cx.notify();
-                        }
-                    });
-                }
-            })
-            .id("session-bar")
-            .h(px(SESSION_BAR_H))
-            .w_full()
-            .flex_shrink_0()
-            .px_2()
-            .gap_1()
-            .items_center()
-            .child(
-                // Chips never scroll — non-fitting tabs fold into the "+N"
-                // dropdown; `overflow_x_hidden` covers the one unmeasured
-                // first frame, which renders every chip.
-                div()
-                    .id("session-bar-slot")
-                    .min_w_0()
-                    .flex_1()
-                    .overflow_x_hidden()
-                    .children(tabs),
-            )
-            .into_any_element()
+    /// #EXP-1726: nothing of its own: the terminals are tabs of the bottom
+    /// tab bar; the entity stays for its `TerminalManager`.
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        gpui::Empty
     }
 }
 
@@ -921,16 +818,3 @@ pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
         )))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// EXP-769: the bar is the web strip's height, and the button reserve it
-    /// takes off the chip budget is a `size-6` circle — the pill ladder's
-    /// small rung, not a hand-typed 24.
-    #[test]
-    fn bar_geometry_is_the_web_strips() {
-        assert_eq!(SESSION_BAR_H, 36.);
-        assert_eq!(theme::tokens::size::CONTROL_SM, 24.);
-    }
-}
