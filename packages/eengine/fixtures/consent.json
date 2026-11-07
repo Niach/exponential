@@ -109,8 +109,8 @@
       "expected": [
         { "id": "root", "component": "Drawer", "title": "Allow Photobook to access your photos?", "open": true, "side": "bottom", "children": ["why", "answer"], "slots": { "footer": "confirm" }, "on": { "change": { "event": { "name": "consent.answer", "context": { "answer": "dismiss" } } } } },
         { "id": "why", "component": "Text", "text": "Pick the photos for an album." },
-        { "id": "answer", "component": "ChoiceTiles", "name": "answer", "columns": 1, "value": { "path": "/answer" }, "options": [{ "label": "Allow", "value": "allow" }, { "label": "Allow once", "value": "once" }, { "label": "Don't allow", "value": "deny" }] },
-        { "id": "confirm", "component": "Button", "label": "Continue", "on": { "press": { "event": { "name": "consent.answer", "context": { "answer": { "path": "/answer" } } } } } }
+        { "id": "answer", "component": "ChoiceTiles", "name": "answer", "columns": 1, "value": { "@path": "/answer" }, "options": [{ "label": "Allow", "value": "allow" }, { "label": "Allow once", "value": "once" }, { "label": "Don't allow", "value": "deny" }] },
+        { "id": "confirm", "component": "Button", "label": "Continue", "on": { "press": { "event": { "name": "consent.answer", "context": { "answer": { "@path": "/answer" } } } } } }
       ],
       "data": { "answer": "allow" }
     },
@@ -121,8 +121,8 @@
       "expected": [
         { "id": "root", "component": "Drawer", "title": "Allow Rates to connect to https://api.example.com, https://backup.example.com?", "open": true, "side": "bottom", "children": ["why", "answer"], "slots": { "footer": "confirm" }, "on": { "change": { "event": { "name": "consent.answer", "context": { "answer": "dismiss" } } } } },
         { "id": "why", "component": "Text", "text": "Load exchange rates." },
-        { "id": "answer", "component": "ChoiceTiles", "name": "answer", "columns": 1, "value": { "path": "/answer" }, "options": [{ "label": "Allow", "value": "allow" }, { "label": "Allow once", "value": "once" }, { "label": "Don't allow", "value": "deny" }] },
-        { "id": "confirm", "component": "Button", "label": "Continue", "on": { "press": { "event": { "name": "consent.answer", "context": { "answer": { "path": "/answer" } } } } } }
+        { "id": "answer", "component": "ChoiceTiles", "name": "answer", "columns": 1, "value": { "@path": "/answer" }, "options": [{ "label": "Allow", "value": "allow" }, { "label": "Allow once", "value": "once" }, { "label": "Don't allow", "value": "deny" }] },
+        { "id": "confirm", "component": "Button", "label": "Continue", "on": { "press": { "event": { "name": "consent.answer", "context": { "answer": { "@path": "/answer" } } } } } }
       ],
       "data": { "answer": "allow" }
     }
@@ -137,9 +137,9 @@
       ],
       "grants": { "photos.read": "granted", "notifications.post": "denied" },
       "expected": [
-        { "id": "root", "component": "Drawer", "title": "Permissions", "open": true, "side": "bottom", "children": ["scope-0", "scope-1"] },
-        { "id": "scope-0", "component": "Switch", "label": "Photos", "description": "Pick the photos for an album.", "checked": true, "on": { "change": { "event": { "name": "consent.toggle", "context": { "scope": "photos.read" } } } } },
-        { "id": "scope-1", "component": "Switch", "label": "Notifications", "description": "Remind you of due pages.", "checked": false, "on": { "change": { "event": { "name": "consent.toggle", "context": { "scope": "notifications.post" } } } } }
+        { "id": "root", "component": "Drawer", "title": "Permissions", "open": true, "side": "bottom", "children": ["scope_0", "scope_1"] },
+        { "id": "scope_0", "component": "Switch", "label": "Photos", "description": "Pick the photos for an album.", "checked": true, "on": { "change": { "event": { "name": "consent.toggle", "context": { "scope": "photos.read" } } } } },
+        { "id": "scope_1", "component": "Switch", "label": "Notifications", "description": "Remind you of due pages.", "checked": false, "on": { "change": { "event": { "name": "consent.toggle", "context": { "scope": "notifications.post" } } } } }
       ]
     }
   ]

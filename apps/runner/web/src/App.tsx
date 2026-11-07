@@ -11,14 +11,17 @@ const OVERLAYS = [`consent`, `permissions`, `toast`]
 /** `icons`: the export's glyphs (src/glyphs.ts). */
 export function App({ runner, icons }: { runner: Runner; icons: IconMap }) {
   const ids = useHostSurfaceIds(runner.host)
+  const app = runner.surfaceId(`app`)
   // VAPP-271: `app-file:<fileId>` images come from the app's own files.
   const plugin = useMemo<HostPlugin>(() => ({ icons, appFile: (id) => runner.appFile(id) }), [icons, runner])
   return (
     <>
-      <HostSurface host={runner.host} surfaceId="app" plugin={plugin} theme="exponential" mode="dark" style={{ height: `100%` }} />
-      {OVERLAYS.filter((id) => ids.includes(id)).map((id) => (
-        <HostSurface key={id} host={runner.host} surfaceId={id} plugin={plugin} theme="exponential" mode="dark" />
-      ))}
+      <HostSurface key={app} host={runner.host} surfaceId={app} plugin={plugin} theme="exponential" mode="dark" style={{ height: `100%` }} />
+      {OVERLAYS.map((name) => runner.surfaceId(name))
+        .filter((id) => ids.includes(id))
+        .map((id) => (
+          <HostSurface key={id} host={runner.host} surfaceId={id} plugin={plugin} theme="exponential" mode="dark" />
+        ))}
     </>
   )
 }

@@ -2,13 +2,15 @@
 // Engine AppInstance per page; the painter is genUI's ExponentialHost (the
 // React host paints its surfaces). Every pixel is a genUI surface: `app`
 // (the open screen, wrapped by `runnerPackage`), `consent`, `permissions`,
-// `toast`, and `runnerFailure` in place of `app`. No server, no OTA, no
+// `toast`, and `runnerFailure` in place of `app`. Those are names: a surface
+// id lives once per host (round 9 §1.4), so each paint mints one and
+// `surfaceId(name)` answers the live one. No server, no OTA, no
 // telemetry, no account: the package comes from the bundle dir `app/`.
 //
 // Browser-free: the page wiring (events, storage, capabilities) is
 // `page.ts`; tests drive this with fakes.
 
-import { CORE_CATALOG_ID, ExponentialHost, type AppPackage, type ClientMessage, type HostFunction, type ServerMessage } from "@exponential_app/eui"
+import { A2UI_VERSION, CORE_CATALOG_ID, ExponentialHost, type AppPackage, type ClientMessage, type HostFunction, type ServerMessage } from "@exponential_app/eui"
 import {
   AppInstance,
   CAPABILITY_TOOLS,
@@ -36,8 +38,7 @@ import {
 import lifecycle from "@exp/eengine/fixtures/lifecycle.json" with { type: "json" }
 import runnerFixture from "@exp/eengine/fixtures/runner.json" with { type: "json" }
 
-const VERSION = `v0.9`
-const RECORDS_FUNCTIONS = [`records.upsert`, `records.delete`, `records.batch`]
+const RECORDS_FUNCTIONS = [`records_upsert`, `records_delete`, `records_batch`]
 /** A toast's own duration (genUI `Toast.duration` default) plus its exit. */
 const TOAST_MS = 5_500
 
@@ -95,6 +96,7 @@ export class Runner {
   private toastTimer: unknown = null
   private ids: () => string
   private blobs: BlobStore | null = null
+  private surfaces = new Map<string, string>()
 
   constructor(private readonly options: RunnerOptions) {
     this.formFactor = options.formFactor
@@ -208,11 +210,11 @@ export class Runner {
 
   /** The WindowHost's `open`: the screen's template onto surface `app` with `{params}`. */
   private open(screen: string, params: Record<string, string>): void {
-    this.host.receive({ version: VERSION, applyTemplate: { surfaceId: `app`, templateId: screen, packageId: this.instance!.appId, data: { params } } } as ServerMessage)
+    this.replace(`app`, (surfaceId) => this.host.applyTemplate({ surfaceId, templateId: screen, packageId: this.instance!.appId, data: { params } }))
   }
 
   private async navigate(args: unknown): Promise<void> {
-    const result = await this.instance?.call(`app.navigate`, args)
+    const result = await this.instance?.call(`app_navigate`, args)
     if (result && `refused` in result) this.toast(result.refused.message)
   }
 
@@ -277,8 +279,9 @@ export class Runner {
   /** `fresh` = open it anew (its Drawer closes itself); else repaint in place (a toggle). */
   private paintPermissions(fresh = true): void {
     if (!this.instance) return
-    if (fresh || !this.host.surface(`permissions`)) this.paint(`permissions`, this.instance.permissionsSheet())
-    else this.host.receive({ version: VERSION, updateComponents: { surfaceId: `permissions`, components: this.instance.permissionsSheet() } } as ServerMessage)
+    const surfaceId = this.surfaceId(`permissions`)
+    if (fresh || !this.host.surface(surfaceId)) this.paint(`permissions`, this.instance.permissionsSheet())
+    else this.host.receive({ version: A2UI_VERSION, updateComponents: { surfaceId, components: this.instance.permissionsSheet() } } as ServerMessage)
   }
 
   /** The Switch's gesture: granted → revoke, else granted. */
@@ -291,15 +294,33 @@ export class Runner {
 
   // ------------------------------------------------------------ surfaces
 
-  private paint(surfaceId: string, components: SurfaceComponent[], data?: Record<string, unknown>): void {
-    if (this.host.surface(surfaceId)) this.host.receive({ version: VERSION, deleteSurface: { surfaceId } } as ServerMessage)
-    this.host.receive({ version: VERSION, createSurface: { surfaceId, catalogId: CORE_CATALOG_ID } } as ServerMessage)
-    this.host.receive({ version: VERSION, updateComponents: { surfaceId, components } } as ServerMessage)
-    if (data) this.host.receive({ version: VERSION, updateDataModel: { surfaceId, path: `/`, value: data } } as ServerMessage)
+  /** The live surface id of a name (`app`, `consent`, `permissions`, `toast`); the name itself until it paints. */
+  surfaceId(name: string): string {
+    return this.surfaces.get(name) ?? name
   }
 
-  private close(surfaceId: string): void {
-    if (this.host.surface(surfaceId)) this.host.receive({ version: VERSION, deleteSurface: { surfaceId } } as ServerMessage)
+  /** Round 9 §1.4: a fresh id, the new surface on it, then the old one goes, so it paints until the new one exists. */
+  private replace(name: string, create: (surfaceId: string) => void): void {
+    const old = this.surfaces.get(name)
+    const surfaceId = this.host.freshSurfaceId(name)
+    this.surfaces.set(name, surfaceId)
+    create(surfaceId)
+    if (old !== undefined) this.delete(old)
+  }
+
+  private paint(name: string, components: SurfaceComponent[], data?: Record<string, unknown>): void {
+    this.replace(name, (surfaceId) => this.host.receive({ version: A2UI_VERSION, createSurface: { surfaceId, catalogId: CORE_CATALOG_ID, components, ...(data ? { dataModel: data } : {}) } } as ServerMessage))
+  }
+
+  private close(name: string): void {
+    const surfaceId = this.surfaces.get(name)
+    if (surfaceId === undefined) return
+    this.surfaces.delete(name)
+    this.delete(surfaceId)
+  }
+
+  private delete(surfaceId: string): void {
+    if (this.host.surface(surfaceId)) this.host.receive({ version: A2UI_VERSION, deleteSurface: { surfaceId } } as ServerMessage)
   }
 
   /** The failed-action toast; it dismisses itself. */
