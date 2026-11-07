@@ -210,7 +210,8 @@ public struct NodeAccessibility: Sendable, Equatable {
     public var valueNow: Double?
     public var valueMin: Double?
     public var valueMax: Double?
-    /// Out of the accessibility tree (`hidden: true` or role `hidden`).
+    /// Out of the accessibility tree (`hidden`, a DynamicBoolean, or role
+    /// `hidden`); painted as ever.
     public var hidden: Bool
     /// Focus lands here when the enclosing dialog opens.
     public var autoFocus: Bool
@@ -233,8 +234,19 @@ public struct NodeAccessibility: Sendable, Equatable {
         valueNow = a["valueNow"]?.number
         valueMin = a["valueMin"]?.number
         valueMax = a["valueMax"]?.number
-        hidden = a["hidden"]?.bool ?? (role == "hidden")
+        hidden = Self.coerceBoolean(a["hidden"]) || role == "hidden"
         autoFocus = a["autoFocus"]?.bool ?? false
+    }
+
+    /// Round 9 §6.7 (`coerceBoolean`, `expr.rs`).
+    private static func coerceBoolean(_ v: JSONValue?) -> Bool {
+        switch v {
+        case let .bool(b)?: return b
+        case let .number(n)?: return n != 0
+        case let .string(s)?: return s.lowercased() == "true"
+        case let .object(o)?: return o["valid"]?.bool ?? false
+        default: return false
+        }
     }
 }
 

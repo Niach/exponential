@@ -29,10 +29,53 @@ enum MarkdownPainter {
     /// `density: chat` added under the host's chat rhythm (a
     /// painter-supplied recipe prop, `catalog/recipes.json`).
     static func props(_ props: Props, chat: Bool) -> Props {
-        guard chat else { return props }
+        // Round 9 §9.1: the inline profile answers to no host density.
+        guard chat, inlineVariant(props) == nil else { return props }
         var p = props
         p["density"] = .string("chat")
         return p
+    }
+
+    /// Round 9 §9.1: an inline-profile Markdown's `variant` (`body` or
+    /// `caption`); nil = the document profile.
+    static func inlineVariant(_ props: Props) -> String? {
+        guard props.str("profile") == "inline" else { return nil }
+        return props.str("variant") == "caption" ? "caption" : "body"
+    }
+
+    /// One recipe an inline-profile part paints with.
+    struct InlineRecipe: Equatable {
+        let component: String
+        let part: String
+        let props: Props
+    }
+
+    /// `markdownInlineRecipes` (fixtures/markdown-inline.json), first to
+    /// last, later over earlier: a paragraph IS a Text of its `variant`, a
+    /// heading a Heading of its level (h5, h6 paint h4).
+    static func inlineRecipes(paragraph variant: String) -> [InlineRecipe] {
+        [InlineRecipe(component: "Text", part: "root", props: ["variant": .string(variant)])]
+    }
+
+    static func inlineRecipes(heading level: Int) -> [InlineRecipe] {
+        [
+            InlineRecipe(component: "Text", part: "root", props: ["variant": .string("title")]),
+            InlineRecipe(component: "Heading", part: "root", props: ["level": .string("h\(min(max(level, 1), 4))")]),
+        ]
+    }
+
+    /// The ink of an inline-profile paragraph or heading: its recipes'
+    /// colour, nil = the node's.
+    @MainActor
+    static func inlineInk(_ kind: MarkdownBlockKind, props: Props, model: SurfaceModel) -> Color? {
+        guard let variant = inlineVariant(props) else { return nil }
+        let recipes: [InlineRecipe]
+        switch kind {
+        case .paragraph: recipes = inlineRecipes(paragraph: variant)
+        case let .heading(level): recipes = inlineRecipes(heading: level)
+        default: return nil
+        }
+        return recipes.reversed().lazy.compactMap { model.part($0.component, $0.part, props: $0.props).color }.first
     }
 
     /// `blocks` after the host's Markdown hooks (#VAPP-258, the measurer
@@ -108,6 +151,16 @@ enum MarkdownPainter {
         s.quotePad = quote.px("paddingHorizontal") ?? s.quotePad
         s.imageRadius = part("image").style.radius
         s.blockGap = root?.px("gap") ?? theme.spacing("sm")
+        // Round 9 §9.1: the inline profile's paragraph and heading type are
+        // the Text / Heading recipes, no `Markdown/*` type (the document
+        // gaps stay).
+        if let variant = inlineVariant(props) {
+            func type(_ recipes: [InlineRecipe]) -> MarkdownTextSpec {
+                recipes.reduce(s.body) { spec(theme.part($1.component, $1.part, props: $1.props, mode: mode), $0) }
+            }
+            s.paragraph = type(inlineRecipes(paragraph: variant))
+            for level in 1...6 { s.headingLevels[level] = type(inlineRecipes(heading: level)) }
+        }
         // #VAPP-258: every cell's paddings (`Markdown/cell`).
         let cell = part("cell")
         s.cellPadH = cell.px("paddingHorizontal") ?? cell.px("padding") ?? theme.spacing("sm")
@@ -387,7 +440,7 @@ struct MarkdownView: View {
         let codeBlockBorder = codeBlockPart.borderColor
         switch block.kind {
         case .paragraph, .heading:
-            linked(runs(block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: width), spec: spec, width: width)
+            linked(runs(block.inlines, spec, ink: MarkdownPainter.inlineInk(block.kind, props: props, model: model) ?? ink, link: link, codeBackground: codeBg, width: width), spec: spec, width: width)
         case let .image(src, alt):
             let boxWidth = box.width ?? width
             let unsized = block.imageSize == nil

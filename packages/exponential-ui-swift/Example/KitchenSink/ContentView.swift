@@ -181,6 +181,8 @@ final class SinkState: ObservableObject {
     /// Anything else (incl. `exponential-ui-kitchen-sink`) = nil.
     static func specimen(_ id: String?) -> (node: String, data: JSONValue?)? {
         guard let id else { return nil }
+        if id == "exponential-ui-field-states" { return (fieldStates, fieldStateData) }
+        if id == "exponential-ui-markdown-inline" { return (markdownInline, nil) }
         let file = id.hasPrefix("exponential-ui-eval-") ? "eval-specimens" : "specimens"
         guard let url = Bundle.main.url(forResource: file, withExtension: "json"),
               let data = try? Data(contentsOf: url),
@@ -194,7 +196,49 @@ final class SinkState: ObservableObject {
             print("[exponential-ui] specimen \(id): not in \(file).json")
             return nil
         }
+        // Round 9 §6.6: the `record-form` entry shows the field states under
+        // the macro, like the web's.
+        if id == "exponential-ui-record-form" {
+            var data = entry["data"].map { JSONValue(any: $0) }?.object ?? [:]
+            data.merge(fieldStateData.object ?? [:]) { _, new in new }
+            return (#"{"id":"record-form-states","component":"Stack","props":{"gap":"xl"},"children":[\#(json),\#(fieldStates)]}"#, .object(data))
+        }
         return (json, entry["data"].map { JSONValue(any: $0) })
+    }
+
+    /// Round 9 §6.6 (the web's `ExponentialUiFieldStates`): one Input per
+    /// check severity. `revealChecks` blurs each, so its message shows at
+    /// first paint without a refused submit's focus.
+    static let fieldStates = #"""
+    {"id":"field-states","component":"Stack","props":{"gap":"md"},"children":[
+      {"id":"email","component":"Input","props":{"label":"Email","name":"email","value":"ada@","validateOn":"blur","checks":[{"condition":{"@path":"/error"}}]}},
+      {"id":"password","component":"Input","props":{"label":"Password","name":"password","value":"hunter2","validateOn":"blur","checks":[{"condition":{"@path":"/warning"}}]}},
+      {"id":"nickname","component":"Input","props":{"label":"Nickname","name":"nickname","value":"ada","validateOn":"blur","checks":[{"condition":{"@path":"/info"}}]}}
+    ]}
+    """#
+
+    static let fieldStateData: JSONValue = .object([
+        "error": .object(["valid": .bool(false), "severity": .string("error"), "message": .string("Not an email")]),
+        "warning": .object(["valid": .bool(false), "severity": .string("warning"), "message": .string("Weak: add a few more characters")]),
+        "info": .object(["valid": .bool(false), "severity": .string("info"), "message": .string("Shown on your profile")]),
+    ])
+
+    /// Round 9 §9.1: the Markdown inline profile (capture only): a paragraph
+    /// of each variant over the Text it matches, then every heading level.
+    static let markdownInline = #"""
+    {"id":"markdown-inline","component":"Stack","props":{"gap":"md"},"children":[
+      {"id":"body","component":"Markdown","props":{"text":"An inline paragraph is a **Text** body, with [a link](https://a2ui.org) and `code`.","profile":"inline"}},
+      {"id":"body-text","component":"Text","props":{"text":"A Text body beside it, the same type."}},
+      {"id":"caption","component":"Markdown","props":{"text":"An inline caption is a *Text* caption.","profile":"inline","variant":"caption"}},
+      {"id":"caption-text","component":"Text","props":{"text":"A Text caption beside it, the same type.","variant":"caption"}},
+      {"id":"headings","component":"Markdown","props":{"text":"# Heading 1\n## Heading 2\n### Heading 3\n#### Heading 4\n##### Heading 5 paints h4\n###### Heading 6 paints h4\nA paragraph after them.\n\n- The rest of GFM\n- stays the document's","profile":"inline"}}
+    ]}
+    """#
+
+    /// Blur the field-states Inputs: their `blur` checks run.
+    func revealChecks() {
+        guard options.shot == "exponential-ui-field-states" || options.shot == "exponential-ui-record-form" else { return }
+        for id in ["email", "password", "nickname"] { model.fire(id: "\(id).field", "blur") }
     }
 
     /// `-frames` (VAPP-127): every visible node's frame, points in surface coordinates.
@@ -260,6 +304,10 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ExponentialSurface(model: state.model)
                         .frame(width: options.width)
+                        .task {
+                            try? await Task.sleep(for: .milliseconds(300))
+                            state.revealChecks()
+                        }
                     if !state.isSpecimen {
                         Text("host: \(state.echo)")
                             .font(.system(size: 12, design: .monospaced))

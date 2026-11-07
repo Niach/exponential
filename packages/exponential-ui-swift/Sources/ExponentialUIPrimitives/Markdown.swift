@@ -978,6 +978,9 @@ public struct MarkdownTextSpec: Equatable, Sendable {
 /// painter's, so the three native painters agree.
 public struct MarkdownStyles: Equatable, Sendable {
     public var body: MarkdownTextSpec
+    /// Round 9 §9.1: a paragraph's type under the inline profile (the Text
+    /// recipe of its `variant`); nil = `body`.
+    public var paragraph: MarkdownTextSpec?
     public var heading: MarkdownTextSpec
     public var code: MarkdownTextSpec
     public var codePad: CGFloat
@@ -1069,6 +1072,7 @@ public struct MarkdownStyles: Equatable, Sendable {
         switch kind {
         case let .heading(level): headingLevels[Self.levelSlot(level)] ?? heading
         case .codeBlock: code
+        case .paragraph: paragraph ?? body
         default: body
         }
     }

@@ -316,7 +316,8 @@ struct MarkdownLeaf: View {
 
     var body: some View {
         let text = cx.props.text("text")
-        if let view = cx.model.host.markdown(text, width: cx.inner.width) {
+        // Round 9 §9.1: the inline profile is always the built-in painter.
+        if MarkdownPainter.inlineVariant(cx.props) == nil, let view = cx.model.host.markdown(text, width: cx.inner.width) {
             view.frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading).offset(x: cx.inner.minX, y: cx.inner.minY)
         } else {
             // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
