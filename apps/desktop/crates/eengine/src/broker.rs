@@ -38,6 +38,9 @@ pub struct CapabilityDef {
     pub name: String,
     pub label: String,
     pub scopes: Vec<CapabilityScope>,
+    /// #VAPP-273: a capability one host alone provides (`ede`); every other host answers `unavailable`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 /// One entry of a package's capability manifest (format 5 `capabilities`).

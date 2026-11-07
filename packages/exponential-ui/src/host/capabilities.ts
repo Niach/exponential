@@ -16,12 +16,15 @@ export const CAPABILITY_SCOPES: readonly string[] = [
   `clipboard.write`,
   `files.read`,
   `files.write`,
+  `focus.window`,
   `http.fetch`,
+  `launch.app`,
   `location.read`,
   `notifications.post`,
   `photos.read`,
   `print.pdf`,
   `share.send`,
+  `windows.read`,
 ]
 /** The scopes whose entry lists its `origins` (and only these may). */
 export const CAPABILITY_ORIGIN_SCOPES: readonly string[] = [`http.fetch`]
