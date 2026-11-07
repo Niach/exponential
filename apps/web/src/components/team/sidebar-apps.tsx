@@ -19,7 +19,8 @@ import { cn } from "@/lib/utils"
 // VAPP-110 (fixtures/apps.json DESKTOP NAV): the rail's APPS section, drawn exactly like
 // Agents and Boards — the label (VAPP-242: not clickable, there is no Apps page), a "+" =
 // THE NEW MENU (New app / Import…), one row per app (its glyph in its colour + its name)
-// RUNNING it (THE RUN VIEW), and the hover gear (the creator or an owner) to THE EDITOR.
+// RUNNING it (THE RUN VIEW), and the hover gear (#FEED-203: every member) to THE EDITOR's
+// Settings tab, read-only below the creator or an owner.
 // Desktop widths only: phones keep the Apps list tab.
 
 const UiAddIcon = conceptIcon(`ui-add`)
@@ -35,18 +36,13 @@ export function SidebarAppsSection({
   teamId,
   teamSlug,
   apps,
-  me,
-  isOwner,
   activeAppSlug,
 }: {
   teamId: string
   teamSlug: string
   apps: readonly AppListEntry[]
-  me: string | null
-  isOwner: boolean
   activeAppSlug: string | null
 }) {
-  const canManage = (app: AppListEntry) => isOwner || app.createdBy === me
   return (
     <SidebarGroup data-testid="sidebar-apps">
       <SidebarGroupLabel>{APPS_COPY.title}</SidebarGroupLabel>
@@ -74,17 +70,16 @@ export function SidebarAppsSection({
                   <span className="min-w-0 flex-1 truncate">{app.name}</span>
                 </Link>
               </SidebarMenuButton>
-              {canManage(app) && (
-                <SidebarMenuAction asChild showOnHover title={APPS_COPY.menu.edit}>
-                  <Link
-                    to="/t/$teamSlug/app-editor/$appSlug"
-                    params={{ teamSlug, appSlug: app.slug }}
-                    aria-label={`${APPS_COPY.menu.edit}: ${app.name}`}
-                  >
-                    <NavSettingsIcon />
-                  </Link>
-                </SidebarMenuAction>
-              )}
+              <SidebarMenuAction asChild showOnHover title="App settings">
+                <Link
+                  to="/t/$teamSlug/app-editor/$appSlug"
+                  params={{ teamSlug, appSlug: app.slug }}
+                  search={{ tab: `settings` }}
+                  aria-label={`Settings for ${app.name}`}
+                >
+                  <NavSettingsIcon />
+                </Link>
+              </SidebarMenuAction>
             </SidebarMenuItem>
           ))}
         </SidebarMenu>
