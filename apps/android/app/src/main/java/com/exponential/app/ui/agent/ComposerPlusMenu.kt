@@ -71,9 +71,6 @@ internal fun ComposerPlusMenuSheet(
     /** EXP-1334: an ended session's option rows (Effort, Ultracode, MCP
      *  servers, Computer use) read, never change (web `rowsDisabled`). */
     rowsReadOnly: Boolean = false,
-    /** #FEED-204: Device › reads but cannot change (a live editor root);
-     *  apart from [rowsReadOnly]: an ended root's row picks. */
-    deviceEnabled: Boolean = true,
     onRow: (ComposerMenuRowId) -> Unit,
     onUltracodeChange: (Boolean) -> Unit,
     onComputerUseChange: (Boolean) -> Unit,
@@ -156,7 +153,6 @@ internal fun ComposerPlusMenuSheet(
                                     ComposerMenuRowId.Effort -> effortEnabled && !rowsReadOnly
                                     ComposerMenuRowId.Subagents, ComposerMenuRowId.McpServers, ComposerMenuRowId.Skills -> !rowsReadOnly
                                     ComposerMenuRowId.AddFile -> canAttach
-                                    ComposerMenuRowId.Device -> deviceEnabled
                                     else -> true
                                 }
                                 Box(modifier = Modifier.testTag(tag)) {

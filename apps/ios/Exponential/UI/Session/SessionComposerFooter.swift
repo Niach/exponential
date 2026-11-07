@@ -65,12 +65,10 @@ struct SessionComposerFooter: View {
     }
 
     /// #FEED-204 (apps.json EDITOR DEVICE): what an app editor's "+" Device
-    /// row reads: THE device picker's rows, the value = the device's name,
-    /// disabled on a live root (`locked`).
+    /// row reads: THE device picker's rows, the value = the device's name.
     struct DeviceMenu {
         let devices: [DevicePickerDevice]
         let current: String?
-        let locked: Bool
         let onPick: (String) -> Void
 
         var value: String? { devices.first { $0.id == current }?.name }
