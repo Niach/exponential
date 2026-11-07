@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use elocal::runs::{AcpRunner, LocalRuns, Runner};
+use elocal::runs::{AcpRunner, HostTools, LocalRuns, Runner};
 use serde_json::{json, Value};
 
 pub struct LocalChat {
@@ -23,8 +23,9 @@ pub struct LocalChat {
 }
 
 impl LocalChat {
-    /// Opens the runner for `desktop` with the first usable CLI.
-    pub fn start(desktop: Arc<elocal::LocalDesktop>) -> Self {
+    /// Opens the runner for `desktop` with the first usable CLI; `host` =
+    /// the shell's own tools on the run's hub (#VAPP-273: `shell_edit`).
+    pub fn start(desktop: Arc<elocal::LocalDesktop>, host: Option<HostTools>) -> Self {
         let cwd = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
         let mut agent = String::new();
         let mut runner: Option<Arc<dyn Runner>> = None;
@@ -36,7 +37,7 @@ impl LocalChat {
                 break;
             }
         }
-        let runs = runner.and_then(|runner| match LocalRuns::start(desktop.clone(), runner, cwd) {
+        let runs = runner.and_then(|runner| match LocalRuns::start_with(desktop.clone(), runner, cwd, host) {
             Ok(runs) => Some(runs),
             Err(e) => {
                 tracing::warn!("local runs: {e}");

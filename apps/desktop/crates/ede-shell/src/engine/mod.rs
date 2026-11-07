@@ -14,6 +14,7 @@
 //! `windows`, `focus` and `launch` over ede-protocol ([`capabilities`]).
 
 pub mod capabilities;
+pub mod shell_edit;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};

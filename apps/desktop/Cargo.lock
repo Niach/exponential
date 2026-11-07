@@ -2782,6 +2782,7 @@ dependencies = [
  "eengine-desktop",
  "eengine-runner",
  "elocal",
+ "emcp",
  "eui-core",
  "eui-gpui",
  "flume 0.11.1",

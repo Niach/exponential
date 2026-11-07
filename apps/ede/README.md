@@ -677,6 +677,14 @@ its `vault.json` without one).
   over ede-protocol with one `ui` grant minted for the apps, never the
   shell's root token; `launch` starts the launcher's desktop entries.
   `shell.edit` stays host-only: no app can declare it.
+- **`shell_edit`, the desktop's own agent:** the chat's local runs (#EDE-58)
+  get one more tool on their hub, next to the noun subset: `shell_edit
+  {name, document}` writes a shell document after genUI's validation (a
+  refused one answers its issues, nothing written), asks the person once
+  per run in the sealed consent dialog, then runs `exponential-ui set`,
+  so the edit is committed and Version history undoes it. That is the
+  host-only `shell.edit` of the catalog: the shell's agent has it, no
+  app ever does.
 - **A sample:** `apps/ede/apps/notes.app.json` (Notes: a records kind, an
   action, a screen with a widget). Copy it into the apps directory to try
   it; `exponential-shell`'s tests boot it on the Engine.

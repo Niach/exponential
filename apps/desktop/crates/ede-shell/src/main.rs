@@ -1299,7 +1299,10 @@ fn chat_local(shell: &SharedShell) -> bool {
         }
     }
     if shell.borrow().chat_local.is_none() {
-        let chat = local_runs::LocalChat::start(desktop);
+        // #VAPP-273: the desktop's own agent edits the shell through `shell_edit`, never an app.
+        let ui_dir = shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).dir().to_path_buf();
+        let host = elocal::runs::HostTools { provider: Arc::new(engine::shell_edit::ShellEdit::new(ui_dir)), note: engine::shell_edit::ShellEdit::note() };
+        let chat = local_runs::LocalChat::start(desktop, Some(host));
         shell.borrow_mut().chat_local = Some(chat);
     }
     true

@@ -22,6 +22,8 @@ uicore-gpui = { path = "../uicore-gpui" }
 eengine = { path = "../eengine", features = ["sqlite"] }
 eengine-runner = { path = "../eengine-runner", default-features = false }
 eengine-desktop = { path = "../eengine-desktop" }
+# #VAPP-273: the host-only `shell_edit` tool on the local runs' hub (a ToolProvider).
+emcp = { path = "../emcp" }
 # #EDE-56: Local desktops (elocal), the accounts (api) and their teams (sync, no gpui).
 api = { path = "../api" }
 elocal = { path = "../elocal" }
