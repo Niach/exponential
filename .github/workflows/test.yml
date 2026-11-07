@@ -469,10 +469,13 @@ jobs:
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
+      # The desktop job's set: the uicore-gpui examples link xkbcommon-x11
+      # (only the Mint's image had it, so a GitHub-hosted overflow failed).
       - name: Linux system deps (wgpu/gpui, wayland)
         run: |
           sudo apt-get update && sudo apt-get install -y \
-            libxkbcommon-dev libwayland-dev libxcb1-dev libssl-dev libfontconfig1-dev pkg-config clang
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libssl-dev libfontconfig1-dev \
+            libx11-dev libxi-dev libxtst-dev pkg-config clang
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
