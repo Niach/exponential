@@ -120,7 +120,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if udev && headless.is_none() {
         #[cfg(feature = "udev")]
         {
-            if let Err(e) = ede_compositor::backend::udev::run(config, config_path, command) {
+            // Safe mode (the flag, or exponential-session's variable) lets a
+            // real GPU run in software, so a broken driver still gets a
+            // desktop to fix it from (#EDE-59).
+            let safe = safe_mode || std::env::var_os("EDE_SAFE_MODE").is_some_and(|v| !v.is_empty());
+            if let Err(e) = ede_compositor::backend::udev::run(config, config_path, command, safe) {
                 tracing::error!("{e}");
                 if let Some(path) = failure_file() {
                     if let Some(dir) = path.parent() {

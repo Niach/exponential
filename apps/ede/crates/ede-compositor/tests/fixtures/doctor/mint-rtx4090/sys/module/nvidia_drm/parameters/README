@@ -1,0 +1,1 @@
+nvidia_drm parameters are 0400 root:root on this box: modeset and fbdev are unreadable, so they are not in this fixture.

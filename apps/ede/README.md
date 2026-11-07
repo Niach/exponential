@@ -380,17 +380,109 @@ cargo run -- doctor
 ```
 
 Checks what the real session needs, from inside any desktop (no seat is
-taken): the GPU render nodes; the KMS driver of every `/dev/dri/card*` and
-its connected displays (the virtual ones say what to expect: `vmwgfx` is
-VMware's and VirtualBox's VMSVGA, software rendering unless the VM has 3D);
-the seat (logind's `seat0` with a graphical device, or seatd); what EGL and
-GLES render with on the render node, the way the udev backend opens it
-(`llvmpipe` = software rendering, fine in a VM; a udev build only, a
-winit-only build says so); the keyboard layout the session starts with
-(`/etc/default/keyboard`, else xkb's `us`); Xwayland (the binary the compositor will run
-and its version: 24.1+ has explicit sync; older versions flicker with X11
-games on NVIDIA); and on NVIDIA that `nvidia-drm.modeset` is on (the
-parameter, the kernel command line, or the driver default from 560).
+taken; `--json` is what Settings shows, #EDE-35). The rows:
+
+- **GPU**: the render nodes. **DRM**: the KMS driver of every
+  `/dev/dri/card*` and its connected displays (the virtual ones say what to
+  expect: `vmwgfx` is VMware's and VirtualBox's VMSVGA, software rendering
+  unless the VM has 3D); with more than one card, which one is the boot GPU
+  and which one the session renders on: the card with the displays
+  (`doctor::primary_card`, the same rule the udev backend uses), so a
+  desktop whose monitors hang off the discrete card while the firmware
+  booted on the iGPU never renders on the iGPU and copies every frame.
+- **KMS**: what the kernel offers on that card, read without DRM master so
+  it works next to a running desktop: atomic modesetting (legacy = no
+  cursor plane, no direct scanout; on NVIDIA it means `modeset` is off),
+  the cursor planes and their size, the primary/overlay planes, framebuffer
+  modifiers (tiled buffers straight on the plane), syncobj + timeline
+  (explicit sync) and `IN_FENCE_FD` (the kernel waits for the renderer;
+  without it the compositor waits itself, as on vmwgfx).
+- **seat**: logind's `seat0` with a graphical device, or seatd.
+- **render**: what EGL and GLES render with on the render node, the way
+  the udev backend opens it. `llvmpipe` is fine in a VM; on a real GPU's
+  driver it is a failure, and the session refuses to run that way (below).
+  A udev build only; a winit-only build says so.
+- **Vulkan**: the GPU the shell takes (`exponential-shell` is gpui on
+  Vulkan, which takes the loader's first device): `vulkaninfo --summary`'s
+  GPU0 against the compositor's card, lavapipe first = software (a failure
+  on a real GPU; `MESA_VK_DEVICE_SELECT=<vendor:device>!` puts the right
+  one first). Without vulkan-tools, the ICD manifests found.
+- **keyboard**: the layout the session starts with (`/etc/default/keyboard`,
+  else xkb's `us`).
+- **Xwayland**: the binary the compositor will run and its version (24.1+
+  has explicit sync; older versions flicker with X11 games on NVIDIA; the
+  .deb bundles 24.1).
+- **NVIDIA**, **NVIDIA GBM**, **NVIDIA sleep** when `nvidia_drm` is
+  loaded (#EDE-59, below).
+
+### NVIDIA (#EDE-59)
+
+The proprietary driver (and its open kernel module) needs, in order:
+
+1. **Driver 525 or newer** (GBM with modifiers, EGL render nodes), **555+
+   for explicit sync** (`linux-drm-syncobj-v1`: no flicker in Vulkan apps
+   and X11 games), 560+ turns the next two on by default. The row names
+   the kernel module: `open kernel module` (`nvidia-open`, "Dual MIT/GPL",
+   NVIDIA's recommendation for Turing and newer from 560) or `proprietary
+   kernel module`; both work the same for eDE, read from
+   `/proc/driver/nvidia/version`.
+2. **`nvidia-drm.modeset=1`**: without it nvidia-drm has no atomic KMS
+   and no display can be driven (the compositor refuses the card with that
+   reason). The doctor reads the module parameter (root-only, 0400, on
+   most distros), else the kernel command line, else `options nvidia_drm
+   modeset=1` in `/etc/modprobe.d` and `/lib/modprobe.d` (where the
+   driver's package and nvidia-prime write it), else the driver's default,
+   and says which one it used. **`fbdev=1`** (recommended) gives a console
+   framebuffer: a flicker-free VT switch and a readable console after a
+   crash.
+3. **The GBM backend**: Mesa's libgbm loads `nvidia-drm_gbm.so` for the
+   `nvidia-drm` KMS driver, and libEGL_nvidia needs its GBM platform
+   (`/usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json`). Both
+   ship with the driver's GL libraries (Ubuntu, Mint: `libnvidia-gl-NNN`;
+   Fedora/RPM Fusion: `xorg-x11-drv-nvidia-libs`; Arch: `egl-gbm`).
+   Without them `EGLDisplay::new(gbm)` fails and the render row fails.
+4. **Video memory across suspend**: `NVreg_PreserveVideoMemoryAllocations=1`
+   (`/proc/driver/nvidia/params`) plus `nvidia-suspend.service` and
+   `nvidia-resume.service` enabled; otherwise the GPU forgets its memory
+   while asleep and the desktop and every GL/Vulkan app come back garbled.
+   The compositor drops its own caches on every resume anyway (fresh
+   swapchain buffers, cursor images uploaded again).
+
+What the udev backend does on NVIDIA: atomic KMS with the cursor planes
+and no overlay planes (they break on the driver); GBM buffers with the
+modifiers the primary plane lists, which is also the scanout tranche a
+fullscreen window hears through dmabuf feedback (direct scanout); explicit
+sync whenever the card has syncobj eventfds; one log line per card with
+the KMS facts (`nvidia-drm: atomic, 4 cursor planes 256x256, … modifiers,
+syncobj timeline, IN_FENCE_FD`) and one per output (format, plane formats,
+planes in use) so the first run on real hardware tells what it got.
+**Software rendering is never silent**: a real GPU's driver (nvidia,
+amdgpu, i915, xe, nouveau, …) whose EGL device is Mesa's llvmpipe stops the
+session with the reason on the recovery screen, where the safe-mode login
+entry (stock settings) still runs it in software to fix the driver from.
+Unproven on hardware as of eDE 0.2.5 (the VM has no GPU; the checks are
+tested against `crates/ede-compositor/tests/fixtures/doctor/mint-rtx4090`,
+the files a Mint 22.3 box with an RTX 4090 on driver 595 showed): the GLES
+renderer on the NVIDIA EGL device, the cursor plane, direct scanout, the
+shell's Vulkan swapchain on a layer-shell surface, suspend.
+
+Checking a machine without touching its desktop, in this order:
+
+```bash
+sudo apt update && sudo apt install exponential-desktop
+exponential-compositor doctor            # from the running desktop: read-only, no seat
+exponential-compositor                   # nested in a window of the running desktop (winit)
+apps/ede/scripts/ede-dev.sh              # nested with the supervisor and the shell
+```
+
+Then the real seat: log out, pick **Exponential** on the login screen
+(**Exponential (safe mode)** is the fallback; a session that cannot drive
+the display shows why and returns to the login screen), and read
+`journalctl -b | grep -E 'ede_compositor|exponential'` for the KMS and
+output lines above. Two monitors on the NVIDIA card take their native
+modes; with the X11 setup's virtual 5K the equivalent is
+`[[outputs]]` with `mode = "3840x2160@240"` / `"2560x1440@144"` and a
+`scale` ([Outputs](#outputs-mode-scale-position-ede-18)).
 
 The compositor opens one window on the running X11 (or Wayland) session and
 serves `$XDG_RUNTIME_DIR/wayland-N`. Close the window to quit.
