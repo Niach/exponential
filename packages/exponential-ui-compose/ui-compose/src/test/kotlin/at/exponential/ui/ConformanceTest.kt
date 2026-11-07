@@ -530,7 +530,7 @@ class ConformanceTest {
             out.add(
                 case("negotiation: ${ids.size} extension ids") {
                     same(JsonValue.Arr(supportedCatalogIdsFor(ids).map(JsonValue::Str)).json, c["expected"]!!["supportedCatalogIds"]!!)
-                        ?: same(rendererCapabilitiesJson(ids, null), c["expected"]!!["clientCapabilities"]!!)
+                        ?: same(rendererCapabilitiesJson(ids, null), c["expected"]!!["rendererCapabilities"]!!)
                 },
             )
         }

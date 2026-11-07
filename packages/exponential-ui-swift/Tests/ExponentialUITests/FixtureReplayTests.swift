@@ -38,7 +38,7 @@ final class FixtureReplayTests: XCTestCase {
             XCTAssertLessThanOrEqual(f.maxX, m.surfaceSize.width + 0.01, n.id)
         }
         // The header reads first (pre-order = accessibility order).
-        XCTAssertEqual(m.nodes.first { $0.id == "hdr-title" }.map { $0.index < (m.index(of: "hdr-scan") ?? 0) }, true)
+        XCTAssertEqual(m.nodes.first { $0.id == "hdr_title" }.map { $0.index < (m.index(of: "hdr_scan") ?? 0) }, true)
         // A warm pass makes no measure calls.
         m.layoutNeeded = true
         m.pass()

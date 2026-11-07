@@ -363,10 +363,9 @@ public final class ExponentialHost {
     }
 
     /// Round 9 §5.2, §6.8: a layout may leave issues, failures or routed
-    /// calls: to the hub, then out. The core reports no cheap "anything
-    /// pending?" for failures, and this is as cheap as that read.
+    /// calls: to the hub, then out.
     func afterLayout(_ surfaceId: String) {
-        guard let model = surfaces[surfaceId] else { return }
+        guard let model = surfaces[surfaceId], model.surface.needsFlush() else { return }
         calls.flushSurface(surfaceId: surfaceId, surface: model.surface)
         flushCalls()
     }
@@ -525,9 +524,9 @@ public final class ExponentialHost {
         if let builtIn = runBuiltIn(call) { return builtIn }
         if call.name == Screens.navigateFunction { return navigate(call) }
         if let action = Actions.actionName(call: call.name) { return await runPackageAction(call, action: action) }
-        // Round 9 §6.5: nothing local: the hub knows which surfaces have an
-        // agent, and a built-in answers `local`.
-        if options.agent, functions[call.name] == nil { return await callAgent(call) }
+        // Round 9 §6.5: nothing local + an agent: the hub routes it (a
+        // built-in answers `local`). No agent: the gate answers UNKNOWN_FUNCTION.
+        if functions[call.name] == nil, calls.hasAgent(surfaceId: call.surfaceId) { return await callAgent(call) }
         let verdict = await gate(call)
         if verdict.decision != .allow { return verdict }
         return await runLocal(call)
@@ -783,6 +782,15 @@ final class HostBridge: HostPlugin {
         Task { @MainActor in
             _ = await host.callFunction(call)
             self.base?.onFunctionCall(call)
+        }
+    }
+
+    func onFunctionCallThen(_ call: SurfaceFunctionCall, then: @escaping @MainActor () -> Void) {
+        guard let host else { return }
+        Task { @MainActor in
+            let outcome = await host.callFunction(call)
+            self.base?.onFunctionCall(call)
+            if !outcome.failed { then() }
         }
     }
 

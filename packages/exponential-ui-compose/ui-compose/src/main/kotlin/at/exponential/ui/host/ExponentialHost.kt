@@ -408,11 +408,11 @@ class ExponentialHost(
 
     /**
      * Round 9 §5.2, §6.8: a layout may leave issues, failures or routed calls:
-     * to the hub, then out. The core reports no cheap "anything pending?" for
-     * failures, and this is as cheap as that read.
+     * to the hub, then out.
      */
     private fun afterLayout(surfaceId: String) {
         val model = surfaces[surfaceId] ?: return
+        if (!model.surface.needsFlush()) return
         calls.flushSurface(surfaceId, model.surface)
         flushCalls()
     }
@@ -584,9 +584,9 @@ class ExponentialHost(
         runBuiltIn(call)?.let { return it }
         if (call.name == Screens.NAVIGATE_FUNCTION) return navigate(call)
         Actions.actionName(call.name)?.let { return runPackageAction(call, it) }
-        // Round 9 §6.5: nothing local: the hub knows which surfaces have an
-        // agent, and a built-in answers `local`.
-        if (options.agent && call.name !in functions) return callAgent(call)
+        // Round 9 §6.5: nothing local + an agent: the hub routes it (a built-in
+        // answers `local`). No agent: the gate answers UNKNOWN_FUNCTION.
+        if (call.name !in functions && calls.hasAgent(call.surfaceId)) return callAgent(call)
         val verdict = gate(call)
         if (verdict.decision != FunctionDecision.Allow) return verdict
         return runLocal(call)
@@ -811,6 +811,12 @@ class ExponentialHost(
         override fun onFunctionCall(event: SurfaceFunctionCallEvent) {
             val call = FunctionCallInfo(event.surfaceId, event.componentId, event.name, event.args)
             scope.launch { callFunction(call) }
+            base.onFunctionCall(event)
+        }
+
+        override fun onFunctionCallThen(event: SurfaceFunctionCallEvent, then: () -> Unit) {
+            val call = FunctionCallInfo(event.surfaceId, event.componentId, event.name, event.args)
+            scope.launch { if (!callFunction(call).failed) then() }
             base.onFunctionCall(event)
         }
 

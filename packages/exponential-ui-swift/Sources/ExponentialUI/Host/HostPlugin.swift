@@ -226,6 +226,9 @@ public protocol HostPlugin: AnyObject {
     /// A host function call (VAPP-91). `ExponentialHost` gates and runs it;
     /// a bare plugin ignores it.
     func onFunctionCall(_ call: SurfaceFunctionCall)
+    /// Round 9 §6.8: an action with both: the function first, `then` (its
+    /// event) only when the function did not fail.
+    func onFunctionCallThen(_ call: SurfaceFunctionCall, then: @escaping @MainActor () -> Void)
     /// The request an image / avatar / video poster loads with (auth
     /// headers). Default: `resolveUrl(src)` through the media policy
     /// (`mediaOptions`). The surface re-checks the result's url against the
@@ -278,6 +281,10 @@ public extension HostPlugin {
     var mediaOptions: MediaOptions? { nil }
     func resolveUrl(_ src: String) -> String { src }
     func onFunctionCall(_ call: SurfaceFunctionCall) {}
+    func onFunctionCallThen(_ call: SurfaceFunctionCall, then: @escaping @MainActor () -> Void) {
+        onFunctionCall(call)
+        then()
+    }
     func mediaRequest(_ src: String) -> URLRequest? {
         policyMediaRequest(resolveUrl(src), options: mediaOptions)
     }

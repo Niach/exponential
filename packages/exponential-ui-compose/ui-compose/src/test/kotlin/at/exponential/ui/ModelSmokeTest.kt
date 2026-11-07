@@ -54,12 +54,12 @@ class ModelSmokeTest {
         assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height > 1000f)
         assertTrue("issues ${m.issues}", m.issues.isEmpty())
 
-        m.press("hdr-scan")
+        m.press("hdr_scan")
         assertEquals(listOf("scan"), host.actions.map { it.name })
-        assertEquals("hdr-scan", host.actions[0].componentId)
+        assertEquals("hdr_scan", host.actions[0].componentId)
         assertEquals("press", host.actions[0].event)
 
-        val box = m.indexOf("form-agree.box")!!
+        val box = m.indexOf("form_agree.box")!!
         assertTrue(m.checked(box))
         val before = m.style(box).background
         m.press(box)
@@ -68,13 +68,13 @@ class ModelSmokeTest {
         assertNotEquals(before, m.style(box).background)
 
         val run = m.indexOf("tabs.tab.1")!!
-        assertTrue(m.node(m.indexOf("tab-run")!!)!!.hidden)
+        assertTrue(m.node(m.indexOf("tab_run")!!)!!.hidden)
         m.press(run)
-        assertFalse(m.node(m.indexOf("tab-run")!!)!!.hidden)
-        assertTrue(m.node(m.indexOf("tab-issue")!!)!!.hidden)
+        assertFalse(m.node(m.indexOf("tab_run")!!)!!.hidden)
+        assertTrue(m.node(m.indexOf("tab_issue")!!)!!.hidden)
         assertTrue(m.node(run)!!.selected)
 
-        val track = m.indexOf("form-volume.track")!!
+        val track = m.indexOf("form_volume.track")!!
         m.sliderDrag(track, SurfaceModel.snap(42.0, 0.0, 100.0, 5.0))
         assertEquals(40.0, m.sliderValue(track), 0.0)
         m.sliderRelease(track)

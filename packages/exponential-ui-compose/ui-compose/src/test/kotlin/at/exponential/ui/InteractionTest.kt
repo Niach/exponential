@@ -77,9 +77,9 @@ class InteractionTest {
     fun pressFiresTheAction() {
         val host = RecordingHost()
         val m = sink(host)
-        m.press("hdr-scan")
+        m.press("hdr_scan")
         assertEquals(listOf("scan"), host.actions.map { it.name })
-        assertEquals("hdr-scan", host.actions[0].componentId)
+        assertEquals("hdr_scan", host.actions[0].componentId)
         assertEquals("press", host.actions[0].event)
         assertEquals("kitchen-sink", host.actions[0].surfaceId)
     }
@@ -87,18 +87,18 @@ class InteractionTest {
     @Test
     fun pressedStateRelayoutsTheOpacity() {
         val m = sink(RecordingHost())
-        val i = m.idx("hdr-scan")
+        val i = m.idx("hdr_scan")
         assertNull(m.boxStyle(i).opacity)
-        m.pressDown("hdr-scan")
+        m.pressDown("hdr_scan")
         assertEquals(0.6f, m.boxStyle(i).opacity ?: 1f, 0.001f)
-        m.pressUp("hdr-scan")
+        m.pressUp("hdr_scan")
         assertNull(m.boxStyle(i).opacity)
     }
 
     @Test
     fun unboundControlsMirrorLocally() {
         val m = sink(RecordingHost())
-        val box = m.idx("form-agree.box")
+        val box = m.idx("form_agree.box")
         assertTrue(m.checked(box))
         val before = m.style(box).background
         m.press(box)
@@ -106,7 +106,7 @@ class InteractionTest {
         // Round 1: the core keeps the unbound value and restyles the box itself.
         assertNotEquals("the core re-resolves the box's recipe", before, m.style(box).background)
         assertEquals(m.style(box).background, m.boxStyle(box).background)
-        val track = m.idx("nav-toggle.track")
+        val track = m.idx("nav_toggle.track")
         assertTrue(m.checked(track))
         m.press(track)
         assertFalse(m.checked(track))
@@ -126,7 +126,7 @@ class InteractionTest {
         m.segmentedSelect(multi, JsonValue.Str("bold"))
         assertEquals(listOf("italic"), m.segmentedValues(multi))
         // Slider snaps to the step.
-        val trackIdx = m.idx("form-volume.track")
+        val trackIdx = m.idx("form_volume.track")
         m.sliderDrag(trackIdx, SurfaceModel.snap(42.0, 0.0, 100.0, 5.0))
         assertEquals(40.0, m.sliderValue(trackIdx), 0.0)
         m.sliderRelease(trackIdx)
@@ -137,22 +137,22 @@ class InteractionTest {
     fun tabsAndAccordionSwitchThroughTheCore() {
         val m = sink(RecordingHost())
         val run = m.idx("tabs.tab.1")
-        assertTrue(m.node(m.idx("tab-run"))!!.hidden)
+        assertTrue(m.node(m.idx("tab_run"))!!.hidden)
         m.press(run)
-        assertFalse(m.node(m.idx("tab-run"))!!.hidden)
-        assertTrue(m.node(m.idx("tab-issue"))!!.hidden)
+        assertFalse(m.node(m.idx("tab_run"))!!.hidden)
+        assertTrue(m.node(m.idx("tab_issue"))!!.hidden)
         assertTrue(m.node(run)!!.selected)
         val trigger = m.idx("accordion.trigger.1")
-        assertTrue(m.node(m.idx("acc-history"))!!.hidden)
+        assertTrue(m.node(m.idx("acc_history"))!!.hidden)
         m.press(trigger)
-        assertFalse(m.node(m.idx("acc-history"))!!.hidden)
+        assertFalse(m.node(m.idx("acc_history"))!!.hidden)
     }
 
     @Test
     fun fieldDebounceRevisionsAndCommit() = runTest {
         val host = RecordingHost()
         val m = sink(host, backgroundScope)
-        val field = m.idx("echo-field.field")
+        val field = m.idx("echo_field.field")
         m.fieldFocused(field, true)
         for (ch in "Hello") m.fieldEdited(field, m.fieldText(field) + ch)
         runCurrent()
@@ -179,10 +179,10 @@ class InteractionTest {
         // host change lands only while the field is idle and unfocused.
         m.setData("/draft/title", JsonValue.Str("Hello!"))
         assertEquals("Hello!", m.fieldText(field))
-        val gen = m.fields["echo-field.field"]!!.writeGeneration
+        val gen = m.fields["echo_field.field"]!!.writeGeneration
         m.setData("/draft/title", JsonValue.Str("From the host"))
         assertEquals("From the host", m.fieldText(field))
-        assertTrue("the view reloads its value", m.fields["echo-field.field"]!!.writeGeneration > gen)
+        assertTrue("the view reloads its value", m.fields["echo_field.field"]!!.writeGeneration > gen)
         m.fieldFocused(field, true)
         m.setData("/draft/title", JsonValue.Str("Ignored while typing"))
         assertEquals("From the host", m.fieldText(field))
@@ -195,7 +195,7 @@ class InteractionTest {
         // overwritten by the echo.
         val echoed = ArrayList<SurfaceInputEvent>()
         val m = sink(NoHost, backgroundScope)
-        val field = m.idx("echo-field.field")
+        val field = m.idx("echo_field.field")
         m.host = ClosureHost(inputs = { e ->
             echoed.add(e)
             backgroundScope.launch {
@@ -250,7 +250,7 @@ class InteractionTest {
     fun linkOpensTheUrl() {
         val host = RecordingHost()
         val m = sink(host)
-        m.press("form-link")
+        m.press("form_link")
         assertEquals(listOf("https://example.com/rules"), host.urls)
     }
 
@@ -282,8 +282,8 @@ class InteractionTest {
         assertEquals(emptyList<String>(), unnamed.map { it.id })
         // The header title reads before the button, the form before the footer link.
         val order = m.nodes.filter { it.isLeaf && !it.hidden }.map { it.id }
-        assertTrue(order.indexOf("hdr-title") >= 0 && order.indexOf("hdr-title") < order.indexOf("hdr-scan"))
-        assertTrue(order.indexOf("echo-field.field") >= 0 && order.indexOf("echo-field.field") < order.indexOf("form-link"))
+        assertTrue(order.indexOf("hdr_title") >= 0 && order.indexOf("hdr_title") < order.indexOf("hdr_scan"))
+        assertTrue(order.indexOf("echo_field.field") >= 0 && order.indexOf("echo_field.field") < order.indexOf("form_link"))
     }
 
     @Test

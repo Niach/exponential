@@ -25,6 +25,8 @@ import at.exponential.ui.host.sourceWithParams
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.fire
+import at.exponential.ui.model.press
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -101,6 +103,66 @@ class HostTest {
         h.receive(msg("""{"version":"1.0","agentFunctionResponse":{"functionCallId":"s1:1","value":"Ada"}}"""))
         assertEquals(JsonValue.Str("Ada"), m.nodes.first().props["text"])
         assertEquals(1, transport.sent.size)
+    }
+
+    /** Round 9 §6.8: an action's function runs first; its event fires only when the function did not fail. */
+    @Test
+    fun aFailedFunctionHoldsItsEvent() {
+        val transport = MemoryTransport()
+        val order = ArrayList<String>()
+        var release: CompletableDeferred<Unit>? = null
+        val h = host(
+            HostOptions(
+                transport = transport,
+                functions = mapOf(
+                    "harness_ok" to { _, _ -> release?.await(); order.add("ok") },
+                    "harness_boom" to { _, _ -> error("boom") },
+                    "harness_wipe" to { _, _ -> order.add("wipe") },
+                ),
+                policy = HostPolicy(functions = FunctionPolicy(deny = listOf("harness_wipe"))),
+            ),
+        )
+        h.connect()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
+        fun button(name: String) = """{"id":"$name","component":"Button","label":"x","on":{"press":{"functionCall":{"@call":"$name"},"event":{"name":"done_$name"}}}}"""
+        val names = listOf("harness_ok", "harness_boom", "harness_wipe", "harness_nope")
+        h.receive(msg("""{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Box","children":[${names.joinToString(",") { "\"$it\"" }}]},${names.joinToString(",", transform = ::button)}]}}"""))
+        val m = laidOut(h.surface("s1")!!)
+        fun events() = transport.sent.mapNotNull { it["action"]?.get("name")?.string }
+
+        // The event waits for the function.
+        release = CompletableDeferred()
+        m.press("harness_ok")
+        assertEquals(emptyList<String>(), events())
+        release!!.complete(Unit)
+        assertEquals(listOf("ok"), order)
+        assertEquals(listOf("done_harness_ok"), events())
+        // A throw, a denial, an unknown name: the error, no event.
+        m.press("harness_boom")
+        assertEquals("EXECUTION_ERROR", errorCode(transport.sent.last()))
+        m.press("harness_wipe")
+        assertEquals("INVALID_FUNCTION_CALL", errorCode(transport.sent.last()))
+        m.press("harness_nope")
+        assertEquals("UNKNOWN_FUNCTION", errorCode(transport.sent.last()))
+        assertEquals(listOf("ok"), order)
+        assertEquals(listOf("done_harness_ok"), events())
+    }
+
+    /** Round 9 §6.5: a surface without an agent (here a host's own) answers UNKNOWN_FUNCTION at the gate; a layout with nothing to report asks the hub nothing. */
+    @Test
+    fun noAgentNoPressAndNoNeedlessFlush() {
+        val transport = MemoryTransport()
+        val h = host(HostOptions(transport = transport, agent = true))
+        h.connect()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"own","catalogId":"$core"}}"""), trusted = true)
+        h.receive(msg("""{"version":"1.0","updateComponents":{"surfaceId":"own","components":[{"id":"root","component":"Text","text":"hi"}]}}"""), trusted = true)
+        val m = laidOut(h.surface("own")!!)
+        assertFalse(m.surface.needsFlush())
+        val outcome = runBlocking { h.callFunction(FunctionCallInfo("own", "b", "lookup", emptyMap())) }
+        assertEquals(FunctionDecision.NotFound, outcome.decision)
+        assertEquals("UNKNOWN_FUNCTION", errorCode(transport.sent.last()))
+        assertEquals("no function lookup", transport.sent.last()["error"]?.get("message")?.string)
+        assertTrue(transport.sent.none { it["callAgentFunction"] != null })
     }
 
     private fun laidOut(m: SurfaceModel): SurfaceModel {

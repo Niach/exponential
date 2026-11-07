@@ -62,6 +62,84 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(transport.sentMessages.last?["error"]?["code"]?.string, "EXPRESSION_ERROR")
     }
 
+    /// Round 9 §6.8: an action's function runs first; its event fires only
+    /// when the function did not fail.
+    func testAFailedFunctionHoldsItsEvent() async throws {
+        struct Boom: Error {}
+        let transport = MemoryTransport()
+        var order: [String] = []
+        var release: CheckedContinuation<Void, Never>?
+        var hold = false
+        let host = ExponentialHost(HostOptions(
+            transport: transport,
+            functions: [
+                "harness_ok": { _, _ in
+                    if hold { await withCheckedContinuation { release = $0 } }
+                    order.append("ok")
+                    return nil
+                },
+                "harness_boom": { _, _ in throw Boom() },
+                "harness_wipe": { _, _ in order.append("wipe"); return nil },
+            ],
+            policy: HostPolicy(functions: FunctionPolicy(deny: ["harness_wipe"]))
+        ))
+        host.connect()
+        let names = ["harness_ok", "harness_boom", "harness_wipe", "harness_nope"]
+        host.receive(JSONValue.object(["version": .string("1.0"), "createSurface": .object(["surfaceId": .string("s1"), "catalogId": .string(core)])]))
+        let buttons: [JSONValue] = names.map { name in
+            .object(["id": .string(name), "component": .string("Button"), "label": .string("x"), "on": .object(["press": .object(["functionCall": .object(["@call": .string(name)]), "event": .object(["name": .string("done_\(name)")])])])])
+        }
+        host.receive(JSONValue.object(["version": .string("1.0"), "updateComponents": .object(["surfaceId": .string("s1"), "components": .array([.object(["id": .string("root"), "component": .string("Box"), "children": .array(names.map { .string($0) })])] + buttons)])]))
+        let m = try XCTUnwrap(host.surface("s1"))
+        m.fixedMeasure = true
+        m.setViewport(width: 390, height: 800)
+        func events() -> [String] { transport.sentMessages.compactMap { $0["action"]?["name"]?.string } }
+
+        // The event waits for the function.
+        hold = true
+        m.press(id: "harness_ok")
+        await settle()
+        XCTAssertEqual(events(), [])
+        hold = false
+        release?.resume()
+        await settle()
+        XCTAssertEqual(order, ["ok"])
+        XCTAssertEqual(events(), ["done_harness_ok"])
+        // A throw, a denial, an unknown name: the error, no event.
+        m.press(id: "harness_boom")
+        await settle()
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"]?.string, "EXECUTION_ERROR")
+        m.press(id: "harness_wipe")
+        await settle()
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"]?.string, "INVALID_FUNCTION_CALL")
+        m.press(id: "harness_nope")
+        await settle()
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"]?.string, "UNKNOWN_FUNCTION")
+        XCTAssertEqual(order, ["ok"])
+        XCTAssertEqual(events(), ["done_harness_ok"])
+    }
+
+    /// Round 9 §6.5: a surface without an agent (here a host's own) answers
+    /// UNKNOWN_FUNCTION at the gate; a layout with nothing to report asks the
+    /// hub nothing.
+    func testNoAgentNoPressAndNoNeedlessFlush() async throws {
+        let transport = MemoryTransport()
+        let host = ExponentialHost(HostOptions(transport: transport, agent: true))
+        host.connect()
+        host.receive(JSONValue.object(["version": .string("1.0"), "createSurface": .object(["surfaceId": .string("own"), "catalogId": .string(core)])]), trusted: true)
+        host.receive(JSONValue.object(["version": .string("1.0"), "updateComponents": .object(["surfaceId": .string("own"), "components": .array([.object(["id": .string("root"), "component": .string("Text"), "text": .string("hi")])])])]), trusted: true)
+        let m = try XCTUnwrap(host.surface("own"))
+        m.fixedMeasure = true
+        m.setViewport(width: 390, height: 800)
+        XCTAssertFalse(m.surface.needsFlush())
+        let outcome = await host.callFunction(FunctionCallInfo(surfaceId: "own", componentId: "b", name: "lookup", args: [:]))
+        XCTAssertEqual(outcome.decision, .notFound)
+        await settle()
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"]?.string, "UNKNOWN_FUNCTION")
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["message"]?.string, "no function lookup")
+        XCTAssertFalse(transport.sentMessages.contains { $0["callAgentFunction"] != nil })
+    }
+
     /// Round 9 §6.5: a reactive position's call leaves after the layout, once,
     /// and its answer binds the surface again.
     func testAReactiveCallGoesToTheAgentAndItsAnswerRebinds() async throws {

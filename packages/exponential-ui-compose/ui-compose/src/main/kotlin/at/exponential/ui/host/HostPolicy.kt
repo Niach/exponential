@@ -198,7 +198,10 @@ data class FunctionCallInfo(
 typealias HostFunction = suspend (args: Map<String, JsonValue>, call: FunctionCallInfo) -> Any?
 
 /** What [ExponentialHost.callFunction] did. */
-data class FunctionOutcome(val decision: FunctionDecision, val result: Any? = null, val error: String? = null)
+data class FunctionOutcome(val decision: FunctionDecision, val result: Any? = null, val error: String? = null) {
+    /** Round 9 §6.8: a failed call stops its action: no event. */
+    val failed: Boolean get() = error != null || decision == FunctionDecision.Deny || decision == FunctionDecision.NotFound
+}
 
 /**
  * The host's policy hooks. [onFunctionCall] = the consent hook for `ask`

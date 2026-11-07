@@ -23,20 +23,20 @@ final class InteractionTests: XCTestCase {
     func testPressFiresTheAction() throws {
         let host = RecordingHost()
         let m = try sink(host)
-        m.press(id: "hdr-scan")
+        m.press(id: "hdr_scan")
         XCTAssertEqual(host.actions.map(\.name), ["scan"])
-        XCTAssertEqual(host.actions[0].componentId, "hdr-scan")
+        XCTAssertEqual(host.actions[0].componentId, "hdr_scan")
         XCTAssertEqual(host.actions[0].event, "press")
         XCTAssertEqual(host.actions[0].surfaceId, "kitchen-sink")
     }
 
     func testPressedStateRelayoutsTheOpacity() throws {
         let m = try sink(RecordingHost())
-        let i = m.index(of: "hdr-scan")!
+        let i = m.index(of: "hdr_scan")!
         XCTAssertNil(m.style(i).opacity)
-        m.pressDown("hdr-scan")
+        m.pressDown("hdr_scan")
         XCTAssertEqual(m.style(i).opacity ?? 1, 0.6, accuracy: 0.001)
-        m.pressUp("hdr-scan")
+        m.pressUp("hdr_scan")
         XCTAssertNil(m.style(i).opacity)
     }
 
@@ -44,14 +44,14 @@ final class InteractionTests: XCTestCase {
         // Round 1: the core keeps an unbound control's value (its local
         // field state); the model fires the event and reads the props back.
         let m = try sink(RecordingHost())
-        let box = m.index(of: "form-agree.box")!
+        let box = m.index(of: "form_agree.box")!
         XCTAssertTrue(m.checked(box))
         let before = m.style(box).background
         m.press(box)
         XCTAssertFalse(m.checked(box))
         XCTAssertNotEqual(m.style(box).background, before, "the core re-resolved the box's recipe for the new value")
         XCTAssertEqual(m.style(box).background, m.style(box).background, "no painter-side override")
-        let track = m.index(of: "nav-toggle.track")!
+        let track = m.index(of: "nav_toggle.track")!
         XCTAssertTrue(m.checked(track))
         m.press(track)
         XCTAssertFalse(m.checked(track))
@@ -71,7 +71,7 @@ final class InteractionTests: XCTestCase {
         m.segmentedSelect(multi, value: .string("bold"))
         XCTAssertEqual(m.segmentedValues(multi), ["italic"])
         // Slider snaps to the step.
-        let trackIdx = m.index(of: "form-volume.track")!
+        let trackIdx = m.index(of: "form_volume.track")!
         m.sliderDrag(trackIdx, value: SurfaceModel.snap(42, min: 0, max: 100, step: 5))
         XCTAssertEqual(m.sliderValue(trackIdx), 40)
         m.sliderRelease(trackIdx)
@@ -81,21 +81,21 @@ final class InteractionTests: XCTestCase {
     func testTabsAndAccordionSwitchThroughTheCore() throws {
         let m = try sink(RecordingHost())
         let run = m.index(of: "tabs.tab.1")!
-        XCTAssertTrue(m.node(m.index(of: "tab-run")!)!.hidden)
+        XCTAssertTrue(m.node(m.index(of: "tab_run")!)!.hidden)
         m.press(run)
-        XCTAssertFalse(m.node(m.index(of: "tab-run")!)!.hidden)
-        XCTAssertTrue(m.node(m.index(of: "tab-issue")!)!.hidden)
+        XCTAssertFalse(m.node(m.index(of: "tab_run")!)!.hidden)
+        XCTAssertTrue(m.node(m.index(of: "tab_issue")!)!.hidden)
         XCTAssertTrue(m.node(run)!.selected)
         let trigger = m.index(of: "accordion.trigger.1")!
-        XCTAssertTrue(m.node(m.index(of: "acc-history")!)!.hidden)
+        XCTAssertTrue(m.node(m.index(of: "acc_history")!)!.hidden)
         m.press(trigger)
-        XCTAssertFalse(m.node(m.index(of: "acc-history")!)!.hidden)
+        XCTAssertFalse(m.node(m.index(of: "acc_history")!)!.hidden)
     }
 
     func testFieldDebounceRevisionsAndCommit() async throws {
         let host = RecordingHost()
         let m = try sink(host)
-        let field = m.index(of: "echo-field.field")!
+        let field = m.index(of: "echo_field.field")!
         m.fieldFocused(field, true)
         for ch in "Hello" {
             m.fieldEdited(field, text: m.fieldText(field) + String(ch))
@@ -134,7 +134,7 @@ final class InteractionTests: XCTestCase {
         // overwritten by the echo.
         var echoed: [SurfaceInputEvent] = []
         let m = try sink(NoHost())
-        let field = m.index(of: "echo-field.field")!
+        let field = m.index(of: "echo_field.field")!
         let host = ClosureHost(inputs: { e in
             echoed.append(e)
             Task { @MainActor in
@@ -185,7 +185,7 @@ final class InteractionTests: XCTestCase {
     func testLinkOpensTheUrl() throws {
         let host = RecordingHost()
         let m = try sink(host)
-        m.press(id: "form-link")
+        m.press(id: "form_link")
         XCTAssertEqual(host.urls, ["https://example.com/rules"])
     }
 
@@ -223,8 +223,8 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(unnamed.map(\.id), [])
         // The header title reads before the button, the form before the footer.
         let order = m.nodes.filter { $0.isLeaf && !$0.hidden }.map(\.id)
-        XCTAssertLessThan(order.firstIndex(of: "hdr-title")!, order.firstIndex(of: "hdr-scan")!)
-        XCTAssertLessThan(order.firstIndex(of: "echo-field.field")!, order.firstIndex(of: "form-link")!)
+        XCTAssertLessThan(order.firstIndex(of: "hdr_title")!, order.firstIndex(of: "hdr_scan")!)
+        XCTAssertLessThan(order.firstIndex(of: "echo_field.field")!, order.firstIndex(of: "form_link")!)
     }
 
     func testWindowedListScrolls() throws {

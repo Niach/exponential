@@ -39,8 +39,8 @@ class KeyboardTest {
             waitFor("the first pass") { (MainActivity.live?.passCount ?: 0) > 0 }
             val model = MainActivity.live!!
             key(KeyEvent.KEYCODE_TAB)
-            waitFor("Tab focuses the first control (${model.keyboardFocus})") { model.keyboardFocus == "app-bar.back" }
-            assertTrue("focus-visible from the keyboard", model.statesOf("app-bar.back").contains("focus-visible"))
+            waitFor("Tab focuses the first control (${model.keyboardFocus})") { model.keyboardFocus == "app_bar.back" }
+            assertTrue("focus-visible from the keyboard", model.statesOf("app_bar.back").contains("focus-visible"))
             val walk = ArrayList<String?>()
             repeat(12) {
                 key(KeyEvent.KEYCODE_TAB)
@@ -49,7 +49,7 @@ class KeyboardTest {
             }
             android.util.Log.i("kbd-walk", walk.joinToString(" | "))
             // Pre-order: the AppBar's search, then the breadcrumb links, then the header's button.
-            val order = listOf("app-bar-search", "breadcrumb.item.0.link", "breadcrumb.item.1.link", "hdr-scan")
+            val order = listOf("app_bar_search", "breadcrumb.item.0.link", "breadcrumb.item.1.link", "hdr_scan")
             assertEquals("Tab walks in pre-order: $walk", order, walk.filter { it in order }.distinct().take(order.size))
             // Into the tabs BY TABBING (no seeded focus), then ArrowRight selects the next.
             var hops = 0

@@ -127,6 +127,15 @@ interface HostPlugin {
     fun onFunctionCall(event: SurfaceFunctionCallEvent) {}
 
     /**
+     * Round 9 §6.8: an action with both: the function first, [then] (its
+     * event) only when the function did not fail.
+     */
+    fun onFunctionCallThen(event: SurfaceFunctionCallEvent, then: () -> Unit) {
+        onFunctionCall(event)
+        then()
+    }
+
+    /**
      * The URL policy every href passes (`openUrl`, Link, markdown links,
      * FileUpload file urls) before [openUrl] sees it. null = the contract's
      * defaults (https, http, mailto, tel; relative urls against the media

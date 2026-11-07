@@ -508,7 +508,7 @@ final class ConformanceTests: XCTestCase {
             let ids = (c["extensionIds"]?.array ?? []).compactMap(\.string)
             out.append(run("negotiation: \(ids.count) extension ids") {
                 if let d = same(JSONValue.array(supportedCatalogIdsFor(extensionIds: ids).map { .string($0) }).json, c["expected"]!["supportedCatalogIds"]!) { return d }
-                return same(try! rendererCapabilitiesJson(extensionIds: ids, inlineCatalogsJson: nil), c["expected"]!["clientCapabilities"]!)
+                return same(try! rendererCapabilitiesJson(extensionIds: ids, inlineCatalogsJson: nil), c["expected"]!["rendererCapabilities"]!)
             })
         }
         return out
