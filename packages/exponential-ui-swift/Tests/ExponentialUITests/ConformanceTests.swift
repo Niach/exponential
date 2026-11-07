@@ -564,15 +564,17 @@ final class ConformanceTests: XCTestCase {
         return out
     }
 
-    /// Round 9 §15: the A2UI 1.0 wire, what the FFI reaches: `ids`, `cards`
-    /// and a route with `acceptV09: false` have no entry yet, and fail by name.
+    /// Round 9 §15: the A2UI 1.0 wire.
     func a2ui10Suite() throws -> [Case] {
         let f = try Fixtures.json("a2ui10-messages.json")
         let packages = f["packages"]!
         func names(_ v: JSONValue?) -> [String] { (v?.array ?? []).compactMap(\.string) }
         var out: [Case] = []
         for c in f["ids"]?.array ?? [] {
-            out.append(("id \(c["id"]?.string ?? "")", "the FFI has no isIdentifier / mangle"))
+            let id = c["id"]!.string!
+            out.append(run("id \(id)") {
+                same(JSONValue.object(["identifier": .bool(isIdentifier(id: id)), "mangle": .string(mangleId(id: id))]).json, c["expected"]!)
+            })
         }
         for flow in f["flows"]?.array ?? [] {
             out.append(run("flow: \(flow["name"]?.string ?? "")") {
@@ -580,8 +582,8 @@ final class ConformanceTests: XCTestCase {
                 for id in names(flow["inlineCatalogs"]) { router.registerInlineCatalog(id: id) }
                 for id in names(flow["packages"]) { _ = try router.installPackage(packageJson: packages[id]!.json) }
                 for (i, step) in (flow["steps"]?.array ?? []).enumerated() {
-                    if step["acceptV09"]?.bool == false { return "step \(i): the FFI has no route with acceptV09 false" }
-                    if let d = same(router.routeJson(messageJson: step["message"]!.json, trusted: step["trusted"]?.bool ?? false), step["expected"]!) { return "step \(i): \(d)" }
+                    let got = router.routeWithBridgeJson(messageJson: step["message"]!.json, trusted: step["trusted"]?.bool ?? false, acceptV09: step["acceptV09"]?.bool ?? true)
+                    if let d = same(got, step["expected"]!) { return "step \(i): \(d)" }
                 }
                 return nil
             })
@@ -625,7 +627,9 @@ final class ConformanceTests: XCTestCase {
             })
         }
         for c in f["cards"]?.array ?? [] {
-            out.append(("card: \(c["name"]?.string ?? "")", "the FFI has no cardV10"))
+            out.append(run("card: \(c["name"]?.string ?? "")") {
+                same(try cardV10Json(cardJson: c["input"]!.json, acceptV09: c["acceptV09"]?.bool ?? true), c["expected"]!)
+            })
         }
         return out
     }

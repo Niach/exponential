@@ -546,7 +546,7 @@ object Round2Suites {
     fun pointer(): List<Pair<String, String?>> {
         val f = json("pointer.json")
         fun read(data: String, pointer: String, want: JsonValue?): String? {
-            val got = resolveDynamicJson(JsonValue.Obj(mapOf("path" to JsonValue.Str(pointer))).orderedJson, data, "")
+            val got = resolveDynamicJson(JsonValue.Obj(mapOf("@path" to JsonValue.Str(pointer))).orderedJson, data, "")
             return if (got == null || want == null) (if (got == null && want == null) null else "read $got / expected ${want?.json}") else same(got, want)?.let { "read $it" }
         }
         val writes = list(f, "writes").map { c ->

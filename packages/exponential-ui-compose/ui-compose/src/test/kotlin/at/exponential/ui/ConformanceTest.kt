@@ -17,6 +17,7 @@ import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.extension.ExtensionRegistry
 import at.exponential.ui.ffi.HostRouter
 import at.exponential.ui.ffi.actionMessageWithUserMessageJson
+import at.exponential.ui.ffi.cardV10Json
 import at.exponential.ui.ffi.errorMessageJson
 import at.exponential.ui.ffi.functionErrorMessageJson
 import at.exponential.ui.ffi.JsonlDecoder
@@ -29,9 +30,11 @@ import at.exponential.ui.ffi.combineDecisions
 import at.exponential.ui.ffi.coreCatalogId
 import at.exponential.ui.ffi.decideFunction
 import at.exponential.ui.ffi.decideUrlJson
+import at.exponential.ui.ffi.isIdentifier
 import at.exponential.ui.ffi.jsonDiff
 import at.exponential.ui.ffi.jsonEqual
 import at.exponential.ui.ffi.loadThemeJson
+import at.exponential.ui.ffi.mangleId
 import at.exponential.ui.ffi.mcpActionCallJson
 import at.exponential.ui.ffi.mediaRequestJson
 import at.exponential.ui.ffi.messagesFromMcpResultJson
@@ -597,13 +600,20 @@ class ConformanceTest {
         return out
     }
 
-    /** Round 9 §15: the A2UI 1.0 wire, what the FFI reaches: `ids`, `cards` and a route with `acceptV09: false` have no entry yet, and fail by name. */
+    /** Round 9 §15: the A2UI 1.0 wire. */
     private fun a2ui10Suite(): List<Case> {
         val f = json("a2ui10-messages.json")
         val packages = f["packages"]!!
         fun names(v: JsonValue, key: String) = list(v, key).mapNotNull { it.string }
         val out = ArrayList<Case>()
-        for (c in list(f, "ids")) out.add(Case("id ${s(c, "id")}", "the FFI has no isIdentifier / mangle"))
+        for (c in list(f, "ids")) {
+            val id = s(c, "id")
+            out.add(
+                case("id $id") {
+                    same(JsonValue.Obj(mapOf("identifier" to JsonValue.Bool(isIdentifier(id)), "mangle" to JsonValue.Str(mangleId(id)))).json, c["expected"]!!)
+                },
+            )
+        }
         for (flow in list(f, "flows")) {
             out.add(
                 case("flow: ${s(flow, "name")}") {
@@ -611,8 +621,8 @@ class ConformanceTest {
                     names(flow, "inlineCatalogs").forEach(router::registerInlineCatalog)
                     for (id in names(flow, "packages")) router.installPackage(packages[id]!!.json)
                     for ((i, step) in list(flow, "steps").withIndex()) {
-                        if (step["acceptV09"]?.bool == false) return@case "step $i: the FFI has no route with acceptV09 false"
-                        same(router.routeJson(step["message"]!!.json, step["trusted"]?.bool == true), step["expected"]!!)?.let { return@case "step $i: $it" }
+                        val got = router.routeWithBridgeJson(step["message"]!!.json, step["trusted"]?.bool == true, step["acceptV09"]?.bool ?: true)
+                        same(got, step["expected"]!!)?.let { return@case "step $i: $it" }
                     }
                     null
                 },
@@ -658,7 +668,9 @@ class ConformanceTest {
                 },
             )
         }
-        for (c in list(f, "cards")) out.add(Case("card: ${s(c, "name")}", "the FFI has no cardV10"))
+        for (c in list(f, "cards")) {
+            out.add(case("card: ${s(c, "name")}") { same(cardV10Json(c["input"]!!.json, c["acceptV09"]?.bool ?: true), c["expected"]!!) })
+        }
         return out
     }
 
