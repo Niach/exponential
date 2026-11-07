@@ -1192,12 +1192,11 @@ impl RailView {
 
     /// VAPP-110: one Apps row (the Agents row's twin): the app's glyph and
     /// name. VAPP-242: click = THE RUN VIEW, lit while it runs and in its
-    /// editor; the hover gear (the creator's and the owners') opens THE EDITOR (its default tab).
+    /// editor; the hover gear (#FEED-203: every member) opens THE EDITOR on its Settings tab.
     fn rail_app_row(
         &self,
         index: usize,
         entry: &crate::apps_view::AppEntry,
-        manage: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let active = matches!(
@@ -1218,23 +1217,26 @@ impl RailView {
         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
             navigate(window, cx, Screen::AppRun { app: open.clone() })
         }))
-        .when(manage, |row| {
-            row.child(rail_trailing_hover_action(
-                APP_ROW_GROUP,
-                None,
-                Button::new(("rail-app-settings", index))
-                    .ghost()
-                    .cursor_pointer()
-                    .xsmall()
-                    .icon(Icon::from(registry::NAV_SETTINGS))
-                    .tooltip("App settings")
-                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        // VAPP-242: the app's editor on its default tab.
-                        navigate(window, cx, Screen::App { app: settings_id.clone() });
-                    })),
-            ))
-        })
+        .child(rail_trailing_hover_action(
+            APP_ROW_GROUP,
+            None,
+            Button::new(("rail-app-settings", index))
+                .ghost()
+                .cursor_pointer()
+                .xsmall()
+                .icon(Icon::from(registry::NAV_SETTINGS))
+                .tooltip("App settings")
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    crate::app_screen::open_app_tab(
+                        window,
+                        cx,
+                        settings_id.clone(),
+                        domain::apps::EditorTab::Settings,
+                        false,
+                    );
+                })),
+        ))
         .into_any_element()
     }
 
@@ -1979,18 +1981,13 @@ impl Render for RailView {
         // VAPP-110: the Apps section — the team's apps (by name) under an
         // "Apps" label whose `+` opens the New app form
         // (every member creates apps).
-        let me = crate::queries::active_account(cx).map(|account| account.user_id);
-        let app_owner = active_team.as_deref().is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
         let app_rows: Vec<gpui::AnyElement> = active_team
             .as_deref()
             .map(|team_id| crate::apps_view::app_entries(team_id, cx))
             .unwrap_or_default()
             .iter()
             .enumerate()
-            .map(|(index, entry)| {
-                let manage = crate::apps_view::can_manage(entry, me.as_deref(), app_owner);
-                self.rail_app_row(index, entry, manage, cx)
-            })
+            .map(|(index, entry)| self.rail_app_row(index, entry, cx))
             .collect();
         // VAPP-242: the label is NOT clickable (there is no Apps page); the
         // `+` opens THE NEW MENU (New app / Import…).
