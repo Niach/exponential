@@ -403,6 +403,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_hostcalls_expire_json(uint64_t pt
 void uniffi_exponential_ui_ffi_fn_method_hostcalls_flush_surface(uint64_t ptr, RustBuffer surface_id, uint64_t surface, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTCALLS_HAS_AGENT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTCALLS_HAS_AGENT
+int8_t uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(uint64_t ptr, RustBuffer surface_id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTCALLS_LOCAL_FAILED
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTCALLS_LOCAL_FAILED
 void uniffi_exponential_ui_ffi_fn_method_hostcalls_local_failed(uint64_t ptr, RustBuffer surface_id, RustBuffer message, RustCallStatus *_Nonnull out_status
@@ -556,6 +561,11 @@ void uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(uint
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_ROUTE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_ROUTE_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(uint64_t ptr, RustBuffer message_json, int8_t trusted, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_ROUTE_WITH_BRIDGE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_ROUTE_WITH_BRIDGE_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(uint64_t ptr, RustBuffer message_json, int8_t trusted, int8_t accept_v09, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_SUPPORTED_CATALOG_IDS
@@ -820,6 +830,11 @@ int8_t uniffi_exponential_ui_ffi_fn_method_surface_mark_dirty(uint64_t ptr, uint
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_MODE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_MODE
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_mode(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_NEEDS_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_NEEDS_FLUSH
+int8_t uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_NODE_COUNT
@@ -1346,6 +1361,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(RustBuffer id, R
 RustBuffer uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(RustBuffer surface_id, RustBuffer function_call_id, RustBuffer name, RustBuffer catalog_id, RustBuffer args_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CARD_V10_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CARD_V10_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_card_v10_json(RustBuffer card_json, int8_t accept_v09, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CHART_EXTENT_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CHART_EXTENT_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_chart_extent_json(RustBuffer kind, RustBuffer series_json, RustBuffer min, RustBuffer max, RustCallStatus *_Nonnull out_status
@@ -1459,6 +1479,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_host_contract_json(RustCallStatus *
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_IS_IDENTIFIER
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_IS_IDENTIFIER
+int8_t uniffi_exponential_ui_ffi_fn_func_is_identifier(RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_JSON_DIFF
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_JSON_DIFF
 RustBuffer uniffi_exponential_ui_ffi_fn_func_json_diff(RustBuffer a, RustBuffer b, RustCallStatus *_Nonnull out_status
@@ -1477,6 +1502,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_list_json(RustBuffer request_json, 
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LOAD_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LOAD_THEME_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_load_theme_json(RustBuffer theme_json, RustBuffer parents_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MANGLE_ID
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MANGLE_ID
+RustBuffer uniffi_exponential_ui_ffi_fn_func_mangle_id(RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MCP_ACTION_CALL_JSON
@@ -2109,6 +2139,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_jso
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CARD_V10_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CARD_V10_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_card_v10_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CHART_EXTENT_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CHART_EXTENT_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(void
@@ -2241,6 +2277,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_host_contract_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_IS_IDENTIFIER
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_IS_IDENTIFIER
+uint16_t uniffi_exponential_ui_ffi_checksum_func_is_identifier(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_JSON_DIFF
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_JSON_DIFF
 uint16_t uniffi_exponential_ui_ffi_checksum_func_json_diff(void
@@ -2262,6 +2304,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_list_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LOAD_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LOAD_THEME_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_load_theme_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MANGLE_ID
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MANGLE_ID
+uint16_t uniffi_exponential_ui_ffi_checksum_func_mangle_id(void
     
 );
 #endif
@@ -2637,6 +2685,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTCALLS_HAS_AGENT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTCALLS_HAS_AGENT
+uint16_t uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTCALLS_LOCAL_FAILED
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTCALLS_LOCAL_FAILED
 uint16_t uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed(void
@@ -2784,6 +2838,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_ca
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTROUTER_ROUTE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTROUTER_ROUTE_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTROUTER_ROUTE_WITH_BRIDGE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTROUTER_ROUTE_WITH_BRIDGE_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json(void
     
 );
 #endif
@@ -2976,6 +3036,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_MODE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_MODE
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_mode(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_NEEDS_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_NEEDS_FLUSH
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush(void
     
 );
 #endif

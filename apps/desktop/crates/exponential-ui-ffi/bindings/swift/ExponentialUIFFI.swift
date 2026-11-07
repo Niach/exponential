@@ -851,6 +851,12 @@ public protocol HostCallsProtocol: AnyObject, Sendable {
      */
     func flushSurface(surfaceId: String, surface: Surface) 
     
+    /**
+     * §6.5: does the surface have an agent? No agent = a press of an
+     * unregistered name is UNKNOWN_FUNCTION without going through the hub.
+     */
+    func hasAgent(surfaceId: String)  -> Bool
+    
     func localFailed(surfaceId: String, message: String) 
     
     /**
@@ -1027,6 +1033,19 @@ open func flushSurface(surfaceId: String, surface: Surface)  {try! rustCall() {
         FfiConverterTypeSurface_lower(surface),$0
     )
 }
+}
+    
+    /**
+     * §6.5: does the surface have an agent? No agent = a press of an
+     * unregistered name is UNKNOWN_FUNCTION without going through the hub.
+     */
+open func hasAgent(surfaceId: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surfaceId),$0
+    )
+})
 }
     
 open func localFailed(surfaceId: String, message: String)  {try! rustCall() {
@@ -1756,14 +1775,17 @@ public protocol HostRouterProtocol: AnyObject, Sendable {
      */
     func registerInlineCatalog(id: String) 
     
+    func routeJson(messageJson: String, trusted: Bool)  -> String
+    
     /**
      * One agent message (JSON) → the ops to perform, in order, as a JSON
      * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
      * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
      * §1.1: a transport routes with `trusted = false`; only host code passes
      * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
      */
-    func routeJson(messageJson: String, trusted: Bool)  -> String
+    func routeWithBridgeJson(messageJson: String, trusted: Bool, acceptV09: Bool)  -> String
     
     func supportedCatalogIds()  -> [String]
     
@@ -1908,19 +1930,31 @@ open func registerInlineCatalog(id: String)  {try! rustCall() {
 }
 }
     
-    /**
-     * One agent message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
-     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
-     * §1.1: a transport routes with `trusted = false`; only host code passes
-     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
-     */
 open func routeJson(messageJson: String, trusted: Bool) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(messageJson),
         FfiConverterBool.lower(trusted),$0
+    )
+})
+}
+    
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
+     */
+open func routeWithBridgeJson(messageJson: String, trusted: Bool, acceptV09: Bool) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(messageJson),
+        FfiConverterBool.lower(trusted),
+        FfiConverterBool.lower(acceptV09),$0
     )
 })
 }
@@ -3383,6 +3417,14 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func mode()  -> String
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     * After a layout: anything for `HostCalls.flushSurface`?
+     */
+    func needsFlush()  -> Bool
+    
     func nodeCount()  -> UInt32
     
     /**
@@ -3404,9 +3446,6 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func paintAt(indices: [UInt32])  -> [FfiPaint]
     
     /**
-     * Round 9 §6.8: the reactive failures since the last call, as JSON
-     * `[{code, message, functionCallId?, path?}]`, each once for the
-     * surface's lifetime: the host sends them as `error` messages.
      * Round 9 §6.5: a routed value settled; the next layout binds again.
      */
     func rebind() 
@@ -3927,6 +3966,20 @@ open func mode() -> String  {
 })
 }
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     * After a layout: anything for `HostCalls.flushSurface`?
+     */
+open func needsFlush() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func nodeCount() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_node_count(
@@ -3974,9 +4027,6 @@ open func paintAt(indices: [UInt32]) -> [FfiPaint]  {
 }
     
     /**
-     * Round 9 §6.8: the reactive failures since the last call, as JSON
-     * `[{code, message, functionCallId?, path?}]`, each once for the
-     * surface's lifetime: the host sends them as `error` messages.
      * Round 9 §6.5: a routed value settled; the next layout binds again.
      */
 open func rebind()  {try! rustCall() {
@@ -8311,6 +8361,18 @@ public func callAgentFunctionMessageJson(surfaceId: String, functionCallId: Stri
 })
 }
 /**
+ * Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
+ * 1.0, `cardProblems`, its reduce over the core catalog).
+ */
+public func cardV10Json(cardJson: String, acceptV09: Bool)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_card_v10_json(
+        FfiConverterString.lower(cardJson),
+        FfiConverterBool.lower(acceptV09),$0
+    )
+})
+}
+/**
  * `{min, max}` of a chart (`series_json` = the Chart's `series`).
  */
 public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max: Double?)throws  -> String  {
@@ -8569,6 +8631,16 @@ public func hostContractJson() -> String  {
 })
 }
 /**
+ * Round 9 §4.1: UAX #31 over the generated tables.
+ */
+public func isIdentifier(id: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_is_identifier(
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+/**
  * The first path where two JSON documents differ (`""` when equal).
  */
 public func jsonDiff(a: String, b: String) -> String  {
@@ -8618,6 +8690,16 @@ public func loadThemeJson(themeJson: String, parentsJson: String?)throws  -> Str
     uniffi_exponential_ui_ffi_fn_func_load_theme_json(
         FfiConverterString.lower(themeJson),
         FfiConverterOptionString.lower(parentsJson),$0
+    )
+})
+}
+/**
+ * Round 9 §14.3: an id as an identifier.
+ */
+public func mangleId(id: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_mangle_id(
+        FfiConverterString.lower(id),$0
     )
 })
 }
@@ -9414,6 +9496,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json() != 55829) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_card_v10_json() != 42496) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9480,6 +9565,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_host_contract_json() != 18735) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_is_identifier() != 36117) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_json_diff() != 38474) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9490,6 +9578,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_mangle_id() != 15380) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 50369) {
@@ -9678,6 +9769,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface() != 14236) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent() != 53060) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed() != 9166) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9750,7 +9844,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog() != 54377) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json() != 19475) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json() != 19619) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json() != 51307) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids() != 37235) {
@@ -9849,6 +9946,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_mode() != 14752) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush() != 28279) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_node_count() != 13599) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9861,7 +9961,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_paint_at() != 18421) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_rebind() != 52723) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_rebind() != 64287) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 9834) {
