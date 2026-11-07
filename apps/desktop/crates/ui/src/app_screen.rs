@@ -1682,7 +1682,7 @@ mod tests {
         let pkg = file.get("package").cloned().unwrap_or(file);
         let params = json!({"q": "acme"});
         let screen = resolve_screen(&pkg, Some("companies"), Some(&params)).unwrap();
-        let message = apply_screen_message(&pkg, &screen);
+        let message = apply_screen_message(&pkg, &screen, "app#1");
         assert_eq!(message["applyTemplate"]["templateId"], "companies");
         assert_eq!(message["applyTemplate"]["data"], json!({"params": {"q": "acme"}}));
         assert_eq!(resolve_screen(&pkg, Some("gone"), None).unwrap().screen, "pipeline");
