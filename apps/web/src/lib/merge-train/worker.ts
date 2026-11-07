@@ -488,6 +488,13 @@ async function land(
     }
   }
   if (!run.baseSha) return false
+  // #EXP-1711: a last check: the base landed while this run tested. The
+  // next pass moves the units onto the live base (`repairStranded`).
+  if ((await landedBranches(repo, [run.base])).length > 0) {
+    await requeue(rest, run.base, now)
+    await finishRun(run, `cancelled`, { error: `${run.base} already landed: nothing lands onto it` })
+    return false
+  }
   const ff = await forge.fastForward(fr, { branch: run.base, from: run.baseSha, to: head })
   if (!ff.ok) {
     await requeue(rest, run.base, now)
@@ -697,25 +704,26 @@ function unitsOf(prs: PrRow[]): { units: PrRow[][]; train: TrainUnit[] } {
   return { units, train }
 }
 
+/** #EXP-1711: which of `branches` are the head of a PR that already merged
+ *  (never the repo's own branch: a promotion's head stays alive). */
+async function landedBranches(repo: RepoRow, branches: string[]): Promise<Array<{ id: string; head: string }>> {
+  const target = repo.defaultBranchOverride ?? repo.defaultBranch
+  const names = branches.filter((name) => name !== target)
+  if (names.length === 0) return []
+  return db
+    .select({ id: pullRequests.id, head: pullRequests.head })
+    .from(pullRequests)
+    .where(and(eq(pullRequests.repositoryId, repo.id), eq(pullRequests.state, `merged`), inArray(pullRequests.head, names)))
+}
+
 /** #EXP-1711 (merge-train.json CHILDREN): a live PR whose parent already
  *  landed and that still sits on the parent's branch (a move that failed, a
  *  stack from before the train). Moved onto the base here, and it rides no
  *  batch meanwhile: nothing ever lands onto a landed branch. → their ids. */
 async function repairStranded(repo: RepoRow, prs: PrRow[]): Promise<Set<string>> {
   const live = new Set(prs.map((pr) => pr.id))
-  const target = repo.defaultBranchOverride ?? repo.defaultBranch
-  const bottoms = prs.filter((pr) => !(pr.basePullRequestId && live.has(pr.basePullRequestId)) && pr.base !== target)
-  if (bottoms.length === 0) return new Set()
-  const landed = await db
-    .select({ id: pullRequests.id, head: pullRequests.head })
-    .from(pullRequests)
-    .where(
-      and(
-        eq(pullRequests.repositoryId, repo.id),
-        eq(pullRequests.state, `merged`),
-        inArray(pullRequests.head, [...new Set(bottoms.map((pr) => pr.base))])
-      )
-    )
+  const bottoms = prs.filter((pr) => !(pr.basePullRequestId && live.has(pr.basePullRequestId)))
+  const landed = await landedBranches(repo, [...new Set(bottoms.map((pr) => pr.base))])
   if (landed.length === 0) return new Set()
   const { retargetChildrenOfMergedPr } = await import(`@/lib/integrations/pr-sync`)
   for (const { id, head } of new Map(landed.map((row) => [row.head, row])).values()) {

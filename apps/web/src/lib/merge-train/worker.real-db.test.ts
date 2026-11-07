@@ -463,6 +463,24 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await prRow(free)).mergeState).toBe(`testing`)
   })
 
+  it(`a run whose base landed meanwhile never fast-forwards it (#EXP-1711)`, async () => {
+    const w = await world()
+    fake.branch.set(`exp/530`, `dead0`)
+    const child = await w.pr(531, { base: `exp/530` })
+    await w.idle()
+    await pass(w.repoId)
+    expect(fake.dispatches[0]!.inputs.base).toBe(`exp/530`)
+    const parent = await w.pr(530)
+    await db.update(pullRequests).set({ state: `merged`, mergeState: `merged` }).where(eq(pullRequests.id, parent))
+    await pass(w.repoId)
+    expect(fake.branch.get(`exp/530`)).toBe(`dead0`)
+    expect(fake.closed).toEqual([])
+    expect((await prRow(child)).state).toBe(`open`)
+    const [run] = await db.select().from(mergeTrains).where(eq(mergeTrains.id, fake.dispatches[0]!.inputs.train_id))
+    expect(run).toMatchObject({ state: `cancelled`, error: `exp/530 already landed: nothing lands onto it` })
+    expect(await lines(w.children[531]!)).toEqual([])
+  })
+
   it(`a push pulls a testing unit from its run; a repo without the pipeline lands directly`, async () => {
     const w = await world()
     const a = await w.pr(601)
