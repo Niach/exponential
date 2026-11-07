@@ -56,3 +56,22 @@ fn a_template_row_press_fires_its_handler_with_the_item_scope() {
     let events = s.event(index, "press", None);
     assert!(events.iter().any(|e| matches!(e, OutEvent::FunctionCall { name, args, .. } if name == "harness_toast" && args["id"] == "b")), "{events:?}");
 }
+
+/// Round 9 §6.8: a failing reactive call resolves to `null`, keeps the
+/// component mounted, and answers one EXPRESSION_ERROR per surface lifetime.
+#[test]
+fn a_reactive_failure_is_null_and_reported_once() {
+    let mut s = Surface::new("s", SurfaceOptions::default());
+    s.apply(&json!({"version": "1.0", "createSurface": {"surfaceId": "s", "catalogId": "https://ui.exponential.at/catalogs/core/v1", "components": [
+        {"id": "root", "component": "Text", "text": {"@call": "harness_toast"}}
+    ]}})).unwrap();
+    s.set_viewport(390.0, 0.0, None);
+    s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+    assert!(s.index_of("root").is_some());
+    let failures = s.take_failures();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert_eq!((failures[0].code.as_str(), failures[0].path.as_deref()), ("EXPRESSION_ERROR", Some("/components/root")));
+    s.set_data("/x", Some(json!(1))).unwrap();
+    s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+    assert!(s.take_failures().is_empty());
+}

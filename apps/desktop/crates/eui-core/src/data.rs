@@ -251,11 +251,14 @@ pub struct Failure {
     /// A routed call's id (the error then names it instead of the surface).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub function_call_id: Option<String>,
+    /// `/components/<authored id>`, once a surface placed it (§6.8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl Failure {
     pub fn new(code: &str, message: impl Into<String>) -> Failure {
-        Failure { code: code.to_string(), message: message.into(), function_call_id: None }
+        Failure { code: code.to_string(), message: message.into(), function_call_id: None, path: None }
     }
 }
 

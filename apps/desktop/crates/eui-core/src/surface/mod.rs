@@ -530,6 +530,10 @@ pub struct Surface {
     pub(crate) issues: Vec<ReduceIssue>,
     reduce_issues: Vec<ReduceIssue>,
     pub(crate) build_issues: Vec<ReduceIssue>,
+    /// Round 9 §6.8: reactive failures since the last [`Surface::take_failures`].
+    pub(crate) failures: Arc<std::sync::Mutex<Vec<crate::data::Failure>>>,
+    /// What [`Surface::take_failures`] already answered (once per lifetime).
+    sent_failures: HashSet<(String, String, String)>,
     pub(crate) style_issues: Vec<ReduceIssue>,
     local: LocalState,
     states: HashMap<String, Vec<String>>,
@@ -650,6 +654,8 @@ impl Surface {
             issues: Vec::new(),
             reduce_issues: Vec::new(),
             build_issues: Vec::new(),
+            failures: Default::default(),
+            sent_failures: HashSet::new(),
             style_issues: Vec::new(),
             local: LocalState::default(),
             states: HashMap::new(),
@@ -1359,6 +1365,14 @@ impl Surface {
             return Ok(ApplyOutcome { structure_changed: true, issues: Vec::new() });
         }
         Err("unknown message: expected createSurface | updateComponents | updateDataModel | deleteSurface".into())
+    }
+
+    /// Round 9 §6.8: the reactive failures (bindings, `visible`) of the
+    /// builds since the last call, each `(code, path, message)` once for the
+    /// surface's lifetime: the host sends them as `error` messages.
+    pub fn take_failures(&mut self) -> Vec<crate::data::Failure> {
+        let list = self.failures.lock().map(|mut l| std::mem::take(&mut *l)).unwrap_or_default();
+        list.into_iter().filter(|f| self.sent_failures.insert((f.code.clone(), f.path.clone().unwrap_or_default(), f.message.clone()))).collect()
     }
 
     /// Round 9 §5.2: the entries that pass [`crate::host::check_entry`] and

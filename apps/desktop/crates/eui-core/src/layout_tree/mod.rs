@@ -301,6 +301,8 @@ pub struct LocalState {
 }
 
 pub struct BuildContext<'a> {
+    /// Round 9 §6.8: a reactive failure, with the node it hit.
+    pub on_failure: &'a dyn Fn(&crate::data::Failure, &str),
     pub view: &'a CatalogView,
     pub recipes: &'a RecipeIndex,
     pub data: &'a Value,
@@ -717,7 +719,8 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     /// Is a node visible under the data model (`visible` absent = yes)?
     fn visible(&self, node: &UiNode, scope: &str) -> bool {
-        crate::data::is_visible(node.visible.as_ref(), &self.resolve_ctx(scope))
+        let report = |f: &crate::data::Failure| (self.ctx.on_failure)(f, &node.id);
+        crate::data::is_visible(node.visible.as_ref(), &self.resolve_ctx(scope).with_on_error(&report))
     }
 
     /// Add `node` under `parent`; `None` when its `visible` is falsy.
@@ -734,7 +737,8 @@ impl<'a, 'b> Builder<'a, 'b> {
         // Round 2: props resolve ALONG THEIR SCHEMA (a literal Table `rows`
         // holding `{path}` is data), then a bound number or boolean in a
         // text prop shows as its display string.
-        let mut props = crate::data::resolve_node_props(def, &node.props, &self.resolve_ctx(scope), &view.defs);
+        let report = |f: &crate::data::Failure| (self.ctx.on_failure)(f, &node.id);
+        let mut props = crate::data::resolve_node_props(def, &node.props, &self.resolve_ctx(scope).with_on_error(&report), &view.defs);
         if let Some(def) = def {
             display_text_props(def, &mut props);
         }

@@ -1427,6 +1427,13 @@ impl Surface {
         })
     }
 
+    /// Round 9 §6.8: the reactive failures since the last call, as JSON
+    /// `[{code, message, functionCallId?, path?}]`, each once for the
+    /// surface's lifetime: the host sends them as `error` messages.
+    pub fn take_failures_json(&self) -> String {
+        self.shield("take_failures_json", || "[]".to_string(), || serde_json::to_string(&self.core().take_failures()).unwrap_or_default())
+    }
+
     pub fn issues_json(&self) -> String {
         self.shield("issues_json", || serde_json::to_string(&*self.panics.lock().unwrap_or_else(|e| e.into_inner())).unwrap_or_default(), || {
             let mut issues = self.core().issues().to_vec();
