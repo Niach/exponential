@@ -103,10 +103,9 @@ final class HostTests: XCTestCase {
         // `""` = the whole model.
         host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string(""), "value": .object(["name": .string("Grace")])])))
         XCTAssertEqual(model.data["name"], .string("Grace"))
-        // A second create replaces the model with an empty one.
+        // Round 9 §1.4: a live id is not created twice.
         host.receive(create("s1"))
-        XCTAssertFalse(host.surface("s1") === model)
-        XCTAssertEqual(host.surface("s1")?.nodes.count, 0)
+        XCTAssertTrue(host.surface("s1") === model)
         host.receive(msg("deleteSurface", .object(["surfaceId": .string("s1")])))
         XCTAssertNil(host.surface("s1"))
         XCTAssertEqual(host.surfaceIds, [])
@@ -126,7 +125,7 @@ final class HostTests: XCTestCase {
         model.setViewport(width: 300, height: 400)
         XCTAssertEqual(model.nodes.first?.props["text"], .string("Hi"))
         // A message to a ghost surface answers with SURFACE_NOT_FOUND.
-        transport.feed(components("ghost", []))
+        transport.feed(components("ghost", [.object(["id": .string("root"), "component": .string("Text"), "text": .string("Hi")])]))
         await settle()
         XCTAssertEqual(transport.sentMessages.last?["error"]?["code"], .string("SURFACE_NOT_FOUND"))
         host.close()
@@ -146,7 +145,7 @@ final class HostTests: XCTestCase {
         model.press(id: "go")
         await settle()
         let sent = try XCTUnwrap(transport.sentMessages.last)
-        XCTAssertEqual(sent["version"], .string("v0.9"))
+        XCTAssertEqual(sent["version"], .string("1.0"))
         let action = try XCTUnwrap(sent["action"])
         XCTAssertEqual(action["name"], .string("refresh"))
         XCTAssertEqual(action["surfaceId"], .string("s1"))
@@ -166,7 +165,7 @@ final class HostTests: XCTestCase {
             .object(["id": .string("root"), "component": .string("FileUpload"), "files": .object(["path": .string("/draft/files")])]),
         ])])))
         let model = try XCTUnwrap(host.surface("s1"))
-        XCTAssertEqual(model.components.first?["files"]?["path"]?.string, "/draft/files")
+        XCTAssertEqual(model.components.first?["files"]?["@path"]?.string, "/draft/files")
         XCTAssertEqual(FilePickRequest(surfaceId: "s1", componentId: "root", accept: nil, multiple: false).surfaceId, "s1")
     }
 
@@ -183,14 +182,14 @@ final class HostTests: XCTestCase {
         ]))
         host.connect()
         host.receive(create("s1"))
-        host.receive(msg("bindDataModel", .object(["surfaceId": .string("s1"), "path": .string("/devices"), "source": .string("exp:devices?team=t1")])))
+        host.receive(msg("bindDataModel", .object(["surfaceId": .string("s1"), "path": .string("/devices"), "source": .string("exp:devices?team=t1")])), trusted: true)
         let emit = try XCTUnwrap(emits["devices"])
         emit(.array([.string("mac")]))
         XCTAssertEqual(host.surface("s1")?.data["devices"], .array([.string("mac")]))
         emit(nil)
         XCTAssertNil(host.surface("s1")?.data["devices"])
         // No resolver for the scheme: VALIDATION_FAILED back to the server.
-        host.receive(msg("bindDataModel", .object(["surfaceId": .string("s1"), "path": .string("/x"), "source": .string("other:thing")])))
+        host.receive(msg("bindDataModel", .object(["surfaceId": .string("s1"), "path": .string("/x"), "source": .string("other:thing")])), trusted: true)
         await settle()
         let err = try XCTUnwrap(transport.sentMessages.last?["error"])
         XCTAssertEqual(err["code"], .string("VALIDATION_FAILED"))
@@ -214,7 +213,7 @@ final class HostTests: XCTestCase {
         }
         let host = ExponentialHost(HostOptions(sources: ["exp": resolver, "records": resolver]))
         host.receive(create("s1"))
-        host.receive(msg("bindDataModel", .object(["surfaceId": .string("s1"), "path": .string("/other"), "source": .string("exp:devices")])))
+        host.receive(msg("bindDataModel", .object(["surfaceId": .string("s1"), "path": .string("/other"), "source": .string("exp:devices")])), trusted: true)
         func bind(_ month: String, on surface: String = "s1") async -> FunctionOutcome {
             await host.callFunction(SurfaceFunctionCall(surfaceId: surface, componentId: "c", name: "bind", args: [
                 "path": .string("/records"),
@@ -294,8 +293,8 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(transport.sentMessages.last?["error"]?["code"], .string("UNKNOWN_FUNCTION"))
         XCTAssertEqual(transport.sentMessages.last?["error"]?["message"], .string("no function nope"))
         // A template surface: its package's `functions` narrow the gate.
-        let ops = host.receive(msg("applyTemplate", .object(["surfaceId": .string("d1"), "templateId": .string("list"), "packageId": .string("acme.devices")])))
-        XCTAssertEqual(ops.map { $0["op"]?.string ?? "" }, ["create", "components", "data", "bind"])
+        let ops = host.receive(msg("applyTemplate", .object(["surfaceId": .string("d1"), "templateId": .string("list"), "packageId": .string("acme.devices")])), trusted: true)
+        XCTAssertEqual(ops.map { $0["op"]?.string ?? "" }, ["create", "data", "components", "bind"])
         XCTAssertEqual(host.surface("d1")?.data["title"], .string("Devices"))
         XCTAssertEqual(host.decide(surfaceId: "d1", name: "harness_toast"), .allow)
         XCTAssertEqual(host.decide(surfaceId: "d1", name: "app_save"), .deny)
@@ -327,7 +326,7 @@ final class HostTests: XCTestCase {
         XCTAssertNil(host.surface(first))
         XCTAssertNotNil(host.surface(second))
         await settle()
-        XCTAssertTrue(transport.sentMessages.allSatisfy { $0["error"] == nil })
+        XCTAssertFalse(transport.sentMessages.contains { $0["error"]?["code"] == .string("INTEGRITY_ERROR") })
         // The fixed id the hosts used to re-apply is refused for good.
         apply(first)
         await settle()

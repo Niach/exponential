@@ -180,7 +180,7 @@ final class ActionsTests: XCTestCase {
             host.receive(JSONValue.object([
                 "version": .string("v0.9"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("main")]),
-            ]))
+            ]), trusted: true)
             let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "add", name: "actions_\(c["action"]?.string ?? "")", args: [:]))
             XCTAssertEqual(out.error, c["error"]?.string, name)
             same(.array(called), c["called"] ?? .array([]), "results host called: \(name)")
@@ -256,7 +256,7 @@ final class ActionsTests: XCTestCase {
             host.receive(JSONValue.object([
                 "version": .string("v0.9"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("month")]),
-            ]))
+            ]), trusted: true)
         }
 
         var formHours: JSONValue? { host.surface("s")?.data["form"]?["hours"] }
@@ -329,7 +329,7 @@ final class ActionsTests: XCTestCase {
             host.receive(JSONValue.object([
                 "version": .string("v0.9"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("main")]),
-            ]))
+            ]), trusted: true)
             let args = c["args"]?.object ?? [:]
             let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "b", name: "actions_\(c["action"]?.string ?? "")", args: args))
             XCTAssertEqual(out.error, c["error"]?.string, name)
