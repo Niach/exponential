@@ -1,0 +1,23 @@
+---
+/* A picture in genUI's Window (the site's one frame): rendered at build
+   time, HTML and CSS only. `title` captions the chrome bar. */
+import EuiSurface from "../eui/EuiSurface.tsx"
+
+interface Props {
+  id: string
+  src: string
+  width: number
+  height: number
+  alt: string
+  title?: string
+}
+const { id, src, width, height, alt, title } = Astro.props
+const tree = {
+  id: `w_${id.replaceAll(`-`, `_`)}`,
+  component: `Window`,
+  props: title ? { title } : {},
+  children: [{ id: `p_${id.replaceAll(`-`, `_`)}`, component: `Image`, props: { src, alt, aspectRatio: width / height, fit: `cover` } }],
+}
+---
+
+<div class="exp-framed exp-reveal"><EuiSurface id={`framed-${id}`} tree={tree} origin={Astro.url.origin} /></div>

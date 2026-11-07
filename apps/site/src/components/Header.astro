@@ -1,34 +1,72 @@
 ---
 /* The one header of the whole site: Starlight's own parts (title, search,
-   social, theme) plus the site nav. Below 72rem the nav folds into a
-   <details> menu (no script, so the CSP stays hash-only). */
+   social) plus the site nav. Product and SDK open a mega menu on hover or
+   focus (CSS only, so the CSP stays hash-only): an icon + name per item and
+   one featured picture. Below 72rem the nav folds into a full-screen
+   <details> menu. The map lives in landing/nav.ts. */
 import Default from "@astrojs/starlight/components/Header.astro"
 import { Icon } from "@astrojs/starlight/components"
+import { ChevronDown } from "lucide-react"
+import { LINKS_NAV, MENUS, SIGN_UP } from "./landing/nav.ts"
 
-const NAV = [
-  { label: `Docs`, href: `/docs/` },
-  { label: `SDK`, href: `/#sdk` },
-  { label: `Desktop`, href: `/desktop/` },
-  { label: `Pricing`, href: `/pricing/` },
-  { label: `Blog`, href: `/blog/` },
-  { label: `Download`, href: `/download/` },
-]
-const LOGIN = `https://app.exponential.at/auth/login`
 const path = Astro.url.pathname
-const current = (href: string) => (!href.includes(`#`) && path.startsWith(href) ? `page` : undefined)
+const current = (href: string) => (path.startsWith(href) ? `page` : undefined)
 ---
 
 <div class="exp-header">
   <Default />
   <nav class="exp-nav" aria-label="Site">
-    {NAV.map((item) => <a href={item.href} aria-current={current(item.href)}>{item.label}</a>)}
-    <a class="exp-nav-cta" href={LOGIN}>Sign up</a>
+    {
+      MENUS.map((menu) => (
+        <div class="exp-mega">
+          <button type="button" class="exp-mega-trigger" aria-haspopup="true">
+            {menu.label}
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+          <div class="exp-mega-panel">
+            <div class="exp-mega-body">
+              <ul class="exp-mega-items">
+                {menu.items.map((item) => (
+                  <li>
+                    <a href={item.href} aria-current={current(item.href)}>
+                      {item.icon && <item.icon size={18} strokeWidth={1.6} aria-hidden="true" />}
+                      {item.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              <a class="exp-mega-featured" href={menu.featured.href}>
+                <img src={menu.featured.src} alt={menu.featured.alt} loading="lazy" decoding="async" />
+                <span>{menu.featured.label} →</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      ))
+    }
+    {LINKS_NAV.map((item) => <a href={item.href} aria-current={current(item.href)}>{item.label}</a>)}
+    <a class="exp-nav-cta" href={SIGN_UP.href}>{SIGN_UP.label}</a>
   </nav>
   <details class="exp-menu">
     <summary aria-label="Menu"><Icon name="bars" size="1.25rem" /></summary>
     <nav aria-label="Site">
-      {NAV.map((item) => <a href={item.href} aria-current={current(item.href)}>{item.label}</a>)}
-      <a href={LOGIN}>Sign up</a>
+      {
+        MENUS.map((menu) => (
+          <section>
+            <h2>{menu.label}</h2>
+            {menu.items.map((item) => (
+              <a href={item.href} aria-current={current(item.href)}>
+                {item.icon && <item.icon size={18} strokeWidth={1.6} aria-hidden="true" />}
+                {item.label}
+              </a>
+            ))}
+          </section>
+        ))
+      }
+      <section>
+        {LINKS_NAV.map((item) => <a href={item.href} aria-current={current(item.href)}>{item.label}</a>)}
+      </section>
+      <a class="exp-nav-cta" href={SIGN_UP.href}>{SIGN_UP.label}</a>
     </nav>
   </details>
 </div>
@@ -47,33 +85,140 @@ const current = (href: string) => (!href.includes(`#`) && path.startsWith(href) 
   .exp-nav {
     display: none;
   }
-  .exp-nav a,
-  .exp-menu nav a {
+  .exp-nav > a,
+  .exp-mega-trigger {
     color: var(--sl-color-gray-2);
     text-decoration: none;
     white-space: nowrap;
+    transition: color 150ms ease;
   }
-  .exp-nav a:hover,
-  .exp-nav a[aria-current="page"],
-  .exp-menu nav a:hover,
-  .exp-menu nav a[aria-current="page"] {
+  .exp-nav > a:hover,
+  .exp-nav > a[aria-current="page"],
+  .exp-mega:hover .exp-mega-trigger,
+  .exp-mega:focus-within .exp-mega-trigger {
     color: var(--sl-color-white);
   }
-  .exp-nav .exp-nav-cta {
-    padding: 0.3rem 0.8rem;
-    border-radius: 999px;
+  .exp-nav-cta {
+    padding: 0.4rem 0.9rem;
+    border-radius: 0.5rem;
     background: var(--sl-color-white);
-    color: var(--sl-color-black);
+    color: var(--sl-color-black) !important;
     font-weight: 500;
+    text-decoration: none;
+    transition: opacity 150ms ease;
   }
-  .exp-nav .exp-nav-cta:hover {
-    color: var(--sl-color-black);
+  .exp-nav-cta:hover {
     opacity: 0.88;
   }
 
-  .exp-menu {
+  /* ─── Mega menu ─── */
+  .exp-mega {
     position: relative;
   }
+  .exp-mega-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+  }
+  .exp-mega-trigger :global(svg) {
+    transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .exp-mega:hover .exp-mega-trigger :global(svg),
+  .exp-mega:focus-within .exp-mega-trigger :global(svg) {
+    transform: rotate(180deg);
+  }
+  /* The panel's top padding bridges the gap so the pointer can cross it. */
+  .exp-mega-panel {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    padding-top: 1rem;
+    visibility: hidden;
+    opacity: 0;
+    transform: translate(-50%, -0.25rem);
+    transition:
+      opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 200ms;
+    z-index: 10;
+  }
+  .exp-mega:hover .exp-mega-panel,
+  .exp-mega:focus-within .exp-mega-panel {
+    visibility: visible;
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  .exp-mega-body {
+    display: grid;
+    grid-template-columns: 26rem 15rem;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 0.75rem;
+    background: var(--sl-color-black);
+    box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.7);
+  }
+  .exp-mega-items {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-content: start;
+    gap: 0.125rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .exp-mega-items a {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.6rem 0.7rem;
+    border-radius: 0.5rem;
+    color: var(--sl-color-gray-1);
+    font-size: var(--sl-text-sm);
+    text-decoration: none;
+    transition: background-color 150ms ease;
+  }
+  .exp-mega-items a :global(svg) {
+    flex: none;
+    color: var(--sl-color-gray-2);
+  }
+  .exp-mega-items a:hover,
+  .exp-mega-items a[aria-current="page"] {
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-white);
+  }
+  .exp-mega-featured {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.6rem;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 0.5rem;
+    background: var(--exp-card);
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-sm);
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .exp-mega-featured img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    object-position: top left;
+    border-radius: 0.35rem;
+    transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .exp-mega-featured:hover img {
+    transform: scale(1.02);
+  }
+
+  /* ─── The folded menu (under 72rem): full screen under the bar ─── */
   .exp-menu summary {
     display: flex;
     align-items: center;
@@ -85,26 +230,47 @@ const current = (href: string) => (!href.includes(`#`) && path.startsWith(href) 
     display: none;
   }
   .exp-menu nav {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 0.9rem);
+    position: fixed;
+    inset: var(--sl-nav-height) 0 0 0;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
-    min-width: 11rem;
-    padding: 0.5rem;
-    border: 1px solid var(--sl-color-hairline);
-    border-radius: 0.75rem;
+    gap: 1.75rem;
+    padding: 1.5rem var(--sl-nav-pad-x) 3rem;
+    overflow-y: auto;
     background: var(--sl-color-black);
-    box-shadow: var(--sl-shadow-md);
     z-index: 10;
   }
-  .exp-menu nav a {
-    padding: 0.45rem 0.6rem;
-    border-radius: 0.4rem;
+  .exp-menu section {
+    display: flex;
+    flex-direction: column;
   }
-  .exp-menu nav a:hover {
-    background: var(--sl-color-gray-6);
+  .exp-menu h2 {
+    margin: 0 0 0.5rem;
+    font-size: var(--sl-text-xs);
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+  }
+  .exp-menu section a {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    color: var(--sl-color-gray-1);
+    font-size: var(--sl-text-lg);
+    text-decoration: none;
+  }
+  .exp-menu section a :global(svg) {
+    color: var(--sl-color-gray-2);
+  }
+  .exp-menu section a[aria-current="page"] {
+    color: var(--sl-color-white);
+  }
+  .exp-menu .exp-nav-cta {
+    align-self: stretch;
+    padding: 0.75rem;
+    text-align: center;
   }
 
   /* Docs pages under 50rem: Starlight's sidebar button sits at the far end. */
@@ -118,7 +284,7 @@ const current = (href: string) => (!href.includes(`#`) && path.startsWith(href) 
     .exp-nav {
       display: flex;
       align-items: center;
-      gap: 1.1rem;
+      gap: 1.4rem;
       font-size: var(--sl-text-sm);
     }
     .exp-menu {

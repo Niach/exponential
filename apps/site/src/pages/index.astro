@@ -1,22 +1,44 @@
 ---
-/* The home page: the product in a headline and a picture per part
-   (shots/ store + the Apps pictures), the Exponential SDK, the price. */
+/* The home page: team apps first. A live genUI app under a typed prompt,
+   the same app on every screen, the Exponential SDK, a row per part (each
+   in genUI's Window), a gallery of team apps, and what stays yours. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
-import { LinkButton, LinkCard } from "@astrojs/starlight/components"
-import Duo from "../components/landing/Duo.astro"
+import { Code, Lock, Server } from "lucide-react"
+import EuiSurface from "../components/eui/EuiSurface.tsx"
 import Feature from "../components/landing/Feature.astro"
+import Framed from "../components/landing/Framed.astro"
+import HeroDemo from "../components/landing/HeroDemo.tsx"
 import { LINKS } from "../components/landing/links.ts"
+import { SDK } from "../components/landing/nav.ts"
 import { ORGANIZATION, SOFTWARE_APPLICATION, seoHead } from "../components/landing/seo.ts"
 import { shot } from "../components/landing/shots.ts"
-import { LIBRARIES } from "../lib/libraries.ts"
 
-const modules = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.product })), { name: `Apps`, href: `/sdk/apps/` }]
+const PLATFORMS = [shot(`app`, `web`, `Hours in the browser`), shot(`app`, `desktop`, `Hours on the desktop`), shot(`app`, `ios`, `Hours on iPhone`), shot(`app`, `android`, `Hours on Android`)]
+
+const GALLERY = {
+  id: `gallery`,
+  component: `Mosaic`,
+  props: {
+    label: `Team apps`,
+    pictures: [
+      { src: `/eapps/admin-console.webp`, alt: `An admin console over Stripe, GitHub and Home Assistant` },
+      { src: `/shots/app-calendar/web.webp`, alt: `A team calendar app` },
+      { src: `/shots/app-timeline/web.webp`, alt: `A release timeline app` },
+    ],
+  },
+}
+
+const YOURS = [
+  { icon: Lock, title: `End-to-end encrypted` },
+  { icon: Server, title: `Self-host for free` },
+  { icon: Code, title: `Open source` },
+]
 ---
 
 <StarlightPage
   frontmatter={{
     title: `The next generation dev platform for teams and agents`,
-    description: `The next generation dev platform for teams and agents. Agents plan the work, write the code, build your apps and answer when you talk to them (beta). Web, desktop, iOS and Android. Open source, free to self-host.`,
+    description: `Your team's apps, built by asking. Agents build them and genUI paints them natively on web, desktop, iOS and Android. Open source, free to self-host.`,
     template: `splash`,
     head: seoHead({
       title: `Exponential · The next generation dev platform for teams and agents`,
@@ -24,62 +46,100 @@ const modules = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.product 
       jsonLd: [ORGANIZATION, SOFTWARE_APPLICATION],
     }),
     hero: {
-      tagline: `Agents plan the work, write the code and build your apps. On web, desktop, iOS and Android.`,
+      title: `Your team's apps, built by asking`,
+      tagline: `Agents build them. genUI paints them on every screen.`,
       actions: [
         { text: `Get started free`, link: LINKS.app.login, icon: `right-arrow` },
-        { text: `Download`, link: `/download/`, variant: `minimal` },
+        { text: `Download`, link: `/download/`, variant: `secondary` },
       ],
     },
   }}
 >
-  <div class="exp-landing">
-    <Duo eager desktop={shot(`thread`, `desktop`, `A session on the desktop: a question and a plan waiting for an answer`)} phone={shot(`thread`, `ios`, `The same session on iPhone`)} />
+  <div class="exp-landing exp-home">
+    <div class="exp-hero-visual not-content">
+      <HeroDemo client:visible />
+    </div>
 
-    <Feature id="talk" title="Talk to it" link={{ href: `/sdk/voice/`, label: `Voice` }}>
-      Hold a key and speak; your agent answers aloud. In beta.
-      <Duo slot="visual" desktop={shot(`voice-call-overlay`, `desktop`, `Push to talk: listening, heard, speaking`)} phone={shot(`voice-call`, `ios`, `A call with the assistant on iPhone`)} />
-    </Feature>
-
-    <Feature id="agents" title="Agents work your boards" link={{ href: `/docs/using/sessions/`, label: `Sessions` }}>
-      Claude Code or Codex, on your own machine and subscription.
-      <Duo slot="visual" desktop={shot(`agent-channel`, `desktop`, `A team agent's channel: its triage report and the thread it started`)} phone={shot(`agent-channel`, `ios`, `The same channel on iPhone`)} />
-    </Feature>
-
-    <Feature id="plans" title="Plans you can read" link={{ href: `/docs/using/sessions/`, label: `Sessions` }}>
-      <Duo slot="visual" desktop={shot(`plan-page`, `desktop`, `A plan as a page: outline, pictures and questions`)} phone={shot(`plan-page`, `ios`, `The same plan on iPhone`)} />
-    </Feature>
-
-    <Feature id="sealed" title="End-to-end encrypted" link={{ href: `/sdk/p2p/`, label: `P2P` }}>
-      Our server only ever sees ciphertext; your phone steers the machine directly.
-      <Duo slot="visual" desktop={shot(`session`, `desktop`, `A running session on the desktop`)} phone={shot(`steering`, `ios`, `Steering it from iPhone`)} />
-    </Feature>
-
-    <Feature id="genui" title="Generative UI" link={{ href: `/sdk/genui/`, label: `genUI` }}>
-      <Duo slot="visual" desktop={shot(`exponential-ui-demo`, `desktop`, `An agent's interface painted natively on the desktop`)} phone={shot(`exponential-ui-demo`, `ios`, `The same interface in SwiftUI`)} />
-    </Feature>
-
-    <Feature id="apps" title="Apps, built by asking" link={{ href: `/sdk/apps/`, label: `Apps` }}>
-      <Duo
-        slot="visual"
-        desktop={{ src: `/eapps/time-tracker.webp`, width: 2360, height: 1125, alt: `Stunden, a time tracker app: a month of hours as a chart and a table` }}
-        phone={{ src: `/eapps/time-tracker-phone.webp`, width: 780, height: 736, alt: `The same app on a phone` }}
-      />
-    </Feature>
-
-    <section class="exp-section not-content" id="sdk">
-      <h2>Exponential SDK</h2>
-      <div class="exp-lib-grid">
-        {modules.map((m) => <LinkCard title={m.name} href={m.href} />)}
+    <section class="exp-band not-content" id="platforms">
+      <div class="exp-band-head">
+        <h2>One app. Every screen.</h2>
+      </div>
+      <div class="exp-platform-row exp-reveal">
+        {PLATFORMS.map((p) => <img src={p.src} width={p.width} height={p.height} alt={p.alt} style={`--exp-ar: ${p.width / p.height}`} loading="lazy" decoding="async" />)}
       </div>
     </section>
 
-    <section class="exp-section exp-price-line not-content" id="pricing">
-      <h2>Free for teams of three</h2>
-      <p>€12 per seat a month after that. Free to self-host.</p>
-      <div class="exp-actions">
-        <LinkButton href={LINKS.app.login} icon="right-arrow">Get started free</LinkButton>
-        <LinkButton href="/pricing/" variant="minimal">Pricing</LinkButton>
+    <section class="exp-band not-content" id="sdk">
+      <div class="exp-band-head">
+        <h2>Exponential SDK</h2>
       </div>
+      <ul class="exp-tiles">
+        {
+          SDK.map((m) => (
+            <li>
+              <a href={m.href}>
+                {m.icon && <m.icon size={22} strokeWidth={1.6} aria-hidden="true" />}
+                {m.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <div class="exp-band not-content" id="parts">
+      <Feature id="describe" title="Describe it" link={{ href: `/sdk/apps/`, label: `Apps` }}>
+        An agent drafts the app beside a live preview.
+        <Framed slot="visual" id="describe" title="New app" {...shot(`app-draft`, `web`, `A new app's editor: the chat with the agent beside the live preview`)} />
+      </Feature>
+
+      <Feature id="records" title="Records your team shares" link={{ href: `/docs/sdk/apps/`, label: `Records` }}>
+        Tables, forms, calendars and history.
+        <Framed slot="visual" id="records" title="Contacts" {...shot(`app-record-table`, `web`, `An app's records as a table`)} />
+      </Feature>
+
+      <Feature id="genui" title="UI as data" link={{ href: `/sdk/genui/`, label: `genUI` }}>
+        Six renderers paint the same tree natively.
+        <Framed slot="visual" id="genui" title="genUI" {...shot(`exponential-ui-demo`, `web`, `An agent's interface painted by genUI`)} />
+      </Feature>
+
+      <Feature id="mcp" title="Your agents use them too" link={{ href: `/sdk/mcp-proxy/`, label: `MCP Proxy` }}>
+        Every app is a tool, per member and per scope.
+        <Framed slot="visual" id="mcp" title="Claude Code" src="/eapps/mcp-consent.webp" width={1240} height={1568} alt="Claude Code asks to use the team's apps: Off, Read only or Full per app" />
+      </Feature>
+
+      <Feature id="agents" title="Agents work your boards" link={{ href: `/sdk/agents/`, label: `Agents` }}>
+        Claude Code or Codex, on your own machine and subscription.
+        <Framed slot="visual" id="agents" title="Triage" {...shot(`agent-channel`, `desktop`, `A team agent's channel: its triage report and the thread it started`)} />
+      </Feature>
+
+      <Feature id="voice" title="Talk to it" link={{ href: `/sdk/voice/`, label: `Voice` }}>
+        Hold a key and speak.
+        <Framed slot="visual" id="voice" title="Voice" {...shot(`voice-call-overlay`, `desktop`, `Push to talk: listening, heard, speaking`)} />
+      </Feature>
+    </div>
+
+    <section class="exp-band not-content" id="gallery">
+      <div class="exp-band-head">
+        <h2>Built by teams</h2>
+      </div>
+      <div class="exp-reveal"><EuiSurface id="gallery" tree={GALLERY} origin={Astro.url.origin} /></div>
+    </section>
+
+    <section class="exp-band not-content" id="yours">
+      <div class="exp-band-head">
+        <h2>Yours, end to end</h2>
+      </div>
+      <ul class="exp-cards">
+        {
+          YOURS.map((c) => (
+            <li class="exp-reveal">
+              <c.icon size={28} strokeWidth={1.5} aria-hidden="true" />
+              {c.title}
+            </li>
+          ))
+        }
+      </ul>
     </section>
   </div>
 </StarlightPage>
