@@ -14,6 +14,28 @@
 // and it is never persisted as the default either — only `devices.setDefault`
 // writes that flag.
 
+// #FEED-204 (apps.json EDITOR DEVICE): the device picked in an app editor's
+// composer, per app on this browser. A pick only; never the default machine.
+const editorDeviceKey = (appId: string) => `exp.apps.editorDevice.${appId}`
+
+export function loadEditorDevice(appId: string): string | null {
+  if (typeof localStorage === `undefined`) return null
+  try {
+    return localStorage.getItem(editorDeviceKey(appId))
+  } catch {
+    return null
+  }
+}
+
+export function saveEditorDevice(appId: string, deviceId: string): void {
+  if (typeof localStorage === `undefined`) return
+  try {
+    localStorage.setItem(editorDeviceKey(appId), deviceId)
+  } catch {
+    // A full or blocked storage only forgets the pick.
+  }
+}
+
 export interface LaunchDeviceCandidate {
   deviceId: string
   isDefault?: boolean

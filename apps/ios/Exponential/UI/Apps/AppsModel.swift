@@ -141,7 +141,12 @@ final class AppEditorModel {
     private(set) var users: [UserEntity] = []
     private(set) var rootId: String?
     private(set) var rootLive = false
+    /// #FEED-204 (apps.json EDITOR DEVICE): the device the composer shows
+    /// and sends on, its rows, and where the next send goes.
     private(set) var deviceId: String?
+    private(set) var deviceRows: [DevicePickerDevice] = []
+    private(set) var deviceLocked = false
+    private(set) var deviceMove = false
     private(set) var missing = false
     /// VAPP-177: I own the app's team (grants; delete and edit any app).
     private(set) var isOwner = false
@@ -152,6 +157,9 @@ final class AppEditorModel {
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var graceTask: Task<Void, Never>?
+    @ObservationIgnored private var boundAppId = ""
+    @ObservationIgnored private var boundUserId = ""
+    @ObservationIgnored private var lastSnapshot: Snapshot?
 
     /// eApps V1 (#VAPP-210): Publish needs write access to the app.
     var canWrite: Bool { (access ?? "write") == "write" }
@@ -182,6 +190,8 @@ final class AppEditorModel {
         let users: [UserEntity]
         let root: SessionEntity?
         let devices: [DeviceEntity]
+        /// The device owners' rows (a shared device's name).
+        let deviceOwners: [UserEntity]
         let isOwner: Bool
         let recordsCount: Int
     }
@@ -190,6 +200,8 @@ final class AppEditorModel {
         stop()
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let me = userId ?? ""
+        boundAppId = appId
+        boundUserId = me
         let observation = ValueObservation.tracking { db -> Snapshot in
             let app = try AppEntity.fetchOne(db, key: appId)
             let versions = try AppVersionEntity
@@ -203,7 +215,9 @@ final class AppEditorModel {
                 .filter(Column("user_id") == me)
                 .filter(Column("parent_id") == nil)
                 .fetchOne(db)
-            let devices = try DeviceEntity.filter(Column("user_id") == me).fetchAll(db)
+            let devices = try DeviceEntity.fetchAll(db)
+            let owners = Set(devices.map(\.userId))
+            let deviceOwners = try UserEntity.filter(owners.contains(Column("id"))).fetchAll(db)
             let role = try app.flatMap { row in
                 try String.fetchOne(
                     db,
@@ -214,7 +228,7 @@ final class AppEditorModel {
             let recordsCount = try AppRecordEntity.filter(Column("app_id") == appId).fetchCount(db)
             return Snapshot(
                 app: app, versions: versions, users: users, root: root, devices: devices,
-                isOwner: role == "owner", recordsCount: recordsCount
+                deviceOwners: deviceOwners, isOwner: role == "owner", recordsCount: recordsCount
             )
         }
         task = Task { [weak self] in
@@ -232,7 +246,8 @@ final class AppEditorModel {
                     self.users = snapshot.users
                     self.rootId = snapshot.root?.id
                     self.rootLive = snapshot.root?.isLive ?? false
-                    self.deviceId = Self.launchDevice(snapshot.devices)
+                    self.lastSnapshot = snapshot
+                    self.settleDevice()
                     self.isOwner = snapshot.isOwner
                     self.recordsCount = snapshot.recordsCount
                 }
@@ -252,12 +267,77 @@ final class AppEditorModel {
         graceTask = nil
     }
 
-    /// The device the FIRST send runs on: my default, else my first online
-    /// one (web `resolveLaunchDeviceId` over my online devices).
-    static func launchDevice(_ devices: [DeviceEntity], now: Date = Date()) -> String? {
-        let online = devices
-            .filter { DeviceLiveness.isOnline(lastSeenAt: $0.lastSeenAt, now: now) }
-            .sorted { a, b in a.label.lowercased() < b.label.lowercased() }
-        return (online.first(where: \.isDefault) ?? online.first)?.deviceId
+    /// #FEED-204: the composer's "+" Device row.
+    var deviceMenu: SessionComposerFooter.DeviceMenu {
+        SessionComposerFooter.DeviceMenu(
+            devices: deviceRows,
+            current: deviceId,
+            locked: deviceLocked,
+            onPick: { [weak self] picked in self?.pickDevice(picked) }
+        )
+    }
+
+    /// #FEED-204: an ended root's next send, elsewhere; nil = a plain message.
+    var deviceAppMove: ThreadComposerDraft.AppMove? {
+        guard deviceMove, let deviceId else { return nil }
+        return ThreadComposerDraft.AppMove(appId: boundAppId, deviceId: deviceId)
+    }
+
+    /// A pick is remembered per app on this device, never as the default.
+    func pickDevice(_ picked: String) {
+        UserDefaults.standard.set(picked, forKey: Self.editorDeviceKey(boundAppId))
+        settleDevice()
+    }
+
+    private static func editorDeviceKey(_ appId: String) -> String {
+        "exp.apps.editorDevice.\(appId)"
+    }
+
+    /// #FEED-204 (apps.json EDITOR DEVICE, `Apps.editorDevice`): the online
+    /// devices of the app's team (with a root: the ones it may move to), the
+    /// remembered pick, a live root's own device locked.
+    private func settleDevice() {
+        guard let snapshot = lastSnapshot else { return }
+        let root = snapshot.root
+        let devices = DeviceQueries.compose(
+            rows: snapshot.devices,
+            users: snapshot.deviceOwners,
+            teamId: snapshot.app?.teamId,
+            userId: boundUserId,
+            now: Date()
+        )
+        var candidates = devices.filter(\.isOnline)
+        if let root {
+            let agent = SessionAccountSwitch.agent(
+                cli: root.cli,
+                defaultAgent: devices.first { $0.deviceId == root.deviceId }?.launchDefaults?.defaultAgent
+            )
+            candidates = candidates.filter { device in
+                device.deviceId == root.deviceId || SessionDeviceMove.rowBlockedReason(
+                    device,
+                    sessionTeamId: root.teamId,
+                    sessionShared: root.shared,
+                    agent: agent,
+                    starterId: root.userId,
+                    viewerId: boundUserId
+                ) == nil
+            }
+        }
+        let choice = Apps.editorDevice(
+            rootStatus: root?.status,
+            rootDeviceId: root?.deviceId,
+            candidates: candidates.map { (deviceId: $0.deviceId, isDefault: $0.isDefaultDevice) },
+            remembered: UserDefaults.standard.string(forKey: Self.editorDeviceKey(boundAppId))
+        )
+        var rows = candidates.map { DevicePickerDevice($0) }
+        if let shown = choice.deviceId, !rows.contains(where: { $0.id == shown }) {
+            let device = devices.first { $0.deviceId == shown }
+                ?? SteerDevice(deviceId: shown, deviceLabel: shown)
+            rows.insert(DevicePickerDevice(device), at: 0)
+        }
+        deviceId = choice.deviceId
+        deviceRows = rows
+        deviceLocked = choice.locked
+        deviceMove = choice.move
     }
 }

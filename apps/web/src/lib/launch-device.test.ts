@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   defaultCandidateId,
+  loadEditorDevice,
   resolveLaunchDeviceId,
+  saveEditorDevice,
 } from "@/lib/launch-device"
 
 // EXP-836: the launch surfaces' device precedence, as a pure rule.
@@ -41,5 +43,23 @@ describe(`resolveLaunchDeviceId`, () => {
     expect(defaultCandidateId([pi, mac])).toBe(`mac`)
     expect(defaultCandidateId([pi, mint])).toBeNull()
     expect(defaultCandidateId([])).toBeNull()
+  })
+})
+
+// #FEED-204: the app editor's pick, per app on this browser.
+describe(`the app editor's remembered device`, () => {
+  it(`keeps one pick per app`, () => {
+    // The runner's jsdom does not always ship a working localStorage.
+    const store = new Map<string, string>()
+    vi.stubGlobal(`localStorage`, {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+    })
+    expect(loadEditorDevice(`a1`)).toBeNull()
+    saveEditorDevice(`a1`, `mint`)
+    saveEditorDevice(`a2`, `mac`)
+    expect(loadEditorDevice(`a1`)).toBe(`mint`)
+    expect(loadEditorDevice(`a2`)).toBe(`mac`)
+    vi.unstubAllGlobals()
   })
 })

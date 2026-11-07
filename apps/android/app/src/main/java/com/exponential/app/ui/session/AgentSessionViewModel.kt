@@ -1247,16 +1247,21 @@ class AgentSessionViewModel @AssistedInject constructor(
                     ids += id
                 }
                 try {
+                    val move = appMove
                     sessionsApi.send(
                         accountId,
-                        SessionsSendInput.message(
-                            codingSessionId,
-                            text,
-                            ids.takeIf { it.isNotEmpty() },
-                            // #EXP-1715: every send to the viewer's Assistant
-                            // carries its Teams pick (null = every team).
-                            scopeTeamIds = if (toAssistant.value) SessionsSendInput.scope(_teamsPick.value) else null,
-                        ),
+                        if (move != null) {
+                            SessionsSendInput.toApp(move.appId, text, move.deviceId, ids)
+                        } else {
+                            SessionsSendInput.message(
+                                codingSessionId,
+                                text,
+                                ids.takeIf { it.isNotEmpty() },
+                                // #EXP-1715: every send to the viewer's Assistant
+                                // carries its Teams pick (null = every team).
+                                scopeTeamIds = if (toAssistant.value) SessionsSendInput.scope(_teamsPick.value) else null,
+                            )
+                        },
                     )
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
@@ -1351,6 +1356,13 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
     }
+
+    /** #FEED-204: an ended app editor root's next send, to another device:
+     *  `sessions.send({appId, deviceId})` revives the root there. */
+    data class AppMove(val appId: String, val deviceId: String)
+
+    @Volatile
+    var appMove: AppMove? = null
 
     /** EXP-1291: revoke one of the viewer's held messages (`sessions.unqueue`). */
     fun unqueueMessage(messageId: String) {

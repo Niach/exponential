@@ -422,6 +422,9 @@ pub(crate) struct SteerSessionView {
     /// last seeded from (a pick made elsewhere re-seeds it).
     teams_picked: crate::teams_pick::TeamsPick,
     teams_seed: crate::teams_pick::TeamsPick,
+    /// #FEED-204 (apps.json EDITOR DEVICE): an app editor's Device row and
+    /// where its next send goes; `None` on every other composer.
+    editor_device: Option<crate::device_move::EditorDevice>,
     /// EXP-1294: whether the signed-in person may message (and Stop) this
     /// session — a SHARED session any team member, a private one only its
     /// starter. Re-read with the row.
@@ -841,6 +844,7 @@ impl SteerSessionView {
             row: None,
             teams_picked: None,
             teams_seed: None,
+            editor_device: None,
             may_message: false,
             guide_results: None,
             feed: SteerFeed::new(),
@@ -3683,8 +3687,10 @@ impl SteerSessionView {
         // #EXP-1715: every turn to the viewer's Assistant carries its Teams
         // pick (null = every team); never another session's.
         let scope = self.to_assistant(cx).then(|| self.teams_picked.clone());
+        // #FEED-204: an ended editor root's send to another device.
+        let editor_move = self.editor_device.as_ref().and_then(crate::device_move::EditorDevice::move_target);
         if self.pending_images.is_empty() {
-            let mut input = api::sessions::SendInput::message(&self.session_id, &text, Vec::new());
+            let mut input = Self::message_input(editor_move.as_ref(), &self.session_id, &text, Vec::new());
             input.scope_team_ids = scope;
             self.post_message(input, sent, window, cx);
             return;
@@ -3720,7 +3726,7 @@ impl SteerSessionView {
                     .map_err(|(resolved, error)| composer_images::UploadSendError::Upload(resolved, error))?;
                     let message = composer_images::uploaded_message(&text, &file_keys, &resolved);
                     let ids = resolved.iter().map(|(_, id, _)| id.clone()).collect();
-                    let mut input = api::sessions::SendInput::message(&session_id, &message, ids);
+                    let mut input = Self::message_input(editor_move.as_ref(), &session_id, &message, ids);
                     input.scope_team_ids = scope;
                     match crate::sealing::send_blocking(&trpc, &input, &plan) {
                         Ok(_) => Ok(()),
@@ -3758,6 +3764,40 @@ impl SteerSessionView {
             });
         })
         .detach();
+    }
+
+    /// #FEED-204: a message into the session, or (`editor_move`: team, app,
+    /// device) the `sessions.send({appId, deviceId})` that revives an ended
+    /// editor root on another device.
+    fn message_input(
+        editor_move: Option<&(String, String, String)>,
+        session_id: &str,
+        text: &str,
+        attachment_ids: Vec<String>,
+    ) -> api::sessions::SendInput {
+        match editor_move {
+            Some((team_id, app_id, device_id)) => {
+                crate::chat_launch::app_send_input(team_id, app_id, Some(device_id.as_str()), text, attachment_ids)
+            }
+            None => api::sessions::SendInput::message(session_id, text, attachment_ids),
+        }
+    }
+
+    /// #FEED-204: the app editor's Device row (`None` anywhere else).
+    pub(crate) fn set_editor_device(
+        &mut self,
+        device: Option<crate::device_move::EditorDevice>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let same = match (&self.editor_device, &device) {
+            (Some(current), Some(next)) => current.same_as(next),
+            (None, None) => true,
+            _ => false,
+        };
+        self.editor_device = device;
+        if !same {
+            cx.notify();
+        }
     }
 
     /// EXP-1294 — the database is the bus: a message is a `messages` row
@@ -8379,6 +8419,8 @@ impl SteerSessionView {
         let rows = composer_menu_rows(
             surface,
             ComposerMenuConditions {
+                // #FEED-204: an app editor's composer reads its device.
+                device: self.editor_device.is_some(),
                 account: account_switch.is_some(),
                 model: self.configurable(),
                 prompts: !prompts.is_empty(),
@@ -8388,6 +8430,7 @@ impl SteerSessionView {
                 ..ComposerMenuConditions::default()
             },
         );
+        let editor_device = self.editor_device.clone();
         let teams_view = view.clone();
         let teams_change = self.teams_change(cx);
         let (models, model_picked): (&'static [(&'static str, &'static str)], String) = {
@@ -8500,6 +8543,11 @@ impl SteerSessionView {
                             )
                         })
                     }
+                    // #FEED-204 (apps.json EDITOR DEVICE).
+                    Row::Device => match &editor_device {
+                        Some(device) => device.menu_row(menu, row, window, cx),
+                        None => menu,
+                    },
                     // #EXP-1535: THE account rows (agent mark, login, health
                     // hint, the usage preview on hover), the run's login
                     // checked; a pick IS the usage wall's "Switch account"
