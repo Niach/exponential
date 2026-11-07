@@ -463,7 +463,7 @@ final class ConformanceTests: XCTestCase {
             out.append(run("mcp: \(c["name"]?.string ?? "")") { same(try messagesFromMcpResultJson(resultJson: c["result"]!.json), c["expected"]!) })
         }
         for c in f["mcpAction"]?.array ?? [] {
-            out.append(run("mcpAction: \(c["name"]?.string ?? "")") { same(try mcpActionCallJson(messageJson: c["message"]!.json, tool: c["tool"]?.string), c["expected"]!) })
+            out.append(run("mcpAction: \(c["name"]?.string ?? "")") { same(try mcpActionCallJson(messageJson: c["message"]!.json, tool: c["tool"]?.string, metadataJson: nil), c["expected"]!) })
         }
         return out
     }

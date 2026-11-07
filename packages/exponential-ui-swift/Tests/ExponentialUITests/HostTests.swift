@@ -28,6 +28,40 @@ final class HostTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(20))
     }
 
+    /// Round 9 §6.5: a function the host lacks goes to the surface's agent and
+    /// the press gets the answer (fixtures a2ui10-functions.json `sequences`).
+    func testAFunctionTheHostLacksGoesToTheAgent() async throws {
+        let transport = MemoryTransport()
+        let host = ExponentialHost(HostOptions(transport: transport, agent: true))
+        host.connect()
+        host.receive(JSONValue.object(["version": .string("1.0"), "createSurface": .object(["surfaceId": .string("s1"), "catalogId": .string(core), "sendDataModel": .bool(true)])]))
+        host.surface("s1")?.setData(path: "/name", value: .string("Ada"))
+        let press = Task { await host.callFunction(FunctionCallInfo(surfaceId: "s1", componentId: "b", name: "lookup", args: ["q": .string("hi")])) }
+        await settle()
+        // `sendDataModel`: the metadata travels beside the message.
+        let wrapped = try XCTUnwrap(transport.sentMessages.last)
+        XCTAssertEqual(wrapped["metadata"]?["a2uiRendererDataModel"]?["surfaces"]?["s1"]?["name"], .string("Ada"))
+        let sent = try XCTUnwrap(wrapped["message"]?["callAgentFunction"])
+        XCTAssertEqual(sent["functionCallId"]?.string, "s1:1")
+        XCTAssertEqual(sent["callFunction"]?["@call"]?.string, "lookup")
+        XCTAssertEqual(sent["callFunction"]?["args"]?["q"], .string("hi"))
+        host.receive(JSONValue.object(["version": .string("1.0"), "agentFunctionResponse": .object(["functionCallId": .string("s1:1"), "value": .number(42)])]))
+        let outcome = await press.value
+        XCTAssertEqual(outcome.decision, .allow)
+        XCTAssertEqual(outcome.result as? JSONValue, .number(42))
+        XCTAssertNil(outcome.error)
+        // A press never shares a call.
+        let again = Task { await host.callFunction(FunctionCallInfo(surfaceId: "s1", componentId: "b", name: "lookup", args: ["q": .string("hi")])) }
+        await settle()
+        XCTAssertEqual(transport.sentMessages.last?["message"]?["callAgentFunction"]?["functionCallId"]?.string, "s1:2")
+        host.receive(JSONValue.object(["version": .string("1.0"), "agentFunctionResponse": .object(["functionCallId": .string("s1:2"), "error": .object(["code": .string("UNKNOWN_FUNCTION"), "message": .string("no")])])]))
+        let refused = await again.value
+        XCTAssertEqual(refused.error, "no")
+        await settle()
+        // The failure names the call, no surface: nothing to sync beside it.
+        XCTAssertEqual(transport.sentMessages.last?["error"]?["code"]?.string, "EXPRESSION_ERROR")
+    }
+
     func testRouterOpsThroughAHost() throws {
         let host = ExponentialHost()
         let ops = host.receive(create("s1"))

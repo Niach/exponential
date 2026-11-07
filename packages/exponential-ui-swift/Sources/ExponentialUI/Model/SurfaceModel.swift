@@ -296,6 +296,13 @@ public final class SurfaceModel {
         invalidate(structure: false)
     }
 
+    /// Round 9 §6.5: a routed value settled (`HostCalls.takeDirty`): bind again.
+    func rebind() {
+        surface.rebind()
+        nodesDirty = true
+        invalidate(structure: true)
+    }
+
     public var data: JSONValue { JSONValue.parse(surface.dataJson()) }
     public var issues: [JSONValue] { JSONValue.parse(surface.issuesJson()).array ?? [] }
 
@@ -494,7 +501,10 @@ public final class SurfaceModel {
         // Bookkeeping above may have changed states (focus into a layer):
         // the core raised events or needs another pass. Bounded.
         passDepth += 1
-        defer { passDepth -= 1 }
+        defer {
+            passDepth -= 1
+            if passDepth == 0 { host.afterLayout(surfaceId: id) }
+        }
         guard passDepth < 6 else { return }
         let late = surface.takeEvents()
         if !late.isEmpty {

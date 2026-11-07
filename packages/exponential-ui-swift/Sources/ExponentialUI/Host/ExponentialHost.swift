@@ -44,6 +44,9 @@ public struct HostOptions {
     public var navigate: ((NavigateTarget) -> Bool)?
     /// #VAPP-252: `SurfaceOptions.liftsLayers` of every surface.
     public var liftsLayers: Bool
+    /// Round 9 §6.5: the transport's far end reads renderer → agent messages:
+    /// a surface an untrusted `createSurface` made has an agent.
+    public var agent: Bool
 
     public init(
         transport: Transport? = nil,
@@ -63,9 +66,11 @@ public struct HostOptions {
         zone: HostZone? = nil,
         onActionFailed: ((ActionFailure) -> Void)? = nil,
         navigate: ((NavigateTarget) -> Bool)? = nil,
-        liftsLayers: Bool = false
+        liftsLayers: Bool = false,
+        agent: Bool = false
     ) {
         self.liftsLayers = liftsLayers
+        self.agent = agent
         self.transport = transport
         self.functions = functions
         self.sources = sources
@@ -119,6 +124,14 @@ public final class ExponentialHost {
     /// `surfaceId\0componentId\0message` of the paint errors already sent.
     @ObservationIgnored private var paintErrors: Set<String> = []
     @ObservationIgnored private lazy var bridge = HostBridge(host: self)
+    /// Round 9 §6.5: the routed calls (the core's `CallHub`).
+    @ObservationIgnored private let calls: HostCalls
+    /// The press waiting for each action call to the agent.
+    @ObservationIgnored private var agentWaiters: [String: CheckedContinuation<JSONValue, Never>] = [:]
+    @ObservationIgnored private var flushingCalls = false
+    /// The one timer, armed at `calls.nextDeadlineMs()`.
+    @ObservationIgnored private var deadlineTimer: Task<Void, Never>?
+    @ObservationIgnored private var armedDeadline: Double?
 
     public init(_ options: HostOptions = HostOptions()) {
         self.options = options
@@ -133,6 +146,9 @@ public final class ExponentialHost {
         self.mode = options.mode
         self.settings = options.settings
         self.router = HostRouter(extensionIds: exts.map(\.id))
+        self.calls = HostCalls(agent: options.agent)
+        calls.setRegistered(names: Array(options.functions.keys))
+        try? calls.setPolicyJson(policyJson: PolicyJSON.encode(options.policy.functions))
         for pkg in options.packages { installPackage(pkg) }
     }
 
@@ -157,6 +173,7 @@ public final class ExponentialHost {
 
     public func registerFunction(_ name: String, _ fn: @escaping HostFunction) {
         functions[name] = fn
+        calls.setRegistered(names: Array(functions.keys))
     }
 
     public func registerSource(_ scheme: String, _ resolver: @escaping SourceResolver) {
@@ -204,7 +221,9 @@ public final class ExponentialHost {
 
     public func close() {
         options.transport?.close()
-        for id in surfaceIds { perform(.object(["op": .string("delete"), "surfaceId": .string(id)])) }
+        let ops: [JSONValue] = surfaceIds.map { .object(["op": .string("delete"), "surfaceId": .string($0)]) }
+        ops.forEach(perform)
+        observe(JSONValue.array(ops).json)
     }
 
     /// One agent message (JSON text); returns the ops performed. Round 9 §2:
@@ -215,8 +234,10 @@ public final class ExponentialHost {
         // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
         let nowMs = options.now.map { $0().timeIntervalSince1970 * 1000 }
         let routed = HostParams.adding(to: messageJSON, nowMs: nowMs, zone: options.zone)
-        let ops = JSONValue.parse(router.routeJson(messageJson: routed, trusted: trusted)).array ?? []
+        let opsJson = router.routeJson(messageJson: routed, trusted: trusted)
+        let ops = JSONValue.parse(opsJson).array ?? []
         for op in ops { perform(op) }
+        observe(opsJson)
         return ops
     }
 
@@ -235,9 +256,162 @@ public final class ExponentialHost {
     /// A client message (JSON text) out over the transport.
     public func send(_ messageJSON: String) {
         if let t = options.transport {
-            Task { try? await t.send(messageJSON) }
+            let metadata = dataModelMetadata(messageJSON)
+            Task {
+                if let metadata {
+                    try? await t.send(messageJSON, metadata: metadata)
+                } else {
+                    try? await t.send(messageJSON)
+                }
+            }
         }
         options.onSend?(messageJSON)
+    }
+
+    /// Round 9 §1.3: the metadata beside a message about a `sendDataModel` surface.
+    private func dataModelMetadata(_ messageJSON: String) -> String? {
+        guard !sendDataModel.isEmpty else { return nil }
+        let message = JSONValue.parse(messageJSON)
+        guard let id = ["action", "callAgentFunction", "error"].lazy.compactMap({ message[$0]?["surfaceId"]?.string }).first,
+              sendDataModel.contains(id), let model = surfaces[id] else { return nil }
+        return (try? calls.dataModelMetadataJson(messageJson: messageJSON, dataJson: model.surface.dataJson())) ?? nil
+    }
+
+    // MARK: - routed calls (round 9 §6.5–§6.8, §18.3)
+
+    /// Every router answer, AFTER its ops ran: the hub follows the surfaces and
+    /// settles the `respond` ops, then the one flush.
+    private func observe(_ opsJson: String) {
+        answerPresses((try? calls.observeJson(opsJson: opsJson, router: router)) ?? "[]")
+        flushCalls()
+    }
+
+    /// `[SettledCall]` JSON: the presses waiting for those calls go on.
+    private func answerPresses(_ settledJson: String) {
+        for call in JSONValue.parse(settledJson).array ?? [] {
+            if let id = call["functionCallId"]?.string, let waiter = agentWaiters.removeValue(forKey: id) {
+                waiter.resume(returning: call)
+            }
+        }
+    }
+
+    /// What the hub queued: messages out, reactive effects run, surfaces whose
+    /// routed value settled bound again, until all three are empty; then the
+    /// timer. A flush a rebind's layout asks for is this loop's next round.
+    private func flushCalls() {
+        guard !flushingCalls else { return }
+        flushingCalls = true
+        defer { flushingCalls = false }
+        while true {
+            let outbox = JSONValue.parse(calls.takeOutboxJson()).array ?? []
+            let effects = JSONValue.parse(calls.takeEffectsJson()).array ?? []
+            let dirty = calls.takeDirty()
+            if outbox.isEmpty, effects.isEmpty, dirty.isEmpty { break }
+            for message in outbox { send(message.json) }
+            for effect in effects { runEffect(effect) }
+            for id in dirty { surfaces[id]?.rebind() }
+        }
+        armDeadline()
+    }
+
+    private func runEffect(_ effect: JSONValue) {
+        guard let ticket = effect["ticket"]?.number.map({ UInt64($0) }) else { return }
+        let call = SurfaceFunctionCall(surfaceId: effect["surfaceId"]?.string ?? "", componentId: "", name: effect["name"]?.string ?? "", args: effect["args"]?.object ?? [:])
+        switch effect["effect"]?.string {
+        case "ask":
+            Task { @MainActor in
+                let allowed = await options.policy.onFunctionCall?(call) ?? false
+                calls.consent(ticket: ticket, allowed: allowed)
+                flushCalls()
+            }
+        case "runLocal":
+            Task { @MainActor in
+                var value: String?
+                var failure: String?
+                do {
+                    let answer = try await functions[call.name]?(call.args, call)
+                    value = answer.map { (($0 as? JSONValue) ?? JSONValue(any: $0)).json }
+                } catch {
+                    failure = error.localizedDescription
+                }
+                try? calls.settleLocal(ticket: ticket, valueJson: value, error: failure)
+                flushCalls()
+            }
+        default:
+            break
+        }
+    }
+
+    /// The hub's clock is the wall clock; a press always settles here (the
+    /// task holds the host until its deadline, 30 s at most).
+    private func armDeadline() {
+        let next = calls.nextDeadlineMs()
+        guard next != armedDeadline else { return }
+        deadlineTimer?.cancel()
+        deadlineTimer = nil
+        armedDeadline = next
+        guard let next else { return }
+        let wait = max(0, next - Date().timeIntervalSince1970 * 1000)
+        deadlineTimer = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(wait + 1))
+            guard !Task.isCancelled else { return }
+            deadlineTimer = nil
+            armedDeadline = nil
+            answerPresses(calls.expireJson())
+            flushCalls()
+        }
+    }
+
+    /// Round 9 §5.2, §6.8: a layout may leave issues, failures or routed
+    /// calls: to the hub, then out. The core reports no cheap "anything
+    /// pending?" for failures, and this is as cheap as that read.
+    func afterLayout(_ surfaceId: String) {
+        guard let model = surfaces[surfaceId] else { return }
+        calls.flushSurface(surfaceId: surfaceId, surface: model.surface)
+        flushCalls()
+    }
+
+    /// An action call to the agent: the policy, the consent, one new
+    /// `callAgentFunction`, its answer or the timeout (§6.5: never shared).
+    private func callAgent(_ call: FunctionCallInfo) async -> FunctionOutcome {
+        let args = JSONValue.object(call.args).json
+        func press(_ consent: Bool?) -> JSONValue {
+            JSONValue.parse((try? calls.pressJson(surfaceId: call.surfaceId, name: call.name, catalogId: nil, argsJson: args, consent: consent)) ?? #"{"route":"deny"}"#)
+        }
+        var route = press(nil)
+        if route["route"]?.string == "ask" {
+            let allowed = await options.policy.onFunctionCall?(call) ?? false
+            route = press(allowed)
+        }
+        switch route["route"]?.string {
+        case "agent":
+            guard let id = route["functionCallId"]?.string else { break }
+            let answer = await withCheckedContinuation { (waiter: CheckedContinuation<JSONValue, Never>) in
+                agentWaiters[id] = waiter
+                flushCalls()
+            }
+            return FunctionOutcome(decision: .allow, result: answer["value"], error: answer["error"]?.string)
+        case "notFound":
+            flushCalls()
+            return FunctionOutcome(decision: .notFound)
+        case "local":
+            flushCalls()
+            return await runLocal(call)
+        default:
+            break
+        }
+        flushCalls()
+        return FunctionOutcome(decision: .deny)
+    }
+
+    /// `run`; §6.8: a local function that threw is an EXECUTION_ERROR.
+    private func runLocal(_ call: FunctionCallInfo) async -> FunctionOutcome {
+        let outcome = await run(call)
+        if let error = outcome.error {
+            calls.localFailed(surfaceId: call.surfaceId, message: error)
+            flushCalls()
+        }
+        return outcome
     }
 
     private func perform(_ op: JSONValue) {
@@ -247,7 +421,7 @@ public final class ExponentialHost {
         case "create":
             unbind(surfaceId)
             forgetPaintErrors(surfaceId)
-            // Round 4: the server's `createSurface.theme` wins; an unusable
+            // Round 9 §8: the server's `at_exponential_theme` wins; an unusable
             // one never fails the host: the surface paints with the host's
             // theme and the server hears VALIDATION_FAILED (the TS / gpui rule).
             var surfaceTheme = theme
@@ -260,7 +434,7 @@ public final class ExponentialHost {
                     if refused.isEmpty { surfaceTheme = loaded }
                 }
                 if !refused.isEmpty {
-                    send(errorMessageJson(code: "VALIDATION_FAILED", surfaceId: surfaceId, message: "createSurface.theme is unusable: \(refused.joined(separator: "; "))", path: "/createSurface/theme"))
+                    send(errorMessageJson(code: "VALIDATION_FAILED", surfaceId: surfaceId, message: "createSurface.metadata.extensions.at_exponential_theme is unusable: \(refused.joined(separator: "; "))", path: "/createSurface/metadata/extensions/at_exponential_theme"))
                 }
             }
             var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: surfaceTheme, mode: mode, settings: settings)
@@ -270,6 +444,7 @@ public final class ExponentialHost {
             for e in extensions { try? model.register(extension: e.json, painters: e.painters) }
             if op["sendDataModel"]?.bool == true { sendDataModel.insert(surfaceId) } else { sendDataModel.remove(surfaceId) }
             surfaces[surfaceId] = model
+            calls.attachSurface(surfaceId: surfaceId, surface: model.surface)
             if !surfaceIds.contains(surfaceId) { surfaceIds.append(surfaceId) }
         case "components":
             forgetPaintErrors(surfaceId, components: (op["components"]?.array ?? []).compactMap { $0["id"]?.string })
@@ -350,9 +525,12 @@ public final class ExponentialHost {
         if let builtIn = runBuiltIn(call) { return builtIn }
         if call.name == Screens.navigateFunction { return navigate(call) }
         if let action = Actions.actionName(call: call.name) { return await runPackageAction(call, action: action) }
+        // Round 9 §6.5: nothing local: the hub knows which surfaces have an
+        // agent, and a built-in answers `local`.
+        if options.agent, functions[call.name] == nil { return await callAgent(call) }
         let verdict = await gate(call)
         if verdict.decision != .allow { return verdict }
-        return await run(call)
+        return await runLocal(call)
     }
 
     /// The policy gate and the consent hook: `.allow`, or the refusal (sent
@@ -597,6 +775,8 @@ final class HostBridge: HostPlugin {
     }
 
     func onInput(_ event: SurfaceInputEvent) { base?.onInput(event) }
+
+    func afterLayout(surfaceId: String) { host?.afterLayout(surfaceId) }
 
     func onFunctionCall(_ call: SurfaceFunctionCall) {
         guard let host else { return }

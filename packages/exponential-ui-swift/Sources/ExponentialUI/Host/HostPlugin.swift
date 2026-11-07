@@ -186,6 +186,8 @@ public protocol HostPlugin: AnyObject {
     /// `nav-inbox`) → a view drawn at `size` in the current foreground
     /// colour. nil = the placeholder circle.
     func icon(_ name: String, size: CGFloat) -> AnyView?
+    /// Round 9 §5.2, §6.8: a layout ran; the host sends what it left.
+    func afterLayout(surfaceId: String)
     /// Every A2UI action.
     func onAction(_ event: SurfaceActionEvent)
     /// Host-owned text edits (debounced `change`, `commit` on blur / Enter).
@@ -260,6 +262,7 @@ public protocol HostPlugin: AnyObject {
 
 public extension HostPlugin {
     func icon(_ name: String, size: CGFloat) -> AnyView? { nil }
+    func afterLayout(surfaceId: String) {}
     func onAction(_ event: SurfaceActionEvent) {}
     func onInput(_ event: SurfaceInputEvent) {}
     func openUrl(_ url: String) {
