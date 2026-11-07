@@ -21,6 +21,7 @@ import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
+import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.press
 import at.exponential.ui.paint.MarkdownPainter
 import at.exponential.ui.theme.Mode
@@ -184,6 +185,17 @@ class Round9Test {
         val errors = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error), useUnmergedTree = true).fetchSemanticsNodes()
         assertEquals(listOf("Not an email"), errors.map { it.config[SemanticsProperties.Error] })
         save("android-severity.png")
+    }
+
+    /** What apps/android's RecordFormFieldStatesSpecimen does: `validateOn: blur` reveals an advisory. */
+    @Test
+    fun aBlurRevealsAnAdvisory() {
+        val m = makeModel()
+        m.setNested("""{"id":"x","component":"Input","props":{"label":"X","name":"x","value":"v","validateOn":"blur","checks":[{"condition":{"@path":"/w"}}]}}""")
+        m.setData("/w", result("warning", "Looks short"))
+        assertNull(m.indexOf("x.error"))
+        m.fieldFocused(m.idx("x.field"), false)
+        assertEquals(listOf("warning"), m.node(m.idx("x.error"))!!.partStates)
     }
 
     @Test
