@@ -51,37 +51,37 @@ const VALIDATE: { name: string; input: NestedNode }[] = [
   { name: `prop: a colour token passes`, input: { id: `root`, component: `Chip`, props: { label: `Bug`, dot: `$color.destructive` } } },
   {
     name: `action: an unknown function`,
-    input: { id: `root`, component: `Button`, props: { label: `Docs` }, on: { press: { functionCall: { call: `opneUrl`, args: { url: `https://ui.exponential.at/` } } } } },
+    input: { id: `root`, component: `Button`, props: { label: `Docs` }, on: { press: { functionCall: { "@call": `opneUrl`, args: { url: `https://ui.exponential.at/` } } } } },
   },
   {
     name: `action: a namespaced host function passes`,
-    input: { id: `root`, component: `Button`, props: { label: `Wave` }, on: { press: { functionCall: { call: `app.toast`, args: { text: `Hi` } } } } },
+    input: { id: `root`, component: `Button`, props: { label: `Wave` }, on: { press: { functionCall: { "@call": `app.toast`, args: { text: `Hi` } } } } },
   },
   {
     name: `action: an unknown function inside the event context`,
-    input: { id: `root`, component: `Button`, props: { label: `Save` }, on: { press: { event: { name: `save`, context: { title: { call: `trimm`, args: { value: { path: `/title` } } } } } } } },
+    input: { id: `root`, component: `Button`, props: { label: `Save` }, on: { press: { event: { name: `save`, context: { title: { "@call": `trimm`, args: { value: { "@path": `/title` } } } } } } } },
   },
-  { name: `prop: an unknown function in a binding`, input: { id: `root`, component: `Text`, props: { text: { call: `concatt`, args: { values: [`a`, `b`] } } } } },
-  { name: `visible: an unknown function`, input: { id: `root`, component: `Text`, props: { text: `x` }, visible: { call: `nott`, args: { value: { path: `/hide` } } } } },
+  { name: `prop: an unknown function in a binding`, input: { id: `root`, component: `Text`, props: { text: { "@call": `concatt`, args: { values: [`a`, `b`] } } } } },
+  { name: `visible: an unknown function`, input: { id: `root`, component: `Text`, props: { text: `x` }, visible: { "@call": `nott`, args: { value: { "@path": `/hide` } } } } },
   {
     name: `data: a literal Table row with a call key is a row, never a function`,
     input: { id: `root`, component: `Table`, props: { columns: [{ key: `name`, label: `Name` }, { key: `call`, label: `Call` }], rows: [{ id: `r1`, name: `Ana`, call: `+1 555 0100` }, { id: `r2`, call: `follow up`, args: {} }] } },
   },
   {
     name: `shaped: a call in a bindable option label is checked`,
-    input: { id: `root`, component: `Select`, props: { name: `s`, options: [{ label: { call: `uppr`, args: { value: `a` } }, value: `a` }, { label: `B`, value: `b` }] } },
+    input: { id: `root`, component: `Select`, props: { name: `s`, options: [{ label: { "@call": `uppr`, args: { value: `a` } }, value: `a` }, { label: `B`, value: `b` }] } },
   },
   {
     name: `action: an unknown function nested in another call's args`,
-    input: { id: `root`, component: `Button`, props: { label: `Go` }, on: { press: { functionCall: { call: `set`, args: { path: `/n`, value: { call: `ad`, args: { a: 1, b: 2 } } } } } } },
+    input: { id: `root`, component: `Button`, props: { label: `Go` }, on: { press: { functionCall: { "@call": `set`, args: { path: `/n`, value: { "@call": `ad`, args: { a: 1, b: 2 } } } } } } },
   },
   {
     name: `Table: a slot column naming a missing slot`,
     input: {
       id: `root`,
       component: `Table`,
-      props: { columns: [{ key: `title`, label: `Title` }, { key: `status`, label: `Status`, type: `slot`, slot: `status` }, { key: `owner`, label: `Owner`, type: `slot` }], rows: { path: `/rows` } },
-      slots: { state: { id: `state-cell`, component: `Badge`, props: { text: { path: `status` } } } },
+      props: { columns: [{ key: `title`, label: `Title` }, { key: `status`, label: `Status`, type: `slot`, slot: `status` }, { key: `owner`, label: `Owner`, type: `slot` }], rows: { "@path": `/rows` } },
+      slots: { state: { id: `state-cell`, component: `Badge`, props: { text: { "@path": `status` } } } },
     },
   },
   {
@@ -91,9 +91,9 @@ const VALIDATE: { name: string; input: NestedNode }[] = [
       component: `Table`,
       props: {
         columns: [{ key: `title`, label: `Title` }, { key: `status`, label: `Status`, type: `slot`, slot: `status` }],
-        rows: { call: `filter`, args: { items: { path: `/rows` }, query: { path: `/query` }, fields: [`title`], where: { status: { path: `/status` } } } },
+        rows: { "@call": `filter`, args: { items: { "@path": `/rows` }, query: { "@path": `/query` }, fields: [`title`], where: { status: { "@path": `/status` } } } },
       },
-      slots: { status: { id: `status-cell`, component: `Badge`, props: { text: { path: `status` } } } },
+      slots: { status: { id: `status-cell`, component: `Badge`, props: { text: { "@path": `status` } } } },
     },
   },
 ]
@@ -136,7 +136,7 @@ const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown
     input: {
       id: `root`,
       component: `Box`,
-      children: [{ id: `q`, component: `Input`, props: { name: `q`, label: `Search`, value: { path: `/query` } }, on: { change: { event: { name: `search`, context: { query: { path: `/query` } } } } } }],
+      children: [{ id: `q`, component: `Input`, props: { name: `q`, label: `Search`, value: { "@path": `/query` } }, on: { change: { event: { name: `search`, context: { query: { "@path": `/query` } } } } } }],
     },
     data: { query: `` },
     target: `q`,
@@ -152,8 +152,8 @@ const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown
         {
           id: `q`,
           component: `Input`,
-          props: { name: `q`, label: `Search`, value: { path: `/query` } },
-          on: { change: { event: { name: `search`, context: { hits: { call: `len`, args: { value: { call: `filter`, args: { items: { path: `/issues` }, query: { path: `/query` }, fields: [`title`] } } } } } } } },
+          props: { name: `q`, label: `Search`, value: { "@path": `/query` } },
+          on: { change: { event: { name: `search`, context: { hits: { "@call": `len`, args: { value: { "@call": `filter`, args: { items: { "@path": `/issues` }, query: { "@path": `/query` }, fields: [`title`] } } } } } } } },
         },
       ],
     },
@@ -167,7 +167,7 @@ const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown
     input: {
       id: `root`,
       component: `Box`,
-      children: [{ id: `s`, component: `Switch`, props: { name: `s`, label: `Notify`, checked: { path: `/notify` } }, on: { change: { event: { name: `toggled`, context: { notify: { path: `/notify` } } } } } }],
+      children: [{ id: `s`, component: `Switch`, props: { name: `s`, label: `Notify`, checked: { "@path": `/notify` } }, on: { change: { event: { name: `toggled`, context: { notify: { "@path": `/notify` } } } } } }],
     },
     data: { notify: false },
     target: `s`,
@@ -183,8 +183,8 @@ const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown
         {
           id: `u`,
           component: `FileUpload`,
-          props: { name: `att`, label: `Attachments`, multiple: true, files: { path: `/att` } },
-          on: { upload: { event: { name: `uploaded`, context: { count: { call: `len`, args: { value: { path: `/att` } } } } } } },
+          props: { name: `att`, label: `Attachments`, multiple: true, files: { "@path": `/att` } },
+          on: { upload: { event: { name: `uploaded`, context: { count: { "@call": `len`, args: { value: { "@path": `/att` } } } } } } },
         },
       ],
     },
@@ -207,7 +207,7 @@ const form = (id: string, submit: string): NestedNode => ({
   props: { name: id },
   on: { submit: { event: { name: submit } } },
   children: [
-    { id: `${id}-title`, component: `Input`, props: { name: `title`, label: `Title`, value: { path: `/draft` } } },
+    { id: `${id}-title`, component: `Input`, props: { name: `title`, label: `Title`, value: { "@path": `/draft` } } },
     { id: `${id}-go`, component: `Button`, props: { label: `Create`, submit: true } },
   ],
 })
@@ -215,21 +215,21 @@ const form = (id: string, submit: string): NestedNode => ({
 const CLOSE_ON_SUBMIT: { name: string; input: NestedNode; data: Record<string, unknown>; form: string; actions: string[] }[] = [
   {
     name: `a Form in a Dialog: submit, then the Dialog closes (bound open written false, change fired)`,
-    input: { id: `root`, component: `Box`, children: [{ id: `dlg`, component: `Dialog`, props: { title: `New issue`, open: { path: `/open` } }, on: { change: { event: { name: `dialogChanged` } } }, children: [form(`f`, `create`)] }] },
+    input: { id: `root`, component: `Box`, children: [{ id: `dlg`, component: `Dialog`, props: { title: `New issue`, open: { "@path": `/open` } }, on: { change: { event: { name: `dialogChanged` } } }, children: [form(`f`, `create`)] }] },
     data: { open: true, draft: `Ship it` },
     form: `f`,
     actions: [`create`, `dialogChanged`],
   },
   {
     name: `a Form in a Drawer closes the Drawer`,
-    input: { id: `root`, component: `Box`, children: [{ id: `drw`, component: `Drawer`, props: { title: `Filters`, open: { path: `/panel` }, side: `right` }, children: [form(`f`, `apply`)] }] },
+    input: { id: `root`, component: `Box`, children: [{ id: `drw`, component: `Drawer`, props: { title: `Filters`, open: { "@path": `/panel` }, side: `right` }, children: [form(`f`, `apply`)] }] },
     data: { panel: true, draft: `x` },
     form: `f`,
     actions: [`apply`],
   },
   {
     name: `a Form in a Popover closes nothing (the nearest overlay decides)`,
-    input: { id: `root`, component: `Box`, children: [{ id: `pop`, component: `Popover`, props: { open: { path: `/pop` } }, children: [form(`f`, `apply`)] }] },
+    input: { id: `root`, component: `Box`, children: [{ id: `pop`, component: `Popover`, props: { open: { "@path": `/pop` } }, children: [form(`f`, `apply`)] }] },
     data: { pop: true, draft: `x` },
     form: `f`,
     actions: [`apply`],
@@ -239,7 +239,7 @@ const CLOSE_ON_SUBMIT: { name: string; input: NestedNode; data: Record<string, u
     input: {
       id: `root`,
       component: `Box`,
-      children: [{ id: `dlg`, component: `Dialog`, props: { title: `Edit`, open: { path: `/open` } }, children: [{ id: `pop`, component: `Popover`, props: { open: { path: `/pop` } }, slots: { trigger: { id: `pop-trigger`, component: `Button`, props: { label: `Filters` } } }, children: [form(`f`, `apply`)] }] }],
+      children: [{ id: `dlg`, component: `Dialog`, props: { title: `Edit`, open: { "@path": `/open` } }, children: [{ id: `pop`, component: `Popover`, props: { open: { "@path": `/pop` } }, slots: { trigger: { id: `pop-trigger`, component: `Button`, props: { label: `Filters` } } }, children: [form(`f`, `apply`)] }] }],
     },
     data: { open: true, pop: true, draft: `x` },
     form: `f`,
@@ -247,14 +247,14 @@ const CLOSE_ON_SUBMIT: { name: string; input: NestedNode; data: Record<string, u
   },
   {
     name: `a Form in a non-dismissible Dialog never auto-closes it`,
-    input: { id: `root`, component: `Box`, children: [{ id: `dlg`, component: `Dialog`, props: { title: `Required`, open: { path: `/open` }, dismissible: false }, children: [form(`f`, `create`)] }] },
+    input: { id: `root`, component: `Box`, children: [{ id: `dlg`, component: `Dialog`, props: { title: `Required`, open: { "@path": `/open` }, dismissible: false }, children: [form(`f`, `create`)] }] },
     data: { open: true, draft: `x` },
     form: `f`,
     actions: [`create`],
   },
   {
     name: `a Form in an AlertDialog never auto-closes it`,
-    input: { id: `root`, component: `Box`, children: [{ id: `alert`, component: `AlertDialog`, props: { title: `Delete?`, open: { path: `/open` } }, children: [form(`f`, `confirmName`)] }] },
+    input: { id: `root`, component: `Box`, children: [{ id: `alert`, component: `AlertDialog`, props: { title: `Delete?`, open: { "@path": `/open` } }, children: [form(`f`, `confirmName`)] }] },
     data: { open: true, draft: `x` },
     form: `f`,
     actions: [`confirmName`],

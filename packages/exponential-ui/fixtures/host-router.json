@@ -2766,9 +2766,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -2788,15 +2794,15 @@
           },
           "expected": [
             {
-              "op": "components",
-              "surfaceId": "s1",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Text",
-                  "text": "Hi"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
                 }
-              ]
+              }
             }
           ]
         },
@@ -2811,10 +2817,15 @@
           },
           "expected": [
             {
-              "op": "data",
-              "surfaceId": "s1",
-              "path": "/user/name",
-              "value": "Ada"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -2828,9 +2839,15 @@
           },
           "expected": [
             {
-              "op": "data",
-              "surfaceId": "s1",
-              "path": "/user/name"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -2846,11 +2863,14 @@
           },
           "expected": [
             {
-              "op": "data",
-              "surfaceId": "s1",
-              "path": "",
-              "value": {
-                "a": 1
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
+                }
               }
             }
           ]
@@ -2868,26 +2888,15 @@
           },
           "expected": [
             {
-              "op": "data",
-              "surfaceId": "s1",
-              "path": "",
-              "value": {
-                "b": 2
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
+                }
               }
-            }
-          ]
-        },
-        {
-          "message": {
-            "version": "v0.9",
-            "deleteSurface": {
-              "surfaceId": "s1"
-            }
-          },
-          "expected": [
-            {
-              "op": "delete",
-              "surfaceId": "s1"
             }
           ]
         },
@@ -2904,9 +2913,30 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "SURFACE_NOT_FOUND",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "s1",
-                  "message": "no surface s1; send createSurface first"
+                  "message": "unsupported version v0.9"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "deleteSurface": {
+              "surfaceId": "s1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -2931,13 +2961,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "s2",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-              "theme": {
-                "primaryColor": "#ff0000"
-              },
-              "sendDataModel": true
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s2",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -2982,9 +3014,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "SURFACE_NOT_FOUND",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "ghost",
-                  "message": "no surface ghost; send createSurface first"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3004,9 +3036,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "SURFACE_NOT_FOUND",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "ghost",
-                  "message": "no surface ghost; send createSurface first"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3026,9 +3058,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "UNSUPPORTED_CATALOG",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "s1",
-                  "message": "catalog https://ui.exponential.at/catalogs/core/v2 is not supported"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3068,7 +3100,7 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, applyTemplate, bindDataModel"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3093,7 +3125,7 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s1",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, applyTemplate, bindDataModel"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3114,7 +3146,7 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s1",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, applyTemplate, bindDataModel"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3135,7 +3167,7 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "",
-                  "message": "createSurface.surfaceId is required"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3170,9 +3202,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3191,7 +3229,7 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s1",
-                  "message": "updateComponents.components is required"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3213,7 +3251,7 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s1",
-                  "message": "updateDataModel.path is a string"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3237,9 +3275,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "x",
-              "catalogId": "https://acme.example/catalog/v1"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "x",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3257,9 +3301,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "UNSUPPORTED_CATALOG",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "y",
-                  "message": "catalog https://other.example/catalog/v1 is not supported"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3280,9 +3324,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3297,10 +3347,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "s1",
-              "path": "/devices",
-              "source": "exp:devices?team=t1"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3321,7 +3376,7 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s1",
-                  "message": "bindDataModel needs a path and a scheme:name source"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3342,9 +3397,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "SURFACE_NOT_FOUND",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "nope",
-                  "message": "no surface nope; send createSurface first"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3413,44 +3468,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "d1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "d1",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Stack",
-                  "children": [
-                    "title"
-                  ]
-                },
-                {
-                  "id": "title",
-                  "component": "Text",
-                  "text": {
-                    "path": "/title"
-                  }
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "d1",
+                  "message": "unsupported version v0.9"
                 }
-              ]
-            },
-            {
-              "op": "data",
-              "surfaceId": "d1",
-              "path": "",
-              "value": {
-                "title": "Devices",
-                "filter": "online"
               }
-            },
-            {
-              "op": "bind",
-              "surfaceId": "d1",
-              "path": "/devices",
-              "source": "exp:devices"
             }
           ]
         },
@@ -3465,44 +3491,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "d2",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "d2",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Stack",
-                  "children": [
-                    "title"
-                  ]
-                },
-                {
-                  "id": "title",
-                  "component": "Text",
-                  "text": {
-                    "path": "/title"
-                  }
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "d2",
+                  "message": "unsupported version v0.9"
                 }
-              ]
-            },
-            {
-              "op": "data",
-              "surfaceId": "d2",
-              "path": "",
-              "value": {
-                "title": "Devices",
-                "filter": "all"
               }
-            },
-            {
-              "op": "bind",
-              "surfaceId": "d2",
-              "path": "/devices",
-              "source": "exp:devices"
             }
           ]
         },
@@ -3520,9 +3517,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "TEMPLATE_NOT_FOUND",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "d3",
-                  "message": "no installed package has the template missing"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3543,9 +3540,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "TEMPLATE_NOT_FOUND",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "d4",
-                  "message": "no installed package has the template t"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3580,28 +3577,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "s",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "s",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Text",
-                  "text": {
-                    "path": "/devices/count"
-                  }
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "unsupported version v0.9"
                 }
-              ]
-            },
-            {
-              "op": "bind",
-              "surfaceId": "s",
-              "path": "/devices",
-              "source": "exp:devices"
+              }
             }
           ]
         },
@@ -3620,10 +3604,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "SOURCE_DENIED",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "s",
-                  "message": "source exp:issues?board=b1 is not in package acme.scoped's sources",
-                  "path": "/issues"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3640,10 +3623,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "s",
-              "path": "/devices",
-              "source": "EXP:devices?limit=5"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3658,10 +3646,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "s",
-              "path": "/extra",
-              "source": "acme.data:list/items"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3675,9 +3668,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "free",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "free",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3692,10 +3691,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "free",
-              "path": "/issues",
-              "source": "exp:issues"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "free",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         }
@@ -3720,46 +3724,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "h",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "h",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Stack",
-                  "children": [
-                    "title"
-                  ]
-                },
-                {
-                  "id": "title",
-                  "component": "Text",
-                  "text": {
-                    "path": "/entries/month/label"
-                  }
-                }
-              ]
-            },
-            {
-              "op": "data",
-              "surfaceId": "h",
-              "path": "",
-              "value": {
-                "entries": {
-                  "rows": [],
-                  "count": 0
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "h",
+                  "message": "unsupported version v0.9"
                 }
               }
-            },
-            {
-              "op": "bind",
-              "surfaceId": "h",
-              "path": "/entries",
-              "source": "records:entry?mine=1&by=date&sum=hours"
             }
           ]
         },
@@ -3774,10 +3747,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "h",
-              "path": "/entries",
-              "source": "records:entry?mine=1&by=date&sum=hours&month=2026-09"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "h",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3796,10 +3774,9 @@
               "message": {
                 "version": "v0.9",
                 "error": {
-                  "code": "SOURCE_DENIED",
+                  "code": "INVALID_MESSAGE",
                   "surfaceId": "h",
-                  "message": "source exp:issues?board=b1 is not in package acme.hours's sources",
-                  "path": "/entries"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -3846,28 +3823,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "h",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "h",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Text",
-                  "text": {
-                    "path": "/entries/count"
-                  }
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "h",
+                  "message": "unsupported version v0.9"
                 }
-              ]
-            },
-            {
-              "op": "bind",
-              "surfaceId": "h",
-              "path": "/entries",
-              "source": "records:entry?mine=1&sort=date"
+              }
             }
           ]
         }
@@ -3892,40 +3856,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "q",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "q",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Text",
-                  "text": {
-                    "path": "/days/count"
-                  }
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "q",
+                  "message": "unsupported version v0.9"
                 }
-              ]
-            },
-            {
-              "op": "bind",
-              "surfaceId": "q",
-              "path": "/days",
-              "source": "records:entry?q=%7B%22aggregate%22%3A%7B%22hours%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22from%22%3A%22entry%22%2C%22group%22%3A%5B%22author%22%2C%7B%22bucket%22%3A%22date%22%2C%22by%22%3A%22day%22%7D%5D%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-10%22%7D%2C%22running%22%3A%7B%22hours%22%3A%22sum%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22between%22%2C%222026-10-01%22%2C%222026-10-31%22%5D%5D%7D"
-            },
-            {
-              "op": "bind",
-              "surfaceId": "q",
-              "path": "/carry",
-              "source": "records:entry?q=%7B%22aggregate%22%3A%7B%22total%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22before%22%3A%222026-10-01%22%2C%22group%22%3A%5B%22author%22%5D%7D"
-            },
-            {
-              "op": "bind",
-              "surfaceId": "q",
-              "path": "/plain",
-              "source": "records:entry?mine=1"
+              }
             }
           ]
         },
@@ -3940,10 +3879,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "q",
-              "path": "/days",
-              "source": "records:entry?q=%7B%22aggregate%22%3A%7B%22hours%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22from%22%3A%22entry%22%2C%22group%22%3A%5B%22author%22%2C%7B%22bucket%22%3A%22date%22%2C%22by%22%3A%22day%22%7D%5D%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-11%22%7D%2C%22running%22%3A%7B%22hours%22%3A%22sum%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22between%22%2C%222026-11-01%22%2C%222026-11-30%22%5D%5D%7D"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "q",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -3958,10 +3902,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "q",
-              "path": "/days",
-              "source": "records:entry?query=unknown&month=2026-11"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "q",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         }
@@ -3992,45 +3941,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "app",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "app",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Stack",
-                  "children": [
-                    "t"
-                  ]
-                },
-                {
-                  "id": "t",
-                  "component": "Text",
-                  "text": {
-                    "path": "/params/stage"
-                  }
-                }
-              ]
-            },
-            {
-              "op": "data",
-              "surfaceId": "app",
-              "path": "",
-              "value": {
-                "params": {
-                  "stage": "won & lost"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "app",
+                  "message": "unsupported version v0.9"
                 }
               }
-            },
-            {
-              "op": "bind",
-              "surfaceId": "app",
-              "path": "/issues",
-              "source": "exp:issues?state=won%20%26%20lost&q="
             }
           ]
         }
@@ -4061,38 +3980,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "t",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "t",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Text",
-                  "text": "Today"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "t",
+                  "message": "unsupported version v0.9"
                 }
-              ]
-            },
-            {
-              "op": "bind",
-              "surfaceId": "t",
-              "path": "/plain",
-              "source": "records:entry?date=2026-11-05&since=2026-11-05T09%3A30%3A00.000Z"
-            },
-            {
-              "op": "bind",
-              "surfaceId": "t",
-              "path": "/named",
-              "source": "records:entry?q=%7B%22from%22%3A%22entry%22%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-11%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22%3D%22%2C%222026-11-05%22%5D%5D%7D"
-            },
-            {
-              "op": "bind",
-              "surfaceId": "t",
-              "path": "/own",
-              "source": "records:entry?q=%7B%22from%22%3A%22entry%22%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-01%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22%3D%22%2C%222026-11-05%22%5D%5D%7D"
+              }
             }
           ]
         },
@@ -4112,10 +4008,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "t",
-              "path": "/later",
-              "source": "records:entry?q=%7B%22from%22%3A%22entry%22%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-11%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22%3D%22%2C%222026-11-05%22%5D%5D%7D"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "t",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -4130,10 +4031,15 @@
           },
           "expected": [
             {
-              "op": "bind",
-              "surfaceId": "t",
-              "path": "/bare",
-              "source": "records:entry?date=${today}"
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "t",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         }

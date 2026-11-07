@@ -49,7 +49,7 @@ export type SourceResolver = (source: ParsedSource, emit: SourceEmit) => (() => 
 export type SourceResolvers = Record<string, SourceResolver>
 
 /** VAPP-122: `source` with `params` appended as its query, for the `bind`
- *  action (`{functionCall: {call: "bind", args: {path, source, params}}}`):
+ *  action (`{functionCall: {"@call": "bind", args: {path, source, params}}}`):
  *  keys sorted, key and value percent-encoded (everything but
  *  `A-Z a-z 0-9 - _ . ! ~ * ' ( )`), a null or undefined value skipped, an
  *  object or array as JSON, after `?` or `&`. A repeated key parses with

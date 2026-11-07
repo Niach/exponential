@@ -222,7 +222,7 @@ describe(`the parser and the rubric`, () => {
       { id: `box`, component: `Box`, style: { padding: 12, gap: `$spacing.md`, "@media (min-width: $breakpoint.md)": { paddingTop: 7 } } },
       { id: `md`, component: `Markdown`, text: `- a\n- b` },
       { id: `list`, component: `List`, children: { componentId: `item`, path: `/items` } },
-      { id: `item`, component: `Row`, title: { path: `t` } },
+      { id: `item`, component: `Row`, title: { "@path": `t` } },
       { id: `empty`, component: `EmptyState`, icon: `inbox`, title: `None` },
       { id: `form`, component: `Form`, name: `f`, children: [`in`] },
       { id: `in`, component: `Input`, label: `A`, name: `a` },

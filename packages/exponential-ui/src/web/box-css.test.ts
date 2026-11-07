@@ -108,7 +108,7 @@ describe(`VAPP-163: authored keys of a macro node`, () => {
     expect(sheet.css).not.toContain(AUTHOR_SEP)
   })
   it(`a dynamic authored value reads the same variable as the node layer`, () => {
-    const root = reduceNested({ id: `b`, component: `Badge`, props: { text: `x` }, style: { padding: 2, width: { path: `/w` } } }, { catalogId: CORE_CATALOG_ID }).root
+    const root = reduceNested({ id: `b`, component: `Badge`, props: { text: `x` }, style: { padding: 2, width: { "@path": `/w` } } }, { catalogId: CORE_CATALOG_ID }).root
     const css = compileNodeSheet([root], `s`).css
     const author = css.slice(css.indexOf(`@layer xui-author{`))
     expect(author).toMatch(/width:var\(--xd-0\)/)

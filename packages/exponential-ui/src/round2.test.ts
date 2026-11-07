@@ -72,11 +72,11 @@ describe(`format.json (§3)`, () => {
 
   test(`a surface Formatter replaces the fallback (locale + time zone)`, () => {
     const de = intlFormatter(`de-DE`, `Europe/Berlin`)
-    expect(resolveDynamic({ call: `formatNumber`, args: { value: 1234.5678 } }, {}, { formatter: de })).toBe(`1.234,568`)
-    expect(resolveDynamic({ call: `formatDate`, args: { value: `2026-10-14T22:30:00Z`, format: `HH:mm` } }, {}, { formatter: de })).toBe(`00:30`)
-    expect(resolveDynamic({ call: `formatRelativeTime`, args: { value: 1000 } }, {}, { now: () => 61_000 })).toBe(`1 minute ago`)
+    expect(resolveDynamic({ "@call": `formatNumber`, args: { value: 1234.5678 } }, {}, { formatter: de })).toBe(`1.234,568`)
+    expect(resolveDynamic({ "@call": `formatDate`, args: { value: `2026-10-14T22:30:00Z`, format: `HH:mm` } }, {}, { formatter: de })).toBe(`00:30`)
+    expect(resolveDynamic({ "@call": `formatRelativeTime`, args: { value: 1000 } }, {}, { now: () => 61_000 })).toBe(`1 minute ago`)
     const loud: Formatter = { ...englishFormatter(), number: (v) => `#${v}` }
-    expect(resolveDynamic({ call: `formatNumber`, args: { value: 3 } }, {}, { formatter: loud })).toBe(`#3`)
+    expect(resolveDynamic({ "@call": `formatNumber`, args: { value: 3 } }, {}, { formatter: loud })).toBe(`#3`)
   })
 
   test(`display strings: ECMAScript Number→String, booleans, nothing else`, () => {
@@ -269,7 +269,7 @@ describe(`virtual-list.json (§5)`, () => {
 
   test(`List sections are row-scoped and a header binds its section`, () => {
     expect(coreCatalog.components.List.slotScope).toBe(`row`)
-    const header: UiNode = { id: `h`, component: `Text`, props: { text: { call: `concat`, args: { values: [{ path: `value` }, ` · `, { path: `count` }, ` · `, { path: `/title` }] } } }, children: [] }
+    const header: UiNode = { id: `h`, component: `Text`, props: { text: { "@call": `concat`, args: { values: [{ "@path": `value` }, ` · `, { "@path": `count` }, ` · `, { "@path": `/title` }] } } }, children: [] }
     expect(bindSectionHeader(header, { value: `Today`, count: 2 }, 0, { title: `Inbox` })?.props.text).toBe(`Today · 2 · Inbox`)
     const list: UiNode = { id: `l`, component: `List`, props: {}, children: [], slots: { section: header } }
     expect(bindTree(list, {})?.slots?.section).toBe(header)

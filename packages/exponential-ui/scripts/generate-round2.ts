@@ -216,13 +216,13 @@ const LIFT_NESTED: NestedNode = {
   component: `Box`,
   children: [
     { id: `list`, component: `List`, template: { component: `row`, path: `/items` } },
-    { id: `row`, component: `Row`, props: { title: { path: `title` } } },
+    { id: `row`, component: `Row`, props: { title: { "@path": `title` } } },
     {
       id: `card`,
       component: `Box`,
       children: [
         { id: `inner`, component: `List`, template: { component: `cell`, path: `cells` } },
-        { id: `cell`, component: `Text`, props: { text: { path: `v` } } },
+        { id: `cell`, component: `Text`, props: { text: { "@path": `v` } } },
       ],
     },
   ],
@@ -232,9 +232,9 @@ const LIFT_FLAT: FlatComponent[] = [
   { id: `root`, component: `Box`, children: [`list`, `item`, `ghost-list`] },
   { id: `list`, component: `List`, children: { componentId: `item`, path: `/items`, key: `id` } },
   { id: `item`, component: `Box`, children: [`label`, `sub`] },
-  { id: `label`, component: `Text`, text: { path: `name` } },
+  { id: `label`, component: `Text`, text: { "@path": `name` } },
   { id: `sub`, component: `List`, children: { componentId: `tag`, path: `tags` } },
-  { id: `tag`, component: `Badge`, text: { path: `` } },
+  { id: `tag`, component: `Badge`, text: { "@path": `` } },
   { id: `ghost-list`, component: `List`, children: { componentId: `nowhere`, path: `/x` } },
 ]
 
@@ -260,7 +260,7 @@ const CYCLE_CASES: { name: string; nested?: NestedNode; components?: FlatCompone
       { id: `t2`, component: `Box`, children: [`l3`] },
       { id: `l3`, component: `List`, children: { componentId: `t1`, path: `/items` } },
       { id: `ok`, component: `List`, children: { componentId: `row`, path: `/rows` } },
-      { id: `row`, component: `Text`, text: { path: `t` } },
+      { id: `row`, component: `Text`, text: { "@path": `t` } },
     ],
   },
 ]
@@ -287,7 +287,7 @@ function templateItemsFixture() {
 const MACRO_TEMPLATE_CASES: { name: string; nested: NestedNode }[] = [
   { name: `macro-template-calendar-month`, nested: { id: `cal`, component: `Calendar`, props: { source: `/leave`, labelField: `label` }, on: { select: { event: { name: `day` } }, open: { event: { name: `open` } } } } },
   { name: `macro-template-calendar-week`, nested: { id: `week`, component: `Calendar`, props: { source: `/week`, view: `week` } } },
-  { name: `macro-template-meter-bound`, nested: { id: `disk`, component: `Meter`, props: { segments: { path: `/disk` }, max: 100, label: `Disk` } } },
+  { name: `macro-template-meter-bound`, nested: { id: `disk`, component: `Meter`, props: { segments: { "@path": `/disk` }, max: 100, label: `Disk` } } },
   { name: `macro-template-timeline`, nested: { id: `tl`, component: `Timeline`, props: { source: `/road`, rowTitle: `Workstream`, showCount: true }, on: { open: { event: { name: `open` } } } } },
 ]
 
@@ -572,7 +572,7 @@ function benchFixture() {
     catalogId: CORE_CATALOG_ID,
     components: [
       { id: `root`, component: `List`, direction: `vertical`, divided: true, style: { height: 800 }, children: { componentId: `bench-row`, path: `/rows`, key: `id` } },
-      { id: `bench-row`, component: `Row`, title: { path: `title` }, meta: { path: `meta` }, pressable: true },
+      { id: `bench-row`, component: `Row`, title: { "@path": `title` }, meta: { "@path": `meta` }, pressable: true },
     ],
     steps: { scroll: { count: 100, by: `viewport` }, scrollToIndex: { index: 50_000, align: `start` } },
     metrics: [`firstPaintMs`, `scrollStepMs`, `scrollToIndexMs`, `renderedItems`],

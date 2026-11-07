@@ -25,22 +25,47 @@
 import { formatString } from "./strings"
 import { ENGLISH_FORMAT_FUNCTIONS } from "./format"
 import { treeRows } from "./tree"
+import { coreCatalog } from "./catalog"
+
+/** VAPP-289: the functions whose catalog `returns` is boolean or a
+ *  ValidationResult: a bound condition operand that is such a call passes
+ *  through (round 9 §6.7). */
+export const BOOLEAN_FUNCTIONS: ReadonlySet<string> = new Set(
+  [...Object.entries(coreCatalog.functions.core), ...Object.entries(coreCatalog.functions.basic)]
+    .filter(([, f]) => f.returns === `boolean` || f.returns === `validationResult`)
+    .map(([name]) => name)
+)
+
+/** Round 9 §6.7: a DYNAMIC condition operand of a macro (`$if`, `$any`,
+ *  `$not`, `{!…}`) keeps PRESENCE semantics under A2UI 1.0's boolean
+ *  coercion: unless it is a call to a boolean function or the expression is
+ *  `props.<name>` (optionally `|true`/`|false`) over a boolean-typed prop,
+ *  it is wrapped as `cond {if: operand, then: true, else: false}`. */
+export function presenceOperand(value: Dynamic, text: string | undefined, ctx: ExprContext): Dynamic {
+  if (isCall(value) && BOOLEAN_FUNCTIONS.has(value[`@call`])) return value
+  const m = text === undefined ? null : /^props\.([A-Za-z0-9_]+)(?:\|(?:true|false))?$/.exec(text.trim())
+  if (m && ctx.types?.[m[1]!]?.type === `boolean`) return value
+  return call(`cond`, { if: value, then: true, else: false })
+}
 
 export interface ExprContext {
   id: string
   props: Record<string, unknown>
   vars: Record<string, unknown>
+  /** VAPP-289: the macro component's prop schemas (by prop name): a bound
+   *  condition operand `props.<boolean prop>` passes through unwrapped. */
+  types?: Record<string, { type: string }>
 }
 
-/** An A2UI data binding: an object with exactly one key, `path`. */
+/** VAPP-289 (round 9 §3): an A2UI 1.0 data binding: exactly one key, `@path`. */
 export interface DataBinding {
-  path: string
+  "@path": string
 }
-/** An A2UI function call. */
+/** VAPP-289: an A2UI 1.0 function call: `@call`, optional `args` and `catalogId` (no `returnType`). */
 export interface FunctionCall {
-  call: string
+  "@call": string
   args?: Record<string, unknown>
-  returnType?: string
+  catalogId?: string
 }
 export type Dynamic = DataBinding | FunctionCall
 
@@ -48,27 +73,51 @@ const WHOLE = /^\{([^{}]+)\}$/
 const EMBEDDED = /\{([^{}]+)\}/g
 const FUNCTION = /^(len|range|treeRows)\((.+)\)$/
 
+const isPlain = (value: unknown): value is Record<string, unknown> => typeof value === `object` && value !== null && !Array.isArray(value)
+
+/** `{"@path": "<pointer>"}`: the only key, a string. */
 export function isBinding(value: unknown): value is DataBinding {
-  return typeof value === `object` && value !== null && !Array.isArray(value) && typeof (value as DataBinding).path === `string` && Object.keys(value as object).length === 1
+  return isPlain(value) && typeof value[`@path`] === `string` && Object.keys(value).length === 1
 }
+/** `{"@call": "<name>", …}`: a string `@call` (the entry check refuses extra keys). */
 export function isCall(value: unknown): value is FunctionCall {
-  return typeof value === `object` && value !== null && !Array.isArray(value) && typeof (value as FunctionCall).call === `string`
+  return isPlain(value) && typeof value[`@call`] === `string`
 }
 /** A value the expander cannot evaluate: the renderer will. */
 export function isDynamic(value: unknown): value is Dynamic {
   return isBinding(value) || isCall(value)
 }
+/** The pointer of a binding. */
+export const bindingPath = (value: DataBinding): string => value[`@path`]
+/** The function name of a call. */
+export const callName = (value: FunctionCall): string => value[`@call`]
+/** A binding value. */
+export const binding = (path: string): DataBinding => ({ "@path": path })
 
-/** `undefined`, `null`, `false` and `""` are false; 0 is TRUE (a count of
- *  zero still shows). */
-export function truthy(value: unknown): boolean {
+/** Round 9 §6.7: PRESENCE (the old `truthy`): `undefined`, `null`, `false`
+ *  and `""` are false; 0 is TRUE (a count of zero still shows). For macro
+ *  conditions over literal inputs, `cond.if`, `coalesce` and `required`. */
+export function present(value: unknown): boolean {
   return value !== undefined && value !== null && value !== false && value !== ``
+}
+/** @deprecated round 9: `present` (presence) or `coerceBoolean` (A2UI 1.0 DynamicBoolean). */
+export const truthy = present
+
+/** Round 9 §6.7: the A2UI 1.0 boolean coercion at every DynamicBoolean
+ *  position (boolean props, `visible`, `accessibility.hidden`, and/or/not,
+ *  a check condition that is not a ValidationResult). */
+export function coerceBoolean(value: unknown): boolean {
+  if (typeof value === `boolean`) return value
+  if (typeof value === `string`) return value.toLowerCase() === `true`
+  if (typeof value === `number`) return value !== 0
+  if (isPlain(value) && typeof value.valid === `boolean`) return value.valid
+  return false
 }
 
 function call(name: string, args: Record<string, unknown>): FunctionCall {
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(args)) if (v !== undefined) out[k] = v
-  return { call: name, args: out }
+  return { "@call": name, args: out }
 }
 
 function parseLiteral(text: string): unknown {
@@ -171,8 +220,8 @@ export function evalExpr(expr: string, ctx: ExprContext): unknown {
   }
   if (text.startsWith(`!`)) {
     const value = evalExpr(text.slice(1), ctx)
-    if (isDynamic(value)) return call(`not`, { value })
-    return !truthy(value)
+    if (isDynamic(value)) return call(`not`, { value: presenceOperand(value, text.slice(1), ctx) })
+    return !present(value)
   }
   return lookup(text, ctx)
 }
@@ -180,7 +229,7 @@ export function evalExpr(expr: string, ctx: ExprContext): unknown {
 /** The member rule: a dynamic value passes through untouched; the
  *  `fallback` a `|fallback` wrapped it in is unwrapped again. */
 function passThrough(value: unknown): unknown {
-  if (isCall(value) && value.call === `fallback` && isDynamic(value.args?.value)) return value.args?.value
+  if (isCall(value) && value[`@call`] === `fallback` && isDynamic(value.args?.value)) return value.args?.value
   return value
 }
 
@@ -196,10 +245,14 @@ function evalOperand(value: unknown, ctx: ExprContext): unknown {
 
 /** A condition: a string expression or a value object ($eq …). `true` or
  *  `false` when it can be decided now; the dynamic value when it cannot. */
-export function evalConditionValue(cond: unknown, ctx: ExprContext): boolean | Dynamic {
+export function evalConditionValue(cond: unknown, ctx: ExprContext, wrap = true): boolean | Dynamic {
   const value = typeof cond === `string` ? evalExpr(cond, ctx) : evalOperand(cond, ctx)
-  if (isDynamic(value)) return value
-  return truthy(value)
+  if (isDynamic(value)) {
+    if (!wrap) return value
+    const whole = typeof cond === `string` ? (WHOLE.exec(cond)?.[1] ?? cond) : undefined
+    return presenceOperand(value, whole, ctx)
+  }
+  return present(value)
 }
 
 /** A condition decided NOW: a dynamic condition counts as true (the part
@@ -266,7 +319,8 @@ export function evalValue(value: unknown, ctx: ExprContext): unknown {
   }
   if (`$cond` in obj) {
     const [cond, then, otherwise] = operands(obj.$cond)
-    const decided = evalConditionValue(cond, ctx)
+    // `cond.if` tests presence itself: no wrap (round 9 §6.7).
+    const decided = evalConditionValue(cond, ctx, false)
     if (isDynamic(decided)) return call(`cond`, { if: decided, then: evalOperand(then, ctx), else: evalOperand(otherwise, ctx) })
     return evalOperand(decided ? then : otherwise, ctx)
   }
@@ -326,7 +380,7 @@ export function evalValue(value: unknown, ctx: ExprContext): unknown {
         out.push(v)
         continue
       }
-      if (!truthy(v)) continue
+      if (!present(v)) continue
       if (out.length === 0) return v
       out.push(v)
       break
@@ -393,10 +447,10 @@ export const CORE_FUNCTIONS: Record<string, (args: Record<string, unknown>) => u
   eq: ({ a, b }) => valuesEqual(a, b),
   lt: ({ a, b }) => toNumber(a) < toNumber(b),
   clamp: ({ value, min, max }) => clampNumber(value, min, max),
-  cond: ({ if: test, then, else: otherwise }) => (truthy(test) ? then : otherwise),
+  cond: ({ if: test, then, else: otherwise }) => (present(test) ? then : otherwise),
   fallback: ({ value, default: fallback }) => (value === undefined || value === null ? fallback : value),
   concat: ({ values }) => (Array.isArray(values) ? values.map((v) => (v === undefined || v === null ? `` : String(v))).join(``) : ``),
-  coalesce: ({ values }) => (Array.isArray(values) ? values.find(truthy) : undefined),
+  coalesce: ({ values }) => (Array.isArray(values) ? values.find(present) : undefined),
   text: ({ value }) => (value === undefined || value === null ? undefined : String(value)),
   map: ({ value, cases, default: fallback }) => {
     const key = value === undefined || value === null ? `` : String(value)

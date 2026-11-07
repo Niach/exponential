@@ -131,7 +131,7 @@ describe(`limits (catalog/limits.json)`, () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
     expect(Object.keys(proto)).toEqual([`__proto__`])
     // `set` reports the refusal and writes nothing.
-    const out = runAction({ functionCall: { call: `set`, args: { path: `/a/9`, value: 1 } } }, data)
+    const out = runAction({ functionCall: { "@call": `set`, args: { path: `/a/9`, value: 1 } } }, data)
     expect(out).toEqual({ data, error: POINTER_ISSUES.pastEnd(`9`, 3) })
   })
 

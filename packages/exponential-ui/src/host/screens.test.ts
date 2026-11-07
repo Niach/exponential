@@ -54,7 +54,7 @@ describe(`app.navigate`, () => {
         deal: {
           components: [
             { id: `root`, component: `Stack`, children: [`go`] },
-            { id: `go`, component: `Button`, label: { path: `/params/run` }, on: { press: { functionCall: { call: `app.record`, args: { what: `wipe` } } } } },
+            { id: `go`, component: `Button`, label: { "@path": `/params/run` }, on: { press: { functionCall: { "@call": `app.record`, args: { what: `wipe` } } } } },
           ],
         },
       },
@@ -96,7 +96,7 @@ test(`a row's press opens ~/ with its own data through the URL policy`, async ()
         data: { row: { identifier: `EXP-1` } },
         components: [
           { id: `root`, component: `Stack`, children: [`go`] },
-          { id: `go`, component: `Button`, label: `Open`, on: { press: { functionCall: { call: `openUrl`, args: { url: { call: `formatString`, args: { value: `~/issues/\${/row/identifier}` } } } } } } },
+          { id: `go`, component: `Button`, label: `Open`, on: { press: { functionCall: { "@call": `openUrl`, args: { url: { "@call": `formatString`, args: { value: `~/issues/\${/row/identifier}` } } } } } } },
         ],
       },
     },

@@ -614,7 +614,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       }
       // Sections: a sectioned List painted flat, its rows read back.
       for (const c of vl.sections as { name: string; items: Record<string, unknown>[]; sectionBy: string; expected: unknown }[]) {
-        await mount({ id: `L`, component: `List`, props: { sectionBy: c.sectionBy }, template: { component: `L-row`, path: `/items`, key: `id` }, children: [{ id: `L-row`, component: `Text`, props: { text: { path: `id` } } }] }, { data: { items: c.items } })
+        await mount({ id: `L`, component: `List`, props: { sectionBy: c.sectionBy }, template: { component: `L-row`, path: `/items`, key: `id` }, children: [{ id: `L-row`, component: `Text`, props: { text: { "@path": `id` } } }] }, { data: { items: c.items } })
         const got = await page.evaluate((ids) => {
           const rows: ({ header: number } | { item: number })[] = []
           const sections: { value: string; start: number; count: number }[] = []
@@ -637,7 +637,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       }
       for (const c of vl.sectionedScrollTo as { name: string; index: number; viewport: number; scroll: number; align: `start`; stickyHeaders: boolean; items: Record<string, unknown>[]; sectionBy: string; headerExtent: number; itemExtent: number; expected: number }[]) {
         await mount(
-          { id: `L`, component: `List`, props: { sectionBy: c.sectionBy, stickyHeaders: c.stickyHeaders }, style: { height: c.viewport }, template: { component: `L-row`, path: `/items`, key: `id` }, slots: { section: { id: `L-head`, component: `Text`, props: { text: { path: `value` } }, style: { height: c.headerExtent } } }, children: [{ id: `L-row`, component: `Text`, props: { text: { path: `id` } }, style: { height: c.itemExtent } }] },
+          { id: `L`, component: `List`, props: { sectionBy: c.sectionBy, stickyHeaders: c.stickyHeaders }, style: { height: c.viewport }, template: { component: `L-row`, path: `/items`, key: `id` }, slots: { section: { id: `L-head`, component: `Text`, props: { text: { "@path": `value` } }, style: { height: c.headerExtent } } }, children: [{ id: `L-row`, component: `Text`, props: { text: { "@path": `id` } }, style: { height: c.itemExtent } }] },
           { data: { items: c.items }, width: 300 }
         )
         const got = await page.evaluate(

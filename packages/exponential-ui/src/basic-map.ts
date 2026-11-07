@@ -22,7 +22,6 @@ interface ComponentRule {
 export const basicMap = basicMapJson as unknown as {
   from: string
   to: string
-  version: string
   placeholderIcon: string
   components: Record<string, ComponentRule>
   transforms: Record<string, string>
@@ -39,6 +38,9 @@ export interface MappedComponent {
   slots: Record<string, string>
   on?: Record<string, Action>
   style?: Record<string, unknown>
+  /** VAPP-289: what the 1.0 map refuses (h1 Text, a missing TextField value):
+   *  reducer issues VALIDATION_FAILED at `/components/<id>/<prop>`. */
+  issues?: { prop: string; message: string }[]
 }
 
 export function mapBasicIcon(name: unknown): string {
@@ -46,21 +48,29 @@ export function mapBasicIcon(name: unknown): string {
   return (own(basicMap.icons, name) ? basicMap.icons[name] : undefined) ?? basicMap.placeholderIcon
 }
 
-function isBinding(value: unknown): value is { path: string } {
-  return typeof value === `object` && value !== null && typeof (value as { path?: unknown }).path === `string`
+const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
+
+/** Round 9 §9.1: a basic Icon `name` → the core icon (a value or a `map` call). */
+export function mapBasicIconValue(name: unknown): unknown {
+  if (isPlainObject(name) && typeof name[`@path`] === `string` && Object.keys(name).length === 1) {
+    const cases: Record<string, string> = {}
+    for (const [k, v] of Object.entries(basicMap.icons)) cases[k] = v ?? basicMap.placeholderIcon
+    return { "@call": `map`, args: { value: { "@path": name[`@path`] }, cases, default: basicMap.placeholderIcon } }
+  }
+  return mapBasicIcon(name)
 }
 
-type Transform = (out: MappedComponent, flat: FlatComponent, lookup: (id: string) => FlatComponent | undefined) => void
+const isLiteralNumber = (v: unknown): v is number => typeof v === `number` && Number.isFinite(v)
+
+type Transform = (out: MappedComponent, flat: FlatComponent, lookup: (id: string) => FlatComponent | undefined, catalogOf: (flat: FlatComponent) => string | undefined) => void
 
 const transforms: Record<string, Transform> = {
-  textVariant(out, flat) {
+  textMarkdown(out, flat) {
     const variant = flat.variant
-    if (variant === `h1` || variant === `h2` || variant === `h3` || variant === `h4`) {
-      out.component = `Heading`
-      out.props = { text: out.props.text, level: variant }
-      return
-    }
-    out.props.variant = variant === `h5` ? `label` : variant === `caption` ? `caption` : `body`
+    out.props.profile = `inline`
+    out.props.variant = variant === `caption` ? `caption` : `body`
+    if (variant !== undefined && variant !== `caption` && variant !== `body`)
+      (out.issues ??= []).push({ prop: `variant`, message: `variant: ${typeof variant === `string` ? variant : JSON.stringify(variant)} is not caption|body` })
   },
   imageVariant(out, flat) {
     const variant = (flat.variant as string | undefined) ?? `mediumFeature`
@@ -80,7 +90,15 @@ const transforms: Record<string, Transform> = {
     out.style = { ...(out.style ?? {}), ...style }
   },
   iconName(out, flat) {
-    out.props.name = mapBasicIcon(flat.name)
+    out.props.name = mapBasicIconValue(flat.name)
+  },
+  sliderSteps(out, flat) {
+    const steps = flat.steps
+    if (steps === undefined) return
+    const max = flat.max
+    const min = flat.min ?? 0
+    if (isLiteralNumber(max) && isLiteralNumber(min) && isLiteralNumber(steps) && steps !== 0) out.props.step = Math.round(((max - min) / steps) * 1e9) / 1e9
+    else out.props.step = { "@call": `div`, args: { a: { "@call": `sub`, args: { a: max, b: min } }, b: steps } }
   },
   tabs(out, flat) {
     const tabs = Array.isArray(flat.tabs) ? (flat.tabs as { title: unknown; child: string }[]) : []
@@ -93,11 +111,13 @@ const transforms: Record<string, Transform> = {
     if (typeof flat.content === `string`) out.childrenIds = [flat.content]
     out.props.open = false
   },
-  buttonChild(out, flat, lookup) {
+  buttonChild(out, flat, lookup, catalogOf) {
     const childId = typeof flat.child === `string` ? flat.child : undefined
     const child = childId ? lookup(childId) : undefined
-    if (child?.component === `Text`) out.props.label = child.text
-    else if (child?.component === `Icon`) out.props.icon = mapBasicIcon(child.name)
+    // Round 9 §5.5: only a BASIC Text/Icon child is consumed.
+    const basicChild = child !== undefined && catalogOf(child) === basicMap.from
+    if (basicChild && child?.component === `Text`) out.props.label = child.text
+    else if (basicChild && child?.component === `Icon`) out.props.icon = mapBasicIconValue(child.name)
     else if (childId) out.childrenIds = [childId]
     if (out.props.icon !== undefined && out.props.label === undefined) out.props.size = `icon`
     if (flat.action !== undefined) out.on = { press: flat.action as Action }
@@ -107,14 +127,9 @@ const transforms: Record<string, Transform> = {
     const variant = (flat.variant as string | undefined) ?? `shortText`
     if (variant === `longText`) out.component = `Textarea`
     else out.props.type = variant === `number` ? `number` : variant === `obscured` ? `password` : `text`
-    if (typeof flat.validationRegexp === `string`) {
-      const value = isBinding(flat.value) ? flat.value.path : flat.id
-      const checks = Array.isArray(out.props.checks) ? [...(out.props.checks as unknown[])] : []
-      checks.push({
-        condition: { call: `regex`, args: { value: { path: value }, pattern: flat.validationRegexp } },
-        message: `Invalid value`,
-      })
-      out.props.checks = checks
+    if (flat.value === undefined) {
+      out.props.value = ``
+      ;(out.issues ??= []).push({ prop: `value`, message: `value: required` })
     }
   },
   fieldName(out, flat) {
@@ -153,7 +168,10 @@ function own(table: object, key: string): boolean {
 /** Map one basic component; `null` when the table has no row (→ Unknown). */
 export function mapBasicComponent(
   flat: FlatComponent,
-  lookup: (id: string) => FlatComponent | undefined
+  lookup: (id: string) => FlatComponent | undefined,
+  /** Round 9 §5.5: a component's resolved catalog (its own `catalogId`, else
+   *  the surface default); default = its own, else basic. */
+  catalogOf: (flat: FlatComponent) => string | undefined = (f) => f.catalogId ?? basicMap.from
 ): MappedComponent | null {
   const rule = own(basicMap.components, flat.component) ? basicMap.components[flat.component] : undefined
   if (!rule) return null
@@ -184,7 +202,7 @@ export function mapBasicComponent(
   if (rule.transform) {
     const fn = transforms[rule.transform]
     if (!fn) throw new Error(`basic-map.json names an unimplemented transform: ${rule.transform}`)
-    fn(out, flat, lookup)
+    fn(out, flat, lookup, catalogOf)
   }
   return out
 }

@@ -132,7 +132,7 @@ describe(`ExponentialHost`, () => {
     transport.feedJsonl(
       [
         JSON.stringify({ version: `v0.9`, createSurface: { surfaceId: `s1`, catalogId: CORE_CATALOG_ID } }),
-        JSON.stringify({ version: `v0.9`, updateComponents: { surfaceId: `s1`, components: [{ id: `root`, component: `Text`, text: { path: `/name` } }] } }),
+        JSON.stringify({ version: `v0.9`, updateComponents: { surfaceId: `s1`, components: [{ id: `root`, component: `Text`, text: { "@path": `/name` } }] } }),
         JSON.stringify({ version: `v0.9`, updateDataModel: { surfaceId: `s1`, path: `/name`, value: `Ada` } }),
       ].join(`\n`)
     )
@@ -342,7 +342,7 @@ describe(`review fixes`, () => {
         surfaceId: `s`,
         components: [
           { id: `root`, component: `List`, children: { componentId: `row`, path: `/rows` } },
-          { id: `row`, component: `Text`, text: { path: `title` } },
+          { id: `row`, component: `Text`, text: { "@path": `title` } },
         ],
       },
     })

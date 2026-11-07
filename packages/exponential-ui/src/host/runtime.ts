@@ -403,7 +403,7 @@ export class ExponentialHost {
     this.options.onSend?.(message)
     if (`error` in message) {
       const e = message.error
-      this.report({ code: e.code, message: e.message, ...(e.surfaceId ? { surfaceId: e.surfaceId } : {}), ...(e.path !== undefined ? { path: e.path } : {}) })
+      this.report({ code: e.code, message: e.message, ...(e.surfaceId ? { surfaceId: e.surfaceId } : {}), ...(e.path !== undefined ? { "@path": e.path } : {}) })
     }
   }
 

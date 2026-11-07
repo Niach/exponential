@@ -18,8 +18,8 @@ describe(`defineSurface`, () => {
     expect(flat.map((c) => c.id)).toEqual([`root`, `section-1`, `list-1`, `row-1`, `emptyState-1`])
     expect(flat[0]).toEqual({ id: `root`, component: `Stack`, gap: `md`, children: [`section-1`, `list-1`, `emptyState-1`] })
     expect(flat[2].children).toEqual({ componentId: `row-1`, path: `/devices/rows`, key: `id` })
-    expect(flat[3].on).toEqual({ press: { functionCall: { call: `harness.toast`, args: { id: { path: `id` } } } } })
-    expect(flat[4].visible).toEqual({ call: `eq`, args: { a: 0, b: { path: `/devices/count` } } })
+    expect(flat[3].on).toEqual({ press: { functionCall: { "@call": `harness.toast`, args: { id: { "@path": `id` } } } } })
+    expect(flat[4].visible).toEqual({ "@call": `eq`, args: { a: 0, b: { "@path": `/devices/count` } } })
   })
 
   test(`a valid tree has no issues; messages are createSurface + updateComponents + the data writes`, () => {

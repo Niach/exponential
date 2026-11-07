@@ -37,8 +37,8 @@ describe(`record macros: the host fill (fixtures/record-macros.json)`, () => {
     }
     const at = `f.fields.field.${index}.datetime`
     expect(find(root as never, at)?.component).toBe(`Box`)
-    expect(find(root as never, `${at}.day`)?.props.value).toEqual({ path: `/recordForm/fParts/loggedAt/date` })
-    expect(find(root as never, `${at}.clock`)?.props.value).toEqual({ path: `/recordForm/fParts/loggedAt/time` })
+    expect(find(root as never, `${at}.day`)?.props.value).toEqual({ "@path": `/recordForm/fParts/loggedAt/date` })
+    expect(find(root as never, `${at}.clock`)?.props.value).toEqual({ "@path": `/recordForm/fParts/loggedAt/time` })
   })
 
   test(`the runtime answers a record form's write`, async () => {

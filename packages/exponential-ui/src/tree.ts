@@ -69,7 +69,7 @@ interface Item {
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
 
-const expr = (text: string, vars: Record<string, unknown>, fallback: unknown) => ({ call: `expr`, args: { expr: text, vars, default: fallback } })
+const expr = (text: string, vars: Record<string, unknown>, fallback: unknown) => ({ "@call": `expr`, args: { expr: text, vars, default: fallback } })
 
 /** `e.exists(x, x == a0) && …` over the ids (a bound `expanded` = `e`). */
 function allOpen(expanded: unknown, ids: string[]): unknown {
@@ -93,7 +93,7 @@ export function treeRows(items: unknown, expanded: unknown, rail?: unknown): Tre
     if (!railBound) return bound ? allOpen(expanded, ancestors) : true
     const off = offShown(ancestors)
     if (!loading && off === true) return true
-    return { call: `cond`, args: { if: rail, then: !loading, else: off } }
+    return { "@call": `cond`, args: { if: rail, then: !loading, else: off } }
   }
   const walk = (list: unknown, depth: number, ancestors: string[]) => {
     if (!Array.isArray(list)) return
@@ -128,7 +128,7 @@ export function treeRows(items: unknown, expanded: unknown, rail?: unknown): Tre
         if (bound) {
           isOpen = expr(`e.exists(x, x == i)`, { e: expanded, i: id }, false)
           row.open = isOpen
-          row.next = { call: `not`, args: { value: isOpen } }
+          row.next = { "@call": `not`, args: { value: isOpen } }
           row.toggled = expr(`e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]`, { e: expanded, i: id }, [id])
         } else {
           isOpen = open.has(id)
@@ -137,7 +137,7 @@ export function treeRows(items: unknown, expanded: unknown, rail?: unknown): Tre
         }
       }
       // The default glyphs: a folder (open while open), a file.
-      if (row.icon === undefined) row.icon = !branch ? `ui-file` : bound ? { call: `cond`, args: { if: isOpen, then: `ui-folder-open`, else: `ui-folder` } } : isOpen === true ? `ui-folder-open` : `ui-folder`
+      if (row.icon === undefined) row.icon = !branch ? `ui-file` : bound ? { "@call": `cond`, args: { if: isOpen, then: `ui-folder-open`, else: `ui-folder` } } : isOpen === true ? `ui-folder-open` : `ui-folder`
       rows.push(row)
       if (!branch || (!bound && !all && !railBound && isOpen !== true)) continue
       const inner = [...ancestors, id]

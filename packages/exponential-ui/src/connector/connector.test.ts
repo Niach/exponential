@@ -89,7 +89,7 @@ describe(`ExponentialConnector`, () => {
         board: {
           components: [
             { id: `root`, component: `List`, children: { componentId: `row`, path: `/issues/rows` } },
-            { id: `row`, component: `Text`, text: { path: `title` } },
+            { id: `row`, component: `Text`, text: { "@path": `title` } },
           ],
           bindings: [{ path: `/issues`, source: `exp:issues?board=b1&limit=10` }],
         },

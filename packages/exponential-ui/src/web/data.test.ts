@@ -31,7 +31,7 @@ describe(`JSON pointers`, () => {
     expect(absolutePath(`title`, `/items/1`)).toBe(`/items/1/title`)
     expect(absolutePath(`/user/name`, `/items/1`)).toBe(`/user/name`)
     expect(absolutePath(`title`)).toBe(`/title`)
-    expect(boundPath({ value: { path: `name` } }, `value`, `/rows/2`)).toBe(`/rows/2/name`)
+    expect(boundPath({ value: { "@path": `name` } }, `value`, `/rows/2`)).toBe(`/rows/2/name`)
     expect(boundPath({ value: `literal` }, `value`)).toBeUndefined()
   })
 })
@@ -39,11 +39,11 @@ describe(`JSON pointers`, () => {
 describe(`resolveValue`, () => {
   const ctx = { data: { draft: { title: `Hello`, n: 3 }, ok: true, flags: [true, false] } }
   it(`bindings, calls, nested objects and arrays`, () => {
-    expect(resolveValue({ path: `/draft/title` }, ctx)).toBe(`Hello`)
-    expect(resolveValue({ call: `required`, args: { value: { path: `/draft/title` } } }, ctx)).toBe(true)
-    expect(resolveValue({ call: `required`, args: { value: { path: `/draft/missing` } } }, ctx)).toBe(false)
-    expect(resolveValue([{ path: `/ok` }, 1], ctx)).toEqual([true, 1])
-    expect(resolveValue({ label: { path: `/draft/title` }, value: `x` }, ctx)).toEqual({ label: `Hello`, value: `x` })
+    expect(resolveValue({ "@path": `/draft/title` }, ctx)).toBe(`Hello`)
+    expect(resolveValue({ "@call": `required`, args: { value: { "@path": `/draft/title` } } }, ctx)).toBe(true)
+    expect(resolveValue({ "@call": `required`, args: { value: { "@path": `/draft/missing` } } }, ctx)).toBe(false)
+    expect(resolveValue([{ "@path": `/ok` }, 1], ctx)).toEqual([true, 1])
+    expect(resolveValue({ label: { "@path": `/draft/title` }, value: `x` }, ctx)).toEqual({ label: `Hello`, value: `x` })
   })
   it(`the catalog's 14 functions`, () => {
     const call = (name: string, args: Record<string, unknown>) => resolveValue({ call: name, args }, ctx)
@@ -59,15 +59,15 @@ describe(`resolveValue`, () => {
     expect(call(`formatDate`, { value: `2026-10-14T00:00:00`, format: `yyyy-MM-dd` })).toBe(`2026-10-14`)
     expect(call(`pluralize`, { value: 1, one: `item`, other: `items` })).toBe(`item`)
     expect(call(`pluralize`, { value: 3, one: `item`, other: `items` })).toBe(`items`)
-    expect(call(`and`, { values: [{ path: `/ok` }, true] })).toBe(true)
-    expect(call(`or`, { values: [false, { path: `/ok` }] })).toBe(true)
-    expect(call(`not`, { value: { path: `/ok` } })).toBe(false)
+    expect(call(`and`, { values: [{ "@path": `/ok` }, true] })).toBe(true)
+    expect(call(`or`, { values: [false, { "@path": `/ok` }] })).toBe(true)
+    expect(call(`not`, { value: { "@path": `/ok` } })).toBe(false)
     let opened = ``
-    resolveValue({ call: `openUrl`, args: { url: `https://x.y` } }, { ...ctx, openUrl: (u) => (opened = u) })
+    resolveValue({ "@call": `openUrl`, args: { url: `https://x.y` } }, { ...ctx, openUrl: (u) => (opened = u) })
     expect(opened).toBe(`https://x.y`)
   })
   it(`a host function overrides a catalog one and an unknown call is undefined`, () => {
-    expect(resolveValue({ call: `required`, args: { value: `` } }, { ...ctx, functions: { required: () => `host` } })).toBe(`host`)
-    expect(resolveValue({ call: `nope`, args: {} }, ctx)).toBeUndefined()
+    expect(resolveValue({ "@call": `required`, args: { value: `` } }, { ...ctx, functions: { required: () => `host` } })).toBe(`host`)
+    expect(resolveValue({ "@call": `nope`, args: {} }, ctx)).toBeUndefined()
   })
 })
