@@ -1,7 +1,7 @@
 /* The plans on /pricing/, all genUI: a Segmented billing switch over one
    Card per plan. Hydrated on view so the switch flips the Team price
    (yearly €12, monthly €15); the build ships the yearly prices. */
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import type { HostPlugin } from "@exponential_app/eui-react"
 import type { NestedNode } from "@exponential_app/eui"
@@ -80,16 +80,8 @@ const TREE: NestedNode = {
 export default function PricingPlans() {
   const surface = useSurface({ surfaceId: `plans`, initial: TREE, data: { billing: `yearly`, team: TEAM.yearly } })
   const { setData } = surface
-  const host = useMemo<HostPlugin>(
-    () => ({
-      onInput: (e) => {
-        if (e.path) setData(e.path, e.value)
-        if (e.path === `/billing`) setData(`/team`, TEAM[e.value === `monthly` ? `monthly` : `yearly`])
-        return Promise.resolve()
-      },
-      onAction: () => Promise.resolve(),
-    }),
-    [setData]
-  )
+  const billing = (surface.data as { billing?: string }).billing === `monthly` ? `monthly` : `yearly`
+  useEffect(() => setData(`/team`, TEAM[billing]), [billing, setData])
+  const host = useMemo<HostPlugin>(() => ({ onInput: () => Promise.resolve(), onAction: () => Promise.resolve() }), [])
   return <ExponentialSurface id="xui-plans" surface={surface} theme="exponential" mode="dark" host={host} />
 }
