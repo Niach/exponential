@@ -320,7 +320,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       for (const c of t.jsonl) record(`host-transport`, `jsonl: ${c.name}`, () => canon(feed(new JsonlDecoder(), c.chunks)) === canon(c.expected))
       for (const c of t.sse) record(`host-transport`, `sse: ${c.name}`, () => canon(feed(new SseDecoder(), c.chunks)) === canon(c.expected))
       for (const c of t.mcp) record(`host-transport`, `mcp: ${c.name}`, () => canon(messagesFromMcpResult(c.result)) === canon(c.expected))
-      for (const c of t.mcpAction) record(`host-transport`, `mcpAction: ${c.name}`, () => canon(mcpActionCall(c.message, c.tool)) === canon(c.expected))
+      for (const c of t.mcpAction) record(`host-transport`, `mcpAction: ${c.name}`, () => canon(mcpActionCall(c.message, c.tool, c.metadata)) === canon(c.expected))
       const p = fixture(`host-policy.json`)
       for (const c of p.functions) record(`host-policy`, `function: ${c.name}`, () => decideFunction(c.policy, c.fn, c.registered) === c.expected)
       for (const c of p.combine) record(`host-policy`, `combine: ${c.a}+${c.b}`, () => combineDecisions(c.a, c.b) === c.expected)

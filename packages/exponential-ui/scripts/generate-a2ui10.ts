@@ -12,7 +12,7 @@ import { checkCatalogDefinition } from "../src/schema"
 import { coerceBoolean, present } from "../src/expr"
 import { evaluateCheck, resolveWithFailure, shownResult, checkResult, type Failure } from "../src/dynamic"
 import { isIdentifier, mangle } from "../src/ids"
-import { CORE_CATALOG_ID } from "../src/catalog"
+import { A2UI_BASIC_CATALOG_ID as BASIC_ID, CORE_CATALOG_ID } from "../src/catalog"
 import { ExponentialHost, HostRouter, MemoryTransport, actionMessage, callAgentFunctionMessage, decideRoute, errorMessage, rendererCapabilities, rendererFunctionResponse, routedCallKey } from "../src/host"
 import type { ClientMessage, FunctionPolicy, HostFunction, MessageMetadata, RouteDecisionInput } from "../src/host"
 import type { NestedNode } from "../src/types"
@@ -95,6 +95,7 @@ export async function renderSequence(c: Any): Promise<Any> {
       steps.push({ ...step, expected: outcome })
     } else if (step.pressAsync) {
       void host.callFunction({ surfaceId: `s`, componentId: `b`, name: step.pressAsync, args: step.args ?? {} })
+      for (let i = 0; i < 4; i++) await Promise.resolve()
       steps.push(step)
     } else {
       host.receive({ version: `1.0`, agentFunctionResponse: step.respond })
@@ -140,6 +141,12 @@ export function renderConformance(): Any {
       } else if (schema === `agent_to_renderer` || schema === `agent_to_renderer_list` || schema === `server_to_client`) {
         const r = new HostRouter()
         const list = Array.isArray(t.data) ? t.data : [t.data]
+        // A case without its createSurface runs on a surface of the catalog it
+        // tests (upstream validates one message; the router keeps state).
+        for (const m of list) {
+          const sid = m?.updateComponents?.surfaceId ?? m?.updateDataModel?.surfaceId ?? m?.deleteSurface?.surfaceId
+          if (typeof sid === `string` && !r.wasCreated(sid)) r.route({ version: `1.0`, createSurface: { surfaceId: sid, catalogId: BASIC_ID } })
+        }
         let first: string = `ok`
         for (const m of list) {
           const code = errorOf(r.route(m))
@@ -153,6 +160,8 @@ export function renderConformance(): Any {
         entry.expect = `skip`
         entry.why = `a JSON-Schema-only detail (${schema || `no schema`}) the router does not read`
       }
+      if (entry.expect !== `skip` && entry.why === undefined && [`ok`, `catalog-ok`].includes(entry.expect) !== t.valid)
+        entry.why = entry.expect.startsWith(`catalog`) ? `an upstream fragment: checkCatalogDefinition reads a whole file (protocolVersion, $defs)` : entry.expect === `ok` ? `the reducer decides it on a kept component (a VALIDATION_FAILED issue, §5.2), or a JSON-Schema-only detail` : `§16: the entry check drops what upstream accepts`
       cases.push(entry)
     })
   }

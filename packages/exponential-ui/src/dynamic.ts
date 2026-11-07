@@ -16,7 +16,6 @@ import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID } from "./catalog"
 import { FUNCTION_NAMES } from "./catalog.generated"
 import { basicMap } from "./basic-map"
 import { CORE_FUNCTIONS, coerceBoolean, isBinding, isCall, isDynamic, present } from "./expr"
-import { checkArgs, declaredFunction } from "./functions"
 import { regexCheck } from "./regex"
 import { ENGLISH_FORMAT_FUNCTIONS, FORMAT_FUNCTION_NAMES, englishFormatter, formatFunctions, type Formatter, type ZoneOffset } from "./format"
 import { EXPRESSION_BIND_FUNCTIONS, EXPRESSION_CALL_NAMES, callExpressionFunction, type ExpressionEnv } from "./cel"
@@ -374,13 +373,6 @@ const fail = (box: FailBox, failure: Failure, args?: Record<string, unknown>): u
   return null
 }
 
-/** A call's args with every binding and call out: what a schema can judge. */
-function literalArgs(args: unknown): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(isPlainObject(args) ? args : {})) out[k] = isDynamic(v) ? null : v
-  return out
-}
-
 /** Round 9 §6.5: one call evaluated (local `@index`, a catalog function of
  *  the resolved catalog, else the host's route): its value, or `null` plus
  *  the failure. `position` defaults to `reactive`. */
@@ -415,11 +407,6 @@ function evaluateCallIn(call: FunctionCall, data: unknown, options: ResolveOptio
   // 4. A catalog function of the resolved catalog.
   if (catalogFunctionNames(catalogId).has(name)) {
     if (reactive && EFFECT_FUNCTIONS.has(name)) return fail(box, { code: `EXPRESSION_ERROR`, message: `${name} cannot run in a binding` })
-    // §6.5 step 4: the wire args against the declared schema (a binding or
-    // call matches any Dynamic*).
-    const signature = declaredFunction(catalogId, name)
-    const issue = signature ? checkArgs(signature, literalArgs(call.args)) : undefined
-    if (issue !== undefined) return fail(box, { code: `EXPRESSION_ERROR`, message: `${name}: ${issue}` }, args)
     if (name === `formatString`) return formatStringValue(args.value, data, options)
     const run = (fn: (args: Record<string, unknown>) => unknown): unknown => {
       try {

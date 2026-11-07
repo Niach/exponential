@@ -614,50 +614,13 @@
       }
     },
     {
-      "name": "args literal: a wrong type fails",
+      "name": "values are not judged: a non-number still counts as 0",
       "value": {
         "@call": "add",
         "args": {
-          "a": "x"
-        }
-      },
-      "expected": {
-        "value": null,
-        "failure": {
-          "code": "EXPRESSION_ERROR",
-          "message": "add: a is not a number"
-        }
-      }
-    },
-    {
-      "name": "args literal: an unknown arg fails",
-      "value": {
-        "@call": "add",
-        "args": {
-          "z": 1
-        }
-      },
-      "expected": {
-        "value": null,
-        "failure": {
-          "code": "EXPRESSION_ERROR",
-          "message": "add: z is not an argument"
-        }
-      }
-    },
-    {
-      "name": "a bound arg is not judged",
-      "value": {
-        "@call": "add",
-        "args": {
-          "a": {
-            "@path": "/s"
-          },
+          "a": "x",
           "b": 1
         }
-      },
-      "data": {
-        "s": "x"
       },
       "expected": {
         "value": 1
@@ -699,24 +662,6 @@
         "failure": {
           "code": "EXPRESSION_ERROR",
           "message": "regex: unmatched ( at 0"
-        }
-      }
-    },
-    {
-      "name": "an action may name set",
-      "value": {
-        "@call": "set",
-        "args": {
-          "path": "/a",
-          "value": 1
-        }
-      },
-      "position": "action",
-      "expected": {
-        "value": null,
-        "failure": {
-          "code": "UNKNOWN_FUNCTION",
-          "message": "no function set"
         }
       }
     },
@@ -801,15 +746,13 @@
           {
             "valid": false
           },
-          null,
+          {
+            "valid": true
+          },
           {
             "valid": true
           }
-        ],
-        "failure": {
-          "code": "EXPRESSION_ERROR",
-          "message": "numeric: value is not a number"
-        }
+        ]
       }
     },
     {
@@ -1801,7 +1744,32 @@
           "pressAsync": "lookup"
         }
       ],
-      "expectedSent": [],
+      "expectedSent": [
+        {
+          "message": {
+            "version": "1.0",
+            "callAgentFunction": {
+              "surfaceId": "s",
+              "functionCallId": "s:1",
+              "callFunction": {
+                "@call": "lookup",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {}
+              }
+            }
+          },
+          "metadata": {
+            "a2uiRendererDataModel": {
+              "version": "1.0",
+              "surfaces": {
+                "s": {
+                  "a": 1
+                }
+              }
+            }
+          }
+        }
+      ],
       "expectedRan": []
     }
   ]

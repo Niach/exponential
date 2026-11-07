@@ -3801,12 +3801,7 @@
       ],
       "installIssues": {
         "acme.v2": [],
-        "acme.charts": [
-          {
-            "path": "/templates/t/components/2",
-            "message": "catalog https://acme.example/catalogs/charts/v1 is not available"
-          }
-        ],
+        "acme.charts": [],
         "acme.future": [],
         "acme.v1": [
           {
@@ -4307,10 +4302,6 @@
     {
       "package": "acme.charts",
       "expected": [
-        {
-          "path": "/templates/t/components/2",
-          "message": "catalog https://acme.example/catalogs/charts/v1 is not available"
-        },
         {
           "path": "/extensions/0/id",
           "message": "extension https://acme.example/catalogs/charts/v1 is not available on this host"

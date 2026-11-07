@@ -640,7 +640,7 @@
               "component": "Text",
               "props": {
                 "text": {
-                  "path": "/time"
+                  "@path": "/time"
                 }
               }
             }
@@ -781,7 +781,7 @@
               "on": {
                 "press": {
                   "functionCall": {
-                    "call": "launch",
+                    "@call": "launch",
                     "args": {
                       "command": "xterm"
                     }
@@ -798,7 +798,7 @@
               "on": {
                 "press": {
                   "functionCall": {
-                    "call": "poweroff"
+                    "@call": "poweroff"
                   }
                 }
               }
@@ -832,7 +832,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "launch"
+                  "@call": "launch"
                 }
               }
             }

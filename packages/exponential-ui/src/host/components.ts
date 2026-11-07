@@ -100,7 +100,10 @@ export function validatePackageComponents(pkg: Record<string, unknown>, catalogI
       seen.add(key)
       issues.push({ path, message })
     }
-    for (const issue of reduceSurface(reduced as FlatComponent[], { catalogId: reduceAs, extensions: defs }).issues) {
+    // Round 9 §5.5: a catalog the host only knows by id is available (its
+    // component names stay open), `extensions` report a missing one themselves.
+    for (const issue of reduceSurface(reduced as FlatComponent[], { catalogId: reduceAs, extensions: defs, available: [...catalogIds, ...defs.map((d) => d.id)] }).issues) {
+      if (issue.code === `UNSUPPORTED_CATALOG` && (known(issue.message.replace(/^catalog (\S+).*$/, `$1`)) || declared.includes(issue.message.replace(/^catalog (\S+).*$/, `$1`)))) continue
       if (open && issue.message.startsWith(`unknown component `)) continue
       const i = index.get(issue.id)
       if (i !== undefined) {

@@ -106,7 +106,7 @@
           "value": "42"
         }
       },
-      "expected": null
+      "expected": "42"
     },
     {
       "name": "number/not-a-number",
@@ -116,7 +116,7 @@
           "value": "abc"
         }
       },
-      "expected": null
+      "expected": ""
     },
     {
       "name": "number/string-whitespace",
@@ -126,7 +126,7 @@
           "value": " 12 "
         }
       },
-      "expected": null
+      "expected": "12"
     },
     {
       "name": "number/string-exponent",
@@ -136,7 +136,7 @@
           "value": "1e3"
         }
       },
-      "expected": null
+      "expected": "1,000"
     },
     {
       "name": "number/string-leading-point",
@@ -146,7 +146,7 @@
           "value": "-.5"
         }
       },
-      "expected": null
+      "expected": "-0.5"
     },
     {
       "name": "number/string-hex-is-not",
@@ -156,7 +156,7 @@
           "value": "0x10"
         }
       },
-      "expected": null
+      "expected": ""
     },
     {
       "name": "number/string-infinity-is-not",
@@ -166,7 +166,7 @@
           "value": "Infinity"
         }
       },
-      "expected": null
+      "expected": ""
     },
     {
       "name": "number/string-grouped-is-not",
@@ -176,7 +176,7 @@
           "value": "1,000"
         }
       },
-      "expected": null
+      "expected": ""
     },
     {
       "name": "plural/string-one",
@@ -188,7 +188,7 @@
           "other": "many items"
         }
       },
-      "expected": null
+      "expected": "one item"
     },
     {
       "name": "currency/usd",
@@ -362,7 +362,7 @@
           "style": "short"
         }
       },
-      "expected": null
+      "expected": "10/14/26"
     },
     {
       "name": "date/style-medium",
@@ -383,7 +383,7 @@
           "style": "long"
         }
       },
-      "expected": null
+      "expected": "October 14, 2026"
     },
     {
       "name": "date/style-full",
@@ -394,7 +394,7 @@
           "style": "full"
         }
       },
-      "expected": null
+      "expected": "Wednesday, October 14, 2026"
     },
     {
       "name": "date/instant-time",
@@ -405,7 +405,7 @@
           "time": true
         }
       },
-      "expected": null
+      "expected": "Oct 14, 2026, 2:30 PM"
     },
     {
       "name": "date/instant-long-time",
@@ -417,7 +417,7 @@
           "time": true
         }
       },
-      "expected": null
+      "expected": "October 14, 2026 at 2:30 PM"
     },
     {
       "name": "date/offset-to-utc",

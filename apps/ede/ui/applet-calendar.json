@@ -1,26 +1,173 @@
 {
   "$comment": "Exponential Desktop's factory calendar applet (#EDE-43): the taskbar's clock opens it as a popup surface. Cinnamon's layout in the IDE's language: the agenda pane on the left (today's date as its caption; no calendar source yet, so it says No events), the big weekday and date (/dateText) over the inline month grid (/date is today and the selected day) on the right, and the Date & time settings link.",
-  "surface": {"popup": {"parent": "taskbar", "anchor": "clock", "placement": "top-end", "size": {"width": 720, "height": 440}}, "functions": ["ede.open_document"]},
+  "surface": {
+    "popup": {
+      "parent": "taskbar",
+      "anchor": "clock",
+      "placement": "top-end",
+      "size": {
+        "width": 720,
+        "height": 440
+      }
+    },
+    "functions": [
+      "ede.open_document"
+    ]
+  },
   "root": {
     "id": "calendar",
     "component": "Box",
-    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.sm", "height": 440, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"},
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "gap": "$spacing.sm",
+      "padding": "$spacing.sm",
+      "height": 440,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.md"
+    },
     "children": [
-      {"id": "calendar-body", "component": "Stack", "props": {"direction": "horizontal", "gap": "md", "align": "start"}, "style": {"flexGrow": 1, "minHeight": 0}, "children": [
-        {"id": "agenda", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.md", "flexGrow": 1, "minWidth": 0, "height": 372, "borderRadius": "$radius.md", "backgroundColor": "$color.card", "borderWidth": 1, "borderColor": "$color.border"}, "children": [
-          {"id": "agenda-date", "component": "Text", "props": {"text": {"path": "/dateText/long"}, "variant": "label", "align": "center"}},
-          {"id": "agenda-empty", "component": "Text", "props": {"text": "No events", "variant": "muted", "align": "center"}, "style": {"marginTop": "$spacing.lg"}}
-        ]},
-        {"id": "month", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "alignItems": "center", "width": 320}, "children": [
-          {"id": "weekday", "component": "Heading", "props": {"text": {"path": "/dateText/weekday"}, "level": "h2"}},
-          {"id": "date", "component": "Text", "props": {"text": {"path": "/dateText/date"}, "variant": "muted", "align": "center"}},
-          {"id": "grid", "component": "DatePicker", "props": {"name": "date", "inline": true, "value": {"path": "/date"}, "firstDayOfWeek": 1}}
-        ]}
-      ]},
-      {"id": "calendar-foot", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": [
-        {"id": "datetime-settings", "component": "Link", "props": {"label": "Date & time settings"}, "on": {"press": {"functionCall": {"call": "ede.open_document", "args": {"name": "settings"}}}}}
-      ]}
+      {
+        "id": "calendar_body",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "md",
+          "align": "start"
+        },
+        "style": {
+          "flexGrow": 1,
+          "minHeight": 0
+        },
+        "children": [
+          {
+            "id": "agenda",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "height": 372,
+              "borderRadius": "$radius.md",
+              "backgroundColor": "$color.card",
+              "borderWidth": 1,
+              "borderColor": "$color.border"
+            },
+            "children": [
+              {
+                "id": "agenda_date",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "/dateText/long"
+                  },
+                  "variant": "label",
+                  "align": "center"
+                }
+              },
+              {
+                "id": "agenda_empty",
+                "component": "Text",
+                "props": {
+                  "text": "No events",
+                  "variant": "muted",
+                  "align": "center"
+                },
+                "style": {
+                  "marginTop": "$spacing.lg"
+                }
+              }
+            ]
+          },
+          {
+            "id": "month",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "alignItems": "center",
+              "width": 320
+            },
+            "children": [
+              {
+                "id": "weekday",
+                "component": "Heading",
+                "props": {
+                  "text": {
+                    "@path": "/dateText/weekday"
+                  },
+                  "level": "h2"
+                }
+              },
+              {
+                "id": "date",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "/dateText/date"
+                  },
+                  "variant": "muted",
+                  "align": "center"
+                }
+              },
+              {
+                "id": "grid",
+                "component": "DatePicker",
+                "props": {
+                  "name": "date",
+                  "inline": true,
+                  "value": {
+                    "@path": "/date"
+                  },
+                  "firstDayOfWeek": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "calendar_foot",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "datetime_settings",
+            "component": "Link",
+            "props": {
+              "label": "Date & time settings"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_open_document",
+                  "args": {
+                    "name": "settings"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
     ]
   },
-  "data": {"date": "2026-01-01", "dateText": {"weekday": "Thursday", "date": "1 January 2026", "long": "Thursday, 1 January 2026"}}
+  "data": {
+    "date": "2026-01-01",
+    "dateText": {
+      "weekday": "Thursday",
+      "date": "1 January 2026",
+      "long": "Thursday, 1 January 2026"
+    }
+  }
 }

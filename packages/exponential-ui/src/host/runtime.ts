@@ -677,6 +677,7 @@ export class ExponentialHost {
         this.pendingCalls.delete(functionCallId)
         settle({ failure: { code: `EXPRESSION_ERROR`, message: `${name} timed out`, functionCallId } })
       }, AGENT_FUNCTION_TIMEOUT_MS)
+      ;(timer as { unref?: () => void }).unref?.()
       this.pendingCalls.set(functionCallId, { settle, timer })
       this.send(callAgentFunctionMessage(store.surfaceId, functionCallId, name, catalogId, { ...defaults, ...args }))
     })

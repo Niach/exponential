@@ -98,6 +98,12 @@ function rowPressContext(event: string, payload: Record<string, unknown> | undef
   return { ...rctx, data: { ...(rctx.data as Record<string, unknown>), $pressedRow: payload.row }, scope: `/$pressedRow` }
 }
 
+/** Round 9 §6.8: a host function's outcome that stops its action. */
+const actionFailed = (outcome: unknown): boolean => {
+  const o = outcome as { decision?: string; error?: unknown } | undefined
+  return o !== undefined && o !== null && (o.error !== undefined || o.decision === `deny` || o.decision === `not_found`)
+}
+
 /** Run one of a node's actions (round-1 contract §1 `runAction`): the
  *  function args AND the event context resolve against the data WITH the
  *  component's own write applied (round 4 `withOwnWrites`: `own` = what
@@ -131,8 +137,11 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
   }
   if (pending instanceof Promise) {
     // The source control stays pending until the host function settles.
-    const sent = action.event ? runNodeEvent(ctx, action.event, domId, event, context, payload) : undefined
-    return Promise.all([pending, sent]).then(() => undefined)
+    // Round 9 §6.8: the function, then the event; a failure stops the action.
+    return pending.then((outcome) => {
+      if (actionFailed(outcome) || !action.event) return undefined
+      return runNodeEvent(ctx, action.event, domId, event, context, payload)
+    })
   }
   if (action.event) return runNodeEvent(ctx, action.event, domId, event, context, payload)
   return undefined

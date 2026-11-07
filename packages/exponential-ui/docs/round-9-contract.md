@@ -698,9 +698,7 @@ action's `call` step) are user-activated.
    implementation:
    - a reactive position and the function is effectful,
      `requiresUserActivation` or `agentOnly` → fail EXPRESSION_ERROR;
-   - the args do not validate against the declared schema → fail
-     EXPRESSION_ERROR;
-   - otherwise run it.
+   - otherwise run it (args are not schema-checked at run time: each function keeps the coercion rounds 1–2 lock; only `callRendererFunction` type-checks them, §6.9).
 5. **Any other name** (a host name, a host-prefixed name, or an unknown
    name). The policy is IN FRONT: `decide(policy ∧ package policy, name)`.
    - `deny` → `error {INVALID_FUNCTION_CALL, surfaceId}`, the call fails.

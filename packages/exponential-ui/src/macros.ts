@@ -267,7 +267,7 @@ function buildNode(
         continue
       }
       const value = evalValue(spec.value, ctx)
-      on[partEvent] = { ...(on[partEvent] ?? {}), functionCall: { "@call": `set`, args: value === undefined ? { "@path": bound[`@path`] } : { path: bound[`@path`], value } } }
+      on[partEvent] = { ...(on[partEvent] ?? {}), functionCall: { "@call": `set`, args: value === undefined ? { path: bound[`@path`] } : { path: bound[`@path`], value } } }
     }
   }
   if (tpl.$a11y) {

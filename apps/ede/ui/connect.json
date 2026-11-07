@@ -31,7 +31,7 @@
     },
     "children": [
       {
-        "id": "connect-head",
+        "id": "connect_head",
         "component": "Stack",
         "props": {
           "direction": "horizontal",
@@ -41,7 +41,7 @@
         },
         "children": [
           {
-            "id": "connect-title",
+            "id": "connect_title",
             "component": "Heading",
             "props": {
               "text": "Connect Exponential",
@@ -49,7 +49,7 @@
             }
           },
           {
-            "id": "connect-close",
+            "id": "connect_close",
             "component": "Button",
             "props": {
               "icon": "ui-close",
@@ -60,7 +60,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "ede.close_document",
+                  "@call": "ede_close_document",
                   "args": {
                     "name": "connect"
                   }
@@ -71,24 +71,24 @@
         ]
       },
       {
-        "id": "connect-idle",
+        "id": "connect_idle",
         "component": "Stack",
         "props": {
           "direction": "vertical",
           "gap": "md"
         },
         "visible": {
-          "call": "eq",
+          "@call": "eq",
           "args": {
             "a": {
-              "path": "/connecting/state"
+              "@path": "/connecting/state"
             },
             "b": "idle"
           }
         },
         "children": [
           {
-            "id": "connect-instance",
+            "id": "connect_instance",
             "component": "Input",
             "props": {
               "type": "url",
@@ -96,12 +96,12 @@
               "label": "Instance",
               "placeholder": "https://app.exponential.at",
               "value": {
-                "path": "/connect/instance"
+                "@path": "/connect/instance"
               }
             }
           },
           {
-            "id": "connect-actions",
+            "id": "connect_actions",
             "component": "Stack",
             "props": {
               "direction": "horizontal",
@@ -110,7 +110,7 @@
             },
             "children": [
               {
-                "id": "connect-browser",
+                "id": "connect_browser",
                 "component": "Button",
                 "props": {
                   "label": "Continue in the browser",
@@ -120,11 +120,11 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "ede.connect",
+                      "@call": "ede_connect",
                       "args": {
                         "action": "start",
                         "instance": {
-                          "path": "/connect/instance"
+                          "@path": "/connect/instance"
                         }
                       }
                     }
@@ -132,7 +132,7 @@
                 }
               },
               {
-                "id": "connect-code-instead",
+                "id": "connect_code_instead",
                 "component": "Button",
                 "props": {
                   "label": "Use a code instead",
@@ -141,11 +141,11 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "ede.connect",
+                      "@call": "ede_connect",
                       "args": {
                         "action": "code",
                         "instance": {
-                          "path": "/connect/instance"
+                          "@path": "/connect/instance"
                         }
                       }
                     }
@@ -157,24 +157,24 @@
         ]
       },
       {
-        "id": "connect-browser-wait",
+        "id": "connect_browser_wait",
         "component": "Stack",
         "props": {
           "direction": "vertical",
           "gap": "md"
         },
         "visible": {
-          "call": "eq",
+          "@call": "eq",
           "args": {
             "a": {
-              "path": "/connecting/state"
+              "@path": "/connecting/state"
             },
             "b": "browser"
           }
         },
         "children": [
           {
-            "id": "connect-browser-text",
+            "id": "connect_browser_text",
             "component": "Text",
             "props": {
               "text": "Finish signing in in your browser.",
@@ -182,18 +182,18 @@
             }
           },
           {
-            "id": "connect-browser-hint",
+            "id": "connect_browser_hint",
             "component": "Text",
             "props": {
               "text": {
-                "path": "/connecting/instance"
+                "@path": "/connecting/instance"
               },
               "variant": "muted",
               "lines": 1
             }
           },
           {
-            "id": "connect-browser-actions",
+            "id": "connect_browser_actions",
             "component": "Stack",
             "props": {
               "direction": "horizontal",
@@ -202,7 +202,7 @@
             },
             "children": [
               {
-                "id": "connect-browser-code",
+                "id": "connect_browser_code",
                 "component": "Button",
                 "props": {
                   "label": "Use a code instead",
@@ -211,7 +211,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "ede.connect",
+                      "@call": "ede_connect",
                       "args": {
                         "action": "code"
                       }
@@ -220,7 +220,7 @@
                 }
               },
               {
-                "id": "connect-browser-cancel",
+                "id": "connect_browser_cancel",
                 "component": "Button",
                 "props": {
                   "label": "Cancel",
@@ -229,7 +229,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "ede.connect",
+                      "@call": "ede_connect",
                       "args": {
                         "action": "cancel"
                       }
@@ -242,35 +242,35 @@
         ]
       },
       {
-        "id": "connect-code",
+        "id": "connect_code",
         "component": "Stack",
         "props": {
           "direction": "vertical",
           "gap": "md"
         },
         "visible": {
-          "call": "eq",
+          "@call": "eq",
           "args": {
             "a": {
-              "path": "/connecting/state"
+              "@path": "/connecting/state"
             },
             "b": "code"
           }
         },
         "children": [
           {
-            "id": "connect-code-value",
+            "id": "connect_code_value",
             "component": "Text",
             "props": {
               "text": {
-                "path": "/connecting/code"
+                "@path": "/connecting/code"
               },
               "variant": "title",
               "align": "center"
             }
           },
           {
-            "id": "connect-code-where",
+            "id": "connect_code_where",
             "component": "Text",
             "props": {
               "text": "Enter this code at",
@@ -279,11 +279,11 @@
             }
           },
           {
-            "id": "connect-code-uri",
+            "id": "connect_code_uri",
             "component": "Text",
             "props": {
               "text": {
-                "path": "/connecting/uri"
+                "@path": "/connecting/uri"
               },
               "variant": "label",
               "align": "center",
@@ -291,7 +291,7 @@
             }
           },
           {
-            "id": "connect-code-actions",
+            "id": "connect_code_actions",
             "component": "Stack",
             "props": {
               "direction": "horizontal",
@@ -301,7 +301,7 @@
             },
             "children": [
               {
-                "id": "connect-code-open",
+                "id": "connect_code_open",
                 "component": "Button",
                 "props": {
                   "label": "Open the page",
@@ -311,7 +311,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "ede.connect",
+                      "@call": "ede_connect",
                       "args": {
                         "action": "open"
                       }
@@ -320,7 +320,7 @@
                 }
               },
               {
-                "id": "connect-code-cancel",
+                "id": "connect_code_cancel",
                 "component": "Button",
                 "props": {
                   "label": "Cancel",
@@ -329,7 +329,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "ede.connect",
+                      "@call": "ede_connect",
                       "args": {
                         "action": "cancel"
                       }
@@ -340,7 +340,7 @@
             ]
           },
           {
-            "id": "connect-code-waiting",
+            "id": "connect_code_waiting",
             "component": "Text",
             "props": {
               "text": "Waiting for the approval…",
@@ -351,24 +351,24 @@
         ]
       },
       {
-        "id": "connect-done",
+        "id": "connect_done",
         "component": "Stack",
         "props": {
           "direction": "vertical",
           "gap": "md"
         },
         "visible": {
-          "call": "eq",
+          "@call": "eq",
           "args": {
             "a": {
-              "path": "/connecting/state"
+              "@path": "/connecting/state"
             },
             "b": "done"
           }
         },
         "children": [
           {
-            "id": "connect-done-text",
+            "id": "connect_done_text",
             "component": "Text",
             "props": {
               "text": "Connected as",
@@ -376,18 +376,18 @@
             }
           },
           {
-            "id": "connect-done-email",
+            "id": "connect_done_email",
             "component": "Text",
             "props": {
               "text": {
-                "path": "/connecting/email"
+                "@path": "/connecting/email"
               },
               "variant": "title",
               "lines": 1
             }
           },
           {
-            "id": "connect-done-hint",
+            "id": "connect_done_hint",
             "component": "Text",
             "props": {
               "text": "Your teams are in the switcher.",
@@ -395,7 +395,7 @@
             }
           },
           {
-            "id": "connect-done-close",
+            "id": "connect_done_close",
             "component": "Button",
             "props": {
               "label": "Done",
@@ -404,7 +404,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "ede.close_document",
+                  "@call": "ede_close_document",
                   "args": {
                     "name": "connect"
                   }
@@ -415,35 +415,35 @@
         ]
       },
       {
-        "id": "connect-failed",
+        "id": "connect_failed",
         "component": "Stack",
         "props": {
           "direction": "vertical",
           "gap": "md"
         },
         "visible": {
-          "call": "eq",
+          "@call": "eq",
           "args": {
             "a": {
-              "path": "/connecting/state"
+              "@path": "/connecting/state"
             },
             "b": "failed"
           }
         },
         "children": [
           {
-            "id": "connect-error",
+            "id": "connect_error",
             "component": "Alert",
             "props": {
               "title": "Could not connect",
               "message": {
-                "path": "/connecting/error"
+                "@path": "/connecting/error"
               },
               "type": "error"
             }
           },
           {
-            "id": "connect-retry",
+            "id": "connect_retry",
             "component": "Button",
             "props": {
               "label": "Try again",
@@ -452,7 +452,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "ede.connect",
+                  "@call": "ede_connect",
                   "args": {
                     "action": "cancel"
                   }

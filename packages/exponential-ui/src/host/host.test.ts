@@ -61,7 +61,7 @@ describe(`host-transport.json`, () => {
   for (const c of transportFixture.sse) test(`sse: ${c.name}`, () => expect(feed(new SseDecoder(), c.chunks)).toEqual(c.expected as Decoded))
   for (const c of transportFixture.mcp) test(`mcp: ${c.name}`, () => expect(messagesFromMcpResult(c.result)).toEqual(c.expected as Decoded))
   for (const c of transportFixture.mcpAction)
-    test(`mcpAction: ${c.name}`, () => expect(mcpActionCall(c.message as ClientMessage, (c as { tool?: string }).tool)).toEqual(c.expected as never))
+    test(`mcpAction: ${c.name}`, () => expect(mcpActionCall(c.message as ClientMessage, (c as { tool?: string }).tool, (c as { metadata?: Record<string, unknown> }).metadata)).toEqual(c.expected as never))
 })
 
 describe(`host-policy.json`, () => {

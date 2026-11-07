@@ -1,29 +1,338 @@
 {
   "$comment": "Exponential Desktop's factory Bluetooth applet (#EDE-43): the taskbar's Bluetooth button opens it as a popup surface. The power switch (power), the known devices (/services/bluetooth/devices: Connect / Disconnect), the Search switch that scans for a while (discover), and the Bluetooth settings link. Every action is ede.service on the bluetooth domain.",
-  "surface": {"popup": {"parent": "taskbar", "anchor": "applet-bluetooth", "placement": "top-end", "size": {"width": 380, "height": 230}}, "functions": ["ede.service", "ede.open_document"]},
+  "surface": {
+    "popup": {
+      "parent": "taskbar",
+      "anchor": "applet-bluetooth",
+      "placement": "top-end",
+      "size": {
+        "width": 380,
+        "height": 230
+      }
+    },
+    "functions": [
+      "ede.service",
+      "ede.open_document"
+    ]
+  },
   "root": {
     "id": "bluetooth",
     "component": "Box",
-    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.sm", "height": 230, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"},
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "gap": "$spacing.sm",
+      "padding": "$spacing.sm",
+      "height": 230,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.md"
+    },
     "children": [
-      {"id": "bt-off", "component": "Text", "props": {"text": {"path": "/services/bluetooth/reason"}, "variant": "muted"}, "visible": {"call": "not", "args": {"value": {"path": "/services/bluetooth/available"}}}},
-      {"id": "bt-power", "component": "Switch", "props": {"label": "Bluetooth", "name": "bluetooth", "checked": {"path": "/services/bluetooth/powered"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "bluetooth", "action": "power", "args": {"on": {"path": "/services/bluetooth/powered"}}}}}}},
-      {"id": "devices-title", "component": "Text", "props": {"text": "Devices", "variant": "label"}, "visible": {"path": "/services/bluetooth/powered"}},
-      {"id": "devices-scroll", "component": "ScrollArea", "props": {"maxHeight": 150}, "visible": {"path": "/services/bluetooth/powered"}, "children": [
-        {"id": "devices", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "device", "path": "/services/bluetooth/devices", "key": "path"}, "children": []},
-        {"id": "device", "component": "Row", "props": {"title": {"path": "name"}, "subtitle": {"path": "address"}, "icon": "ede-bluetooth", "density": "compact"}, "slots": {
-          "trailing": {"id": "device-actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "none", "align": "center"}, "children": [
-            {"id": "device-disconnect", "component": "Button", "props": {"label": "Disconnect", "variant": "outline", "size": "sm"}, "visible": {"path": "connected"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "bluetooth", "action": "disconnect", "args": {"device": {"path": "path"}}}}}}},
-            {"id": "device-connect", "component": "Button", "props": {"label": "Connect", "variant": "outline", "size": "sm"}, "visible": {"call": "not", "args": {"value": {"path": "connected"}}}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "bluetooth", "action": "connect", "args": {"device": {"path": "path"}}}}}}}
-          ]}
-        }},
-        {"id": "no-devices", "component": "Text", "props": {"text": "No devices", "variant": "muted"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/services/bluetooth/devices"}}}, "b": 0}}}
-      ]},
-      {"id": "discover", "component": "Switch", "props": {"label": "Search for devices", "name": "discover", "checked": {"path": "/services/bluetooth/discovering"}}, "visible": {"path": "/services/bluetooth/powered"}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "bluetooth", "action": "discover", "args": {"on": {"path": "/services/bluetooth/discovering"}}}}}}},
-      {"id": "bluetooth-foot", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": [
-        {"id": "bluetooth-settings", "component": "Link", "props": {"label": "Bluetooth settings"}, "on": {"press": {"functionCall": {"call": "ede.open_document", "args": {"name": "settings"}}}}}
-      ]}
+      {
+        "id": "bt_off",
+        "component": "Text",
+        "props": {
+          "text": {
+            "@path": "/services/bluetooth/reason"
+          },
+          "variant": "muted"
+        },
+        "visible": {
+          "@call": "not",
+          "args": {
+            "value": {
+              "@call": "cond",
+              "args": {
+                "if": {
+                  "@path": "/services/bluetooth/available"
+                },
+                "then": true,
+                "else": false
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "bt_power",
+        "component": "Switch",
+        "props": {
+          "label": "Bluetooth",
+          "name": "bluetooth",
+          "checked": {
+            "@path": "/services/bluetooth/powered"
+          }
+        },
+        "on": {
+          "change": {
+            "functionCall": {
+              "@call": "ede_service",
+              "args": {
+                "domain": "bluetooth",
+                "action": "power",
+                "args": {
+                  "on": {
+                    "@path": "/services/bluetooth/powered"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "devices_title",
+        "component": "Text",
+        "props": {
+          "text": "Devices",
+          "variant": "label"
+        },
+        "visible": {
+          "@call": "cond",
+          "args": {
+            "if": {
+              "@path": "/services/bluetooth/powered"
+            },
+            "then": true,
+            "else": false
+          }
+        }
+      },
+      {
+        "id": "devices_scroll",
+        "component": "ScrollArea",
+        "props": {
+          "maxHeight": 150
+        },
+        "visible": {
+          "@call": "cond",
+          "args": {
+            "if": {
+              "@path": "/services/bluetooth/powered"
+            },
+            "then": true,
+            "else": false
+          }
+        },
+        "children": [
+          {
+            "id": "devices",
+            "component": "List",
+            "props": {
+              "gap": "none",
+              "divided": true
+            },
+            "template": {
+              "component": "device",
+              "path": "/services/bluetooth/devices",
+              "key": "path"
+            },
+            "children": []
+          },
+          {
+            "id": "device",
+            "component": "Row",
+            "props": {
+              "title": {
+                "@path": "name"
+              },
+              "subtitle": {
+                "@path": "address"
+              },
+              "icon": "ede-bluetooth",
+              "density": "compact"
+            },
+            "slots": {
+              "trailing": {
+                "id": "device_actions",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "none",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "device_disconnect",
+                    "component": "Button",
+                    "props": {
+                      "label": "Disconnect",
+                      "variant": "outline",
+                      "size": "sm"
+                    },
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "connected"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_service",
+                          "args": {
+                            "domain": "bluetooth",
+                            "action": "disconnect",
+                            "args": {
+                              "device": {
+                                "@path": "path"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "device_connect",
+                    "component": "Button",
+                    "props": {
+                      "label": "Connect",
+                      "variant": "outline",
+                      "size": "sm"
+                    },
+                    "visible": {
+                      "@call": "not",
+                      "args": {
+                        "value": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "connected"
+                            },
+                            "then": true,
+                            "else": false
+                          }
+                        }
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_service",
+                          "args": {
+                            "domain": "bluetooth",
+                            "action": "connect",
+                            "args": {
+                              "device": {
+                                "@path": "path"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "no_devices",
+            "component": "Text",
+            "props": {
+              "text": "No devices",
+              "variant": "muted"
+            },
+            "visible": {
+              "@call": "eq",
+              "args": {
+                "a": {
+                  "@call": "len",
+                  "args": {
+                    "value": {
+                      "@path": "/services/bluetooth/devices"
+                    }
+                  }
+                },
+                "b": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "discover",
+        "component": "Switch",
+        "props": {
+          "label": "Search for devices",
+          "name": "discover",
+          "checked": {
+            "@path": "/services/bluetooth/discovering"
+          }
+        },
+        "visible": {
+          "@call": "cond",
+          "args": {
+            "if": {
+              "@path": "/services/bluetooth/powered"
+            },
+            "then": true,
+            "else": false
+          }
+        },
+        "on": {
+          "change": {
+            "functionCall": {
+              "@call": "ede_service",
+              "args": {
+                "domain": "bluetooth",
+                "action": "discover",
+                "args": {
+                  "on": {
+                    "@path": "/services/bluetooth/discovering"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "bluetooth_foot",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "bluetooth_settings",
+            "component": "Link",
+            "props": {
+              "label": "Bluetooth settings"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_open_document",
+                  "args": {
+                    "name": "settings"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
     ]
   },
-  "data": {"services": {"bluetooth": {"available": false, "reason": "", "powered": false, "discovering": false, "devices": []}}}
+  "data": {
+    "services": {
+      "bluetooth": {
+        "available": false,
+        "reason": "",
+        "powered": false,
+        "discovering": false,
+        "devices": []
+      }
+    }
+  }
 }
