@@ -422,7 +422,7 @@ class Round2InteractionTest {
 
     @Test
     fun scrollToIndexRendersTheItemOfAWindowedList() {
-        val tree = """{"id":"root","component":"Box","children":[{"id":"l","component":"List","style":{"height":400},"template":{"component":"item","path":"/items"},"children":[{"id":"item","component":"Text","props":{"text":{"path":"t"}},"style":{"height":40,"flexShrink":0}}]}]}"""
+        val tree = """{"id":"root","component":"Box","children":[{"id":"l","component":"List","style":{"height":400},"template":{"component":"item","path":"/items"},"children":[{"id":"item","component":"Text","props":{"text":{"@path":"t"}},"style":{"height":40,"flexShrink":0}}]}]}"""
         val m = model(tree)
         m.setData("/items", JsonValue.Arr((0 until 1000).map { JsonValue.Obj(mapOf("t" to JsonValue.Str("Item $it"))) }))
         assertTrue(m.lists["l"]?.windowed == true)

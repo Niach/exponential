@@ -111,11 +111,11 @@ class InteractionTest {
         m.press(track)
         assertFalse(m.checked(track))
         // Radio: a dot press resolves the row by its index suffix.
-        val dot = m.idx("form-plan.dot.1")
+        val dot = m.idx("form_plan.dot.1")
         assertFalse(m.radioChecked(dot))
         m.press(dot)
         assertTrue(m.radioChecked(dot))
-        assertFalse(m.radioChecked(m.idx("form-plan.dot.0")))
+        assertFalse(m.radioChecked(m.idx("form_plan.dot.0")))
         // Segmented single + multiple.
         val seg = m.idx("segmented")
         m.segmentedSelect(seg, JsonValue.Str("board"))
@@ -338,7 +338,7 @@ class InteractionTest {
             val m = SurfaceModel("select", SurfaceOptions(overlays = overlays), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
             m.fixedMeasure = true
             m.setNested(
-                """{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Status","name":"s","options":[{"label":"Any","value":""},{"label":"Open","value":"open"},{"label":"Done","value":"done"}],"value":{"path":"/v"}},"on":{"change":{"event":{"name":"change"}}}}]}""",
+                """{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Status","name":"s","options":[{"label":"Any","value":""},{"label":"Open","value":"open"},{"label":"Done","value":"done"}],"value":{"@path":"/v"}},"on":{"change":{"event":{"name":"change"}}}}]}""",
             )
             m.setViewport(390f, 800f)
             c["value"]?.takeUnless { it.isNull }?.let { m.setData("/v", it) }
@@ -471,9 +471,9 @@ class InteractionTest {
         for (c in cases) {
             val name = c["name"]?.string ?: "?"
             val children = ArrayList<JsonValue>()
-            children.add(JsonValue.parse("""{"id":"draft","component":"Input","props":{"label":"Draft","value":{"path":"/draft"}}}"""))
+            children.add(JsonValue.parse("""{"id":"draft","component":"Input","props":{"label":"Draft","value":{"@path":"/draft"}}}"""))
             c["pressPath"]?.string?.let { path ->
-                val set = JsonValue.Obj(mapOf("call" to JsonValue.Str("set"), "args" to JsonValue.Obj(mapOf("path" to JsonValue.Str(path), "value" to c["pressValue"]!!))))
+                val set = JsonValue.Obj(mapOf("@call" to JsonValue.Str("set"), "args" to JsonValue.Obj(mapOf("path" to JsonValue.Str(path), "value" to c["pressValue"]!!))))
                 children.add(
                     JsonValue.Obj(
                         mapOf(
@@ -524,7 +524,7 @@ class InteractionTest {
         val m = SurfaceModel("fw", SurfaceOptions(), host, backgroundScope, noShaper)
         m.fixedMeasure = true
         m.setNested(
-            """{"id":"root","component":"Box","children":[{"id":"draft","component":"Input","props":{"label":"Draft","value":{"path":"/draft"}}},{"id":"save","component":"Button","props":{"label":"Save"},"on":{"press":{"functionCall":{"call":"set","args":{"path":"/draft","value":"x"}}}}}]}""",
+            """{"id":"root","component":"Box","children":[{"id":"draft","component":"Input","props":{"label":"Draft","value":{"@path":"/draft"}}},{"id":"save","component":"Button","props":{"label":"Save"},"on":{"press":{"functionCall":{"call":"set","args":{"@path":"/draft","value":"x"}}}}}]}""",
         )
         m.setData("/draft", JsonValue.Str("x"))
         m.setViewport(390f, 800f)

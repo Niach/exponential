@@ -16,6 +16,9 @@ import at.exponential.ui.extension.ExtensionLeaf
 import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.extension.ExtensionRegistry
 import at.exponential.ui.ffi.HostRouter
+import at.exponential.ui.ffi.actionMessageWithUserMessageJson
+import at.exponential.ui.ffi.errorMessageJson
+import at.exponential.ui.ffi.functionErrorMessageJson
 import at.exponential.ui.ffi.JsonlDecoder
 import at.exponential.ui.ffi.SseDecoder
 import at.exponential.ui.ffi.basicCatalogId
@@ -594,6 +597,71 @@ class ConformanceTest {
         return out
     }
 
+    /** Round 9 §15: the A2UI 1.0 wire, what the FFI reaches: `ids`, `cards` and a route with `acceptV09: false` have no entry yet, and fail by name. */
+    private fun a2ui10Suite(): List<Case> {
+        val f = json("a2ui10-messages.json")
+        val packages = f["packages"]!!
+        fun names(v: JsonValue, key: String) = list(v, key).mapNotNull { it.string }
+        val out = ArrayList<Case>()
+        for (c in list(f, "ids")) out.add(Case("id ${s(c, "id")}", "the FFI has no isIdentifier / mangle"))
+        for (flow in list(f, "flows")) {
+            out.add(
+                case("flow: ${s(flow, "name")}") {
+                    val router = HostRouter(names(flow, "extensionIds"))
+                    names(flow, "inlineCatalogs").forEach(router::registerInlineCatalog)
+                    for (id in names(flow, "packages")) router.installPackage(packages[id]!!.json)
+                    for ((i, step) in list(flow, "steps").withIndex()) {
+                        if (step["acceptV09"]?.bool == false) return@case "step $i: the FFI has no route with acceptV09 false"
+                        same(router.routeJson(step["message"]!!.json, step["trusted"]?.bool == true), step["expected"]!!)?.let { return@case "step $i: $it" }
+                    }
+                    null
+                },
+            )
+        }
+        for (c in list(f, "mint")) {
+            out.add(
+                case("mint: ${s(c, "name")}") {
+                    val router = HostRouter(emptyList())
+                    fun ops(kind: String, body: Map<String, JsonValue>): String {
+                        val message = JsonValue.Obj(mapOf("version" to JsonValue.Str("1.0"), kind to JsonValue.Obj(body)))
+                        return JsonValue.Arr(JsonValue.parse(router.routeJson(message.json, false)).array.orEmpty().map { it["op"] ?: JsonValue.Null }).json
+                    }
+                    for ((i, step) in list(c, "steps").withIndex()) {
+                        val created = step["create"]
+                        val deleted = step["delete"]
+                        val got = when {
+                            created != null -> ops("createSurface", mapOf("surfaceId" to created, "catalogId" to JsonValue.Str("https://ui.exponential.at/catalogs/core/v1")))
+                            deleted != null -> ops("deleteSurface", mapOf("surfaceId" to deleted))
+                            else -> JsonValue.Str(router.mintSurfaceId(s(step, "mint"))).json
+                        }
+                        same(got, step["expected"]!!)?.let { return@case "step $i: $it" }
+                    }
+                    null
+                },
+            )
+        }
+        for (c in list(f, "errors")) {
+            out.add(
+                case("error: ${s(c, "name")}") {
+                    val call = c["target"]?.get("functionCallId")?.string
+                    val got = if (call != null) functionErrorMessageJson(s(c, "code"), call, s(c, "message"), c["path"]?.string)
+                    else errorMessageJson(s(c, "code"), s(c["target"], "surfaceId"), s(c, "message"), c["path"]?.string)
+                    same(got, c["expected"]!!)
+                },
+            )
+        }
+        for (c in list(f, "actions")) {
+            val i = c["input"]!!
+            out.add(
+                case("action: ${s(c, "name")}") {
+                    same(actionMessageWithUserMessageJson(s(i, "surfaceId"), s(i, "sourceComponentId"), s(i, "name"), i["context"]!!.json, i["payload"]?.json, s(i, "timestamp"), i["userMessage"]?.string), c["expected"]!!)
+                },
+            )
+        }
+        for (c in list(f, "cards")) out.add(Case("card: ${s(c, "name")}", "the FFI has no cardV10"))
+        return out
+    }
+
     private fun suite(id: String): List<Case> = when (id) {
         "catalog" -> catalogSuite()
         "macros" -> macrosSuite()
@@ -610,6 +678,7 @@ class ConformanceTest {
         "host-transport" -> hostTransportSuite()
         "host-policy" -> hostPolicySuite()
         "host-router" -> hostRouterSuite()
+        "a2ui10" -> a2ui10Suite()
         "bind" -> Round2Suites.bind().map(::Case)
         "style-conditions" -> Round2Suites.styleConditions().map(::Case)
         "code-tokens" -> Round2Suites.codeTokens().map(::Case)

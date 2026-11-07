@@ -56,11 +56,11 @@ final class InteractionTests: XCTestCase {
         m.press(track)
         XCTAssertFalse(m.checked(track))
         // Radio: a dot press resolves the row by its index suffix.
-        let dot = m.index(of: "form-plan.dot.1")!
+        let dot = m.index(of: "form_plan.dot.1")!
         XCTAssertFalse(m.radioChecked(dot))
         m.press(dot)
         XCTAssertTrue(m.radioChecked(dot))
-        XCTAssertFalse(m.radioChecked(m.index(of: "form-plan.dot.0")!))
+        XCTAssertFalse(m.radioChecked(m.index(of: "form_plan.dot.0")!))
         // Segmented single + multiple.
         let seg = m.index(of: "segmented")!
         m.segmentedSelect(seg, value: .string("board"))

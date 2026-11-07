@@ -217,7 +217,7 @@ class ZoomableImageTest {
 
     @Test
     fun controlsNoneDrawsNoPillAndTheBoundScaleZooms() {
-        val m = render(node.replace("\"always\"", "\"none\"").replace("\"controls\"", "\"scale\":{\"path\":\"/scale\"},\"controls\""))
+        val m = render(node.replace("\"always\"", "\"none\"").replace("\"controls\"", "\"scale\":{\"@path\":\"/scale\"},\"controls\""))
         compose.onNodeWithTag("zoom-pill").assertDoesNotExist()
         compose.runOnIdle { m.setData("/scale", at.exponential.ui.json.JsonValue.Num(2.0)) }
         settle()

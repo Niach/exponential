@@ -110,7 +110,7 @@ class Round3Test {
 
     private val menuJson = """{"id":"root","component":"Box","children":[{"id":"ctx","component":"Menu","props":{"openOn":"contextmenu","items":[
           {"label":"Copy","value":"copy","shortcut":"C"},
-          {"kind":"checkbox","label":"Pin","value":"pin","checked":{"path":"/pinned"}},
+          {"kind":"checkbox","label":"Pin","value":"pin","checked":{"@path":"/pinned"}},
           {"kind":"separator"},
           {"kind":"submenu","label":"Move","items":[{"label":"Backlog","value":"backlog"},{"label":"Done","value":"done"}]}]},
         "on":{"select":{"event":{"name":"select"}}},
