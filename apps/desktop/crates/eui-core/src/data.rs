@@ -335,8 +335,8 @@ pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext
         "required" => validation(a("value").is_some_and(|v| truthy(v) && !v.as_array().is_some_and(Vec::is_empty))),
         // Round 9 §9.3: the hand-written dialect; a refused pattern or a
         // match past the step cap FAILS the evaluation (EXPRESSION_ERROR).
-        "regex" => match crate::regex::regex_test(a("value").unwrap_or(&Value::Null), &s("pattern")) {
-            Ok(ok) => validation(ok),
+        "regex" => match crate::regex::regex_step_count(a("value").unwrap_or(&Value::Null), a("pattern").unwrap_or(&Value::Null)) {
+            Ok((ok, _)) => validation(ok),
             Err(message) => {
                 ctx.fail(&message);
                 return None;

@@ -629,11 +629,13 @@ fn client_code(code: &str) -> Option<&'static str> {
 fn upgrade_client_action(body: &Obj) -> Value {
     let mut out = Obj::new();
     let mut added = Obj::new();
+    if let Some(v) = body.get("payload") {
+        if present(Some(v)) && !v.as_object().is_some_and(Map::is_empty) {
+            added.insert("at_exponential_payload".into(), v.clone());
+        }
+    }
     for (k, v) in body {
         if k == "payload" {
-            if present(Some(v)) && !v.as_object().is_some_and(Map::is_empty) {
-                added.insert("at_exponential_payload".into(), v.clone());
-            }
             continue;
         }
         if k == "sourceComponentId" {

@@ -11,10 +11,12 @@
 //!    not valid, > 4096 code points → not valid);
 //! 5. search match under a 1,000,000-step cap → `regex: too expensive`.
 //!
-//! The matcher compiles the AST to a small program run by an explicit
-//! backtracking VM (no recursion, so a 4096-code-point input never deepens
-//! the native stack). One step = one executed instruction, i.e. one attempt
-//! of one AST node (or one loop decision of a quantifier) at one position.
+//! The matcher walks the AST in continuation-passing form with an explicit
+//! backtrack stack (no recursion but lookaheads, so a 4096-code-point input
+//! never deepens the native stack). One step = one attempt of one AST node at
+//! one position, counted as `fixtures/regex.json` `$comment` locks it.
+
+use std::rc::Rc;
 
 use serde_json::Value;
 
@@ -27,20 +29,28 @@ const MAX_CP: u32 = 0x10FFFF;
 /// Ok(true/false) = {"valid": true|false}; Err(message) = EXPRESSION_ERROR with that message
 /// (e.g. "regex: pattern longer than 256 code points", "regex: <reason> at <offset>", "regex: rule 3", "regex: too expensive").
 pub fn regex_test(value: &Value, pattern: &str) -> Result<bool, String> {
+    regex_step_count(value, &Value::String(pattern.to_string())).map(|(valid, _)| valid)
+}
+
+/// [`regex_test`] for a pattern that may not be a string (`regex: pattern is
+/// not a string at 0`), plus the steps the match took (`fixtures/regex.json`
+/// `steps`; 0 when no match ran).
+pub fn regex_step_count(value: &Value, pattern: &Value) -> Result<(bool, u64), String> {
+    let Some(pattern) = pattern.as_str() else { return Err("regex: pattern is not a string at 0".to_string()) };
     let ast = checked_ast(pattern)?;
     let text = match value {
         Value::Null => String::new(),
         Value::Bool(_) | Value::Number(_) => crate::json::to_js_string(value),
         Value::String(s) => s.clone(),
-        Value::Array(_) | Value::Object(_) => return Ok(false),
+        Value::Array(_) | Value::Object(_) => return Ok((false, 0)),
     };
     let input: Vec<u32> = text.chars().map(|c| c as u32).collect();
     if input.len() > MAX_VALUE_CODE_POINTS {
-        return Ok(false);
+        return Ok((false, 0));
     }
-    let prog = Program::compile(&ast);
-    prog.search(&input, MAX_STEPS)
-        .map_err(|TooExpensive| "regex: too expensive".to_string())
+    let mut m = Matcher { input: &input, steps: 0, cap: MAX_STEPS };
+    let valid = m.search(&ast).map_err(|TooExpensive| "regex: too expensive".to_string())?;
+    Ok((valid, m.steps))
 }
 
 /// Steps 1-3 only (length, parse, safety) — for static checks.
@@ -656,242 +666,131 @@ fn safety(n: &Node) -> Option<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Matcher: a backtracking VM over the compiled AST.
-
-#[derive(Clone, Copy, Debug)]
-enum Inst {
-    Set(usize),
-    Assert(Assert),
-    /// Try the next instruction, keep `target` as the alternative.
-    Fork(usize),
-    Jmp(usize),
-    /// count = 0.
-    RepInit(usize),
-    /// The loop decision (ECMAScript RepeatMatcher order).
-    RepLoop { reg: usize, min: u32, max: Option<u32>, lazy: bool, exit: usize },
-    /// start = pos; falls through into the body.
-    RepEnter(usize),
-    /// Empty-iteration check, count += 1, back to `RepLoop`.
-    RepEnd { reg: usize, min: u32, loop_pc: usize },
-    LookStart { negative: bool, cont: usize },
-    LookEnd,
-    Match,
-}
+// Matcher: ECMAScript backtracking in continuation-passing form, with an
+// explicit backtrack stack (the AST walk of `src/regex.ts`, so the step count
+// of `fixtures/regex.json` is the same). One step = one `match(node, pos, k)`.
 
 #[derive(Debug)]
 struct TooExpensive;
 
-enum Bt {
-    Alt { pc: usize, pos: usize },
-    Undo { reg: usize, old: usize },
-    Barrier { pos: usize, cont: usize, negative: bool },
+type Next<'a> = Option<Rc<Cont<'a>>>;
+
+enum Cont<'a> {
+    Seq { items: &'a [Node], i: usize, next: Next<'a> },
+    Rep { q: &'a Node, min: u32, max: Option<u32>, x: usize, next: Next<'a> },
 }
 
-struct Program {
-    insts: Vec<Inst>,
-    sets: Vec<Set>,
-    repeats: usize,
+#[derive(Clone)]
+enum Goal<'a> {
+    Match { node: &'a Node, pos: usize, cont: Next<'a> },
+    Continue { pos: usize, cont: Next<'a> },
 }
 
-impl Program {
-    fn compile(ast: &Node) -> Program {
-        let mut p = Program { insts: Vec::new(), sets: Vec::new(), repeats: 0 };
-        p.emit(ast);
-        p.insts.push(Inst::Match);
-        p
+/// ECMAScript RepeatMatcher(min, max, greedy, x, c): the next goal; the other
+/// choice goes on the backtrack stack.
+fn repeat<'a>(q: &'a Node, min: u32, max: Option<u32>, x: usize, next: Next<'a>, stack: &mut Vec<Goal<'a>>) -> Goal<'a> {
+    let Node::Repeat { child, lazy, .. } = q else { unreachable!("repeat over a quantifier") };
+    if max == Some(0) {
+        return Goal::Continue { pos: x, cont: next };
+    }
+    let atom = Goal::Match { node: child, pos: x, cont: Some(Rc::new(Cont::Rep { q, min, max, x, next: next.clone() })) };
+    if min != 0 {
+        return atom;
+    }
+    if *lazy {
+        stack.push(atom);
+        Goal::Continue { pos: x, cont: next }
+    } else {
+        stack.push(Goal::Continue { pos: x, cont: next });
+        atom
+    }
+}
+
+struct Matcher<'v> {
+    input: &'v [u32],
+    steps: u64,
+    cap: u64,
+}
+
+impl Matcher<'_> {
+    fn word_at(&self, i: Option<usize>) -> bool {
+        i.and_then(|i| self.input.get(i)).is_some_and(|c| is_ascii_word(*c))
     }
 
-    fn emit(&mut self, n: &Node) {
-        match n {
-            Node::Set(s) => {
-                self.sets.push(s.clone());
-                self.insts.push(Inst::Set(self.sets.len() - 1));
-            }
-            Node::Assert(a) => self.insts.push(Inst::Assert(*a)),
-            Node::Group(c) => self.emit(c),
-            Node::Concat(v) => v.iter().for_each(|x| self.emit(x)),
-            Node::Alt(branches) => {
-                let mut jumps = Vec::new();
-                for (i, b) in branches.iter().enumerate() {
-                    if i + 1 < branches.len() {
-                        let fork = self.insts.len();
-                        self.insts.push(Inst::Fork(0));
-                        self.emit(b);
-                        jumps.push(self.insts.len());
-                        self.insts.push(Inst::Jmp(0));
-                        self.insts[fork] = Inst::Fork(self.insts.len());
-                    } else {
-                        self.emit(b);
+    /// Does `root` match at `start`? A lookahead runs its own (atomic) sub-match.
+    fn run(&mut self, root: &Node, start: usize) -> Result<bool, TooExpensive> {
+        let mut stack: Vec<Goal> = Vec::new();
+        let mut goal = Some(Goal::Match { node: root, pos: start, cont: None });
+        while let Some(g) = goal.take() {
+            goal = match g {
+                Goal::Match { node, pos, cont } => {
+                    self.steps += 1;
+                    if self.steps > self.cap {
+                        return Err(TooExpensive);
+                    }
+                    match node {
+                        Node::Set(set) => {
+                            if self.input.get(pos).is_some_and(|c| set.contains(*c)) {
+                                Some(Goal::Continue { pos: pos + 1, cont })
+                            } else {
+                                stack.pop()
+                            }
+                        }
+                        Node::Assert(a) => {
+                            let hit = match a {
+                                Assert::Start => pos == 0,
+                                Assert::End => pos == self.input.len(),
+                                Assert::WordBoundary | Assert::NotWordBoundary => {
+                                    (self.word_at(pos.checked_sub(1)) != self.word_at(Some(pos))) == (*a == Assert::WordBoundary)
+                                }
+                            };
+                            if hit { Some(Goal::Continue { pos, cont }) } else { stack.pop() }
+                        }
+                        Node::Look { negative, child } => {
+                            if self.run(child, pos)? != *negative { Some(Goal::Continue { pos, cont }) } else { stack.pop() }
+                        }
+                        Node::Group(child) => Some(Goal::Match { node: child, pos, cont }),
+                        Node::Concat(items) => Some(Goal::Continue { pos, cont: Some(Rc::new(Cont::Seq { items, i: 0, next: cont })) }),
+                        Node::Alt(branches) => {
+                            for b in branches[1..].iter().rev() {
+                                stack.push(Goal::Match { node: b, pos, cont: cont.clone() });
+                            }
+                            Some(Goal::Match { node: &branches[0], pos, cont })
+                        }
+                        Node::Repeat { min, max, .. } => Some(repeat(node, *min, *max, pos, cont, &mut stack)),
                     }
                 }
-                let end = self.insts.len();
-                for j in jumps {
-                    self.insts[j] = Inst::Jmp(end);
-                }
-            }
-            Node::Repeat { child, min, max, lazy } => {
-                let reg = self.repeats;
-                self.repeats += 1;
-                self.insts.push(Inst::RepInit(reg));
-                let loop_pc = self.insts.len();
-                self.insts.push(Inst::Jmp(0)); // patched to RepLoop
-                self.insts.push(Inst::RepEnter(reg));
-                self.emit(child);
-                self.insts.push(Inst::RepEnd { reg, min: *min, loop_pc });
-                let exit = self.insts.len();
-                self.insts[loop_pc] = Inst::RepLoop { reg, min: *min, max: *max, lazy: *lazy, exit };
-            }
-            Node::Look { negative, child } => {
-                let at = self.insts.len();
-                self.insts.push(Inst::LookStart { negative: *negative, cont: 0 });
-                self.emit(child);
-                self.insts.push(Inst::LookEnd);
-                self.insts[at] = Inst::LookStart { negative: *negative, cont: self.insts.len() };
-            }
-        }
-    }
-
-    /// Search semantics: each start offset in order, one shared step budget.
-    fn search(&self, input: &[u32], cap: u64) -> Result<bool, TooExpensive> {
-        let mut steps = 0u64;
-        for start in 0..=input.len() {
-            if self.run(input, start, &mut steps, cap)? {
-                return Ok(true);
-            }
+                Goal::Continue { pos, cont } => match cont.as_deref() {
+                    None => return Ok(true),
+                    Some(Cont::Seq { items, i, next }) => {
+                        if *i == items.len() {
+                            Some(Goal::Continue { pos, cont: next.clone() })
+                        } else {
+                            let tail = Rc::new(Cont::Seq { items, i: i + 1, next: next.clone() });
+                            Some(Goal::Match { node: &items[*i], pos, cont: Some(tail) })
+                        }
+                    }
+                    Some(Cont::Rep { q, min, max, x, next }) => {
+                        if *min == 0 && pos == *x {
+                            stack.pop()
+                        } else {
+                            Some(repeat(q, min.saturating_sub(1), max.map(|m| m - 1), pos, next.clone(), &mut stack))
+                        }
+                    }
+                },
+            };
         }
         Ok(false)
     }
 
-    fn run(&self, input: &[u32], start: usize, steps: &mut u64, cap: u64) -> Result<bool, TooExpensive> {
-        // regs[2r] = iteration count, regs[2r + 1] = iteration start position.
-        let mut regs = vec![0usize; self.repeats * 2];
-        let mut stack: Vec<Bt> = Vec::new();
-        let (mut pc, mut pos) = (0usize, start);
-        let set_reg = |regs: &mut Vec<usize>, stack: &mut Vec<Bt>, reg: usize, v: usize| {
-            stack.push(Bt::Undo { reg, old: regs[reg] });
-            regs[reg] = v;
-        };
-        loop {
-            *steps += 1;
-            if *steps > cap {
-                return Err(TooExpensive);
-            }
-            let ok = match self.insts[pc] {
-                Inst::Set(i) => {
-                    if pos < input.len() && self.sets[i].contains(input[pos]) {
-                        pos += 1;
-                        pc += 1;
-                        true
-                    } else {
-                        false
-                    }
-                }
-                Inst::Assert(a) => {
-                    let hit = match a {
-                        Assert::Start => pos == 0,
-                        Assert::End => pos == input.len(),
-                        Assert::WordBoundary | Assert::NotWordBoundary => {
-                            let before = pos > 0 && is_ascii_word(input[pos - 1]);
-                            let after = pos < input.len() && is_ascii_word(input[pos]);
-                            (before != after) == (a == Assert::WordBoundary)
-                        }
-                    };
-                    pc += 1;
-                    hit
-                }
-                Inst::Fork(target) => {
-                    stack.push(Bt::Alt { pc: target, pos });
-                    pc += 1;
-                    true
-                }
-                Inst::Jmp(target) => {
-                    pc = target;
-                    true
-                }
-                Inst::RepInit(reg) => {
-                    set_reg(&mut regs, &mut stack, reg * 2, 0);
-                    pc += 1;
-                    true
-                }
-                Inst::RepLoop { reg, min, max, lazy, exit } => {
-                    let count = regs[reg * 2] as u64;
-                    let enter = pc + 1;
-                    if max.is_some_and(|m| count >= m as u64) {
-                        pc = exit;
-                    } else if count < min as u64 {
-                        pc = enter;
-                    } else if lazy {
-                        stack.push(Bt::Alt { pc: enter, pos });
-                        pc = exit;
-                    } else {
-                        stack.push(Bt::Alt { pc: exit, pos });
-                        pc = enter;
-                    }
-                    true
-                }
-                Inst::RepEnter(reg) => {
-                    set_reg(&mut regs, &mut stack, reg * 2 + 1, pos);
-                    pc += 1;
-                    true
-                }
-                Inst::RepEnd { reg, min, loop_pc } => {
-                    let count = regs[reg * 2];
-                    if count as u64 >= min as u64 && pos == regs[reg * 2 + 1] {
-                        false
-                    } else {
-                        set_reg(&mut regs, &mut stack, reg * 2, count + 1);
-                        pc = loop_pc;
-                        true
-                    }
-                }
-                Inst::LookStart { negative, cont } => {
-                    stack.push(Bt::Barrier { pos, cont, negative });
-                    pc += 1;
-                    true
-                }
-                Inst::LookEnd => {
-                    // Atomic: drop every alternative inside, keep the undo log.
-                    let mut undos = Vec::new();
-                    let (bpos, cont, negative) = loop {
-                        match stack.pop().expect("look barrier") {
-                            Bt::Barrier { pos, cont, negative } => break (pos, cont, negative),
-                            u @ Bt::Undo { .. } => undos.push(u),
-                            Bt::Alt { .. } => {}
-                        }
-                    };
-                    stack.extend(undos.into_iter().rev());
-                    if negative {
-                        false
-                    } else {
-                        pos = bpos;
-                        pc = cont;
-                        true
-                    }
-                }
-                Inst::Match => return Ok(true),
-            };
-            if !ok {
-                loop {
-                    match stack.pop() {
-                        None => return Ok(false),
-                        Some(Bt::Alt { pc: p, pos: q }) => {
-                            pc = p;
-                            pos = q;
-                            break;
-                        }
-                        Some(Bt::Undo { reg, old }) => regs[reg] = old,
-                        Some(Bt::Barrier { pos: q, cont, negative }) => {
-                            if negative {
-                                // The inside failed everywhere: `(?!…)` holds.
-                                pc = cont;
-                                pos = q;
-                                break;
-                            }
-                        }
-                    }
-                }
+    /// Search semantics: each start offset in order, one shared step budget.
+    fn search(&mut self, root: &Node) -> Result<bool, TooExpensive> {
+        for start in 0..=self.input.len() {
+            if self.run(root, start)? {
+                return Ok(true);
             }
         }
+        Ok(false)
     }
 }
 
@@ -1024,11 +923,11 @@ mod tests {
     fn atomicity_in_steps() {
         // Without backreferences atomicity only shows in the step count: once
         // the lookahead matched via "a", the "ab" branch is never tried.
-        let prog = Program::compile(&checked_ast("^(?=a|ab)x").unwrap());
+        let ast = checked_ast("^(?=a|ab)x").unwrap();
         let input: Vec<u32> = "abz".chars().map(|c| c as u32).collect();
-        let mut steps = 0;
-        assert!(!prog.run(&input, 0, &mut steps, u64::MAX).unwrap());
-        assert_eq!(steps, 7, "^, LookStart, Fork, a, Jmp, LookEnd, x");
+        let mut m = Matcher { input: &input, steps: 0, cap: u64::MAX };
+        assert!(!m.run(&ast, 0).unwrap());
+        assert_eq!(m.steps, 7, "concat, ^, look, alt, concat, a, x");
         assert!(t("ab", "^(?=(?:a|ab)$)"), "backtracking inside is fine");
         assert!(t("ab", "^(?=(?:a|ab)$)ab"));
     }
@@ -1144,12 +1043,12 @@ mod tests {
         // Anchored, the same pattern is linear.
         assert!(!regex_test(&value, "^a*b").unwrap());
         // The counter itself, under a lowered cap.
-        let prog = Program::compile(&checked_ast("abc").unwrap());
+        let ast = checked_ast("abc").unwrap();
         let input: Vec<u32> = "xxabc".chars().map(|c| c as u32).collect();
-        let mut steps = 0;
-        assert!(prog.run(&input, 2, &mut steps, u64::MAX).unwrap());
-        assert_eq!(steps, 4, "a, b, c, Match");
-        assert!(prog.search(&input, 100).unwrap());
-        assert!(prog.search(&input, 3).is_err());
+        let mut m = Matcher { input: &input, steps: 0, cap: u64::MAX };
+        assert!(m.run(&ast, 2).unwrap());
+        assert_eq!(m.steps, 4, "concat, a, b, c");
+        assert!(Matcher { input: &input, steps: 0, cap: 100 }.search(&ast).unwrap());
+        assert!(Matcher { input: &input, steps: 0, cap: 3 }.search(&ast).is_err());
     }
 }
