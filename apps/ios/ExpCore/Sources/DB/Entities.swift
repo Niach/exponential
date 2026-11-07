@@ -1884,8 +1884,19 @@ public struct AppRecordOutboxEntity: Codable, FetchableRecord, PersistableRecord
         guard let call = AppRecords.OutboxCall(rawValue: call) else { return nil }
         let parsed = (try? JSONSerialization.jsonObject(with: Data(writes.utf8), options: [.fragmentsAllowed]))
         guard case let .array(list)? = CardJSON(any: parsed) else { return nil }
+        // A write that does not parse makes the whole row unreadable: dropping
+        // it would replay the rest (a batch's other writes land without it,
+        // an upsert with none is refused as a delete).
+        let writes = list.compactMap(AppRecords.OutboxWrite.init(json:))
+        guard writes.count == list.count, call == .batch || writes.count == 1 else { return nil }
+        // A create / update without a kind cannot replay either.
+        for write in list {
+            guard let object = write.objectValue else { return nil }
+            if case .string("delete")? = object["op"] { continue }
+            guard case .string? = object["kind"] else { return nil }
+        }
         return AppRecords.OutboxEntry(
-            writeId: writeId, appId: appId, call: call, writes: list.compactMap(AppRecords.OutboxWrite.init(json:)),
+            writeId: writeId, appId: appId, call: call, writes: writes,
             at: at, state: AppRecords.OutboxEntry.State(rawValue: state) ?? .pending, ackedAt: ackedAt
         )
     }

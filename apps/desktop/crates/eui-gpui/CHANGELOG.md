@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.19.1 (2026-11-07)
+
+- Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 9 parity: Markdown's inline code paints the `Markdown/code` recipe in its own type over a placeholder (a span wider than its line stays a breaking mono run), a disc at every list depth, an ordered marker one space before the text (`fixtures/markdown-inline.json` `documentPaint`).

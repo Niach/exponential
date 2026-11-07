@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.19.1 (2026-11-07)
+
+- Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
+
 ## 0.19.0 (2026-11-07)
 
 - An app's own file as a src (#VAPP-271): `host::app_file_id(src)` (the id of an `app-file:<fileId>` src, else `None`), `APP_FILE_SCHEME` / `APP_FILE_ID_PATTERN` (`catalog/host.json` `media.appFile`); no URL or media scheme, a host with app files resolves it before the media policy. Locked by `fixtures/host-policy.json` `appFiles`.

@@ -105,6 +105,29 @@
                     },
                     "children": [
                       {
+                        "id": "ide_switcher_mark",
+                        "component": "Icon",
+                        "props": {
+                          "name": {
+                            "@path": "/shell/ide/teamMark"
+                          }
+                        },
+                        "style": {
+                          "width": 28,
+                          "height": 28
+                        },
+                        "visible": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/shell/ide/teamMark"
+                            },
+                            "then": true,
+                            "else": false
+                          }
+                        }
+                      },
+                      {
                         "id": "switcher_avatar",
                         "component": "Avatar",
                         "props": {
@@ -133,6 +156,27 @@
                           "size": "sm",
                           "tone": "neutral"
                         }
+                      },
+                      {
+                        "id": "ide_switcher_chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": {
+                            "@path": "/shell/ide/chevron"
+                          },
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "visible": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/shell/ide/chevron"
+                            },
+                            "then": true,
+                            "else": false
+                          }
+                        }
                       }
                     ]
                   },
@@ -153,6 +197,29 @@
                             "app": "at.exponential"
                           }
                         }
+                      }
+                    }
+                  },
+                  {
+                    "id": "ide_inbox",
+                    "component": "Icon",
+                    "props": {
+                      "name": {
+                        "@path": "/shell/ide/inbox"
+                      }
+                    },
+                    "style": {
+                      "width": 32,
+                      "height": 32
+                    },
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/shell/ide/inbox"
+                        },
+                        "then": true,
+                        "else": false
                       }
                     }
                   },
@@ -191,6 +258,21 @@
                           "@call": "ede_launch",
                           "args": {
                             "app": "at.exponential"
+                          }
+                        }
+                      }
+                    },
+                    "visible": {
+                      "@call": "not",
+                      "args": {
+                        "value": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/shell/ide/noBoard"
+                            },
+                            "then": true,
+                            "else": false
                           }
                         }
                       }
@@ -304,6 +386,26 @@
                                   },
                                   "size": "sm"
                                 }
+                              },
+                              "trailing": {
+                                "id": "ide_switcher_entry_dot",
+                                "component": "Icon",
+                                "props": {
+                                  "name": {
+                                    "@path": "dotIcon"
+                                  },
+                                  "size": "sm"
+                                },
+                                "visible": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "dotIcon"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
                               }
                             },
                             "on": {
@@ -405,13 +507,90 @@
                           "@call": "not",
                           "args": {
                             "value": {
-                              "@call": "cond",
+                              "@call": "or",
                               "args": {
-                                "if": {
-                                  "@path": "/shell/switcher/connection/connected"
-                                },
-                                "then": true,
-                                "else": false
+                                "values": [
+                                  {
+                                    "@call": "cond",
+                                    "args": {
+                                      "if": {
+                                        "@path": "/shell/switcher/connection/connected"
+                                      },
+                                      "then": true,
+                                      "else": false
+                                    }
+                                  },
+                                  {
+                                    "@call": "cond",
+                                    "args": {
+                                      "if": {
+                                        "@path": "/shell/ide/signedIn"
+                                      },
+                                      "then": true,
+                                      "else": false
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "ide_switcher_new_team",
+                        "component": "Row",
+                        "props": {
+                          "title": "New team",
+                          "icon": "ui-add",
+                          "density": "compact",
+                          "pressable": true
+                        },
+                        "visible": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/shell/ide/signedIn"
+                            },
+                            "then": true,
+                            "else": false
+                          }
+                        },
+                        "on": {
+                          "press": {
+                            "event": {
+                              "name": "ide_switcher",
+                              "context": {
+                                "action": "new_team"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "ide_switcher_join",
+                        "component": "Row",
+                        "props": {
+                          "title": "Join team",
+                          "icon": "ui-invite",
+                          "density": "compact",
+                          "pressable": true
+                        },
+                        "visible": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/shell/ide/signedIn"
+                            },
+                            "then": true,
+                            "else": false
+                          }
+                        },
+                        "on": {
+                          "press": {
+                            "event": {
+                              "name": "ide_switcher",
+                              "context": {
+                                "action": "join_team"
                               }
                             }
                           }
@@ -478,6 +657,29 @@
                     }
                   },
                   {
+                    "id": "ide_rail_inbox",
+                    "component": "Icon",
+                    "props": {
+                      "name": {
+                        "@path": "/shell/ide/inbox"
+                      }
+                    },
+                    "style": {
+                      "width": 32,
+                      "height": 32
+                    },
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/shell/ide/inbox"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
+                  },
+                  {
                     "id": "rail_search",
                     "component": "Button",
                     "props": {
@@ -512,6 +714,21 @@
                           "@call": "ede_launch",
                           "args": {
                             "app": "at.exponential"
+                          }
+                        }
+                      }
+                    },
+                    "visible": {
+                      "@call": "not",
+                      "args": {
+                        "value": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/shell/ide/noBoard"
+                            },
+                            "then": true,
+                            "else": false
                           }
                         }
                       }
@@ -594,9 +811,6 @@
                       "pressable": true,
                       "selected": {
                         "@path": "selected"
-                      },
-                      "meta": {
-                        "@path": "meta"
                       }
                     },
                     "on": {
@@ -1396,9 +1610,6 @@
                                   "selected": {
                                     "@path": "selected"
                                   },
-                                  "meta": {
-                                    "@path": "meta"
-                                  },
                                   "icon": {
                                     "@path": "icon"
                                   }
@@ -1609,9 +1820,6 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
-                                  },
-                                  "meta": {
-                                    "@path": "meta"
                                   }
                                 },
                                 "on": {
@@ -1853,9 +2061,6 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
-                                  },
-                                  "meta": {
-                                    "@path": "meta"
                                   }
                                 },
                                 "on": {
@@ -2079,9 +2284,6 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
-                                  },
-                                  "meta": {
-                                    "@path": "meta"
                                   }
                                 },
                                 "on": {

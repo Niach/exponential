@@ -270,7 +270,7 @@ with the generated catalog and themes) and the Android Compose painter
 the `exponential-ui-ffi` `.so`) now carry them too, so both rows read
 `clients: ["web", "desktop", "ios", "android"]`. The Compose painter AAR's
 runtime third-party set is Jetpack Compose (Apache-2.0, already in the Android
-app's inventory) plus JNA 5.17.0 (`net.java.dev.jna:jna@aar`, dual
+app's inventory) plus JNA 5.18.1 (`net.java.dev.jna:jna@aar`, dual
 LGPL-2.1-or-later / Apache-2.0; we elect Apache-2.0) and, for Video /
 AudioPlayer playback (VAPP-103), AndroidX Media3 1.11.1
 (`media3-exoplayer` + `media3-ui`, Apache-2.0, the same line the Android

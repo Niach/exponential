@@ -328,6 +328,30 @@ final class HostTests: XCTestCase {
         }
     }
 
+    /// Round 9 §12: a formatVersion 5 package is installed UPGRADED, and the
+    /// gate narrows with the upgraded `functions` (`records.*` →
+    /// `records_*`), or every flat call its template makes is denied (an
+    /// app's record form on the phones, #VAPP-272).
+    func testAFormat5PackageNarrowsWithItsUpgradedFunctions() throws {
+        let package = JSONValue.object([
+            "formatVersion": .number(5), "id": .string("acme.v5"), "name": .string("V5"), "version": .string("1.0.0"),
+            "catalogId": .string(core), "functions": .array([.string("records.*")]),
+            "templates": .object(["main": .object(["components": .array([
+                .object(["id": .string("root"), "component": .string("Text"), "text": .string("hi")]),
+            ])])]),
+        ])
+        let host = ExponentialHost(HostOptions(
+            transport: MemoryTransport(),
+            functions: ["records_upsert": { _, _ in nil }, "harness_toast": { _, _ in nil }],
+            packages: [package.json]
+        ))
+        host.connect()
+        host.receive(msg("applyTemplate", .object(["surfaceId": .string("w1"), "templateId": .string("main"), "packageId": .string("acme.v5")])), trusted: true)
+        XCTAssertNotNil(host.surface("w1"))
+        XCTAssertEqual(host.decide(surfaceId: "w1", name: "records_upsert"), .allow)
+        XCTAssertEqual(host.decide(surfaceId: "w1", name: "harness_toast"), .deny)
+    }
+
     func testFunctionGateConsentAndPackageNarrowing() async throws {
         let transport = MemoryTransport()
         var ran: [String] = []

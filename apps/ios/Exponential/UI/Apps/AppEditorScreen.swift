@@ -90,9 +90,6 @@ struct AppEditorScreen: View {
     /// until known): at `read` the preview paints the app's own writing
     /// controls disabled.
     @State private var access: String?
-    /// VAPP-235: the app's queued record writes (`outboxPendingLabel`; nil
-    /// = none): the header's `ui-offline` glyph.
-    @State private var outboxLabel: String?
     /// VAPP-218 (apps.json `screens`): the screen the preview is asked for
     /// (nil = the package's first): a link's, a bar tap's (its own params)
     /// or the package's `app.navigate`; kept in memory across repaints.
@@ -165,11 +162,6 @@ struct AppEditorScreen: View {
         }
         .task(id: appId) {
             access = try? await McpServersApi(trpc: deps.trpc).appAccessMine(accountId: accountId, appId: appId).level
-        }
-        .task(id: appId) {
-            await AppRecordOutbox.pendingLabels(accountId: accountId, appId: appId, db: deps.db) { label in
-                outboxLabel = label
-            }
         }
         .task(id: appId) {
             if firstDraft?.appId != appId {
@@ -313,14 +305,7 @@ struct AppEditorScreen: View {
                 .truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader)
             AppVersionPill(app: app)
-            // VAPP-235 (app-records.json `outbox`): the app's writes waiting
-            // to sync: the muted `ui-offline` glyph, labelled with the count.
-            if let outboxLabel {
-                AppIcon(AppIcons.uiOffline, size: 14)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .help(outboxLabel)
-                    .accessibilityLabel(outboxLabel)
-            }
+            AppOutboxPendingGlyph(appId: app.id)
         }
     }
 
