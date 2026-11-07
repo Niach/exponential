@@ -18,21 +18,21 @@ public enum RunnerLinks {
 
 public enum RunnerFunctions {
     /// The record writes (the Engine's store).
-    public static let records = ["records.upsert", "records.delete", "records.batch"]
+    public static let records = ["records_upsert", "records_delete", "records_batch"]
 
     /// Every app-callable capability tool of the Engine's catalog
     /// (capabilities.json `capabilities[].scopes[].tools`, `hostOnly` ones
     /// excluded): the broker refuses what the package did not declare.
     public static let capabilities = [
-        "camera.capture",
-        "clipboard.read", "clipboard.write",
-        "files.open", "files.save",
-        "http.fetch",
-        "location.current",
-        "notifications.cancel", "notifications.post",
-        "photos.get", "photos.list", "photos.pick",
-        "print.pdf", "print.print",
-        "share.send",
+        "camera_capture",
+        "clipboard_read", "clipboard_write",
+        "files_open", "files_save",
+        "http_fetch",
+        "location_current",
+        "notifications_cancel", "notifications_post",
+        "photos_get", "photos_list", "photos_pick",
+        "print_pdf", "print_print",
+        "share_send",
     ]
 
     /// What the painter registers as host functions, each answered by `RunnerSession.call`.

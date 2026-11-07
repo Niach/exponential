@@ -219,7 +219,7 @@ public final class RunnerSession: @unchecked Sendable {
             guard let screen = context["screen"] as? String else { return true }
             queue.async { [self] in
                 guard let instance else { return }
-                let result = Result { try instance.call(name: "app.navigate", argsJson: RunnerJSON.text(["screen": screen]), newIds: []) }
+                let result = Result { try instance.call(name: "app_navigate", argsJson: RunnerJSON.text(["screen": screen]), newIds: []) }
                 if case let .success(.refused(_, message)) = result { toast(message) }
             }
         case "runner.permissions":
@@ -345,8 +345,8 @@ public final class RunnerSession: @unchecked Sendable {
     static func newIds(name: String, argsJson: String) -> [String] {
         let count: Int
         switch name {
-        case "records.upsert": count = 1
-        case "records.batch": count = (RunnerJSON.object(argsJson)?["writes"] as? [Any])?.count ?? 0
+        case "records_upsert": count = 1
+        case "records_batch": count = (RunnerJSON.object(argsJson)?["writes"] as? [Any])?.count ?? 0
         default: count = 0
         }
         return (0..<count).map { _ in UUID().uuidString.lowercased() }

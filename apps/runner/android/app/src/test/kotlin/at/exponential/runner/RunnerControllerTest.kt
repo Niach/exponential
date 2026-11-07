@@ -79,10 +79,10 @@ class RunnerControllerTest {
         h.controller.bindSource("records:note") { seen.add(it) }
         withTimeout(5000) { while (seen.isEmpty()) yield() }
         assertEquals(0.0, seen.last()!!["count"]!!.number)
-        val created = h.controller.call("records.upsert", obj("kind" to "note", "data" to mapOf("text" to "hi")))
+        val created = h.controller.call("records_upsert", obj("kind" to "note", "data" to mapOf("text" to "hi")))
         assertEquals("id-1", created!!["id"]!!.string)
         assertEquals(1.0, seen.last()!!["count"]!!.number)
-        val batch = h.controller.call("records.batch", obj("writes" to listOf(mapOf("op" to "upsert", "kind" to "note", "data" to mapOf("text" to "a")))))
+        val batch = h.controller.call("records_batch", obj("writes" to listOf(mapOf("op" to "upsert", "kind" to "note", "data" to mapOf("text" to "a")))))
         assertTrue("batch: $batch", batch != null)
         assertEquals(2.0, seen.last()!!["count"]!!.number)
     }
@@ -92,7 +92,7 @@ class RunnerControllerTest {
         val h = Harness()
         h.start(ALBUM)
         h.controller.lifecycle("""{"type":"launch"}""")
-        val pick = async { h.controller.call("photos.pick", obj()) }
+        val pick = async { h.controller.call("photos_pick", obj()) }
         withTimeout(5000) { while (h.painter.surfaces[RunnerSurfaces.CONSENT] == null) yield() }
         val (sheet, data) = h.painter.surfaces[RunnerSurfaces.CONSENT]!!
         assertEquals("Drawer", sheet.array!![0]["component"]!!.string)
@@ -106,7 +106,7 @@ class RunnerControllerTest {
         assertNull("the sheet closes", h.painter.surfaces[RunnerSurfaces.CONSENT])
         assertEquals("""{"photos.read":"granted"}""", h.controller.app!!.grantsJson())
         // Granted: the next pick runs without the sheet.
-        h.controller.call("photos.pick", obj())
+        h.controller.call("photos_pick", obj())
         assertEquals(2, h.photos.calls)
     }
 
@@ -115,14 +115,14 @@ class RunnerControllerTest {
         val h = Harness()
         h.start(ALBUM)
         h.controller.lifecycle("""{"type":"launch"}""")
-        val pick = async { h.controller.call("photos.pick", obj()) }
+        val pick = async { h.controller.call("photos_pick", obj()) }
         withTimeout(5000) { while (h.painter.surfaces[RunnerSurfaces.CONSENT] == null) yield() }
         h.controller.onEvent("consent.answer", obj("answer" to "deny"))
         assertNull(withTimeout(5000) { pick.await() })
         assertEquals(0, h.photos.calls)
         assertEquals("""{"photos.read":"denied"}""", h.controller.app!!.grantsJson())
         assertTrue(h.painter.surfaces.containsKey(RunnerSurfaces.TOAST))
-        assertNull(h.controller.call("camera.capture", obj()))
+        assertNull(h.controller.call("camera_capture", obj()))
         assertEquals(JsonValue.parse(runnerToast("notDeclared")), h.painter.surfaces[RunnerSurfaces.TOAST]!!.first)
         val toast = Fixtures.runner()["toastCases"]!!.array!![0]
         assertEquals(toast["expected"], JsonValue.parse(runnerToast(toast["message"]!!.string!!)))
