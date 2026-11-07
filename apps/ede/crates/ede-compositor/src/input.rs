@@ -303,6 +303,7 @@ impl Ede {
         match hit {
             crate::frames::Hit::Close => self.close_window(&window),
             crate::frames::Hit::Maximize => self.toggle_maximized(&window),
+            crate::frames::Hit::Minimize => self.minimize_window(&window),
             crate::frames::Hit::Title => {
                 let double = self.title_click.take().is_some_and(|(w, at)| w == window && at.elapsed() < std::time::Duration::from_millis(400));
                 if double {
