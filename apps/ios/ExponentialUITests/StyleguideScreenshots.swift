@@ -1144,10 +1144,6 @@ final class StyleguideScreenshots: XCTestCase {
         // card, a banner with its action, the pile, the fan, the sheet frame.
         openThreadCards(app, "dock-card")
         snapshot("sg_dock-card", settle: 2)
-        // ── sg_record-form-field-states: Round 9 §6.6, one Input per check
-        // severity with its message showing.
-        openThreadCards(app, "record-form-field-states")
-        snapshot("sg_record-form-field-states", settle: 2)
         // ── sg_plan-card: THE rich plan / question card (EXP-1280,
         // fixtures/plan-card.json): a pending plan with a picture-tile
         // question, a multiple one and the inline surface; an answered
@@ -1208,7 +1204,7 @@ final class StyleguideScreenshots: XCTestCase {
         "call-controls", "call-pill", "device-readiness", "session-xref",
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
-        "needs-you", "results-tab",
+        "needs-you", "results-tab", "record-form-field-states",
         "os-live-activity", "os-live-activity-island", "os-notification-actions",
     ]
 
@@ -1249,6 +1245,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
             case "session-xref": snapshot("sg_session-xref", settle: 2)
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
+            case "record-form-field-states": snapshot("sg_record-form-field-states", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
             // #FEED-191: THE entry row + THE list, THE Results tab body.
             case "needs-you": snapshot("sg_needs-you", settle: 2)
