@@ -37,7 +37,12 @@ import {
   replyInputSchema,
   suggestionInputSchema,
   UUID_RE,
+  AGENT_INSTRUCTIONS_MAX_BYTES,
+  agentFacetsSchema,
+  agentTriggersSchema,
+  hexColorSchema,
   SKILL_BODY_MAX,
+  SKILLS_PER_SESSION_MAX,
   SKILL_DESCRIPTION_MAX,
   SKILL_NAME_MAX,
   SKILL_NAME_PATTERN,
@@ -3925,9 +3930,9 @@ export function registerExponentialTools(
   // (members read, owners write; its zod re-validates name, description, body).
 
   /** The router's owner refusal, in the words an agent can act on. */
-  const ownerOnly = (e: unknown) =>
+  const ownerOnly = (e: unknown, noun = `skills`) =>
     e instanceof TRPCError && e.code === `FORBIDDEN` && e.message.startsWith(`Insufficient role`)
-      ? new Error(`Only team owners can create, edit or delete skills`)
+      ? new Error(`Only team owners can create, edit or delete ${noun}`)
       : e
 
   /** The teams a skills read covers: the one named, else every team of the
@@ -4395,6 +4400,85 @@ export function registerExponentialTools(
         return ok(rest)
       } catch (e) {
         return err(e)
+      }
+    }
+  )
+
+  // #FEED-195 (agent-settings.json MCP): the settings page's writes, owners
+  // only, through the same router.
+  const agentFields = {
+    instructions: z.string().max(AGENT_INSTRUCTIONS_MAX_BYTES).optional(),
+    skillIds: z.array(uuidString).max(SKILLS_PER_SESSION_MAX).optional(),
+    triggers: agentTriggersSchema.optional(),
+    icon: boardIconSchema.nullable().optional(),
+    color: hexColorSchema.nullable().optional(),
+    cli: z.string().min(1).max(16).optional(),
+    account: z.string().min(1).max(64).nullable().optional(),
+    model: z.string().min(1).max(64).nullable().optional(),
+  }
+
+  server.registerTool(
+    `exponential_agents_create`,
+    {
+      description: `Create a team agent (owners only). deviceId = a device you may start on (exponential_devices list). instructions = its markdown prompt. skillIds = skills every run starts with. triggers = [{kind: "schedule", cron: 5-field, tz?: IANA} | {kind: "event", name}], enabled: false switches one off; none = it only waits for messages. cli, account, model = what it runs on (default: the device's). Returns the agent.`,
+      inputSchema: strictInput({
+        teamId: uuidString,
+        name: agentFacetsSchema.shape.name,
+        deviceId: agentFacetsSchema.shape.deviceId,
+        ...agentFields,
+      }),
+    },
+    async ({ triggers, instructions, ...input }) => {
+      try {
+        assertTeamFullyGranted(access, input.teamId)
+        const result = await caller(user, request).agents.create({
+          ...input,
+          instructions: instructions ?? ``,
+          triggers: triggers ?? [],
+        })
+        const { triggerState: _state, ...rest } = result.agent
+        return ok(rest)
+      } catch (e) {
+        return err(ownerOnly(e, `agents`))
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_agents_update`,
+    {
+      description: `Update an agent by UUID (owners only; your own Assistant is yours, its prompt fixed). Pass only what changes. triggers REPLACES the whole list: keep each kept trigger's id from get, or its firing history resets; enabled: false switches one off. A new deviceId moves its conversations there. Returns the agent.`,
+      inputSchema: strictInput({
+        id: uuidString,
+        name: agentFacetsSchema.shape.name.optional(),
+        deviceId: agentFacetsSchema.shape.deviceId.optional(),
+        ...agentFields,
+      }),
+    },
+    async (input) => {
+      try {
+        if (!access.full) assertTeamFullyGranted(access, (await loadAgentForUser(user.id, input.id)).teamId)
+        const result = await caller(user, request).agents.update(input)
+        return ok(result.agent)
+      } catch (e) {
+        return err(ownerOnly(e, `agents`))
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_agents_delete`,
+    {
+      description: `Delete a team agent by UUID (owners only) and every conversation with it, trees included. Cannot be undone; an Assistant is refused.`,
+      inputSchema: strictInput({ id: uuidString }),
+    },
+    async ({ id }) => {
+      try {
+        if (!access.full) assertTeamFullyGranted(access, (await loadAgentForUser(user.id, id)).teamId)
+        await caller(user, request).agents.delete({ id })
+        return ok({ ok: true, id })
+      } catch (e) {
+        return err(ownerOnly(e, `agents`))
       }
     }
   )

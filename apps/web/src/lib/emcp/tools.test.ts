@@ -20,7 +20,7 @@ const h = vi.hoisted(() => {
     prompts: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     // EXP-1663
     skills: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    agents: { list: vi.fn() },
+    agents: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     issues: {
       // EXP-684: statusId passthrough on create.
       create: vi.fn(),
@@ -829,6 +829,69 @@ describe(`exponential_agents_get`, () => {
     const result = await scoped.get(`exponential_agents_get`)!({ id: UUID })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not granted access`)
+  })
+})
+
+// ── #FEED-195: agent writes ─────────────────────────────────────────────────
+
+describe(`exponential_agents writes`, () => {
+  const OTHER_TEAM = `88888888-8888-8888-8888-888888888888`
+  const agentRow = { id: UUID, teamId: WS, name: `Autotax`, triggerState: { x: 1 } }
+  const daily = { kind: `schedule`, cron: `0 7 * * *`, tz: `Europe/Vienna` }
+  const scoped = () => collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS)
+  const insufficient = () => new TRPCError({ code: `FORBIDDEN`, message: `Insufficient role` })
+
+  it(`create carries every field and never replies the trigger state`, async () => {
+    caller.agents.create.mockResolvedValue({ agent: agentRow, txid: 1 })
+    const args = { teamId: WS, name: `Autotax`, deviceId: `mint`, instructions: `# Tax`, skillIds: [UUID], triggers: [daily], model: `opus` }
+    const { triggerState: _state, ...rest } = agentRow
+    expect(parseOk(await tool(`exponential_agents_create`)(args))).toEqual(rest)
+    expect(caller.agents.create).toHaveBeenCalledWith(args)
+  })
+
+  it(`create without instructions or triggers starts empty`, async () => {
+    caller.agents.create.mockResolvedValue({ agent: agentRow, txid: 1 })
+    await tool(`exponential_agents_create`)({ teamId: WS, name: `Autotax`, deviceId: `mint` })
+    expect(caller.agents.create).toHaveBeenCalledWith({ teamId: WS, name: `Autotax`, deviceId: `mint`, instructions: ``, triggers: [] })
+  })
+
+  it(`update passes only what changes, so instructions and triggers survive a rename`, async () => {
+    caller.agents.update.mockResolvedValue({ agent: { id: UUID, name: `Tax` }, txid: 1 })
+    expect(parseOk(await tool(`exponential_agents_update`)({ id: UUID, name: `Tax` }))).toEqual({ id: UUID, name: `Tax` })
+    expect(caller.agents.update).toHaveBeenCalledWith({ id: UUID, name: `Tax` })
+  })
+
+  it(`delete answers ok with the id`, async () => {
+    caller.agents.delete.mockResolvedValue({ txid: 1 })
+    expect(parseOk(await tool(`exponential_agents_delete`)({ id: UUID }))).toEqual({ ok: true, id: UUID })
+  })
+
+  it.each([
+    [`create`, { teamId: WS, name: `A`, deviceId: `mint` }],
+    [`update`, { id: UUID, name: `A` }],
+    [`delete`, { id: UUID }],
+  ] as const)(`%s tells a member it is owners only`, async (op, args) => {
+    caller.agents[op].mockRejectedValue(insufficient())
+    const result = await tool(`exponential_agents_${op}`)(args)
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Only team owners can create, edit or delete agents`)
+  })
+
+  it(`a confined grant cannot write another team's agent`, async () => {
+    dbRows.current = [{ ...agentRow, teamId: OTHER_TEAM }]
+    caller.agents.update.mockClear()
+    caller.agents.delete.mockClear()
+    for (const [name, args] of [
+      [`exponential_agents_update`, { id: UUID, name: `A` }],
+      [`exponential_agents_delete`, { id: UUID }],
+    ] as const) {
+      const result = await scoped().get(name)!(args)
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain(`not granted access`)
+    }
+    expect((await scoped().get(`exponential_agents_create`)!({ teamId: OTHER_TEAM, name: `A`, deviceId: `mint` })).isError).toBe(true)
+    expect(caller.agents.update).not.toHaveBeenCalled()
+    expect(caller.agents.delete).not.toHaveBeenCalled()
   })
 })
 
