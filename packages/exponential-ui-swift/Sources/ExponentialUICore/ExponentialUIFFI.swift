@@ -851,6 +851,12 @@ public protocol HostCallsProtocol: AnyObject, Sendable {
      */
     func flushSurface(surfaceId: String, surface: Surface) 
     
+    /**
+     * §6.5: does the surface have an agent? No agent = a press of an
+     * unregistered name is UNKNOWN_FUNCTION without going through the hub.
+     */
+    func hasAgent(surfaceId: String)  -> Bool
+    
     func localFailed(surfaceId: String, message: String) 
     
     /**
@@ -1027,6 +1033,19 @@ open func flushSurface(surfaceId: String, surface: Surface)  {try! rustCall() {
         FfiConverterTypeSurface_lower(surface),$0
     )
 }
+}
+    
+    /**
+     * §6.5: does the surface have an agent? No agent = a press of an
+     * unregistered name is UNKNOWN_FUNCTION without going through the hub.
+     */
+open func hasAgent(surfaceId: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surfaceId),$0
+    )
+})
 }
     
 open func localFailed(surfaceId: String, message: String)  {try! rustCall() {
@@ -3383,6 +3402,14 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func mode()  -> String
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     * After a layout: anything for `HostCalls.flushSurface`?
+     */
+    func needsFlush()  -> Bool
+    
     func nodeCount()  -> UInt32
     
     /**
@@ -3404,9 +3431,6 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func paintAt(indices: [UInt32])  -> [FfiPaint]
     
     /**
-     * Round 9 §6.8: the reactive failures since the last call, as JSON
-     * `[{code, message, functionCallId?, path?}]`, each once for the
-     * surface's lifetime: the host sends them as `error` messages.
      * Round 9 §6.5: a routed value settled; the next layout binds again.
      */
     func rebind() 
@@ -3927,6 +3951,20 @@ open func mode() -> String  {
 })
 }
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     * After a layout: anything for `HostCalls.flushSurface`?
+     */
+open func needsFlush() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func nodeCount() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_node_count(
@@ -3974,9 +4012,6 @@ open func paintAt(indices: [UInt32]) -> [FfiPaint]  {
 }
     
     /**
-     * Round 9 §6.8: the reactive failures since the last call, as JSON
-     * `[{code, message, functionCallId?, path?}]`, each once for the
-     * surface's lifetime: the host sends them as `error` messages.
      * Round 9 §6.5: a routed value settled; the next layout binds again.
      */
 open func rebind()  {try! rustCall() {
@@ -9678,6 +9713,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface() != 14236) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent() != 53060) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed() != 9166) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9849,6 +9887,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_mode() != 14752) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush() != 28279) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_node_count() != 13599) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9861,7 +9902,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_paint_at() != 18421) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_rebind() != 52723) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_rebind() != 64287) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 9834) {
