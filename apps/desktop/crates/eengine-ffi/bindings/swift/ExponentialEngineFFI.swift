@@ -3515,10 +3515,12 @@ public protocol SyncedRecordStoreProtocol: AnyObject, Sendable {
     func setRows(app: String, rowsJson: String) throws 
     
     /**
-     * Persist a host call's entry; alone and `online` it replays now and
-     * answers its first outcome, otherwise `Queued` (then call `flush`).
+     * A record write of an app (`records_upsert`, `records_delete`,
+     * `records_batch`) as ONE entry: client ids, persisted; alone and
+     * `online` it replays now and answers its first outcome, otherwise
+     * `Queued` with the answer from the entry (then call `flush`).
      */
-    func submit(entryJson: String, online: Bool) throws  -> Submitted
+    func submitCall(app: String, function: String, argsJson: String, online: Bool) throws  -> Submitted
     
     /**
      * `app`'s synced rows with its entries laid over them, as a JSON array.
@@ -3652,14 +3654,18 @@ open func setRows(app: String, rowsJson: String)throws   {try rustCallWithError(
 }
     
     /**
-     * Persist a host call's entry; alone and `online` it replays now and
-     * answers its first outcome, otherwise `Queued` (then call `flush`).
+     * A record write of an app (`records_upsert`, `records_delete`,
+     * `records_batch`) as ONE entry: client ids, persisted; alone and
+     * `online` it replays now and answers its first outcome, otherwise
+     * `Queued` with the answer from the entry (then call `flush`).
      */
-open func submit(entryJson: String, online: Bool)throws  -> Submitted  {
+open func submitCall(app: String, function: String, argsJson: String, online: Bool)throws  -> Submitted  {
     return try  FfiConverterTypeSubmitted_lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
-    uniffi_eengine_ffi_fn_method_syncedrecordstore_submit(
+    uniffi_eengine_ffi_fn_method_syncedrecordstore_submit_call(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(entryJson),
+        FfiConverterString.lower(app),
+        FfiConverterString.lower(function),
+        FfiConverterString.lower(argsJson),
         FfiConverterBool.lower(online),$0
     )
 })
@@ -5262,9 +5268,10 @@ public enum Submitted: Equatable, Hashable {
     case refused(message: String?, invalid: Bool
     )
     /**
-     * Offline, behind others, a retry or a drop: answer from the entry.
+     * Offline, behind others, a retry or a drop: the answer from the entry.
      */
-    case queued
+    case queued(answerJson: String
+    )
 
 
 
@@ -5292,7 +5299,8 @@ public struct FfiConverterTypeSubmitted: FfiConverterRustBuffer {
         case 2: return .refused(message: try FfiConverterOptionString.read(from: &buf), invalid: try FfiConverterBool.read(from: &buf)
         )
         
-        case 3: return .queued
+        case 3: return .queued(answerJson: try FfiConverterString.read(from: &buf)
+        )
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -5313,9 +5321,10 @@ public struct FfiConverterTypeSubmitted: FfiConverterRustBuffer {
             FfiConverterBool.write(invalid, into: &buf)
             
         
-        case .queued:
+        case let .queued(answerJson):
             writeInt(&buf, Int32(3))
-        
+            FfiConverterString.write(answerJson, into: &buf)
+            
         }
     }
 }
@@ -5862,7 +5871,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_set_rows() != 296) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit() != 53028) {
+    if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit_call() != 9165) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_eengine_ffi_checksum_method_syncedrecordstore_visible_rows_json() != 36129) {

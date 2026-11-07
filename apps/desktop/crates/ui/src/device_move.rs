@@ -366,6 +366,87 @@ pub(crate) fn move_session(session: &domain::rows::SessionRow, cx: &App) -> Move
 }
 
 // ---------------------------------------------------------------------------
+// #FEED-204 — an app editor's Device row
+// ---------------------------------------------------------------------------
+
+/// What an app editor's composer shows and sends on (apps.json EDITOR
+/// DEVICE, [`domain::apps::editor_device`]), built by the chat
+/// ([`crate::agent_screen`]) and handed to the root's composer.
+#[derive(Clone)]
+pub(crate) struct EditorDevice {
+    pub app_id: String,
+    pub team_id: String,
+    pub device_id: Option<String>,
+    /// THE launch rows: (device id, picker line).
+    pub rows: Vec<(String, String)>,
+    /// A live root: the row names its device, disabled.
+    pub locked: bool,
+    /// An ended root's next send goes to `device_id`.
+    pub moves: bool,
+    pub on_pick: Rc<dyn Fn(String, &mut Window, &mut App)>,
+}
+
+impl EditorDevice {
+    /// The row's value: the device's picker line.
+    fn value(&self) -> Option<String> {
+        let picked = self.device_id.as_deref()?;
+        self.rows.iter().find(|(id, _)| id == picked).map(|(_, label)| label.clone())
+    }
+
+    /// Everything but the pick: a repaint is due only when these differ.
+    pub(crate) fn same_as(&self, other: &Self) -> bool {
+        self.device_id == other.device_id
+            && self.rows == other.rows
+            && self.locked == other.locked
+            && self.moves == other.moves
+    }
+
+    /// `(team id, app id, device id)` of the `sessions.send({appId, deviceId})`
+    /// that revives an ended root elsewhere; `None` = a plain message.
+    pub(crate) fn move_target(&self) -> Option<(String, String, String)> {
+        let device_id = self.device_id.clone().filter(|_| self.moves)?;
+        Some((self.team_id.clone(), self.app_id.clone(), device_id))
+    }
+
+    /// The "+" Device row: THE launch submenu, or (a live root) the same
+    /// label and value, disabled.
+    pub(crate) fn menu_row(
+        &self,
+        menu: gpui_component::menu::PopupMenu,
+        row: crate::chat_screen::ComposerMenuRow,
+        window: &mut Window,
+        cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    ) -> gpui_component::menu::PopupMenu {
+        let value = self.value();
+        if self.locked {
+            let icon = row.icon();
+            let label = row.label();
+            return menu.item(
+                gpui_component::menu::PopupMenuItem::element(move |_, cx| {
+                    let value = crate::controls::menu_row_value(value.clone().map(SharedString::from), false, cx);
+                    crate::controls::menu_row(icon.clone(), label, Some(value), true, cx)
+                })
+                .disabled(true),
+            );
+        }
+        let rows = self.rows.clone();
+        let picked = self.device_id.clone();
+        let on_pick = self.on_pick.clone();
+        menu.submenu_with_value(Some(row.menu_icon()), row.label(), value, window, cx, move |mut sub, _, _| {
+            for (id, label) in &rows {
+                let checked = picked.as_deref() == Some(id.as_str());
+                let on_pick = on_pick.clone();
+                let id = id.clone();
+                sub = sub.item(crate::controls::pointer_check_item(label.clone(), checked, move |window, cx| {
+                    on_pick(id.clone(), window, cx);
+                }));
+            }
+            sub
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The pin + the call
 // ---------------------------------------------------------------------------
 

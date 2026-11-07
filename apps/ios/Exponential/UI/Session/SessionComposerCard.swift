@@ -389,6 +389,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
             modelValue: controls.modelValue,
             onPickModel: controls.onPickModel,
             account: controls.account,
+            device: controls.device,
             teamId: controls.teamId,
             onPickIssue: { issue in
                 if let identifier = issue.identifier {

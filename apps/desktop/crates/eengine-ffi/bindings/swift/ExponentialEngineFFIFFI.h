@@ -936,9 +936,9 @@ void uniffi_eengine_ffi_fn_method_syncedrecordstore_prune(uint64_t ptr, RustCall
 void uniffi_eengine_ffi_fn_method_syncedrecordstore_set_rows(uint64_t ptr, RustBuffer app, RustBuffer rows_json, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_SUBMIT
-#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_SUBMIT
-RustBuffer uniffi_eengine_ffi_fn_method_syncedrecordstore_submit(uint64_t ptr, RustBuffer entry_json, int8_t online, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_SUBMIT_CALL
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_SUBMIT_CALL
+RustBuffer uniffi_eengine_ffi_fn_method_syncedrecordstore_submit_call(uint64_t ptr, RustBuffer app, RustBuffer function, RustBuffer args_json, int8_t online, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_METHOD_SYNCEDRECORDSTORE_VISIBLE_ROWS_JSON
@@ -1599,9 +1599,9 @@ uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_set_rows(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_SUBMIT
-#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_SUBMIT
-uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_SUBMIT_CALL
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_METHOD_SYNCEDRECORDSTORE_SUBMIT_CALL
+uint16_t uniffi_eengine_ffi_checksum_method_syncedrecordstore_submit_call(void
     
 );
 #endif

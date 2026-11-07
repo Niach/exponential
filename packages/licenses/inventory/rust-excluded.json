@@ -128,23 +128,23 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eengine-bundle@0.1.0",
+      "package": "eengine-bundle@0.1.1",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eengine-desktop@0.1.0",
+      "package": "eengine-desktop@0.1.1",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eengine-ffi@0.1.0",
+      "package": "eengine-ffi@0.1.1",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eengine-runner@0.1.0",
+      "package": "eengine-runner@0.1.1",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "eengine@0.1.0",
+      "package": "eengine@0.1.1",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {

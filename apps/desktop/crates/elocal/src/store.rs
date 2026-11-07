@@ -128,13 +128,16 @@ pub fn hydrate(mut row: Map<String, Value>) -> Map<String, Value> {
 pub struct LocalStore {
     shapes: ShapeStore,
     subscribers: Mutex<Vec<flume::Sender<LocalDelta>>>,
+    /// Serializes read-modify-write cycles ([`Self::modify`]): the executor
+    /// and the runner patch the same rows from different threads.
+    modify: Mutex<()>,
 }
 
 impl LocalStore {
     /// Opens (creating) the desktop's store at `path`.
     pub fn open(path: &std::path::Path) -> Result<Self, sync::store::StoreError> {
         let shapes = ShapeStore::open(path)?;
-        Ok(Self { shapes, subscribers: Mutex::new(Vec::new()) })
+        Ok(Self { shapes, subscribers: Mutex::new(Vec::new()), modify: Mutex::new(()) })
     }
 
     /// A change stream: every write from now on (the host that redraws,
@@ -179,6 +182,21 @@ impl LocalStore {
     pub fn row(&self, table: &str, id: &str) -> Result<Option<Map<String, Value>>, String> {
         let spec = Self::spec_of(table)?;
         Ok(self.shapes.read_by_key(spec, &RowKey::Single(id.to_string())).map_err(|e| e.to_string())?.map(hydrate))
+    }
+
+    /// Reads one row and writes what `f` makes of it, as ONE step against
+    /// every other `modify` (a patch never lands on a stale read). `f`
+    /// answers `None` to leave the row alone; `Ok(None)` = no such row.
+    pub fn modify(&self, table: &str, id: &str, f: impl FnOnce(&Map<String, Value>) -> Option<Map<String, Value>>) -> Result<Option<Map<String, Value>>, String> {
+        let _guard = self.modify.lock().expect("modify");
+        let Some(row) = self.row(table, id)? else { return Ok(None) };
+        match f(&row) {
+            Some(next) => {
+                self.write(table, next.clone())?;
+                Ok(Some(next))
+            }
+            None => Ok(Some(row)),
+        }
     }
 
     /// Writes (inserts or updates) one row; `row` carries its key columns.

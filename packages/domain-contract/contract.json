@@ -1281,6 +1281,39 @@
         "result": "agent"
       },
       {
+        "name": "agents_create",
+        "title": "Create agent",
+        "blurb": "Adds an agent to a team, with its device, instructions, skills and triggers.",
+        "progressive": "Creating agent",
+        "done": "Created agent",
+        "progressiveMany": "Creating {n} agents",
+        "doneMany": "Created {n} agents",
+        "subjectKey": "name",
+        "result": "agent"
+      },
+      {
+        "name": "agents_update",
+        "title": "Update agent",
+        "blurb": "Changes an agent's name, instructions, skills, device, login, model or triggers.",
+        "progressive": "Updating agent",
+        "done": "Updated agent",
+        "progressiveMany": "Updating {n} agents",
+        "doneMany": "Updated {n} agents",
+        "subjectKey": "id",
+        "result": "agent"
+      },
+      {
+        "name": "agents_delete",
+        "title": "Delete agent",
+        "blurb": "Removes an agent and its conversations.",
+        "progressive": "Deleting agent",
+        "done": "Deleted agent",
+        "progressiveMany": "Deleting {n} agents",
+        "doneMany": "Deleted {n} agents",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
         "name": "prompts_list",
         "title": "List prompts",
         "blurb": "Lists the team's saved prompts.",
@@ -2071,6 +2104,9 @@
       { "name": "devices_account_login", "refs": "" },
       { "name": "agents_list", "refs": "list:agent@" },
       { "name": "agents_get", "refs": "agent@" },
+      { "name": "agents_create", "refs": "agent@" },
+      { "name": "agents_update", "refs": "agent@" },
+      { "name": "agents_delete", "refs": "" },
       { "name": "prompts_list", "refs": "list:prompt@" },
       { "name": "prompts_get", "refs": "prompt@" },
       { "name": "prompts_create", "refs": "prompt@" },
