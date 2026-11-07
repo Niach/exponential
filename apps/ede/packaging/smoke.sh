@@ -30,6 +30,7 @@ for b in /usr/bin/exponential-compositor /usr/bin/exponential-session /usr/bin/e
   if ldd "$b" | grep 'not found'; then echo "$b: missing libraries" >&2; exit 1; fi
 done
 exponential-ui --dir "$(mktemp -d)/ui" check
+test -f /usr/share/exponential-desktop/apps/notes.app.json
 HOME="$(mktemp -d)" exponential-theme apply --files-only | grep -q '^GTK '
 grep -q exponential-shell.service /usr/lib/systemd/user/exponential-session.target
 grep -q '^Exec=exponential-session$' /usr/share/wayland-sessions/exponential.desktop

@@ -658,8 +658,11 @@ System Monitor and Software are listed there with what each needs first.
 ### Apps on the Engine (#VAPP-273)
 
 The shell hosts `eengine` (docs/spec/apps.md §16): every
-`~/.config/exponential-desktop/apps/*.app.json` (next to the `ui/`
-documents; `EDE_APPS_DIR` overrides) is one app, validated by genUI's own
+`/usr/share/exponential-desktop/apps/*.app.json` (the factory apps the
+package installs from `apps/ede/apps`; `EDE_FACTORY_APPS_DIR` overrides)
+and every `~/.config/exponential-desktop/apps/*.app.json` (next to the
+`ui/` documents; `EDE_APPS_DIR` overrides; a file of the same name replaces
+the factory one) is one app, validated by genUI's own
 validator at boot (a refused one is logged and skipped) and run as an
 exported app would run on the desktop runner: the same `app`, `consent`,
 `permissions` and `toast` surfaces (`packages/eengine/fixtures/runner.json`),
@@ -698,9 +701,9 @@ its `vault.json` without one).
   so the edit is committed and Version history undoes it. That is the
   host-only `shell.edit` of the catalog: the shell's agent has it, no
   app ever does.
-- **A sample:** `apps/ede/apps/notes.app.json` (Notes: a records kind, an
-  action, a screen with a widget). Copy it into the apps directory to try
-  it; `exponential-shell`'s tests boot it on the Engine.
+- **The factory apps:** `apps/ede/apps/notes.app.json` (Notes: a records
+  kind, an action, a screen with a widget) ships with the package;
+  `exponential-shell`'s tests boot it on the Engine.
 
 ## The theme bridge: `exponential-theme` (#EDE-19)
 
