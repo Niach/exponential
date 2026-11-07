@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
 import { useRouter } from "@tanstack/react-router"
-import { DEFAULT_THEME_ID, navScreens, resolveScreen, screenData, type AppPackage, type ResolvedScreen } from "@exponential_app/eui"
+import { A2UI_VERSION, DEFAULT_THEME_ID, navScreens, resolveScreen, screenData, type AppPackage, type ResolvedScreen } from "@exponential_app/eui"
 import { HostSurface } from "@exponential_app/eui-react"
 import { APPS_COPY, APPS_PREVIEW, APPS_SCREENS, APPS_TEST_IDS, previewTemplate, screenShell, surfaceState } from "@exp/domain-contract/apps"
 import { appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
@@ -77,26 +77,32 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [host, issueCount]
   )
-  const [appliedHost, setAppliedHost] = useState<typeof host | null>(null)
+  // Round 9 §1.4: the painted surface is state: a new screen = a minted id on
+  // the same host.
+  const [applied, setApplied] = useState<{ host: typeof host; surfaceId: string } | null>(null)
+  const screenKey = screen ? JSON.stringify(screen.params) : ``
   useEffect(() => {
-    if (templateId) {
-      // Round 9 §1.4: a fresh host per key, so the id is free.
-      host.applyTemplate({ surfaceId: APPS_PREVIEW.surfaceId, templateId, packageId: pkg.id, ...(screen ? { data: screenData(screen) } : {}) })
-    }
-    setAppliedHost(host)
-    return () => host.close()
-    // The surface's key holds the screen: a new one = a fresh host.
+    const surfaceId = host.freshSurfaceId(APPS_PREVIEW.surfaceId)
+    if (templateId) host.applyTemplate({ surfaceId, templateId, packageId: pkg.id, ...(screen ? { data: screenData(screen) } : {}) })
+    setApplied({ host, surfaceId })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host, pkg.id, templateId])
+  }, [host, pkg.id, templateId, screenKey])
+  useEffect(() => () => host.close(), [host])
+  const surfaceId = applied?.host === host ? applied.surfaceId : APPS_PREVIEW.surfaceId
+  // The old surface goes once the new one is committed, so it paints until then.
+  useEffect(() => {
+    if (applied?.host !== host) return
+    for (const id of host.surfaceIds()) if (id !== applied.surfaceId) host.receive({ version: A2UI_VERSION, deleteSurface: { surfaceId: id } })
+  }, [applied, host])
   // #VAPP-251: applied and no surface = refused, as a throw for the boundary.
-  const hasSurface = useSyncExternalStore(useCallback((cb: () => void) => host.subscribe(cb), [host]), () => host.surface(APPS_PREVIEW.surfaceId) !== undefined)
-  if (surfaceState(true, appliedHost === host, hasSurface) === `needsUpdate`) throw new Error(`the template ${templateId} of ${pkg.id} made no surface: ${host.issues.map((i) => i.message).join(`; `)}`)
+  const hasSurface = useSyncExternalStore(useCallback((cb: () => void) => host.subscribe(cb), [host]), () => host.surface(surfaceId) !== undefined)
+  if (surfaceState(true, applied?.host === host, hasSurface) === `needsUpdate`) throw new Error(`the template ${templateId} of ${pkg.id} made no surface: ${host.issues.map((i) => i.message).join(`; `)}`)
   return (
     <>
       <HostBanner host={host} />
       <HostSurface
         host={host}
-        surfaceId={APPS_PREVIEW.surfaceId}
+        surfaceId={surfaceId}
         plugin={plugin}
         extensions={EXTENSIONS}
         theme={typeof pkg.theme === `string` ? pkg.theme : DEFAULT_THEME_ID}
@@ -201,9 +207,8 @@ function AppPreviewBody({
   const resolved = pkg && screens.length ? resolveScreen(pkg, screen?.screen ?? null, screen?.params ?? null) : null
   const shell = screenShell(screens.length, phone || frame === `phone`)
   const templateId = resolved ? resolved.screen : previewTemplate(pkg as { templates?: Record<string, unknown> } | null, template)
-  // The key = the package's identity + the template (+ the screen's params): any mounts a fresh host.
+  // The key = the package's identity: a new one mounts a fresh host; a new template or screen re-opens the surface on it.
   const key = useMemo(() => (pkg ? JSON.stringify(pkg) : ``), [pkg])
-  const screenKey = resolved ? JSON.stringify(resolved.params) : ``
   const onScreenRef = useRef(onScreen)
   onScreenRef.current = onScreen
   const onNavigate = useMemo<Navigate | null>(
@@ -217,7 +222,7 @@ function AppPreviewBody({
     [shell]
   )
   const content = pkg ? (
-    <PackageSurface key={`${templateId ?? ``}:${screenKey}:${runAs?.id ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} screen={resolved} onNavigate={onNavigate} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} runAs={runAs} readOnly={readOnly} migrateFrom={migrateFrom} />
+    <PackageSurface key={`${runAs?.id ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} screen={resolved} onNavigate={onNavigate} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} runAs={runAs} readOnly={readOnly} migrateFrom={migrateFrom} />
   ) : (
     <div className="flex h-full min-h-48 items-center justify-center">
       <EmptyState icon={NavAppsIcon} title={APPS_COPY.previewEmpty} size="page" />

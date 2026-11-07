@@ -62,7 +62,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import at.exponential.ui.host.A2UI_VERSION
 import at.exponential.ui.host.HostSurface
 import at.exponential.ui.host.NavigateTarget
 import at.exponential.ui.host.Screens
@@ -641,42 +640,16 @@ internal fun AppPackageSurface(
         // VAPP-218: `app_navigate` replaces the request (screen + params).
         navigate = if (screens.isEmpty()) null else navigateToScreen,
     )
-    // A new screen = a fresh surface (the template change's rule).
-    var applied by remember(host) { mutableStateOf(false) }
+    // A new screen = a fresh surface on a minted id (round 9 §1.4): the id is state.
+    var surfaceId by remember(host) { mutableStateOf<String?>(null) }
     var asked by remember(host) { mutableStateOf(false) }
     LaunchedEffect(host, packageId, templateId, resolved) {
         if (packageId != null && templateId != null) {
-            if (applied) {
-                host.receive(
-                    JsonValue.Obj(
-                        mapOf(
-                            "version" to JsonValue.Str(A2UI_VERSION),
-                            "deleteSurface" to JsonValue.Obj(mapOf("surfaceId" to JsonValue.Str(Apps.Preview.SURFACE_ID))),
-                        ),
-                    ),
-                )
-            }
-            host.receive(
-                JsonValue.Obj(
-                    mapOf(
-                        "version" to JsonValue.Str(A2UI_VERSION),
-                        "applyTemplate" to JsonValue.Obj(
-                            buildMap {
-                                put("surfaceId", JsonValue.Str(Apps.Preview.SURFACE_ID))
-                                put("templateId", JsonValue.Str(templateId))
-                                put("packageId", JsonValue.Str(packageId))
-                                if (resolved != null) put("data", resolved.data)
-                            },
-                        ),
-                    ),
-                ),
-                trusted = true,
-            )
-            applied = true
+            surfaceId = host.reopenSurface(surfaceId, Apps.Preview.SURFACE_ID, packageId, templateId, resolved?.data)
         }
         asked = true
     }
-    val hasSurface = host.surfaces.containsKey(Apps.Preview.SURFACE_ID)
+    val hasSurface = surfaceId?.let(host.surfaces::containsKey) == true
     if (Apps.surfaceState(hasPackage = true, applied = asked, hasSurface = hasSurface) == Apps.SurfaceState.NeedsUpdate) {
         LaunchedEffect(packageJson) {
             val issues = runCatching { host.installPackage(packageJson) }.getOrNull()
@@ -706,7 +679,7 @@ internal fun AppPackageSurface(
                 upstreams = upstreams,
                 onConnect = teamId?.let { team -> { onOpenTeamSettings(team, com.exponential.app.domain.SettingsNav.MCP) } },
             )
-            HostSurface(host, Apps.Preview.SURFACE_ID, Modifier.fillMaxWidth())
+            surfaceId?.let { HostSurface(host, it, Modifier.fillMaxWidth()) }
         }
         if (shell == Apps.ScreenShell.Bar) {
             PhoneTabCapsule(

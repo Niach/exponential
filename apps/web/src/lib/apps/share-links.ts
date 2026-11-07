@@ -162,7 +162,7 @@ export function guestPackage(published: Record<string, unknown>, share: PackageS
     // checks it), and a guest's host knows no other catalog, so the app
     // catalog every real package names would read as a dead link.
     catalogId: CORE_CATALOG_ID,
-    functions: share.mode === `submit` ? [`records.upsert`] : [],
+    functions: share.mode === `submit` ? [`records_upsert`] : [],
     sources: [`records:${share.kind}`],
     records: { [share.kind]: guestKind(kind, fields) },
     templates: { main: template ? guestTemplate(template, share.kind) : { components: [{ id: `root`, component: `Page`, title, children: [node.id] }, node] } },

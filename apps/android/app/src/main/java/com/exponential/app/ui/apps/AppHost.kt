@@ -65,6 +65,7 @@ import at.exponential.ui.host.RecordsStore
 import at.exponential.ui.host.Screens
 import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.ffi.HostZone
+import at.exponential.ui.host.A2UI_VERSION
 import at.exponential.ui.host.TimeZoneOffset
 import at.exponential.ui.host.UrlPolicy
 import at.exponential.ui.json.JsonValue
@@ -272,6 +273,28 @@ data class AppConsentWords(
             )
         }
     }
+}
+
+/**
+ * Round 9 §1.4: a package screen onto a fresh surface: a minted id under
+ * [base], the template on it (`data` = a screen's `{params}`), and only then
+ * the [current] surface goes, so it paints until the new one exists. Surface
+ * ids are unique for the host's lifetime, so the old id can never come back.
+ * The new id; the caller paints it.
+ */
+internal fun ExponentialHost.reopenSurface(current: String?, base: String, packageId: String, templateId: String, data: JsonValue? = null): String {
+    val surfaceId = mintSurfaceId(base)
+    val apply = buildMap {
+        put("surfaceId", JsonValue.Str(surfaceId))
+        put("templateId", JsonValue.Str(templateId))
+        put("packageId", JsonValue.Str(packageId))
+        if (data != null) put("data", data)
+    }
+    receive(JsonValue.Obj(mapOf("version" to JsonValue.Str(A2UI_VERSION), "applyTemplate" to JsonValue.Obj(apply))), trusted = true)
+    if (current != null) {
+        receive(JsonValue.Obj(mapOf("version" to JsonValue.Str(A2UI_VERSION), "deleteSurface" to JsonValue.Obj(mapOf("surfaceId" to JsonValue.Str(current))))))
+    }
+    return surfaceId
 }
 
 /** The consent card: what a surface wants to run (the tool AND its

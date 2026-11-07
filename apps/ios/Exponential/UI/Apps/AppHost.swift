@@ -753,9 +753,10 @@ final class ExpAppHost {
         }
     }
 
-    /// Paint `templateId` of `packageId` into `surfaceId` (`applyTemplate`);
-    /// VAPP-218: `data` = a screen's `{params}` (`Screens.Resolved.data`).
-    func apply(surfaceId: String, packageId: String, templateId: String, data: JSONValue? = nil) {
+    /// Paint `templateId` of `packageId` into a fresh `surfaceId`
+    /// (`applyTemplate`); VAPP-218: `data` = a screen's `{params}`
+    /// (`Screens.Resolved.data`).
+    private func apply(surfaceId: String, packageId: String, templateId: String, data: JSONValue? = nil) {
         var apply: [String: JSONValue] = [
             "surfaceId": .string(surfaceId),
             "templateId": .string(templateId),
@@ -767,6 +768,23 @@ final class ExpAppHost {
             "applyTemplate": .object(apply),
         ])
         host.receive(message, trusted: true)
+    }
+
+    /// Round 9 §1.4: a screen onto a fresh surface: a minted id under `base`,
+    /// the template on it, and only then the `current` surface goes, so it
+    /// paints until the new one exists. Surface ids are unique for the host's
+    /// lifetime, so the old id can never come back. The new id; the caller
+    /// paints it.
+    func reopen(current: String?, base: String, packageId: String, templateId: String, data: JSONValue? = nil) -> String {
+        let surfaceId = host.mintSurfaceId(base)
+        apply(surfaceId: surfaceId, packageId: packageId, templateId: templateId, data: data)
+        if let current {
+            host.receive(JSONValue.object([
+                "version": .string(ExponentialHost.a2uiVersion),
+                "deleteSurface": .object(["surfaceId": .string(current)]),
+            ]))
+        }
+        return surfaceId
     }
 
     func close() {
