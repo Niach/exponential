@@ -92,8 +92,8 @@ mod linux {
         let jump = t.elapsed().as_secs_f64() * 1000.0;
         let (rendered, bound) = window
             .update(&mut cx, |view, _, _| {
-                let alive: Vec<u32> = view.placed_nodes().iter().filter(|n| !n.removed && n.id.strip_prefix("bench-row.r").is_some_and(|k| !k.contains('.'))).map(|n| n.index).collect();
-                assert!(view.index_of(&format!("bench-row.r{index}")).is_some(), "item {index} rendered after the jump");
+                let alive: Vec<u32> = view.placed_nodes().iter().filter(|n| !n.removed && n.id.strip_prefix("bench_row.r").is_some_and(|k| !k.contains('.'))).map(|n| n.index).collect();
+                assert!(view.index_of(&format!("bench_row.r{index}")).is_some(), "item {index} rendered after the jump");
                 // bench-list.json: renderedItems ≤ the window + 2 × overscan
                 // + the pinned header (the window = the rows the viewport
                 // can show, the shortest rendered row's height).

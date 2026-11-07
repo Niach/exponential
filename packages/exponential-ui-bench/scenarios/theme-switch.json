@@ -33,18 +33,18 @@
           },
           "children": [
             {
-              "id": "app-bar",
+              "id": "app_bar",
               "component": "AppBar",
               "props": {
                 "title": "Inbox",
                 "subtitle": {
-                  "path": "/ui/teamName"
+                  "@path": "/ui/teamName"
                 },
                 "back": true
               },
               "slots": {
                 "trailing": {
-                  "id": "app-bar-search",
+                  "id": "app_bar_search",
                   "component": "Button",
                   "props": {
                     "icon": "search",
@@ -177,7 +177,7 @@
           },
           "children": [
             {
-              "id": "hdr-avatar",
+              "id": "hdr_avatar",
               "component": "Avatar",
               "props": {
                 "name": "Alex Chen",
@@ -185,7 +185,7 @@
               }
             },
             {
-              "id": "hdr-text",
+              "id": "hdr_text",
               "component": "Stack",
               "props": {
                 "direction": "vertical",
@@ -198,7 +198,7 @@
               },
               "children": [
                 {
-                  "id": "hdr-title",
+                  "id": "hdr_title",
                   "component": "Heading",
                   "props": {
                     "text": "Reddit radar",
@@ -206,7 +206,7 @@
                   }
                 },
                 {
-                  "id": "hdr-sub",
+                  "id": "hdr_sub",
                   "component": "Text",
                   "props": {
                     "text": "Kitchen sink · one catalog on every client",
@@ -216,7 +216,7 @@
               ]
             },
             {
-              "id": "hdr-badge",
+              "id": "hdr_badge",
               "component": "Badge",
               "props": {
                 "text": "3",
@@ -224,7 +224,7 @@
               }
             },
             {
-              "id": "hdr-scan",
+              "id": "hdr_scan",
               "component": "Button",
               "props": {
                 "label": "Scan now",
@@ -269,7 +269,7 @@
           },
           "children": [
             {
-              "id": "nav-card",
+              "id": "nav_card",
               "component": "Card",
               "props": {
                 "padded": false
@@ -279,7 +279,7 @@
               },
               "children": [
                 {
-                  "id": "nav-rows",
+                  "id": "nav_rows",
                   "component": "Section",
                   "props": {
                     "title": "Sources",
@@ -289,7 +289,7 @@
                   },
                   "children": [
                     {
-                      "id": "row-1",
+                      "id": "row_1",
                       "component": "Row",
                       "props": {
                         "title": "r/selfhosted",
@@ -309,7 +309,7 @@
                       }
                     },
                     {
-                      "id": "row-2",
+                      "id": "row_2",
                       "component": "Row",
                       "props": {
                         "title": "r/opensource",
@@ -321,7 +321,7 @@
                       }
                     },
                     {
-                      "id": "row-3",
+                      "id": "row_3",
                       "component": "Row",
                       "props": {
                         "title": "r/webdev",
@@ -333,7 +333,7 @@
                       }
                     },
                     {
-                      "id": "row-4",
+                      "id": "row_4",
                       "component": "Row",
                       "props": {
                         "title": "r/reactjs",
@@ -343,7 +343,7 @@
                       }
                     },
                     {
-                      "id": "row-5",
+                      "id": "row_5",
                       "component": "Row",
                       "props": {
                         "title": "r/rust",
@@ -353,7 +353,7 @@
                       }
                     },
                     {
-                      "id": "row-6",
+                      "id": "row_6",
                       "component": "Row",
                       "props": {
                         "title": "r/homelab",
@@ -366,14 +366,14 @@
                   ]
                 },
                 {
-                  "id": "nav-div",
+                  "id": "nav_div",
                   "component": "Separator",
                   "props": {
                     "orientation": "horizontal"
                   }
                 },
                 {
-                  "id": "nav-toggle",
+                  "id": "nav_toggle",
                   "component": "Switch",
                   "props": {
                     "label": "Auto-scan",
@@ -388,7 +388,7 @@
               ]
             },
             {
-              "id": "main-card",
+              "id": "main_card",
               "component": "Card",
               "props": {
                 "title": "Drafts",
@@ -412,7 +412,7 @@
                   },
                   "children": [
                     {
-                      "id": "media-img",
+                      "id": "media_img",
                       "component": "Image",
                       "props": {
                         "alt": "Cover",
@@ -424,7 +424,7 @@
                       }
                     },
                     {
-                      "id": "media-badge",
+                      "id": "media_badge",
                       "component": "Chip",
                       "props": {
                         "label": "LIVE",
@@ -439,7 +439,7 @@
                   ]
                 },
                 {
-                  "id": "main-md",
+                  "id": "main_md",
                   "component": "Markdown",
                   "props": {
                     "text": "**Looking for a Linear alternative** — self-hostable, with agents.\n\n- Draft reply ready\n- 2 sources cited"
@@ -449,7 +449,7 @@
                   }
                 },
                 {
-                  "id": "main-progress",
+                  "id": "main_progress",
                   "component": "Progress",
                   "props": {
                     "value": 62,
@@ -458,7 +458,7 @@
                   }
                 },
                 {
-                  "id": "main-meter",
+                  "id": "main_meter",
                   "component": "Meter",
                   "props": {
                     "segments": [
@@ -481,7 +481,7 @@
               ]
             },
             {
-              "id": "footer-card",
+              "id": "footer_card",
               "component": "Card",
               "style": {
                 "gridArea": "footer",
@@ -489,7 +489,7 @@
               },
               "children": [
                 {
-                  "id": "footer-pills",
+                  "id": "footer_pills",
                   "component": "Stack",
                   "props": {
                     "direction": "horizontal",
@@ -499,7 +499,7 @@
                   },
                   "children": [
                     {
-                      "id": "pill-1",
+                      "id": "pill_1",
                       "component": "Chip",
                       "props": {
                         "label": "All",
@@ -519,7 +519,7 @@
                       }
                     },
                     {
-                      "id": "pill-2",
+                      "id": "pill_2",
                       "component": "Chip",
                       "props": {
                         "label": "Drafts",
@@ -527,7 +527,7 @@
                       }
                     },
                     {
-                      "id": "pill-3",
+                      "id": "pill_3",
                       "component": "Chip",
                       "props": {
                         "label": "Bug",
@@ -535,7 +535,7 @@
                       }
                     },
                     {
-                      "id": "pill-4",
+                      "id": "pill_4",
                       "component": "Chip",
                       "props": {
                         "label": "Archived",
@@ -543,7 +543,7 @@
                       }
                     },
                     {
-                      "id": "footer-spacer",
+                      "id": "footer_spacer",
                       "component": "Box",
                       "style": {
                         "flexGrow": 1,
@@ -553,7 +553,7 @@
                       }
                     },
                     {
-                      "id": "footer-more",
+                      "id": "footer_more",
                       "component": "Button",
                       "props": {
                         "label": "More",
@@ -579,22 +579,22 @@
           },
           "children": [
             {
-              "id": "echo-field",
+              "id": "echo_field",
               "component": "Input",
               "props": {
                 "label": "Title",
                 "name": "title",
                 "placeholder": "Title (echoes after 150 ms)",
                 "value": {
-                  "path": "/draft/title"
+                  "@path": "/draft/title"
                 },
                 "checks": [
                   {
                     "condition": {
-                      "call": "required",
+                      "@call": "required",
                       "args": {
                         "value": {
-                          "path": "/draft/title"
+                          "@path": "/draft/title"
                         }
                       }
                     },
@@ -605,7 +605,7 @@
               }
             },
             {
-              "id": "form-body",
+              "id": "form_body",
               "component": "Textarea",
               "props": {
                 "label": "Body",
@@ -618,7 +618,7 @@
               }
             },
             {
-              "id": "form-row",
+              "id": "form_row",
               "component": "Stack",
               "props": {
                 "direction": "horizontal",
@@ -628,7 +628,7 @@
               },
               "children": [
                 {
-                  "id": "form-sub",
+                  "id": "form_sub",
                   "component": "Select",
                   "props": {
                     "label": "Subreddit",
@@ -657,7 +657,7 @@
                   }
                 },
                 {
-                  "id": "form-due",
+                  "id": "form_due",
                   "component": "DatePicker",
                   "props": {
                     "label": "Send on",
@@ -667,7 +667,7 @@
                   }
                 },
                 {
-                  "id": "form-actions",
+                  "id": "form_actions",
                   "component": "Stack",
                   "props": {
                     "direction": "horizontal",
@@ -678,7 +678,7 @@
                   },
                   "children": [
                     {
-                      "id": "form-cancel",
+                      "id": "form_cancel",
                       "component": "Button",
                       "props": {
                         "label": "Cancel",
@@ -691,7 +691,7 @@
                       }
                     },
                     {
-                      "id": "form-send",
+                      "id": "form_send",
                       "component": "Button",
                       "props": {
                         "label": "Send",
@@ -715,7 +715,7 @@
               ]
             },
             {
-              "id": "form-plan",
+              "id": "form_plan",
               "component": "Radio",
               "props": {
                 "label": "Tone",
@@ -735,7 +735,7 @@
               }
             },
             {
-              "id": "form-design",
+              "id": "form_design",
               "component": "ChoiceTiles",
               "props": {
                 "name": "design",
@@ -756,7 +756,7 @@
               }
             },
             {
-              "id": "form-agree",
+              "id": "form_agree",
               "component": "Checkbox",
               "props": {
                 "label": "Cite sources",
@@ -765,7 +765,7 @@
               }
             },
             {
-              "id": "form-volume",
+              "id": "form_volume",
               "component": "Slider",
               "props": {
                 "label": "Length",
@@ -776,7 +776,7 @@
               }
             },
             {
-              "id": "form-link",
+              "id": "form_link",
               "component": "Link",
               "props": {
                 "label": "Posting guidelines",
@@ -787,7 +787,7 @@
           ]
         },
         {
-          "id": "flex-demo",
+          "id": "flex_demo",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -797,7 +797,7 @@
           },
           "children": [
             {
-              "id": "fx-1",
+              "id": "fx_1",
               "component": "Box",
               "style": {
                 "flexBasis": "30%",
@@ -812,7 +812,7 @@
               },
               "children": [
                 {
-                  "id": "fx-1-t",
+                  "id": "fx_1_t",
                   "component": "Text",
                   "props": {
                     "text": "basis 30% · grow 1",
@@ -822,7 +822,7 @@
               ]
             },
             {
-              "id": "fx-2",
+              "id": "fx_2",
               "component": "Box",
               "style": {
                 "width": 160,
@@ -836,7 +836,7 @@
               },
               "children": [
                 {
-                  "id": "fx-2-t",
+                  "id": "fx_2_t",
                   "component": "Text",
                   "props": {
                     "text": "160 · shrink 0",
@@ -846,7 +846,7 @@
               ]
             },
             {
-              "id": "fx-3",
+              "id": "fx_3",
               "component": "Box",
               "style": {
                 "flexGrow": 2,
@@ -861,7 +861,7 @@
               },
               "children": [
                 {
-                  "id": "fx-3-t",
+                  "id": "fx_3_t",
                   "component": "Text",
                   "props": {
                     "text": "grow 2 · max 50%",
@@ -871,7 +871,7 @@
               ]
             },
             {
-              "id": "fx-4",
+              "id": "fx_4",
               "component": "Box",
               "style": {
                 "width": "25%",
@@ -885,7 +885,7 @@
               },
               "children": [
                 {
-                  "id": "fx-4-t",
+                  "id": "fx_4_t",
                   "component": "Text",
                   "props": {
                     "text": "25%",
@@ -905,14 +905,14 @@
           },
           "children": [
             {
-              "id": "stat-1",
+              "id": "stat_1",
               "component": "Card",
               "props": {
                 "title": "Posts"
               },
               "children": [
                 {
-                  "id": "stat-1-v",
+                  "id": "stat_1_v",
                   "component": "Text",
                   "props": {
                     "text": "312",
@@ -922,14 +922,14 @@
               ]
             },
             {
-              "id": "stat-2",
+              "id": "stat_2",
               "component": "Card",
               "props": {
                 "title": "Drafts"
               },
               "children": [
                 {
-                  "id": "stat-2-v",
+                  "id": "stat_2_v",
                   "component": "Text",
                   "props": {
                     "text": "2",
@@ -939,14 +939,14 @@
               ]
             },
             {
-              "id": "stat-3",
+              "id": "stat_3",
               "component": "Card",
               "props": {
                 "title": "Sent"
               },
               "children": [
                 {
-                  "id": "stat-3-v",
+                  "id": "stat_3_v",
                   "component": "Text",
                   "props": {
                     "text": "17",
@@ -958,7 +958,7 @@
           ]
         },
         {
-          "id": "nav-demo",
+          "id": "nav_demo",
           "component": "Card",
           "props": {
             "title": "Navigation"
@@ -984,14 +984,14 @@
               },
               "children": [
                 {
-                  "id": "tab-issue",
+                  "id": "tab_issue",
                   "component": "Text",
                   "props": {
                     "text": "The issue panel"
                   }
                 },
                 {
-                  "id": "tab-run",
+                  "id": "tab_run",
                   "component": "Text",
                   "props": {
                     "text": "The run panel"
@@ -1065,14 +1065,14 @@
               },
               "children": [
                 {
-                  "id": "acc-details",
+                  "id": "acc_details",
                   "component": "Text",
                   "props": {
                     "text": "Everything about it"
                   }
                 },
                 {
-                  "id": "acc-history",
+                  "id": "acc_history",
                   "component": "Text",
                   "props": {
                     "text": "What happened"
@@ -1086,13 +1086,13 @@
               "props": {
                 "title": "Advanced",
                 "open": {
-                  "path": "/ui/advancedOpen"
+                  "@path": "/ui/advancedOpen"
                 },
                 "count": 2
               },
               "children": [
                 {
-                  "id": "coll-body",
+                  "id": "coll_body",
                   "component": "Text",
                   "props": {
                     "text": "Hidden until opened",
@@ -1107,7 +1107,7 @@
               "props": {
                 "totalPages": 5,
                 "page": {
-                  "path": "/ui/page"
+                  "@path": "/ui/page"
                 }
               },
               "on": {
@@ -1119,7 +1119,7 @@
               }
             },
             {
-              "id": "button-group",
+              "id": "button_group",
               "component": "Segmented",
               "props": {
                 "items": [
@@ -1180,7 +1180,7 @@
           ]
         },
         {
-          "id": "feedback-demo",
+          "id": "feedback_demo",
           "component": "Card",
           "props": {
             "title": "Feedback"
@@ -1196,7 +1196,7 @@
               }
             },
             {
-              "id": "alert-warn",
+              "id": "alert_warn",
               "component": "Alert",
               "props": {
                 "title": "Quota at 80%",
@@ -1204,7 +1204,7 @@
               }
             },
             {
-              "id": "status-row",
+              "id": "status_row",
               "component": "Stack",
               "props": {
                 "direction": "horizontal",
@@ -1247,7 +1247,7 @@
                   }
                 },
                 {
-                  "id": "skeleton-round",
+                  "id": "skeleton_round",
                   "component": "Skeleton",
                   "props": {
                     "width": "24px",
@@ -1258,7 +1258,7 @@
               ]
             },
             {
-              "id": "voice-wave",
+              "id": "voice_wave",
               "component": "VoiceWave",
               "props": {
                 "activity": "listening",
@@ -1273,7 +1273,7 @@
               },
               "children": [
                 {
-                  "id": "voice-wave-mark",
+                  "id": "voice_wave_mark",
                   "component": "Icon",
                   "props": {
                     "name": "mic"
@@ -1340,6 +1340,84 @@
               }
             },
             {
+              "id": "chart_drawing",
+              "component": "Canvas",
+              "props": {
+                "size": [
+                  120,
+                  60
+                ],
+                "label": "Two bars",
+                "pointer": true,
+                "shapes": [
+                  {
+                    "type": "group",
+                    "shapes": [
+                      {
+                        "type": "rect",
+                        "position": [
+                          35,
+                          35
+                        ],
+                        "size": [
+                          30,
+                          40
+                        ],
+                        "radius": 2
+                      },
+                      {
+                        "type": "fill",
+                        "color": "$color.chart1"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "group",
+                    "shapes": [
+                      {
+                        "type": "rect",
+                        "position": [
+                          85,
+                          25
+                        ],
+                        "size": [
+                          30,
+                          60
+                        ],
+                        "radius": 2
+                      },
+                      {
+                        "type": "fill",
+                        "color": "$color.chart2"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "text",
+                    "text": "A",
+                    "position": [
+                      35,
+                      58
+                    ],
+                    "size": 10,
+                    "align": "center",
+                    "color": "$color.mutedForeground"
+                  },
+                  {
+                    "type": "text",
+                    "text": "B",
+                    "position": [
+                      85,
+                      58
+                    ],
+                    "size": 10,
+                    "align": "center",
+                    "color": "$color.mutedForeground"
+                  }
+                ]
+              }
+            },
+            {
               "id": "call",
               "component": "CallSurface",
               "props": {
@@ -1353,7 +1431,7 @@
               }
             },
             {
-              "id": "bubble-out",
+              "id": "bubble_out",
               "component": "MessageBubble",
               "props": {
                 "text": "Is the printer fixed?",
@@ -1363,7 +1441,7 @@
               }
             },
             {
-              "id": "bubble-in",
+              "id": "bubble_in",
               "component": "MessageBubble",
               "props": {
                 "text": "Yes, try again.",
@@ -1429,7 +1507,7 @@
               }
             },
             {
-              "id": "empty-list",
+              "id": "empty_list",
               "component": "EmptyState",
               "props": {
                 "icon": "nav-issues",
@@ -1486,7 +1564,7 @@
                 "rowKey": "id",
                 "selectable": "multiple",
                 "selected": {
-                  "path": "/ui/selectedMembers"
+                  "@path": "/ui/selectedMembers"
                 },
                 "sort": {
                   "key": "runs",
@@ -1497,11 +1575,11 @@
               },
               "slots": {
                 "statusCell": {
-                  "id": "table-status",
+                  "id": "table_status",
                   "component": "Chip",
                   "props": {
                     "label": {
-                      "path": "status"
+                      "@path": "status"
                     },
                     "tone": "success"
                   }
@@ -1554,7 +1632,7 @@
               }
             },
             {
-              "id": "charts-row",
+              "id": "charts_row",
               "component": "Grid",
               "props": {
                 "columns": {
@@ -1565,7 +1643,7 @@
               },
               "children": [
                 {
-                  "id": "chart-line",
+                  "id": "chart_line",
                   "component": "Chart",
                   "props": {
                     "kind": "line",
@@ -1600,7 +1678,7 @@
                   }
                 },
                 {
-                  "id": "chart-donut",
+                  "id": "chart_donut",
                   "component": "Chart",
                   "props": {
                     "kind": "donut",
@@ -1625,7 +1703,7 @@
               ]
             },
             {
-              "id": "spark-row",
+              "id": "spark_row",
               "component": "Stack",
               "props": {
                 "direction": "horizontal",
@@ -1634,7 +1712,7 @@
               },
               "children": [
                 {
-                  "id": "spark-label",
+                  "id": "spark_label",
                   "component": "Text",
                   "props": {
                     "text": "Runs this week",
@@ -1660,11 +1738,11 @@
                   }
                 },
                 {
-                  "id": "progress-bound",
+                  "id": "progress_bound",
                   "component": "Progress",
                   "props": {
                     "value": {
-                      "path": "/ui/upload"
+                      "@path": "/ui/upload"
                     },
                     "label": "Upload"
                   },
@@ -1677,7 +1755,7 @@
           ]
         },
         {
-          "id": "rows-demo",
+          "id": "rows_demo",
           "component": "Group",
           "props": {
             "title": "Properties",
@@ -1685,7 +1763,7 @@
           },
           "children": [
             {
-              "id": "prop-assignee",
+              "id": "prop_assignee",
               "component": "Row",
               "props": {
                 "title": "Assignee",
@@ -1694,7 +1772,7 @@
               }
             },
             {
-              "id": "pick-status",
+              "id": "pick_status",
               "component": "Row",
               "props": {
                 "title": "Status",
@@ -1712,7 +1790,7 @@
               }
             },
             {
-              "id": "pick-label",
+              "id": "pick_label",
               "component": "Row",
               "props": {
                 "title": "Labels",
@@ -1722,7 +1800,7 @@
               }
             },
             {
-              "id": "nav-inbox",
+              "id": "nav_inbox",
               "component": "Row",
               "props": {
                 "title": "Inbox",
@@ -1732,7 +1810,7 @@
               },
               "slots": {
                 "trailing": {
-                  "id": "nav-inbox-count",
+                  "id": "nav_inbox_count",
                   "component": "Badge",
                   "props": {
                     "text": "3",
@@ -1742,7 +1820,7 @@
               }
             },
             {
-              "id": "nav-reviews",
+              "id": "nav_reviews",
               "component": "Row",
               "props": {
                 "title": "Reviews",
@@ -1753,7 +1831,7 @@
           ]
         },
         {
-          "id": "chips-demo",
+          "id": "chips_demo",
           "component": "Stack",
           "props": {
             "direction": "horizontal",
@@ -1763,7 +1841,7 @@
           },
           "children": [
             {
-              "id": "card-row",
+              "id": "card_row",
               "component": "Row",
               "props": {
                 "title": "MacBook Pro",
@@ -1779,7 +1857,7 @@
               }
             },
             {
-              "id": "chip-board",
+              "id": "chip_board",
               "component": "Chip",
               "props": {
                 "label": "Sprint 12",
@@ -1803,7 +1881,7 @@
               }
             },
             {
-              "id": "chip-user",
+              "id": "chip_user",
               "component": "Chip",
               "props": {
                 "label": "Alex Chen",
@@ -1815,7 +1893,7 @@
           ]
         },
         {
-          "id": "media-demo",
+          "id": "media_demo",
           "component": "Card",
           "props": {
             "title": "Media"
@@ -1835,7 +1913,7 @@
               },
               "children": [
                 {
-                  "id": "page-1",
+                  "id": "page_1",
                   "component": "Image",
                   "props": {
                     "src": "https://example.com/1.jpg",
@@ -1844,7 +1922,7 @@
                   }
                 },
                 {
-                  "id": "page-2",
+                  "id": "page_2",
                   "component": "Image",
                   "props": {
                     "src": "https://example.com/2.jpg",
@@ -1923,27 +2001,27 @@
                 "divided": true
               },
               "template": {
-                "component": "list-item",
+                "component": "list_item",
                 "path": "/posts"
               },
               "children": []
             },
             {
-              "id": "list-item",
+              "id": "list_item",
               "component": "Row",
               "props": {
                 "title": {
-                  "path": "title"
+                  "@path": "title"
                 },
                 "meta": {
-                  "path": "score"
+                  "@path": "score"
                 }
               }
             }
           ]
         },
         {
-          "id": "overlay-demo",
+          "id": "overlay_demo",
           "component": "Stack",
           "props": {
             "direction": "horizontal",
@@ -1958,13 +2036,13 @@
                 "title": "Delete board?",
                 "description": "This cannot be undone.",
                 "open": {
-                  "path": "/ui/confirmOpen"
+                  "@path": "/ui/confirmOpen"
                 },
                 "dismissible": true
               },
               "slots": {
                 "trigger": {
-                  "id": "dialog-trigger",
+                  "id": "dialog_trigger",
                   "component": "Button",
                   "props": {
                     "label": "Delete",
@@ -1972,7 +2050,7 @@
                   }
                 },
                 "footer": {
-                  "id": "dialog-footer",
+                  "id": "dialog_footer",
                   "component": "Button",
                   "props": {
                     "label": "Delete for good",
@@ -1989,7 +2067,7 @@
               },
               "children": [
                 {
-                  "id": "dialog-body",
+                  "id": "dialog_body",
                   "component": "Text",
                   "props": {
                     "text": "Issues move to the trash for 48 hours."
@@ -2007,7 +2085,7 @@
               },
               "slots": {
                 "trigger": {
-                  "id": "drawer-trigger",
+                  "id": "drawer_trigger",
                   "component": "Button",
                   "props": {
                     "label": "Filters",
@@ -2018,7 +2096,7 @@
               },
               "children": [
                 {
-                  "id": "drawer-body",
+                  "id": "drawer_body",
                   "component": "Checkbox",
                   "props": {
                     "label": "Only mine",
@@ -2037,7 +2115,7 @@
               },
               "slots": {
                 "trigger": {
-                  "id": "sheet-trigger",
+                  "id": "sheet_trigger",
                   "component": "Button",
                   "props": {
                     "label": "Details",
@@ -2047,7 +2125,7 @@
               },
               "children": [
                 {
-                  "id": "sheet-body",
+                  "id": "sheet_body",
                   "component": "Text",
                   "props": {
                     "text": "Everything in a bottom sheet."
@@ -2063,7 +2141,7 @@
               },
               "slots": {
                 "trigger": {
-                  "id": "popover-trigger",
+                  "id": "popover_trigger",
                   "component": "Button",
                   "props": {
                     "icon": "ui-info",
@@ -2075,7 +2153,7 @@
               },
               "children": [
                 {
-                  "id": "popover-body",
+                  "id": "popover_body",
                   "component": "Text",
                   "props": {
                     "text": "A small anchored panel.",
@@ -2093,7 +2171,7 @@
               },
               "children": [
                 {
-                  "id": "tooltip-anchor",
+                  "id": "tooltip_anchor",
                   "component": "Button",
                   "props": {
                     "icon": "ui-link",
@@ -2135,7 +2213,7 @@
               },
               "children": [
                 {
-                  "id": "menu-trigger",
+                  "id": "menu_trigger",
                   "component": "Button",
                   "props": {
                     "label": "More",
@@ -2146,19 +2224,19 @@
               ]
             },
             {
-              "id": "alert-dialog",
+              "id": "alert_dialog",
               "component": "AlertDialog",
               "props": {
                 "title": "Discard draft?",
                 "description": "Your text will be lost.",
                 "destructive": true,
                 "open": {
-                  "path": "/ui/discardOpen"
+                  "@path": "/ui/discardOpen"
                 }
               },
               "slots": {
                 "trigger": {
-                  "id": "alert-dialog-trigger",
+                  "id": "alert_dialog_trigger",
                   "component": "Button",
                   "props": {
                     "label": "Discard",
@@ -2175,7 +2253,7 @@
               }
             },
             {
-              "id": "dock-card",
+              "id": "dock_card",
               "component": "DockCard",
               "props": {
                 "label": "Plan ready",
@@ -2185,12 +2263,12 @@
                 "icon": "coding-plan",
                 "tone": "primary",
                 "open": {
-                  "path": "/ui/dockOpen"
+                  "@path": "/ui/dockOpen"
                 }
               },
               "children": [
                 {
-                  "id": "dock-card-body",
+                  "id": "dock_card_body",
                   "component": "Text",
                   "props": {
                     "text": "Move the waiting cards above the composer and open each one as a bottom sheet."
@@ -2199,7 +2277,7 @@
               ],
               "slots": {
                 "footer": {
-                  "id": "dock-card-footer",
+                  "id": "dock_card_footer",
                   "component": "Stack",
                   "props": {
                     "direction": "horizontal",
@@ -2208,7 +2286,7 @@
                   },
                   "children": [
                     {
-                      "id": "dock-card-no",
+                      "id": "dock_card_no",
                       "component": "Button",
                       "props": {
                         "label": "No, keep planning",
@@ -2216,7 +2294,7 @@
                       }
                     },
                     {
-                      "id": "dock-card-yes",
+                      "id": "dock_card_yes",
                       "component": "Button",
                       "props": {
                         "label": "Yes"
@@ -2227,7 +2305,7 @@
               }
             },
             {
-              "id": "hover-card",
+              "id": "hover_card",
               "component": "Popover",
               "props": {
                 "side": "top",
@@ -2235,7 +2313,7 @@
               },
               "slots": {
                 "trigger": {
-                  "id": "hover-card-trigger",
+                  "id": "hover_card_trigger",
                   "component": "Link",
                   "props": {
                     "label": "@alex"
@@ -2244,7 +2322,7 @@
               },
               "children": [
                 {
-                  "id": "hover-card-body",
+                  "id": "hover_card_body",
                   "component": "Stack",
                   "props": {
                     "direction": "horizontal",
@@ -2253,14 +2331,14 @@
                   },
                   "children": [
                     {
-                      "id": "hover-card-avatar",
+                      "id": "hover_card_avatar",
                       "component": "Avatar",
                       "props": {
                         "name": "Alex Chen"
                       }
                     },
                     {
-                      "id": "hover-card-name",
+                      "id": "hover_card_name",
                       "component": "Text",
                       "props": {
                         "text": "Alex Chen · Owner",
@@ -2272,7 +2350,7 @@
               ]
             },
             {
-              "id": "context-menu",
+              "id": "context_menu",
               "component": "Menu",
               "props": {
                 "items": [
@@ -2294,7 +2372,7 @@
                     "value": "showDone",
                     "kind": "checkbox",
                     "checked": {
-                      "path": "/ui/showDone"
+                      "@path": "/ui/showDone"
                     }
                   },
                   {
@@ -2331,7 +2409,7 @@
               },
               "children": [
                 {
-                  "id": "context-menu-target",
+                  "id": "context_menu_target",
                   "component": "Card",
                   "props": {
                     "title": "Right-click me"
@@ -2347,7 +2425,7 @@
                 "description": "Your changes are live.",
                 "type": "success",
                 "open": {
-                  "path": "/ui/toastOpen"
+                  "@path": "/ui/toastOpen"
                 },
                 "actionLabel": "Undo",
                 "duration": 5000
@@ -2370,7 +2448,7 @@
           },
           "children": [
             {
-              "id": "resp-grid",
+              "id": "resp_grid",
               "component": "Grid",
               "props": {
                 "columns": {
@@ -2385,7 +2463,7 @@
               },
               "children": [
                 {
-                  "id": "resp-card-1",
+                  "id": "resp_card_1",
                   "component": "Card",
                   "props": {
                     "title": "Throughput",
@@ -2393,7 +2471,7 @@
                   },
                   "children": [
                     {
-                      "id": "resp-value-1",
+                      "id": "resp_value_1",
                       "component": "Text",
                       "props": {
                         "text": "128",
@@ -2403,7 +2481,7 @@
                   ]
                 },
                 {
-                  "id": "resp-card-2",
+                  "id": "resp_card_2",
                   "component": "Card",
                   "props": {
                     "title": "Latency",
@@ -2411,7 +2489,7 @@
                   },
                   "children": [
                     {
-                      "id": "resp-value-2",
+                      "id": "resp_value_2",
                       "component": "Text",
                       "props": {
                         "text": "412",
@@ -2421,7 +2499,7 @@
                   ]
                 },
                 {
-                  "id": "resp-card-3",
+                  "id": "resp_card_3",
                   "component": "Card",
                   "props": {
                     "title": "Errors",
@@ -2429,7 +2507,7 @@
                   },
                   "children": [
                     {
-                      "id": "resp-value-3",
+                      "id": "resp_value_3",
                       "component": "Text",
                       "props": {
                         "text": "3",
@@ -2441,13 +2519,13 @@
               ]
             },
             {
-              "id": "resp-shell",
+              "id": "resp_shell",
               "component": "Sidebar",
               "props": {
                 "width": 200,
                 "collapseBelow": "md",
                 "collapsed": {
-                  "path": "/ui/sidebarCollapsed"
+                  "@path": "/ui/sidebarCollapsed"
                 }
               },
               "style": {
@@ -2455,7 +2533,7 @@
               },
               "slots": {
                 "sidebar": {
-                  "id": "resp-nav",
+                  "id": "resp_nav",
                   "component": "Box",
                   "style": {
                     "display": "flex",
@@ -2465,7 +2543,7 @@
                   },
                   "children": [
                     {
-                      "id": "resp-nav-inbox",
+                      "id": "resp_nav_inbox",
                       "component": "Row",
                       "props": {
                         "title": "Inbox",
@@ -2475,7 +2553,7 @@
                       },
                       "slots": {
                         "trailing": {
-                          "id": "resp-nav-inbox-count",
+                          "id": "resp_nav_inbox_count",
                           "component": "Badge",
                           "props": {
                             "text": "2",
@@ -2485,7 +2563,7 @@
                       }
                     },
                     {
-                      "id": "resp-nav-issues",
+                      "id": "resp_nav_issues",
                       "component": "Row",
                       "props": {
                         "title": "Issues",
@@ -2498,7 +2576,7 @@
               },
               "children": [
                 {
-                  "id": "resp-main",
+                  "id": "resp_main",
                   "component": "Stack",
                   "props": {
                     "direction": {
@@ -2516,7 +2594,7 @@
                   },
                   "children": [
                     {
-                      "id": "resp-main-text",
+                      "id": "resp_main_text",
                       "component": "Text",
                       "props": {
                         "text": "The column hides below md; this stack turns into a row at md.",
@@ -2524,7 +2602,7 @@
                       }
                     },
                     {
-                      "id": "resp-only-wide",
+                      "id": "resp_only_wide",
                       "component": "Badge",
                       "props": {
                         "text": "Wide",
@@ -2538,7 +2616,7 @@
                       }
                     },
                     {
-                      "id": "resp-only-narrow",
+                      "id": "resp_only_narrow",
                       "component": "Badge",
                       "props": {
                         "text": "Narrow",
@@ -2555,7 +2633,7 @@
               ]
             },
             {
-              "id": "resp-states",
+              "id": "resp_states",
               "component": "Box",
               "props": {
                 "pressable": true
@@ -2603,7 +2681,7 @@
               },
               "children": [
                 {
-                  "id": "resp-states-icon",
+                  "id": "resp_states_icon",
                   "component": "Icon",
                   "props": {
                     "name": "ui-info",
@@ -2611,7 +2689,7 @@
                   }
                 },
                 {
-                  "id": "resp-states-text",
+                  "id": "resp_states_text",
                   "component": "Text",
                   "props": {
                     "text": "Hover, keyboard focus and press restyle this box; it stacks below sm.",
@@ -2621,7 +2699,7 @@
               ]
             },
             {
-              "id": "resp-drawer",
+              "id": "resp_drawer",
               "component": "Drawer",
               "props": {
                 "title": "Filters",
@@ -2630,13 +2708,13 @@
                   "md": "right"
                 },
                 "open": {
-                  "path": "/ui/filtersOpen"
+                  "@path": "/ui/filtersOpen"
                 },
                 "dragToDismiss": true
               },
               "slots": {
                 "trigger": {
-                  "id": "resp-drawer-trigger",
+                  "id": "resp_drawer_trigger",
                   "component": "Button",
                   "props": {
                     "label": "Filters",
@@ -2647,7 +2725,7 @@
               },
               "children": [
                 {
-                  "id": "resp-drawer-body",
+                  "id": "resp_drawer_body",
                   "component": "Text",
                   "props": {
                     "text": "A bottom sheet on phones, a side panel from md.",
@@ -2657,14 +2735,14 @@
               ]
             },
             {
-              "id": "resp-scroll",
+              "id": "resp_scroll",
               "component": "ScrollArea",
               "props": {
                 "direction": "horizontal"
               },
               "children": [
                 {
-                  "id": "resp-chip-0",
+                  "id": "resp_chip_0",
                   "component": "Chip",
                   "props": {
                     "label": "Bug"
@@ -2674,7 +2752,7 @@
                   }
                 },
                 {
-                  "id": "resp-chip-1",
+                  "id": "resp_chip_1",
                   "component": "Chip",
                   "props": {
                     "label": "iOS"
@@ -2684,7 +2762,7 @@
                   }
                 },
                 {
-                  "id": "resp-chip-2",
+                  "id": "resp_chip_2",
                   "component": "Chip",
                   "props": {
                     "label": "Android"
@@ -2694,7 +2772,7 @@
                   }
                 },
                 {
-                  "id": "resp-chip-3",
+                  "id": "resp_chip_3",
                   "component": "Chip",
                   "props": {
                     "label": "Desktop"
@@ -2704,7 +2782,7 @@
                   }
                 },
                 {
-                  "id": "resp-chip-4",
+                  "id": "resp_chip_4",
                   "component": "Chip",
                   "props": {
                     "label": "Web"
@@ -2714,7 +2792,7 @@
                   }
                 },
                 {
-                  "id": "resp-chip-5",
+                  "id": "resp_chip_5",
                   "component": "Chip",
                   "props": {
                     "label": "Infra"
@@ -2724,7 +2802,7 @@
                   }
                 },
                 {
-                  "id": "resp-chip-6",
+                  "id": "resp_chip_6",
                   "component": "Chip",
                   "props": {
                     "label": "Docs"
@@ -2738,13 +2816,13 @@
           ]
         },
         {
-          "id": "new-form",
+          "id": "new_form",
           "component": "Form",
           "props": {
             "name": "settings",
             "summary": true,
             "busy": {
-              "path": "/ui/saving"
+              "@path": "/ui/saving"
             }
           },
           "on": {
@@ -2761,22 +2839,22 @@
           },
           "children": [
             {
-              "id": "nf-label",
+              "id": "nf_label",
               "component": "Label",
               "props": {
                 "text": "Seats",
-                "for": "nf-seats",
+                "for": "nf_seats",
                 "required": true
               }
             },
             {
-              "id": "nf-seats",
+              "id": "nf_seats",
               "component": "NumberField",
               "props": {
                 "label": "Seats",
                 "name": "seats",
                 "value": {
-                  "path": "/form/seats"
+                  "@path": "/form/seats"
                 },
                 "min": 1,
                 "max": 50,
@@ -2784,10 +2862,10 @@
                 "checks": [
                   {
                     "condition": {
-                      "call": "numeric",
+                      "@call": "numeric",
                       "args": {
                         "value": {
-                          "path": "/form/seats"
+                          "@path": "/form/seats"
                         },
                         "min": 1,
                         "max": 50
@@ -2799,7 +2877,7 @@
               }
             },
             {
-              "id": "nf-stack",
+              "id": "nf_stack",
               "component": "Grid",
               "props": {
                 "columns": {
@@ -2810,19 +2888,19 @@
               },
               "children": [
                 {
-                  "id": "nf-time",
+                  "id": "nf_time",
                   "component": "TimePicker",
                   "props": {
                     "label": "Daily digest",
                     "name": "digestAt",
                     "value": {
-                      "path": "/form/digestAt"
+                      "@path": "/form/digestAt"
                     },
                     "step": 30
                   }
                 },
                 {
-                  "id": "nf-range",
+                  "id": "nf_range",
                   "component": "DateRangePicker",
                   "props": {
                     "label": "Sprint",
@@ -2834,13 +2912,13 @@
               ]
             },
             {
-              "id": "nf-labels",
+              "id": "nf_labels",
               "component": "ChipInput",
               "props": {
                 "label": "Labels",
                 "name": "labels",
                 "values": {
-                  "path": "/form/labels"
+                  "@path": "/form/labels"
                 },
                 "suggestions": [
                   {
@@ -2860,7 +2938,7 @@
               }
             },
             {
-              "id": "nf-files",
+              "id": "nf_files",
               "component": "FileUpload",
               "props": {
                 "label": "Attachments",
@@ -2891,17 +2969,17 @@
               }
             },
             {
-              "id": "nf-rating",
+              "id": "nf_rating",
               "component": "Rating",
               "props": {
                 "value": {
-                  "path": "/form/rating"
+                  "@path": "/form/rating"
                 },
                 "max": 5
               }
             },
             {
-              "id": "nf-keys",
+              "id": "nf_keys",
               "component": "Stack",
               "props": {
                 "direction": "horizontal",
@@ -2910,7 +2988,7 @@
               },
               "children": [
                 {
-                  "id": "nf-keys-text",
+                  "id": "nf_keys_text",
                   "component": "Text",
                   "props": {
                     "text": "Save with",
@@ -2918,7 +2996,7 @@
                   }
                 },
                 {
-                  "id": "nf-kbd",
+                  "id": "nf_kbd",
                   "component": "Kbd",
                   "props": {
                     "keys": "⌘S"
@@ -2927,7 +3005,7 @@
               ]
             },
             {
-              "id": "nf-submit",
+              "id": "nf_submit",
               "component": "Button",
               "props": {
                 "label": "Save",
@@ -2957,7 +3035,7 @@
           },
           "children": [
             {
-              "id": "trace-think",
+              "id": "trace_think",
               "component": "TraceItem",
               "props": {
                 "title": "Thought for 5s",
@@ -2966,7 +3044,7 @@
               }
             },
             {
-              "id": "trace-run",
+              "id": "trace_run",
               "component": "TraceItem",
               "props": {
                 "title": "Ran bun test",
@@ -2978,7 +3056,7 @@
               },
               "children": [
                 {
-                  "id": "trace-out",
+                  "id": "trace_out",
                   "component": "CodeBlock",
                   "props": {
                     "code": "\u001b[32m(pass)\u001b[0m Store > put\n\u001b[31m(fail)\u001b[0m Store > get\n\n 1 pass\n 1 fail",
@@ -2991,7 +3069,7 @@
               ]
             },
             {
-              "id": "trace-edit",
+              "id": "trace_edit",
               "component": "TraceItem",
               "props": {
                 "title": "Editing src/store.ts",
@@ -3001,7 +3079,7 @@
               }
             },
             {
-              "id": "trace-next",
+              "id": "trace_next",
               "component": "TraceItem",
               "props": {
                 "title": "Run the suite again",
@@ -3029,7 +3107,7 @@
           }
         },
         {
-          "id": "tab-bar",
+          "id": "tab_bar",
           "component": "Segmented",
           "props": {
             "items": [
@@ -3050,7 +3128,7 @@
               }
             ],
             "value": {
-              "path": "/ui/tab"
+              "@path": "/ui/tab"
             },
             "variant": "bar",
             "fill": true
@@ -3091,7 +3169,7 @@
           },
           "children": [
             {
-              "id": "panels-nav",
+              "id": "panels_nav",
               "component": "Text",
               "props": {
                 "text": "Boards",
@@ -3102,7 +3180,7 @@
               }
             },
             {
-              "id": "panels-main",
+              "id": "panels_main",
               "component": "Text",
               "props": {
                 "text": "Drag the handle; arrow keys move it by 10.",
@@ -3115,7 +3193,7 @@
           ]
         },
         {
-          "id": "search-list",
+          "id": "search_list",
           "component": "SearchList",
           "props": {
             "placeholder": "Search issues",

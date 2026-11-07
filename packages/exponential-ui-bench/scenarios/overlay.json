@@ -42,13 +42,13 @@
             "title": "Delete board?",
             "description": "This cannot be undone.",
             "open": {
-              "path": "/ui/open"
+              "@path": "/ui/open"
             },
             "dismissible": true
           },
           "slots": {
             "trigger": {
-              "id": "dialog-trigger",
+              "id": "dialog_trigger",
               "component": "Button",
               "props": {
                 "label": "Delete",
@@ -56,7 +56,7 @@
               }
             },
             "footer": {
-              "id": "dialog-footer",
+              "id": "dialog_footer",
               "component": "Button",
               "props": {
                 "label": "Delete for good",
@@ -66,14 +66,14 @@
           },
           "children": [
             {
-              "id": "dialog-a",
+              "id": "dialog_a",
               "component": "Text",
               "props": {
                 "text": "Every issue on the board goes with it."
               }
             },
             {
-              "id": "dialog-b",
+              "id": "dialog_b",
               "component": "Text",
               "props": {
                 "text": "Sessions keep their history.",
@@ -81,7 +81,7 @@
               }
             },
             {
-              "id": "dialog-c",
+              "id": "dialog_c",
               "component": "Input",
               "props": {
                 "name": "confirm",

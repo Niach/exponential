@@ -19,19 +19,19 @@
           "height": 800
         },
         "children": {
-          "componentId": "bench-row",
+          "componentId": "bench_row",
           "path": "/rows",
           "key": "id"
         }
       },
       {
-        "id": "bench-row",
+        "id": "bench_row",
         "component": "Row",
         "title": {
-          "path": "title"
+          "@path": "title"
         },
         "meta": {
-          "path": "meta"
+          "@path": "meta"
         },
         "pressable": true
       }

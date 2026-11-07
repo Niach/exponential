@@ -72,12 +72,12 @@ describe(`host-owned input at 150 ms RTT (typing.test.ts)`, () => {
   for (const run of [1, 2, 3]) {
     it(`run ${run}: 40 keys, none dropped, the echo settles`, async () => {
       const page = await open(solid, { view: `kitchen-sink`, echo: 150, theme: `neutral` })
-      const input = page.locator(`[data-xui-id="echo-field"] input`)
+      const input = page.locator(`[data-xui-id="echo_field"] input`)
       await input.focus()
       await input.pressSequentially(EXPECTED, { delay: 5 })
       await page.waitForTimeout(450)
       expect(await input.inputValue()).toBe(EXPECTED)
-      await page.locator(`[data-xui-id="echo-field"] input`).blur()
+      await page.locator(`[data-xui-id="echo_field"] input`).blur()
       await page.waitForTimeout(400)
       expect(((await page.locator(`#host-echo`).textContent()) ?? ``).replace(/^host: /, ``)).toBe(EXPECTED)
       const log = (await logOf(page)) as { input?: string; kind?: string; revision?: number }[]
@@ -89,7 +89,7 @@ describe(`host-owned input at 150 ms RTT (typing.test.ts)`, () => {
   }
   it(`a stale host echo never clobbers a newer keystroke`, async () => {
     const page = await open(solid, { view: `kitchen-sink`, echo: 400, theme: `neutral` })
-    const input = page.locator(`[data-xui-id="echo-field"] input`)
+    const input = page.locator(`[data-xui-id="echo_field"] input`)
     await input.focus()
     await input.pressSequentially(`abc`, { delay: 5 })
     await page.waitForTimeout(200)
@@ -99,7 +99,7 @@ describe(`host-owned input at 150 ms RTT (typing.test.ts)`, () => {
     await page.context().close()
   })
   it(`the debounced change + the commit: the same onInput entries as React`, async () => {
-    const node = { id: `t`, component: `Input`, props: { label: `T`, name: `title`, value: { path: `/t` } } }
+    const node = { id: `t`, component: `Input`, props: { label: `T`, name: `title`, value: { "@path": `/t` } } }
     await bothAgree(
       { ...tree(node, { t: `` }), echo: 150 },
       async (page) => {
@@ -346,8 +346,8 @@ describe(`fixtures/interactions-round1.json select (React and Solid)`, () => {
     id: `root`,
     component: `Box`,
     children: [
-      { id: `s`, component: `Select`, props: { label: `Status`, name: `s`, options: [{ label: `Any`, value: `` }, { label: `Open`, value: `open` }, { label: `Done`, value: `done` }], value: { path: `/v` } }, on: on(`change`) },
-      { id: `v`, component: `Text`, props: { text: { call: `fallback`, args: { value: { path: `/v` }, default: `<unset>` } } } },
+      { id: `s`, component: `Select`, props: { label: `Status`, name: `s`, options: [{ label: `Any`, value: `` }, { label: `Open`, value: `open` }, { label: `Done`, value: `done` }], value: { "@path": `/v` } }, on: on(`change`) },
+      { id: `v`, component: `Text`, props: { text: { "@call": `fallback`, args: { value: { "@path": `/v` }, default: `<unset>` } } } },
     ],
   }
   for (const c of selectCases)

@@ -193,7 +193,7 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
               await frame()
               out.scrollStepMs = times.reduce((a, c) => a + c, 0) / times.length
               out.renderedItems = b.renderedItems(`.xui-list-item`)
-              out.targetRendered = b.has(`[data-xui-id="bench-row.r${jump.index}"]`) ? 1 : 0
+              out.targetRendered = b.has(`[data-xui-id="bench_row.r${jump.index}"]`) ? 1 : 0
               break
             }
             case `streaming`: {

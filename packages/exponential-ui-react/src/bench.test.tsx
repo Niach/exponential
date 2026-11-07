@@ -50,7 +50,7 @@ describe.skipIf(!run)(`bench: 100,000 rows (jsdom)`, () => {
       const renderedItems = container.querySelectorAll(`.xui-list-item`).length
       const round = (v: number) => Math.round(v * 10) / 10
       console.log(JSON.stringify({ renderer: `react-jsdom`, rows: bench.rows.count, firstPaintMs: round(firstPaintMs), scrollStepMs: round(steps.reduce((a, b) => a + b, 0) / steps.length), scrollToIndexMs: round(scrollToIndexMs), renderedItems }))
-      expect(container.querySelector(`[data-xui-id="bench-row.r${bench.steps.scrollToIndex.index}"]`)).not.toBeNull()
+      expect(container.querySelector(`[data-xui-id="bench_row.r${bench.steps.scrollToIndex.index}"]`)).not.toBeNull()
       expect(renderedItems).toBeLessThan(60)
     } finally {
       window.scrollBy = prevScrollBy

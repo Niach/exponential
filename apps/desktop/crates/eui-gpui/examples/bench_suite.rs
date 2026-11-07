@@ -274,8 +274,8 @@ mod linux {
                 let jump = b.frame(cx, &mut |view, _, cx| view.scroll_to_index("root", index, Some("start"), cx));
                 m.insert("scrollToIndexMs".into(), jump);
                 let rendered = b.read(cx, |view| {
-                    assert!(view.index_of(&format!("bench-row.r{index}")).is_some(), "item {index} rendered after the jump");
-                    view.placed_nodes().iter().filter(|n| !n.removed && n.id.strip_prefix("bench-row.r").is_some_and(|k| !k.contains('.'))).count() as f64
+                    assert!(view.index_of(&format!("bench_row.r{index}")).is_some(), "item {index} rendered after the jump");
+                    view.placed_nodes().iter().filter(|n| !n.removed && n.id.strip_prefix("bench_row.r").is_some_and(|k| !k.contains('.'))).count() as f64
                 });
                 m.insert("renderedItems".into(), rendered);
                 if let Some(mb) = memory_mb() {

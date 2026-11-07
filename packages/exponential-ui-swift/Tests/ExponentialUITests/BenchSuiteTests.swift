@@ -171,7 +171,7 @@ final class BenchSuiteTests: XCTestCase {
             out["scrollToIndexMs"] = timed { m.scrollToIndex(id: "root", index: index, align: align) }
             let list = m.lists["root"]
             out["renderedItems"] = Double((list?.end ?? 0) - (list?.start ?? 0))
-            XCTAssertNotNil(m.index(of: "bench-row.r\(index)"), "item \(index) rendered after the jump")
+            XCTAssertNotNil(m.index(of: "bench_row.r\(index)"), "item \(index) rendered after the jump")
             out["memoryMb"] = Self.footprintMb()
 
         case "streaming":

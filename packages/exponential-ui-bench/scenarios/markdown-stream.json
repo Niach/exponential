@@ -27,7 +27,7 @@
           "component": "Markdown",
           "props": {
             "text": {
-              "path": "/md"
+              "@path": "/md"
             }
           }
         }

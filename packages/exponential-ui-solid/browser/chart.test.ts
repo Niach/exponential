@@ -156,8 +156,8 @@ const PICTURE = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www
 const choiceNode = (type: string, disabled?: number, pictures = true) => ({
   id: `t`,
   component: `ChoiceTiles`,
-  props: { name: `t`, type, options: [`a`, `b`, `c`, `d`].map((v, i) => ({ label: v.toUpperCase(), value: v, ...(pictures ? { image: PICTURE } : {}), ...(disabled === i ? { disabled: true } : {}) })), value: { path: `/v` }, columns: 2 },
-  on: { change: { event: { name: `change`, context: { v: { path: `/v` } } } } },
+  props: { name: `t`, type, options: [`a`, `b`, `c`, `d`].map((v, i) => ({ label: v.toUpperCase(), value: v, ...(pictures ? { image: PICTURE } : {}), ...(disabled === i ? { disabled: true } : {}) })), value: { "@path": `/v` }, columns: 2 },
+  on: { change: { event: { name: `change`, context: { v: { "@path": `/v` } } } } },
 })
 const picked = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll(`.xui-ChoiceTiles-tile[aria-checked="true"]`)).map((b) => b.getAttribute(`data-value`)).join(`,`))
 

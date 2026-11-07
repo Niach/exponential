@@ -215,7 +215,7 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
     await page.context().close()
   })
   it(`Menu (press): Enter opens, arrows move, ArrowRight opens a submenu, a checkbox item toggles`, async () => {
-    const page = await openPage(h, tree({ id: `m`, component: `Menu`, props: { label: `View`, items: [{ label: `Copy`, value: `copy` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { path: `/done` } }, { kind: `submenu`, label: `More`, items: [{ label: `Deep`, value: `deep` }] }] }, on: { select: { event: { name: `sel` } } } }, { done: false }))
+    const page = await openPage(h, tree({ id: `m`, component: `Menu`, props: { label: `View`, items: [{ label: `Copy`, value: `copy` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { "@path": `/done` } }, { kind: `submenu`, label: `More`, items: [{ label: `Deep`, value: `deep` }] }] }, on: { select: { event: { name: `sel` } } } }, { done: false }))
     await page.focus(`.xui-Menu-trigger`)
     await press(page, `Enter`)
     await page.waitForSelector(`[role="menu"]`)
