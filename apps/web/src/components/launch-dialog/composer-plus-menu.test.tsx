@@ -33,21 +33,21 @@ const openMenu = async (onAttach: (choice?: string) => void) => {
 }
 
 // #FEED-204 (apps.json EDITOR DEVICE): an app editor's Device › on the
-// session surface: names the device, disabled while the root is live, and
-// `locked: false` outranks the ended session's `rowsDisabled`.
+// session surface: names the device and stays enabled, even under the ended
+// session's `rowsDisabled` (#EXP-1738: a live root's pick moves it).
 describe(`an app editor's Device row (#FEED-204)`, () => {
   const devices = [
     { id: `mac`, name: `Mac` },
     { id: `mint`, name: `Mint` },
   ]
-  const openDevice = async (locked: boolean) => {
+  const openDevice = async () => {
     render(
       <ComposerOptionsMenu
         surface="session"
         agent="claude"
         onAttach={() => {}}
         rowsDisabled
-        runner={{ device: { value: `mint`, devices, onChange: () => {}, locked } }}
+        runner={{ device: { value: `mint`, devices, onChange: () => {} } }}
       />
     )
     const plus = screen.getByTestId(`agent-composer-plus-button`)
@@ -56,14 +56,11 @@ describe(`an app editor's Device row (#FEED-204)`, () => {
     return screen.findByTestId(`agent-composer-menu-device`)
   }
 
-  it.each([
-    [`a live root's row is disabled`, true],
-    [`an ended root's row stays enabled`, false],
-  ])(`%s and names the device`, async (_name, locked) => {
+  it(`stays enabled and names the device`, async () => {
     phone.value = false
-    const row = await openDevice(locked)
+    const row = await openDevice()
     expect(row.textContent).toContain(`Mint`)
-    expect(row.hasAttribute(`data-disabled`)).toBe(locked)
+    expect(row.hasAttribute(`data-disabled`)).toBe(false)
   })
 })
 

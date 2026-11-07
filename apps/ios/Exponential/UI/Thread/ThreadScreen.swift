@@ -2118,8 +2118,20 @@ struct ThreadComposer: View {
             account: steerModel?.composerAccountMenu,
             // #EXP-1715: the viewer's Assistant chat's Teams pick.
             teams: teamsPick,
-            device: editorDevice
+            device: deviceMenu
         )
+    }
+
+    /// #EXP-1738: a pick on a live editor root also moves it, the session
+    /// pin's request on the root's model (`moveError` = its toast above).
+    private var deviceMenu: SessionComposerFooter.DeviceMenu? {
+        editorDevice.map { menu in
+            SessionComposerFooter.DeviceMenu(devices: menu.devices, current: menu.current) { picked in
+                menu.onPick(picked)
+                guard let root, root.status != DomainContract.sessionStatusEnded else { return }
+                Task { await steerModel?.moveDevice(to: picked) }
+            }
+        }
     }
 
     /// ONE claim on the root's model (`attachSteerModel` / `detach` pair).

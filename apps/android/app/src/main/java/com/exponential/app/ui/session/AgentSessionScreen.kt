@@ -5543,14 +5543,12 @@ internal data class SessionComposerMenu(
 
 /**
  * #FEED-204 (apps.json EDITOR DEVICE): an app editor's Device › = THE device
- * picker's rows, the value = the device's name; [locked] on a live root: the
- * row reads, disabled.
+ * picker's rows, the value = the device's name.
  */
 @Immutable
 internal data class SessionComposerDevice(
     val devices: List<DevicePickerDevice>,
     val value: String?,
-    val locked: Boolean,
     val onPick: (String) -> Unit,
 ) {
     val label: String? get() = devices.firstOrNull { it.id == value }?.name
@@ -5757,7 +5755,6 @@ private fun ExpandedSteerComposer(
             effortValue = null,
             effortEnabled = false,
             rowsReadOnly = menu.readOnly,
-            deviceEnabled = menu.device?.locked != true,
             subagentsValue = null,
             ultracode = menu.ultracode,
             mcpValue = null,

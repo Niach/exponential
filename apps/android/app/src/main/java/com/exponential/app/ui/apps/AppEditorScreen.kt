@@ -1005,7 +1005,6 @@ private fun AppChatPane(
 private fun AppEditorViewModel.EditorDevice.composerDevice(onPick: (String) -> Unit) = SessionComposerDevice(
     devices = rows,
     value = choice.deviceId,
-    locked = choice.locked,
     onPick = onPick,
 )
 
@@ -1145,7 +1144,12 @@ private fun AppEditorConversation(
                     placeholder = if (Apps.isDraft(app.headVersion)) Apps.Copy.DRAFT_PLACEHOLDER else Apps.Copy.COMPOSER_PLACEHOLDER,
                     capsuleTestTag = "app-composer-capsule",
                     showQueue = false,
-                    deviceMenu = editorDevice.composerDevice(viewModel::pickDevice),
+                    // #EXP-1738: a pick on a live root also moves it (the
+                    // session pin's request; a refusal = its toast).
+                    deviceMenu = editorDevice.composerDevice { picked ->
+                        viewModel.pickDevice(picked)
+                        if (viewModel.editing) rootSession.moveToDevice(picked)
+                    },
                     modifier = Modifier.testTag(Apps.TestIds.COMPOSER),
                     // N-12: THE Dock: the tree's waiting cards, then the
                     // root's Queue and banners, over the composer.
