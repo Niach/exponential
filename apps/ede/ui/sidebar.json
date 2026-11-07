@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sidebar (#EDE-44): the IDE's left column as a top layer surface on the left edge, 272 px (the shell re-opens it at 56 px as the icon rail when /shell/rail is set: Sidebar's rail mode draws every Row as a tile with a tooltip). Top: the desktop/team switcher (#EDE-56: its sections, Local desktops first then one per connected account with its teams, from /shell/switcher/sections; New local desktop, Share as a team, Connect Exponential), the inbox, search and new buttons, the rail toggle. Nav: Needs you, Chats (they open the Exponential app). Sections: Pinned (the taskbar's pins), Workspaces (badges with the window counts), Active (sessions, when there are any). Bottom-left: the Exponential start button (the start menu, start-menu.json anchored here) and the chat button (chat.json). The host functions: ede.rail, ede.sidebar, ede.pin/unpin, ede.taskbar, ede.workspace, ede.start_menu, ede.chat, ede.launch, ede.switcher.",
+  "$comment": "Exponential Desktop's factory sidebar (#EDE-44): the IDE's left column as a top layer surface on the left edge, 272 px (the shell re-opens it at 56 px as the icon rail when /shell/rail is set: Sidebar's rail mode draws every Row as a tile with a tooltip). Top: the desktop/team switcher (#EDE-56: its sections, Local desktops first then one per connected account with its teams, from /shell/switcher/sections; New local desktop, Share as a team, Connect Exponential), the inbox, search and new buttons, the rail toggle. Nav: Needs you, Chats (they open the Exponential app). Sections: Pinned (the taskbar's pins), Workspaces (badges with the window counts), Active (sessions, when there are any). Bottom-left: the Exponential start button (the start menu, start-menu.json anchored here) and the chat button (chat.json). The host functions: ede_rail, ede_sidebar, ede_pin/unpin, ede_taskbar, ede_workspace, ede_start_menu, ede_chat, ede_launch, ede_switcher.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -13,15 +13,15 @@
     "exclusiveZone": 272,
     "keyboard": "on-demand",
     "functions": [
-      "ede.rail",
-      "ede.sidebar",
-      "ede.taskbar",
-      "ede.workspace",
-      "ede.start_menu",
-      "ede.chat",
-      "ede.launch",
-      "ede.switcher",
-      "ede.open_document"
+      "ede_rail",
+      "ede_sidebar",
+      "ede_taskbar",
+      "ede_workspace",
+      "ede_start_menu",
+      "ede_chat",
+      "ede_launch",
+      "ede_switcher",
+      "ede_open_document"
     ]
   },
   "root": {

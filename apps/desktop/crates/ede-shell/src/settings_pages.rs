@@ -1,7 +1,7 @@
 //! The settings pages the shell feeds itself (#EDE-47): what no daemon
 //! carries yet, as `/pages` (Keyboard's layouts to pick from, Date & Time,
 //! Startup apps, Default apps, Workspaces, Windows, Mouse & Touchpad), and
-//! ONE host function `ede.settings {page, key, value}` writing them:
+//! ONE host function `ede_settings {page, key, value}` writing them:
 //! `compositor.toml` keys the compositor already reads (`[keyboard]`,
 //! `[windows]`; main reloads it), the XDG autostart overrides, `xdg-mime
 //! default`, `timedatectl`. A setting the machine cannot apply yet is fed as
@@ -91,7 +91,7 @@ fn demo_state_for(spec: &str) -> Value {
     json!({"page": page, "deviceOpen": !team, "personalOpen": personal || !team, "codingOpen": coding, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": switcher})
 }
 
-/// `ede.settings {page, key, value}`: `Ok(true)` when the compositor must
+/// `ede_settings {page, key, value}`: `Ok(true)` when the compositor must
 /// reload its configuration, `Err` when the page refuses the key.
 pub fn handle(args: &Value) -> Result<bool, String> {
     let page = args.get("page").and_then(Value::as_str).ok_or("page is a string")?;
@@ -232,7 +232,7 @@ pub fn parse_ntp(text: &str) -> bool {
     matches!(text.trim(), "yes" | "true" | "1")
 }
 
-/// `ede.settings {page: datetime}`: the `timedatectl` verb and argument.
+/// `ede_settings {page: datetime}`: the `timedatectl` verb and argument.
 pub fn timedate_command(key: &str, value: &Value) -> Result<(&'static str, String), String> {
     match key {
         "timeZone" => Ok(("set-timezone", value.as_str().filter(|z| !z.is_empty() && !z.contains("..") && !z.starts_with('/')).ok_or("timeZone is a zone name")?.to_string())),

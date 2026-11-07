@@ -11,6 +11,7 @@ import {
   PR_CHECKS_QUEUED_FLAG_MINUTES,
   type PrChecksBrief,
   type PrChecksState,
+  type PrChecksUnknown,
 } from "@exp/domain-contract/pr-checks"
 import { db } from "@/db/connection"
 import { messages, pullRequestChecks, pullRequests, repositories, sessions } from "@/db/schema"
@@ -521,6 +522,9 @@ export async function fetchGithubCheckRuns(
 // One repair read per PR per minute, however many ops/deliveries ask.
 const REPAIR_THROTTLE_MS = 60_000
 const lastRepair = new Map<string, number>()
+// #FEED-198 (fixture `unknownText`): what the PR's last read found while it
+// found no checks, so `exponential_pr` can say why a PR has none.
+const lastUnknown = new Map<string, PrChecksUnknown>()
 
 /** Re-read a live PR's checks from GitHub (a missed delivery, the next `pr`
  *  op, the GITHUB_POLLING poller). `headSha` = the PR's head commit when the
@@ -534,7 +538,10 @@ export async function repairPullRequestChecks(
   const last = lastRepair.get(pullRequestId)
   if (last !== undefined && now - last < REPAIR_THROTTLE_MS) return
   lastRepair.set(pullRequestId, now)
-  if (lastRepair.size > 5_000) lastRepair.clear()
+  if (lastRepair.size > 5_000) {
+    lastRepair.clear()
+    lastUnknown.clear()
+  }
   try {
     const [row] = await db
       .select({
@@ -551,10 +558,14 @@ export async function repairPullRequestChecks(
       .limit(1)
     if (!row || !(LIVE_PR_STATES as readonly string[]).includes(row.state)) return
     const token = await resolveRepoInstallationToken(row.fullName, { fallbackInstallationId: row.installationId })
-    if (!token) return
+    if (!token) {
+      lastUnknown.set(row.id, `not_installed`)
+      return
+    }
     const runs = await fetchGithubCheckRuns(row.fullName, opts.headSha || row.head, token)
     const headSha = runs?.headSha ?? opts.headSha ?? null
     if (!runs || !headSha || runs.checks.length === 0) {
+      lastUnknown.set(row.id, runs ? `no_runs` : checksDenied(token) ? `no_permission` : `unreadable`)
       // No run at the head at all: nothing known (an older head's rows go).
       if (runs && runs.checks.length === 0) {
         await db.delete(pullRequestChecks).where(eq(pullRequestChecks.pullRequestId, row.id))
@@ -562,10 +573,12 @@ export async function repairPullRequestChecks(
       }
       return
     }
+    lastUnknown.delete(row.id)
     const required = await requiredChecksFor(row.fullName, row.base, token)
     // A list cut at the page cap is no full snapshot: upsert, drop nothing.
     await writePullRequestChecks({ pullRequestId: row.id, headSha, checks: runs.checks, snapshot: runs.complete, required })
   } catch (err) {
+    lastUnknown.set(pullRequestId, `unreadable`)
     console.error(`[pr-checks] repair of ${pullRequestId} failed`, err)
   }
 }
@@ -685,7 +698,7 @@ export async function pullRequestChecksBrief(
     await repairPullRequestChecks(pullRequestId)
     ;({ pr, rows } = await load())
   }
-  return checksBrief((pr?.checksState ?? `none`) as PrChecksState, rows)
+  return checksBrief((pr?.checksState ?? `none`) as PrChecksState, rows, lastUnknown.get(pullRequestId))
 }
 
 /** The rows the merge gate reads. */
@@ -696,6 +709,7 @@ export async function loadPullRequestChecks(pullRequestId: string): Promise<Chec
 /** Test hook. */
 export function resetPrChecksForTests(): void {
   lastRepair.clear()
+  lastUnknown.clear()
   requiredCache.clear()
   deniedUntil.clear()
 }

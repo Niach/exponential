@@ -6,6 +6,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - A2UI 1.0 flag day (#VAPP-289): the core refuses 0.9 messages and format 5 packages; host function names are flat (`app_toast`, `harness_*`).
+
+## 0.19.0 (2026-11-07)
+
 - Round 9 parity: Markdown's inline code paints the `Markdown/code` recipe (its type, side padding reserved in the line, corners, in quotes too), a bullet is 0.36 em at 0.46 em into the indent on the line's middle (`fixtures/markdown-inline.json` `documentPaint`). `MarkdownChipStyle.code`.
 - Round 9 (`packages/exponential-ui/docs/round-9-contract.md`): check severities (§6.6): a field's one message in the `error` part's `warning` / `info` state, an alert for an error, a polite status for an advisory, spoken when it appears; `SurfaceModel.fieldChecks` (through `fieldChecksJson`) gives the errors and the shown message. `accessibility.live` wins over `Text.live` and announces an inline Markdown too; `accessibility.hidden` is a DynamicBoolean. Markdown `profile: inline`: a paragraph paints as Text of its `variant`, a heading as `Heading` (h5, h6 = h4), under no host density, and never through `HostPlugin.markdown`.
 - Round 8 (`packages/exponential-ui/docs/round-8-contract.md`): `Canvas`, a static vector drawing on the uniffi `CanvasPlayer`. It recompiles when `size`/`shapes` change and resamples on a theme or mode change; `$color.*` slots come from the theme, plus `$mode`. It is sized as the Motion box, is an img named by `label`, and never takes focus. With `pointer: true` it sends `press {x, y}` (a release inside), `move {x, y}` (coalesced to one per frame) and `leave`, mapped through `canvasToDrawing`. Replays `fixtures/canvas.json`.

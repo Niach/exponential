@@ -223,7 +223,7 @@ class BenchSuite(
         val align = s["steps"]!!["scrollToIndex"]!!["align"]!!.string
         val jump = ms { m.scrollToIndex("root", index, align) }
         val list = m.indexOf("root")
-        val items = m.nodes.count { !it.hidden && it.parent == list && it.id.startsWith("bench-row") }
+        val items = m.nodes.count { !it.hidden && it.parent == list && it.id.startsWith("bench_row") }
         check(m.nodes.any { !it.hidden && (it.props["title"]?.string == "Row $index" || it.props["text"]?.string == "Row $index") }) { "row $index rendered after the jump" }
         return linkedMapOf(
             "firstPaintMs" to first,

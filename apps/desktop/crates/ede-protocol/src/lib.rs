@@ -12,6 +12,12 @@
 //! `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600) for the shell; whoever
 //! holds `system` mints narrower, expiring grants for agents with
 //! [`Request::MintGrant`]. A grant never mints more than it holds.
+//!
+//! The root token is the shell's (and the test harness's): everything else
+//! comes in through [`Client::connect_as`], which mints a grant of its own
+//! holding only what the caller names and drops the root connection
+//! (#EDE-22: grants by default). A process handed a grant in `EDE_TOKEN`
+//! (the sealed lock, a sandboxed agent) keeps that one.
 
 use std::{
     collections::VecDeque,
@@ -106,6 +112,8 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         bindings: bool,
     },
+    /// Where the pointer is (global logical coordinates): [`PointerInfo`].
+    PointerPosition,
     ReloadConfig,
     Lock,
     /// End the session cleanly (the compositor exits 0; exponential-session logs out).
@@ -178,7 +186,7 @@ impl Request {
     /// The capability the op needs; `None` = any valid grant.
     pub fn capability(&self) -> Option<Capability> {
         match self {
-            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe => None,
+            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe | Request::PointerPosition => None,
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
@@ -208,6 +216,17 @@ pub enum InputEvent {
     PointerAxis { dx: f64, dy: f64 },
     /// Wheel clicks (`v120` = 120 per click).
     PointerAxisDiscrete { dx: i32, dy: i32 },
+    /// The key that makes `keysym` (an X keysym) on the active layout, with
+    /// the Shift or AltGr its level needs held around it (press = modifiers
+    /// then key, release = key then modifiers); `not_found` when no key
+    /// makes it. ePilot's keys and typed characters (#EDE-23).
+    Keysym { keysym: u32, pressed: bool },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PointerInfo {
+    pub x: f64,
+    pub y: f64,
 }
 
 /// What the compositor sends.
@@ -390,6 +409,7 @@ pub struct Client {
     stream: UnixStream,
     next_id: u64,
     events: VecDeque<Envelope>,
+    token: Token,
     pub hello: Hello,
 }
 
@@ -401,7 +421,7 @@ impl Client {
 
     /// Hello over an already connected stream.
     pub fn over(stream: UnixStream, token: Token) -> Result<Self, Error> {
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap() } };
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap() } };
         let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token })?;
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
@@ -414,7 +434,9 @@ impl Client {
         Self::connect(&socket_path(Path::new(&runtime), &display), token)
     }
 
-    /// The compositor of `$WAYLAND_DISPLAY`, with the root token file.
+    /// The compositor of `$WAYLAND_DISPLAY` with the root token file (or
+    /// `EDE_TOKEN`): the shell's and the harness's way in. Anything else
+    /// uses [`Client::connect_as`].
     pub fn connect_env() -> Result<Self, Error> {
         let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| Error::Protocol("XDG_RUNTIME_DIR unset".into()))?;
         let display = std::env::var("WAYLAND_DISPLAY").map_err(|_| Error::Protocol("WAYLAND_DISPLAY unset".into()))?;
@@ -425,6 +447,29 @@ impl Client {
         };
         let token = Token::new(token.trim()).map_err(|e| Error::Protocol(e.to_string()))?;
         Self::connect(&socket_path(runtime, &display), token)
+    }
+
+    /// A grant of this process's own for `session_id`, holding
+    /// `capabilities` (#EDE-22: the default for everything but the shell).
+    /// The root token (or `EDE_TOKEN`) mints it and that connection is
+    /// dropped; a token that cannot mint (a narrower grant handed to this
+    /// process in `EDE_TOKEN`) is kept as it is.
+    pub fn mint_env(session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Token, Error> {
+        let mut root = Self::connect_env()?;
+        if !root.hello.capabilities.contains(&Capability::System) {
+            return Ok(root.token.clone());
+        }
+        Ok(root.mint(session_id, capabilities, expires_at)?.token)
+    }
+
+    /// Connects with a grant minted for `session_id` ([`Client::mint_env`]).
+    pub fn connect_as(session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Self, Error> {
+        Self::connect_with_token(Self::mint_env(session_id, capabilities, expires_at)?)
+    }
+
+    /// The token this connection said hello with.
+    pub fn token(&self) -> &Token {
+        &self.token
     }
 
     pub fn call(&mut self, request: Request) -> Result<serde_json::Value, Error> {
@@ -482,6 +527,10 @@ impl Client {
 
     pub fn input(&mut self, event: InputEvent) -> Result<(), Error> {
         self.call(Request::Input { event, bindings: false }).map(|_| ())
+    }
+
+    pub fn pointer(&mut self) -> Result<PointerInfo, Error> {
+        self.call_as(Request::PointerPosition)
     }
 
     /// A person's key: through the bindings and hotkeys (root grant only).
@@ -570,6 +619,9 @@ mod tests {
         assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
         let input: Call = serde_json::from_str(r#"{"id":1,"op":"input","event":{"kind":"key","key":30,"pressed":true}}"#).unwrap();
         assert_eq!(input.request, Request::Input { event: InputEvent::Key { key: 30, pressed: true }, bindings: false });
+        let sym = Call { id: 2, request: Request::Input { event: InputEvent::Keysym { keysym: 0x41, pressed: true }, bindings: false } };
+        assert_eq!(serde_json::to_value(&sym).unwrap(), serde_json::json!({"id": 2, "op": "input", "event": {"kind": "keysym", "keysym": 65, "pressed": true}}));
+        assert_eq!(serde_json::to_value(Call { id: 3, request: Request::PointerPosition }).unwrap(), serde_json::json!({"id": 3, "op": "pointer_position"}));
     }
 
     #[test]
@@ -579,6 +631,8 @@ mod tests {
         assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
         assert_eq!(Request::ListWindows.capability(), None);
+        assert_eq!(Request::PointerPosition.capability(), None);
+        assert_eq!(Request::Input { event: InputEvent::Keysym { keysym: 0x61, pressed: true }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::MinimizeWindow { window: WindowId::new("w1").unwrap() }.capability(), Some(Capability::Ui));
         assert_eq!(Request::RestoreWindow { window: WindowId::new("w1").unwrap() }.capability(), Some(Capability::Ui));
     }

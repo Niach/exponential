@@ -307,7 +307,7 @@ fn run_scenario(sc: &Value, first_in_process: bool) -> Metrics {
             b.surface.scroll_to_index("root", index, ScrollAlign::Start);
             b.pass();
             m.insert("scrollToIndexMs".into(), ms(t));
-            assert!(b.surface.index_of(&format!("bench-row.r{index}")).is_some(), "item {index} rendered after the jump");
+            assert!(b.surface.index_of(&format!("bench_row.r{index}")).is_some(), "item {index} rendered after the jump");
             m.insert("renderedItems".into(), b.rendered("root"));
             if let Some(mb) = memory_mb() {
                 m.insert("memoryMb".into(), mb);

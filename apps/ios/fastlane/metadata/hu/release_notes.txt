@@ -47,3 +47,4 @@
 - A Markdown a feladatokban, megjegyzésekben és csevegésekben minden appban ugyanúgy néz ki
 - Az Asszisztensed minden csapatodban működik
 - A csapat tulajdonosai Koordinátor ügynököt jelölhetnek ki
+- Az appok vászonra rajzolhatnak, és reagálnak a koppintásra és húzásra

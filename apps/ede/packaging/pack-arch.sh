@@ -36,7 +36,7 @@ options=(!strip !debug)
 package_exponential-desktop() {
   pkgdesc='Exponential Desktop: a Wayland desktop session with a shell drawn from genUI documents'
   depends=(glibc gcc-libs pipewire libinput seatd systemd-libs libxkbcommon pixman libglvnd mesa wayland vulkan-icd-loader fontconfig freetype2 git xorg-xwayland xdg-desktop-portal xdg-desktop-portal-gtk dbus glib2 systemd)
-  optdepends=('exponential-repo: updates from the Exponential repository' 'vulkan-driver: the shell draws with Vulkan' 'gnome-keyring: secrets')
+  optdepends=('exponential-repo: updates from the Exponential repository' 'vulkan-driver: the shell draws with Vulkan' 'vulkan-tools: the doctor names the GPU the shell takes' 'gnome-keyring: secrets')
   backup=(etc/pam.d/exponential-desktop)
   cp -a "$src/." "\$pkgdir/"
   rm -f "\$pkgdir/.version"

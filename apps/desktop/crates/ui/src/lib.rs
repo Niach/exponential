@@ -75,8 +75,9 @@ mod exponential_ui_screen;
 // EXP-1654: the sample pictures the specimen hosts paint.
 mod specimen_pictures;
 // VAPP-91: the IDE as an Exponential UI host.
+mod app_outbox;
 mod exponential_ui_host;
-pub use exponential_ui_host::install_record_outbox;
+pub use app_outbox::install_record_outbox;
 // VAPP-110: the Apps page, one app's editor, the New app / Rename form.
 mod app_export_dialog;
 // VAPP-228: the Data tab's CSV import dialog.

@@ -101,7 +101,7 @@ fn bench_100k(measure: &mut FixedMeasure) {
     let jump = t.elapsed().as_secs_f64() * 1000.0;
     let l = &out.lists[0];
     let rendered = l.end - l.start;
-    assert!(s.index_of(&format!("bench-row.r{index}")).is_some(), "item {index} rendered after the jump");
+    assert!(s.index_of(&format!("bench_row.r{index}")).is_some(), "item {index} rendered after the jump");
     println!(
         "list (100,000 ListRows, bench-list.json): firstPaintMs {first_paint:.1}, scrollStepMs {:.3}, scrollToIndexMs {jump:.3}, renderedItems {rendered}",
         total / steps as f64

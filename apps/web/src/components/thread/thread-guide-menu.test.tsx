@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import closePrCopy from "@exp/domain-contract/fixtures/close-pr.json"
 import prChecks from "@exp/domain-contract/fixtures/pr-checks.json"
 import mergeTrain from "@exp/domain-contract/fixtures/merge-train.json"
@@ -59,6 +59,10 @@ beforeEach(() => {
   checks.rows = []
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe(`ThreadGuideMenu`, () => {
   for (const c of mergeTrain.menu.filter((c) => c.input.state !== null)) {
     it(`merge-train menu: ${c.name}`, () => {
@@ -98,6 +102,11 @@ describe(`ThreadGuideMenu`, () => {
   })
 
   it(`#EXP-1611: the Checks rows in checksList order; a pick opens the logs; no url = disabled`, () => {
+    // #EXP-1700: the running row's elapsed label reads the clock; the menu and
+    // the expectation share one instant, or a minute rollover fails `gate`.
+    // Only Date is faked: the menu's own timers keep running.
+    vi.useFakeTimers({ toFake: [`Date`] })
+    vi.setSystemTime(new Date(prChecks.specimen.now))
     checks.rows = prChecks.specimen.checks
     const open = vi.spyOn(window, `open`).mockImplementation(() => null)
     expect(openMenu(`open`, true)).toEqual([`${prChecks.copy.checks}1 failing`, `Hold auto-merge`, closePrCopy.menuItem])

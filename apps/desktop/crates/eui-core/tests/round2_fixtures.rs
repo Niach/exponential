@@ -64,6 +64,6 @@ fn the_bench_surface_reduces_cleanly_and_its_template_is_lifted() {
     let components: Vec<eui_core::FlatComponent> = serde_json::from_value(bench["components"].clone()).unwrap();
     let result = eui_core::reducer::reduce_surface(&components, &eui_core::reducer::ReduceOptions::new(bench["catalogId"].as_str().unwrap()));
     assert_eq!(result.issues, vec![]);
-    assert_eq!(result.templates.unwrap().keys().collect::<Vec<_>>(), ["bench-row"]);
+    assert_eq!(result.templates.unwrap().keys().collect::<Vec<_>>(), ["bench_row"]);
     assert_eq!(bench["rows"]["count"], 100_000);
 }

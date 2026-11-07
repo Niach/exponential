@@ -15,7 +15,7 @@ Inside this monorepo the workspace package is `@exp/eengine` (private, the same 
 | `consent.json` | the sheet's answer, grant writes (only the ConsentUi, only after a gesture), the Vault record, reconciling on a package load, the ask sheet and the Permissions sheet as genUI surfaces |
 | `capabilities.json` | the capability catalog (scopes, `ask` vs `picker`, host-only), `<capability>__<tool>` / `<capability>.<tool>` names, the one broker for UI and agent calls, an agent's tool list, the audit row; capabilities v1 (E5): every tool's schemas, the bridge between the broker and a native provider (validation, app files, notification ids and taps) and the `print.pdf` layout, byte for byte |
 | `providers.json` | the `HostConfig` (required and optional providers; no telemetry, no updates), identity kinds (local = "me"), the network policy |
-| `outbox.json` | a `$ref` to `domain-contract` `app-records.json` `outbox` (O1, not copied) plus when it applies (sync provider = queue, none = write through) |
+| `outbox.json` | a `$ref` to `domain-contract` `app-records.json` `outbox` (O1, not copied) plus when it applies (sync provider = queue, none = write through) and the account's queue (`syncedCases`, `SyncedRecordStore`: one outbox per account over the host's `OutboxLog`) |
 
 ## Web capabilities
 

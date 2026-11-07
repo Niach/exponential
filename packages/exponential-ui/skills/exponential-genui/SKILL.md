@@ -5,7 +5,7 @@ description: "Write genUI (A2UI 1.0) surfaces: the component model, bindings and
 
 # genUI
 
-> Generated from the genUI prompt and catalog (genUI 0.18.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from the genUI prompt and catalog (genUI 0.19.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
 genUI paints A2UI 1.0 surfaces the same on web, desktop, iOS and Android: an `exponential_show` card, an app template and every other surface use this one model.
 

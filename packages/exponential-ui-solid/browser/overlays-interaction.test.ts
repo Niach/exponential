@@ -105,7 +105,7 @@ describe(`Dialog + Drawer`, () => {
   const dialog = (props: Record<string, unknown> = {}) => ({
     id: `root`,
     component: `Box`,
-    children: [{ id: `d`, component: `Dialog`, props: { title: `Edit`, description: `Change it`, open: { path: `/open` }, ...props }, on: { change: { event: { name: `changed` } } }, slots: { trigger: text(`d-t`, `Open`) }, children: [button(`d-a`, `First`), button(`d-b`, `Second`)] }],
+    children: [{ id: `d`, component: `Dialog`, props: { title: `Edit`, description: `Change it`, open: { "@path": `/open` }, ...props }, on: { change: { event: { name: `changed` } } }, slots: { trigger: text(`d-t`, `Open`) }, children: [button(`d-a`, `First`), button(`d-b`, `Second`)] }],
   })
   it(`the trigger opens it (bound open written, change fired), focus lands on the first tabbable, Tab loops inside, Escape closes`, async () => {
     const o = await both(tree(dialog(), { open: false }), async (page, step) => {
@@ -325,7 +325,7 @@ describe(`Popover + Tooltip`, () => {
 })
 
 describe(`Menu`, () => {
-  const menu = { id: `m`, component: `Menu`, props: { label: `View`, items: [{ label: `Copy`, value: `copy` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { path: `/done` } }, { kind: `submenu`, label: `More`, items: [{ label: `Deep`, value: `deep` }] }] }, on: { select: { event: { name: `sel` } } } }
+  const menu = { id: `m`, component: `Menu`, props: { label: `View`, items: [{ label: `Copy`, value: `copy` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { "@path": `/done` } }, { kind: `submenu`, label: `More`, items: [{ label: `Deep`, value: `deep` }] }] }, on: { select: { event: { name: `sel` } } } }
   it(`(press) Enter opens, arrows move, a checkbox item toggles and stays open, ArrowRight opens a submenu, ArrowLeft returns`, async () => {
     const o = await both(tree(menu, { done: false }), async (page, step) => {
       await page.focus(`.xui-Menu-trigger`)

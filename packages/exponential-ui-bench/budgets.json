@@ -464,7 +464,7 @@
         "cold-start": {
           "coldStartMs": 3131.7,
           "firstPaintMs": 492.5,
-          "nodes": 711,
+          "nodes": 714,
           "memoryMb": 347.8
         },
         "card-grid": {
@@ -492,7 +492,7 @@
         "theme-switch": {
           "themeSwitchMs": 196,
           "modeSwitchMs": 25.5,
-          "restyled": 716
+          "restyled": 719
         },
         "resize": {
           "resizeMs": 55.5,
@@ -523,7 +523,7 @@
         "cold-start": {
           "coldStartMs": 3814.1,
           "firstPaintMs": 108.1,
-          "nodes": 711,
+          "nodes": 714,
           "memoryMb": 130.7
         },
         "card-grid": {
@@ -551,7 +551,7 @@
         "theme-switch": {
           "themeSwitchMs": 45.6,
           "modeSwitchMs": 9.6,
-          "restyled": 716
+          "restyled": 719
         },
         "resize": {
           "resizeMs": 18.2,
@@ -581,7 +581,7 @@
       "element-chromium": {
         "cold-start": {
           "firstPaintMs": 512.7,
-          "nodes": 716,
+          "nodes": 719,
           "coldStartMs": 628.2,
           "memoryMb": 32.5
         },
@@ -632,7 +632,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 440.7,
-          "nodes": 716,
+          "nodes": 719,
           "coldStartMs": 749.7,
           "memoryMb": 24.2
         },
@@ -686,7 +686,7 @@
       "solid-chromium": {
         "cold-start": {
           "firstPaintMs": 506.1,
-          "nodes": 716,
+          "nodes": 719,
           "coldStartMs": 641.5,
           "memoryMb": 32.2
         },
@@ -746,7 +746,7 @@
           "coldStartMs": 65.6,
           "firstPaintMs": 32.6,
           "memoryMb": 46.4,
-          "nodes": 711
+          "nodes": 714
         },
         "deep-nesting": {
           "depth": 48,
@@ -791,7 +791,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 4.8,
-          "restyled": 716,
+          "restyled": 719,
           "themeSwitchMs": 25.5
         }
       },
@@ -805,7 +805,7 @@
           "coldStartMs": 158,
           "firstPaintMs": 29.5,
           "memoryMb": 56.1,
-          "nodes": 711
+          "nodes": 714
         },
         "deep-nesting": {
           "depth": 48,
@@ -850,7 +850,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 4.7,
-          "restyled": 716,
+          "restyled": 719,
           "themeSwitchMs": 22.5
         }
       }
@@ -858,11 +858,11 @@
     "mint": {
       "core": {
         "cold-start": {
-          "allocations": 254704,
+          "allocations": 261714,
           "coldStartMs": 21.3,
           "firstPaintMs": 15.1,
           "memoryMb": 30.4,
-          "nodes": 716
+          "nodes": 719
         },
         "card-grid": {
           "upcallsPerPass": 1,
@@ -883,7 +883,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 4.6,
-          "restyled": 716,
+          "restyled": 719,
           "themeSwitchMs": 11.5
         },
         "resize": {
@@ -929,7 +929,7 @@
           "coldStartMs": 66.8,
           "firstPaintMs": 44.3,
           "memoryMb": 87.8,
-          "nodes": 716
+          "nodes": 719
         },
         "card-grid": {
           "upcallsPerPass": 1,
@@ -950,7 +950,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 66,
-          "restyled": 716,
+          "restyled": 719,
           "themeSwitchMs": 94.5
         },
         "resize": {

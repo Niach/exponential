@@ -86,20 +86,20 @@ function cardGrid(n: number): NestedNode {
   const children: NestedNode[] = [{ id: `heading`, component: `Text`, props: { text: `Bench`, variant: `title` } }]
   for (let i = 0; i < cards; i++) {
     children.push({
-      id: `card-${i}`,
+      id: `card_${i}`,
       component: `Box`,
       style: { display: `flex`, flexDirection: `column`, gap: 8, padding: 12, borderRadius: 8, backgroundColor: `$color.card` },
       children: [
-        { id: `card-${i}-title`, component: `Text`, props: { text: `Card ${i} · a title that may wrap`, variant: `label`, lines: 1 } },
-        { id: `card-${i}-body`, component: `Text`, props: { text: `Body copy with enough words to wrap at a phone width and exercise the second measure phase.`, variant: `muted` } },
+        { id: `card_${i}_title`, component: `Text`, props: { text: `Card ${i} · a title that may wrap`, variant: `label`, lines: 1 } },
+        { id: `card_${i}_body`, component: `Text`, props: { text: `Body copy with enough words to wrap at a phone width and exercise the second measure phase.`, variant: `muted` } },
         {
-          id: `card-${i}-row`,
+          id: `card_${i}_row`,
           component: `Box`,
           style: { display: `flex`, flexDirection: `row`, gap: 8, alignItems: `center`, flexWrap: `wrap` },
           children: [
-            { id: `card-${i}-pill-a`, component: `Button`, props: { label: `Alpha`, variant: `outline`, size: `sm` } },
-            { id: `card-${i}-pill-b`, component: `Button`, props: { label: `Beta`, variant: `outline`, size: `sm` } },
-            { id: `card-${i}-go`, component: `Button`, props: { label: `Open`, variant: `default` }, style: { marginLeft: `auto` } },
+            { id: `card_${i}_pill_a`, component: `Button`, props: { label: `Alpha`, variant: `outline`, size: `sm` } },
+            { id: `card_${i}_pill_b`, component: `Button`, props: { label: `Beta`, variant: `outline`, size: `sm` } },
+            { id: `card_${i}_go`, component: `Button`, props: { label: `Open`, variant: `default` }, style: { marginLeft: `auto` } },
           ],
         },
       ],
@@ -120,10 +120,10 @@ function deepChain(depth: number): NestedNode {
   let node: NestedNode = { id: `leaf`, component: `Text`, props: { text: `Level ${depth}`, variant: `muted` } }
   for (let level = depth - 1; level >= 1; level--) {
     node = {
-      id: `level-${level}`,
+      id: `level_${level}`,
       component: `Box`,
       style: { display: `flex`, flexDirection: `column`, gap: 2, padding: 1, borderRadius: 2, backgroundColor: level % 2 ? `$color.card` : `$color.muted` },
-      children: [{ id: `label-${level}`, component: `Text`, props: { text: `Level ${level}`, variant: `label`, lines: 1 } }, node],
+      children: [{ id: `label_${level}`, component: `Text`, props: { text: `Level ${level}`, variant: `label`, lines: 1 } }, node],
     }
   }
   return node
@@ -134,18 +134,18 @@ function deepChain(depth: number): NestedNode {
  *  message appends a card to. */
 const STREAM_ROOT = (messages: number): FlatComponent[] => [
   { id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, gap: 12, padding: 16 }, children: [`status`, `transcript`] },
-  { id: `status`, component: `Box`, style: { display: `flex`, flexDirection: `column`, gap: 4 }, children: [`status-label`, `status-progress`] },
-  { id: `status-label`, component: `Text`, text: { path: `/status/label` }, variant: `muted` },
-  { id: `status-progress`, component: `Progress`, value: { path: `/status/progress` } },
+  { id: `status`, component: `Box`, style: { display: `flex`, flexDirection: `column`, gap: 4 }, children: [`status_label`, `status_progress`] },
+  { id: `status_label`, component: `Text`, text: { "@path": `/status/label` }, variant: `muted` },
+  { id: `status_progress`, component: `Progress`, value: { "@path": `/status/progress` } },
   { id: `transcript`, component: `Box`, style: { display: `flex`, flexDirection: `column`, gap: 8 }, children: Array.from({ length: messages }, (_, i) => `m${i}`) },
 ]
 
 const STREAM_MESSAGE = (i: number): FlatComponent[] => [
-  { id: `m${i}`, component: `Box`, style: { display: `flex`, flexDirection: `column`, gap: 4, padding: 12, borderRadius: 8, backgroundColor: i % 2 ? `$color.card` : `$color.muted` }, children: [`m${i}-head`, `m${i}-body`] },
-  { id: `m${i}-head`, component: `Box`, style: { display: `flex`, flexDirection: `row`, gap: 8, alignItems: `center` }, children: [`m${i}-who`, `m${i}-badge`] },
-  { id: `m${i}-who`, component: `Text`, text: i % 2 ? `Agent` : `You`, variant: `label` },
-  { id: `m${i}-badge`, component: `Badge`, text: i % 2 ? `tool` : `message`, variant: `secondary` },
-  { id: `m${i}-body`, component: `Text`, text: `Step ${i}: the agent streams one card per message, twenty a second, and the renderer must apply each one in well under a frame while the transcript grows to ${i + 1} cards.` },
+  { id: `m${i}`, component: `Box`, style: { display: `flex`, flexDirection: `column`, gap: 4, padding: 12, borderRadius: 8, backgroundColor: i % 2 ? `$color.card` : `$color.muted` }, children: [`m${i}_head`, `m${i}_body`] },
+  { id: `m${i}_head`, component: `Box`, style: { display: `flex`, flexDirection: `row`, gap: 8, alignItems: `center` }, children: [`m${i}_who`, `m${i}_badge`] },
+  { id: `m${i}_who`, component: `Text`, text: i % 2 ? `Agent` : `You`, variant: `label` },
+  { id: `m${i}_badge`, component: `Badge`, text: i % 2 ? `tool` : `message`, variant: `secondary` },
+  { id: `m${i}_body`, component: `Text`, text: `Step ${i}: the agent streams one card per message, twenty a second, and the renderer must apply each one in well under a frame while the transcript grows to ${i + 1} cards.` },
 ]
 
 /** 20 messages a second for 10 s = 200 messages, alternating an
@@ -231,7 +231,7 @@ function streamingChunks(tokens: number, steps: number): string[] {
   return Array.from({ length: steps }, (_, i) => words.slice(i * per, (i + 1) * per).join(``))
 }
 
-const sink = ((n: NestedNode): NestedNode => ({ ...n, children: (n.children ?? []).filter((c) => c.id !== `macros-demo`) }))(kitchenSink as unknown as NestedNode)
+const sink = ((n: NestedNode): NestedNode => ({ ...n, children: (n.children ?? []).filter((c) => c.id !== `macros_demo`) }))(kitchenSink as unknown as NestedNode)
 const sinkData = Object.fromEntries(Object.entries(kitchenSinkData as Record<string, unknown>).filter(([k]) => k !== `$comment`))
 
 export const SCENARIOS: readonly ScenarioDef[] = [
@@ -363,7 +363,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     surface: {
       components: [
         { id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, gap: 2, padding: 8 }, children: { componentId: `item`, path: `/items`, key: `id` } },
-        { id: `item`, component: `Text`, text: { path: `title` }, variant: `muted`, lines: 1 },
+        { id: `item`, component: `Text`, text: { "@path": `title` }, variant: `muted`, lines: 1 },
       ],
     },
     data: { generate: { path: `/items`, count: 10_000, item: { id: `t{i}`, title: `Item {i} of ten thousand` } } },
@@ -392,15 +392,15 @@ export const SCENARIOS: readonly ScenarioDef[] = [
           {
             id: `dialog`,
             component: `Dialog`,
-            props: { title: `Delete board?`, description: `This cannot be undone.`, open: { path: `/ui/open` }, dismissible: true },
+            props: { title: `Delete board?`, description: `This cannot be undone.`, open: { "@path": `/ui/open` }, dismissible: true },
             slots: {
-              trigger: { id: `dialog-trigger`, component: `Button`, props: { label: `Delete`, variant: `destructive` } },
-              footer: { id: `dialog-footer`, component: `Button`, props: { label: `Delete for good`, variant: `destructive` } },
+              trigger: { id: `dialog_trigger`, component: `Button`, props: { label: `Delete`, variant: `destructive` } },
+              footer: { id: `dialog_footer`, component: `Button`, props: { label: `Delete for good`, variant: `destructive` } },
             },
             children: [
-              { id: `dialog-a`, component: `Text`, props: { text: `Every issue on the board goes with it.` } },
-              { id: `dialog-b`, component: `Text`, props: { text: `Sessions keep their history.`, variant: `muted` } },
-              { id: `dialog-c`, component: `Input`, props: { name: `confirm`, label: `Type the board's name`, placeholder: `Platform` } },
+              { id: `dialog_a`, component: `Text`, props: { text: `Every issue on the board goes with it.` } },
+              { id: `dialog_b`, component: `Text`, props: { text: `Sessions keep their history.`, variant: `muted` } },
+              { id: `dialog_c`, component: `Input`, props: { name: `confirm`, label: `Type the board's name`, placeholder: `Platform` } },
             ],
           },
         ],
@@ -420,13 +420,13 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     surface: {
       components: [
         { id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, height: PHONE.height }, children: [`table`] },
-        { id: `table`, component: `Table`, columns: TABLE_COLUMNS, rows: { path: `/rows` }, rowKey: `id`, striped: true, stickyHeader: true, sort: { key: `name`, direction: `asc` }, style: { height: PHONE.height } },
+        { id: `table`, component: `Table`, columns: TABLE_COLUMNS, rows: { "@path": `/rows` }, rowKey: `id`, striped: true, stickyHeader: true, sort: { key: `name`, direction: `asc` }, style: { height: PHONE.height } },
       ],
     },
     data: { generate: { path: `/rows`, count: 1_000, item: { id: `row{i}`, name: `Member {i}`, role: `{i % 3}`, runs: `{i % 97}`, status: `{i % 2}` } } },
     steps: {
       scroll: { count: 20, by: `viewport` },
-      sort: { updateComponents: { surfaceId: `bench`, components: [{ id: `table`, component: `Table`, columns: TABLE_COLUMNS, rows: { path: `/rows` }, rowKey: `id`, striped: true, stickyHeader: true, sort: { key: `runs`, direction: `desc` }, style: { height: PHONE.height } }] } },
+      sort: { updateComponents: { surfaceId: `bench`, components: [{ id: `table`, component: `Table`, columns: TABLE_COLUMNS, rows: { "@path": `/rows` }, rowKey: `id`, striped: true, stickyHeader: true, sort: { key: `runs`, direction: `desc` }, style: { height: PHONE.height } }] } },
     },
     metrics: [
       FIRST_PAINT,
@@ -455,7 +455,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     mode: `dark`,
     viewport: PHONE,
     renderers: [`react-chromium`, `solid-chromium`],
-    surface: { nested: { id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, padding: 16 }, children: [{ id: `md`, component: `Markdown`, props: { text: { path: `/md` } } }] } },
+    surface: { nested: { id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, padding: 16 }, children: [{ id: `md`, component: `Markdown`, props: { text: { "@path": `/md` } } }] } },
     data: { md: `` },
     steps: { path: `/md`, chunks: streamingChunks(2000, 200), markdownOptions: { streaming: true, density: `chat`, breaks: `hard` } },
     metrics: [

@@ -19,6 +19,7 @@ const KEY_A: u32 = 30;
 const KEY_TAB: u32 = 15;
 const KEY_LEFTALT: u32 = 56;
 const KEY_LEFTMETA: u32 = 125;
+const KEY_LEFTSHIFT: u32 = 42;
 const KEY_LEFTCTRL: u32 = 29;
 const KEY_UP: u32 = 103;
 const KEY_DOWN: u32 = 108;
@@ -511,6 +512,31 @@ fn global_shortcuts_fire_from_the_person_and_keep_the_key() {
     let mut other = h.ipc();
     let again = other.bind_shortcuts("/s/2", vec![spec("rec", "CTRL+ALT+r")]).unwrap();
     assert_eq!(again[0].trigger.as_deref(), Some("CTRL+ALT+r"));
+}
+
+/// #EDE-22: a keysym finds its key and level on the layout; `A` = Shift
+/// held around `a`, released with it; a keysym no key makes is `not_found`.
+#[test]
+fn keysyms_find_their_key_and_level_on_the_layout() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("notes");
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+
+    let mut ipc = h.ipc();
+    for (keysym, pressed) in [(0x61, true), (0x61, false), (0x41, true), (0x41, false)] {
+        ipc.input(InputEvent::Keysym { keysym, pressed }).unwrap();
+    }
+    wait_for(&mut app, |c| c.state.keys == [KEY_A, KEY_LEFTSHIFT, KEY_A]);
+    assert!(h.with(|ede| ede.seat.get_keyboard().unwrap().pressed_keys().is_empty()), "Shift is let go with the key");
+    let snowman = InputEvent::Keysym { keysym: 0x0100_2603, pressed: true };
+    assert_eq!(code(ipc.input(snowman).unwrap_err()), ErrorCode::NotFound);
+
+    ipc.input(InputEvent::PointerMotion { x: 120.0, y: 80.0 }).unwrap();
+    let at = ipc.pointer().unwrap();
+    assert_eq!((at.x, at.y), (120.0, 80.0));
 }
 
 #[test]

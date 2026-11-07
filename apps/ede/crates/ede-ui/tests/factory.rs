@@ -41,3 +41,20 @@ fn layer_documents_have_an_opaque_root() {
     }
     assert!(checked >= 3, "the panel, Settings, the OSD and the switcher were checked ({checked})");
 }
+
+/// Every factory document applies as shipped: the header, Tier C (every
+/// `@call` in `surface.functions`), the body. The A2UI 1.0 move (#VAPP-289)
+/// renamed the calls to `ede_*` and left the headers at `ede.*`, so eDE
+/// 0.2.5 refused its own start menu and taskbar; this keeps the two in step.
+#[test]
+fn factory_documents_validate() {
+    let mut checked = 0;
+    for (name, doc) in factory_documents() {
+        let stem = name.trim_end_matches(".json");
+        if let Err(issues) = ede_ui::validate_document(stem, &doc) {
+            panic!("{name}: {}", issues.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("; "));
+        }
+        checked += 1;
+    }
+    assert!(checked >= 20, "every factory document was checked ({checked})");
+}

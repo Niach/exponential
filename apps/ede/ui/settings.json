@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory settings (#EDE-47, the merged Settings window of the IDE look): ONE on-demand top-layer window (the menu's Settings rows open it with ede.open_document, the close button closes it), a 272 px sidebar nav on the left and the page on the right, no tile overview. The nav: This device (Display, Sound, Network, Bluetooth, Power, Themes, Keyboard, Mouse & Touchpad, Date & Time, Users, Notifications, Workspaces, Windows, Startup apps, Default apps, then the folded Coding group: Tools, Coding CLIs, Worktrees, Sessions, the IDE's This device group), Personal (Account, Devices, Security, What's new, About) and Team, headed by the shell's switcher (/shell/switcher/current; its sections as a Popover: Local desktops, then one per connected account with its teams, #EDE-56): a Local desktop shows General, Agents, Apps; a team entry shows the IDE's groups from settings-nav.json (Team, Boards, Agents, Apps), which eDE has none of yet (#EDE-54). Picking an entry here sets /settings/team only: the shell's desktop stays. Pages bind what the shell feeds: /services/<domain> (#EDE-13), /outputs, /config, /user, /shell, /date, /notifications, and /pages (#EDE-47: the layouts, Date & Time, Startup apps, Default apps, Workspaces, Windows, Mouse & Touchpad). Controls are two-way bound and call a host function with the new value: ede.service {domain, action, args}, ede.output {name, mode?, scale?}, ede.config {theme}, ede.settings {page, key, value} (compositor.toml's [keyboard] and [windows], the XDG autostart overrides, xdg-mime default, timedatectl). A setting the machine cannot apply yet is a read-only value row (Mouse & Touchpad, the workspace count, the 24-hour clock), never a dead control; the Exponential rows (Notifications' email/push, Coding, Devices, Security, a team's pages) are honest empty states until the Exponential app runs on this desktop. #EDE-57: a Local desktop's General page shares it as a team: Share as a team… asks for the team name and, with several accounts, the account (ede.share {action: start|run|cancel, name?, account?}; the host feeds /sharing {state idle|needsAccount|picking|running|done|failed, accounts, summary, progress, label, teamName, error}), uploads through the team import API and the desktop becomes that team (archived here for 30 days).",
+  "$comment": "Exponential Desktop's factory settings (#EDE-47, the merged Settings window of the IDE look): ONE on-demand top-layer window (the menu's Settings rows open it with ede_open_document, the close button closes it), a 272 px sidebar nav on the left and the page on the right, no tile overview. The nav: This device (Display, Sound, Network, Bluetooth, Power, Themes, Keyboard, Mouse & Touchpad, Date & Time, Users, Notifications, Workspaces, Windows, Startup apps, Default apps, then the folded Coding group: Tools, Coding CLIs, Worktrees, Sessions, the IDE's This device group), Personal (Account, Devices, Security, What's new, About) and Team, headed by the shell's switcher (/shell/switcher/current; its sections as a Popover: Local desktops, then one per connected account with its teams, #EDE-56): a Local desktop shows General, Agents, Apps; a team entry shows the IDE's groups from settings-nav.json (Team, Boards, Agents, Apps), which eDE has none of yet (#EDE-54). Picking an entry here sets /settings/team only: the shell's desktop stays. Pages bind what the shell feeds: /services/<domain> (#EDE-13), /outputs, /config, /user, /shell, /date, /notifications, and /pages (#EDE-47: the layouts, Date & Time, Startup apps, Default apps, Workspaces, Windows, Mouse & Touchpad). Controls are two-way bound and call a host function with the new value: ede_service {domain, action, args}, ede_output {name, mode?, scale?}, ede_config {theme}, ede_settings {page, key, value} (compositor.toml's [keyboard] and [windows], the XDG autostart overrides, xdg-mime default, timedatectl). A setting the machine cannot apply yet is a read-only value row (Mouse & Touchpad, the workspace count, the 24-hour clock), never a dead control; the Exponential rows (Notifications' email/push, Coding, Devices, Security, a team's pages) are honest empty states until the Exponential app runs on this desktop. #EDE-57: a Local desktop's General page shares it as a team: Share as a team… asks for the team name and, with several accounts, the account (ede_share {action: start|run|cancel, name?, account?}; the host feeds /sharing {state idle|needsAccount|picking|running|done|failed, accounts, summary, progress, label, teamName, error}), uploads through the team import API and the desktop becomes that team (archived here for 30 days).",
   "surface": {
     "layer": "top",
     "size": {
@@ -11,16 +11,16 @@
     "onDemand": true,
     "functions": [
       "set",
-      "ede.service",
-      "ede.output",
-      "ede.config",
-      "ede.settings",
-      "ede.launch",
-      "ede.switcher",
-      "ede.workspace",
-      "ede.notify_clear",
-      "ede.close_document",
-      "ede.share"
+      "ede_service",
+      "ede_output",
+      "ede_config",
+      "ede_settings",
+      "ede_launch",
+      "ede_switcher",
+      "ede_workspace",
+      "ede_notify_clear",
+      "ede_close_document",
+      "ede_share"
     ]
   },
   "root": {

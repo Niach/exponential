@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's sealed lock screen (#EDE-17, Tier B): compiled into exponential-sealed, never on disk, never agent-editable. A full-screen overlay with the clock, the person's name and the password; `sealed.unlock` runs PAM in the binary and, when it passes, the compositor's unlock op with the grant minted for this process. Only the accent follows the theme.",
+  "$comment": "Exponential Desktop's sealed lock screen (#EDE-17, Tier B): compiled into exponential-sealed, never on disk, never agent-editable. A full-screen overlay with the clock, the person's name and the password; `sealed_unlock` runs PAM in the binary and, when it passes, the compositor's unlock op with the grant minted for this process. Only the accent follows the theme.",
   "root": {
     "id": "lock",
     "component": "Box",

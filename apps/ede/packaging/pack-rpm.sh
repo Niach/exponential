@@ -48,6 +48,7 @@ Requires: systemd
 Requires: glib2
 Recommends: exponential-repo
 Recommends: mesa-vulkan-drivers
+Recommends: vulkan-tools
 Recommends: gnome-keyring
 
 %description

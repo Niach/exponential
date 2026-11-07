@@ -71,7 +71,7 @@ Section: x11
 Priority: optional
 Homepage: https://exponential.at/desktop/
 Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin, xdg-desktop-portal (>= 1.18), xdg-desktop-portal-gtk, pipewire
-Recommends: exponential-repo, mesa-vulkan-drivers, gnome-keyring, fonts-inter
+Recommends: exponential-repo, mesa-vulkan-drivers, vulkan-tools, gnome-keyring, fonts-inter
 Replaces: ede
 Conflicts: ede
 Provides: ede

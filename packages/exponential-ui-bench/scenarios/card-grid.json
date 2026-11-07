@@ -32,7 +32,7 @@
           }
         },
         {
-          "id": "card-0",
+          "id": "card_0",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -44,7 +44,7 @@
           },
           "children": [
             {
-              "id": "card-0-title",
+              "id": "card_0_title",
               "component": "Text",
               "props": {
                 "text": "Card 0 · a title that may wrap",
@@ -53,7 +53,7 @@
               }
             },
             {
-              "id": "card-0-body",
+              "id": "card_0_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -61,7 +61,7 @@
               }
             },
             {
-              "id": "card-0-row",
+              "id": "card_0_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -72,7 +72,7 @@
               },
               "children": [
                 {
-                  "id": "card-0-pill-a",
+                  "id": "card_0_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -81,7 +81,7 @@
                   }
                 },
                 {
-                  "id": "card-0-pill-b",
+                  "id": "card_0_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -90,7 +90,7 @@
                   }
                 },
                 {
-                  "id": "card-0-go",
+                  "id": "card_0_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -105,7 +105,7 @@
           ]
         },
         {
-          "id": "card-1",
+          "id": "card_1",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -117,7 +117,7 @@
           },
           "children": [
             {
-              "id": "card-1-title",
+              "id": "card_1_title",
               "component": "Text",
               "props": {
                 "text": "Card 1 · a title that may wrap",
@@ -126,7 +126,7 @@
               }
             },
             {
-              "id": "card-1-body",
+              "id": "card_1_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -134,7 +134,7 @@
               }
             },
             {
-              "id": "card-1-row",
+              "id": "card_1_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -145,7 +145,7 @@
               },
               "children": [
                 {
-                  "id": "card-1-pill-a",
+                  "id": "card_1_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -154,7 +154,7 @@
                   }
                 },
                 {
-                  "id": "card-1-pill-b",
+                  "id": "card_1_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -163,7 +163,7 @@
                   }
                 },
                 {
-                  "id": "card-1-go",
+                  "id": "card_1_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -178,7 +178,7 @@
           ]
         },
         {
-          "id": "card-2",
+          "id": "card_2",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -190,7 +190,7 @@
           },
           "children": [
             {
-              "id": "card-2-title",
+              "id": "card_2_title",
               "component": "Text",
               "props": {
                 "text": "Card 2 · a title that may wrap",
@@ -199,7 +199,7 @@
               }
             },
             {
-              "id": "card-2-body",
+              "id": "card_2_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -207,7 +207,7 @@
               }
             },
             {
-              "id": "card-2-row",
+              "id": "card_2_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -218,7 +218,7 @@
               },
               "children": [
                 {
-                  "id": "card-2-pill-a",
+                  "id": "card_2_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -227,7 +227,7 @@
                   }
                 },
                 {
-                  "id": "card-2-pill-b",
+                  "id": "card_2_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -236,7 +236,7 @@
                   }
                 },
                 {
-                  "id": "card-2-go",
+                  "id": "card_2_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -251,7 +251,7 @@
           ]
         },
         {
-          "id": "card-3",
+          "id": "card_3",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -263,7 +263,7 @@
           },
           "children": [
             {
-              "id": "card-3-title",
+              "id": "card_3_title",
               "component": "Text",
               "props": {
                 "text": "Card 3 · a title that may wrap",
@@ -272,7 +272,7 @@
               }
             },
             {
-              "id": "card-3-body",
+              "id": "card_3_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -280,7 +280,7 @@
               }
             },
             {
-              "id": "card-3-row",
+              "id": "card_3_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -291,7 +291,7 @@
               },
               "children": [
                 {
-                  "id": "card-3-pill-a",
+                  "id": "card_3_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -300,7 +300,7 @@
                   }
                 },
                 {
-                  "id": "card-3-pill-b",
+                  "id": "card_3_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -309,7 +309,7 @@
                   }
                 },
                 {
-                  "id": "card-3-go",
+                  "id": "card_3_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -324,7 +324,7 @@
           ]
         },
         {
-          "id": "card-4",
+          "id": "card_4",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -336,7 +336,7 @@
           },
           "children": [
             {
-              "id": "card-4-title",
+              "id": "card_4_title",
               "component": "Text",
               "props": {
                 "text": "Card 4 · a title that may wrap",
@@ -345,7 +345,7 @@
               }
             },
             {
-              "id": "card-4-body",
+              "id": "card_4_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -353,7 +353,7 @@
               }
             },
             {
-              "id": "card-4-row",
+              "id": "card_4_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -364,7 +364,7 @@
               },
               "children": [
                 {
-                  "id": "card-4-pill-a",
+                  "id": "card_4_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -373,7 +373,7 @@
                   }
                 },
                 {
-                  "id": "card-4-pill-b",
+                  "id": "card_4_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -382,7 +382,7 @@
                   }
                 },
                 {
-                  "id": "card-4-go",
+                  "id": "card_4_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -397,7 +397,7 @@
           ]
         },
         {
-          "id": "card-5",
+          "id": "card_5",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -409,7 +409,7 @@
           },
           "children": [
             {
-              "id": "card-5-title",
+              "id": "card_5_title",
               "component": "Text",
               "props": {
                 "text": "Card 5 · a title that may wrap",
@@ -418,7 +418,7 @@
               }
             },
             {
-              "id": "card-5-body",
+              "id": "card_5_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -426,7 +426,7 @@
               }
             },
             {
-              "id": "card-5-row",
+              "id": "card_5_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -437,7 +437,7 @@
               },
               "children": [
                 {
-                  "id": "card-5-pill-a",
+                  "id": "card_5_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -446,7 +446,7 @@
                   }
                 },
                 {
-                  "id": "card-5-pill-b",
+                  "id": "card_5_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -455,7 +455,7 @@
                   }
                 },
                 {
-                  "id": "card-5-go",
+                  "id": "card_5_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -470,7 +470,7 @@
           ]
         },
         {
-          "id": "card-6",
+          "id": "card_6",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -482,7 +482,7 @@
           },
           "children": [
             {
-              "id": "card-6-title",
+              "id": "card_6_title",
               "component": "Text",
               "props": {
                 "text": "Card 6 · a title that may wrap",
@@ -491,7 +491,7 @@
               }
             },
             {
-              "id": "card-6-body",
+              "id": "card_6_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -499,7 +499,7 @@
               }
             },
             {
-              "id": "card-6-row",
+              "id": "card_6_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -510,7 +510,7 @@
               },
               "children": [
                 {
-                  "id": "card-6-pill-a",
+                  "id": "card_6_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -519,7 +519,7 @@
                   }
                 },
                 {
-                  "id": "card-6-pill-b",
+                  "id": "card_6_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -528,7 +528,7 @@
                   }
                 },
                 {
-                  "id": "card-6-go",
+                  "id": "card_6_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -543,7 +543,7 @@
           ]
         },
         {
-          "id": "card-7",
+          "id": "card_7",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -555,7 +555,7 @@
           },
           "children": [
             {
-              "id": "card-7-title",
+              "id": "card_7_title",
               "component": "Text",
               "props": {
                 "text": "Card 7 · a title that may wrap",
@@ -564,7 +564,7 @@
               }
             },
             {
-              "id": "card-7-body",
+              "id": "card_7_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -572,7 +572,7 @@
               }
             },
             {
-              "id": "card-7-row",
+              "id": "card_7_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -583,7 +583,7 @@
               },
               "children": [
                 {
-                  "id": "card-7-pill-a",
+                  "id": "card_7_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -592,7 +592,7 @@
                   }
                 },
                 {
-                  "id": "card-7-pill-b",
+                  "id": "card_7_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -601,7 +601,7 @@
                   }
                 },
                 {
-                  "id": "card-7-go",
+                  "id": "card_7_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -616,7 +616,7 @@
           ]
         },
         {
-          "id": "card-8",
+          "id": "card_8",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -628,7 +628,7 @@
           },
           "children": [
             {
-              "id": "card-8-title",
+              "id": "card_8_title",
               "component": "Text",
               "props": {
                 "text": "Card 8 · a title that may wrap",
@@ -637,7 +637,7 @@
               }
             },
             {
-              "id": "card-8-body",
+              "id": "card_8_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -645,7 +645,7 @@
               }
             },
             {
-              "id": "card-8-row",
+              "id": "card_8_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -656,7 +656,7 @@
               },
               "children": [
                 {
-                  "id": "card-8-pill-a",
+                  "id": "card_8_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -665,7 +665,7 @@
                   }
                 },
                 {
-                  "id": "card-8-pill-b",
+                  "id": "card_8_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -674,7 +674,7 @@
                   }
                 },
                 {
-                  "id": "card-8-go",
+                  "id": "card_8_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -689,7 +689,7 @@
           ]
         },
         {
-          "id": "card-9",
+          "id": "card_9",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -701,7 +701,7 @@
           },
           "children": [
             {
-              "id": "card-9-title",
+              "id": "card_9_title",
               "component": "Text",
               "props": {
                 "text": "Card 9 · a title that may wrap",
@@ -710,7 +710,7 @@
               }
             },
             {
-              "id": "card-9-body",
+              "id": "card_9_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -718,7 +718,7 @@
               }
             },
             {
-              "id": "card-9-row",
+              "id": "card_9_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -729,7 +729,7 @@
               },
               "children": [
                 {
-                  "id": "card-9-pill-a",
+                  "id": "card_9_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -738,7 +738,7 @@
                   }
                 },
                 {
-                  "id": "card-9-pill-b",
+                  "id": "card_9_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -747,7 +747,7 @@
                   }
                 },
                 {
-                  "id": "card-9-go",
+                  "id": "card_9_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -762,7 +762,7 @@
           ]
         },
         {
-          "id": "card-10",
+          "id": "card_10",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -774,7 +774,7 @@
           },
           "children": [
             {
-              "id": "card-10-title",
+              "id": "card_10_title",
               "component": "Text",
               "props": {
                 "text": "Card 10 · a title that may wrap",
@@ -783,7 +783,7 @@
               }
             },
             {
-              "id": "card-10-body",
+              "id": "card_10_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -791,7 +791,7 @@
               }
             },
             {
-              "id": "card-10-row",
+              "id": "card_10_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -802,7 +802,7 @@
               },
               "children": [
                 {
-                  "id": "card-10-pill-a",
+                  "id": "card_10_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -811,7 +811,7 @@
                   }
                 },
                 {
-                  "id": "card-10-pill-b",
+                  "id": "card_10_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -820,7 +820,7 @@
                   }
                 },
                 {
-                  "id": "card-10-go",
+                  "id": "card_10_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -835,7 +835,7 @@
           ]
         },
         {
-          "id": "card-11",
+          "id": "card_11",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -847,7 +847,7 @@
           },
           "children": [
             {
-              "id": "card-11-title",
+              "id": "card_11_title",
               "component": "Text",
               "props": {
                 "text": "Card 11 · a title that may wrap",
@@ -856,7 +856,7 @@
               }
             },
             {
-              "id": "card-11-body",
+              "id": "card_11_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -864,7 +864,7 @@
               }
             },
             {
-              "id": "card-11-row",
+              "id": "card_11_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -875,7 +875,7 @@
               },
               "children": [
                 {
-                  "id": "card-11-pill-a",
+                  "id": "card_11_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -884,7 +884,7 @@
                   }
                 },
                 {
-                  "id": "card-11-pill-b",
+                  "id": "card_11_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -893,7 +893,7 @@
                   }
                 },
                 {
-                  "id": "card-11-go",
+                  "id": "card_11_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -908,7 +908,7 @@
           ]
         },
         {
-          "id": "card-12",
+          "id": "card_12",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -920,7 +920,7 @@
           },
           "children": [
             {
-              "id": "card-12-title",
+              "id": "card_12_title",
               "component": "Text",
               "props": {
                 "text": "Card 12 · a title that may wrap",
@@ -929,7 +929,7 @@
               }
             },
             {
-              "id": "card-12-body",
+              "id": "card_12_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -937,7 +937,7 @@
               }
             },
             {
-              "id": "card-12-row",
+              "id": "card_12_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -948,7 +948,7 @@
               },
               "children": [
                 {
-                  "id": "card-12-pill-a",
+                  "id": "card_12_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -957,7 +957,7 @@
                   }
                 },
                 {
-                  "id": "card-12-pill-b",
+                  "id": "card_12_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -966,7 +966,7 @@
                   }
                 },
                 {
-                  "id": "card-12-go",
+                  "id": "card_12_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -981,7 +981,7 @@
           ]
         },
         {
-          "id": "card-13",
+          "id": "card_13",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -993,7 +993,7 @@
           },
           "children": [
             {
-              "id": "card-13-title",
+              "id": "card_13_title",
               "component": "Text",
               "props": {
                 "text": "Card 13 · a title that may wrap",
@@ -1002,7 +1002,7 @@
               }
             },
             {
-              "id": "card-13-body",
+              "id": "card_13_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1010,7 +1010,7 @@
               }
             },
             {
-              "id": "card-13-row",
+              "id": "card_13_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1021,7 +1021,7 @@
               },
               "children": [
                 {
-                  "id": "card-13-pill-a",
+                  "id": "card_13_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1030,7 +1030,7 @@
                   }
                 },
                 {
-                  "id": "card-13-pill-b",
+                  "id": "card_13_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1039,7 +1039,7 @@
                   }
                 },
                 {
-                  "id": "card-13-go",
+                  "id": "card_13_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1054,7 +1054,7 @@
           ]
         },
         {
-          "id": "card-14",
+          "id": "card_14",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1066,7 +1066,7 @@
           },
           "children": [
             {
-              "id": "card-14-title",
+              "id": "card_14_title",
               "component": "Text",
               "props": {
                 "text": "Card 14 · a title that may wrap",
@@ -1075,7 +1075,7 @@
               }
             },
             {
-              "id": "card-14-body",
+              "id": "card_14_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1083,7 +1083,7 @@
               }
             },
             {
-              "id": "card-14-row",
+              "id": "card_14_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1094,7 +1094,7 @@
               },
               "children": [
                 {
-                  "id": "card-14-pill-a",
+                  "id": "card_14_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1103,7 +1103,7 @@
                   }
                 },
                 {
-                  "id": "card-14-pill-b",
+                  "id": "card_14_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1112,7 +1112,7 @@
                   }
                 },
                 {
-                  "id": "card-14-go",
+                  "id": "card_14_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1127,7 +1127,7 @@
           ]
         },
         {
-          "id": "card-15",
+          "id": "card_15",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1139,7 +1139,7 @@
           },
           "children": [
             {
-              "id": "card-15-title",
+              "id": "card_15_title",
               "component": "Text",
               "props": {
                 "text": "Card 15 · a title that may wrap",
@@ -1148,7 +1148,7 @@
               }
             },
             {
-              "id": "card-15-body",
+              "id": "card_15_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1156,7 +1156,7 @@
               }
             },
             {
-              "id": "card-15-row",
+              "id": "card_15_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1167,7 +1167,7 @@
               },
               "children": [
                 {
-                  "id": "card-15-pill-a",
+                  "id": "card_15_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1176,7 +1176,7 @@
                   }
                 },
                 {
-                  "id": "card-15-pill-b",
+                  "id": "card_15_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1185,7 +1185,7 @@
                   }
                 },
                 {
-                  "id": "card-15-go",
+                  "id": "card_15_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1200,7 +1200,7 @@
           ]
         },
         {
-          "id": "card-16",
+          "id": "card_16",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1212,7 +1212,7 @@
           },
           "children": [
             {
-              "id": "card-16-title",
+              "id": "card_16_title",
               "component": "Text",
               "props": {
                 "text": "Card 16 · a title that may wrap",
@@ -1221,7 +1221,7 @@
               }
             },
             {
-              "id": "card-16-body",
+              "id": "card_16_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1229,7 +1229,7 @@
               }
             },
             {
-              "id": "card-16-row",
+              "id": "card_16_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1240,7 +1240,7 @@
               },
               "children": [
                 {
-                  "id": "card-16-pill-a",
+                  "id": "card_16_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1249,7 +1249,7 @@
                   }
                 },
                 {
-                  "id": "card-16-pill-b",
+                  "id": "card_16_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1258,7 +1258,7 @@
                   }
                 },
                 {
-                  "id": "card-16-go",
+                  "id": "card_16_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1273,7 +1273,7 @@
           ]
         },
         {
-          "id": "card-17",
+          "id": "card_17",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1285,7 +1285,7 @@
           },
           "children": [
             {
-              "id": "card-17-title",
+              "id": "card_17_title",
               "component": "Text",
               "props": {
                 "text": "Card 17 · a title that may wrap",
@@ -1294,7 +1294,7 @@
               }
             },
             {
-              "id": "card-17-body",
+              "id": "card_17_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1302,7 +1302,7 @@
               }
             },
             {
-              "id": "card-17-row",
+              "id": "card_17_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1313,7 +1313,7 @@
               },
               "children": [
                 {
-                  "id": "card-17-pill-a",
+                  "id": "card_17_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1322,7 +1322,7 @@
                   }
                 },
                 {
-                  "id": "card-17-pill-b",
+                  "id": "card_17_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1331,7 +1331,7 @@
                   }
                 },
                 {
-                  "id": "card-17-go",
+                  "id": "card_17_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1346,7 +1346,7 @@
           ]
         },
         {
-          "id": "card-18",
+          "id": "card_18",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1358,7 +1358,7 @@
           },
           "children": [
             {
-              "id": "card-18-title",
+              "id": "card_18_title",
               "component": "Text",
               "props": {
                 "text": "Card 18 · a title that may wrap",
@@ -1367,7 +1367,7 @@
               }
             },
             {
-              "id": "card-18-body",
+              "id": "card_18_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1375,7 +1375,7 @@
               }
             },
             {
-              "id": "card-18-row",
+              "id": "card_18_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1386,7 +1386,7 @@
               },
               "children": [
                 {
-                  "id": "card-18-pill-a",
+                  "id": "card_18_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1395,7 +1395,7 @@
                   }
                 },
                 {
-                  "id": "card-18-pill-b",
+                  "id": "card_18_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1404,7 +1404,7 @@
                   }
                 },
                 {
-                  "id": "card-18-go",
+                  "id": "card_18_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1419,7 +1419,7 @@
           ]
         },
         {
-          "id": "card-19",
+          "id": "card_19",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1431,7 +1431,7 @@
           },
           "children": [
             {
-              "id": "card-19-title",
+              "id": "card_19_title",
               "component": "Text",
               "props": {
                 "text": "Card 19 · a title that may wrap",
@@ -1440,7 +1440,7 @@
               }
             },
             {
-              "id": "card-19-body",
+              "id": "card_19_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1448,7 +1448,7 @@
               }
             },
             {
-              "id": "card-19-row",
+              "id": "card_19_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1459,7 +1459,7 @@
               },
               "children": [
                 {
-                  "id": "card-19-pill-a",
+                  "id": "card_19_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1468,7 +1468,7 @@
                   }
                 },
                 {
-                  "id": "card-19-pill-b",
+                  "id": "card_19_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1477,7 +1477,7 @@
                   }
                 },
                 {
-                  "id": "card-19-go",
+                  "id": "card_19_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1492,7 +1492,7 @@
           ]
         },
         {
-          "id": "card-20",
+          "id": "card_20",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1504,7 +1504,7 @@
           },
           "children": [
             {
-              "id": "card-20-title",
+              "id": "card_20_title",
               "component": "Text",
               "props": {
                 "text": "Card 20 · a title that may wrap",
@@ -1513,7 +1513,7 @@
               }
             },
             {
-              "id": "card-20-body",
+              "id": "card_20_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1521,7 +1521,7 @@
               }
             },
             {
-              "id": "card-20-row",
+              "id": "card_20_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1532,7 +1532,7 @@
               },
               "children": [
                 {
-                  "id": "card-20-pill-a",
+                  "id": "card_20_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1541,7 +1541,7 @@
                   }
                 },
                 {
-                  "id": "card-20-pill-b",
+                  "id": "card_20_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1550,7 +1550,7 @@
                   }
                 },
                 {
-                  "id": "card-20-go",
+                  "id": "card_20_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1565,7 +1565,7 @@
           ]
         },
         {
-          "id": "card-21",
+          "id": "card_21",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1577,7 +1577,7 @@
           },
           "children": [
             {
-              "id": "card-21-title",
+              "id": "card_21_title",
               "component": "Text",
               "props": {
                 "text": "Card 21 · a title that may wrap",
@@ -1586,7 +1586,7 @@
               }
             },
             {
-              "id": "card-21-body",
+              "id": "card_21_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1594,7 +1594,7 @@
               }
             },
             {
-              "id": "card-21-row",
+              "id": "card_21_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1605,7 +1605,7 @@
               },
               "children": [
                 {
-                  "id": "card-21-pill-a",
+                  "id": "card_21_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1614,7 +1614,7 @@
                   }
                 },
                 {
-                  "id": "card-21-pill-b",
+                  "id": "card_21_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1623,7 +1623,7 @@
                   }
                 },
                 {
-                  "id": "card-21-go",
+                  "id": "card_21_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1638,7 +1638,7 @@
           ]
         },
         {
-          "id": "card-22",
+          "id": "card_22",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1650,7 +1650,7 @@
           },
           "children": [
             {
-              "id": "card-22-title",
+              "id": "card_22_title",
               "component": "Text",
               "props": {
                 "text": "Card 22 · a title that may wrap",
@@ -1659,7 +1659,7 @@
               }
             },
             {
-              "id": "card-22-body",
+              "id": "card_22_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1667,7 +1667,7 @@
               }
             },
             {
-              "id": "card-22-row",
+              "id": "card_22_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1678,7 +1678,7 @@
               },
               "children": [
                 {
-                  "id": "card-22-pill-a",
+                  "id": "card_22_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1687,7 +1687,7 @@
                   }
                 },
                 {
-                  "id": "card-22-pill-b",
+                  "id": "card_22_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1696,7 +1696,7 @@
                   }
                 },
                 {
-                  "id": "card-22-go",
+                  "id": "card_22_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1711,7 +1711,7 @@
           ]
         },
         {
-          "id": "card-23",
+          "id": "card_23",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1723,7 +1723,7 @@
           },
           "children": [
             {
-              "id": "card-23-title",
+              "id": "card_23_title",
               "component": "Text",
               "props": {
                 "text": "Card 23 · a title that may wrap",
@@ -1732,7 +1732,7 @@
               }
             },
             {
-              "id": "card-23-body",
+              "id": "card_23_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1740,7 +1740,7 @@
               }
             },
             {
-              "id": "card-23-row",
+              "id": "card_23_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1751,7 +1751,7 @@
               },
               "children": [
                 {
-                  "id": "card-23-pill-a",
+                  "id": "card_23_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1760,7 +1760,7 @@
                   }
                 },
                 {
-                  "id": "card-23-pill-b",
+                  "id": "card_23_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1769,7 +1769,7 @@
                   }
                 },
                 {
-                  "id": "card-23-go",
+                  "id": "card_23_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1784,7 +1784,7 @@
           ]
         },
         {
-          "id": "card-24",
+          "id": "card_24",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1796,7 +1796,7 @@
           },
           "children": [
             {
-              "id": "card-24-title",
+              "id": "card_24_title",
               "component": "Text",
               "props": {
                 "text": "Card 24 · a title that may wrap",
@@ -1805,7 +1805,7 @@
               }
             },
             {
-              "id": "card-24-body",
+              "id": "card_24_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1813,7 +1813,7 @@
               }
             },
             {
-              "id": "card-24-row",
+              "id": "card_24_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1824,7 +1824,7 @@
               },
               "children": [
                 {
-                  "id": "card-24-pill-a",
+                  "id": "card_24_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1833,7 +1833,7 @@
                   }
                 },
                 {
-                  "id": "card-24-pill-b",
+                  "id": "card_24_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1842,7 +1842,7 @@
                   }
                 },
                 {
-                  "id": "card-24-go",
+                  "id": "card_24_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1857,7 +1857,7 @@
           ]
         },
         {
-          "id": "card-25",
+          "id": "card_25",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1869,7 +1869,7 @@
           },
           "children": [
             {
-              "id": "card-25-title",
+              "id": "card_25_title",
               "component": "Text",
               "props": {
                 "text": "Card 25 · a title that may wrap",
@@ -1878,7 +1878,7 @@
               }
             },
             {
-              "id": "card-25-body",
+              "id": "card_25_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1886,7 +1886,7 @@
               }
             },
             {
-              "id": "card-25-row",
+              "id": "card_25_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1897,7 +1897,7 @@
               },
               "children": [
                 {
-                  "id": "card-25-pill-a",
+                  "id": "card_25_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1906,7 +1906,7 @@
                   }
                 },
                 {
-                  "id": "card-25-pill-b",
+                  "id": "card_25_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1915,7 +1915,7 @@
                   }
                 },
                 {
-                  "id": "card-25-go",
+                  "id": "card_25_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -1930,7 +1930,7 @@
           ]
         },
         {
-          "id": "card-26",
+          "id": "card_26",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -1942,7 +1942,7 @@
           },
           "children": [
             {
-              "id": "card-26-title",
+              "id": "card_26_title",
               "component": "Text",
               "props": {
                 "text": "Card 26 · a title that may wrap",
@@ -1951,7 +1951,7 @@
               }
             },
             {
-              "id": "card-26-body",
+              "id": "card_26_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -1959,7 +1959,7 @@
               }
             },
             {
-              "id": "card-26-row",
+              "id": "card_26_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -1970,7 +1970,7 @@
               },
               "children": [
                 {
-                  "id": "card-26-pill-a",
+                  "id": "card_26_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -1979,7 +1979,7 @@
                   }
                 },
                 {
-                  "id": "card-26-pill-b",
+                  "id": "card_26_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -1988,7 +1988,7 @@
                   }
                 },
                 {
-                  "id": "card-26-go",
+                  "id": "card_26_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -2003,7 +2003,7 @@
           ]
         },
         {
-          "id": "card-27",
+          "id": "card_27",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -2015,7 +2015,7 @@
           },
           "children": [
             {
-              "id": "card-27-title",
+              "id": "card_27_title",
               "component": "Text",
               "props": {
                 "text": "Card 27 · a title that may wrap",
@@ -2024,7 +2024,7 @@
               }
             },
             {
-              "id": "card-27-body",
+              "id": "card_27_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -2032,7 +2032,7 @@
               }
             },
             {
-              "id": "card-27-row",
+              "id": "card_27_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -2043,7 +2043,7 @@
               },
               "children": [
                 {
-                  "id": "card-27-pill-a",
+                  "id": "card_27_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -2052,7 +2052,7 @@
                   }
                 },
                 {
-                  "id": "card-27-pill-b",
+                  "id": "card_27_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -2061,7 +2061,7 @@
                   }
                 },
                 {
-                  "id": "card-27-go",
+                  "id": "card_27_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",
@@ -2076,7 +2076,7 @@
           ]
         },
         {
-          "id": "card-28",
+          "id": "card_28",
           "component": "Box",
           "style": {
             "display": "flex",
@@ -2088,7 +2088,7 @@
           },
           "children": [
             {
-              "id": "card-28-title",
+              "id": "card_28_title",
               "component": "Text",
               "props": {
                 "text": "Card 28 · a title that may wrap",
@@ -2097,7 +2097,7 @@
               }
             },
             {
-              "id": "card-28-body",
+              "id": "card_28_body",
               "component": "Text",
               "props": {
                 "text": "Body copy with enough words to wrap at a phone width and exercise the second measure phase.",
@@ -2105,7 +2105,7 @@
               }
             },
             {
-              "id": "card-28-row",
+              "id": "card_28_row",
               "component": "Box",
               "style": {
                 "display": "flex",
@@ -2116,7 +2116,7 @@
               },
               "children": [
                 {
-                  "id": "card-28-pill-a",
+                  "id": "card_28_pill_a",
                   "component": "Button",
                   "props": {
                     "label": "Alpha",
@@ -2125,7 +2125,7 @@
                   }
                 },
                 {
-                  "id": "card-28-pill-b",
+                  "id": "card_28_pill_b",
                   "component": "Button",
                   "props": {
                     "label": "Beta",
@@ -2134,7 +2134,7 @@
                   }
                 },
                 {
-                  "id": "card-28-go",
+                  "id": "card_28_go",
                   "component": "Button",
                   "props": {
                     "label": "Open",

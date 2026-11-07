@@ -38,7 +38,7 @@ popup documents and hosted Popover / Menu layers (VAPP-281) as
 `--windowed`) and the `Surfaces` that own the open windows; `uicore-docs`,
 the factory documents compiled in. `exponential-shell` itself keeps what is
 eDE's: ede-protocol, the notification server and tray host, the services
-socket, the hotkeys, the `ede.*` host functions.
+socket, the hotkeys, the `ede_*` host functions.
 
 Every document with a layer
 `surface` header is a layer-shell surface (`WindowKind::LayerShell`), opened
@@ -62,17 +62,17 @@ entries of the XDG data directories, filtered as the person types),
 `/previews` (a taskbar group's windows with thumbnails while they show),
 `/osd` (a level). Host functions, each only from a document whose
 `surface.functions` lists it (#EDE-8's Tier C rule, checked by `exponential-ui` and
-again by the shell): `ede.launch {command}`, `ede.focus {window}`,
-`ede.close {window}`, `ede.minimize {window}`, `ede.lock`, `ede.logout`,
-`ede.power {action: suspend|reboot|poweroff}`, `ede.select {window}` (the
-switcher), and the model's: `ede.rail` (toggle: the sidebar re-opens at the
-rail's width), `ede.pin {app}` / `ede.unpin {app}` (kept in
-`~/.config/exponential-desktop/shell.json`), `ede.taskbar {app}` (Mint's
+again by the shell): `ede_launch {command}`, `ede_focus {window}`,
+`ede_close {window}`, `ede_minimize {window}`, `ede_lock`, `ede_logout`,
+`ede_power {action: suspend|reboot|poweroff}`, `ede_select {window}` (the
+switcher), and the model's: `ede_rail` (toggle: the sidebar re-opens at the
+rail's width), `ede_pin {app}` / `ede_unpin {app}` (kept in
+`~/.config/exponential-desktop/shell.json`), `ede_taskbar {app}` (Mint's
 click: launch, focus, minimize, or the previews of a group),
-`ede.taskbar_scroll {app, direction}`, `ede.previews {app|null}`,
-`ede.start_menu {open?, query?, category?}`, `ede.chat` (toggle),
-`ede.workspace {index}`, `ede.sidebar {section}` (fold a section),
-`ede.history {action: undo|reset}` (the shell documents' history);
+`ede_taskbar_scroll {app, direction}`, `ede_previews {app|null}`,
+`ede_start_menu {open?, query?, category?}`, `ede_chat` (toggle),
+`ede_workspace {index}`, `ede_sidebar {section}` (fold a section),
+`ede_history {action: undo|reset}` (the shell documents' history);
 `/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
 fonts are embedded); app icons come from the installed icon themes as
@@ -115,8 +115,8 @@ and a row press sends the item its `clicked` event. Nested under another
 desktop the well-known names stay with that desktop and the objects answer
 on the shell's unique bus name (`scripts/tray-demo.py --watcher :1.N`
 registers a sample item; `gdbus call --dest :1.N …Notify` a sample toast).
-Host functions: `ede.notify_close {id}`, `ede.notify_action {id, key}`,
-`ede.notify_clear`, `ede.tray {service}`, `ede.tray_menu {service, id}`.
+Host functions: `ede_notify_close {id}`, `ede_notify_action {id, key}`,
+`ede_notify_clear`, `ede_tray {service}`, `ede_tray_menu {service, id}`.
 
 ### Hotkeys (#EDE-12)
 
@@ -192,10 +192,10 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 `settings.json`, a shell document like the rest (editable, in the
 history), not an eApps package: ONE on-demand top-layer window, 1080 × 680
 centred on the output (`exclusiveZone` -1), the IDE's settings look (the
-menu's Settings rows open it with `ede.open_document`, its close button
-`ede.close_document`): a 272 px sidebar nav on the left, the page on the
+menu's Settings rows open it with `ede_open_document`, its close button
+`ede_close_document`): a 272 px sidebar nav on the left, the page on the
 right, no tile overview. The nav: **This device** (Display: every output's
-modes and scale, `ede.output` applies live and writes `[[outputs]]`; Sound:
+modes and scale, `ede_output` applies live and writes `[[outputs]]`; Sound:
 volumes, mute, the output and input devices, the playback streams; Network:
 Wi-Fi, wired, the networks in reach, VPN; Bluetooth; Power: battery,
 profile, suspend/restart/shut down; Themes: the bridge's switch and what it
@@ -216,8 +216,8 @@ none yet, #EDE-54). Pages bind `/services/<domain>` (#EDE-13), `/outputs`,
 `/config`, `/user`, `/shell`, `/date` and `/pages` (the shell's own:
 `crates/ede-shell/src/settings_pages.rs` reads the layouts, the time zone,
 the autostart entries, the mime defaults, `[windows]`); a control is two-way
-bound and calls `ede.service {domain, action, args}`, `ede.output`,
-`ede.config {theme}` or `ede.settings {page, key, value}` (the one host
+bound and calls `ede_service {domain, action, args}`, `ede_output`,
+`ede_config {theme}` or `ede_settings {page, key, value}` (the one host
 function for the shell's pages: `[keyboard]` and `[windows]` in
 `compositor.toml` + a reload, `timedatectl`, the user's autostart override
 with `Hidden`, `xdg-mime default`). A setting the machine cannot apply yet
@@ -380,17 +380,109 @@ cargo run -- doctor
 ```
 
 Checks what the real session needs, from inside any desktop (no seat is
-taken): the GPU render nodes; the KMS driver of every `/dev/dri/card*` and
-its connected displays (the virtual ones say what to expect: `vmwgfx` is
-VMware's and VirtualBox's VMSVGA, software rendering unless the VM has 3D);
-the seat (logind's `seat0` with a graphical device, or seatd); what EGL and
-GLES render with on the render node, the way the udev backend opens it
-(`llvmpipe` = software rendering, fine in a VM; a udev build only, a
-winit-only build says so); the keyboard layout the session starts with
-(`/etc/default/keyboard`, else xkb's `us`); Xwayland (the binary the compositor will run
-and its version: 24.1+ has explicit sync; older versions flicker with X11
-games on NVIDIA); and on NVIDIA that `nvidia-drm.modeset` is on (the
-parameter, the kernel command line, or the driver default from 560).
+taken; `--json` is what Settings shows, #EDE-35). The rows:
+
+- **GPU**: the render nodes. **DRM**: the KMS driver of every
+  `/dev/dri/card*` and its connected displays (the virtual ones say what to
+  expect: `vmwgfx` is VMware's and VirtualBox's VMSVGA, software rendering
+  unless the VM has 3D); with more than one card, which one is the boot GPU
+  and which one the session renders on: the card with the displays
+  (`doctor::primary_card`, the same rule the udev backend uses), so a
+  desktop whose monitors hang off the discrete card while the firmware
+  booted on the iGPU never renders on the iGPU and copies every frame.
+- **KMS**: what the kernel offers on that card, read without DRM master so
+  it works next to a running desktop: atomic modesetting (legacy = no
+  cursor plane, no direct scanout; on NVIDIA it means `modeset` is off),
+  the cursor planes and their size, the primary/overlay planes, framebuffer
+  modifiers (tiled buffers straight on the plane), syncobj + timeline
+  (explicit sync) and `IN_FENCE_FD` (the kernel waits for the renderer;
+  without it the compositor waits itself, as on vmwgfx).
+- **seat**: logind's `seat0` with a graphical device, or seatd.
+- **render**: what EGL and GLES render with on the render node, the way
+  the udev backend opens it. `llvmpipe` is fine in a VM; on a real GPU's
+  driver it is a failure, and the session refuses to run that way (below).
+  A udev build only; a winit-only build says so.
+- **Vulkan**: the GPU the shell takes (`exponential-shell` is gpui on
+  Vulkan, which takes the loader's first device): `vulkaninfo --summary`'s
+  GPU0 against the compositor's card, lavapipe first = software (a failure
+  on a real GPU; `MESA_VK_DEVICE_SELECT=<vendor:device>!` puts the right
+  one first). Without vulkan-tools, the ICD manifests found.
+- **keyboard**: the layout the session starts with (`/etc/default/keyboard`,
+  else xkb's `us`).
+- **Xwayland**: the binary the compositor will run and its version (24.1+
+  has explicit sync; older versions flicker with X11 games on NVIDIA; the
+  .deb bundles 24.1).
+- **NVIDIA**, **NVIDIA GBM**, **NVIDIA sleep** when `nvidia_drm` is
+  loaded (#EDE-59, below).
+
+### NVIDIA (#EDE-59)
+
+The proprietary driver (and its open kernel module) needs, in order:
+
+1. **Driver 525 or newer** (GBM with modifiers, EGL render nodes), **555+
+   for explicit sync** (`linux-drm-syncobj-v1`: no flicker in Vulkan apps
+   and X11 games), 560+ turns the next two on by default. The row names
+   the kernel module: `open kernel module` (`nvidia-open`, "Dual MIT/GPL",
+   NVIDIA's recommendation for Turing and newer from 560) or `proprietary
+   kernel module`; both work the same for eDE, read from
+   `/proc/driver/nvidia/version`.
+2. **`nvidia-drm.modeset=1`**: without it nvidia-drm has no atomic KMS
+   and no display can be driven (the compositor refuses the card with that
+   reason). The doctor reads the module parameter (root-only, 0400, on
+   most distros), else the kernel command line, else `options nvidia_drm
+   modeset=1` in `/etc/modprobe.d` and `/lib/modprobe.d` (where the
+   driver's package and nvidia-prime write it), else the driver's default,
+   and says which one it used. **`fbdev=1`** (recommended) gives a console
+   framebuffer: a flicker-free VT switch and a readable console after a
+   crash.
+3. **The GBM backend**: Mesa's libgbm loads `nvidia-drm_gbm.so` for the
+   `nvidia-drm` KMS driver, and libEGL_nvidia needs its GBM platform
+   (`/usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json`). Both
+   ship with the driver's GL libraries (Ubuntu, Mint: `libnvidia-gl-NNN`;
+   Fedora/RPM Fusion: `xorg-x11-drv-nvidia-libs`; Arch: `egl-gbm`).
+   Without them `EGLDisplay::new(gbm)` fails and the render row fails.
+4. **Video memory across suspend**: `NVreg_PreserveVideoMemoryAllocations=1`
+   (`/proc/driver/nvidia/params`) plus `nvidia-suspend.service` and
+   `nvidia-resume.service` enabled; otherwise the GPU forgets its memory
+   while asleep and the desktop and every GL/Vulkan app come back garbled.
+   The compositor drops its own caches on every resume anyway (fresh
+   swapchain buffers, cursor images uploaded again).
+
+What the udev backend does on NVIDIA: atomic KMS with the cursor planes
+and no overlay planes (they break on the driver); GBM buffers with the
+modifiers the primary plane lists, which is also the scanout tranche a
+fullscreen window hears through dmabuf feedback (direct scanout); explicit
+sync whenever the card has syncobj eventfds; one log line per card with
+the KMS facts (`nvidia-drm: atomic, 4 cursor planes 256x256, … modifiers,
+syncobj timeline, IN_FENCE_FD`) and one per output (format, plane formats,
+planes in use) so the first run on real hardware tells what it got.
+**Software rendering is never silent**: a real GPU's driver (nvidia,
+amdgpu, i915, xe, nouveau, …) whose EGL device is Mesa's llvmpipe stops the
+session with the reason on the recovery screen, where the safe-mode login
+entry (stock settings) still runs it in software to fix the driver from.
+Unproven on hardware as of eDE 0.2.5 (the VM has no GPU; the checks are
+tested against `crates/ede-compositor/tests/fixtures/doctor/mint-rtx4090`,
+the files a Mint 22.3 box with an RTX 4090 on driver 595 showed): the GLES
+renderer on the NVIDIA EGL device, the cursor plane, direct scanout, the
+shell's Vulkan swapchain on a layer-shell surface, suspend.
+
+Checking a machine without touching its desktop, in this order:
+
+```bash
+sudo apt update && sudo apt install exponential-desktop
+exponential-compositor doctor            # from the running desktop: read-only, no seat
+exponential-compositor                   # nested in a window of the running desktop (winit)
+apps/ede/scripts/ede-dev.sh              # nested with the supervisor and the shell
+```
+
+Then the real seat: log out, pick **Exponential** on the login screen
+(**Exponential (safe mode)** is the fallback; a session that cannot drive
+the display shows why and returns to the login screen), and read
+`journalctl -b | grep -E 'ede_compositor|exponential'` for the KMS and
+output lines above. Two monitors on the NVIDIA card take their native
+modes; with the X11 setup's virtual 5K the equivalent is
+`[[outputs]]` with `mode = "3840x2160@240"` / `"2560x1440@144"` and a
+`scale` ([Outputs](#outputs-mode-scale-position-ede-18)).
 
 The compositor opens one window on the running X11 (or Wayland) session and
 serves `$XDG_RUNTIME_DIR/wayland-N`. Close the window to quit.
@@ -519,23 +611,29 @@ first; each op needs the Core capability it names:
 
 | Op | Capability |
 |---|---|
-| `list_windows`, `list_outputs`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`) | any grant |
+| `list_windows`, `list_outputs`, `pointer_position`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`) | any grant |
 | `focus_window` (a minimized window comes back first, a parked one brings its workspace along), `close_window`, `move_window`, `minimize_window`, `restore_window` (#EDE-48: into the taskbar and back; a minimized window keeps its geometry and workspace, `WindowInfo.minimized`; `exponential-ctl minimize <id>` / `restore <id>`) | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
-| `input` (key, pointer motion, button; refused on protected surfaces and the lock) | `input:person` |
+| `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 
 The compositor writes the root token (every capability) to
 `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600) for the shell; `mint_grant`
 hands narrower, expiring grants to agents (never more than the minting grant
-holds, never outliving it). Any process of the same user can read the token
+holds, never outliving it). The root token is the shell's and
+`exponential-ctl`'s; every other client (the portal, ePilot, an agent)
+connects with `Client::connect_as(session, capabilities, expires)`, which
+mints its own grant and drops the root connection (#EDE-22: grants by
+default); a process handed a grant in `EDE_TOKEN` keeps that one. Any process of the same user can read the token
 file, so the boundary is between the shell and the agents it mints for (an
 agent sandbox does not see `$XDG_RUNTIME_DIR/exponential-desktop`). Agent spaces and window
 lending come with their own issues; captures are drawn in software for now.
 
 ```rust
-let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
+let mut ede = ede_protocol::Client::connect_env()?;   // the shell: $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
 for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
+// Anyone else: a grant of its own, minted from the root token and no wider than it needs.
+let mut agent = ede_protocol::Client::connect_as(SessionId::new("my-agent")?, vec![Capability::Capture], None)?;
 ```
 
 ## Apps (#EDE-20)
@@ -568,7 +666,7 @@ only those, puts a person's own file back from `*.before-ede` (moved
 aside once on the first apply) and restores the previous gsettings
 (`$XDG_STATE_HOME/exponential-desktop/theme-before.json`). `exponential-theme sync` applies or
 removes as `[theme] bridge` says: exponential-theme.service runs it at login
-before the shell, the Theme page's switch runs it after `ede.config`
+before the shell, the Theme page's switch runs it after `ede_config`
 wrote the key, and exponential-session exports the environment file before the
 compositor starts so its cursor matches. `exponential-theme print` shows the
 choice and the files; `--files-only` skips the live environment and

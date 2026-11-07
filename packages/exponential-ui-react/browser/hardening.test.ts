@@ -25,7 +25,7 @@ describe(`List windowing in Chromium`, () => {
     component: `Box`,
     children: [
       { id: `list`, component: `List`, template: { component: `row`, path: `/posts`, key: `id` }, children: [], style: { width: 600, ...(style ?? {}) } },
-      { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Text`, props: { text: { path: `title` } } }] },
+      { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Text`, props: { text: { "@path": `title` } } }] },
     ],
   })
   it(`an UNBOUNDED List (the page scrolls) renders a window, and follows the page scroll`, async () => {

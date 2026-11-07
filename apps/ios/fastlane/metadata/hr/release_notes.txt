@@ -47,3 +47,4 @@
 - Markdown u zadacima, komentarima i chatovima izgleda isto u svim aplikacijama
 - Tvoj Asistent radi u svim tvojim timovima
 - Vlasnici tima mogu odrediti agenta Koordinatora
+- Aplikacije mogu crtati na platnu i reagirati na dodire i povlačenja

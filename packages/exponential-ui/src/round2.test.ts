@@ -263,7 +263,7 @@ describe(`virtual-list.json (§5)`, () => {
   test(`the bench surface reduces cleanly and its template is lifted`, () => {
     const result = reduceSurface(benchFixture.components as FlatComponent[], { catalogId: benchFixture.catalogId })
     expect(result.issues).toEqual([])
-    expect(Object.keys(result.templates ?? {})).toEqual([`bench-row`])
+    expect(Object.keys(result.templates ?? {})).toEqual([`bench_row`])
     expect(benchFixture.rows.count).toBe(100_000)
   })
 

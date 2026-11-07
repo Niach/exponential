@@ -366,3 +366,55 @@ fn an_agent_reaches_the_capabilities_through_the_hub() {
     app.revoke_agent("run-1".into());
     assert!(app.agent_access("not a session id!".into()).is_err());
 }
+
+// --- The synced store (VAPP-272) ------------------------------------------
+
+#[derive(Default)]
+struct RoomLog(Mutex<Vec<String>>);
+
+impl eengine_ffi::OutboxLog for RoomLog {
+    fn entries_json(&self) -> Result<String, EngineError> {
+        Ok(format!("[{}]", self.0.lock().unwrap().join(",")))
+    }
+    fn push(&self, entry_json: String) -> Result<(), EngineError> {
+        self.0.lock().unwrap().push(entry_json);
+        Ok(())
+    }
+    fn ack(&self, _write_id: String, _at: String) -> Result<(), EngineError> {
+        Ok(())
+    }
+    fn remove(&self, write_ids: Vec<String>) -> Result<(), EngineError> {
+        self.0.lock().unwrap().retain(|e| !write_ids.iter().any(|id| e.contains(id.as_str())));
+        Ok(())
+    }
+}
+
+struct Answers(&'static str);
+
+impl eengine_ffi::SyncTransport for Answers {
+    fn push(&self, _app: String, _call: String, _input_json: String) -> String {
+        self.0.to_string()
+    }
+}
+
+const ENTRY: &str = r#"{"writeId":"w1","appId":"a","call":"upsert","writes":[{"op":"create","id":"r1","kind":"task","data":{"title":"t"}}],"at":"2026-11-07T09:00:00.000Z","state":"pending"}"#;
+
+#[test]
+fn the_synced_store_answers_the_server_s_own_answer() {
+    let store = eengine_ffi::SyncedRecordStore::new(Arc::new(RoomLog::default()), Arc::new(Answers(r#"{"ok":true,"answer":{"id":"r1"}}"#)), None, None).unwrap();
+    let got = store.submit(ENTRY.into(), true).unwrap();
+    assert_eq!(got, eengine_ffi::Submitted::Done { answer_json: r#"{"id":"r1"}"#.into() });
+    assert_eq!(store.pending_label("a".into()), None);
+}
+
+#[test]
+fn the_synced_store_carries_a_refusal_and_queues_offline() {
+    let log = Arc::new(RoomLog::default());
+    let store = eengine_ffi::SyncedRecordStore::new(log.clone(), Arc::new(Answers(r#"{"code":"BAD_REQUEST","message":"title","invalid":true}"#)), None, None).unwrap();
+    let got = store.submit(ENTRY.into(), true).unwrap();
+    assert_eq!(got, eengine_ffi::Submitted::Refused { message: Some("title".into()), invalid: true });
+    assert!(log.0.lock().unwrap().is_empty(), "the refused entry leaves the log");
+    assert_eq!(store.submit(ENTRY.into(), false).unwrap(), eengine_ffi::Submitted::Queued);
+    assert_eq!(store.pending_label("a".into()).as_deref(), Some("1 change waiting to sync"));
+    assert!(store.visible_rows_json("a".into(), Some("me".into())).contains("\"r1\""));
+}

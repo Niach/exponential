@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory Bluetooth applet (#EDE-43): the taskbar's Bluetooth button opens it as a popup surface. The power switch (power), the known devices (/services/bluetooth/devices: Connect / Disconnect), the Search switch that scans for a while (discover), and the Bluetooth settings link. Every action is ede.service on the bluetooth domain.",
+  "$comment": "Exponential Desktop's factory Bluetooth applet (#EDE-43): the taskbar's Bluetooth button opens it as a popup surface. The power switch (power), the known devices (/services/bluetooth/devices: Connect / Disconnect), the Search switch that scans for a while (discover), and the Bluetooth settings link. Every action is ede_service on the bluetooth domain.",
   "surface": {
     "popup": {
       "parent": "taskbar",
@@ -11,8 +11,8 @@
       }
     },
     "functions": [
-      "ede.service",
-      "ede.open_document"
+      "ede_service",
+      "ede_open_document"
     ]
   },
   "root": {

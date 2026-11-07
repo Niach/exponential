@@ -25,7 +25,7 @@
 //! - VAPP-235 (O1) the OFFLINE OUTBOX: every `records_*` call is one entry
 //!   of the account's outbox (the sync sqlite's `app_record_outbox`), laid
 //!   over the synced rows the `records:` bindings read and replayed FIFO
-//!   with its write id ([`RecordOutbox`], app-records.json `outbox`);
+//!   with its write id (VAPP-272: the Engine's `SyncedRecordStore`, [`crate::app_outbox`]);
 //! - VAPP-230 `upstream:<server>/<tool>?…`: tRPC `apps.upstreamRead` (the
 //!   server broker reads one read-only tool of a team MCP server as the
 //!   viewer), re-read every `CACHE_SECONDS` while bound; ok emits the value, a
@@ -74,7 +74,8 @@ use gpui::{
 use gpui_component::IconNamed as _;
 use serde_json::{json, Value};
 
-use domain::app_records::{OutboxCall, OutboxEntry, OutboxOutcome, OutboxResult, OutboxRow, OutboxState};
+use domain::app_records::{OutboxCall, OutboxEntry, OutboxRow, OutboxState};
+use eengine::Submitted;
 use domain::via_app::ViaAppClaim;
 
 use crate::toast::Toast;
@@ -442,7 +443,7 @@ impl Feeds {
 }
 
 /// The clock `records:<kind>` reads (the month view's default month, `today`).
-fn now_iso() -> String {
+pub(crate) fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
@@ -748,7 +749,7 @@ fn refresh_sources(feeds: &Rc<RefCell<Feeds>>, part: SourcePart, cx: &App) {
 }
 
 /// One synced `app_records` row as the cache holds it.
-fn record_lite(r: &domain::rows::AppRecordRow) -> RecordLite {
+pub(crate) fn record_lite(r: &domain::rows::AppRecordRow) -> RecordLite {
     RecordLite {
         id: r.id.clone(),
         app_id: r.app_id.clone(),
@@ -791,7 +792,7 @@ fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
     };
     let mut records = records;
     if feeds.borrow().records.scope.as_ref().is_none_or(|s| s.run_as.is_none()) {
-        let entries = active_outbox_entries(cx);
+        let entries = crate::app_outbox::active_entries(cx);
         if !entries.is_empty() {
             records = overlay_records(records, &entries, me.as_deref());
         }
@@ -1437,141 +1438,6 @@ impl ExtensionPainter for LiveDotPainter {
     }
 }
 
-// ---------------------------------------------------------------------------
-// VAPP-235 (O1): the record outbox (app-records.json `outbox`, spec §14)
-// ---------------------------------------------------------------------------
-
-/// The live side of the per-account outbox (the sync sqlite's
-/// `app_record_outbox` table is the truth): each account's entries, oldest
-/// first, the accounts with a flush running, and the host calls awaiting
-/// their own entry's first outcome. Hosts observe it (the overlay, the
-/// header's pending glyph).
-#[derive(Default)]
-pub(crate) struct RecordOutbox {
-    accounts: HashMap<String, Vec<OutboxEntry>>,
-    flushing: HashSet<String>,
-    waiters: HashMap<String, flume::Sender<Flushed>>,
-}
-
-struct RecordOutboxGlobal(Entity<RecordOutbox>);
-
-impl gpui::Global for RecordOutboxGlobal {}
-
-/// A replay's server answer.
-enum Replayed {
-    Upsert(api::apps::RecordUpsertOutput),
-    Delete,
-    Batch(api::apps::RecordsBatchOutput),
-}
-
-/// An entry's first outcome, for the host call awaiting it.
-enum Flushed {
-    Done(Replayed),
-    Retry,
-    Dropped,
-    Refused(api::ApiError),
-}
-
-/// The outbox entity (`None` before [`install_record_outbox`]: tests).
-pub(crate) fn record_outbox(cx: &App) -> Option<Entity<RecordOutbox>> {
-    cx.try_global::<RecordOutboxGlobal>().map(|g| g.0.clone())
-}
-
-/// An account's sqlite store (its pipeline's).
-fn outbox_db(account_id: &str, cx: &App) -> Option<Arc<sync::store::ShapeStore>> {
-    sync::Store::try_global(cx)?.manager().store(account_id)
-}
-
-/// A tRPC client signed in as `account_id` (the flusher replays as the
-/// entry's account).
-fn account_trpc(account_id: &str, cx: &App) -> Option<api::TrpcClient> {
-    let auth = cx.try_global::<crate::session::AuthContext>()?;
-    let account = auth.auth.account(account_id)?;
-    let provider: Arc<dyn api::TokenProvider> = auth.auth.token_provider(&account.id);
-    Some(api::TrpcClient::new(&account.instance_url, provider))
-}
-
-/// The active account's entries (none before they load).
-fn active_outbox_entries(cx: &App) -> Vec<OutboxEntry> {
-    let (Some(outbox), Some(account)) = (record_outbox(cx), crate::queries::active_account(cx)) else {
-        return Vec::new();
-    };
-    outbox.read(cx).accounts.get(&account.id).cloned().unwrap_or_default()
-}
-
-/// The running app's header glyph label (`outboxPendingLabel`): `None` =
-/// nothing pending for `app_id`.
-pub(crate) fn outbox_pending_label_for(app_id: &str, cx: &App) -> Option<String> {
-    domain::app_records::outbox_pending_label(&active_outbox_entries(cx), app_id)
-}
-
-/// Install the outbox (after the store and the `AuthContext`, before the
-/// session bootstrap): its entries load and flush at launch / sign-in, and
-/// flush again when the sync connection comes back (the store's health
-/// Offline → Ok); acked entries prune whenever the synced records move.
-pub fn install_record_outbox(cx: &mut App) {
-    let Some(store) = sync::Store::try_global(cx).cloned() else { return };
-    let outbox = cx.new(|_| RecordOutbox::default());
-    cx.set_global(RecordOutboxGlobal(outbox));
-    let mut last: (Option<String>, bool) = (None, true);
-    cx.observe(&store.state(), move |state, cx| {
-        let (account, online) = {
-            let s = state.read(cx);
-            (s.session.account_id().map(str::to_string), s.published_health == sync::SyncHealth::Ok)
-        };
-        let (was_account, was_online) = std::mem::replace(&mut last, (account.clone(), online));
-        let Some(account) = account else { return };
-        if was_account.as_deref() != Some(account.as_str()) {
-            load_outbox(&account, cx);
-            flush_outbox(account, cx);
-        } else if online && !was_online {
-            flush_outbox(account, cx);
-        }
-    })
-    .detach();
-    cx.observe(&store.collections().app_records, |_, cx| {
-        if let Some(account) = crate::queries::active_account(cx) {
-            prune_outbox(&account.id, cx);
-        }
-    })
-    .detach();
-}
-
-/// Read an account's entries off its store into the entity.
-fn load_outbox(account_id: &str, cx: &mut App) {
-    let (Some(outbox), Some(db)) = (record_outbox(cx), outbox_db(account_id, cx)) else { return };
-    let entries = db.outbox_entries().unwrap_or_else(|err| {
-        log::warn!("[exponential-ui host] the record outbox does not read: {err}");
-        Vec::new()
-    });
-    outbox.update(cx, |o, cx| {
-        o.accounts.insert(account_id.to_string(), entries);
-        cx.notify();
-    });
-    prune_outbox(account_id, cx);
-}
-
-/// Drop entries from the store and the entity.
-fn remove_outbox_entries(account_id: &str, write_ids: &[String], cx: &mut App) {
-    if write_ids.is_empty() {
-        return;
-    }
-    if let Some(db) = outbox_db(account_id, cx) {
-        let ids: Vec<&str> = write_ids.iter().map(String::as_str).collect();
-        if let Err(err) = db.outbox_remove(&ids) {
-            log::warn!("[exponential-ui host] the record outbox does not write: {err}");
-        }
-    }
-    if let Some(outbox) = record_outbox(cx) {
-        outbox.update(cx, |o, cx| {
-            if let Some(entries) = o.accounts.get_mut(account_id) {
-                entries.retain(|e| !write_ids.contains(&e.write_id));
-            }
-            cx.notify();
-        });
-    }
-}
-
 /// One synced row as the outbox reads it.
 fn outbox_row(r: &RecordLite) -> OutboxRow {
     OutboxRow {
@@ -1614,40 +1480,9 @@ pub(crate) fn overlay_records(mut records: Vec<RecordLite>, entries: &[OutboxEnt
     records
 }
 
-/// The acked entries that leave (`outboxPrune`): reflected by the synced
-/// rows, or past the grace.
-pub(crate) fn pruned_entries(entries: &[OutboxEntry], records: &[RecordLite], now: &str) -> Vec<String> {
-    let mut apps: Vec<&str> = Vec::new();
-    for entry in entries.iter().filter(|e| !e.is_pending()) {
-        if !apps.contains(&entry.app_id.as_str()) {
-            apps.push(&entry.app_id);
-        }
-    }
-    let mut gone = Vec::new();
-    for app in apps {
-        let rows: Vec<OutboxRow> = records.iter().filter(|r| r.app_id == app).map(outbox_row).collect();
-        let app_entries: Vec<OutboxEntry> = entries.iter().filter(|e| e.app_id == app).cloned().collect();
-        let kept: HashSet<String> =
-            domain::app_records::outbox_prune(&app_entries, &rows, now).into_iter().map(|e| e.write_id).collect();
-        gone.extend(app_entries.into_iter().filter(|e| !kept.contains(&e.write_id)).map(|e| e.write_id));
-    }
-    gone
-}
-
-/// Prune the active account's acked entries against the synced rows.
-fn prune_outbox(account_id: &str, cx: &mut App) {
-    if crate::queries::active_account(cx).map(|a| a.id).as_deref() != Some(account_id) {
-        return;
-    }
-    let entries = record_outbox(cx).and_then(|o| o.read(cx).accounts.get(account_id).cloned()).unwrap_or_default();
-    if entries.iter().all(OutboxEntry::is_pending) {
-        return;
-    }
-    let Some(store) = sync::Store::try_global(cx) else { return };
-    let records: Vec<RecordLite> = store.collections().app_records.read(cx).iter().map(record_lite).collect();
-    let gone = pruned_entries(&entries, &records, &now_iso());
-    remove_outbox_entries(account_id, &gone, cx);
-}
+// ---------------------------------------------------------------------------
+// VAPP-235 (O1): a host call = one outbox entry (the queue: `crate::app_outbox`)
+// ---------------------------------------------------------------------------
 
 /// VAPP-235: a host call = ONE outbox entry (client ids for the write and
 /// every create), persisted, then: the only pending entry on a connected
@@ -1658,8 +1493,8 @@ fn prune_outbox(account_id: &str, cx: &mut App) {
 fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, form: Option<RecordFormTarget>, cx: &mut App) -> Task<Result<Value, String>> {
     let verb = if call == OutboxCall::Delete { "delete" } else { "save" };
     let account = crate::queries::active_account(cx).map(|a| a.id);
-    let db = account.as_deref().and_then(|a| outbox_db(a, cx));
-    let (Some(scope), Some(account), Some(outbox), Some(db)) = (scope, account, record_outbox(cx), db) else {
+    let records = account.as_deref().and_then(|a| crate::app_outbox::account_records(a, cx));
+    let (Some(scope), Some(records)) = (scope, records) else {
         // A batch's failure toasts through the package action.
         if call != OutboxCall::Batch {
             crate::action_error::failed_action(verb, "the record", None, cx);
@@ -1678,55 +1513,56 @@ fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, form
         state: OutboxState::Pending,
         acked_at: None,
     };
-    if let Err(err) = db.outbox_push(&entry) {
-        log::warn!("[exponential-ui host] the record outbox does not write: {err}");
-        if call != OutboxCall::Batch {
-            crate::action_error::failed_action(verb, "the record", None, cx);
-        }
-        return Task::ready(Err(err.to_string()));
-    }
-    let alone = !outbox.read(cx).accounts.get(&account).is_some_and(|es| es.iter().any(OutboxEntry::is_pending));
     let online = sync::Store::try_global(cx).is_some_and(|s| s.sync_status(cx).health == sync::SyncHealth::Ok);
-    let waiter = (alone && online).then(|| flume::bounded::<Flushed>(1));
-    outbox.update(cx, |o, cx| {
-        if let Some((tx, _)) = &waiter {
-            o.waiters.insert(entry.write_id.clone(), tx.clone());
+    let awaits = match records.store.enqueue(entry.clone(), online) {
+        Ok(awaits) => awaits,
+        Err(err) => {
+            log::warn!("[exponential-ui host] the record outbox does not write: {err}");
+            if call != OutboxCall::Batch {
+                crate::action_error::failed_action(verb, "the record", None, cx);
+            }
+            return Task::ready(Err(err.to_string()));
         }
-        o.accounts.entry(account.clone()).or_default().push(entry.clone());
-        cx.notify();
-    });
-    flush_outbox(account, cx);
+    };
+    crate::app_outbox::notify(cx);
     let offline = entry.answer();
-    let Some((_, rx)) = waiter else {
+    if !awaits {
+        crate::app_outbox::flush(&records.store, cx);
         // Queued behind others or offline: it will land, the editor closes.
         if let Some(form) = &form {
             form.landed(cx);
         }
         return Task::ready(Ok(offline));
-    };
+    }
+    let write_id = entry.write_id;
+    let (tx, rx) = flume::bounded::<Submitted>(1);
+    // Detached: the replay goes on when the surface that asked is gone.
+    let store = records.store.clone();
+    let id = write_id.clone();
+    cx.background_spawn(async move {
+        let _ = tx.send(store.await_outcome(&id));
+    })
+    .detach();
     let app_id = scope.app_id;
     cx.spawn(async move |cx| match rx.recv_async().await {
-        Ok(Flushed::Done(Replayed::Upsert(out))) => {
-            if let Some(form) = &form {
-                cx.update(|cx| form.landed(cx));
+        Ok(Submitted::Done(answer)) => match call {
+            OutboxCall::Upsert => {
+                if let Some(form) = &form {
+                    cx.update(|cx| form.landed(cx));
+                }
+                Ok(answer)
             }
-            Ok(json!({ "id": out.id }))
-        }
-        Ok(Flushed::Done(Replayed::Delete)) => Ok(Value::Null),
-        Ok(Flushed::Done(Replayed::Batch(out))) => {
-            let ids = json!({ "ids": out.ids });
-            cx.update(|cx| {
-                crate::app_data_tab::toast_record_undo(
-                    &app_id,
-                    domain::app_records::UndoableWrite::Batch,
-                    out.event_ids,
-                    "app",
-                    cx,
-                )
-            });
-            Ok(ids)
-        }
-        Ok(Flushed::Refused(err)) => {
+            OutboxCall::Delete => Ok(Value::Null),
+            OutboxCall::Batch => {
+                let event_ids: Vec<String> = serde_json::from_value(answer["eventIds"].clone()).unwrap_or_default();
+                cx.update(|cx| {
+                    crate::app_data_tab::toast_record_undo(&app_id, domain::app_records::UndoableWrite::Batch, event_ids, "app", cx)
+                });
+                Ok(json!({ "ids": answer["ids"] }))
+            }
+        },
+        Ok(Submitted::Refused(pushed)) => {
+            let Some(err) = records.take_error(&write_id) else { return Err(pushed.message.unwrap_or_default()) };
             let message = err.to_string();
             // A batch's refusal toasts through the package action.
             if call != OutboxCall::Batch {
@@ -1738,151 +1574,13 @@ fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, form
             }
             Err(message)
         }
-        Ok(Flushed::Retry | Flushed::Dropped) | Err(_) => {
+        Ok(Submitted::Queued) | Err(_) => {
             if let Some(form) = &form {
                 cx.update(|cx| form.landed(cx));
             }
             Ok(offline)
         }
     })
-}
-
-/// One entry's replay (`outboxRequest`), as the entry's app.
-fn replay_entry(trpc: &api::TrpcClient, entry: &OutboxEntry, via_app: Option<&ViaAppClaim>) -> Result<Replayed, api::ApiError> {
-    let (call, input) = domain::app_records::outbox_request(entry);
-    let text = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_string);
-    let write_id = Some(entry.write_id.as_str());
-    match call {
-        OutboxCall::Upsert => api::apps::records_upsert(
-            trpc,
-            &api::apps::RecordUpsertInput {
-                id: entry.app_id.clone(),
-                kind: text("kind").unwrap_or_default(),
-                data: input.get("data").cloned().unwrap_or_else(|| json!({})),
-                record_id: text("recordId"),
-                author: None,
-                via: None,
-                new_id: text("newId"),
-                write_id: text("writeId"),
-                via_app: via_app.cloned(),
-            },
-        )
-        .map(Replayed::Upsert),
-        OutboxCall::Delete => {
-            api::apps::records_delete(trpc, &entry.app_id, &text("recordId").unwrap_or_default(), None, write_id)
-                .map(|_| Replayed::Delete)
-        }
-        OutboxCall::Batch => {
-            let writes = input.get("writes").and_then(Value::as_array).cloned().unwrap_or_default();
-            api::apps::records_batch(trpc, &entry.app_id, &writes, write_id, via_app).map(Replayed::Batch)
-        }
-    }
-}
-
-/// A replay's answer as the outbox reads it: a server code, else no network.
-fn replay_result(replayed: &Result<Replayed, api::ApiError>) -> OutboxResult {
-    match replayed {
-        Ok(_) => OutboxResult::Ok,
-        Err(err) => err.trpc_code().map_or(OutboxResult::Transport, |code| OutboxResult::Code(code.to_string())),
-    }
-}
-
-/// The flusher (`outboxFlush`): one per account, FIFO, ONE request at a
-/// time, oldest pending entry first; a retry stops it (nothing overtakes).
-fn flush_outbox(account_id: String, cx: &mut App) {
-    let Some(outbox) = record_outbox(cx) else { return };
-    if !outbox.update(cx, |o, _| o.flushing.insert(account_id.clone())) {
-        return;
-    }
-    cx.spawn(async move |cx: &mut AsyncApp| loop {
-        let next = cx.update(|cx| {
-            let entry = outbox.read(cx).accounts.get(&account_id).and_then(|es| es.iter().find(|e| e.is_pending()).cloned());
-            let trpc = account_trpc(&account_id, cx);
-            let via_app = entry.as_ref().and_then(|e| host_claim(Some(e.app_id.as_str()), cx));
-            match (entry, trpc) {
-                (Some(entry), Some(trpc)) => Some((entry, trpc, via_app)),
-                (entry, _) => {
-                    // Nothing pending, or signed out: stop (the entry stays).
-                    outbox.update(cx, |o, _| {
-                        o.flushing.remove(&account_id);
-                        if let Some(tx) = entry.and_then(|e| o.waiters.remove(&e.write_id)) {
-                            let _ = tx.send(Flushed::Retry);
-                        }
-                    });
-                    None
-                }
-            }
-        });
-        let Some((entry, trpc, via_app)) = next else { return };
-        let sent = entry.clone();
-        let replayed = cx.background_executor().spawn(async move { replay_entry(&trpc, &sent, via_app.as_ref()) }).await;
-        let go_on = cx.update(|cx| settle_entry(&account_id, &entry, replayed, cx));
-        if !go_on {
-            cx.update(|cx| outbox.update(cx, |o, _| o.flushing.remove(&account_id)));
-            return;
-        }
-    })
-    .detach();
-}
-
-/// Apply one replay's outcome (`outboxOutcome`); false = the flush stops.
-fn settle_entry(account_id: &str, entry: &OutboxEntry, replayed: Result<Replayed, api::ApiError>, cx: &mut App) -> bool {
-    let Some(outbox) = record_outbox(cx) else { return false };
-    let outcome = domain::app_records::outbox_outcome(entry, &replay_result(&replayed));
-    let waiter = outbox.update(cx, |o, _| o.waiters.remove(&entry.write_id));
-    let tell = |flushed: Flushed| match &waiter {
-        Some(tx) => tx.send(flushed).map_err(|e| e.0),
-        None => Err(flushed),
-    };
-    match outcome {
-        OutboxOutcome::Done => {
-            let now = now_iso();
-            if let Some(db) = outbox_db(account_id, cx) {
-                if let Err(err) = db.outbox_ack(&entry.write_id, &now) {
-                    log::warn!("[exponential-ui host] the record outbox does not write: {err}");
-                }
-            }
-            outbox.update(cx, |o, cx| {
-                if let Some(e) = o.accounts.get_mut(account_id).and_then(|es| es.iter_mut().find(|e| e.write_id == entry.write_id)) {
-                    e.state = OutboxState::Acked;
-                    e.acked_at = Some(now);
-                }
-                cx.notify();
-            });
-            if let Ok(done) = replayed {
-                let _ = tell(Flushed::Done(done));
-            }
-            // An acked entry the shape never reflects leaves after the grace.
-            let account = account_id.to_string();
-            let grace = Duration::from_secs(domain::app_records::APP_RECORDS_OUTBOX.ack_grace_seconds + 1);
-            cx.spawn(async move |cx: &mut AsyncApp| {
-                cx.background_executor().timer(grace).await;
-                cx.update(|cx| prune_outbox(&account, cx));
-            })
-            .detach();
-            prune_outbox(account_id, cx);
-            true
-        }
-        OutboxOutcome::Retry => {
-            let _ = tell(Flushed::Retry);
-            false
-        }
-        OutboxOutcome::Dropped => {
-            remove_outbox_entries(account_id, std::slice::from_ref(&entry.write_id), cx);
-            let _ = tell(Flushed::Dropped);
-            true
-        }
-        OutboxOutcome::Refused => {
-            remove_outbox_entries(account_id, std::slice::from_ref(&entry.write_id), cx);
-            if let Err(err) = replayed {
-                // No call awaits it (a later replay): the failed-action toast.
-                if let Err(Flushed::Refused(err)) = tell(Flushed::Refused(err)) {
-                    crate::action_error::failed_action_err(domain::app_records::outbox_verb(entry), "the record", &err, cx);
-                }
-            }
-            true
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,7 +1655,7 @@ impl IdeHost {
             let f = feeds.clone();
             subscriptions.push(cx.observe(&collections.issues, move |_, cx| refresh_records(&f, cx)));
             // VAPP-235: the overlay follows the outbox.
-            if let Some(outbox) = record_outbox(cx) {
+            if let Some(outbox) = crate::app_outbox::record_outbox(cx) {
                 let f = feeds.clone();
                 subscriptions.push(cx.observe(&outbox, move |_, cx| refresh_records(&f, cx)));
             }
@@ -2223,8 +1921,7 @@ mod tests {
         }
     }
 
-    /// VAPP-235: the outbox lays each app's entries over that app's rows
-    /// only; an acked entry the rows reflect prunes.
+    /// VAPP-235: the outbox lays each app's entries over that app's rows only.
     #[test]
     fn the_outbox_overlays_its_own_app() {
         let entry = |write_id: &str, app: &str, writes: Value, state: &str| -> OutboxEntry {
@@ -2245,11 +1942,6 @@ mod tests {
         assert_eq!(got[1].data["hours"], 5);
         assert_eq!(got[1].created_at, rows[0].created_at);
         assert_eq!((got[2].created_by.as_deref(), got[2].created_at.as_str()), (Some("u1"), "2026-11-03T10:00:00.000Z"));
-        // The acked create the shape now carries leaves; the pending one stays.
-        let mut synced = rows;
-        synced.push(RecordLite { id: "n1".into(), data: json!({"hours": 1}), ..record("n1", "a1", 1, "u1") });
-        assert_eq!(pruned_entries(&entries, &synced, "2026-11-03T10:00:05.000Z"), vec!["w2".to_string()]);
-        assert!(pruned_entries(&entries, &synced[..3], "2026-11-03T10:00:05.000Z").is_empty());
     }
 
     fn records_feed() -> RecordsFeed {

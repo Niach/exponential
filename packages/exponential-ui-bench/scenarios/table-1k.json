@@ -50,7 +50,7 @@
           }
         ],
         "rows": {
-          "path": "/rows"
+          "@path": "/rows"
         },
         "rowKey": "id",
         "striped": true,
@@ -115,7 +115,7 @@
               }
             ],
             "rows": {
-              "path": "/rows"
+              "@path": "/rows"
             },
             "rowKey": "id",
             "striped": true,
