@@ -1,14 +1,15 @@
 import { ExponentialUiTree } from "@exp/ui"
 import type { NestedNode } from "@exponential_app/eui"
 
-import specimens from "./canvas.specimens.json"
+import specimens from "@exponential_app/eui/fixtures/canvas-specimen.json"
 import type { StyleguideEntry } from "./types.ts"
 
 // Round 8 — genUI's `Canvas`: a static vector drawing (charts, plots,
 // diagrams) compiled by Motion's engine into one display list, its text set
-// natively in the theme's fonts. The specimens live in canvas.specimens.json,
-// which the desktop twin reads too: a bar chart, a line plot and a pointer
-// pad. The island is static markup; the page's script (motion-islands.ts)
+// natively in the theme's fonts. The specimens live in genUI's
+// fixtures/canvas-specimen.json, which the desktop twin reads too and the
+// generated `exponential-ui-canvas` specimen IS (every platform's picture): a
+// bar chart, a line plot and a pointer pad. The island is static markup; the page's script (motion-islands.ts)
 // mounts the shared web painter (`CanvasView`) on every Canvas and writes the
 // pad's last press into its readout.
 

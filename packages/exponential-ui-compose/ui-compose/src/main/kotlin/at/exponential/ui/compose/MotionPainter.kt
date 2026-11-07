@@ -199,8 +199,29 @@ object MotionPainter {
         canvas.translate(f[2], f[3])
         canvas.scale(f[0], f[1])
         val scale = sqrt(abs(f[0] * f[1]))
-        Run(list.ops, canvas, scale, images, typefaces).group(0, Mods())
+        val run = Run(list.ops, canvas, scale, images, typefaces)
+        run.group(0, Mods())
+        // The text ops last, UPRIGHT, in box px (only the box clips them).
         canvas.restoreToCount(save)
+        val boxed = canvas.save()
+        canvas.clipRect(0f, 0f, boxW, boxH)
+        for (op in list.ops) if (op is MotionList.Op.Text) run.text(op, textAnchor(f, op.t, op.size))
+        canvas.restoreToCount(boxed)
+    }
+
+    /**
+     * Round 8: text is UPRIGHT (round-8 contract §1). A text op takes ONLY
+     * the translation and the uniform scale √|det| of (fit × its transform
+     * [t]); rotation and skew never apply (gpui cannot rotate text, so one
+     * look everywhere). [fit] = [fit]'s `[sx, sy, tx, ty]`. Returns the
+     * anchor in box px and the font px: `[x, y, size]`.
+     */
+    fun textAnchor(fit: FloatArray, t: FloatArray, size: Float): FloatArray {
+        val a = fit[0] * t[0]
+        val b = fit[1] * t[1]
+        val c = fit[0] * t[2]
+        val d = fit[1] * t[3]
+        return floatArrayOf(fit[0] * t[4] + fit[2], fit[1] * t[5] + fit[3], size * sqrt(abs(a * d - b * c)))
     }
 
     /** What a filtered group changes on every draw it repeats (blur, shadow tint). */
@@ -249,7 +270,8 @@ object MotionPainter {
                         canvas.drawBitmap(img, Rect(0, 0, img.width, img.height), RectF(0f, 0f, w, h), paint)
                         canvas.restoreToCount(save)
                     }
-                    is MotionList.Op.Text -> text(op)
+                    // Painted after the run, upright, by [paint].
+                    is MotionList.Op.Text -> {}
                 }
             }
             return i
@@ -320,31 +342,30 @@ object MotionPainter {
         }
 
         /**
-         * Round 8: one line at the op's origin through the canvas matrix
-         * (fit × transform, so `size` scales with it): align physical
-         * (Paint.Align), the baseline from the face's own ascent / descent
-         * (Paint.FontMetrics, no leading). Only the box clips it.
+         * Round 8: one horizontal line at [at] = `[x, y, size]` box px
+         * ([textAnchor]: the translation and √|det| only, never a rotation
+         * or skew): align physical (Paint.Align), the baseline from the
+         * face's own ascent / descent (Paint.FontMetrics, no leading). Only
+         * the box clips it.
          */
-        fun text(op: MotionList.Op.Text) {
-            if (op.text.isEmpty() || op.size <= 0f) return
+        fun text(op: MotionList.Op.Text, at: FloatArray) {
+            val px = at[2]
+            if (op.text.isEmpty() || !(px > 0f) || !px.isFinite()) return
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG or Paint.LINEAR_TEXT_FLAG).apply {
                 typeface = typefaces.typeface(op.mono, op.weight) ?: PLATFORM_TYPEFACES.typeface(op.mono, op.weight)
-                textSize = op.size
+                textSize = px
                 color = argb(op.color)
                 textAlign = when (op.align) { 1 -> Paint.Align.CENTER; 2 -> Paint.Align.RIGHT; else -> Paint.Align.LEFT }
             }
             val fm = paint.fontMetrics
             val ascent = -fm.ascent
             val descent = fm.descent
-            val y = when (op.baseline) {
+            val dy = when (op.baseline) {
                 0 -> ascent
                 1 -> (ascent - descent) / 2f
                 else -> 0f
             }
-            val save = canvas.save()
-            canvas.concat(matrix(op.t))
-            canvas.drawText(op.text, 0f, y, paint)
-            canvas.restoreToCount(save)
+            canvas.drawText(op.text, at[0], at[1] + dy, paint)
         }
 
         fun colorMatrix(f: MotionList.Filter): android.graphics.ColorMatrix? = when (f) {

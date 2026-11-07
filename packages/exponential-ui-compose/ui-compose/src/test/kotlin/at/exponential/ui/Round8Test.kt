@@ -127,10 +127,14 @@ class Round8Test {
     }
 
     @Test
-    fun theCanvasSpecimenPaintsAsNamedImages() {
-        val entry = Fixtures.json("specimens.json")["specimens"]!!.array!!.first { it["id"]?.string == "exponential-ui-canvas" }
+    fun theCanvasCatalogCasesPaintAsNamedImagesInFourFits() {
+        // The catalog example and its three fits (catalog-components.json), one column.
+        val cases = Fixtures.json("catalog-components.json")["cases"]!!.array!!
+            .filter { it["name"]?.string in listOf("Canvas/example", "Canvas/fit=contain", "Canvas/fit=cover", "Canvas/fit=fill") }
+        assertEquals(4, cases.size)
+        val children = cases.mapIndexed { i, c -> c["node"]!!.json.replaceFirst(Regex("\"id\"\\s*:\\s*\"canvas\""), "\"id\":\"c$i-canvas\"") }
         val m = model()
-        m.setNested(entry["node"]!!.json)
+        m.setNested("""{"id":"root","component":"Box","style":{"display":"flex","flexDirection":"column","gap":8},"children":[${children.joinToString(",")}]}""")
         show(m)
         assertEquals(m.issues.toString(), 0, m.issues.size)
         val c0 = m.frame(m.indexOf("c0-canvas")!!)

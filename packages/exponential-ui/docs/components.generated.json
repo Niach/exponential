@@ -7678,7 +7678,7 @@
           "required": true,
           "bindable": true,
           "responsive": false,
-          "description": "Motion's shapes, no keys, + text {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color} on top."
+          "description": "Motion's shapes, no keys, + text {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color} on top, always upright."
         },
         {
           "name": "fit",

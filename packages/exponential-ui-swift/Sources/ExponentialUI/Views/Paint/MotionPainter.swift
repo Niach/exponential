@@ -269,8 +269,16 @@ public enum MotionPainter {
     /// The uniform scale of a transform (√|det|).
     static func uniformScale(_ m: CGAffineTransform) -> CGFloat { sqrt(abs(m.a * m.d - m.b * m.c)) }
 
+    /// Text is UPRIGHT (round-8 contract §1): a text op takes ONLY the
+    /// translation and the uniform scale √|det| of `m` (fit × its
+    /// transform); rotation and skew never apply (gpui cannot rotate text,
+    /// so one look everywhere). The anchor in box px and the font px.
+    static func textAnchor(transform m: CGAffineTransform, size: CGFloat) -> (anchor: CGPoint, size: CGFloat) {
+        (CGPoint(x: m.tx, y: m.ty), size * uniformScale(m))
+    }
+
     private static func drawText(_ text: String, transform m: CGAffineTransform, mono: Bool, weight: Int, size: CGFloat, align: Int, baseline: Int, color: MotionList.Color4, font: TextFont, in ctx: inout GraphicsContext) {
-        let px = size * uniformScale(m)
+        let px = textAnchor(transform: m, size: size).size
         guard px > 0, px.isFinite, color.a > 0 else { return }
         let ct = font(mono, weight, px)
         let attributed = NSAttributedString(string: text, attributes: [
@@ -282,7 +290,8 @@ public enum MotionPainter {
         let origin = textOrigin(transform: m, align: align, baseline: baseline, width: width, ascent: CTFontGetAscent(ct), descent: CTFontGetDescent(ct))
         ctx.withCGContext { cg in
             cg.saveGState()
-            // The context is y-down; CoreText sets y-up glyphs.
+            // Upright: only the anchor moves; the context is y-down and
+            // CoreText sets y-up glyphs.
             cg.translateBy(x: origin.x, y: origin.y)
             cg.scaleBy(x: 1, y: -1)
             cg.textMatrix = .identity

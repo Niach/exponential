@@ -867,7 +867,28 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     { label: `valueText only`, node: { id: `sync`, component: `Progress`, props: { value: 80, valueText: `80%` } } },
   ],
   Stepper: [{ label: `collapse · always`, node: { id: `wizard`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: 1, collapse: `always` } } }],
-  Checkbox: [{ label: `indeterminate`, node: { id: `all`, component: `Checkbox`, props: { label: `Select all`, name: `all`, indeterminate: true } } }],
+  // The mixed parent of two packs, one checked and one not.
+  Checkbox: [{
+    label: `indeterminate · a parent of two`,
+    node: {
+      id: `packs`,
+      component: `Stack`,
+      props: { direction: `vertical`, gap: `xs`, align: `start` },
+      children: [
+        { id: `all`, component: `Checkbox`, props: { label: `All packs`, name: `all`, indeterminate: true } },
+        {
+          id: `pack-list`,
+          component: `Stack`,
+          props: { direction: `vertical`, gap: `xs`, align: `start` },
+          style: { paddingInlineStart: `$spacing.lg` },
+          children: [
+            { id: `icons`, component: `Checkbox`, props: { label: `Icons`, name: `icons`, checked: true } },
+            { id: `fonts`, component: `Checkbox`, props: { label: `Fonts`, name: `fonts`, checked: false } },
+          ],
+        },
+      ],
+    },
+  }],
   // VAPP-280: a settings page's group (a Switch that stays inline on phones,
   // a Select with a description, a Slider), then the stacked phone layout at
   // any width (`stackBelow: xl` is above the specimen's 720).
@@ -1106,11 +1127,40 @@ function generatedCases(name: string, all: ComponentCase[]): { label: string; no
   return out
 }
 
+/** Specimens whose WHOLE tree is a shared source file (`{data, cases}`), so
+ *  every platform's picture and the styleguide entry paint the same thing.
+ *  Round 8: the Canvas (a bar chart, a line plot, a pointer pad), also read
+ *  by the styleguide's `canvas` entry and its desktop twin. */
+const SPECIMEN_SOURCES: Record<string, string> = { Canvas: `fixtures/canvas-specimen.json` }
+
+/** `{path}` bindings replaced by their value in `data` (a specimen carries no data model). */
+function inlineBindings(value: unknown, data: Record<string, unknown>): unknown {
+  if (Array.isArray(value)) return value.map((v) => inlineBindings(v, data))
+  if (!value || typeof value !== `object`) return value
+  const o = value as Record<string, unknown>
+  if (Object.keys(o).length === 1 && typeof o.path === `string`) {
+    const got = o.path.split(`/`).filter(Boolean).reduce<unknown>((at, k) => (at && typeof at === `object` ? (at as Record<string, unknown>)[k] : undefined), data)
+    if (got === undefined) throw new Error(`specimen source: ${o.path} has no data`)
+    return got
+  }
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, inlineBindings(v, data)]))
+}
+
 /** One component's specimen: a padded column of captioned cases. */
 function specimenNode(name: string, all: ComponentCase[]): NestedNode {
   const inline = INLINE_SPECIMENS.has(name)
   const root = `specimen-${kebab(name)}`
   const wrap = SPECIMEN_WRAP[name]
+  const source = SPECIMEN_SOURCES[name]
+  if (source) {
+    const { data, cases } = readJson<{ data?: Record<string, unknown>; cases: NestedNode }>(source)
+    return {
+      id: root,
+      component: `Box`,
+      style: { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: 720 },
+      children: [inlineBindings(cases, data ?? {}) as NestedNode],
+    }
+  }
   return {
     id: root,
     component: `Box`,

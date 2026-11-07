@@ -59,8 +59,11 @@ in source order; the anchor is the op's local origin (x by `align`: the
 line's left edge, middle or right edge, never mirrored; y by `baseline`:
 top = baseline at y + ascent, middle = baseline at y + (ascent − descent) / 2,
 alphabetic = the baseline, with the font's own ascender/descender at `size`);
-`size` is font px in the op's local units (the transform scales it); the
-text is one line in the theme's `$type.family.sans` / `.mono` at the CSS
+`size` is font px in the op's local units. Text is always UPRIGHT: a `text`
+op takes ONLY the translation and the uniform scale √|det| of (fit × its
+transform), so the line is set horizontally at `size` × √|det|; rotation
+and skew never apply to text (gpui cannot rotate text, so one look on
+every renderer; `fixtures/canvas.json` › `upright`). The text is one line in the theme's `$type.family.sans` / `.mono` at the CSS
 weight, painted with the platform's text system. The tiny-skia raster skips
 `text` (the gpui painter draws native text over the raster).
 

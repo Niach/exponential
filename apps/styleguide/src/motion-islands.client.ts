@@ -7,7 +7,7 @@
 // EXP-1605: a Motion with `on.press` is pressable (Enter / Space); clicks and
 // hovers reach its state machine through the painter.
 // Round 8: the same for every Canvas (`CanvasView`, the canvas entry's
-// canvas.specimens.json); a press on the pointer pad writes its drawing
+// genUI's fixtures/canvas-specimen.json); a press on the pointer pad writes its drawing
 // coordinates into the pad's readout (the island cannot re-render).
 
 import { DEFAULT_THEME_ID, builtinTheme, type NestedNode } from "@exponential_app/eui"
@@ -15,7 +15,7 @@ import { initMotionWasm } from "@exponential_app/eui/motion"
 import { CanvasView, MotionView } from "@exponential_app/eui/web"
 import { MOTION_WASM_GZ_BASE64 } from "@exponential_app/eui/wasm/motion/bytes.ts"
 import specimens from "./entries/motion.specimens.json"
-import canvasSpecimens from "./entries/canvas.specimens.json"
+import canvasSpecimens from "@exponential_app/eui/fixtures/canvas-specimen.json"
 
 type Tree = { data: Record<string, unknown>; cases: NestedNode; illustration: NestedNode; interactive?: NestedNode }
 

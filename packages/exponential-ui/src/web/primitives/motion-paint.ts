@@ -357,20 +357,30 @@ export function paintMotionFrame(ctx: MotionContext, width: number, height: numb
   return true
 }
 
-/** One `text` op (README › Packed frames, round 8): ONE line whose anchor
- *  is the op's local origin under `m` (fit × dpr × the op's transform). The
- *  line is set at device px (`size` × the transform's scale) under the
- *  transform's rotation/skew only, so small drawings stay crisp. Align is
- *  physical (`direction: ltr`, never mirrored); the baseline rule uses the
- *  font's own ascent/descent (`fontBoundingBoxAscent/Descent`): top =
- *  baseline at y + ascent, middle = y + (ascent − descent) / 2, alphabetic
- *  = y. Clipped only by the canvas (the box), never by the composition. */
+/** Where a `text` op sets its line (round-8 contract §1, text is UPRIGHT):
+ *  ONLY the translation and the uniform scale √|det| of `m` (fit × dpr ×
+ *  the op's transform) apply; rotation and skew never do (gpui cannot
+ *  rotate text, so one look everywhere). `x`, `y` = the anchor in device
+ *  px, `size` = the font px. */
+export function motionTextAnchor(m: MotionMatrix, size: number): { x: number; y: number; size: number } {
+  return { x: m[4], y: m[5], size: size * Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) }
+}
+
+/** One `text` op (README › Packed frames, round 8): ONE horizontal line
+ *  whose anchor is the op's local origin under `m` (fit × dpr × the op's
+ *  transform), at device px `size` × √|det| ({@link motionTextAnchor}; a
+ *  rotation or skew in a group moves the anchor but never turns the line).
+ *  Align is physical (`direction: ltr`, never mirrored); the baseline rule
+ *  uses the font's own ascent/descent (`fontBoundingBoxAscent/Descent`):
+ *  top = baseline at y + ascent, middle = y + (ascent − descent) / 2,
+ *  alphabetic = y. Clipped only by the canvas (the box), never by the
+ *  composition. */
 export function paintText(ctx: MotionContext, m: MotionMatrix, text: string, family: string, weight: number, size: number, align: number, baseline: number, color: readonly number[]): void {
-  const scale = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]))
-  const px = size * scale
+  const at = motionTextAnchor(m, size)
+  const px = at.size
   if (!text || !(px > 0) || !Number.isFinite(px) || !(clamp01(color[3]!) > 0)) return
   ctx.save()
-  ctx.setTransform(m[0] / scale, m[1] / scale, m[2] / scale, m[3] / scale, m[4], m[5])
+  ctx.setTransform(1, 0, 0, 1, at.x, at.y)
   ctx.globalAlpha = 1
   ctx.globalCompositeOperation = `source-over`
   ctx.font = `${weight === 500 || weight === 600 || weight === 700 ? weight : 400} ${px}px ${family}`

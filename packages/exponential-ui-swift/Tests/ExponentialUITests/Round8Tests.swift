@@ -101,6 +101,35 @@ final class Round8Tests: XCTestCase {
         }
     }
 
+    /// `upright`: text takes the translation and √|det| of fit × transform
+    /// only, whatever rotation or skew its groups carry.
+    func testCanvasUprightCasesPlaceTextByTranslationAndScaleOnly() throws {
+        let f = try Fixtures.json("canvas.json")
+        let cases = f["upright"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let id = c["id"]!.string!
+            let player = try CanvasPlayer(canvasJson: c["canvas"]!.json)
+            let list = try XCTUnwrap(MotionList(packed: player.sample(slotsJson: "")), id)
+            let b = c["box"]!.array!.compactMap(\.number)
+            let base = MotionPainter.fit(width: list.width, height: list.height, into: CGSize(width: b[0], height: b[1]), mode: c["fit"]!.string!)
+            let got: [(String, CGPoint, CGFloat)] = list.ops.compactMap {
+                guard case let .text(t, text, _, _, size, _, _, _) = $0 else { return nil }
+                let placed = MotionPainter.textAnchor(transform: t.concatenating(base), size: size)
+                return (text, placed.anchor, placed.size)
+            }
+            let want = c["texts"]!.array!
+            XCTAssertEqual(got.count, want.count, "\(id) texts")
+            for (g, w) in zip(got, want) {
+                let a = w["anchor"]!.array!.compactMap(\.number)
+                XCTAssertEqual(g.0, w["text"]!.string!, id)
+                XCTAssertEqual(g.1.x, CGFloat(a[0]), accuracy: 1e-3, "\(id) \(g.0) x")
+                XCTAssertEqual(g.1.y, CGFloat(a[1]), accuracy: 1e-3, "\(id) \(g.0) y")
+                XCTAssertEqual(g.2, CGFloat(w["size"]!.number!), accuracy: 1e-3, "\(id) \(g.0) size")
+            }
+        }
+    }
+
     // MARK: - The text op
 
     /// The placement rule: align physical, baseline from CTFont ascent /

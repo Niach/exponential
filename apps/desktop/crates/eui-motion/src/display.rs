@@ -21,7 +21,9 @@
 //!   native text system in the theme's family; every `Text` op comes after
 //!   every other op of the frame (after the stream's final `Pop`), in source
 //!   order, so a painter may draw the shapes first (gpui: the tiny-skia
-//!   raster) and composite native text on top with the same result.
+//!   raster) and composite native text on top with the same result. Text
+//!   is always upright: only the translation and √|det| of its transform
+//!   apply (see [`Op::Text`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -287,9 +289,12 @@ pub enum Op {
     },
     /// One line of text the painter sets natively (round 8, Canvas): the
     /// anchor is the op's local origin `(0, 0)` (x by `align`, y by
-    /// `baseline`), `size` = the font size in local units (the transform
-    /// scales it like any geometry), never wrapped, never clipped by the
-    /// composition (only by the painter's box). Always after every other op.
+    /// `baseline`), `size` = the font size in local units, never wrapped,
+    /// never clipped by the composition (only by the painter's box). Always
+    /// after every other op. UPRIGHT: a painter takes ONLY the translation
+    /// and the uniform scale √|det| of (fit × `transform`): the line is set
+    /// horizontally at `size` × √|det|; rotation and skew never apply to
+    /// text (gpui cannot rotate text, so one look everywhere).
     Text {
         transform: Transform,
         text: String,

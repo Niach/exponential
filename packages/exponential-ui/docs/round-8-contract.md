@@ -47,7 +47,7 @@ Shapes: `rect {position (centre), size, radius}`, `ellipse {position, size}`,
 medium | semibold | bold, align = start | center | end, baseline = alphabetic
 | top | middle, font = sans | mono, color = $color.foreground}`. Line breaks
 become spaces (one line, never wrapped). Inside groups it follows the group
-transforms and opacity; modifiers never touch it. Unknown fields are ignored
+transforms (anchor and scale only: text is always upright) and opacity; modifiers never touch it. Unknown fields are ignored
 (as the dialect ignores unknown keys).
 
 Rendering:
@@ -57,7 +57,7 @@ Rendering:
   frame's final `pop`), in source order.
 - `Op::Text {transform, text, font, weight, size, align, baseline, color}`:
   the anchor is the op's local origin. Map `(0, 0)` through fit × transform;
-  set one line at font px `size` (scaled by the transform) in the theme's
+  set one line at font px `size` × √|det(fit × transform)| in the theme's
   `$type.family.sans` / `$type.family.mono` at the CSS weight (400/500/600/700).
   `align`: start = the line's left edge at x, center = its middle, end = its
   right edge (physical; drawings never mirror in rtl). `baseline`: top =
@@ -67,6 +67,13 @@ Rendering:
   `measureText().fontBoundingBoxAscent/Descent` / gpui font metrics report);
   no leading, no line height. The colour is straight RGBA with the groups'
   opacity already in alpha.
+- Text is always UPRIGHT (amendment: gpui cannot rotate text, so one look
+  everywhere): a text op takes ONLY the translation and the uniform scale
+  √|det| of (fit × its transform). A group's rotation, skew or non-uniform
+  scale moves the anchor but never turns, slants or stretches the line.
+  Locked by `canvas.json` › `upright` (a text in a rotated + scaled group:
+  its anchor and font px in box px), replayed by the engine, gpui, the web
+  painter, Swift and Kotlin.
 - Packed text: `7, t[6], font (0 sans | 1 mono), weight (400|500|600|700),
   size, align (0|1|2), baseline (0 top | 1 middle | 2 alphabetic), r, g, b, a,
   n, n UTF-16 code units`.

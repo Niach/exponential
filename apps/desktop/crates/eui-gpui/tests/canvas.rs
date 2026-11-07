@@ -129,6 +129,30 @@ fn pointer_cases_map_box_points_to_drawing_units() {
 }
 
 #[test]
+fn upright_cases_place_text_by_translation_and_sqrt_det_only() {
+    // Text never rotates: the anchor = (fit × transform)(0, 0), the font px
+    // = size × √|det(fit × transform)|, the line horizontal.
+    let f = fixture();
+    let cases = f["upright"].as_array().unwrap();
+    assert!(!cases.is_empty());
+    for c in cases {
+        let id = c["id"].as_str().unwrap();
+        let player = CanvasPlayer::compile(&props_of(&c["canvas"])).unwrap_or_else(|e| panic!("{id}: {e}"));
+        let (s, b) = (&c["canvas"]["size"], &c["box"]);
+        let fit = fit_matrix(s[0].as_f64().unwrap(), s[1].as_f64().unwrap(), b[0].as_f64().unwrap(), b[1].as_f64().unwrap(), Fit::parse(c["fit"].as_str().unwrap()));
+        let got: Vec<Value> = player
+            .texts()
+            .map(|op| {
+                let eui_motion::Op::Text { transform, text, size, .. } = op else { unreachable!() };
+                let (x, y, px) = text_anchor(fit, *transform, *size);
+                json!({"text": text, "anchor": [x, y], "size": px})
+            })
+            .collect();
+        close(&json!(got), &c["texts"], id);
+    }
+}
+
+#[test]
 fn the_baseline_and_align_rule() {
     // ascent 10, descent 4, a 30 px line at (100, 50).
     assert_eq!(line_origin(100.0, 50.0, 30.0, 10.0, 4.0, TextAlign::Start, TextBaseline::Alphabetic), (100.0, 50.0));

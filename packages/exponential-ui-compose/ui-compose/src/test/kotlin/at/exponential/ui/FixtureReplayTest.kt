@@ -214,7 +214,8 @@ class FixtureReplayTest {
      * the packed VERSION 2 frame (with the case's host slots) and its decode
      * (one op per list op, the `text` ops after the final `pop` with their
      * string, font, weight, align and baseline); `refuse`: the issue codes
-     * and paths in order; `fit`: [MotionPainter.fit]; `pointer`:
+     * and paths in order; `fit`: [MotionPainter.fit]; `upright`:
+     * [MotionPainter.textAnchor] (translation + √|det| only); `pointer`:
      * `canvasToDrawing` within 0.01.
      */
     @Test
@@ -279,6 +280,26 @@ class FixtureReplayTest {
             val want = c["matrix"]!!.array!!.map { it.number!!.toFloat() }
             val got = listOf(m[0], 0f, 0f, m[1], m[2], m[3])
             for (k in 0 until 6) assertEquals("fit $fit $s in $b [$k]", want[k], got[k], 1e-4f)
+        }
+        // `upright`: text takes the translation and √|det| of fit × transform only.
+        val upright = f["upright"]!!.array!!
+        assertTrue(upright.isNotEmpty())
+        for (c in upright) {
+            val id = c["id"]!!.string!!
+            val list = MotionList.decode(CanvasPlayer(c["canvas"]!!.json).sample(""))!!
+            val b = c["box"]!!.array!!.map { it.number!!.toFloat() }
+            val fit = MotionPainter.fit(list.width, list.height, b[0], b[1], c["fit"]!!.string!!)
+            val got = list.ops.filterIsInstance<MotionList.Op.Text>()
+            val want = c["texts"]!!.array!!
+            assertEquals("$id texts", want.size, got.size)
+            for ((t, w) in got.zip(want)) {
+                val at = MotionPainter.textAnchor(fit, t.t, t.size)
+                val anchor = w["anchor"]!!.array!!.map { it.number!!.toFloat() }
+                assertEquals("$id text", w["text"]!!.string, t.text)
+                assertEquals("$id ${t.text} x", anchor[0], at[0], 1e-3f)
+                assertEquals("$id ${t.text} y", anchor[1], at[1], 1e-3f)
+                assertEquals("$id ${t.text} size", w["size"]!!.number!!.toFloat(), at[2], 1e-3f)
+            }
         }
         for (c in f["pointer"]!!.array!!) {
             val s = c["size"]!!.array!!.map { it.number!! }

@@ -1,8 +1,8 @@
 //! eUI round 8: `canvas` (General components): THE eUI Canvas painted by
 //! the gpui painter (`eui_gpui::canvas`: the shapes' tiny-skia raster, the
 //! `text` ops set natively on top). The specimens are the web entry's own
-//! file (`apps/styleguide/src/entries/canvas.specimens.json`), so the twin
-//! cannot drift: a bar chart with axis labels, a line plot, and a pointer
+//! file (`packages/exponential-ui/fixtures/canvas-specimen.json`, also the
+//! generated `exponential-ui-canvas` specimen), so the twin cannot drift: a bar chart with axis labels, a line plot, and a pointer
 //! pad whose readout (`/pressed`) shows the last press in drawing units.
 
 use std::cell::RefCell;
@@ -19,10 +19,10 @@ use serde_json::{json, Value};
 pub(crate) const ID: &str = "canvas";
 pub(crate) const OWNER: &str = "FEED-197";
 
-const SPECIMENS: &str = include_str!("../../../../../../styleguide/src/entries/canvas.specimens.json");
+const SPECIMENS: &str = include_str!("../../../../../../../packages/exponential-ui/fixtures/canvas-specimen.json");
 
 fn specimens() -> Value {
-    serde_json::from_str(SPECIMENS).expect("canvas.specimens.json")
+    serde_json::from_str(SPECIMENS).expect("canvas-specimen.json")
 }
 
 /// The pad's host: a `canvasPress` writes `x <x> · y <y>` into `/pressed`.

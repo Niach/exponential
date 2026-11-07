@@ -7,12 +7,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"
 import fixture from "../../../fixtures/canvas.json"
 import { builtinTheme } from "../../themes"
-import { motionConcat, paintMotionFrame, type MotionContext, type MotionMatrix } from "./motion-paint"
+import { motionConcat, motionFitMatrix, paintMotionFrame, type MotionContext, type MotionMatrix } from "./motion-paint"
+import { motionWasmSync } from "../../motion/server"
 import { canvasThemeFonts } from "./canvas"
 
 type TextOp = { op: `text`; transform: number[]; text: string; font: `sans` | `mono`; weight: string; size: number; align: string; baseline: string; color: number[] }
 type Compile = { id: string; packed: number[]; list: { ops: ({ op: string } | TextOp)[] } }
 const cases = (fixture as unknown as { compile: Compile[] }).compile
+type Upright = { id: string; canvas: { size: [number, number] }; box: [number, number]; fit: `contain` | `cover` | `fill`; texts: { text: string; anchor: [number, number]; size: number }[] }
+const uprights = (fixture as unknown as { upright: Upright[] }).upright
 
 const ASCENT = 0.9
 const DESCENT = 0.25
@@ -90,9 +93,8 @@ describe(`canvas.json › the web painter (packed VERSION 2, text ops)`, () => {
           // the anchor = the op's local origin through base × transform
           expect(tr[4]).toBeCloseTo(m[4], 3)
           expect(tr[5]).toBeCloseTo(m[5], 3)
-          // the transform's rotation only: the font is set at device px
-          expect(tr[0]).toBeCloseTo(m[0] / scale, 4)
-          expect(tr[1]).toBeCloseTo(m[1] / scale, 4)
+          // upright: no rotation or skew, the font is set at device px
+          expect(tr.slice(0, 4)).toEqual([1, 0, 0, 1])
           expect(t.state.font).toBe(`${WEIGHTS[o.weight]} ${px}px ${fonts[o.font]}`)
           expect(t.state.textAlign).toBe(ALIGNS[o.align])
           expect(t.state.direction).toBe(`ltr`)
@@ -115,6 +117,32 @@ describe(`canvas.json › the web painter (packed VERSION 2, text ops)`, () => {
     const { ctx } = recorder()
     expect(paintMotionFrame(ctx, 10, 10, [2, 10, 10, 7, 1, 0, 0, 1, 0, 0, 0, 400, 14, 0, 2, 0, 0, 0, 1, 5, 104], [1, 0, 0, 1, 0, 0])).toBe(false)
   })
+})
+
+describe(`canvas.json › upright (text takes the translation and √|det| only)`, () => {
+  expect(uprights.length).toBeGreaterThan(0)
+  for (const c of uprights) {
+    it(c.id, () => {
+      const player = new (motionWasmSync().CanvasPlayer)(JSON.stringify(c.canvas))
+      const packed = Array.from(player.sample(``))
+      player.free()
+      const { ctx, calls } = recorder()
+      const pool = { take: () => ({ canvas: { width: 1, height: 1 }, ctx }), give: () => {}, nativeFilters: () => false }
+      const base = motionFitMatrix(c.canvas.size[0], c.canvas.size[1], c.box[0], c.box[1], c.fit)
+      expect(paintMotionFrame(ctx, c.box[0], c.box[1], packed, base, [], pool as never, fonts)).toBe(true)
+      const texts = calls.filter((k) => k.kind === `text`)
+      expect(texts.map((t) => t.args[0])).toEqual(c.texts.map((t) => t.text))
+      texts.forEach((t, k) => {
+        const want = c.texts[k]!
+        const tr = t.state.transform as number[]
+        expect(tr.slice(0, 4)).toEqual([1, 0, 0, 1])
+        expect(tr[4]).toBeCloseTo(want.anchor[0], 3)
+        expect(tr[5]).toBeCloseTo(want.anchor[1], 3)
+        const px = Number(/(\d+(\.\d+)?)px/.exec(String(t.state.font))?.[1])
+        expect(px).toBeCloseTo(want.size, 3)
+      })
+    })
+  }
 })
 
 describe(`canvasThemeFonts`, () => {
