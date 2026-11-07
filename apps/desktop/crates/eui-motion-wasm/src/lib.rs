@@ -2,7 +2,7 @@
 //! eui-motion. Frames cross as a `Float32Array` in the packed display-list
 //! encoding (`eui-motion/README.md` § Packed frames).
 
-use eui_motion::{dialect, display::DisplayList, validate, Limits, Motion};
+use eui_motion::{canvas, dialect, display::DisplayList, validate, Limits, Motion};
 use serde_json::{json, Map, Value};
 use wasm_bindgen::prelude::*;
 
@@ -175,3 +175,41 @@ pub fn compile(source: &str) -> String {
         Err(issues) => json!({ "errors": issues }).to_string(),
     }
 }
+
+/// Round 8: a compiled Canvas (`{size, shapes}`); `sample(slots)` returns
+/// the packed frame (shapes, then the `text` ops).
+#[wasm_bindgen]
+pub struct CanvasPlayer {
+    canvas: canvas::Canvas,
+    list: DisplayList,
+    packed: Vec<f32>,
+}
+
+#[wasm_bindgen]
+impl CanvasPlayer {
+    /// Compile a Canvas node's `{size, shapes}` JSON. Throws a JSON array of
+    /// issues when refused.
+    #[wasm_bindgen(constructor)]
+    pub fn new(source: &str) -> Result<CanvasPlayer, JsValue> {
+        let doc: Value = serde_json::from_str(source)
+            .map_err(|e| JsValue::from_str(&json!([{"code": "parse", "path": "", "message": e.to_string()}]).to_string()))?;
+        let canvas = canvas::Canvas::compile(&doc).map_err(|i| JsValue::from_str(&issues_json(&i)))?;
+        Ok(Self { canvas, list: DisplayList::default(), packed: Vec::new() })
+    }
+
+    /// Every slot the canvas declares (`$color.<token>`, `ld:<light>:<dark>`):
+    /// the ids a host fills from its theme, exactly like a Motion's.
+    /// A JSON array of strings (a string crosses cheaper than a `string[]`).
+    #[wasm_bindgen(js_name = slotIds)]
+    pub fn slot_ids(&self) -> String {
+        serde_json::to_string(&self.canvas.slot_ids()).unwrap_or_else(|_| "[]".into())
+    }
+    /// The packed frame with these slot overrides (JSON object, or "").
+    pub fn sample(&mut self, slots: &str) -> js_sys::Float32Array {
+        let slots: Map<String, Value> = if slots.is_empty() { Map::new() } else { serde_json::from_str(slots).unwrap_or_default() };
+        self.canvas.render(&slots, &mut self.list);
+        self.list.encode(&mut self.packed);
+        js_sys::Float32Array::from(self.packed.as_slice())
+    }
+}
+

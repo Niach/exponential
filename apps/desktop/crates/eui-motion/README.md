@@ -19,7 +19,7 @@ License: Apache-2.0. The engine starts from [velato](https://github.com/linebend
 
 `src/display.rs` is the contract. Ops: `layer` (an isolated group: blend,
 alpha, clip path; composited on `pop`), `clip`, `pop`, `fill`, `stroke`,
-`image`. Every op carries its own 2×3 transform; there is no ambient state
+`image`, and (round 8, only a Canvas emits it) `text`. Every op carries its own 2×3 transform; there is no ambient state
 besides the layer/clip stack. Colours are straight sRGB RGBA in `0..=1`.
 Paths use four verbs (`M`, `L`, `C`, `Z`); quadratics are raised to cubics.
 Blends are the 16 W3C modes plus `src-in`, `src-out`, `dst-in`, `dst-out`
@@ -30,13 +30,16 @@ Blends are the 16 W3C modes plus `src-in`, `src-out`, `dst-in`, `dst-out`
 One `f32` stream per frame (WASM `Float32Array`, uniffi `Vec<f32>`):
 
 ```
-[VERSION=1, width, height, op...]
+[VERSION=2, width, height, op...]
 layer   1, blend, alpha, t[6], path, nFilters, filter*n
 clip    2, t[6], path
 pop     3
 fill    4, t[6], rule(0 nonzero|1 evenodd), brush, path
 stroke  5, t[6], width, cap, join, miter, dashOffset, n, dash[n], brush, path
 image   6, t[6], asset, alpha, width, height
+text    7, t[6], font, weight, size, align, baseline, r, g, b, a, n, utf16[n]
+        font 0 sans | 1 mono   weight 400 | 500 | 600 | 700 (CSS)
+        align 0 start | 1 center | 2 end   baseline 0 top | 1 middle | 2 alphabetic
 path    n, verb*n   M 0,x,y | L 1,x,y | C 2,x1,y1,x2,y2,x,y | Z 3
 brush   solid 0,r,g,b,a | linear 1,x0,y0,x1,y1,n,(offset,r,g,b,a)*n
         | radial 2,cx,cy,fx,fy,radius,n,(offset,r,g,b,a)*n
@@ -48,6 +51,18 @@ blend   normal 0, multiply 1, screen 2, overlay 3, darken 4, lighten 5,
         dst-in 16, dst-out 17, luma-in 18, luma-out 19, xor 20
 cap     butt 0, round 1, square 2      join   miter 0, round 1, bevel 2
 ```
+
+Version 2 (round 8) only adds `text`; a Motion's frames are the same as in
+version 1 apart from the first word. Text is never outlined by the engine:
+`text` ops come after every other op of the frame (after its final `pop`),
+in source order; the anchor is the op's local origin (x by `align`: the
+line's left edge, middle or right edge, never mirrored; y by `baseline`:
+top = baseline at y + ascent, middle = baseline at y + (ascent − descent) / 2,
+alphabetic = the baseline, with the font's own ascender/descender at `size`);
+`size` is font px in the op's local units (the transform scales it); the
+text is one line in the theme's `$type.family.sans` / `.mono` at the CSS
+weight, painted with the platform's text system. The tiny-skia raster skips
+`text` (the gpui painter draws native text over the raster).
 
 `luma-in` / `luma-out` multiply what is below by the layer's luminance
 (premultiplied Rec. 709) or its complement: track mattes. Filter sigmas and
@@ -178,6 +193,26 @@ interprets Lottie, the dialect or the clock itself.
    focusable, named by `label`.
 5. **Fixture**: `fixtures/motion-state.json` (replayed in Rust, over WASM
    and over uniffi).
+
+## Canvas (round 8)
+
+`src/canvas.rs`: the genUI `Canvas` component, a STATIC drawing in the
+dialect's shape vocabulary (rect, ellipse, star, polygon, path; fill, stroke,
+gradient-fill; trim, repeater, round-corners; group) plus `text {text,
+position, size, weight, align, baseline, font, color}`. `Canvas::compile`
+refuses animated `{keys}` values (`canvas-animated`: Motion animates), raw
+Lottie and anything outside the vocabulary, compiles the shapes into a
+one-frame Motion (texts become empty groups, so issue paths keep their
+indexes; their colours join the Lottie `slots`, so a host fills text tokens
+like any other slot) and checks the Motion limits plus the canvas budget
+(`limits.json` › `motion.canvas`: ops per frame, texts, characters per text).
+`render(slots)` samples the shapes and appends one `text` op per text shape
+(group transforms and opacity applied). `fit_matrix` / `to_drawing` are THE
+fit mapping and its inverse (pointer events in drawing units, two decimals).
+Facades: WASM `CanvasPlayer` (validation = its constructor; the TS core
+maps the pointer itself, `src/canvas.ts`), uniffi `CanvasPlayer` +
+`canvas_to_drawing`. Locked by `packages/exponential-ui/fixtures/canvas.json`
+(`tests/canvas.rs`, `UPDATE_CANVAS_FIXTURES=1` regenerates).
 
 ## Limits
 

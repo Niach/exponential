@@ -2945,7 +2945,10 @@
         "number",
         "body",
         "label",
-        "description"
+        "description",
+        "line",
+        "full",
+        "compact"
       ],
       "props": [
         "orientation",
@@ -3144,9 +3147,12 @@
       "kind": "macro",
       "parts": [
         "root",
+        "header",
         "label",
+        "value",
         "track",
-        "fill"
+        "fill",
+        "detail"
       ],
       "props": [
         "tone"
@@ -3458,7 +3464,8 @@
       ],
       "props": [
         "checked",
-        "disabled"
+        "disabled",
+        "indeterminate"
       ]
     },
     {
@@ -3785,6 +3792,16 @@
     },
     {
       "name": "Motion",
+      "kind": "native",
+      "parts": [
+        "root"
+      ],
+      "props": [
+        "fit"
+      ]
+    },
+    {
+      "name": "Canvas",
       "kind": "native",
       "parts": [
         "root"

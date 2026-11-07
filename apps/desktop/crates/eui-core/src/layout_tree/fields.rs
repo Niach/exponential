@@ -736,6 +736,11 @@ impl Builder<'_, '_> {
         if owner.component == "Switch" {
             control_props["size"] = json!(str_prop(&owner.props, "size").unwrap_or("default"));
         }
+        // Round 8: the mixed box (recipes `indeterminate`: the checked look
+        // with the dash; painters draw `Checkbox.check.indeterminate`).
+        if owner.component == "Checkbox" {
+            control_props["indeterminate"] = json!(bool_prop(&owner.props, "indeterminate"));
+        }
         let control = |b: &mut Self, parent: u32| {
             let c = b.part_in(parent, &owner, control_part, &owner.component, NodeKind::Leaf, json!({"flexShrink": 0}), control_props.clone(), "");
             if checked {

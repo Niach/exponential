@@ -313,7 +313,7 @@ impl FixedMeasure {
             "Icon" => (c.width.unwrap_or(16.0), c.height.unwrap_or(16.0)),
             "Image" | "Video" => (320.0, 180.0),
             // EXP-1604: the composition's px size (a `src` animation: none).
-            "Motion" => crate::layout_tree::motion_size(&leaf.props).map_or((0.0, 0.0), |(w, h)| (w as f32, h as f32)),
+            "Motion" | "Canvas" => crate::layout_tree::motion_size(&leaf.props).map_or((0.0, 0.0), |(w, h)| (w as f32, h as f32)),
             "Slider" => (160.0, 16.0),
             "Spinner" | "Ring" => (c.width.unwrap_or(20.0), c.height.unwrap_or(20.0)),
             "Skeleton" => (
@@ -344,7 +344,7 @@ impl FixedMeasure {
     pub fn baseline(&self, leaf: &LeafRequest, height: f32) -> Option<f32> {
         match leaf.component {
             "Text" | "Link" | "Markdown" | "CodeBlock" => Some(leaf.control.padding[0] + FIXED_ASCENT),
-            "Checkbox" | "Radio" | "Switch" | "Avatar" | "Icon" | "Image" | "Video" | "Slider" | "Spinner" | "Ring" | "Skeleton" | "Chart" | "Motion" => None,
+            "Checkbox" | "Radio" | "Switch" | "Avatar" | "Icon" | "Image" | "Video" | "Slider" | "Spinner" | "Ring" | "Skeleton" | "Chart" | "Motion" | "Canvas" => None,
             _ if leaf.text().is_empty() => None,
             _ => Some(((height - FIXED_LINE_HEIGHT) / 2.0).max(0.0) + FIXED_ASCENT),
         }

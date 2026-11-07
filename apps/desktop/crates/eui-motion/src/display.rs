@@ -15,7 +15,13 @@
 //! - `Layer` opens an offscreen group composited on `Pop` with its `alpha`
 //!   and `blend`, clipped to its `clip` path; `Clip` intersects the clip of
 //!   the current group until its `Pop`;
-//! - colours are straight (not premultiplied) sRGB RGBA in `0..=1`.
+//! - colours are straight (not premultiplied) sRGB RGBA in `0..=1`;
+//! - `Text` (round 8, Canvas only: a Motion never emits one, its text layers
+//!   are outlined into fills) is a run of text the PAINTER sets with its
+//!   native text system in the theme's family; every `Text` op comes after
+//!   every other op of the frame (after the stream's final `Pop`), in source
+//!   order, so a painter may draw the shapes first (gpui: the tiny-skia
+//!   raster) and composite native text on top with the same result.
 
 use serde::{Deserialize, Serialize};
 
@@ -176,6 +182,68 @@ pub enum Filter {
     DropShadow { color: [f32; 4], dx: f32, dy: f32, sigma: f32 },
 }
 
+/// The theme family a `Text` op is set in (`$type.family.sans` / `.mono`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextFont {
+    #[default]
+    Sans,
+    Mono,
+}
+
+impl TextFont {
+    /// The packed code (`README.md` § Packed frames).
+    pub fn code(self) -> f32 {
+        self as u8 as f32
+    }
+}
+
+/// The weight of a `Text` op; packed as the CSS weight (400, 500, 600, 700).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextWeight {
+    #[default]
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
+}
+
+impl TextWeight {
+    /// The CSS numeric weight (also the packed value).
+    pub fn css(self) -> u16 {
+        match self {
+            TextWeight::Regular => 400,
+            TextWeight::Medium => 500,
+            TextWeight::Semibold => 600,
+            TextWeight::Bold => 700,
+        }
+    }
+}
+
+/// Where a `Text` op's x sits on its line: the left edge (`start`), the
+/// centre, the right edge (`end`). Physical: a drawing never mirrors.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+/// Where a `Text` op's y sits: the top of the line box (the font's ascent
+/// above the baseline), its middle (half of ascent + descent), or the
+/// alphabetic baseline itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextBaseline {
+    Top,
+    Middle,
+    #[default]
+    Alphabetic,
+}
+
 /// One drawing operation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
@@ -217,6 +285,21 @@ pub enum Op {
         width: f32,
         height: f32,
     },
+    /// One line of text the painter sets natively (round 8, Canvas): the
+    /// anchor is the op's local origin `(0, 0)` (x by `align`, y by
+    /// `baseline`), `size` = the font size in local units (the transform
+    /// scales it like any geometry), never wrapped, never clipped by the
+    /// composition (only by the painter's box). Always after every other op.
+    Text {
+        transform: Transform,
+        text: String,
+        font: TextFont,
+        weight: TextWeight,
+        size: f32,
+        align: TextAlign,
+        baseline: TextBaseline,
+        color: [f32; 4],
+    },
 }
 
 /// One sampled frame.
@@ -238,6 +321,8 @@ pub mod code {
     pub const FILL: f32 = 4.0;
     pub const STROKE: f32 = 5.0;
     pub const IMAGE: f32 = 6.0;
+    /// Round 8 (Canvas): a run of native text, see [`super::Op::Text`].
+    pub const TEXT: f32 = 7.0;
     pub const VERB_M: f32 = 0.0;
     pub const VERB_L: f32 = 1.0;
     pub const VERB_C: f32 = 2.0;
@@ -249,8 +334,9 @@ pub mod code {
     pub const FILTER_COLOR_MATRIX: f32 = 1.0;
     pub const FILTER_GRADIENT_MAP: f32 = 2.0;
     pub const FILTER_DROP_SHADOW: f32 = 3.0;
-    /// Format version, the stream's first word.
-    pub const VERSION: f32 = 1.0;
+    /// Format version, the stream's first word. 2 = round 8 (the `text` op;
+    /// every other op is encoded as in 1).
+    pub const VERSION: f32 = 2.0;
 }
 
 impl DisplayList {
@@ -331,6 +417,26 @@ impl DisplayList {
                     out.push(code::IMAGE);
                     out.extend_from_slice(transform);
                     out.extend_from_slice(&[*asset as f32, *alpha, *width, *height]);
+                }
+                Op::Text {
+                    transform,
+                    text,
+                    font,
+                    weight,
+                    size,
+                    align,
+                    baseline,
+                    color,
+                } => {
+                    out.push(code::TEXT);
+                    out.extend_from_slice(transform);
+                    out.extend_from_slice(&[font.code(), weight.css() as f32, *size, *align as u8 as f32, *baseline as u8 as f32]);
+                    out.extend_from_slice(color);
+                    // UTF-16 code units, one per word (exact in an f32).
+                    let start = out.len();
+                    out.push(0.0);
+                    out.extend(text.encode_utf16().map(|u| u as f32));
+                    out[start] = (out.len() - start - 1) as f32;
                 }
             }
         }

@@ -9,7 +9,15 @@ await init();
 const player = new MotionPlayer(lottieJson);  // throws a JSON array of issues when refused
 const frame = player.sample(12.5);            // Float32Array, the packed display list
 validate(lottieJson);                          // '{"errors":[…],"warnings":[…]}'
+// Round 8: a Canvas ({size, shapes}); the same slot overrides as a Motion.
+const canvas = new CanvasPlayer(canvasJson);   // throws a JSON array of issues when refused
+JSON.parse(canvas.slotIds());                  // ["$color.primary", …] (a JSON string: cheaper to cross)
+canvas.sample(slotsJson);                      // Float32Array, shapes then text ops
 ```
+
+The fit mapping and the pointer inversion are pure TS (`src/canvas.ts`,
+fixture-locked); validation = constructing a `CanvasPlayer` (the WASM stays
+inside its 200 KB gz budget).
 
 Build (needs `wasm32-unknown-unknown` and wasm-bindgen-cli at the
 `Cargo.lock` version):

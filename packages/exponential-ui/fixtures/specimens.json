@@ -5265,6 +5265,44 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-stepper-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-stepper-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "collapse · always",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-wizard",
+                "component": "Stepper",
+                "props": {
+                  "steps": [
+                    {
+                      "label": "Account"
+                    },
+                    {
+                      "label": "Team"
+                    },
+                    {
+                      "label": "Done"
+                    }
+                  ],
+                  "current": 1,
+                  "collapse": "always"
+                }
+              }
+            ]
           }
         ]
       }
@@ -6735,7 +6773,8 @@
                 "props": {
                   "value": 65,
                   "max": 100,
-                  "label": "Upload"
+                  "label": "Upload",
+                  "valueText": "65%"
                 }
               }
             ]
@@ -6764,6 +6803,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "neutral"
                 }
               }
@@ -6793,6 +6833,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "primary"
                 }
               }
@@ -6822,6 +6863,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "success"
                 }
               }
@@ -6851,6 +6893,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "warning"
                 }
               }
@@ -6880,6 +6923,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "danger"
                 }
               }
@@ -6909,7 +6953,64 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "info"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-progress-case-7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-progress-case-7-label",
+                "component": "Text",
+                "props": {
+                  "text": "valueText · detail",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7-download",
+                "component": "Progress",
+                "props": {
+                  "value": 41,
+                  "label": "Downloading",
+                  "valueText": "41 MB/s · 12 min",
+                  "detail": "3 of 8 files"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-progress-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-progress-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "valueText only",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-sync",
+                "component": "Progress",
+                "props": {
+                  "value": 80,
+                  "valueText": "80%"
                 }
               }
             ]
@@ -10462,6 +10563,34 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-checkbox-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-checkbox-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "indeterminate",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-all",
+                "component": "Checkbox",
+                "props": {
+                  "label": "Select all",
+                  "name": "all",
+                  "indeterminate": true
+                }
+              }
+            ]
           }
         ]
       }
@@ -12999,6 +13128,587 @@
                           "width": 4
                         }
                       ]
+                    }
+                  ],
+                  "fit": "fill"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-canvas",
+      "component": "Canvas",
+      "title": "Canvas",
+      "node": {
+        "id": "specimen-canvas",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-canvas-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-canvas-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-canvas",
+                "component": "Canvas",
+                "props": {
+                  "size": [
+                    160,
+                    100
+                  ],
+                  "label": "Visits by day",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M20 80 H150"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            45,
+                            60
+                          ],
+                          "size": [
+                            20,
+                            40
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart1"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            85,
+                            50
+                          ],
+                          "size": [
+                            20,
+                            60
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart2"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            125,
+                            70
+                          ],
+                          "size": [
+                            20,
+                            20
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart3"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "text": "Mon",
+                      "position": [
+                        45,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "Tue",
+                      "position": [
+                        85,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "Wed",
+                      "position": [
+                        125,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-canvas-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-canvas-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "fit · contain",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-canvas",
+                "component": "Canvas",
+                "props": {
+                  "size": [
+                    160,
+                    100
+                  ],
+                  "label": "Visits by day",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M20 80 H150"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            45,
+                            60
+                          ],
+                          "size": [
+                            20,
+                            40
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart1"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            85,
+                            50
+                          ],
+                          "size": [
+                            20,
+                            60
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart2"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            125,
+                            70
+                          ],
+                          "size": [
+                            20,
+                            20
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart3"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "text": "Mon",
+                      "position": [
+                        45,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "Tue",
+                      "position": [
+                        85,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "Wed",
+                      "position": [
+                        125,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    }
+                  ],
+                  "fit": "contain"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-canvas-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-canvas-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "fit · cover",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-canvas",
+                "component": "Canvas",
+                "props": {
+                  "size": [
+                    160,
+                    100
+                  ],
+                  "label": "Visits by day",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M20 80 H150"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            45,
+                            60
+                          ],
+                          "size": [
+                            20,
+                            40
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart1"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            85,
+                            50
+                          ],
+                          "size": [
+                            20,
+                            60
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart2"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            125,
+                            70
+                          ],
+                          "size": [
+                            20,
+                            20
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart3"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "text": "Mon",
+                      "position": [
+                        45,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "Tue",
+                      "position": [
+                        85,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "Wed",
+                      "position": [
+                        125,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    }
+                  ],
+                  "fit": "cover"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-canvas-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-canvas-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "fit · fill",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-canvas",
+                "component": "Canvas",
+                "props": {
+                  "size": [
+                    160,
+                    100
+                  ],
+                  "label": "Visits by day",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M20 80 H150"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.border",
+                      "width": 1
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            45,
+                            60
+                          ],
+                          "size": [
+                            20,
+                            40
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart1"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            85,
+                            50
+                          ],
+                          "size": [
+                            20,
+                            60
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart2"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            125,
+                            70
+                          ],
+                          "size": [
+                            20,
+                            20
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart3"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "text": "Mon",
+                      "position": [
+                        45,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "Tue",
+                      "position": [
+                        85,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "Wed",
+                      "position": [
+                        125,
+                        84
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "baseline": "top",
+                      "color": "$color.mutedForeground"
                     }
                   ],
                   "fit": "fill"

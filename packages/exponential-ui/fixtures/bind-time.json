@@ -28854,7 +28854,8 @@
             "path": "/value"
           },
           "max": 100,
-          "label": "Upload"
+          "label": "Upload",
+          "valueText": "65%"
         }
       },
       "expanded": {
@@ -28863,16 +28864,63 @@
         "props": {},
         "children": [
           {
-            "id": "progress.label",
-            "component": "Text",
-            "props": {
-              "text": "Upload",
-              "variant": "caption"
+            "id": "progress.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header.label",
+                "component": "Text",
+                "props": {
+                  "text": "Upload",
+                  "variant": "caption"
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "label",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.header.value",
+                "component": "Text",
+                "props": {
+                  "text": "65%",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "marginInlineStart": "auto"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "value",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "baseline",
+              "gap": "$spacing.sm",
+              "width": "100%"
             },
-            "children": [],
             "recipe": {
               "macro": "Progress",
-              "part": "label",
+              "part": "header",
               "props": {
                 "tone": "primary"
               }
@@ -28959,16 +29007,63 @@
             "props": {},
             "children": [
               {
-                "id": "progress.label",
-                "component": "Text",
-                "props": {
-                  "text": "Upload",
-                  "variant": "caption"
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "progress.header.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "65%",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0,
+                      "marginInlineStart": "auto"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "value",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
                 },
-                "children": [],
                 "recipe": {
                   "macro": "Progress",
-                  "part": "label",
+                  "part": "header",
                   "props": {
                     "tone": "primary"
                   }
@@ -29046,16 +29141,63 @@
             "props": {},
             "children": [
               {
-                "id": "progress.label",
-                "component": "Text",
-                "props": {
-                  "text": "Upload",
-                  "variant": "caption"
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "progress.header.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "65%",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0,
+                      "marginInlineStart": "auto"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "value",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
                 },
-                "children": [],
                 "recipe": {
                   "macro": "Progress",
-                  "part": "label",
+                  "part": "header",
                   "props": {
                     "tone": "primary"
                   }
@@ -29131,16 +29273,63 @@
             "props": {},
             "children": [
               {
-                "id": "progress.label",
-                "component": "Text",
-                "props": {
-                  "text": "Upload",
-                  "variant": "caption"
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "progress.header.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "65%",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0,
+                      "marginInlineStart": "auto"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "value",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
                 },
-                "children": [],
                 "recipe": {
                   "macro": "Progress",
-                  "part": "label",
+                  "part": "header",
                   "props": {
                     "tone": "primary"
                   }
@@ -29194,6 +29383,1102 @@
             "accessibility": {
               "role": "progressbar",
               "label": "Upload",
+              "valueMin": 0,
+              "valueMax": 100
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "root",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Progress/bound:valueText",
+      "input": {
+        "id": "progress",
+        "component": "Progress",
+        "props": {
+          "value": 65,
+          "max": 100,
+          "label": "Upload",
+          "valueText": {
+            "path": "/valueText"
+          }
+        }
+      },
+      "expanded": {
+        "id": "progress",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "progress.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header.label",
+                "component": "Text",
+                "props": {
+                  "text": "Upload",
+                  "variant": "caption"
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "label",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.header.value",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "path": "/valueText"
+                  },
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "marginInlineStart": "auto"
+                },
+                "visible": {
+                  "path": "/valueText"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "value",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "baseline",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "header",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          {
+            "id": "progress.track",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.track.fill",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "height": "100%",
+                  "width": "65%",
+                  "borderRadius": "$radius.full"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "fill",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "height": "$control.progress",
+              "borderRadius": "$radius.full",
+              "overflow": "hidden",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "track",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs",
+          "width": "100%"
+        },
+        "recipe": {
+          "macro": "Progress",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        },
+        "accessibility": {
+          "role": "progressbar",
+          "label": "Upload",
+          "valueNow": 65,
+          "valueMin": 0,
+          "valueMax": 100
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "valueText": "65%"
+          },
+          "bound": {
+            "id": "progress",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "progress.header.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "65%",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0,
+                      "marginInlineStart": "auto"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "value",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "header",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.track.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "65%",
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "fill",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "height": "$control.progress",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "track",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "progressbar",
+              "label": "Upload",
+              "valueNow": 65,
+              "valueMin": 0,
+              "valueMax": 100
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "root",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "valueText": ""
+          },
+          "bound": {
+            "id": "progress",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "header",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.track.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "65%",
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "fill",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "height": "$control.progress",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "track",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "progressbar",
+              "label": "Upload",
+              "valueNow": 65,
+              "valueMin": 0,
+              "valueMax": 100
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "root",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "progress",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "header",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.track.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "65%",
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "fill",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "height": "$control.progress",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "track",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "progressbar",
+              "label": "Upload",
+              "valueNow": 65,
+              "valueMin": 0,
+              "valueMax": 100
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "root",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Progress/bound:detail",
+      "input": {
+        "id": "progress",
+        "component": "Progress",
+        "props": {
+          "value": 65,
+          "max": 100,
+          "label": "Upload",
+          "valueText": "65%",
+          "detail": {
+            "path": "/detail"
+          }
+        }
+      },
+      "expanded": {
+        "id": "progress",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "progress.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header.label",
+                "component": "Text",
+                "props": {
+                  "text": "Upload",
+                  "variant": "caption"
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "label",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.header.value",
+                "component": "Text",
+                "props": {
+                  "text": "65%",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "marginInlineStart": "auto"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "value",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "baseline",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "header",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          {
+            "id": "progress.track",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.track.fill",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "height": "100%",
+                  "width": "65%",
+                  "borderRadius": "$radius.full"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "fill",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "height": "$control.progress",
+              "borderRadius": "$radius.full",
+              "overflow": "hidden",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "track",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          {
+            "id": "progress.detail",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/detail"
+              },
+              "variant": "caption"
+            },
+            "children": [],
+            "visible": {
+              "path": "/detail"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "detail",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs",
+          "width": "100%"
+        },
+        "recipe": {
+          "macro": "Progress",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        },
+        "accessibility": {
+          "role": "progressbar",
+          "label": "Upload",
+          "valueNow": 65,
+          "valueMin": 0,
+          "valueMax": 100,
+          "description": {
+            "path": "/detail"
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "detail": "Bound"
+          },
+          "bound": {
+            "id": "progress",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "progress.header.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "65%",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0,
+                      "marginInlineStart": "auto"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "value",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "header",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.track.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "65%",
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "fill",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "height": "$control.progress",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "track",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.detail",
+                "component": "Text",
+                "props": {
+                  "text": "Bound",
+                  "variant": "caption"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "detail",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "progressbar",
+              "label": "Upload",
+              "valueNow": 65,
+              "valueMin": 0,
+              "valueMax": 100,
+              "description": "Bound"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "root",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "detail": ""
+          },
+          "bound": {
+            "id": "progress",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "progress.header.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "65%",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0,
+                      "marginInlineStart": "auto"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "value",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "header",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.track.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "65%",
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "fill",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "height": "$control.progress",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "track",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "progressbar",
+              "label": "Upload",
+              "valueNow": 65,
+              "valueMin": 0,
+              "valueMax": 100,
+              "description": ""
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "root",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "progress",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "progress.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.header.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Upload",
+                      "variant": "caption"
+                    },
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "label",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "progress.header.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "65%",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0,
+                      "marginInlineStart": "auto"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "value",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "header",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "progress.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "progress.track.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "65%",
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "fill",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "height": "$control.progress",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "track",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "progressbar",
+              "label": "Upload",
+              "valueNow": 65,
               "valueMin": 0,
               "valueMax": 100
             },
@@ -103893,6 +105178,740 @@
               "part": "root",
               "props": {
                 "side": "left"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Stepper/collapse-always:bound-current",
+      "input": {
+        "id": "wizard",
+        "component": "Stepper",
+        "props": {
+          "steps": [
+            {
+              "label": "Account"
+            },
+            {
+              "label": "Team"
+            },
+            {
+              "label": "Done"
+            }
+          ],
+          "current": {
+            "path": "/current"
+          },
+          "collapse": "always"
+        }
+      },
+      "expanded": {
+        "id": "wizard",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "wizard.line.0",
+            "component": "Text",
+            "props": {
+              "text": {
+                "call": "fill",
+                "args": {
+                  "template": "$string.stepCompact",
+                  "params": {
+                    "step": 1,
+                    "total": 3,
+                    "label": "Account"
+                  }
+                }
+              },
+              "variant": "label",
+              "lines": 1
+            },
+            "children": [],
+            "visible": {
+              "call": "eq",
+              "args": {
+                "a": 0,
+                "b": {
+                  "call": "fallback",
+                  "args": {
+                    "value": {
+                      "path": "/current"
+                    },
+                    "default": 0
+                  }
+                }
+              }
+            },
+            "recipe": {
+              "macro": "Stepper",
+              "part": "line",
+              "props": {
+                "orientation": "horizontal"
+              }
+            },
+            "accessibility": {
+              "role": "listitem",
+              "current": "step"
+            }
+          },
+          {
+            "id": "wizard.line.1",
+            "component": "Text",
+            "props": {
+              "text": {
+                "call": "fill",
+                "args": {
+                  "template": "$string.stepCompact",
+                  "params": {
+                    "step": 2,
+                    "total": 3,
+                    "label": "Team"
+                  }
+                }
+              },
+              "variant": "label",
+              "lines": 1
+            },
+            "children": [],
+            "visible": {
+              "call": "eq",
+              "args": {
+                "a": 1,
+                "b": {
+                  "call": "fallback",
+                  "args": {
+                    "value": {
+                      "path": "/current"
+                    },
+                    "default": 0
+                  }
+                }
+              }
+            },
+            "recipe": {
+              "macro": "Stepper",
+              "part": "line",
+              "props": {
+                "orientation": "horizontal"
+              }
+            },
+            "accessibility": {
+              "role": "listitem",
+              "current": "step"
+            }
+          },
+          {
+            "id": "wizard.line.2",
+            "component": "Text",
+            "props": {
+              "text": {
+                "call": "fill",
+                "args": {
+                  "template": "$string.stepCompact",
+                  "params": {
+                    "step": 3,
+                    "total": 3,
+                    "label": "Done"
+                  }
+                }
+              },
+              "variant": "label",
+              "lines": 1
+            },
+            "children": [],
+            "visible": {
+              "call": "eq",
+              "args": {
+                "a": 2,
+                "b": {
+                  "call": "fallback",
+                  "args": {
+                    "value": {
+                      "path": "/current"
+                    },
+                    "default": 0
+                  }
+                }
+              }
+            },
+            "recipe": {
+              "macro": "Stepper",
+              "part": "line",
+              "props": {
+                "orientation": "horizontal"
+              }
+            },
+            "accessibility": {
+              "role": "listitem",
+              "current": "step"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Stepper",
+          "part": "root",
+          "props": {
+            "orientation": "horizontal"
+          }
+        },
+        "accessibility": {
+          "role": "list"
+        }
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {
+            "current": 0
+          },
+          "bound": {
+            "id": "wizard",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "wizard.line.0",
+                "component": "Text",
+                "props": {
+                  "text": "Step 1 of 3 · Account",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "children": [],
+                "accessibility": {
+                  "role": "listitem",
+                  "current": "step"
+                },
+                "recipe": {
+                  "macro": "Stepper",
+                  "part": "line",
+                  "props": {
+                    "orientation": "horizontal"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "list"
+            },
+            "recipe": {
+              "macro": "Stepper",
+              "part": "root",
+              "props": {
+                "orientation": "horizontal"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "current": 2
+          },
+          "bound": {
+            "id": "wizard",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "wizard.line.2",
+                "component": "Text",
+                "props": {
+                  "text": "Step 3 of 3 · Done",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "children": [],
+                "accessibility": {
+                  "role": "listitem",
+                  "current": "step"
+                },
+                "recipe": {
+                  "macro": "Stepper",
+                  "part": "line",
+                  "props": {
+                    "orientation": "horizontal"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "list"
+            },
+            "recipe": {
+              "macro": "Stepper",
+              "part": "root",
+              "props": {
+                "orientation": "horizontal"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "current": 5
+          },
+          "bound": {
+            "id": "wizard",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "list"
+            },
+            "recipe": {
+              "macro": "Stepper",
+              "part": "root",
+              "props": {
+                "orientation": "horizontal"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "wizard",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "wizard.line.0",
+                "component": "Text",
+                "props": {
+                  "text": "Step 1 of 3 · Account",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "children": [],
+                "accessibility": {
+                  "role": "listitem",
+                  "current": "step"
+                },
+                "recipe": {
+                  "macro": "Stepper",
+                  "part": "line",
+                  "props": {
+                    "orientation": "horizontal"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "list"
+            },
+            "recipe": {
+              "macro": "Stepper",
+              "part": "root",
+              "props": {
+                "orientation": "horizontal"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Progress/bound:valueText+detail",
+      "input": {
+        "id": "download",
+        "component": "Progress",
+        "props": {
+          "value": {
+            "path": "/done"
+          },
+          "valueText": {
+            "path": "/rate"
+          },
+          "detail": {
+            "path": "/files"
+          }
+        }
+      },
+      "expanded": {
+        "id": "download",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "download.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "download.header.value",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "path": "/rate"
+                  },
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "marginInlineStart": "auto"
+                },
+                "visible": {
+                  "path": "/rate"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "value",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "baseline",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "visible": {
+              "path": "/rate"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "header",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          {
+            "id": "download.track",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "download.track.fill",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "height": "100%",
+                  "width": {
+                    "call": "percent",
+                    "args": {
+                      "value": {
+                        "path": "/done"
+                      },
+                      "max": 100
+                    }
+                  },
+                  "borderRadius": "$radius.full"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "fill",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "height": "$control.progress",
+              "borderRadius": "$radius.full",
+              "overflow": "hidden",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "track",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          {
+            "id": "download.detail",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/files"
+              },
+              "variant": "caption"
+            },
+            "children": [],
+            "visible": {
+              "path": "/files"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "detail",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs",
+          "width": "100%"
+        },
+        "recipe": {
+          "macro": "Progress",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        },
+        "accessibility": {
+          "role": "progressbar",
+          "valueNow": {
+            "path": "/done"
+          },
+          "valueMin": 0,
+          "valueMax": 100,
+          "description": {
+            "path": "/files"
+          }
+        }
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {
+            "done": 41,
+            "rate": "41 MB/s · 12 min",
+            "files": "3 of 8 files"
+          },
+          "bound": {
+            "id": "download",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "download.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "download.header.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "41 MB/s · 12 min",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 0,
+                      "marginInlineStart": "auto"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "value",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "baseline",
+                  "gap": "$spacing.sm",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "header",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "download.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "download.track.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "41%",
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "fill",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "height": "$control.progress",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "track",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "download.detail",
+                "component": "Text",
+                "props": {
+                  "text": "3 of 8 files",
+                  "variant": "caption"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "detail",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "progressbar",
+              "valueNow": 41,
+              "valueMin": 0,
+              "valueMax": 100,
+              "description": "3 of 8 files"
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "root",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "done": 0
+          },
+          "bound": {
+            "id": "download",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "download.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "download.track.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "0%",
+                      "borderRadius": "$radius.full"
+                    },
+                    "recipe": {
+                      "macro": "Progress",
+                      "part": "fill",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "height": "$control.progress",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Progress",
+                  "part": "track",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "progressbar",
+              "valueNow": 0,
+              "valueMin": 0,
+              "valueMax": 100
+            },
+            "recipe": {
+              "macro": "Progress",
+              "part": "root",
+              "props": {
+                "tone": "primary"
               }
             }
           },

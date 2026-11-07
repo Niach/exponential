@@ -1,7 +1,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_canvasplayer_free: (a: number, b: number) => void;
 export const __wbg_motionplayer_free: (a: number, b: number) => void;
+export const canvasplayer_new: (a: number, b: number) => [number, number, number];
+export const canvasplayer_sample: (a: number, b: number, c: number) => any;
+export const canvasplayer_slotIds: (a: number) => [number, number];
 export const compile: (a: number, b: number) => [number, number];
 export const motionplayer_addFont: (a: number, b: number, c: number, d: number, e: number) => void;
 export const motionplayer_done: (a: number, b: number) => number;
@@ -28,7 +32,7 @@ export const validate: (a: number, b: number) => [number, number];
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __externref_drop_slice: (a: number, b: number) => void;
-export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_start: () => void;

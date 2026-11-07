@@ -2582,16 +2582,42 @@
                     "props": {},
                     "children": [
                       {
-                        "id": "main-progress.label",
-                        "component": "Text",
-                        "props": {
-                          "text": "Scanning",
-                          "variant": "caption"
+                        "id": "main-progress.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "main-progress.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Scanning",
+                              "variant": "caption"
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "Progress",
+                              "part": "label",
+                              "props": {
+                                "tone": "primary"
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "baseline",
+                          "gap": "$spacing.sm",
+                          "width": "100%"
                         },
-                        "children": [],
                         "recipe": {
                           "macro": "Progress",
-                          "part": "label",
+                          "part": "header",
                           "props": {
                             "tone": "primary"
                           }
@@ -5296,6 +5322,85 @@
                 }
               },
               {
+                "id": "chart-drawing",
+                "component": "Canvas",
+                "props": {
+                  "size": [
+                    120,
+                    60
+                  ],
+                  "label": "Two bars",
+                  "pointer": true,
+                  "shapes": [
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            35,
+                            35
+                          ],
+                          "size": [
+                            30,
+                            40
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart1"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "group",
+                      "shapes": [
+                        {
+                          "type": "rect",
+                          "position": [
+                            85,
+                            25
+                          ],
+                          "size": [
+                            30,
+                            60
+                          ],
+                          "radius": 2
+                        },
+                        {
+                          "type": "fill",
+                          "color": "$color.chart2"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "text": "A",
+                      "position": [
+                        35,
+                        58
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "color": "$color.mutedForeground"
+                    },
+                    {
+                      "type": "text",
+                      "text": "B",
+                      "position": [
+                        85,
+                        58
+                      ],
+                      "size": 10,
+                      "align": "center",
+                      "color": "$color.mutedForeground"
+                    }
+                  ]
+                },
+                "children": []
+              },
+              {
                 "id": "call",
                 "component": "Box",
                 "props": {},
@@ -6804,16 +6909,42 @@
                     "props": {},
                     "children": [
                       {
-                        "id": "progress-bound.label",
-                        "component": "Text",
-                        "props": {
-                          "text": "Upload",
-                          "variant": "caption"
+                        "id": "progress-bound.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "progress-bound.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Upload",
+                              "variant": "caption"
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "Progress",
+                              "part": "label",
+                              "props": {
+                                "tone": "primary"
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "baseline",
+                          "gap": "$spacing.sm",
+                          "width": "100%"
                         },
-                        "children": [],
                         "recipe": {
                           "macro": "Progress",
-                          "part": "label",
+                          "part": "header",
                           "props": {
                             "tone": "primary"
                           }

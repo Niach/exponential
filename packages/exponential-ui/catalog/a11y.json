@@ -1,5 +1,5 @@
 {
-  "$comment": "Round 1 (docs/round-1-contract.md §6): the ACCESSIBILITY contract every renderer keeps. `roles` = the MACHINE-READABLE role vocabulary (ARIA names, plus `text` = static text and `hidden` = out of the accessibility tree; SwiftUI traits / Compose semantics / AccessKit roles map from them), used by every `role` here and by the expanded tree's `accessibility.role`. `components` = per component its `role` (one of `roles`: the role of the component's main accessible object), `notes` (prose: composite parts, states, which strings name it) and the KEYBOARD expectations, one line per key group (arrows flip in RTL; a roving tab stop = one Tab stop for the group, arrows move inside it). Every component is listed (round1.test.ts gates it). `commands` = what a HOST may ask of a surface at runtime. `rules` = what holds for every component. Round 2 (docs/round-2-contract.md): Resizable, `scrollToIndex`, sections, the per-node direction rule. Append-only; docs/components.generated.json carries each component's entry. #VAPP-284 (docs/round-7-contract.md): a pressable Box with an `on.toggle` and a boolean `expanded` takes ArrowRight to open and ArrowLeft to close (swapped in rtl): the key fires `toggle` only when it changes the state; a Row with children is a foldable parent built on it.",
+  "$comment": "Round 1 (docs/round-1-contract.md §6): the ACCESSIBILITY contract every renderer keeps. `roles` = the MACHINE-READABLE role vocabulary (ARIA names, plus `text` = static text and `hidden` = out of the accessibility tree; SwiftUI traits / Compose semantics / AccessKit roles map from them), used by every `role` here and by the expanded tree's `accessibility.role`. `components` = per component its `role` (one of `roles`: the role of the component's main accessible object), `notes` (prose: composite parts, states, which strings name it) and the KEYBOARD expectations, one line per key group (arrows flip in RTL; a roving tab stop = one Tab stop for the group, arrows move inside it). Every component is listed (round1.test.ts gates it). `commands` = what a HOST may ask of a surface at runtime. `rules` = what holds for every component. Round 2 (docs/round-2-contract.md): Resizable, `scrollToIndex`, sections, the per-node direction rule. Append-only; docs/components.generated.json carries each component's entry. #VAPP-284 (docs/round-7-contract.md): a pressable Box with an `on.toggle` and a boolean `expanded` takes ArrowRight to open and ArrowLeft to close (swapped in rtl): the key fires `toggle` only when it changes the state; a Row with children is a foldable parent built on it. Round 8 (docs/round-8-contract.md): Canvas is an img named by `label` (decorative without one, like Motion; `pointer` does not make it focusable: its press/move carry drawing coordinates, there is no keyboard equivalent); Checkbox `indeterminate` = the MIXED checked state (aria-checked=mixed, SwiftUI accessibilityValue \"mixed\" + the checkbox trait, Compose ToggleableState.Indeterminate, AccessKit Toggled::Mixed); Progress `detail` is the bar's accessible description (`valueText` stays visible text: the value is valuenow/valuemax); a collapsed Stepper is one text line inside the list.",
   "roles": [
     "alert",
     "alertdialog",
@@ -161,7 +161,7 @@
     },
     "Progress": {
       "role": "progressbar",
-      "notes": "progressbar (valuenow/valuemax, labelled by its label)",
+      "notes": "progressbar (valuenow/valuemax, labelled by its label; `detail` = its description)",
       "keys": []
     },
     "Meter": {
@@ -214,6 +214,13 @@
       "notes": "img named by label; decorative (hidden) without one; with on.press it is a button (focusable, named by label) and its state machine gets the click",
       "keys": [
         "Enter/Space: press (with on.press)"
+      ]
+    },
+    "Canvas": {
+      "role": "img",
+      "notes": "img named by label; decorative (hidden) without one. `pointer` adds no focus stop or role: press/move/leave carry drawing coordinates for pointer users, so put what it shows in the label (or a Table beside it)",
+      "keys": [
+        "None: press/move/leave are pointer-only (keyboard users read the label)"
       ]
     },
     "Image": {
@@ -473,9 +480,9 @@
     },
     "Checkbox": {
       "role": "checkbox",
-      "notes": "checkbox",
+      "notes": "checkbox; `indeterminate` = checked state MIXED (aria-checked=mixed / the platform's mixed toggle state), whatever `checked`; Space checks it (checked true, indeterminate false)",
       "keys": [
-        "Space: toggle"
+        "Space: toggle (mixed → checked)"
       ]
     },
     "Radio": {
@@ -631,7 +638,7 @@
     },
     "Stepper": {
       "role": "list",
-      "notes": "list; the current step aria-current=step. Each step a listitem labelled `stepDone`/`stepCurrent`/`stepUpcoming`; the current one aria-current=step ($a11y).",
+      "notes": "list; the current step aria-current=step. Each step a listitem labelled `stepDone`/`stepCurrent`/`stepUpcoming`; the current one aria-current=step ($a11y). `collapse` (always, or auto below sm): ONE text line \"Step n of m · label\" (`stepCompact`) inside the list, as the current step's listitem (aria-current=step).",
       "keys": []
     },
     "Rating": {

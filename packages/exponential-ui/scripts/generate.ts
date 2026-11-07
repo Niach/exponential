@@ -575,6 +575,12 @@ const STATE_CASES: Record<string, Record<string, Record<string, unknown>>> = {
   // EXP-1548: wider than its box: the table scrolls sideways, cells wrap,
   // the `truncate` column keeps one line with an ellipsis.
   Table: { wide: wideTableProps() },
+  // Round 8: the label row with only its trailing text, the caption under the bar.
+  Progress: { "valueText-only": { label: ``, valueText: `41 MB/s · 12 min` }, detail: { detail: `3 of 8 files` } },
+  // Round 8: the collapsed line on the first step, and with no step current.
+  Stepper: { "collapse=always+current=0": { collapse: `always`, current: 0 }, "collapse=always+current=9": { collapse: `always`, current: 9 } },
+  // Round 8: mixed wins over checked in the look.
+  Checkbox: { "indeterminate=true+checked=true": { indeterminate: true, checked: true } },
 }
 
 /** EXP-1548: a table whose columns need more than a phone's width. */
@@ -854,6 +860,14 @@ const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => 
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // Round 8 (docs/round-8-contract.md): the download row, a bar with only
+  // its trailing text, the collapsed Stepper, the mixed Checkbox.
+  Progress: [
+    { label: `valueText · detail`, node: { id: `download`, component: `Progress`, props: { value: 41, label: `Downloading`, valueText: `41 MB/s · 12 min`, detail: `3 of 8 files` } } },
+    { label: `valueText only`, node: { id: `sync`, component: `Progress`, props: { value: 80, valueText: `80%` } } },
+  ],
+  Stepper: [{ label: `collapse · always`, node: { id: `wizard`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: 1, collapse: `always` } } }],
+  Checkbox: [{ label: `indeterminate`, node: { id: `all`, component: `Checkbox`, props: { label: `Select all`, name: `all`, indeterminate: true } } }],
   // VAPP-280: a settings page's group (a Switch that stays inline on phones,
   // a Select with a description, a Slider), then the stacked phone layout at
   // any width (`stackBelow: xl` is above the specimen's 720).
@@ -1495,6 +1509,19 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     input: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed: { path: `/collapsed` }, collapseBelow: `never` }, slots: { sidebar: railNav() } },
     datasets: [{ collapsed: true }, { collapsed: false }, {}],
   },
+  // Round 8: a collapsed Stepper bound to /current shows ONE line (each
+  // step's line is visible while it is current; none past the last); a
+  // Progress whose trailing text and caption are bound.
+  {
+    name: `Stepper/collapse-always:bound-current`,
+    input: { id: `wizard`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: { path: `/current` }, collapse: `always` } },
+    datasets: [{ current: 0 }, { current: 2 }, { current: 5 }, {}],
+  },
+  {
+    name: `Progress/bound:valueText+detail`,
+    input: { id: `download`, component: `Progress`, props: { value: { path: `/done` }, valueText: { path: `/rate` }, detail: { path: `/files` } } },
+    datasets: [{ done: 41, rate: `41 MB/s · 12 min`, files: `3 of 8 files` }, { done: 0 }],
+  },
 ]
 
 function bindExtraCases() {
@@ -1678,7 +1705,8 @@ function promptBudget() {
     // #VAPP-284 (a named budget exception, round 7): Row's foldable parent (`open`, children, `change`) + Box `toggle`: +19 tokens after trimming; the measured total with VAPP-280 (9400), no slack.
     // #VAPP-285 (a named budget exception, round 7): Tree (items, expanded, value, label; select/toggle/load): +91 tokens after trimming; the measured total with VAPP-284 (9491), no slack.
     // VAPP-276 (a named budget exception, round 7): Popover align + anchor, Menu side + align + anchor: +62 tokens after trimming the new descriptions; the measured total with #VAPP-285 (9553), no slack.
-    budgetTokens: 9553,
+    // Round 8 (a named budget exception, docs/round-8-contract.md): Canvas (its text shape spelled out in the shapes line) + Checkbox indeterminate + Progress valueText/detail + Stepper collapse: +180 tokens after trimming every new description; the measured total (9733), no slack.
+    budgetTokens: 9733,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

@@ -1,6 +1,69 @@
 /* @ts-self-types="./eui_motion_wasm.d.ts" */
 
 /**
+ * Round 8: a compiled Canvas (`{size, shapes}`); `sample(slots)` returns
+ * the packed frame (shapes, then the `text` ops).
+ */
+export class CanvasPlayer {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        CanvasPlayerFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_canvasplayer_free(ptr, 0);
+    }
+    /**
+     * Compile a Canvas node's `{size, shapes}` JSON. Throws a JSON array of
+     * issues when refused.
+     * @param {string} source
+     */
+    constructor(source) {
+        const ptr0 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.canvasplayer_new(ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        CanvasPlayerFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * The packed frame with these slot overrides (JSON object, or "").
+     * @param {string} slots
+     * @returns {Float32Array}
+     */
+    sample(slots) {
+        const ptr0 = passStringToWasm0(slots, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.canvasplayer_sample(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * Every slot the canvas declares (`$color.<token>`, `ld:<light>:<dark>`):
+     * the ids a host fills from its theme, exactly like a Motion's.
+     * A JSON array of strings (a string crosses cheaper than a `string[]`).
+     * @returns {string}
+     */
+    slotIds() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.canvasplayer_slotIds(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+}
+if (Symbol.dispose) CanvasPlayer.prototype[Symbol.dispose] = CanvasPlayer.prototype.free;
+
+/**
  * A loaded animation; `sample(frame)` returns the packed frame.
  */
 export class MotionPlayer {
@@ -310,6 +373,9 @@ function __wbg_get_imports() {
     };
 }
 
+const CanvasPlayerFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_canvasplayer_free(ptr, 1));
 const MotionPlayerFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_motionplayer_free(ptr, 1));

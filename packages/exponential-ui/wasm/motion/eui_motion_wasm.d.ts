@@ -2,6 +2,30 @@
 /* eslint-disable */
 
 /**
+ * Round 8: a compiled Canvas (`{size, shapes}`); `sample(slots)` returns
+ * the packed frame (shapes, then the `text` ops).
+ */
+export class CanvasPlayer {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Compile a Canvas node's `{size, shapes}` JSON. Throws a JSON array of
+     * issues when refused.
+     */
+    constructor(source: string);
+    /**
+     * The packed frame with these slot overrides (JSON object, or "").
+     */
+    sample(slots: string): Float32Array;
+    /**
+     * Every slot the canvas declares (`$color.<token>`, `ld:<light>:<dark>`):
+     * the ids a host fills from its theme, exactly like a Motion's.
+     * A JSON array of strings (a string crosses cheaper than a `string[]`).
+     */
+    slotIds(): string;
+}
+
+/**
  * A loaded animation; `sample(frame)` returns the packed frame.
  */
 export class MotionPlayer {
@@ -93,7 +117,11 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_canvasplayer_free: (a: number, b: number) => void;
     readonly __wbg_motionplayer_free: (a: number, b: number) => void;
+    readonly canvasplayer_new: (a: number, b: number) => [number, number, number];
+    readonly canvasplayer_sample: (a: number, b: number, c: number) => any;
+    readonly canvasplayer_slotIds: (a: number) => [number, number];
     readonly compile: (a: number, b: number) => [number, number];
     readonly motionplayer_addFont: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly motionplayer_done: (a: number, b: number) => number;
@@ -120,9 +148,9 @@ export interface InitOutput {
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __externref_drop_slice: (a: number, b: number) => void;
-    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

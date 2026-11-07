@@ -1243,6 +1243,38 @@ fn dotlottie_machine_reads_the_first() {
     assert_eq!(motion_read_dotlottie_machine(eui_motion::dotlottie::write("x", &anim, &[], &[])).unwrap(), "");
 }
 
+/// Round 8: `fixtures/canvas.json` through the uniffi `CanvasPlayer` and
+/// `canvas_to_drawing`, as the Swift and Compose painters replay it.
+#[test]
+fn the_canvas_fixture_replays_through_the_canvas_player() {
+    let f = fixture("canvas.json");
+    for case in f["compile"].as_array().unwrap() {
+        let player = CanvasPlayer::new(case["canvas"].to_string()).unwrap_or_else(|e| panic!("{}: {e:?}", case["id"]));
+        assert_eq!(json!(player.slot_ids()), case["slotIds"], "{}", case["id"]);
+        let slots = case.get("slots").map(|s| s.to_string()).unwrap_or_default();
+        let got = player.sample(slots);
+        let want = case["packed"].as_array().unwrap();
+        assert_eq!(got.len(), want.len(), "{}", case["id"]);
+        for (g, w) in got.iter().zip(want) {
+            let w = w.as_f64().unwrap();
+            assert!((*g as f64 - w).abs() <= 1e-4 * w.abs().max(1.0), "{}: {g} != {w}", case["id"]);
+        }
+    }
+    for case in f["refuse"].as_array().unwrap() {
+        let Err(UiError::Invalid { reason }) = CanvasPlayer::new(case["canvas"].to_string()) else { panic!("{} compiled", case["id"]) };
+        let got: Value = serde_json::from_str(&reason).unwrap();
+        let codes = |v: &Value| v.as_array().unwrap().iter().map(|i| (i["code"].clone(), i["path"].clone())).collect::<Vec<_>>();
+        assert_eq!(codes(&got), codes(&case["issues"]), "{}", case["id"]);
+    }
+    for case in f["pointer"].as_array().unwrap() {
+        let n = |v: &Value, i: usize| v[i].as_f64().unwrap();
+        for p in case["points"].as_array().unwrap() {
+            let d = canvas_to_drawing(n(&p["at"], 0), n(&p["at"], 1), n(&case["size"], 0), n(&case["size"], 1), n(&case["box"], 0), n(&case["box"], 1), case["fit"].as_str().unwrap().into());
+            assert!((d[0] - n(&p["drawing"], 0)).abs() <= 0.01 && (d[1] - n(&p["drawing"], 1)).abs() <= 0.01, "{case} {p}: {d:?}");
+        }
+    }
+}
+
 /// eApps R8 (VAPP-233): `fixtures/record-migrations.json` through the free
 /// functions, as the Swift (`RecordMigrationsTests`) and Compose
 /// (`RecordMigrationsTest`) suites replay it.

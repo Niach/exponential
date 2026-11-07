@@ -2756,6 +2756,15 @@
         },
         {
           "when": {
+            "indeterminate": true
+          },
+          "style": {
+            "backgroundColor": "$color.primary",
+            "borderColor": "$color.primary"
+          }
+        },
+        {
+          "when": {
             "state": "focus"
           },
           "style": {
@@ -4768,6 +4777,20 @@
           },
           "style": {
             "backgroundColor": "$color.mutedForeground"
+          }
+        }
+      ],
+      "value": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "detail": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
           }
         }
       ]

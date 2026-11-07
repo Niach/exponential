@@ -478,6 +478,11 @@ struct NodeState {
     direction: Direction,
     /// Its line height is a px value set here or inherited (else `normal`).
     line_height_set: bool,
+    /// Round 8: the themed style has `@container` blocks: they match its
+    /// parent's laid-out content width (`container_width`, refitted after
+    /// a pass, `pass.rs refit_containers`).
+    container: bool,
+    container_width: Option<f32>,
 }
 
 #[derive(Debug, Clone)]

@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls) for small prompts. Round 3 (VAPP-102, docs/round-3-contract.md) folded the app vocabulary onto Row, Section, Chip, Segmented and Menu; round 4 (VAPP-103) REMOVED the old names: there are no aliases: an old name reduces to the `unknownComponent` placeholder with an `unknown component <name>` issue. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (a `$color.*` token ONLY: a literal `#hex`/`rgb()` in a node is refused so light and dark themes both apply; themes keep literals) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Round 1 (docs/round-1-contract.md): `responsive` props ALSO take `{base, sm?, md?, lg?, xl?}` keyed by the `$breakpoint` token names (on a macro the expander turns them into `@media (min-width: $breakpoint.<bp>)` blocks; on a native the RENDERER picks the value of the active breakpoint, src/macros.ts responsiveAt + src/style.ts activeBreakpoint); EVERY component takes the common `visible` (a boolean or a binding; false = not rendered, no layout), `style` and `accessibility`; `slots: [\"*\"]` = any slot name (Table cell templates); a string default or value of the form `$string.<id>` is a built-in UI string (catalog/strings.json) the renderer shows in the surface locale; `object` props without a `shape` take any object. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here. EXP-1259 (the UI batch) adds the low-level feedback and search pieces the app settled on: `SearchList`, Spinner `xs`, Button `pendingLabel`, Skeleton rows, Tabs `closable`/`addable`, searchable Menu submenus.",
+  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls) for small prompts. Round 3 (VAPP-102, docs/round-3-contract.md) folded the app vocabulary onto Row, Section, Chip, Segmented and Menu; round 4 (VAPP-103) REMOVED the old names: there are no aliases: an old name reduces to the `unknownComponent` placeholder with an `unknown component <name>` issue. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (a `$color.*` token ONLY: a literal `#hex`/`rgb()` in a node is refused so light and dark themes both apply; themes keep literals) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Round 1 (docs/round-1-contract.md): `responsive` props ALSO take `{base, sm?, md?, lg?, xl?}` keyed by the `$breakpoint` token names (on a macro the expander turns them into `@media (min-width: $breakpoint.<bp>)` blocks; on a native the RENDERER picks the value of the active breakpoint, src/macros.ts responsiveAt + src/style.ts activeBreakpoint); EVERY component takes the common `visible` (a boolean or a binding; false = not rendered, no layout), `style` and `accessibility`; `slots: [\"*\"]` = any slot name (Table cell templates); a string default or value of the form `$string.<id>` is a built-in UI string (catalog/strings.json) the renderer shows in the surface locale; `object` props without a `shape` take any object. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here. EXP-1259 (the UI batch) adds the low-level feedback and search pieces the app settled on: `SearchList`, Spinner `xs`, Button `pendingLabel`, Skeleton rows, Tabs `closable`/`addable`, searchable Menu submenus. Round 8 (docs/round-8-contract.md): Canvas (a static vector drawing in Motion's shapes plus native `text`, drawn through eui-motion's display list on every renderer; `pointer` press/move/leave in drawing units), Checkbox `indeterminate` (a dash, aria-checked mixed; a press checks it), Progress `valueText` + `detail`, Stepper `collapse` (`stepperCollapse`: never | auto | always; `auto` collapses below the `sm` breakpoint of the Stepper's own box through the new `@container` style condition).",
   "id": "https://ui.exponential.at/catalogs/core/v1",
   "liteId": "https://ui.exponential.at/catalogs/core-lite/v1",
   "name": "Exponential UI core",
@@ -358,6 +358,11 @@
     "calendarView": [
       "month",
       "week"
+    ],
+    "stepperCollapse": [
+      "never",
+      "auto",
+      "always"
     ]
   },
   "defs": {
@@ -1356,7 +1361,8 @@
     "Unknown.root": "ui-warning",
     "ZoomableImage.zoomOut": "ui-minus",
     "ZoomableImage.zoomIn": "ui-add",
-    "ZoomableImage.fit": "ui-fullscreen"
+    "ZoomableImage.fit": "ui-fullscreen",
+    "Checkbox.check.indeterminate": "ui-minus"
   },
   "components": {
     "Box": {
@@ -3024,6 +3030,12 @@
           "enum": "orientation",
           "default": "horizontal",
           "description": "In a row or stacked."
+        },
+        "collapse": {
+          "type": "enum",
+          "enum": "stepperCollapse",
+          "default": "never",
+          "description": "One line \"Step n of m · label\"; auto when narrower than sm."
         }
       },
       "example": {
@@ -3636,6 +3648,16 @@
           "type": "string",
           "description": "A caption above the bar."
         },
+        "valueText": {
+          "type": "string",
+          "bindable": true,
+          "description": "Text after the label (rate, time left)."
+        },
+        "detail": {
+          "type": "string",
+          "bindable": true,
+          "description": "Muted line under the bar."
+        },
         "tone": {
           "type": "enum",
           "enum": "tone",
@@ -3646,7 +3668,8 @@
       "example": {
         "value": 65,
         "max": 100,
-        "label": "Upload"
+        "label": "Upload",
+        "valueText": "65%"
       }
     },
     "Meter": {
@@ -4745,6 +4768,12 @@
           "default": false,
           "bindable": true,
           "description": "On or off."
+        },
+        "indeterminate": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Mixed: a dash; a press checks it."
         },
         "disabled": {
           "type": "boolean",
@@ -6052,6 +6081,173 @@
                 "width": 4
               }
             ]
+          }
+        ]
+      }
+    },
+    "Canvas": {
+      "kind": "native",
+      "group": "media",
+      "lite": true,
+      "children": "none",
+      "description": "A static drawing (chart, diagram, illustration) of shapes and text; Motion animates.",
+      "props": {
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "required": true,
+          "description": "Drawing units [w, h], origin top-left."
+        },
+        "shapes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "required": true,
+          "bindable": true,
+          "description": "Motion's shapes, no keys, + text {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color} on top."
+        },
+        "fit": {
+          "type": "enum",
+          "enum": "motionFit",
+          "default": "contain",
+          "description": "How it fills the box."
+        },
+        "label": {
+          "type": "string",
+          "description": "What it shows, for screen readers."
+        },
+        "pointer": {
+          "type": "boolean",
+          "default": false,
+          "description": "press/move/leave get {x, y} in drawing units."
+        },
+        "style": {
+          "type": "style",
+          "description": "Extra Box styles for the box."
+        }
+      },
+      "events": [
+        "press",
+        "move",
+        "leave"
+      ],
+      "example": {
+        "size": [
+          160,
+          100
+        ],
+        "label": "Visits by day",
+        "shapes": [
+          {
+            "type": "path",
+            "d": "M20 80 H150"
+          },
+          {
+            "type": "stroke",
+            "color": "$color.border",
+            "width": 1
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  45,
+                  60
+                ],
+                "size": [
+                  20,
+                  40
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart1"
+              }
+            ]
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  85,
+                  50
+                ],
+                "size": [
+                  20,
+                  60
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart2"
+              }
+            ]
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  125,
+                  70
+                ],
+                "size": [
+                  20,
+                  20
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart3"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "Mon",
+            "position": [
+              45,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
+          },
+          {
+            "type": "text",
+            "text": "Tue",
+            "position": [
+              85,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
+          },
+          {
+            "type": "text",
+            "text": "Wed",
+            "position": [
+              125,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
           }
         ]
       }

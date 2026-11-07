@@ -6,9 +6,11 @@
 // `paint_reference`): a layer is a full-size offscreen group clipped to the
 // current clip ∩ its path, filtered, then composited onto its parent under
 // that clip with its alpha and blend; luma mattes turn the group into a
-// luminance mask first. The filters (blur, colour matrix, gradient map, drop
-// shadow) are pixel ports of the raster's, so every browser paints the same
-// pixels as the native painters (ctx.filter differs per engine).
+// luminance mask first. Blur and drop shadow (mask feather = a blur) run
+// on the browser's own Canvas2D filter (`ctx.filter`) where the engine has
+// it: the pixel ports cost ~0.8 s a frame at 1024² in JS. The colour matrix,
+// gradient map, luma mask and every engine without `ctx.filter` keep the
+// pixel ports of the raster's.
 
 export type MotionMatrix = readonly [number, number, number, number, number, number]
 export type MotionFit = `contain` | `cover` | `fill`
@@ -70,7 +72,20 @@ export function motionFrameSize(packed: ArrayLike<number>): { width: number; hei
 /** Reuses group canvases across frames (one painter instance per Motion). */
 export class MotionCanvasPool {
   private free: MotionCanvas[] = []
-  constructor(private readonly make: (w: number, h: number) => MotionCanvas | null = defaultCanvas) {}
+  private native: boolean | undefined
+  /** `nativeFilters: false` forces the pixel-port filters (tests, A/B). */
+  constructor(
+    private readonly make: (w: number, h: number) => MotionCanvas | null = defaultCanvas,
+    options: { nativeFilters?: boolean } = {}
+  ) {
+    if (options.nativeFilters === false) this.native = false
+  }
+  /** Whether this pool's canvases blur through `ctx.filter` (probed once:
+   *  a 1 px dot under `blur(1px)` must reach its neighbour). */
+  nativeFilters(): boolean {
+    if (this.native === undefined) this.native = probeFilter(this.make)
+    return this.native
+  }
   take(w: number, h: number): { canvas: MotionCanvas; ctx: MotionContext } | null {
     let c = this.free.pop() ?? this.make(w, h)
     if (!c) return null
@@ -83,11 +98,28 @@ export class MotionCanvasPool {
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.globalAlpha = 1
     ctx.globalCompositeOperation = `source-over`
+    if (this.native) ctx.filter = `none`
     ctx.clearRect(0, 0, w, h)
     return { canvas: c, ctx }
   }
   give(c: MotionCanvas): void {
     if (this.free.length < 8) this.free.push(c)
+  }
+}
+
+function probeFilter(make: (w: number, h: number) => MotionCanvas | null): boolean {
+  try {
+    const c = make(3, 1)
+    const ctx = c?.getContext(`2d`, { willReadFrequently: true }) as MotionContext | null | undefined
+    if (!ctx || typeof ctx.filter !== `string`) return false
+    ctx.filter = `blur(1px)`
+    if (ctx.filter !== `blur(1px)`) return false
+    ctx.fillStyle = `#000`
+    ctx.fillRect(1, 0, 1, 1)
+    ctx.filter = `none`
+    return ctx.getImageData(0, 0, 1, 1).data[3]! > 0
+  } catch {
+    return false
   }
 }
 
@@ -232,15 +264,7 @@ export function paintMotionFrame(ctx: MotionContext, width: number, height: numb
       clips.length = fr.clips
       if (fr.kind === `clip`) continue
       const dst = top()
-      const needsPixels = fr.blend === LUMA_IN || fr.blend === LUMA_OUT || fr.filters.length > 0
-      if (needsPixels) {
-        const img = fr.ctx.getImageData(0, 0, width, height)
-        const px = premultiply(img.data)
-        if (fr.blend === LUMA_IN || fr.blend === LUMA_OUT) lumaMask(px)
-        applyFilters(px, width, height, fr.filters, base, scale)
-        unpremultiply(px, img.data)
-        fr.ctx.putImageData(img, 0, 0)
-      }
+      if (!filterLayer(fr, width, height, base, scale, pool)) return false
       dst.save()
       if (applyClips(dst, [...clips, fr.clip])) {
         dst.setTransform(1, 0, 0, 1, 0, 0)
@@ -360,17 +384,111 @@ function lumaMask(p: Uint8Array): void {
   }
 }
 
-function applyFilters(p: Uint8Array, w: number, h: number, filters: readonly Filter[], base: MotionMatrix, scale: number): void {
-  for (const fl of filters) {
+type LayerFrame = Extract<Frame, { kind: `layer` }>
+
+/** The layer's luma mask and filters, in order. Runs of pixel-port filters
+ *  share one getImageData round trip; a native filter redraws the group
+ *  into a fresh pool canvas under `ctx.filter` (the frame takes it over).
+ *  False = the pool ran dry. */
+function filterLayer(fr: LayerFrame, w: number, h: number, base: MotionMatrix, scale: number, pool: MotionCanvasPool): boolean {
+  const luma = fr.blend === LUMA_IN || fr.blend === LUMA_OUT
+  if (!luma && !fr.filters.length) return true
+  const native = fr.filters.length > 0 && pool.nativeFilters()
+  let img: ImageData | null = null
+  let px: Uint8Array | null = null
+  const pixels = (): Uint8Array => {
+    if (!px) {
+      img = fr.ctx.getImageData(0, 0, w, h)
+      px = premultiply(img.data)
+    }
+    return px
+  }
+  const flush = () => {
+    if (!px || !img) return
+    unpremultiply(px, img.data)
+    fr.ctx.putImageData(img, 0, 0)
+    px = img = null
+  }
+  if (luma) lumaMask(pixels())
+  for (const fl of fr.filters) {
+    const done = native ? nativeFilter(fl, fr.canvas, w, h, base, scale, pool, flush) : `port`
+    if (done === null) return false
+    if (done === `skip`) continue
+    if (done !== `port`) {
+      pool.give(fr.canvas)
+      fr.canvas = done.canvas
+      fr.ctx = done.ctx
+      continue
+    }
+    const p = pixels()
     if (fl.kind === 0) blur(p, w, h, 4, fl.sx * scale, fl.sy * scale)
     else if (fl.kind === 1) colorMatrix(p, fl.m)
     else if (fl.kind === 2) gradientMap(p, fl.stops, fl.amount)
     else {
-      const ddx = base[0] * fl.dx + base[2] * fl.dy
-      const ddy = base[1] * fl.dx + base[3] * fl.dy
+      const [ddx, ddy] = shadowOffset(fl, base)
       dropShadow(p, w, h, fl.color, ddx, ddy, fl.sigma * scale)
     }
   }
+  flush()
+  return true
+}
+
+function shadowOffset(fl: { dx: number; dy: number }, base: MotionMatrix): [number, number] {
+  return [base[0] * fl.dx + base[2] * fl.dy, base[1] * fl.dx + base[3] * fl.dy]
+}
+
+/** A blur's σ (device px) on the engine's filter: 0 = none, undefined =
+ *  keep the pixel port. Below σ 2 the port is an exact gaussian and the
+ *  engines' small-σ kernels differ by up to ~100/255 (Chromium); from 2 on
+ *  both are box approximations of the same gaussian (≤ 2/255). */
+function nativeSigma(s: number): number | undefined {
+  if (!(s >= 1e-3) || !Number.isFinite(s)) return 0
+  return s >= BOX_SIGMA ? s : undefined
+}
+
+/** `fl` painted through `ctx.filter` onto a fresh pool canvas (the layer
+ *  takes it over): `skip` = a no-op, `port` = keep the pixel port (colour
+ *  matrix, gradient map, an anisotropic or small-σ blur), null = the pool
+ *  ran dry. CSS `blur()` takes the standard deviation (device px: the
+ *  canvas draws under the identity). The drop shadow is built from it, not
+ *  from `drop-shadow()`, whose length engines read as σ (Chromium) or 2σ
+ *  (CSS shadows): the content shifted (bilinear, like the port) and
+ *  blurred, tinted with `source-in`, the content over it. Within 2/255 of
+ *  the port except where content touches the canvas edge: the port (like
+ *  the raster) clips after each of its six box passes, the engine blurs
+ *  once, so a blur there keeps more of its edge (up to ~45/255 within 3σ).
+ *  `flush` writes pending pixel-port work back first. */
+function nativeFilter(fl: Filter, src: MotionCanvas, w: number, h: number, base: MotionMatrix, scale: number, pool: MotionCanvasPool, flush: () => void): { canvas: MotionCanvas; ctx: MotionContext } | `skip` | `port` | null {
+  let sigma: number | undefined
+  let shadow: { dx: number; dy: number; color: readonly number[] } | null = null
+  if (fl.kind === 0) {
+    const sx = nativeSigma(fl.sx * scale), sy = nativeSigma(fl.sy * scale)
+    if (sx === 0 && sy === 0) return `skip`
+    // CSS blur() is isotropic: an anisotropic blur stays on the port
+    if (sx === undefined || sy === undefined || Math.abs(sx - sy) > 1e-4 * Math.max(sx, sy)) return `port`
+    sigma = (sx + sy) / 2
+  } else if (fl.kind === 3) {
+    sigma = nativeSigma(fl.sigma * scale)
+    if (sigma === undefined) return `port`
+    const [dx, dy] = shadowOffset(fl, base)
+    const ok = Number.isFinite(dx) && Number.isFinite(dy)
+    shadow = { dx: ok ? dx : 0, dy: ok ? dy : 0, color: fl.color }
+  } else return `port`
+  flush()
+  const out = pool.take(w, h)
+  if (!out) return null
+  const c = out.ctx
+  if (sigma > 0) c.filter = `blur(${sigma}px)`
+  c.drawImage(src, shadow?.dx ?? 0, shadow?.dy ?? 0)
+  c.filter = `none`
+  if (shadow) {
+    c.globalCompositeOperation = `source-in`
+    c.fillStyle = css(shadow.color)
+    c.fillRect(0, 0, w, h)
+    c.globalCompositeOperation = `source-over`
+    c.drawImage(src, 0, 0)
+  }
+  return out
 }
 
 const BOX_SIGMA = 2
@@ -405,23 +523,73 @@ function passes(sigma: number): Pass[] {
   return d % 2 === 1 ? [{ box: [r, r] }, { box: [r, r] }, { box: [r, r] }] : [{ box: [r, r - 1] }, { box: [r - 1, r] }, { box: [r, r] }]
 }
 
-/** Separable gaussian of a premultiplied buffer (`ch` channels), transparent outside. */
+/** Separable gaussian of a premultiplied buffer (`ch` channels), transparent
+ *  outside. Each pass runs only over the content's box grown by the pass's
+ *  reach: everything outside it is zero before and after, so the pixels are
+ *  the same as a pass over the whole buffer. */
 function blur(buf: Uint8Array, w: number, h: number, ch: number, sx: number, sy: number): void {
   if (!w || !h) return
-  if (sx > 0 && Number.isFinite(sx)) for (const p of passes(sx)) runPass(buf, w, h, ch, p, true)
-  if (sy > 0 && Number.isFinite(sy)) for (const p of passes(sy)) runPass(buf, w, h, ch, p, false)
+  const box = contentBox(buf, w, h, ch)
+  if (!box) return
+  if (sx > 0 && Number.isFinite(sx))
+    for (const p of passes(sx)) {
+      box[0] = Math.max(0, box[0] - reach(p))
+      box[2] = Math.min(w - 1, box[2] + reach(p))
+      runPass(buf, w, ch, p, true, box)
+    }
+  if (sy > 0 && Number.isFinite(sy))
+    for (const p of passes(sy)) {
+      box[1] = Math.max(0, box[1] - reach(p))
+      box[3] = Math.min(h - 1, box[3] + reach(p))
+      runPass(buf, w, ch, p, false, box)
+    }
 }
 
-/** One horizontal or vertical pass: lines along the axis, `step` apart. */
-function runPass(buf: Uint8Array, w: number, h: number, ch: number, pass: Pass, horizontal: boolean): void {
-  const len = horizontal ? w : h
-  const lines = horizontal ? h : w
+/** How far one pass moves content (px, either side). */
+function reach(pass: Pass): number {
+  return `box` in pass ? Math.max(pass.box[0], pass.box[1]) : pass.kernel.length >> 1
+}
+
+/** The inclusive box [x0, y0, x1, y1] of the non-zero pixels, null = none. */
+function contentBox(buf: Uint8Array, w: number, h: number, ch: number): [number, number, number, number] | null {
+  let x0 = w, y0 = h, x1 = -1, y1 = -1
+  const row = w * ch
+  for (let y = 0; y < h; y++) {
+    const o = y * row
+    let first = -1
+    for (let k = 0; k < row; k++)
+      if (buf[o + k]) {
+        first = k
+        break
+      }
+    if (first < 0) continue
+    let last = first
+    for (let k = row - 1; k > first; k--)
+      if (buf[o + k]) {
+        last = k
+        break
+      }
+    if (y < y0) y0 = y
+    y1 = y
+    x0 = Math.min(x0, Math.floor(first / ch))
+    x1 = Math.max(x1, Math.floor(last / ch))
+  }
+  return y1 < 0 ? null : [x0, y0, x1, y1]
+}
+
+/** One horizontal or vertical pass over `box`: lines along the axis, `step`
+ *  apart; outside the box along the axis reads as transparent. */
+function runPass(buf: Uint8Array, w: number, ch: number, pass: Pass, horizontal: boolean, box: readonly number[]): void {
+  const from = horizontal ? box[0]! : box[1]!
+  const len = (horizontal ? box[2]! : box[3]!) - from + 1
+  const first = horizontal ? box[1]! : box[0]!
+  const last = horizontal ? box[3]! : box[2]!
   const step = horizontal ? ch : w * ch
   const lineStep = horizontal ? w * ch : ch
   const tmp = new Uint32Array(len)
-  for (let line = 0; line < lines; line++) {
+  for (let line = first; line <= last; line++) {
     for (let c = 0; c < ch; c++) {
-      const o = line * lineStep + c
+      const o = line * lineStep + from * step + c
       for (let x = 0; x < len; x++) tmp[x] = buf[o + x * step]!
       if (`box` in pass) {
         const [l, r] = pass.box

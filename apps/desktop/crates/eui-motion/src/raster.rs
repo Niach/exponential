@@ -12,6 +12,10 @@
 //! Rasterization stays at absolute device coordinates, so the result is
 //! bit-identical to painting every layer full-size
 //! ([`paint_into_unbounded`], the reference the tests compare against).
+//!
+//! `Text` ops (round 8, Canvas) are SKIPPED: text is never outlined by the
+//! engine; a painter sets it with its native text system after the raster
+//! (every `Text` op follows every shape op, so drawing it on top is exact).
 
 use crate::display::{Blend, Brush, Cap, DisplayList, FillRule, Filter, Join, Op, Stop, Verb};
 use tiny_skia::{
@@ -441,6 +445,8 @@ fn content_bounds(list: &DisplayList, base: &Transform, scale: f32) -> Vec<Conte
                 let r = map_bbox(0.0, 0.0, width.max(0.0), height.max(0.0), &t, 2);
                 add(&mut stack, r, r);
             }
+            // Text is the painter's (native text over the raster).
+            Op::Text { .. } => {}
         }
     }
     out
@@ -787,6 +793,7 @@ impl<'a> Painter<'a> {
                     dst.draw_pixmap(0, 0, img.as_ref(), &paint, t, Some(mask));
                     *dirty = dirty.union(&touched);
                 }
+                Op::Text { .. } => {}
             }
         }
         self.finish();
@@ -1127,6 +1134,7 @@ fn paint_reference(list: &DisplayList, target: &mut Pixmap, base: Transform, ima
                 let t = base.pre_concat(tf(transform)).pre_concat(Transform::from_scale(sx, sy));
                 top!().draw_pixmap(0, 0, img.as_ref(), &image_paint(*alpha), t, clip.as_ref());
             }
+            Op::Text { .. } => {}
         }
     }
 }

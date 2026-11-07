@@ -1267,6 +1267,21 @@
           "style": { "width": "48px", "height": "48px" }
         },
         {
+          "id": "chart-drawing",
+          "component": "Canvas",
+          "props": {
+            "size": [120, 60],
+            "label": "Two bars",
+            "pointer": true,
+            "shapes": [
+              { "type": "group", "shapes": [{ "type": "rect", "position": [35, 35], "size": [30, 40], "radius": 2 }, { "type": "fill", "color": "$color.chart1" }] },
+              { "type": "group", "shapes": [{ "type": "rect", "position": [85, 25], "size": [30, 60], "radius": 2 }, { "type": "fill", "color": "$color.chart2" }] },
+              { "type": "text", "text": "A", "position": [35, 58], "size": 10, "align": "center", "color": "$color.mutedForeground" },
+              { "type": "text", "text": "B", "position": [85, 58], "size": 10, "align": "center", "color": "$color.mutedForeground" }
+            ]
+          }
+        },
+        {
           "id": "call",
           "component": "CallSurface",
           "props": {
