@@ -40,7 +40,7 @@ const bar: NestedNode = {
     { id: `l2`, component: `Link`, props: { href: `javascript:alert(1)` } },
     { id: `l3`, component: `Link`, props: { href: `/relative/path`, external: true } },
     { id: `t1`, component: `Toggle`, props: { label: `Bold`, pressed: true } },
-    { id: `t2`, component: `Toggle`, props: { icon: `star`, pressed: { path: `/on` } } },
+    { id: `t2`, component: `Toggle`, props: { icon: `star`, pressed: { "@path": `/on` } } },
   ],
 }
 

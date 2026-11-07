@@ -110,7 +110,7 @@ export function createHostSurface(host: ExponentialHost, surfaceId: string): Acc
 function stateOf(host: ExponentialHost, store: SurfaceStore): SurfaceState {
   return {
     surfaceId: store.surfaceId,
-    catalogId: store.catalogId,
+    catalogId: store.catalogId ?? ``,
     root: store.root,
     issues: store.issues,
     templates: store.templates,

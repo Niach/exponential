@@ -15,7 +15,7 @@ import { HostSurface, hostPlugin } from "./host-surface"
 
 afterEach(() => cleanup())
 
-const V = `v0.9`
+const V = `1.0`
 const create = (surfaceId: string, catalogId = CORE_CATALOG_ID) => ({ version: V, createSurface: { surfaceId, catalogId } })
 const components = (surfaceId: string, list: FlatComponent[]) => ({ version: V, updateComponents: { surfaceId, components: list } })
 const tick = () => new Promise((r) => setTimeout(r, 0))
@@ -23,7 +23,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0))
 /** `host-router.json`'s acme.scoped: one template bound to exp:devices,
  *  one function, two listed sources (exp:devices and the acme.* prefix). */
 const scoped: AppPackage = {
-  formatVersion: 5,
+  formatVersion: 6,
   id: `acme.scoped`,
   name: `Scoped`,
   version: `1.0.0`,
@@ -32,14 +32,14 @@ const scoped: AppPackage = {
     list: {
       components: [
         { id: `root`, component: `Stack`, children: [`count`, `extra`, `leak`] },
-        { id: `count`, component: `Text`, text: { path: `/devices/count` } },
-        { id: `extra`, component: `Text`, text: { path: `/extra` } },
-        { id: `leak`, component: `Text`, text: { path: `/issues` } },
+        { id: `count`, component: `Text`, text: { "@path": `/devices/count` } },
+        { id: `extra`, component: `Text`, text: { "@path": `/extra` } },
+        { id: `leak`, component: `Text`, text: { "@path": `/issues` } },
       ],
       bindings: [{ path: `/devices`, source: `exp:devices` }],
     },
   },
-  functions: [`harness.toast`],
+  functions: [`harness_toast`],
   sources: [`exp:devices`, `acme.*`],
 } as unknown as AppPackage
 
@@ -50,18 +50,18 @@ describe(`HostSurface follows the host's allowlists`, () => {
     const sent: ClientMessage[] = []
     const host = new ExponentialHost({
       onSend: (m) => sent.push(m),
-      functions: { "harness.toast": (args) => void calls.push(args), "harness.mcp": () => void calls.push(`mcp`) },
-      policy: { functions: { deny: [`harness.mcp`] }, openUrl: (u) => opened.push(u), urls: { schemes: [`https`] } },
+      functions: { "harness_toast": (args) => void calls.push(args), "harness_mcp": () => void calls.push(`mcp`) },
+      policy: { functions: { deny: [`harness_mcp`] }, openUrl: (u) => opened.push(u), urls: { schemes: [`https`] } },
     })
     host.receive(create(`s`))
     host.receive(
       components(`s`, [
         { id: `root`, component: `Box`, children: [`a`, `b`, `c`, `d`, `e`, `l1`, `l2`] },
-        { id: `a`, component: `Button`, label: `Toast`, on: { press: { functionCall: { call: `harness.toast`, args: { message: `hi` } } } } },
-        { id: `b`, component: `Button`, label: `Mcp`, on: { press: { functionCall: { call: `harness.mcp`, args: {} } } } },
-        { id: `c`, component: `Button`, label: `Docs`, on: { press: { functionCall: { call: `openUrl`, args: { url: `https://ui.exponential.at` } } } } },
-        { id: `d`, component: `Button`, label: `Bad`, on: { press: { functionCall: { call: `openUrl`, args: { url: `http://insecure.example` } } } } },
-        { id: `e`, component: `Button`, label: `Lan`, on: { press: { functionCall: { call: `openUrl`, args: { url: `https://192.168.1.1/admin` } } } } },
+        { id: `a`, component: `Button`, label: `Toast`, on: { press: { functionCall: { "@call": `harness_toast`, args: { message: `hi` } } } } },
+        { id: `b`, component: `Button`, label: `Mcp`, on: { press: { functionCall: { "@call": `harness_mcp`, args: {} } } } },
+        { id: `c`, component: `Button`, label: `Docs`, on: { press: { functionCall: { "@call": `openUrl`, args: { url: `https://ui.exponential.at` } } } } },
+        { id: `d`, component: `Button`, label: `Bad`, on: { press: { functionCall: { "@call": `openUrl`, args: { url: `http://insecure.example` } } } } },
+        { id: `e`, component: `Button`, label: `Lan`, on: { press: { functionCall: { "@call": `openUrl`, args: { url: `https://192.168.1.1/admin` } } } } },
         { id: `l1`, component: `Link`, label: `Secure`, href: `https://exponential.at/x`, external: true },
         { id: `l2`, component: `Link`, label: `Plain`, href: `http://exponential.at/x`, external: true },
       ])
@@ -73,7 +73,7 @@ describe(`HostSurface follows the host's allowlists`, () => {
     }
     expect(calls).toEqual([{ message: `hi` }])
     expect(opened).toEqual([`https://ui.exponential.at/`])
-    expect(sent.map((m) => (`error` in m ? m.error.code : `action`))).toEqual([`FUNCTION_DENIED`])
+    expect(sent.map((m) => (`error` in m ? m.error.code : `action`))).toEqual([`INVALID_FUNCTION_CALL`])
     const links = [...view.container.querySelectorAll(`a`)].map((a) => [a.textContent, a.getAttribute(`href`), a.hasAttribute(`data-denied`)])
     expect(links).toEqual([
       [`Secure`, `https://exponential.at/x`, false],
@@ -88,7 +88,7 @@ describe(`HostSurface follows the host's allowlists`, () => {
     const host = new ExponentialHost({
       onSend: (m) => sent.push(m),
       packages: [scoped],
-      functions: { "harness.toast": () => 1, "harness.mcp": () => 42 },
+      functions: { "harness_toast": () => 1, "harness_mcp": () => 42 },
       sources: {
         exp: (source, emit) => {
           resolved.push(`exp:${source.name}`)
@@ -101,23 +101,23 @@ describe(`HostSurface follows the host's allowlists`, () => {
         },
       },
     })
-    host.receive({ version: V, applyTemplate: { surfaceId: `p`, templateId: `list`, packageId: `acme.scoped` } })
+    host.applyTemplate({ surfaceId: `p`, templateId: `list`, packageId: `acme.scoped` })
     const view = render(() => <HostSurface host={host} surfaceId="p" theme="neutral" />)
     expect(view.getByText(`2`)).toBeTruthy()
     // exp:issues is a registered scheme but not in the package's sources.
-    host.receive({ version: V, bindDataModel: { surfaceId: `p`, path: `/issues`, source: `exp:issues?board=b1` } })
+    host.receive({ version: V, bindDataModel: { surfaceId: `p`, path: `/issues`, source: `exp:issues?board=b1` } }, { trusted: true })
     // acme.* is listed as a prefix: acme.data binds.
-    host.receive({ version: V, bindDataModel: { surfaceId: `p`, path: `/extra`, source: `acme.data:list/items` } })
+    host.receive({ version: V, bindDataModel: { surfaceId: `p`, path: `/extra`, source: `acme.data:list/items` } }, { trusted: true })
     await tick()
     expect(resolved).toEqual([`exp:devices`, `acme.data:list/items`])
     expect(sent).toEqual([{ version: V, error: { code: `SOURCE_DENIED`, surfaceId: `p`, message: `source exp:issues?board=b1 is not in package acme.scoped's sources`, path: `/issues` } }])
     expect(view.getByText(`extra value`)).toBeTruthy()
     expect(host.surface(`p`)!.data.issues).toBeUndefined()
     expect(view.container.querySelector(`[data-xui-id="leak"]`)!.textContent).toBe(``)
-    // The package also narrows the function gate: harness.mcp is registered but not listed, harness.toast is.
-    expect((await host.callFunction({ surfaceId: `p`, componentId: `b`, name: `harness.mcp`, args: {} })).decision).toBe(`deny`)
-    expect((await host.callFunction({ surfaceId: `p`, componentId: `b`, name: `harness.toast`, args: {} })).decision).toBe(`allow`)
-    expect(sent.map((m) => (`error` in m ? m.error.code : `action`))).toEqual([`SOURCE_DENIED`, `FUNCTION_DENIED`])
+    // The package also narrows the function gate: harness_mcp is registered but not listed, harness_toast is.
+    expect((await host.callFunction({ surfaceId: `p`, componentId: `b`, name: `harness_mcp`, args: {} })).decision).toBe(`deny`)
+    expect((await host.callFunction({ surfaceId: `p`, componentId: `b`, name: `harness_toast`, args: {} })).decision).toBe(`allow`)
+    expect(sent.map((m) => (`error` in m ? m.error.code : `action`))).toEqual([`SOURCE_DENIED`, `INVALID_FUNCTION_CALL`])
   })
 
   it(`hostPlugin hands the renderer the host's URL and media policy, private hosts included`, () => {

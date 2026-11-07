@@ -237,7 +237,14 @@
       "checks": [
         {
           "condition": {
-            "@path": "/n"
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "/n"
+              },
+              "then": true,
+              "else": false
+            }
           },
           "message": "Pick one"
         }
@@ -256,7 +263,14 @@
       "checks": [
         {
           "condition": {
-            "@path": "/n"
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "/n"
+              },
+              "then": true,
+              "else": false
+            }
           },
           "message": "Pick one"
         }

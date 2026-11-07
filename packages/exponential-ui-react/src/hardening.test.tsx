@@ -39,7 +39,7 @@ const reduced = (node: NestedNode) => {
 describe(`event context: the component payload wins a clashing key (Rust core fire())`, () => {
   it(`a bound Input's change carries the TYPED value, not the author's stale read of the same path`, () => {
     const events: SurfaceActionEvent[] = []
-    const root = tree({ id: `q`, component: `Input`, props: { label: `Q`, value: { path: `/q` } }, on: { change: { event: { name: `typed`, context: { value: { path: `/q` }, extra: `kept` } } } } })
+    const root = tree({ id: `q`, component: `Input`, props: { label: `Q`, value: { "@path": `/q` } }, on: { change: { event: { name: `typed`, context: { value: { "@path": `/q` }, extra: `kept` } } } } })
     const { container } = render(<ExponentialSurface root={root} data={{ q: `` }} theme="neutral" id="ev" host={{ onAction: (e) => void events.push(e) }} />)
     fireEvent.change(container.querySelector(`input`)!, { target: { value: `abc` } })
     expect(events[0].context).toMatchObject({ value: `abc`, extra: `kept` })
@@ -49,12 +49,12 @@ describe(`event context: the component payload wins a clashing key (Rust core fi
 describe(`required = the contract's (dynamic.ts LOGIC_FUNCTIONS, Rust data.rs)`, () => {
   it(`matches the TS reference on every truthiness edge (false fails, 0 passes)`, () => {
     for (const value of [false, true, 0, 1, ``, ` `, `x`, null, undefined, [], [0], {}, NaN]) {
-      expect(CLIENT_FUNCTIONS.required({ value }, { data: {} }), JSON.stringify(value) ?? `undefined`).toBe(BIND_FUNCTIONS.required({ value }))
+      expect(CLIENT_FUNCTIONS.required({ value }, { data: {} }), JSON.stringify(value) ?? `undefined`).toEqual(BIND_FUNCTIONS.required({ value }))
     }
-    expect(CLIENT_FUNCTIONS.required({ value: false }, { data: {} })).toBe(false)
+    expect(CLIENT_FUNCTIONS.required({ value: false }, { data: {} })).toEqual({ valid: false })
   })
   it(`a Checkbox checked=false fails its required check`, () => {
-    const root = tree({ id: `agree`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, checked: { path: `/agree` }, checks: [{ condition: { call: `required`, args: { value: { path: `/agree` } } }, message: `Please agree` }] } })
+    const root = tree({ id: `agree`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, checked: { "@path": `/agree` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/agree` } } }, message: `Please agree` }] } })
     const { container } = render(<ExponentialSurface root={root} data={{ agree: false }} theme="neutral" id="rq" />)
     fireEvent.click(container.querySelector(`[role="checkbox"]`)!)
     fireEvent.click(container.querySelector(`[role="checkbox"]`)!)
@@ -168,7 +168,7 @@ describe(`template instance ids`, () => {
       component: `Box`,
       children: [
         { id: `l`, component: `List`, template: { component: `row`, path: `/rows`, key: `id` }, children: [] },
-        { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Text`, props: { text: { path: `name` } } }] },
+        { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Text`, props: { text: { "@path": `name` } } }] },
       ],
     } as unknown as NestedNode
     const rows = [{ id: 1, name: `a` }, { id: 1, name: `b` }, { id: ``, name: `c` }, { name: `d` }, { id: `#1`, name: `e` }]
@@ -185,7 +185,7 @@ describe(`template instance ids`, () => {
         { id: `outer`, component: `List`, template: { component: `orow`, path: `/groups`, key: `id` }, children: [] },
         { id: `defs`, component: `Box`, visible: false, children: [
           { id: `orow`, component: `Box`, children: [{ id: `inner`, component: `List`, template: { component: `cell`, path: `items` }, children: [] }] },
-          { id: `cell`, component: `Text`, props: { text: { path: `t` } } },
+          { id: `cell`, component: `Text`, props: { text: { "@path": `t` } } },
         ] },
       ],
     } as unknown as NestedNode
@@ -228,8 +228,8 @@ describe(`dynamic style values`, () => {
       id: `parent`,
       component: `Box`,
       props: {},
-      style: { width: { call: `percent`, args: { value: { path: `/a` }, max: 100 } } },
-      children: [{ id: `child`, component: `Box`, props: {}, style: { width: { path: `/missing` } }, children: [] }],
+      style: { width: { "@call": `percent`, args: { value: { "@path": `/a` }, max: 100 } } },
+      children: [{ id: `child`, component: `Box`, props: {}, style: { width: { "@path": `/missing` } }, children: [] }],
     }
     const { container } = render(<ExponentialSurface root={root} data={{ a: 40 }} theme="neutral" id="dy" />)
     expect((container.querySelector(`[data-xui-id="parent"]`) as HTMLElement).style.getPropertyValue(`--xd-0`)).toBe(`40%`)
@@ -261,7 +261,7 @@ describe(`Table keyboard and literal-row slots`, () => {
     const inputs: SurfaceInputEvent[] = []
     const datas: unknown[] = []
     const host: HostPlugin = { onInput: (e) => void inputs.push(e) }
-    const root = tree({ id: `t`, component: `Table`, props: { columns, rows: [{ id: `a`, name: `A`, done: false }, { id: `b`, name: `B`, done: true }] }, slots: { ok: { id: `ok`, component: `Checkbox`, props: { label: `Done`, checked: { path: `done` } } } } })
+    const root = tree({ id: `t`, component: `Table`, props: { columns, rows: [{ id: `a`, name: `A`, done: false }, { id: `b`, name: `B`, done: true }] }, slots: { ok: { id: `ok`, component: `Checkbox`, props: { label: `Done`, checked: { "@path": `done` } } } } })
     const { container } = render(<ExponentialSurface root={root} data={{}} theme="neutral" id="lr" host={host} />)
     const box = () => container.querySelector<HTMLElement>(`[data-xui-id="ok.a"] [role="checkbox"]`)!
     expect(box().getAttribute(`data-state`)).toBe(`unchecked`)
@@ -280,7 +280,7 @@ describe(`Table keyboard and literal-row slots`, () => {
       children: [
         { id: `outer`, component: `List`, template: { component: `card`, path: `/teams` }, children: [] },
         { id: `defs`, component: `Box`, visible: false, children: [
-          { id: `card`, component: `Table`, props: { columns: [{ key: `n`, label: `N`, type: `slot`, slot: `c` }], rows: { path: `rows` } }, slots: { c: { id: `cell`, component: `Text`, props: { text: { path: `n` } } } } },
+          { id: `card`, component: `Table`, props: { columns: [{ key: `n`, label: `N`, type: `slot`, slot: `c` }], rows: { "@path": `rows` } }, slots: { c: { id: `cell`, component: `Text`, props: { text: { "@path": `n` } } } } },
         ] },
       ],
     } as unknown as NestedNode

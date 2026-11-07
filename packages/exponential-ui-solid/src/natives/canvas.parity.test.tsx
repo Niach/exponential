@@ -23,7 +23,7 @@ describe(`DOM parity: canvas`, { timeout: 60_000 }, () => {
           { id: `c2`, component: `Canvas`, props: { ...bars, fit: `cover` }, style: { width: 200, height: 40 } },
           { id: `c3`, component: `Canvas`, props: { ...bars }, style: { width: 64 } },
           { id: `c4`, component: `Canvas`, props: { ...bars, pointer: true, label: `Pick` }, on: { press: { event: { name: `p` } } } },
-          { id: `c5`, component: `Canvas`, props: { size: [10, 10], shapes: { path: `/shapes` } } },
+          { id: `c5`, component: `Canvas`, props: { size: [10, 10], shapes: { "@path": `/shapes` } } },
         ],
       } as NestedNode,
       data: { shapes: bars.shapes },

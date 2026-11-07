@@ -337,7 +337,7 @@ describe(`fixtures/markdown-text-links.json: a Markdown's text asks the host's t
 })
 
 describe(`an overlay's trigger slot`, () => {
-  for (const [component, props] of [[`Dialog`, { title: `T` }], [`Dialog`, { title: `T`, open: false }], [`Dialog`, { title: `T`, open: { path: `/o` } }], [`Drawer`, { title: `T` }], [`Popover`, {}]] as const) {
+  for (const [component, props] of [[`Dialog`, { title: `T` }], [`Dialog`, { title: `T`, open: false }], [`Dialog`, { title: `T`, open: { "@path": `/o` } }], [`Drawer`, { title: `T` }], [`Popover`, {}]] as const) {
     it(`a Button opens the ${component} ${JSON.stringify(props)}, and still presses`, () => {
       const onAction = vi.fn()
       const c = paint({ id: `d`, component, props, slots: { trigger: { id: `t`, component: `Button`, props: { label: `Open` }, on: { press: { event: { name: `pressed` } } } } }, children: [{ id: `x`, component: `Text`, props: { text: `Inside` } }] } as unknown as NestedNode, { onAction })

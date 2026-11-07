@@ -91,9 +91,9 @@ describe(`Motion interactivity (M4)`, () => {
 
   it(`progress-thresholds: bound inputs pick the state; the final state completes once`, async () => {
     const actions: SurfaceActionEvent[] = []
-    const set = (id: string, level: number) => ({ id, component: `Button`, props: { label: id }, on: { press: { functionCall: { call: `set`, args: { path: `/sm/level`, value: level } } } } })
+    const set = (id: string, level: number) => ({ id, component: `Button`, props: { label: id }, on: { press: { functionCall: { "@call": `set`, args: { path: `/sm/level`, value: level } } } } })
     const root = reduceNested(
-      { id: `s`, component: `Stack`, children: [{ id: `m`, component: `Motion`, props: { lottie: stateFixture.lottie, stateMachine: machineOf(`progress-thresholds`), inputs: { path: `/sm` } }, on: { ...ON, press: undefined } }, set(`b60`, 60), set(`b10`, 10), set(`b100`, 100), set(`b0`, 0)] } as unknown as NestedNode,
+      { id: `s`, component: `Stack`, children: [{ id: `m`, component: `Motion`, props: { lottie: stateFixture.lottie, stateMachine: machineOf(`progress-thresholds`), inputs: { "@path": `/sm` } }, on: { ...ON, press: undefined } }, set(`b60`, 60), set(`b10`, 10), set(`b100`, 100), set(`b0`, 0)] } as unknown as NestedNode,
       { catalogId: CORE_CATALOG_ID }
     ).root
     const r = render(<ExponentialSurface root={root} data={{ sm: { level: 30 } }} theme="neutral" id="mp" host={{ onAction: (e) => void actions.push(e) }} />)

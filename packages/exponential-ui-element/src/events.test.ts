@@ -105,7 +105,7 @@ describe(`events`, () => {
     const d = deferred()
     const seen: SurfaceInputDetail[] = []
     const el = mount((e) => {
-      fixture({ id: `i`, component: `Input`, props: { label: `T`, name: `t`, value: { path: `/t` } } } as unknown as NestedNode, { t: `` })(e)
+      fixture({ id: `i`, component: `Input`, props: { label: `T`, name: `t`, value: { "@path": `/t` } } } as unknown as NestedNode, { t: `` })(e)
       e.plugin = { onInput: plugin }
     })
     el.addEventListener(`xui-input`, (e) => {
@@ -134,7 +134,7 @@ describe(`events`, () => {
   })
 
   it(`xui-function-call: the first respond wins and keeps the source pending; without one the plugin's result`, async () => {
-    const node = { id: `b`, component: `Button`, props: { label: `Look up` }, on: { press: { functionCall: { call: `lookup`, args: { q: 1 } } } } } as unknown as NestedNode
+    const node = { id: `b`, component: `Button`, props: { label: `Look up` }, on: { press: { functionCall: { "@call": `lookup`, args: { q: 1 } } } } } as unknown as NestedNode
     const plugin = vi.fn(() => `from-plugin`)
     const d = deferred()
     const el = mount((e) => {

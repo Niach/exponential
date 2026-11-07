@@ -103,7 +103,7 @@ describe(`bind pass: fixtures/bind-time.json through the React resolver`, () => 
 
 describe(`the audit's bugs`, () => {
   it(`A: a bound Progress paints its fill from the data (a dynamic style value → a variable)`, () => {
-    const root = tree({ id: `p`, component: `Progress`, props: { value: { path: `/v` }, max: 200 } })
+    const root = tree({ id: `p`, component: `Progress`, props: { value: { "@path": `/v` }, max: 200 } })
     const { container } = render(<ExponentialSurface root={root} data={{ v: 50 }} theme="neutral" id="pa" />)
     const fill = container.querySelector(`[data-xui-id="p.track.fill"]`) as HTMLElement
     expect(fill.style.getPropertyValue(`--xd-0`)).toBe(`25%`)
@@ -111,7 +111,7 @@ describe(`the audit's bugs`, () => {
   })
   it(`A: a bound Collapsible toggles through set (two-way) and routes the new value`, () => {
     const actions: SurfaceActionEvent[] = []
-    const root = tree({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, on: { change: { event: { name: `toggled` } } }, children: [{ id: `body-text`, component: `Text`, props: { text: `Inside` } }] })
+    const root = tree({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/open` } }, on: { change: { event: { name: `toggled` } } }, children: [{ id: `body-text`, component: `Text`, props: { text: `Inside` } }] })
     const { container } = render(<ExponentialSurface root={root} data={{ open: false }} theme="neutral" id="ca" host={{ onAction: (e) => void actions.push(e) }} />)
     expect(container.querySelector(`[data-xui-id="body-text"]`)).toBeNull()
     fireEvent.click(container.querySelector(`[data-xui-id="c.trigger"]`)!)
@@ -121,7 +121,7 @@ describe(`the audit's bugs`, () => {
     expect(container.querySelector(`[data-xui-id="body-text"]`)).toBeNull()
   })
   it(`A: a bound Pagination prints the page and its arrows write the page`, () => {
-    const root = tree({ id: `pg`, component: `Pagination`, props: { page: { path: `/page` }, totalPages: 5 } })
+    const root = tree({ id: `pg`, component: `Pagination`, props: { page: { "@path": `/page` }, totalPages: 5 } })
     const { container } = render(<ExponentialSurface root={root} data={{ page: 2 }} theme="neutral" id="pga" />)
     expect(container.textContent).toContain(`2`)
     expect(container.textContent).not.toContain(`[object Object]`)
@@ -131,15 +131,15 @@ describe(`the audit's bugs`, () => {
 
   const flat: FlatComponent[] = [
     { id: `root`, component: `List`, children: { componentId: `row`, path: `/rows`, key: `id` } },
-    { id: `row`, component: `Stack`, direction: `horizontal`, gap: `md`, style: { backgroundColor: `$color.muted`, "@media (min-width: 600px)": { padding: 12 } }, children: [`row-title`, `row-input`] },
-    { id: `row-title`, component: `Text`, text: { path: `title` } },
-    { id: `row-input`, component: `Input`, label: `Note`, name: `note` },
+    { id: `row`, component: `Stack`, direction: `horizontal`, gap: `md`, style: { backgroundColor: `$color.muted`, "@media (min-width: 600px)": { padding: 12 } }, children: [`row_title`, `row_input`] },
+    { id: `row_title`, component: `Text`, text: { "@path": `title` } },
+    { id: `row_input`, component: `Input`, label: `Note`, name: `note` },
   ]
   function Flat({ data }: { data: Record<string, unknown> }) {
     const s = useSurface({ surfaceId: `t`, data })
     return (
       <>
-        <button data-testid="load" onClick={() => s.apply({ updateComponents: { surfaceId: `t`, components: flat } })} />
+        <button data-testid="load" onClick={() => s.apply({ version: `1.0`, updateComponents: { surfaceId: `t`, components: flat } })} />
         <button data-testid="reorder" onClick={() => s.setData(`/rows`, [...(getPointer(s.data, `/rows`) as unknown[])].reverse())} />
         <ExponentialSurface surface={s} theme="neutral" />
       </>
@@ -160,10 +160,10 @@ describe(`the audit's bugs`, () => {
   it(`template items are keyed by template.key: a reorder keeps each item's element and local state`, () => {
     const { container } = render(<Flat data={{ rows: [{ id: `a`, title: `Alpha` }, { id: `b`, title: `Beta` }] }} />)
     fireEvent.click(screen.getByTestId(`load`))
-    const a = container.querySelector(`[data-xui-id="row-input.a"] input`) as HTMLInputElement
+    const a = container.querySelector(`[data-xui-id="row_input.a"] input`) as HTMLInputElement
     fireEvent.change(a, { target: { value: `typed in a` } })
     fireEvent.click(screen.getByTestId(`reorder`))
-    const after = container.querySelector(`[data-xui-id="row-input.a"] input`) as HTMLInputElement
+    const after = container.querySelector(`[data-xui-id="row_input.a"] input`) as HTMLInputElement
     expect(after).toBe(a)
     expect(after.value).toBe(`typed in a`)
     const titles = Array.from(container.querySelectorAll(`[data-xui-c="Text"]`)).map((e) => e.textContent)
@@ -263,9 +263,9 @@ describe(`responsive natives, visible, strings, locale`, () => {
     expect(document.querySelector(`[data-xui-overlay="Drawer"]`)!.getAttribute(`data-r-side`)).toBe(`right`)
   })
   it(`a bound visible hides a node (no element), a literal false too`, () => {
-    const root = tree({ id: `root`, component: `Box`, children: [{ id: `a`, component: `Text`, props: { text: `A` }, visible: { path: `/show` } }, { id: `b`, component: `Text`, props: { text: `B` }, visible: false }] })
-    const { container, rerender } = render(<ExponentialSurface root={root} data={{ show: 0 }} theme="neutral" id="v" />)
-    // 0 is TRUE (the catalog's truthiness).
+    const root = tree({ id: `root`, component: `Box`, children: [{ id: `a`, component: `Text`, props: { text: `A` }, visible: { "@path": `/show` } }, { id: `b`, component: `Text`, props: { text: `B` }, visible: false }] })
+    const { container, rerender } = render(<ExponentialSurface root={root} data={{ show: 1 }} theme="neutral" id="v" />)
+    // A2UI 1.0 coercion (round 9 §6.7): a non-zero number is true, 0 and "" are false.
     expect(container.querySelector(`[data-xui-id="a"]`)).not.toBeNull()
     expect(container.querySelector(`[data-xui-id="b"]`)).toBeNull()
     rerender(<ExponentialSurface root={root} data={{ show: `` }} theme="neutral" id="v2" />)
@@ -382,14 +382,14 @@ describe(`Form`, () => {
         props: {
           label: `Email`,
           name: `email`,
-          value: { path: `/email` },
+          value: { "@path": `/email` },
           checks: [
-            { condition: { call: `required`, args: { value: { path: `/email` } } }, message: `Required` },
-            { condition: { call: `email`, args: { value: { path: `/email` } } }, message: `Not an email` },
+            { condition: { "@call": `required`, args: { value: { "@path": `/email` } } }, message: `Required` },
+            { condition: { "@call": `email`, args: { value: { "@path": `/email` } } }, message: `Not an email` },
           ],
         },
       },
-      { id: `age`, component: `NumberField`, props: { label: `Age`, name: `age`, value: { path: `/age` }, checks: [{ condition: { call: `numeric`, args: { value: { path: `/age` }, min: 18 } }, message: `18+` }] } },
+      { id: `age`, component: `NumberField`, props: { label: `Age`, name: `age`, value: { "@path": `/age` }, checks: [{ condition: { "@call": `numeric`, args: { value: { "@path": `/age` }, min: 18 } }, message: `18+` }] } },
       { id: `go`, component: `Button`, props: { label: `Send`, submit: true } },
     ],
   })
@@ -439,7 +439,7 @@ describe(`Form`, () => {
 describe(`new natives`, () => {
   it(`NumberField: spinbutton, ArrowUp/Shift, clamps to max, writes the bound path`, () => {
     const actions: SurfaceActionEvent[] = []
-    const root = tree({ id: `n`, component: `NumberField`, props: { label: `Seats`, name: `seats`, value: { path: `/seats` }, min: 1, max: 30, step: 1 }, on: { change: { event: { name: `c` } } } })
+    const root = tree({ id: `n`, component: `NumberField`, props: { label: `Seats`, name: `seats`, value: { "@path": `/seats` }, min: 1, max: 30, step: 1 }, on: { change: { event: { name: `c` } } } })
     const { container } = render(<ExponentialSurface root={root} data={{ seats: 5 }} theme="neutral" id="nf" host={{ onAction: (e) => void actions.push(e) }} />)
     const input = container.querySelector(`input`)!
     expect(input.getAttribute(`role`)).toBe(`spinbutton`)
@@ -508,7 +508,7 @@ describe(`new natives`, () => {
   it(`Toast: in the toast layer, runs its duration (paused on hover), writes open=false, fires dismiss + change`, () => {
     vi.useFakeTimers()
     const names: string[] = []
-    const root = tree({ id: `to`, component: `Toast`, props: { title: `Saved`, type: `error`, open: { path: `/t` }, duration: 1000 }, on: { dismiss: { event: { name: `dismiss` } }, change: { event: { name: `change` } } } })
+    const root = tree({ id: `to`, component: `Toast`, props: { title: `Saved`, type: `error`, open: { "@path": `/t` }, duration: 1000 }, on: { dismiss: { event: { name: `dismiss` } }, change: { event: { name: `change` } } } })
     const { container } = render(<ExponentialSurface root={root} data={{ t: true }} theme="neutral" id="ts" host={{ onAction: (e) => void names.push(e.name) }} />)
     const el = container.querySelector(`[data-xui-id="to"]`)!
     expect(el.closest(`[data-xui-layer="toast"]`)).not.toBeNull()
@@ -539,10 +539,10 @@ describe(`new natives`, () => {
           { id: `c`, name: `Cy`, status: `On` },
         ],
         selectable: `multiple`,
-        selected: { path: `/sel` },
+        selected: { "@path": `/sel` },
         striped: true,
       },
-      slots: { st: { id: `pill`, component: `Text`, props: { text: { path: `status` } } } },
+      slots: { st: { id: `pill`, component: `Text`, props: { text: { "@path": `status` } } } },
       on: { sort: { event: { name: `sort` } }, select: { event: { name: `select` } } },
     })
     const { container } = render(<ExponentialSurface root={root} data={{ sel: [] }} theme="neutral" id="tb" locale="en-US" host={{ onAction: (e) => void events.push(e) }} />)
@@ -638,7 +638,7 @@ describe(`new natives`, () => {
     expect(ta.style.height).toMatch(/px$/)
   })
   it(`Menu kinds render: label, separator, checkbox (bound, writes), submenu trigger, shortcut`, () => {
-    const root = tree({ id: `m`, component: `Menu`, props: { label: `View`, items: [{ kind: `label`, label: `Show` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { path: `/done` } }, { kind: `separator` }, { label: `Copy`, value: `copy`, shortcut: `⌘C` }, { kind: `submenu`, label: `More`, items: [{ label: `A`, value: `a` }] }] }, on: { select: { event: { name: `sel` } } } })
+    const root = tree({ id: `m`, component: `Menu`, props: { label: `View`, items: [{ kind: `label`, label: `Show` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { "@path": `/done` } }, { kind: `separator` }, { label: `Copy`, value: `copy`, shortcut: `⌘C` }, { kind: `submenu`, label: `More`, items: [{ label: `A`, value: `a` }] }] }, on: { select: { event: { name: `sel` } } } })
     const events: SurfaceActionEvent[] = []
     const { container } = render(<ExponentialSurface root={root} data={{ done: false }} theme="neutral" id="dm" host={{ onAction: (e) => void events.push(e) }} />)
     const trigger = container.querySelector(`.xui-Menu-trigger`)!
@@ -683,7 +683,7 @@ describe(`round 3 natives (VAPP-102)`, () => {
     expect(document.querySelector(`[data-xui-overlay="Menu"]`)).not.toBeNull()
   })
   it(`a submenu's BOUND items ({path} inside a shaped array item) resolve and render like literal ones`, () => {
-    const node = { id: `m`, component: `Menu`, props: { label: `Set`, items: [{ kind: `submenu`, label: `Status`, items: { path: `/statuses` } }] } } as unknown as NestedNode
+    const node = { id: `m`, component: `Menu`, props: { label: `Set`, items: [{ kind: `submenu`, label: `Status`, items: { "@path": `/statuses` } }] } } as unknown as NestedNode
     const root = tree(node)
     const data = { statuses: [{ label: `Todo`, value: `todo` }, { label: `Done`, value: `done` }] }
     // The bind pass (the renderer's and the core's reference) resolves it.
@@ -698,7 +698,7 @@ describe(`round 3 natives (VAPP-102)`, () => {
     expect(Array.from(subContent.querySelectorAll(`[role="menuitem"]`)).map((e) => e.textContent)).toEqual([`Todo`, `Done`])
   })
   it(`Segmented (default segmented variant) = a radiogroup of radios; change writes the bound value`, () => {
-    const root = tree({ id: `s`, component: `Segmented`, props: { items: [{ label: `List`, value: `list` }, { label: `Board`, value: `board` }], value: { path: `/view` } }, on: { change: { event: { name: `view` } } } } as unknown as NestedNode)
+    const root = tree({ id: `s`, component: `Segmented`, props: { items: [{ label: `List`, value: `list` }, { label: `Board`, value: `board` }], value: { "@path": `/view` } }, on: { change: { event: { name: `view` } } } } as unknown as NestedNode)
     const data = { view: `list` }
     const events: SurfaceActionEvent[] = []
     const { container } = render(<ExponentialSurface root={root} data={data} theme="neutral" id="sg" host={{ onAction: (e) => void events.push(e) }} />)

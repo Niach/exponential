@@ -23,12 +23,12 @@ describe(`select: variants`, () => {
     it(`${tag}: placeholder (no value)`, async () => expectParity({ tree: sel({ ...variant, placeholder: `Pick one` }) }))
     it(`${tag}: a value not in the options`, async () => expectParity({ tree: sel({ ...variant, value: `nope` }) }))
     it(`${tag}: no options`, async () => expectParity({ tree: sel({ ...variant, options: [], value: `x` }) }))
-    it(`${tag}: bound value`, async () => expectParity({ tree: sel({ ...variant, value: { path: `/v` } }), data: { v: variant && `multiple` in variant ? [`backlog`, `sprint`] : `sprint` } }))
+    it(`${tag}: bound value`, async () => expectParity({ tree: sel({ ...variant, value: { "@path": `/v` } }), data: { v: variant && `multiple` in variant ? [`backlog`, `sprint`] : `sprint` } }))
     it(`${tag}: a comma list value`, async () => expectParity({ tree: sel({ ...variant, value: `backlog,sprint` }) }))
     it(`${tag}: inside a Form, invalid after submit`, async () =>
       expectParity(
         {
-          tree: { id: `f`, component: `Form`, children: [sel({ ...variant, value: { path: `/v` }, checks: [{ condition: { call: `required`, args: { value: { path: `/v` } } }, message: `Pick a board` }] })] } as unknown as NestedNode,
+          tree: { id: `f`, component: `Form`, children: [sel({ ...variant, value: { "@path": `/v` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/v` } } }, message: `Pick a board` }] })] } as unknown as NestedNode,
           data: { v: `` },
           theme: `exponential`,
         },

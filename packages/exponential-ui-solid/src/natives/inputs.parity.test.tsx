@@ -36,10 +36,10 @@ const form: NestedNode = {
   component: `Form`,
   props: { summary: true },
   children: [
-    { id: `in`, component: `Input`, props: { label: `Title`, name: `title`, description: `Short`, value: { path: `/title` }, checks: [{ condition: { call: `required`, args: { value: { path: `/title` } } }, message: `Required` }], validateOn: `change` } },
+    { id: `in`, component: `Input`, props: { label: `Title`, name: `title`, description: `Short`, value: { "@path": `/title` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/title` } } }, message: `Required` }], validateOn: `change` } },
     { id: `ta`, component: `Textarea`, props: { label: `Body`, name: `body`, value: `Hello`, autosize: true, maxRows: 6 } },
-    { id: `nf`, component: `NumberField`, props: { label: `Seats`, name: `seats`, value: { path: `/seats` }, min: 1, max: 50, step: 0.5, unit: `seats` } },
-    { id: `cb`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, description: `Terms`, checked: { path: `/agree` } } },
+    { id: `nf`, component: `NumberField`, props: { label: `Seats`, name: `seats`, value: { "@path": `/seats` }, min: 1, max: 50, step: 0.5, unit: `seats` } },
+    { id: `cb`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, description: `Terms`, checked: { "@path": `/agree` } } },
     { id: `sw`, component: `Switch`, props: { label: `Auto`, name: `auto`, description: `Hourly`, checked: false } },
     { id: `ra`, component: `Radio`, props: { label: `Plan`, name: `plan`, options: [{ label: `Free`, value: `free`, icon: `star` }, { label: `Team`, value: `team`, disabled: true }], value: `team` } },
     { id: `sl`, component: `Slider`, props: { label: `Volume`, name: `vol`, min: 0, max: 10, step: 0.5, value: 2.5 } },
@@ -61,7 +61,7 @@ const one = (node: Record<string, unknown>, data?: Record<string, unknown>) => (
 
 describe(`inputs: interactions replayed on both`, () => {
   it(`Input: typing, focus, Enter`, async () =>
-    expectParity(one({ id: `i`, component: `Input`, props: { label: `T`, name: `t`, value: { path: `/t` } } }, { t: `` }), (root) => {
+    expectParity(one({ id: `i`, component: `Input`, props: { label: `T`, name: `t`, value: { "@path": `/t` } } }, { t: `` }), (root) => {
       const input = root.querySelector(`input`)
       fire(input, `focusin`)
       ;(input as HTMLInputElement).focus()
@@ -83,7 +83,7 @@ describe(`inputs: interactions replayed on both`, () => {
   it(`Checkbox indeterminate bound, inside a Form (the bubble input)`, async () =>
     expectParity(
       {
-        tree: { id: `f`, component: `Form`, props: { name: `f` }, children: [{ id: `c`, component: `Checkbox`, props: { label: `All`, name: `all`, checked: { path: `/c` }, indeterminate: { path: `/m` } } }] } as NestedNode,
+        tree: { id: `f`, component: `Form`, props: { name: `f` }, children: [{ id: `c`, component: `Checkbox`, props: { label: `All`, name: `all`, checked: { "@path": `/c` }, indeterminate: { "@path": `/m` } } }] } as NestedNode,
         data: { c: true, m: true },
         theme: `neutral`,
       },

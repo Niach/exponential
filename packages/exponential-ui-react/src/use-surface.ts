@@ -1,18 +1,18 @@
-// VAPP-87: `useSurface` — the TS reducer as React state. Feed it A2UI v0.9
-// server messages (`createSurface`, `updateComponents`, `updateDataModel`,
+// VAPP-87: `useSurface` — the TS reducer as React state. Feed it A2UI 1.0
+// agent messages (0.9 through the core's bridge, round 9 §1.5) (`createSurface`, `updateComponents`, `updateDataModel`,
 // `deleteSurface`) or a nested authoring tree, read back the normalized
 // root, the issues and the data model, and hand the result to
 // `<ExponentialSurface surface={…}>`.
 
 import { useCallback, useMemo, useRef, useState } from "react"
-import { CORE_CATALOG_ID, reduceNested, reduceSurface } from "@exponential_app/eui"
-import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, newSurfaceBridge, reduceNested, reduceSurface, surfaceUpdates } from "@exponential_app/eui"
+import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, SurfaceBridge, SurfaceUpdate, UiNode } from "@exponential_app/eui"
 import { setPointer } from "@exponential_app/eui/web"
 import type { DataModel } from "@exponential_app/eui/web"
 
 export interface A2uiMessage {
   version?: string
-  createSurface?: { surfaceId: string; catalogId: string; theme?: unknown; sendDataModel?: boolean }
+  createSurface?: { surfaceId: string; catalogId?: string; components?: FlatComponent[]; dataModel?: Record<string, unknown>; sendDataModel?: boolean; metadata?: { extensions?: Record<string, unknown> } }
   updateComponents?: { surfaceId: string; components: FlatComponent[] }
   updateDataModel?: { surfaceId: string; path?: string; value?: unknown }
   deleteSurface?: { surfaceId: string }
@@ -71,6 +71,24 @@ interface Inner {
 /** One empty list: a fresh `[]` per render would re-reduce on every render. */
 const NO_EXTENSIONS: readonly ExtensionDef[] = []
 
+function applyUpdate(cur: Inner, update: SurfaceUpdate, surfaceId: string): Inner {
+  if (update.surfaceId !== surfaceId) return cur
+  switch (update.kind) {
+    case `create`:
+      return { ...cur, catalogId: update.catalogId ?? cur.catalogId, components: update.components, nested: null, deleted: false, ...(update.dataModel ? { data: update.dataModel } : {}) }
+    case `components`: {
+      // A later update replaces components by id and keeps the rest.
+      const byId = new Map(cur.components.map((c) => [c.id, c]))
+      for (const c of update.components) byId.set(c.id, c)
+      return { ...cur, components: [...byId.values()], nested: null, deleted: false }
+    }
+    case `data`:
+      return { ...cur, data: setPointer(cur.data, update.path, update.value) }
+    case `delete`:
+      return { ...cur, components: [], nested: null, deleted: true }
+  }
+}
+
 export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
   const surfaceId = options.surfaceId ?? `main`
   const extensions = options.extensions ?? NO_EXTENSIONS
@@ -84,33 +102,14 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
   })
   const [inner, setInner] = useState<Inner>(initialRef.current)
 
+  const bridge = useRef<SurfaceBridge>(newSurfaceBridge(options.catalogId ?? CORE_CATALOG_ID))
   const apply = useCallback(
     (message: A2uiMessage) => {
-      setInner((cur) => {
-        if (message.createSurface) {
-          if (message.createSurface.surfaceId !== surfaceId) return cur
-          return { ...cur, catalogId: message.createSurface.catalogId, components: [], nested: null, deleted: false }
-        }
-        if (message.updateComponents) {
-          if (message.updateComponents.surfaceId !== surfaceId) return cur
-          // A later update replaces components by id and keeps the rest.
-          const byId = new Map(cur.components.map((c) => [c.id, c]))
-          for (const c of message.updateComponents.components) byId.set(c.id, c)
-          return { ...cur, components: [...byId.values()], nested: null, deleted: false }
-        }
-        if (message.updateDataModel) {
-          if (message.updateDataModel.surfaceId !== surfaceId) return cur
-          const { path, value } = message.updateDataModel
-          return { ...cur, data: setPointer(cur.data, path ?? ``, value) }
-        }
-        if (message.deleteSurface) {
-          if (message.deleteSurface.surfaceId !== surfaceId) return cur
-          return { ...cur, components: [], nested: null, deleted: true }
-        }
-        return cur
-      })
+      // Round 9 §1.5: the core parses the message (version, bridge, entries).
+      const { updates } = surfaceUpdates(message, bridge.current, { extensions })
+      setInner((cur) => updates.reduce((next, update) => applyUpdate(next, update, surfaceId), cur))
     },
-    [surfaceId]
+    [surfaceId, extensions]
   )
 
   const setData = useCallback((pointer: string, value: unknown) => {

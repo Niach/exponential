@@ -34,7 +34,7 @@ function counting() {
 
 const BASE: FlatComponent[] = [
   { id: `root`, component: `Box`, children: [`label`, `transcript`] },
-  { id: `label`, component: `Text`, text: { path: `/status/label` } },
+  { id: `label`, component: `Text`, text: { "@path": `/status/label` } },
   { id: `transcript`, component: `Box`, children: [`m0`] },
   { id: `m0`, component: `Text`, text: `first` },
 ] as unknown as FlatComponent[]
@@ -45,7 +45,7 @@ function Streamed({ onState }: { onState: (s: SurfaceState) => void }) {
     onState(surface)
   })
   useEffect(() => {
-    surface.apply({ updateComponents: { surfaceId: `s`, components: BASE } })
+    surface.apply({ version: `1.0`, updateComponents: { surfaceId: `s`, components: BASE } })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   return <ExponentialSurface surface={surface} theme="neutral" id="s" />
@@ -58,7 +58,7 @@ function Appended({ onState }: { onState: (s: SurfaceState) => void }) {
     onState(surface)
   })
   useEffect(() => {
-    surface.apply({ updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`last`] }, { id: `last`, component: `Text`, text: { path: `/log/-` } }] as unknown as FlatComponent[] } })
+    surface.apply({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`last`] }, { id: `last`, component: `Text`, text: { "@path": `/log/-` } }] as unknown as FlatComponent[] } })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   return <ExponentialSurface surface={surface} theme="neutral" id="s" />
@@ -72,7 +72,7 @@ describe(`live re-renders`, () => {
       const { container } = render(<Streamed onState={(s) => (state = s)} />)
       expect(container.querySelector(`[data-xui-id="label"]`)?.textContent).toBe(`a`)
       c.painted.length = 0
-      act(() => state.apply({ updateDataModel: { surfaceId: `s`, path: `/status`, value: { label: `b` } } }))
+      act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `s`, path: `/status`, value: { label: `b` } } }))
       expect(container.querySelector(`[data-xui-id="label"]`)?.textContent).toBe(`b`)
       expect(c.painted).toEqual([`label`])
     } finally {
@@ -96,7 +96,7 @@ describe(`live re-renders`, () => {
       expect(container.querySelector(`[data-xui-id="m1"]`)?.textContent).toBe(`second`)
       expect(c.painted).toEqual([`m1`])
       c.painted.length = 0
-      act(() => state.apply({ updateComponents: { surfaceId: `s`, components: [{ id: `m0`, component: `Text`, text: `changed` }] as unknown as FlatComponent[] } }))
+      act(() => state.apply({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `m0`, component: `Text`, text: `changed` }] as unknown as FlatComponent[] } }))
       expect(container.querySelector(`[data-xui-id="m0"]`)?.textContent).toBe(`changed`)
       expect(c.painted).toEqual([`m0`])
     } finally {
@@ -107,7 +107,7 @@ describe(`live re-renders`, () => {
     let state!: SurfaceState
     const { container } = render(<Appended onState={(s) => (state = s)} />)
     expect(container.querySelector(`[data-xui-id="last"]`)?.textContent).toBe(`a`)
-    act(() => state.apply({ updateDataModel: { surfaceId: `s`, path: `/log/-`, value: `b` } }))
+    act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `s`, path: `/log/-`, value: `b` } }))
     expect(container.querySelector(`[data-xui-id="last"]`)?.textContent).toBe(`b`)
     expect(state.data).toEqual({ log: [`a`, `b`] })
   })
@@ -117,7 +117,7 @@ describe(`live re-renders`, () => {
       component: `Table`,
       props: { columns: [{ key: `name`, label: `Name`, type: `slot`, slot: `cell` }], rows: [{ name: `x` }] },
       children: [],
-      slots: { cell: { id: `cell`, component: `Text`, props: { text: { path: `/greeting` } }, children: [] } },
+      slots: { cell: { id: `cell`, component: `Text`, props: { text: { "@path": `/greeting` } }, children: [] } },
     }
     const { container, rerender } = render(<ExponentialSurface root={root as never} data={{ greeting: `hi` }} theme="neutral" id="lt" />)
     expect(container.querySelector(`[data-xui-c="Text"]`)?.textContent).toBe(`hi`)

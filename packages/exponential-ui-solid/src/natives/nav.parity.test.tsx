@@ -33,14 +33,14 @@ const accordion = (type: string, value: unknown): NestedNode => ({
 describe(`nav DOM parity with React`, () => {
   for (const c of examples) it(c.name, async () => expectDomParity({ tree: c.node }))
   it(`Tabs: icons, counts, closable hover, addable, fill, the middle tab active`, async () => expectDomParity({ tree: tabs }))
-  it(`Tabs: a bound value`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, value: { path: `/tab` } } } as NestedNode, data: { tab: `logs` } }))
+  it(`Tabs: a bound value`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, value: { "@path": `/tab` } } } as NestedNode, data: { tab: `logs` } }))
   it(`Tabs: no value = the first tab`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, value: undefined, closable: `always` } } as NestedNode }))
   // VAPP-279: the strip (items, the folded `+N`, the + ; jsdom has no layout so nothing folds).
   it(`Tabs strip: icons, counts, closable hover, addable`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, variant: `strip`, fill: undefined } } as NestedNode }))
   it(`Tabs strip: closable always, no +`, async () => expectDomParity({ tree: { ...tabs, props: { ...tabs.props, variant: `strip`, fill: undefined, closable: `always`, addable: false } } as NestedNode }))
   for (const variant of [`segmented`, `toggles`, `outline`, `bar`])
     for (const type of [`single`, `multiple`]) it(`Segmented ${variant} ${type}: icons, an icon-only item, a disabled item`, async () => expectDomParity({ tree: segmented(variant, type, type === `multiple` ? `a,c` : `b`) }))
-  it(`Segmented multiple bound to an array`, async () => expectDomParity({ tree: segmented(`segmented`, `multiple`, { path: `/v` }), data: { v: [`b`, `d`] } }))
+  it(`Segmented multiple bound to an array`, async () => expectDomParity({ tree: segmented(`segmented`, `multiple`, { "@path": `/v` }), data: { v: [`b`, `d`] } }))
   // VAPP-162 (round-5 contract §3): every variant stacked; the vertical bar = the rail with count badges.
   for (const variant of [`segmented`, `toggles`, `outline`, `bar`]) it(`Segmented ${variant} vertical`, async () => expectDomParity({ tree: { ...segmented(variant), props: { ...segmented(variant).props, orientation: `vertical` } } as NestedNode }))
   const rail = (extra: Record<string, unknown> = {}): NestedNode => ({
@@ -62,12 +62,12 @@ describe(`nav DOM parity with React`, () => {
   })
   it(`Segmented rail with counts (99+, none at 0, icon-only, disabled)`, async () => expectDomParity({ tree: rail() }))
   it(`Segmented horizontal bar with counts`, async () => expectDomParity({ tree: rail({ orientation: undefined }) }))
-  it(`Segmented rail: a bound count`, async () => expectDomParity({ tree: rail({ items: [{ label: `Chats`, value: `chats`, icon: `star`, count: { path: `/n` } }] }), data: { n: 42 } }))
+  it(`Segmented rail: a bound count`, async () => expectDomParity({ tree: rail({ items: [{ label: `Chats`, value: `chats`, icon: `star`, count: { "@path": `/n` } }] }), data: { n: 42 } }))
   it(`Segmented rail with counts, dark + rtl`, async () => expectDomParity({ tree: rail(), theme: `exponential`, mode: `dark`, direction: `rtl` }))
   it(`Accordion single: one open, the others closed`, async () => expectDomParity({ tree: accordion(`single`, `2`) }))
   it(`Accordion single: all closed`, async () => expectDomParity({ tree: accordion(`single`, ``) }))
   it(`Accordion multiple: two open`, async () => expectDomParity({ tree: accordion(`multiple`, `1,3`) }))
-  it(`Accordion multiple bound to an array`, async () => expectDomParity({ tree: accordion(`multiple`, { path: `/v` }), data: { v: [`2`] } }))
+  it(`Accordion multiple bound to an array`, async () => expectDomParity({ tree: accordion(`multiple`, { "@path": `/v` }), data: { v: [`2`] } }))
   for (const s of [`hover`, `focus`, `pressed`, `checked`, `open`, `disabled`, `invalid`]) {
     it(`forced state ${s}: Tabs, Segmented, Accordion`, async () => expectDomParity({ tree: { id: `root`, component: `Box`, children: [tabs, segmented(`outline`), accordion(`single`, `1`)] }, states: [s] }))
   }

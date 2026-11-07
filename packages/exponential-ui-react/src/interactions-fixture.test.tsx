@@ -49,7 +49,7 @@ describe(`fixtures/interactions-round1.json`, () => {
   for (const c of fixture.numberField as NumberCase[]) {
     it(`NumberField: ${c.name}`, () => {
       const actions: SurfaceActionEvent[] = []
-      const root = tree({ id: `n`, component: `NumberField`, props: { label: `N`, name: `n`, value: { path: `/v` }, ...c.props }, on: { change: { event: { name: `change` } } } })
+      const root = tree({ id: `n`, component: `NumberField`, props: { label: `N`, name: `n`, value: { "@path": `/v` }, ...c.props }, on: { change: { event: { name: `change` } } } })
       const data = c.value === null ? {} : { v: c.value }
       const { container } = render(<ExponentialSurface root={root} data={data} theme="neutral" id={`nf`} host={{ onAction: (e) => void actions.push(e) }} />)
       const input = container.querySelector(`.xui-NumberField-input`) as HTMLInputElement
@@ -76,7 +76,7 @@ describe(`fixtures/interactions-round1.json`, () => {
         props: { name: `f` },
         on: { submit: { event: { name: `submit` } }, invalid: { event: { name: `invalid` } } },
         children: [
-          { id: `agree`, component: `Checkbox`, props: { label: `I agree`, name: `agree`, checked: { path: `/agreed` }, checks: c.checks } },
+          { id: `agree`, component: `Checkbox`, props: { label: `I agree`, name: `agree`, checked: { "@path": `/agreed` }, checks: c.checks } },
           { id: `go`, component: `Button`, props: { label: `Send`, submit: true } },
         ],
       } as NestedNode)
@@ -101,7 +101,7 @@ describe(`fixtures/interactions-round1.json rowPress`, () => {
   for (const c of (fixture as unknown as { rowPress: { name: string; rows: { id: string }[]; press: number; value: string; expect: string }[] }).rowPress) {
     it(`Table rowPress: ${c.name}`, () => {
       const actions: SurfaceActionEvent[] = []
-      const root = tree({ id: `t`, component: `Table`, props: { columns: [{ key: `name`, label: `Name` }], rows: { path: `/rows` } }, on: { rowPress: { event: { name: `picked`, context: { value: { path: c.value } } } } } })
+      const root = tree({ id: `t`, component: `Table`, props: { columns: [{ key: `name`, label: `Name` }], rows: { "@path": `/rows` } }, on: { rowPress: { event: { name: `picked`, context: { value: { "@path": c.value } } } } } })
       const { container } = render(<ExponentialSurface root={root} data={{ rows: c.rows }} theme="neutral" id={`rp`} host={{ onAction: (e) => void actions.push(e) }} />)
       fireEvent.click(container.querySelector(`[role="row"][data-key="${c.rows[c.press]!.id}"]`)!)
       expect(actions.find((a) => a.name === `picked`)?.context.value).toBe(c.expect)
@@ -123,7 +123,7 @@ describe(`fixtures/interactions-round1.json choiceTiles`, () => {
     it(`ChoiceTiles: ${c.name}`, () => {
       const actions: SurfaceActionEvent[] = []
       const options = [`a`, `b`, `c`].map((v, i) => ({ label: v.toUpperCase(), value: v, image: `https://example.com/${v}.png`, ...(c.disabled === i ? { disabled: true } : {}) }))
-      const root = tree({ id: `c`, component: `ChoiceTiles`, props: { name: `c`, type: c.type, options, value: { path: `/v` } }, on: { change: { event: { name: `change` } } } })
+      const root = tree({ id: `c`, component: `ChoiceTiles`, props: { name: `c`, type: c.type, options, value: { "@path": `/v` } }, on: { change: { event: { name: `change` } } } })
       const data = c.value === null ? {} : { v: c.value }
       const { container } = render(<ExponentialSurface root={root} data={data} theme="neutral" id={`ct`} host={{ onAction: (e) => void actions.push(e) }} />)
       // A press on any part of tile i picks it (the label, the picture, the tile).
@@ -162,9 +162,9 @@ describe(`fixtures/interactions-round1.json select`, () => {
         id: `root`,
         component: `Box`,
         children: [
-          { id: `s`, component: `Select`, props: { label: `Status`, name: `s`, options, value: { path: `/v` } }, on: { change: { event: { name: `change` } } } },
+          { id: `s`, component: `Select`, props: { label: `Status`, name: `s`, options, value: { "@path": `/v` } }, on: { change: { event: { name: `change` } } } },
           // /v as it is: `<unset>` when the path holds nothing.
-          { id: `v`, component: `Text`, props: { text: { call: `fallback`, args: { value: { path: `/v` }, default: `<unset>` } } } },
+          { id: `v`, component: `Text`, props: { text: { "@call": `fallback`, args: { value: { "@path": `/v` }, default: `<unset>` } } } },
         ],
       })
       const data = c.value === null ? {} : { v: c.value }
@@ -390,8 +390,8 @@ function FieldWrites({ c, onState }: { c: FieldWriteCase; onState: (s: SurfaceSt
       id: `root`,
       component: `Stack`,
       children: [
-        { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { path: `/draft` } } },
-        { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { call: `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
+        { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { "@path": `/draft` } } },
+        { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { "@call": `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
       ],
     } as NestedNode,
   })
@@ -410,7 +410,7 @@ describe(`fixtures/interactions-round1.json fieldWrites`, () => {
       for (const step of c.steps) {
         if (step.op === `focus`) fireEvent.focus(input())
         else if (step.op === `type`) fireEvent.change(input(), { target: { value: step.text } })
-        else if (step.op === `hostWrite`) act(() => state.apply({ updateDataModel: { surfaceId: `fw`, path: step.path, value: step.value } }))
+        else if (step.op === `hostWrite`) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `fw`, path: step.path, value: step.value } }))
         else if (step.op === `press`) fireEvent.click(container.querySelector(`[data-xui-id="save"]`)!)
         else fireEvent.blur(input())
       }
@@ -424,8 +424,8 @@ describe(`fixtures/interactions-round1.json fieldWrites`, () => {
           id: `root`,
           component: `Stack`,
           children: [
-            { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { path: `/draft` } } },
-            { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { call: `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
+            { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { "@path": `/draft` } } },
+            { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { "@call": `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
           ],
         } as NestedNode)
         const { container } = render(<ExponentialSurface root={root} data={{ draft: c.seed }} theme="neutral" id="fwl" />)

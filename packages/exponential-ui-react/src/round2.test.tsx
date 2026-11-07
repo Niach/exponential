@@ -43,7 +43,7 @@ describe(`lifted templates (§4)`, () => {
       component: `Box`,
       children: [
         { id: `l`, component: `List`, template: { component: `row`, path: `/rows`, key: `id` }, children: [] },
-        { id: `row`, component: `Text`, props: { text: { path: `name` } } },
+        { id: `row`, component: `Text`, props: { text: { "@path": `name` } } },
       ],
     } as unknown as NestedNode
     const r = reduced(nested)
@@ -55,7 +55,7 @@ describe(`lifted templates (§4)`, () => {
   it(`the flat path: a template component nothing else references still renders`, () => {
     const components: FlatComponent[] = [
       { id: `root`, component: `List`, children: { componentId: `item`, path: `/xs` } },
-      { id: `item`, component: `Text`, text: { path: `t` } },
+      { id: `item`, component: `Text`, text: { "@path": `t` } },
     ]
     const r = reduceSurface(components, { catalogId: CORE_CATALOG_ID })
     const { container } = render(<ExponentialSurface root={r.root} templates={r.templates} data={{ xs: [{ t: `one` }, { t: `two` }] }} theme="neutral" id="lf" />)
@@ -84,7 +84,7 @@ describe(`Resizable (§1)`, () => {
   const panels = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, component: `Text`, props: { text: `Panel ${i}` } }))
   for (const c of (resizableFixture as unknown as { keys: KeyCase[] }).keys) {
     it(`keys: ${c.name} (fixture replay through the painter)`, () => {
-      const r = reduced({ id: `rz`, component: `Resizable`, props: { direction: c.orientation, sizes: { path: `/sizes` }, ...(c.panels ? { panels: c.panels } : {}) }, children: panels(c.sizes.length) } as unknown as NestedNode)
+      const r = reduced({ id: `rz`, component: `Resizable`, props: { direction: c.orientation, sizes: { "@path": `/sizes` }, ...(c.panels ? { panels: c.panels } : {}) }, children: panels(c.sizes.length) } as unknown as NestedNode)
       const events: SurfaceActionEvent[] = []
       const { container } = render(<ExponentialSurface {...r} data={{ sizes: c.sizes }} theme="neutral" id="rz" direction={c.direction} host={{ onAction: (e) => void events.push(e) }} />)
       const handle = byId(container, `rz.handle.${c.handle}`)!
@@ -94,7 +94,7 @@ describe(`Resizable (§1)`, () => {
     })
   }
   it(`handles: separator a11y, $string.resize, bound sizes written, change {sizes}`, () => {
-    const r = reduced({ id: `rz`, component: `Resizable`, props: { sizes: { path: `/s` }, panels: [{ min: 20, max: 80 }, {}], handle: true }, on: { change: { event: { name: `resized` } } }, children: panels(2) } as unknown as NestedNode)
+    const r = reduced({ id: `rz`, component: `Resizable`, props: { sizes: { "@path": `/s` }, panels: [{ min: 20, max: 80 }, {}], handle: true }, on: { change: { event: { name: `resized` } } }, children: panels(2) } as unknown as NestedNode)
     const events: SurfaceActionEvent[] = []
     const { container } = render(<ExponentialSurface {...r} data={{ s: [30, 70] }} theme="neutral" id="rz2" strings={{ resize: `Größe ändern` }} host={{ onAction: (e) => void events.push(e) }} />)
     const handle = container.querySelector<HTMLElement>(`[role="separator"]`)!
@@ -113,7 +113,7 @@ describe(`Resizable (§1)`, () => {
     expect(byId(container, `rz.panel.0`)!.style.flex).toBe(`40 1 0px`)
   })
   it(`a pointer drag resizes from the START sizes and commits once at the end`, () => {
-    const r = reduced({ id: `root`, component: `Box`, children: [{ id: `rz`, component: `Resizable`, props: { sizes: { path: `/s` } }, on: { change: { event: { name: `resized` } } }, children: panels(2) }, { id: `shown`, component: `Text`, props: { text: { path: `/s/0` } } }] } as unknown as NestedNode)
+    const r = reduced({ id: `root`, component: `Box`, children: [{ id: `rz`, component: `Resizable`, props: { sizes: { "@path": `/s` } }, on: { change: { event: { name: `resized` } } }, children: panels(2) }, { id: `shown`, component: `Text`, props: { text: { "@path": `/s/0` } } }] } as unknown as NestedNode)
     const events: SurfaceActionEvent[] = []
     const { container } = render(<ExponentialSurface {...r} data={{ s: [50, 50] }} theme="neutral" id="rz3" host={{ onAction: (e) => void events.push(e) }} />)
     const root = byId(container, `rz`)!
@@ -169,9 +169,9 @@ describe(`the surface Formatter (§3)`, () => {
       id: `b`,
       component: `Box`,
       children: [
-        { id: `pc`, component: `Text`, props: { text: { call: `formatPercent`, args: { value: { path: `/ratio` }, decimals: 1 } } } },
-        { id: `rt`, component: `Text`, props: { text: { call: `formatRelativeTime`, args: { value: `2026-10-15T10:00:00Z`, now: Date.UTC(2026, 9, 15, 12) } } } },
-        { id: `pl`, component: `Text`, props: { text: { call: `pluralize`, args: { value: 0, zero: `none`, one: `one`, other: `many` } } } },
+        { id: `pc`, component: `Text`, props: { text: { "@call": `formatPercent`, args: { value: { "@path": `/ratio` }, decimals: 1 } } } },
+        { id: `rt`, component: `Text`, props: { text: { "@call": `formatRelativeTime`, args: { value: `2026-10-15T10:00:00Z`, now: Date.UTC(2026, 9, 15, 12) } } } },
+        { id: `pl`, component: `Text`, props: { text: { "@call": `pluralize`, args: { value: 0, zero: `none`, one: `one`, other: `many` } } } },
       ],
     } as unknown as NestedNode)
     const { container } = render(<ExponentialSurface {...r} data={{ ratio: 0.1234 }} theme="neutral" id="ff" locale="en-US" timeZone="UTC" />)
@@ -228,10 +228,10 @@ describe(`display of non-strings (§3 displayString)`, () => {
       id: `b`,
       component: `Box`,
       children: [
-        { id: `n`, component: `Text`, props: { text: { path: `/n` } } },
-        { id: `t`, component: `Text`, props: { text: { path: `/t` } } },
-        { id: `o`, component: `Text`, props: { text: { path: `/o` } } },
-        { id: `m`, component: `Markdown`, props: { text: { path: `/n` } } },
+        { id: `n`, component: `Text`, props: { text: { "@path": `/n` } } },
+        { id: `t`, component: `Text`, props: { text: { "@path": `/t` } } },
+        { id: `o`, component: `Text`, props: { text: { "@path": `/o` } } },
+        { id: `m`, component: `Markdown`, props: { text: { "@path": `/n` } } },
       ],
     } as unknown as NestedNode)
     const { container } = render(<ExponentialSurface {...r} data={{ n: 412, t: true, o: { a: 1 } }} theme="neutral" id="ds" />)
@@ -315,11 +315,11 @@ describe(`List (§5)`, () => {
       component: `Box`,
       children: [
         { id: `l`, component: `List`, props, template: { component: `it`, path: `/xs`, key: `id` }, children: [], ...(slots ? { slots } : {}) },
-        { id: `it`, component: `Text`, props: { text: { path: `title` } } },
+        { id: `it`, component: `Text`, props: { text: { "@path": `title` } } },
       ],
     } as unknown as NestedNode)
   it(`sectionBy: one heading (level 3) per consecutive run, the section slot bound to {value, count, index}`, () => {
-    const r = list({ sectionBy: `day` }, { section: { id: `hd`, component: `Text`, props: { text: { call: `concat`, args: { values: [{ path: `value` }, ` (`, { path: `count` }, `)`] } } } } })
+    const r = list({ sectionBy: `day` }, { section: { id: `hd`, component: `Text`, props: { text: { "@call": `concat`, args: { values: [{ "@path": `value` }, ` (`, { "@path": `count` }, `)`] } } } } })
     const { container } = render(<ExponentialSurface {...r} data={{ xs: items(5) }} theme="neutral" id="ls" />)
     const heads = Array.from(container.querySelectorAll<HTMLElement>(`[role="heading"]`))
     expect(heads.map((h) => h.getAttribute(`aria-level`))).toEqual([`3`, `3`])
@@ -524,9 +524,9 @@ describe(`round-2 review fixes`, () => {
     act(() => host.connect())
     act(() =>
       transport.feed(
-        { version: `v0.9`, createSurface: { surfaceId: `h`, catalogId: CORE_CATALOG_ID } },
-        { version: `v0.9`, updateComponents: { surfaceId: `h`, components: [{ id: `root`, component: `List`, children: { componentId: `row`, path: `/rows`, key: `id` } }, { id: `row`, component: `Text`, text: { path: `title` } }] } },
-        { version: `v0.9`, updateDataModel: { surfaceId: `h`, path: `/rows`, value: [{ id: `a`, title: `A` }] } }
+        { version: `1.0`, createSurface: { surfaceId: `h`, catalogId: CORE_CATALOG_ID } },
+        { version: `1.0`, updateComponents: { surfaceId: `h`, components: [{ id: `root`, component: `List`, children: { componentId: `row`, path: `/rows`, key: `id` } }, { id: `row`, component: `Text`, text: { "@path": `title` } }] } },
+        { version: `1.0`, updateDataModel: { surfaceId: `h`, path: `/rows`, value: [{ id: `a`, title: `A` }] } }
       )
     )
     const first = seen.at(-1)
@@ -556,7 +556,7 @@ describe(`round-2 review fixes`, () => {
     }
   })
   it(`List rows: real listitem boxes; a section header is a listitem holding its heading; the divider sits in the row`, () => {
-    const r = reduced({ id: `L`, component: `List`, props: { sectionBy: `day`, divided: true, gap: `md` }, template: { component: `row`, path: `/items`, key: `id` }, children: [{ id: `row`, component: `Text`, props: { text: { path: `id` } } }] } as unknown as NestedNode)
+    const r = reduced({ id: `L`, component: `List`, props: { sectionBy: `day`, divided: true, gap: `md` }, template: { component: `row`, path: `/items`, key: `id` }, children: [{ id: `row`, component: `Text`, props: { text: { "@path": `id` } } }] } as unknown as NestedNode)
     const { container } = render(<ExponentialSurface {...r} theme="neutral" id="ls" data={{ items: [{ id: `a`, day: `Mon` }, { id: `b`, day: `Mon` }, { id: `c`, day: `Tue` }] }} />)
     const rows = Array.from(byId(container, `L`)!.children) as HTMLElement[]
     expect(rows.map((r) => r.getAttribute(`role`))).toEqual([`listitem`, `listitem`, `listitem`, `listitem`, `listitem`])

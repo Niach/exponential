@@ -314,7 +314,7 @@ function usesLiveClock(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(usesLiveClock)
   if (typeof value !== `object` || value === null) return false
   const v = value as Record<string, unknown>
-  if (v.call === `formatRelativeTime` && (typeof v.args !== `object` || v.args === null || (v.args as Record<string, unknown>).now === undefined)) return true
+  if (v[`@call`] === `formatRelativeTime` && (typeof v.args !== `object` || v.args === null || (v.args as Record<string, unknown>).now === undefined)) return true
   if (v.component === `Table`) {
     const columns = (v.props as Record<string, unknown> | undefined)?.columns
     if (Array.isArray(columns) ? columns.some((c) => (c as Record<string, unknown> | null)?.type === `relativeTime`) : typeof columns === `object` && columns !== null) return true

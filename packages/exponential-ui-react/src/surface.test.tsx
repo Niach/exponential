@@ -62,7 +62,7 @@ describe(`inputs in a surface`, () => {
     vi.useFakeTimers()
     const inputs: SurfaceInputEvent[] = []
     const host: HostPlugin = { onInput: (e) => void inputs.push(e) }
-    const root = tree({ id: `root`, component: `Input`, props: { label: `Title`, name: `title`, value: { path: `/draft/title` } } })
+    const root = tree({ id: `root`, component: `Input`, props: { label: `Title`, name: `title`, value: { "@path": `/draft/title` } } })
     const { container } = render(<ExponentialSurface root={root} data={{ draft: { title: `` } }} host={host} theme="neutral" id="in" />)
     const input = container.querySelector(`input`)!
     fireEvent.focus(input)
@@ -82,7 +82,7 @@ describe(`actions`, () => {
     let resolve: (() => void) | null = null
     const actions: SurfaceActionEvent[] = []
     const host: HostPlugin = { onAction: (e) => (actions.push(e), new Promise<void>((r) => (resolve = r))) }
-    const root = tree({ id: `root`, component: `Button`, props: { label: `Scan` }, on: { press: { event: { name: `scan`, context: { source: { path: `/src` } } } } } })
+    const root = tree({ id: `root`, component: `Button`, props: { label: `Scan` }, on: { press: { event: { name: `scan`, context: { source: { "@path": `/src` } } } } } })
     const { container } = render(<ExponentialSurface root={root} data={{ src: `reddit` }} host={host} theme="neutral" id="act" />)
     const button = container.querySelector(`button`)!
     expect(button.disabled).toBe(false)
@@ -115,18 +115,18 @@ describe(`useSurface`, () => {
   it(`applies A2UI messages, resolves bindings and renders a template per item`, () => {
     const { result } = renderHook(() => useSurface({ surfaceId: `s` }))
     act(() => {
-      result.current.apply({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+      result.current.apply({ version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
       result.current.apply({
-        version: `v0.9`,
+        version: `1.0`,
         updateComponents: {
           surfaceId: `s`,
           components: [
             { id: `root`, component: `List`, children: { componentId: `row`, path: `/rows` } },
-            { id: `row`, component: `Text`, text: { path: `title` } },
+            { id: `row`, component: `Text`, text: { "@path": `title` } },
           ],
         },
       })
-      result.current.apply({ version: `v0.9`, updateDataModel: { surfaceId: `s`, path: `/rows`, value: [{ title: `one` }, { title: `two` }] } })
+      result.current.apply({ version: `1.0`, updateDataModel: { surfaceId: `s`, path: `/rows`, value: [{ title: `one` }, { title: `two` }] } })
     })
     expect(result.current.root?.component).toBe(`List`)
     expect(result.current.root?.template).toEqual({ component: `row`, path: `/rows` })
@@ -134,13 +134,13 @@ describe(`useSurface`, () => {
     const texts = Array.from(container.querySelectorAll(`[data-xui-c="Text"]`)).map((e) => e.textContent)
     expect(texts).toEqual([`one`, `two`])
     expect(container.querySelector(`[data-xui-id="row.1"]`)).not.toBeNull()
-    act(() => result.current.apply({ version: `v0.9`, deleteSurface: { surfaceId: `s` } }))
+    act(() => result.current.apply({ version: `1.0`, deleteSurface: { surfaceId: `s` } }))
     expect(result.current.root).toBeNull()
     expect(result.current.deleted).toBe(true)
   })
   it(`ignores messages for another surface`, () => {
     const { result } = renderHook(() => useSurface({ surfaceId: `s` }))
-    act(() => result.current.apply({ updateDataModel: { surfaceId: `other`, path: `/x`, value: 1 } }))
+    act(() => result.current.apply({ version: `1.0`, updateDataModel: { surfaceId: `other`, path: `/x`, value: 1 } }))
     expect(result.current.data).toEqual({})
   })
 })

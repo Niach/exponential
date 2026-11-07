@@ -27,8 +27,8 @@ const tree = (c: FieldWriteCase): NestedNode => ({
   id: `root`,
   component: `Stack`,
   children: [
-    { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { path: `/draft` } } },
-    { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { call: `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
+    { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { "@path": `/draft` } } },
+    { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { "@call": `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
   ],
 }) as NestedNode
 
@@ -45,7 +45,7 @@ describe(`fixtures/interactions-round1.json fieldWrites`, () => {
       for (const step of c.steps) {
         if (step.op === `focus`) fireEvent.focus(input())
         else if (step.op === `type`) fireEvent.input(input(), { target: { value: step.text } })
-        else if (step.op === `hostWrite`) state.apply({ updateDataModel: { surfaceId: `fw`, path: step.path, value: step.value } })
+        else if (step.op === `hostWrite`) state.apply({ version: `1.0`, updateDataModel: { surfaceId: `fw`, path: step.path, value: step.value } })
         else if (step.op === `press`) fireEvent.click(container.querySelector(`[data-xui-id="save"]`)!)
         else fireEvent.blur(input())
       }

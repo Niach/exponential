@@ -29,7 +29,7 @@ const items = [
 describe(`SearchList`, () => {
   it(`lays out the core's parts, filters, moves the highlight with the keys and picks with Enter`, () => {
     const events: SurfaceActionEvent[] = []
-    const root = tree({ id: `sl`, component: `SearchList`, props: { items, value: { path: `/picked` } }, on: { select: { event: { name: `pick` } } } } as unknown as NestedNode)
+    const root = tree({ id: `sl`, component: `SearchList`, props: { items, value: { "@path": `/picked` } }, on: { select: { event: { name: `pick` } } } } as unknown as NestedNode)
     const { container } = render(<ExponentialSurface root={root} data={{ picked: `` }} theme="neutral" id="sl" host={{ onAction: (e) => void events.push(e) }} />)
     for (const id of [`sl.head`, `sl.search`, `sl.body`, `sl.list`, `sl.item.0`, `sl.icon.0`, `sl.identifier.0`, `sl.label.0`]) expect(container.querySelector(`[data-xui-id="${id}"]`), id).not.toBeNull()
     expect(container.querySelector(`[data-xui-id="sl.count"]`)).toBeNull()

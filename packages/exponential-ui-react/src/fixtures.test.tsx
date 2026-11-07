@@ -135,7 +135,7 @@ describe(`extension fixture renders`, () => {
       expect({ root, issues }).toEqual(c.expected)
       const { container } = render(<ExponentialSurface root={root} theme="neutral" id="ex" extensions={[reactExt]} />)
       expect(container.querySelector(`[data-xui-id="root"]`)).not.toBeNull()
-      if (JSON.stringify(root).includes(`"TrendLine"`)) expect(container.querySelector(`[data-xui-c="TrendLine"]`)).not.toBeNull()
+      if (JSON.stringify(root).includes(`"component":"TrendLine","props":`)) expect(container.querySelector(`[data-xui-c="TrendLine"]`)).not.toBeNull()
       expect(markup(container)).toMatchSnapshot()
     })
   }
@@ -146,7 +146,7 @@ describe(`extension fixture renders`, () => {
       return <div {...(p.rootProps as Record<string, unknown>)} />
     }
     const probeExt = defineReactExtension({ catalog, components: { TrendLine: Probe } })
-    const { root } = reduceSurface([{ id: `root`, component: `TrendLine`, values: { path: `/series` } }], { catalogId: catalog.id, extensions: [catalog] })
+    const { root } = reduceSurface([{ id: `root`, component: `TrendLine`, values: { "@path": `/series` } }], { catalogId: catalog.id, extensions: [catalog] })
     render(<ExponentialSurface root={root} theme="playful" data={{ series: [1, 2, 3] }} extensions={[probeExt]} id="px" />)
     expect(seen).not.toBeNull()
     expect(seen!.props.values).toEqual([1, 2, 3])
@@ -168,7 +168,7 @@ describe(`kitchen sink × built-in themes`, () => {
         expect(container.querySelector(`[data-xui-c="Unknown"]`)).toBeNull()
         // Every node of the tree is in the DOM, overlays excepted (closed).
         const ids = new Set(Array.from(container.querySelectorAll(`[data-xui-id]`)).map((e) => (e as HTMLElement).dataset.xuiId))
-        for (const id of [`root`, `header`, `grid`, `nav-card`, `row-1`, `echo-field`, `form-send`, `flex-demo`, `stats`]) expect(ids.has(id), id).toBe(true)
+        for (const id of [`root`, `header`, `grid`, `nav_card`, `row_1`, `echo_field`, `form_send`, `flex_demo`, `stats`]) expect(ids.has(id), id).toBe(true)
         const sheet = compileTheme(builtinTheme(id))
         expect(surface.classList.contains(sheet.scope)).toBe(true)
         expect(container.querySelector(`style[data-xui-style="theme"]`)!.textContent).toContain(sheet.scope)
