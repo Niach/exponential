@@ -399,7 +399,9 @@ class SurfaceMeasurer(
         val blocks = markdownBlocks?.invoke(text) ?: Markdown.resolveImages(Markdown.parse(text, o.hardBreaks, o.streaming), mediaAllowed)
         val ts = leaf.textStyle
         val styles = MarkdownPainter.styles(theme, mode, ts, MarkdownPainter.props(leaf.props, o.chat), fontScale).also { it.imageHeight = o.imageCap; it.viewportHeight = viewportHeight }
-        val lineHeight = styles.body.lineHeight
+        // Round 9 §9.1: an inline Markdown's lines are its paragraph's.
+        val lineHeight = (styles.paragraph ?: styles.body).lineHeight
+        val first = styles.paragraph?.let { ts.copy(fontSize = it.size, fontWeight = it.weight, lineHeight = it.lineHeight, fontFamily = it.family) } ?: ts
         val md = MarkdownShaper(shaper, theme?.monoFamily)
         val clamp = leaf.props.num("lines")?.toInt()?.takeIf { it > 0 }
         fun height(w: Float): Float {
@@ -417,7 +419,7 @@ class SurfaceMeasurer(
             }
             else -> Size(wrap, height(wrap))
         }
-        return Content(out.width, max(out.height, if (blocks.isEmpty()) 0f else lineHeight), if (blocks.isEmpty()) null else baseline(ts))
+        return Content(out.width, max(out.height, if (blocks.isEmpty()) 0f else lineHeight), if (blocks.isEmpty()) null else baseline(first))
     }
 
     private fun button(leaf: LeafRequest): Content {

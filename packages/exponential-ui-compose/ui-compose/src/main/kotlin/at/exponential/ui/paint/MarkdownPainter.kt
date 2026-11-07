@@ -48,15 +48,22 @@ object MarkdownPainter {
         val root = if (props["density"]?.string == "chat") part("root") else null
         if (root != null) s.body = spec(root, s.body)
         val headingBase = s.body.copy(weight = 600)
-        s.heading = spec(part("heading"), headingBase)
+        // Round 9 §9.1: an inline paragraph and heading paint the recipes of
+        // [inlineRecipes] under the document rhythm, the host's `chat` included.
+        val inline = isInline(props)
+        fun heading(extra: Props = emptyMap()): PartStyle = part("heading", if (inline) extra + ("density" to JsonValue.Str("document")) else extra)
+        fun recipes(list: List<InlineRecipe>, base: MarkdownTextSpec): MarkdownTextSpec = list.fold(base) { over, q -> spec(theme.part(q.component, q.part, q.props, mode = mode), over) }
+        s.heading = spec(heading(), headingBase)
         // #VAPP-258: each heading level's type and margins (the `level` the
         // painter supplies; margins collapse like CSS block margins).
-        val headingPart = part("heading")
+        val headingPart = heading()
         s.headingTop = headingPart.px("marginTop") ?: theme.spacing("md")
         s.headingBottom = headingPart.px("marginBottom") ?: theme.spacing("xs")
-        s.headingLevels = (1..6).associateWith { spec(part("heading", mapOf("level" to JsonValue.Num(it.toDouble()))), headingBase) }
-        s.headingTops = (1..6).associateWith { part("heading", mapOf("level" to JsonValue.Num(it.toDouble()))).px("marginTop") ?: s.headingTop }
-        s.headingBottoms = (1..6).associateWith { part("heading", mapOf("level" to JsonValue.Num(it.toDouble()))).px("marginBottom") ?: s.headingBottom }
+        fun level(n: Int): Props = mapOf("level" to JsonValue.Num(n.toDouble()))
+        s.headingLevels = (1..6).associateWith { if (inline) recipes(inlineRecipes("heading", level = it), headingBase) else spec(heading(level(it)), headingBase) }
+        s.headingTops = (1..6).associateWith { heading(level(it)).px("marginTop") ?: s.headingTop }
+        s.headingBottoms = (1..6).associateWith { heading(level(it)).px("marginBottom") ?: s.headingBottom }
+        if (inline) s.paragraph = recipes(inlineRecipes("paragraph", variant(props)), s.body)
         val item = part("listItem")
         s.itemTop = item.px("marginTop") ?: 0f
         s.itemBottom = item.px("marginBottom") ?: 0f
@@ -69,7 +76,7 @@ object MarkdownPainter {
         s.quotePad = quote.px("paddingHorizontal") ?: s.quotePad
         // #VAPP-258: a block image's corners (the `Markdown/image` recipe).
         s.imageRadius = part("image").style.radius
-        s.blockGap = root?.px("gap") ?: theme.spacing("sm")
+        s.blockGap = root?.takeUnless { inline }?.px("gap") ?: theme.spacing("sm")
         // #VAPP-258: every cell's paddings (`Markdown/cell`).
         val cell = part("cell")
         s.cellPadH = cell.px("paddingHorizontal") ?: cell.px("padding") ?: theme.spacing("sm")
@@ -94,6 +101,31 @@ object MarkdownPainter {
         s.chip = s.chip.copy(kinds = kinds)
         return s
     }
+
+    /** One recipe an inline-profile part paints with (`RecipeQuery`). */
+    data class InlineRecipe(val component: String, val part: String, val props: Props)
+
+    /** Round 9 §9.1: does this Markdown take the inline profile? */
+    fun isInline(props: Props): Boolean = props["profile"]?.string == "inline"
+
+    /** Round 9 §9.1: an inline Markdown's paragraph type. */
+    fun variant(props: Props): String = if (props["variant"]?.string == "caption") "caption" else "body"
+
+    /**
+     * Round 9 §9.1 (`markdownInlineRecipes`, fixtures/markdown-inline.json):
+     * the recipes an inline-profile part paints with, first to last, later
+     * over earlier: a paragraph IS a Text of its [variant]; a heading is what
+     * the `Heading` macro paints (Text `title` + Heading/root; h5, h6 paint h4).
+     */
+    fun inlineRecipes(part: String, variant: String = "body", level: Int = 2): List<InlineRecipe> {
+        fun text(v: String) = InlineRecipe("Text", "root", mapOf("variant" to JsonValue.Str(v)))
+        if (part == "paragraph") return listOf(text(variant))
+        return listOf(text("title"), InlineRecipe("Heading", "root", mapOf("level" to JsonValue.Str("h${level.coerceIn(1, 4)}"))))
+    }
+
+    /** Round 9 §9.1: the colour of an inline paragraph and heading (last recipe that sets one); null = the node's. */
+    fun inlineInk(theme: ThemeHandle?, mode: Mode, recipes: List<InlineRecipe>): Color? =
+        recipes.mapNotNull { q -> theme?.part(q.component, q.part, q.props, mode = mode)?.color }.lastOrNull()
 
     /**
      * #VAPP-258 step 5: the props a Markdown's recipes resolve with:

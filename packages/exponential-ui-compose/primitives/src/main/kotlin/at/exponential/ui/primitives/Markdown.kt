@@ -265,6 +265,8 @@ data class MarkdownStyles(
     var audioRow: Float = 32f,
     /** #VAPP-258: a file attachment's row height (the FileUpload `file` row). */
     var fileHeight: Float = 40f,
+    /** Round 9 §9.1: an inline-profile paragraph's type (Text/root of its `variant`); null = [body]. */
+    var paragraph: MarkdownTextSpec? = null,
 ) {
     /** #VAPP-258: an attachment block's height at [width]. */
     fun attachmentHeight(kind: MarkdownBlockKind.Attachment, width: Float): Float = when (kind.type) {
@@ -284,6 +286,7 @@ data class MarkdownStyles(
     fun spec(kind: MarkdownBlockKind): MarkdownTextSpec = when (kind) {
         is MarkdownBlockKind.Heading -> headingLevels[levelOf(kind)] ?: heading
         MarkdownBlockKind.CodeBlock -> code
+        MarkdownBlockKind.Paragraph -> paragraph ?: body
         else -> body
     }
 

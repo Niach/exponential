@@ -105,6 +105,9 @@ data class MarkdownColors(
     val codeBlockBackground: Color,
     /** The quote bar. */
     val quoteBorder: Color,
+    /** Round 9 §9.1: an inline-profile paragraph's and heading's text (Unspecified = [ink]). */
+    val paragraphInk: Color = Color.Unspecified,
+    val headingInk: Color = Color.Unspecified,
     /** A GFM task box = THE Checkbox box: the unchecked fill and hairline. */
     val taskFill: Color = Color.Transparent,
     /** Unspecified = [border]. */
@@ -553,12 +556,15 @@ private fun MarkdownBlockView(
     fun chips(inlines: List<MarkdownInline>, cap: Float): Map<String, InlineTextContent> =
         markdownChipContent(inlines, spec, styles.chip, cap, colors, shaper, hooks.chipIcon, open)
     when (val kind = block.kind) {
-        is MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> BasicText(
-            runs(block.inlines, colors.ink, colors.codeBackground),
-            style = shaper.style(spec, colors.ink),
-            modifier = Modifier.fillMaxWidth(),
-            inlineContent = chips(block.inlines, maxOf(width, 1f)),
-        )
+        is MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> {
+            val ink = (if (kind is MarkdownBlockKind.Heading) colors.headingInk else colors.paragraphInk).takeOrElse { colors.ink }
+            BasicText(
+                runs(block.inlines, ink, colors.codeBackground),
+                style = shaper.style(spec, ink),
+                modifier = Modifier.fillMaxWidth(),
+                inlineContent = chips(block.inlines, maxOf(width, 1f)),
+            )
+        }
         is MarkdownBlockKind.Image -> {
             val ib = Markdown.imageBox(kind.width, kind.height, width, styles.imageHeight, styles.viewportHeight)
             val press = hooks.onImagePress

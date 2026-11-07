@@ -135,7 +135,7 @@ class ThemeHandle(val theme: Theme) {
     fun ease(name: String): List<Float>? = tokens["ease"]?.get(name)?.array?.mapNotNull { it.number?.toFloat() }?.takeIf { it.size == 4 }
 
     /** The resolved theme's token groups, parsed once. */
-    private val tokens: JsonValue by lazy { JsonValue.parse(theme.resolvedJson())["tokens"] ?: JsonValue.Null }
+    internal val tokens: JsonValue by lazy { JsonValue.parse(theme.resolvedJson())["tokens"] ?: JsonValue.Null }
 
     /** A font family NAME by kind (`sans`, `mono`). */
     fun fontFamily(kind: String): String? = scalar("f|$kind") { theme.fontFamily(kind) }
