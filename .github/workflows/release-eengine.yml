@@ -237,6 +237,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Targets
         shell: bash
+        # In apps/desktop, so the targets land on its pinned toolchain
+        # (rust-toolchain.toml), not on `stable` at the repo root.
+        working-directory: apps/desktop
         run: for t in ${{ matrix.targets }}; do rustup target add "$t"; done
       - uses: Swatinem/rust-cache@v2
         with:

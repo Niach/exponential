@@ -2826,7 +2826,7 @@ dependencies = [
 
 [[package]]
 name = "eengine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "emcp",
@@ -2843,7 +2843,7 @@ dependencies = [
 
 [[package]]
 name = "eengine-bundle"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "eengine",
@@ -2861,7 +2861,7 @@ dependencies = [
 
 [[package]]
 name = "eengine-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ashpd",
  "base64 0.22.1",
@@ -2887,7 +2887,7 @@ dependencies = [
 
 [[package]]
 name = "eengine-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "eengine",
  "emcp",
@@ -2900,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "eengine-runner"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "eengine",
