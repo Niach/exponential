@@ -135,6 +135,8 @@ pub(crate) fn open_transcript_menu(position: gpui::Point<Pixels>, window: &mut W
     let text = gpui_base::TextSelection::selected_text(window, cx)
         .trim()
         .to_string();
+    #[cfg(test)]
+    TRANSCRIPT_MENU_TEXT.with(|last| *last.borrow_mut() = text.clone());
     let menu = gpui_component::native_menu::NativeMenu::new().menu_with_disabled(
         FEED_MENU_COPY,
         text.is_empty(),
@@ -153,6 +155,8 @@ pub(crate) fn open_transcript_menu(position: gpui::Point<Pixels>, window: &mut W
 #[cfg(test)]
 thread_local! {
     pub(crate) static TRANSCRIPT_MENU_OPENS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// What the last [`open_transcript_menu`] would copy ("" = Copy disabled).
+    pub(crate) static TRANSCRIPT_MENU_TEXT: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
 /// EXP-1228: `element` opens [`open_transcript_menu`] on a right press its
