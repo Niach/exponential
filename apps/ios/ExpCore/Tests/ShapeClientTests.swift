@@ -261,6 +261,16 @@ final class ShapeClientTests: XCTestCase {
 // MARK: - Refetch state persistence (EXP-1#13)
 
 final class OffsetRefetchStateTests: XCTestCase {
+    /// A first snapshot (no cursor) replaces the table like a refetch: rows
+    /// held without a cursor would outlive their deletion on the server (a
+    /// deleted conversation's messages showed twice). A stored cursor never wipes.
+    func testAFirstSnapshotWithoutACursorReplacesTheTable() {
+        XCTAssertTrue(shapeSnapshotReplacesTable(nil))
+        XCTAssertTrue(shapeSnapshotReplacesTable(ElectricOffset(shape: "test", handle: "h2", offset: "-1", needsRefetch: true)))
+        XCTAssertFalse(shapeSnapshotReplacesTable(ElectricOffset(shape: "test", handle: "h1", offset: "0_0")))
+        XCTAssertFalse(shapeSnapshotReplacesTable(ElectricOffset(shape: "test", handle: "h1", offset: "12_3", isLive: true)))
+    }
+
     func testElectricOffsetRefetchStateRoundTrips() throws {
         let accountId = "refetch-roundtrip-\(UUID().uuidString)"
         let manager = DatabaseManager()
