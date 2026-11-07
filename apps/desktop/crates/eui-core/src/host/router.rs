@@ -23,9 +23,8 @@ use super::contract::{
 };
 use super::package::{package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package_with, AvailableExtension, PackageIssue};
 use super::sources::parse_source;
-use crate::catalog::{ACCEPT_V09, A2UI_VERSION, A2UI_VERSION_09};
+use crate::catalog::A2UI_VERSION;
 use crate::limits;
-use crate::upgrade09::Upgrade09State;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,23 +42,16 @@ pub struct SurfaceInfo {
 }
 
 /// `route`'s options (§1.1): `trusted` = host code (applyTemplate,
-/// bindDataModel allowed); `accept_v09` = run the 0.9 bridge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// bindDataModel allowed).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RouteOptions {
     pub trusted: bool,
-    pub accept_v09: bool,
-}
-
-impl Default for RouteOptions {
-    fn default() -> Self {
-        RouteOptions { trusted: false, accept_v09: ACCEPT_V09 }
-    }
 }
 
 impl RouteOptions {
     /// Host code's route.
     pub fn trusted() -> Self {
-        RouteOptions { trusted: true, ..Default::default() }
+        RouteOptions { trusted: true }
     }
 }
 
@@ -80,8 +72,6 @@ pub struct HostRouter {
     /// §1.4: the mint counter (starts at 1).
     mint_next: u64,
     packages: IndexMap<String, Value>,
-    /// §14: the 0.9 bridge's id maps, threaded across the stream.
-    upgrade_state: Upgrade09State,
 }
 
 fn send(message: Value) -> Value {
@@ -140,25 +130,15 @@ pub fn normalize_path(path: Option<&str>) -> String {
 pub enum Envelope {
     /// `"1.0"`: go on.
     V10,
-    /// 0.9 (absent or `"v0.9"`) and the bridge is on: upgrade, then go on.
-    Upgrade,
     /// Refused: INVALID_MESSAGE with this message.
     Refused(String),
 }
 
 /// Round 9 §1.5: the ONE version check every core entry runs (the router,
 /// `Surface::apply`, cards, packages).
-pub fn check_envelope(message: &Map<String, Value>, accept_v09: bool) -> Envelope {
+pub fn check_envelope(message: &Map<String, Value>) -> Envelope {
     match message.get("version") {
-        None if accept_v09 => Envelope::Upgrade,
         None => Envelope::Refused("version is required".into()),
-        Some(Value::String(v)) if v == A2UI_VERSION_09 => {
-            if accept_v09 {
-                Envelope::Upgrade
-            } else {
-                Envelope::Refused(format!("unsupported version {A2UI_VERSION_09}"))
-            }
-        }
         Some(Value::String(v)) if v == A2UI_VERSION => Envelope::V10,
         Some(Value::String(v)) => Envelope::Refused(format!("unsupported version {v}")),
         Some(other) => Envelope::Refused(format!("unsupported version {}", serde_json::to_string(other).unwrap_or_default())),
@@ -416,16 +396,6 @@ impl HostRouter {
     /// Install a declarative package: its templates become `applyTemplate`
     /// targets. Returns the validation issues (installed only when none).
     pub fn install_package(&mut self, pkg: &Value) -> Vec<PackageIssue> {
-        // Round 9 §12/§14: a format-5 package is upgraded while the bridge is on.
-        let upgraded;
-        let pkg = match upgrade_package(pkg) {
-            Ok(Some(p)) => {
-                upgraded = p;
-                &upgraded
-            }
-            Ok(None) => pkg,
-            Err(issue) => return vec![issue],
-        };
         let issues = validate_package_with(pkg, &self.supported_catalog_ids(), self.extensions.as_deref());
         if issues.is_empty() {
             let id = pkg["id"].as_str().unwrap_or("").to_string();
@@ -508,23 +478,8 @@ impl HostRouter {
             return vec![invalid(&sid, &limits::message_bytes_issue())];
         }
         let Some(object) = message.as_object() else { return vec![invalid("", "a message is a JSON object")] };
-        match check_envelope(object, options.accept_v09) {
-            Envelope::V10 => {}
-            Envelope::Refused(reason) => return vec![invalid(&surface_id_of(object), &reason)],
-            Envelope::Upgrade => {
-                let (messages, state) = crate::upgrade09::upgrade_message09(message, &self.upgrade_state);
-                self.upgrade_state = state;
-                let mut ops = Vec::new();
-                for m in messages {
-                    // The upgraded form is 1.0: never bridged twice.
-                    if m.get("version").and_then(Value::as_str) != Some(A2UI_VERSION) {
-                        ops.push(invalid(&m.as_object().map(surface_id_of).unwrap_or_default(), "upgrade09 produced no 1.0 message"));
-                        continue;
-                    }
-                    ops.extend(self.route(&m, options));
-                }
-                return ops;
-            }
+        if let Envelope::Refused(reason) = check_envelope(object) {
+            return vec![invalid(&surface_id_of(object), &reason)];
         }
         let kinds: Vec<&String> = object.keys().filter(|k| *k != "version").collect();
         if kinds.len() != 1 || !MESSAGE_KINDS.contains(&kinds[0].as_str()) {
@@ -634,7 +589,7 @@ impl HostRouter {
                         bind.insert("hostParams".into(), host.clone());
                     }
                     let created = m.get("createSurface").is_some();
-                    let routed = self.route(&m, RouteOptions { trusted: true, ..options });
+                    let routed = self.route(&m, RouteOptions { trusted: true });
                     let refused = created && !routed.iter().any(|op| op.get("op").and_then(Value::as_str) == Some("create"));
                     ops.extend(routed);
                     if refused {
@@ -816,18 +771,3 @@ fn components_ops(sid: &str, kind: &str, components: &[Value], default_catalog: 
     ops
 }
 
-/// Round 9 §12: a `formatVersion` 5 package through `upgrade_package09`
-/// while `ACCEPT_V09` holds: `Ok(Some(v6))`; `Ok(None)` = not a v5 file (or
-/// the bridge is off: validation refuses it); `Err` = its signature does
-/// not verify.
-pub fn upgrade_package(pkg: &Value) -> Result<Option<Value>, PackageIssue> {
-    let v5 = pkg.get("formatVersion").and_then(Value::as_f64) == Some(f64::from(super::package::PACKAGE_FORMAT_VERSION_09));
-    if !v5 || !ACCEPT_V09 {
-        return Ok(None);
-    }
-    let up = crate::upgrade09::upgrade_package09(pkg, crate::upgrade09::structural_verification);
-    match up.package {
-        Some(p) => Ok(Some(p)),
-        None => Err(PackageIssue { path: "/signature".into(), message: format!("the package signature is {}", up.status) }),
-    }
-}

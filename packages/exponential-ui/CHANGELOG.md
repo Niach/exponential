@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A2UI 1.0 flag day (#VAPP-289, `docs/round-9-contract.md` §14): a hard cut. Every entry (`route`, `SurfaceStore.apply`, cards, package load) refuses 0.9: `"version": "1.0"` is required, MIME `application/a2ui+json` only, `{"@path"}` / `{"@call", args}`, identifier ids, flat function names (`records_upsert`, `actions_<name>`, `app_navigate`, `tools_<id>__<tool>`), `formatVersion` 6 only (a 5 is `format version 5 is no longer read; 6 is required`). `catalog/host.json` version 4, `transition.acceptV09: false`. `upgrade09` serves only the stored-data migration and a Local desktop's store-open pass; `upgradeCard09` stays to display a stored card with no version.
+
 ## 0.19.0 (2026-11-07)
 
 - Round 8, web: the shared Motion painter reads packed VERSION 2 and paints `text` ops (Canvas2D `fillText` in the theme's sans/mono at the CSS weight, physical align, the `fontBoundingBoxAscent/Descent` baseline rule, size × the transform's scale; `paintText`, `MotionTextFonts`). `CanvasView` (`@exponential_app/eui/web`): the Canvas native's web half over the WASM `CanvasPlayer` (recompile on size/shapes, resample on theme/mode, pointer press/move/leave through `canvasToDrawing`). `box-css` emits `@container (min-width|max-width: N)` as a real `@container (width …)` query with the parent made an `inline-size` container. `CHECKBOX_CLASSES` gain the indeterminate look; `.xui-Progress-value` sets tabular numerals. Web conformance baseline re-recorded.

@@ -774,7 +774,7 @@ async function seedSessionTree(ctx: {
       { id: `band`, component: `Section`, title: `Product Feedback`, icon: `nav-threads` },
       { id: `stats`, component: `Grid`, columns: 2, gap: `sm`, children: [`open`, `rollout`] },
       { id: `open`, component: `Card`, title: `Open issues`, children: [`openValue`] },
-      { id: `openValue`, component: `Text`, text: { path: `/issues/count` }, variant: `title` },
+      { id: `openValue`, component: `Text`, text: { "@path": `/issues/count` }, variant: `title` },
       { id: `rollout`, component: `Card`, title: `Rollout`, children: [`bar`] },
       { id: `bar`, component: `Progress`, value: 72, max: 100, label: `This week`, tone: `primary` },
     ]
@@ -795,22 +795,22 @@ async function seedSessionTree(ctx: {
         {
           id: `issueRow`,
           component: `Row`,
-          identifier: { path: `identifier` },
-          title: { path: `title` },
+          identifier: { "@path": `identifier` },
+          title: { "@path": `title` },
           pressable: true,
           chevron: `right`,
-          on: { press: { functionCall: { call: `openUrl`, args: { url: { call: `formatString`, args: { value: `~/issues/\${identifier}` } } } } } },
+          on: { press: { functionCall: { "@call": `openUrl`, args: { url: { "@call": `formatString`, args: { value: `~/issues/\${identifier}` } } } } } },
         }
       )
     }
     return {
-      formatVersion: 5,
+      formatVersion: 6,
       id: `acme.team-dashboard`,
       name: `Team dashboard`,
       version,
       catalogId: `https://ui.exponential.at/catalogs/exponential-app/v1`,
       icon: { glyph: `chart-line` },
-      functions: [`harness.toast`],
+      functions: [`harness_toast`],
       sources: [`exp:issues`],
       templates: {
         dashboard: {
@@ -832,11 +832,11 @@ async function seedSessionTree(ctx: {
                   {
                     id: `issueRow`,
                     component: `Row`,
-                    identifier: { path: `identifier` },
-                    title: { path: `title` },
+                    identifier: { "@path": `identifier` },
+                    title: { "@path": `title` },
                     pressable: true,
                     chevron: `right`,
-                    on: { press: { functionCall: { call: `openUrl`, args: { url: { call: `formatString`, args: { value: `~/issues/\${identifier}` } } } } } },
+                    on: { press: { functionCall: { "@call": `openUrl`, args: { url: { "@call": `formatString`, args: { value: `~/issues/\${identifier}` } } } } } },
                   },
                 ],
               },
@@ -852,7 +852,7 @@ async function seedSessionTree(ctx: {
   // v4 (VAPP-119) = the whole template: a teammate's month through
   // exp:members + bind, the issues you worked on as exp:issues suggestions.
   // v5 (VAPP-120) = the whole template: "Post to the issue" calls the typed
-  // action exponential.comments.create, granted on the settings page.
+  // action exponential_comments_create, granted on the settings page.
   const hoursPackage = (version: `1.0.0` | `1.1.0` | `1.2.0` | `1.3.0` | `1.4.0`) => {
     const full = workingHoursTemplate as unknown as {
       version: string
@@ -891,7 +891,7 @@ async function seedSessionTree(ctx: {
         if (version === `1.0.0` && out.id === `stats`) out.columns = 1
         return out
       })
-    const functions = full.functions.filter((f) => !f.startsWith(`exponential.`))
+    const functions = full.functions.filter((f) => !f.startsWith(`exponential_`))
     if (v4) return { ...full, version, functions, templates: { month: { ...full.templates.month, components } } }
     const { members: _m, issues: _i, who: _w, ...data } = full.templates.month.data
     return {
@@ -1376,7 +1376,7 @@ async function seedSessionTree(ctx: {
           kind: `surface`,
           result: true,
           title: `Assignee groups`,
-          surface: { root: { id: `groups`, component: `Text`, props: { text: `Grouped by assignee` } }, data: {} },
+          surface: { version: `1.0`, root: { id: `groups`, component: `Text`, props: { text: `Grouped by assignee` } }, data: {} },
           pictures: assigneePictures,
         },
         at: hoursAgo(26),
@@ -1449,6 +1449,7 @@ async function seedSessionTree(ctx: {
           options: [`Ship it`, `Try a segmented control`],
           custom: true,
           surface: {
+            version: `1.0`,
             root: {
               id: `menu`,
               component: `Card`,
@@ -1556,6 +1557,7 @@ async function seedSessionTree(ctx: {
           result: true,
           title: `Today's triage`,
           surface: {
+            version: `1.0`,
             root: {
               id: `triage`,
               component: `Box`,
@@ -1643,7 +1645,7 @@ async function seedSessionTree(ctx: {
       {
         sessionId: DEMO_APP_EDITOR_SESSION_ID,
         author: `agent`,
-        body: `v5: Post to the issue calls exponential.comments.create with the hours and the note; allow it once on the app's settings page and it posts without asking.`,
+        body: `v5: Post to the issue calls exponential_comments_create with the hours and the note; allow it once on the app's settings page and it posts without asking.`,
         at: DEMO_APP_CHAT_TIMES.fifth,
       },
     ].map((spec) => message(spec as MessageSpec))
@@ -1752,6 +1754,7 @@ async function seedSessionTree(ctx: {
         result: true,
         title: `Launch timings`,
         surface: {
+          version: `1.0`,
           root: {
             id: `timings`,
             component: `Box`,

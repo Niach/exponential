@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A2UI 1.0 flag day (#VAPP-289): `useSurface` takes 1.0 messages only; a 0.9 message is refused (`INVALID_MESSAGE`).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 8: the `Canvas` native (`CanvasView`: role img named by `label`, the Motion box, `pointer` events), Checkbox `indeterminate` (`checked="indeterminate"`, the `ui-minus` glyph, `aria-checked=mixed`, the press rule of `interactions-round1.json` `checkbox`), the primitive Checkbox's dash. Snapshots re-recorded (Progress header, Checkbox recipe prop).

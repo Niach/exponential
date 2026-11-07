@@ -6,7 +6,6 @@
 import {
   A2UI_BASIC_CATALOG_ID,
   A2UI_VERSION,
-  ACCEPT_V09,
   CORE_CATALOG_ID,
   CORE_LITE_CATALOG_ID,
   UNKNOWN_COMPONENT,
@@ -599,14 +598,22 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
   return finish(root, lifted, options.expand !== false, extensions, options.catalogId, issues)
 }
 
-/** Round 9 §13: a card as 1.0: `"version": "1.0"` passes, no `version` is the
- *  0.9 form (upgraded while the bridge is on), anything else is refused. */
-export function cardV10(card: unknown, acceptV09: boolean = ACCEPT_V09): { card: { version: string; root: NestedNode; data?: unknown } } | { error: string } {
+/** Round 9 §13: a card as 1.0: `"version": "1.0"` passes, anything else is
+ *  refused, a missing `version` naming the fix. */
+export function cardV10(card: unknown): { card: { version: string; root: NestedNode; data?: unknown } } | { error: string } {
   if (typeof card !== `object` || card === null || Array.isArray(card)) return { error: `a card is a JSON object` }
   const version = (card as { version?: unknown }).version
-  if (version === undefined) return acceptV09 ? { card: upgradeCard09(card) as { version: string; root: NestedNode } } : { error: `version is required: write "version": "1.0"` }
+  if (version === undefined) return { error: `version is required: write "version": "1.0"` }
   if (version === A2UI_VERSION) return { card: card as { version: string; root: NestedNode } }
   return { error: `unsupported version ${typeof version === `string` ? version : JSON.stringify(version)}` }
+}
+
+/** Round 9 §14.1, §18.2: a STORED card for DISPLAY only. A card with no
+ *  `version` is one the migration could not rewrite (sealed): it is shown
+ *  through `upgradeCard09`. No write path takes this: `cardV10` is the entry. */
+export function cardForDisplay(card: unknown): ReturnType<typeof cardV10> {
+  if (typeof card === `object` && card !== null && !Array.isArray(card) && (card as { version?: unknown }).version === undefined) return { card: upgradeCard09(card) as { version: string; root: NestedNode } }
+  return cardV10(card)
 }
 
 /** Round 9 §13: what a card refuses beyond `reduceNested`'s issues: the entry

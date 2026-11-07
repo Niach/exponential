@@ -23,7 +23,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, flat_action, APP_ACTIONS_COPY};
+use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, APP_ACTIONS_COPY};
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
@@ -91,10 +91,9 @@ pub(crate) fn declared_tools(package: Option<&serde_json::Value>) -> Vec<String>
 }
 
 /// VAPP-120: the whole grant list after one switch (the web's `toggleTool`):
-/// on = appended once, off = removed. Round 9 §14: a grant stored dotted
-/// goes back under its flat name.
+/// on = appended once, off = removed.
 pub(crate) fn toggled_grants(granted: &[String], name: &str, on: bool) -> Vec<String> {
-    let mut next: Vec<String> = granted.iter().map(|g| flat_action(g)).filter(|g| g != name).collect();
+    let mut next: Vec<String> = granted.iter().filter(|g| *g != name).cloned().collect();
     if on {
         next.push(name.to_string());
     }
@@ -652,7 +651,7 @@ impl AppDetailPane {
             let rows = declared
                 .into_iter()
                 .map(|name| {
-                    let checked = row.granted_tools.iter().any(|g| flat_action(g) == name);
+                    let checked = row.granted_tools.iter().any(|g| *g == name);
                     let busy = self.tool_busy.as_deref() == Some(name.as_str());
                     let toggle = name.clone();
                     crate::surface::glass_row_shell()
@@ -909,9 +908,6 @@ mod tests {
         );
         assert_eq!(toggled_grants(&granted, "exponential_comments_create", true), granted);
         assert!(toggled_grants(&granted, "exponential_comments_create", false).is_empty());
-        let dotted = vec!["exponential.comments.create".to_string()];
-        assert_eq!(toggled_grants(&dotted, "exponential_issues_update", true), vec!["exponential_comments_create".to_string(), "exponential_issues_update".to_string()]);
-        assert!(toggled_grants(&dotted, "exponential_comments_create", false).is_empty());
     }
 
     #[test]

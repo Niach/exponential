@@ -7,7 +7,7 @@
     "description": "Plan the team's time off: request leave, see the month as a calendar (who is out, every day) and the next twelve weeks per person as a timeline. On phones the calendar is a compact month with the selected day's list. Agents read who is out over MCP."
   },
   "package": {
-    "formatVersion": 5,
+    "formatVersion": 6,
     "id": "exponential.leave-planner",
     "name": "Leave planner",
     "version": "1.0.0",
@@ -20,9 +20,9 @@
       "records:leave"
     ],
     "functions": [
-      "records.*",
+      "records_*",
       "bind",
-      "harness.toast"
+      "harness_toast"
     ],
     "screens": [
       {
@@ -213,7 +213,7 @@
             "message": "The last day is on or after the first"
           },
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "leave",
               "data": {
                 "who": "params.who",
@@ -232,7 +232,7 @@
             }
           },
           {
-            "call": "harness.toast",
+            "call": "harness_toast",
             "args": {
               "message": "'Requested ' + params.type + ' for ' + params.who"
             }
@@ -315,7 +315,7 @@
             "component": "Page",
             "title": "Leave planner",
             "subtitle": {
-              "path": "/leave/month/label"
+              "@path": "/leave/month/label"
             },
             "children": [
               "toolbar",
@@ -344,13 +344,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "bind",
+                  "@call": "bind",
                   "args": {
                     "path": "/leave",
                     "source": "records:leave?query=month",
                     "params": {
                       "month": {
-                        "path": "/leave/month/prev"
+                        "@path": "/leave/month/prev"
                       }
                     }
                   }
@@ -366,7 +366,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "bind",
+                  "@call": "bind",
                   "args": {
                     "path": "/leave",
                     "source": "records:leave?query=month",
@@ -385,13 +385,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "bind",
+                  "@call": "bind",
                   "args": {
                     "path": "/leave",
                     "source": "records:leave?query=month",
                     "params": {
                       "month": {
-                        "path": "/leave/month/next"
+                        "@path": "/leave/month/next"
                       }
                     }
                   }
@@ -407,7 +407,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/draft",
                     "value": {
@@ -415,10 +415,10 @@
                       "who": "",
                       "type": "Vacation",
                       "start": {
-                        "path": "/leave/month/day"
+                        "@path": "/leave/month/day"
                       },
                       "end": {
-                        "path": "/leave/month/day"
+                        "@path": "/leave/month/day"
                       },
                       "note": ""
                     }
@@ -437,16 +437,16 @@
             "on": {
               "select": {
                 "functionCall": {
-                  "call": "bind",
+                  "@call": "bind",
                   "args": {
                     "path": "/leave",
                     "source": "records:leave?query=month",
                     "params": {
                       "month": {
-                        "path": "/leave/month/key"
+                        "@path": "/leave/month/key"
                       },
                       "day": {
-                        "path": "date"
+                        "@path": "date"
                       }
                     }
                   }
@@ -459,7 +459,7 @@
             "component": "Dialog",
             "title": "Request leave",
             "open": {
-              "path": "/draft/open"
+              "@path": "/draft/open"
             },
             "children": [
               "form"
@@ -476,22 +476,22 @@
             "on": {
               "submit": {
                 "functionCall": {
-                  "call": "actions.request",
+                  "@call": "actions_request",
                   "args": {
                     "who": {
-                      "path": "/draft/who"
+                      "@path": "/draft/who"
                     },
                     "type": {
-                      "path": "/draft/type"
+                      "@path": "/draft/type"
                     },
                     "start": {
-                      "path": "/draft/start"
+                      "@path": "/draft/start"
                     },
                     "end": {
-                      "path": "/draft/end"
+                      "@path": "/draft/end"
                     },
                     "note": {
-                      "path": "/draft/note"
+                      "@path": "/draft/note"
                     }
                   }
                 }
@@ -516,7 +516,7 @@
             "label": "Who",
             "name": "who",
             "value": {
-              "path": "/draft/who"
+              "@path": "/draft/who"
             }
           },
           {
@@ -555,7 +555,7 @@
               }
             ],
             "value": {
-              "path": "/draft/type"
+              "@path": "/draft/type"
             }
           },
           {
@@ -564,7 +564,7 @@
             "label": "From",
             "name": "start",
             "value": {
-              "path": "/draft/start"
+              "@path": "/draft/start"
             }
           },
           {
@@ -573,7 +573,7 @@
             "label": "To",
             "name": "end",
             "value": {
-              "path": "/draft/end"
+              "@path": "/draft/end"
             }
           },
           {
@@ -583,7 +583,7 @@
             "name": "note",
             "rows": 2,
             "value": {
-              "path": "/draft/note"
+              "@path": "/draft/note"
             }
           },
           {
@@ -594,7 +594,7 @@
             "on": {
               "cancel": {
                 "functionCall": {
-                  "call": "set",
+                  "@call": "set",
                   "args": {
                     "path": "/draft/open",
                     "value": false
@@ -636,7 +636,7 @@
             "component": "Page",
             "title": "Who is out",
             "subtitle": {
-              "path": "/road/timeline/label"
+              "@path": "/road/timeline/label"
             },
             "children": [
               "toolbar",
@@ -661,13 +661,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "bind",
+                  "@call": "bind",
                   "args": {
                     "path": "/road",
                     "source": "records:leave?query=timeline",
                     "params": {
                       "start": {
-                        "path": "/road/timeline/prev"
+                        "@path": "/road/timeline/prev"
                       }
                     }
                   }
@@ -683,7 +683,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "bind",
+                  "@call": "bind",
                   "args": {
                     "path": "/road",
                     "source": "records:leave?query=timeline",
@@ -702,13 +702,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "bind",
+                  "@call": "bind",
                   "args": {
                     "path": "/road",
                     "source": "records:leave?query=timeline",
                     "params": {
                       "start": {
-                        "path": "/road/timeline/next"
+                        "@path": "/road/timeline/next"
                       }
                     }
                   }
@@ -931,6 +931,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "3eYWecAIgVbslQmlo61QhkNUjXELVzFjiWe8b5YUXw3Iyvb5DVxRMBj0eB0sBkHxGbsVbxK9rBeWNUWubj1xAg"
+    "value": "4f_neeqQkas43cegY0LsZneRjuk4pLt9ZGHltnBw7Ncg0U3pVphm_f1b7PRqLjKcv2_H71aTvQnBAIjT-rOqCw"
   }
 }

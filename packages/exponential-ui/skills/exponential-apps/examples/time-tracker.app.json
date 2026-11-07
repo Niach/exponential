@@ -1,5 +1,5 @@
 {
-  "formatVersion": 5,
+  "formatVersion": 6,
   "id": "exponential.time-tracker",
   "name": "Time tracker",
   "version": "1.1.0",
@@ -15,9 +15,9 @@
     "exp:me"
   ],
   "functions": [
-    "records.*",
+    "records_*",
     "bind",
-    "harness.toast"
+    "harness_toast"
   ],
   "records": {
     "entry": {
@@ -249,7 +249,7 @@
           "message": "Keep the note under 500 characters"
         },
         {
-          "records.upsert": {
+          "records_upsert": {
             "kind": "entry",
             "data": {
               "date": "params.date",
@@ -266,7 +266,7 @@
           }
         },
         {
-          "call": "harness.toast",
+          "call": "harness_toast",
           "args": {
             "message": "'Logged ' + formatDuration(params.hours, 'h:mm') + ' on ' + params.date"
           }
@@ -314,7 +314,7 @@
           "message": "Keep the note under 500 characters"
         },
         {
-          "records.upsert": {
+          "records_upsert": {
             "kind": "entry",
             "id": "params.entry",
             "data": {
@@ -332,7 +332,7 @@
           }
         },
         {
-          "call": "harness.toast",
+          "call": "harness_toast",
           "args": {
             "message": "'Saved ' + formatDuration(params.hours, 'h:mm')"
           }
@@ -353,7 +353,7 @@
       },
       "steps": [
         {
-          "records.delete": {
+          "records_delete": {
             "id": "params.entry"
           }
         },
@@ -364,7 +364,7 @@
           }
         },
         {
-          "call": "harness.toast",
+          "call": "harness_toast",
           "args": {
             "message": "'Entry deleted'"
           }
@@ -389,7 +389,7 @@
           "message": "A month has at most 744 hours"
         },
         {
-          "records.upsert": {
+          "records_upsert": {
             "kind": "settings",
             "data": {
               "hours_per_month": "params.hours"
@@ -397,7 +397,7 @@
           }
         },
         {
-          "call": "harness.toast",
+          "call": "harness_toast",
           "args": {
             "message": "'Target set to ' + formatDuration(params.hours, 'h:mm')"
           }
@@ -426,7 +426,7 @@
           "message": "A project needs a code and a name"
         },
         {
-          "records.upsert": {
+          "records_upsert": {
             "kind": "project",
             "data": {
               "value": "params.value",
@@ -603,7 +603,7 @@
           "component": "Page",
           "title": "Time tracker",
           "subtitle": {
-            "path": "/month/month/label"
+            "@path": "/month/month/label"
           },
           "children": [
             "toolbar",
@@ -637,13 +637,13 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "bind",
+                "@call": "bind",
                 "args": {
                   "path": "/month",
                   "source": "records:entry?query=month",
                   "params": {
                     "month": {
-                      "path": "/month/month/prev"
+                      "@path": "/month/month/prev"
                     }
                   }
                 }
@@ -656,7 +656,7 @@
           "component": "Text",
           "variant": "title",
           "text": {
-            "path": "/month/month/label"
+            "@path": "/month/month/label"
           }
         },
         {
@@ -668,13 +668,13 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "bind",
+                "@call": "bind",
                 "args": {
                   "path": "/month",
                   "source": "records:entry?query=month",
                   "params": {
                     "month": {
-                      "path": "/month/month/next"
+                      "@path": "/month/month/next"
                     }
                   }
                 }
@@ -690,14 +690,14 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/draft",
                   "value": {
                     "open": true,
                     "entry": "",
                     "date": {
-                      "path": "/month/month/today"
+                      "@path": "/month/month/today"
                     },
                     "hours": 0,
                     "note": "",
@@ -728,19 +728,19 @@
           "component": "StatTile",
           "label": "Logged",
           "value": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "formatDuration(m.sum, 'h:mm')",
               "default": "0:00",
               "vars": {
                 "m": {
-                  "path": "/month"
+                  "@path": "/month"
                 }
               }
             }
           },
           "trend": {
-            "path": "/month/month/sums"
+            "@path": "/month/month/sums"
           }
         },
         {
@@ -748,13 +748,13 @@
           "component": "StatTile",
           "label": "Target",
           "value": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "formatDuration((size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160), 'h:mm')",
               "default": "160:00",
               "vars": {
                 "s": {
-                  "path": "/settings"
+                  "@path": "/settings"
                 }
               }
             }
@@ -765,46 +765,46 @@
           "component": "StatTile",
           "label": "Left",
           "value": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "formatDuration(max((size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160) - m.sum, 0), 'h:mm')",
               "default": "–",
               "vars": {
                 "m": {
-                  "path": "/month"
+                  "@path": "/month"
                 },
                 "s": {
-                  "path": "/settings"
+                  "@path": "/settings"
                 }
               }
             }
           },
           "delta": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "m.sum > (size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160) ? 'over by ' + formatDuration(m.sum - (size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160), 'h:mm') : ''",
               "default": "",
               "vars": {
                 "m": {
-                  "path": "/month"
+                  "@path": "/month"
                 },
                 "s": {
-                  "path": "/settings"
+                  "@path": "/settings"
                 }
               }
             }
           },
           "tone": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "m.sum >= (size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160) ? 'success' : 'neutral'",
               "default": "neutral",
               "vars": {
                 "m": {
-                  "path": "/month"
+                  "@path": "/month"
                 },
                 "s": {
-                  "path": "/settings"
+                  "@path": "/settings"
                 }
               }
             }
@@ -815,16 +815,16 @@
           "component": "StatTile",
           "label": "Days logged",
           "value": {
-            "call": "formatNumber",
+            "@call": "formatNumber",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "size(m.groups)",
                   "default": 0,
                   "vars": {
                     "m": {
-                      "path": "/month"
+                      "@path": "/month"
                     }
                   }
                 }
@@ -838,16 +838,16 @@
           "component": "Progress",
           "label": "Month target",
           "value": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "min(round(m.sum * 100 / max((size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160), 1)), 100)",
               "default": 0,
               "vars": {
                 "m": {
-                  "path": "/month"
+                  "@path": "/month"
                 },
                 "s": {
-                  "path": "/settings"
+                  "@path": "/settings"
                 }
               }
             }
@@ -858,7 +858,7 @@
           "component": "Section",
           "title": "My entries",
           "count": {
-            "path": "/month/count"
+            "@path": "/month/count"
           },
           "children": [
             "entryList",
@@ -872,15 +872,22 @@
           "icon": "ui-clock",
           "title": "No hours this month",
           "visible": {
-            "call": "expr",
+            "@call": "cond",
             "args": {
-              "expr": "m.count == 0",
-              "default": false,
-              "vars": {
-                "m": {
-                  "path": "/month"
+              "if": {
+                "@call": "expr",
+                "args": {
+                  "expr": "m.count == 0",
+                  "default": false,
+                  "vars": {
+                    "m": {
+                      "@path": "/month"
+                    }
+                  }
                 }
-              }
+              },
+              "then": true,
+              "else": false
             }
           }
         },
@@ -898,40 +905,40 @@
           "id": "entryRow",
           "component": "Row",
           "title": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "note != null && note != '' ? note : 'No note'",
               "default": "No note",
               "vars": {
                 "note": {
-                  "path": "note"
+                  "@path": "note"
                 }
               }
             }
           },
           "subtitle": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "p != null && p != '' ? orElse(d, '') + ' · ' + p : orElse(d, '')",
               "default": "",
               "vars": {
                 "d": {
-                  "path": "date"
+                  "@path": "date"
                 },
                 "p": {
-                  "path": "project"
+                  "@path": "project"
                 }
               }
             }
           },
           "value": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "formatDuration(orElse(h, 0), 'h:mm')",
               "default": "",
               "vars": {
                 "h": {
-                  "path": "hours"
+                  "@path": "hours"
                 }
               }
             }
@@ -941,34 +948,34 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/draft",
                   "value": {
                     "open": true,
                     "entry": {
-                      "path": "id"
+                      "@path": "id"
                     },
                     "date": {
-                      "path": "date"
+                      "@path": "date"
                     },
                     "hours": {
-                      "path": "hours"
+                      "@path": "hours"
                     },
                     "note": {
-                      "call": "fallback",
+                      "@call": "fallback",
                       "args": {
                         "value": {
-                          "path": "note"
+                          "@path": "note"
                         },
                         "default": ""
                       }
                     },
                     "project": {
-                      "call": "fallback",
+                      "@call": "fallback",
                       "args": {
                         "value": {
-                          "path": "project"
+                          "@path": "project"
                         },
                         "default": ""
                       }
@@ -984,13 +991,13 @@
           "component": "Section",
           "title": "This month by week",
           "count": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "size(w.groups)",
               "default": 0,
               "vars": {
                 "w": {
-                  "path": "/weeks"
+                  "@path": "/weeks"
                 }
               }
             }
@@ -1034,7 +1041,7 @@
             }
           ],
           "rows": {
-            "path": "/weeks/groups"
+            "@path": "/weeks/groups"
           }
         },
         {
@@ -1043,7 +1050,7 @@
           "title": "This month by member",
           "caption": "Owners see everyone; members see themselves",
           "count": {
-            "path": "/team/count"
+            "@path": "/team/count"
           },
           "collapsible": true,
           "open": false,
@@ -1076,7 +1083,7 @@
             }
           ],
           "rows": {
-            "path": "/team/groups"
+            "@path": "/team/groups"
           }
         },
         {
@@ -1090,10 +1097,10 @@
             "projectList"
           ],
           "visible": {
-            "call": "eq",
+            "@call": "eq",
             "args": {
               "a": {
-                "path": "/me/role"
+                "@path": "/me/role"
               },
               "b": "owner"
             }
@@ -1115,7 +1122,7 @@
           "label": "Hours per month",
           "name": "hours_per_month",
           "value": {
-            "path": "/targetDraft"
+            "@path": "/targetDraft"
           },
           "min": 0,
           "max": 744,
@@ -1129,10 +1136,10 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "actions.setTarget",
+                "@call": "actions_setTarget",
                 "args": {
                   "hours": {
-                    "path": "/targetDraft"
+                    "@path": "/targetDraft"
                   }
                 }
               }
@@ -1156,7 +1163,7 @@
           "name": "value",
           "placeholder": "web",
           "value": {
-            "path": "/newProject/value"
+            "@path": "/newProject/value"
           }
         },
         {
@@ -1166,7 +1173,7 @@
           "name": "label",
           "placeholder": "Web app",
           "value": {
-            "path": "/newProject/label"
+            "@path": "/newProject/label"
           }
         },
         {
@@ -1178,13 +1185,13 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "actions.addProject",
+                "@call": "actions_addProject",
                 "args": {
                   "value": {
-                    "path": "/newProject/value"
+                    "@path": "/newProject/value"
                   },
                   "label": {
-                    "path": "/newProject/label"
+                    "@path": "/newProject/label"
                   }
                 }
               }
@@ -1207,7 +1214,7 @@
           "id": "projectChip",
           "component": "Chip",
           "label": {
-            "path": "label"
+            "@path": "label"
           }
         },
         {
@@ -1215,7 +1222,7 @@
           "component": "Dialog",
           "title": "Log hours",
           "open": {
-            "path": "/draft/open"
+            "@path": "/draft/open"
           },
           "children": [
             "form"
@@ -1232,19 +1239,19 @@
           "on": {
             "submit": {
               "functionCall": {
-                "call": "actions.log",
+                "@call": "actions_log",
                 "args": {
                   "date": {
-                    "path": "/draft/date"
+                    "@path": "/draft/date"
                   },
                   "hours": {
-                    "path": "/draft/hours"
+                    "@path": "/draft/hours"
                   },
                   "note": {
-                    "path": "/draft/note"
+                    "@path": "/draft/note"
                   },
                   "project": {
-                    "path": "/draft/project"
+                    "@path": "/draft/project"
                   }
                 }
               }
@@ -1268,7 +1275,7 @@
           "label": "Day",
           "name": "date",
           "value": {
-            "path": "/draft/date"
+            "@path": "/draft/date"
           }
         },
         {
@@ -1277,7 +1284,7 @@
           "label": "Hours",
           "name": "hours",
           "value": {
-            "path": "/draft/hours"
+            "@path": "/draft/hours"
           },
           "min": 0,
           "max": 24,
@@ -1286,27 +1293,27 @@
           "checks": [
             {
               "condition": {
-                "call": "and",
+                "@call": "and",
                 "args": {
                   "values": [
                     {
-                      "call": "lt",
+                      "@call": "lt",
                       "args": {
                         "a": 0,
                         "b": {
-                          "path": "/draft/hours"
+                          "@path": "/draft/hours"
                         }
                       }
                     },
                     {
-                      "call": "not",
+                      "@call": "not",
                       "args": {
                         "value": {
-                          "call": "lt",
+                          "@call": "lt",
                           "args": {
                             "a": 24,
                             "b": {
-                              "path": "/draft/hours"
+                              "@path": "/draft/hours"
                             }
                           }
                         }
@@ -1326,10 +1333,10 @@
           "name": "project",
           "placeholder": "No project",
           "options": {
-            "path": "/projects/rows"
+            "@path": "/projects/rows"
           },
           "value": {
-            "path": "/draft/project"
+            "@path": "/draft/project"
           }
         },
         {
@@ -1339,7 +1346,7 @@
           "name": "note",
           "rows": 2,
           "value": {
-            "path": "/draft/note"
+            "@path": "/draft/note"
           }
         },
         {
@@ -1354,7 +1361,7 @@
           "on": {
             "cancel": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/draft/open",
                   "value": false
@@ -1370,24 +1377,31 @@
           "variant": "ghost",
           "icon": "ui-delete",
           "visible": {
-            "call": "expr",
+            "@call": "cond",
             "args": {
-              "expr": "e != ''",
-              "default": false,
-              "vars": {
-                "e": {
-                  "path": "/draft/entry"
+              "if": {
+                "@call": "expr",
+                "args": {
+                  "expr": "e != ''",
+                  "default": false,
+                  "vars": {
+                    "e": {
+                      "@path": "/draft/entry"
+                    }
+                  }
                 }
-              }
+              },
+              "then": true,
+              "else": false
             }
           },
           "on": {
             "press": {
               "functionCall": {
-                "call": "actions.remove",
+                "@call": "actions_remove",
                 "args": {
                   "entry": {
-                    "path": "/draft/entry"
+                    "@path": "/draft/entry"
                   }
                 }
               }
@@ -1400,36 +1414,43 @@
           "label": "Save changes",
           "variant": "secondary",
           "visible": {
-            "call": "expr",
+            "@call": "cond",
             "args": {
-              "expr": "e != ''",
-              "default": false,
-              "vars": {
-                "e": {
-                  "path": "/draft/entry"
+              "if": {
+                "@call": "expr",
+                "args": {
+                  "expr": "e != ''",
+                  "default": false,
+                  "vars": {
+                    "e": {
+                      "@path": "/draft/entry"
+                    }
+                  }
                 }
-              }
+              },
+              "then": true,
+              "else": false
             }
           },
           "on": {
             "press": {
               "functionCall": {
-                "call": "actions.edit",
+                "@call": "actions_edit",
                 "args": {
                   "entry": {
-                    "path": "/draft/entry"
+                    "@path": "/draft/entry"
                   },
                   "date": {
-                    "path": "/draft/date"
+                    "@path": "/draft/date"
                   },
                   "hours": {
-                    "path": "/draft/hours"
+                    "@path": "/draft/hours"
                   },
                   "note": {
-                    "path": "/draft/note"
+                    "@path": "/draft/note"
                   },
                   "project": {
-                    "path": "/draft/project"
+                    "@path": "/draft/project"
                   }
                 }
               }
@@ -1917,7 +1938,7 @@
         ],
         "calls": [
           {
-            "name": "harness.toast",
+            "name": "harness_toast",
             "args": {
               "message": "Logged 2:15 on 2026-11-12"
             }

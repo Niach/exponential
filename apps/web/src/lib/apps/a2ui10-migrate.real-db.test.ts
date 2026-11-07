@@ -3,9 +3,10 @@ import { readFileSync, readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { HostRouter, availableExtensions, CORE_CATALOG_ID, cardProblems, cardV10, reduceNested, reduceSurface, validatePackage, type AppPackage, type NestedNode } from "@exponential_app/eui"
 import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
+import { dataMigrations } from "@/db/schema"
 import fixture from "./a2ui10-migrate.fixture.json"
 
 // VAPP-289 (round 9 §14.1): the migration against the real migrated Postgres.
@@ -15,7 +16,7 @@ import fixture from "./a2ui10-migrate.fixture.json"
 const ready = await probeRealDb(`SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'refresh_conversation_digests_update') AS ok`)
 if (!ready.ok) console.info(`[a2ui10-migrate.real-db] skipped: ${ready.reason}`)
 
-const { runA2ui10Migration } = await import(`@/lib/apps/a2ui10-migrate`)
+const { A2UI10_MIGRATION, migrateA2ui10Once, runA2ui10Migration } = await import(`@/lib/apps/a2ui10-migrate`)
 const { APP_CATALOG_IDS, appExtension } = await import(`@/lib/apps/package`)
 const { stripUngrantableGrants } = await import(`@/lib/bootstrap-cloud`)
 
@@ -99,7 +100,7 @@ function expectPackageLoads(pkg: unknown) {
   expect(host.installPackage(pkg as AppPackage)).toEqual([])
   const p = pkg as AppPackage
   for (const templateId of Object.keys(p.templates)) {
-    const ops = host.route({ version: `1.0`, applyTemplate: { surfaceId: `s_${id8()}`, packageId: p.id, templateId } }, { trusted: true, acceptV09: false })
+    const ops = host.route({ version: `1.0`, applyTemplate: { surfaceId: `s_${id8()}`, packageId: p.id, templateId } }, { trusted: true })
     expect(ops.filter((op) => op.op === `send`)).toEqual([])
     const painted = ops.find((op) => op.op === `components`)
     if (painted?.op !== `components`) throw new Error(`template ${templateId} paints nothing`)
@@ -107,7 +108,7 @@ function expectPackageLoads(pkg: unknown) {
   }
 }
 function expectCardLoads(card: { surface?: unknown }) {
-  const entry = cardV10(card.surface, false)
+  const entry = cardV10(card.surface)
   if (`error` in entry) throw new Error(entry.error)
   expect(cardProblems(entry.card.root)).toEqual([])
   expect(reduceNested(entry.card.root, { catalogId: CORE_CATALOG_ID }).issues).toEqual([])
@@ -131,6 +132,19 @@ async function seedAll(s: Seed) {
 }
 
 describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
+  it(`boot runs once: the marker skips the next pass, failed rows included`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      await seedAll(s)
+      await tx.delete(dataMigrations).where(eq(dataMigrations.name, A2UI10_MIGRATION))
+      const first = await migrateA2ui10Once(tx as Client)
+      expect(first?.mode).toBe(`apply`)
+      const [marker] = await tx.select().from(dataMigrations).where(eq(dataMigrations.name, A2UI10_MIGRATION))
+      expect((marker!.report as { mode: string }).mode).toBe(`apply`)
+      expect(await migrateA2ui10Once(tx as Client)).toBeNull()
+    })
+  })
+
   it(`a dry run counts and changes nothing`, async () => {
     await inRollback(async (tx) => {
       // The walk covers every row and CI runs the real-DB files side by side,
@@ -370,14 +384,12 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
   })
 })
 
-describe.skipIf(!ready.ok)(`stripUngrantableGrants (FEED-159) across the flag day`, () => {
-  it(`keeps a grantable action in either spelling, drops the rest`, async () => {
+describe.skipIf(!ready.ok)(`stripUngrantableGrants (FEED-159) after the flag day`, () => {
+  it(`keeps a grantable flat action, drops the rest (the migration runs first at boot)`, async () => {
     await inRollback(async (tx) => {
       const s = await seed(tx)
-      const dotted = await s.app(`dotted-${id8()}`, { grants: [`exponential.issues.update`, `exponential.issues.delete`, `exponential.nope.nope`] })
-      const flat = await s.app(`flat-${id8()}`, { grants: [`exponential_issues_update`, `exponential_issues_delete`] })
+      const flat = await s.app(`flat-${id8()}`, { grants: [`exponential_issues_update`, `exponential_issues_delete`, `exponential.issues.update`] })
       await stripUngrantableGrants(tx as never)
-      expect((await appRow(tx, dotted)).granted_tools).toEqual([`exponential.issues.update`])
       expect((await appRow(tx, flat)).granted_tools).toEqual([`exponential_issues_update`])
     })
   })

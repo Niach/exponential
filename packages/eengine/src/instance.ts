@@ -16,7 +16,6 @@ import {
   parseSource,
   recordPolicy,
   recordsValue,
-  bridgePackage,
   validatePackage,
   verifyPackageFile,
   type PackageIssue,
@@ -147,8 +146,7 @@ export class AppInstance {
   static async load(config: EngineHostConfig, file: unknown): Promise<AppInstance> {
     const verification = await verifyPackageFile(file)
     if (verification.status === `invalid`) throw new LoadError(`signature`, verification.issues)
-    // Round 9 §12: format 5 through the bridge while ACCEPT_V09 holds.
-    const pkg = bridgePackage(packageOf(file))
+    const pkg = packageOf(file)
     const issues = validatePackage(pkg)
     if (issues.length) throw new LoadError(`invalid`, issues)
     const p = pkg as Pkg

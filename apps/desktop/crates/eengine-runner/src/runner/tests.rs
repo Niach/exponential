@@ -25,12 +25,12 @@ impl Capability for Photos {
 
 fn package() -> Value {
     json!({
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.album",
         "name": "Album",
         "version": "1.0.0",
         "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-        "functions": ["records.*", "app_navigate", "photos_pick"],
+        "functions": ["records_*", "app_navigate", "photos_pick"],
         "sources": ["records:*"],
         "records": {"note": {"title": "Note", "schema": {"type": "object", "properties": {"text": {"type": "string"}}}}},
         "capabilities": [{"id": "photos.read", "why": "Pick the photos for an album."}],
@@ -300,6 +300,8 @@ fn the_photobook_sample_picks_photos_and_exports_a_pdf() {
     }
 
     let file: Value = serde_json::from_slice(include_bytes!("../../../../../../samples/apps/photobook.app.json")).unwrap();
+    // Round 9 §14.1: a signed format 5 file until the pinned signer re-signs it.
+    let file = if file["package"]["formatVersion"] == json!(5) { json!({"package": eui_core::upgrade09::upgrade_package_body09(&file["package"])}) } else { file };
     let tmp = tempfile::tempdir().unwrap();
     let blobs: Arc<FsBlobStore> = Arc::new(FsBlobStore::new(tmp.path().join("files")));
     let jpg = b64(eengine::contract::CAPABILITIES["pdfCases"][3]["blobs"]["jpg1"].as_str().unwrap());

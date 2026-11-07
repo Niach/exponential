@@ -2352,14 +2352,14 @@ mod tests {
         assert_eq!(action_arguments(None, &json!({"text": "hi"})).to_string(), r#"{"text":"hi"}"#);
         assert_eq!(action_arguments(Some("list"), &Value::Null).to_string(), r#"{"op":"list"}"#);
         // A grant lets a typed action run without asking; harness.mcp never.
-        let granted = vec!["exponential.issues.update_status".to_string(), "harness.mcp".to_string()];
+        let granted = vec!["exponential_issues_update_status".to_string(), "harness_mcp".to_string()];
         let none = Value::Null;
         assert!(call_granted("exponential_issues_update_status", &none, &granted));
         assert!(!call_granted("exponential_issues_delete", &none, &granted));
         assert!(!call_granted("harness_mcp", &none, &granted));
         assert!(!call_granted("exponential_issues_update_status", &none, &[]));
         // A granted send never stops a session without the window (stop-run).
-        let send = vec!["exponential.sessions.send".to_string()];
+        let send = vec!["exponential_sessions_send".to_string()];
         assert!(call_granted("exponential_sessions_send", &json!({"text": "hi"}), &send));
         assert!(!call_granted("exponential_sessions_send", &json!({"sessionId": "s1", "stop": true}), &send));
         // The card's words: the action's title, its args, its destructive flag.

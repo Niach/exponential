@@ -117,8 +117,8 @@ export function renderHost(): Record<string, string> {
     const installIssues: Record<string, unknown> = {}
     for (const id of (flow.packages as string[]) ?? []) installIssues[id] = r.installPackage(packages[id]!)
     const steps = (flow.steps as unknown[]).map((s) => {
-      const step = s && typeof s === `object` && `message` in (s as object) ? (s as { message: unknown; trusted?: boolean; acceptV09?: boolean }) : { message: s }
-      const options = { ...(step.trusted ? { trusted: true } : {}), ...(step.acceptV09 === false ? { acceptV09: false } : {}) }
+      const step = s && typeof s === `object` && `message` in (s as object) ? (s as { message: unknown; trusted?: boolean }) : { message: s }
+      const options = step.trusted ? { trusted: true } : {}
       return { message: step.message, ...options, expected: r.route(step.message, options) }
     })
     const out: Record<string, unknown> = { name: flow.name }

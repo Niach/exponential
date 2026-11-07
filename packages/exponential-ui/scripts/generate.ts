@@ -247,7 +247,7 @@ export const LITE_CATALOG_ID = ${JSON.stringify(CORE_LITE_CATALOG_ID)}
 export const BASIC_CATALOG_ID = ${JSON.stringify(A2UI_BASIC_CATALOG_ID)}
 /** VAPP-289: the A2UI wire version every core entry accepts and emits (catalog/host.json \`a2uiVersion\`). */
 export const A2UI_VERSION = ${JSON.stringify(HOST_JSON.a2uiVersion)}
-/** VAPP-289 (round 9 §14): while true, every core entry upgrades 0.9 input through upgrade09 (catalog/host.json \`transition.acceptV09\`). */
+/** VAPP-289 (round 9 §14): false since the flag day: every core entry refuses 0.9 (catalog/host.json \`transition.acceptV09\`). */
 export const ACCEPT_V09: boolean = ${JSON.stringify(HOST_JSON.transition.acceptV09)}
 export const CATALOG_VERSION = ${JSON.stringify(coreCatalog.version)}
 export const UNKNOWN_COMPONENT_NAME = ${JSON.stringify(coreCatalog.unknownComponent)}
@@ -469,7 +469,7 @@ function renderRust(icons: string[]): string {
 ${scalars.map(([k, v]) => `pub const ${screaming(k)}: &str = ${JSON.stringify(v)};`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
 pub const COMPONENT_LITE: &[bool] = &[${liteFlags.join(`, `)}];
-/// VAPP-289 (round 9 §14): while true, every core entry upgrades 0.9 input through upgrade09.
+/// VAPP-289 (round 9 §14): false since the flag day: every core entry refuses 0.9.
 pub const ACCEPT_V09: bool = ${HOST_JSON.transition.acceptV09};
 /// The Icon prop's vocabulary (packages/icons/icons.json at generate time).
 ${arr(`iconNames`, icons)}

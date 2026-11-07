@@ -11,7 +11,7 @@ final class HostTests: XCTestCase {
     let core = "https://ui.exponential.at/catalogs/core/v1"
 
     func msg(_ kind: String, _ body: JSONValue) -> String {
-        JSONValue.object(["version": .string("v0.9"), kind: body]).json
+        JSONValue.object(["version": .string("1.0"), kind: body]).json
     }
 
     func create(_ id: String, catalog: String? = nil) -> String {
@@ -167,7 +167,7 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(host.surfaceIds, ["s1"])
         let model = try XCTUnwrap(host.surface("s1"))
         XCTAssertEqual(model.options.catalogId, core)
-        host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Text"), "text": .object(["path": .string("/name")])])]))
+        host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Text"), "text": .object(["@path": .string("/name")])])]))
         let epoch = model.surface.writeEpoch()
         host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string("/name"), "value": .string("Ada")])))
         XCTAssertEqual(model.data["name"], .string("Ada"))
@@ -176,7 +176,7 @@ final class HostTests: XCTestCase {
         model.setViewport(width: 300, height: 400)
         XCTAssertEqual(model.nodes.first?.props["text"], .string("Ada"))
         // No `value` = remove the path.
-        host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string("/name")])))
+        host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string("/name"), "value": .null])))
         XCTAssertNil(model.data["name"])
         // `""` = the whole model.
         host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string(""), "value": .object(["name": .string("Grace")])])))
@@ -216,7 +216,7 @@ final class HostTests: XCTestCase {
         let host = ExponentialHost(HostOptions(transport: transport, plugin: recorder))
         host.connect()
         host.receive(create("s1"))
-        host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Stack"), "children": .array([.string("go")])]), .object(["id": .string("go"), "component": .string("Button"), "label": .string("Go"), "on": .object(["press": .object(["event": .object(["name": .string("refresh"), "context": .object(["note": .object(["path": .string("/note")])])])])])])]))
+        host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Stack"), "children": .array([.string("go")])]), .object(["id": .string("go"), "component": .string("Button"), "label": .string("Go"), "on": .object(["press": .object(["event": .object(["name": .string("refresh"), "context": .object(["note": .object(["@path": .string("/note")])])])])])])]))
         host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string("/note"), "value": .string("hello")])))
         let model = try XCTUnwrap(host.surface("s1"))
         model.setViewport(width: 300, height: 400)
@@ -240,7 +240,7 @@ final class HostTests: XCTestCase {
         let host = ExponentialHost(HostOptions())
         host.receive(create("s1"))
         host.receive(msg("updateComponents", .object(["surfaceId": .string("s1"), "components": .array([
-            .object(["id": .string("root"), "component": .string("FileUpload"), "files": .object(["path": .string("/draft/files")])]),
+            .object(["id": .string("root"), "component": .string("FileUpload"), "files": .object(["@path": .string("/draft/files")])]),
         ])])))
         let model = try XCTUnwrap(host.surface("s1"))
         XCTAssertEqual(model.components.first?["files"]?["@path"]?.string, "/draft/files")
@@ -418,7 +418,7 @@ final class HostTests: XCTestCase {
         let host = ExponentialHost(HostOptions(transport: transport, functions: ["harness_toast": { args, _ in got.append(args); return nil }]))
         host.connect()
         host.receive(create("s1"))
-        host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Stack"), "children": .array([.string("b")])]), .object(["id": .string("b"), "component": .string("Button"), "label": .string("Toast"), "on": .object(["press": .object(["functionCall": .object(["call": .string("harness_toast"), "args": .object(["text": .object(["path": .string("/t")])])])])])])]))
+        host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Stack"), "children": .array([.string("b")])]), .object(["id": .string("b"), "component": .string("Button"), "label": .string("Toast"), "on": .object(["press": .object(["functionCall": .object(["@call": .string("harness_toast"), "args": .object(["text": .object(["@path": .string("/t")])])])])])])]))
         host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string("/t"), "value": .string("saved")])))
         let model = try XCTUnwrap(host.surface("s1"))
         model.setViewport(width: 300, height: 400)

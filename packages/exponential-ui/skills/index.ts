@@ -47,7 +47,7 @@ export const BUILTIN_SKILLS_VERSION = "0.19.0"
 export const BUILTIN_SKILL_SOURCES: BuiltinSkillSource[] = [
   {
     name: "exponential-apps",
-    description: "Build or change an Exponential app (Apps): the package format (formatVersion 5), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.",
+    description: "Build or change an Exponential app (Apps): the package format (formatVersion 6), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.",
     skillMd: s0,
     files: [
       { path: "examples/crm.app.json", content: s0f0 },
@@ -66,7 +66,7 @@ export const BUILTIN_SKILL_SOURCES: BuiltinSkillSource[] = [
   },
   {
     name: "exponential-genui",
-    description: "Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: \"catalog\"} lists the components and their props.",
+    description: "Write genUI (A2UI 1.0) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: \"catalog\"} lists the components and their props.",
     skillMd: s1,
     files: [
       { path: "references/functions.md", content: s1f0 },

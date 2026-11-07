@@ -474,7 +474,7 @@ fn a_partial_update_keeps_an_untouched_unbound_controls_local_value() {
     assert_eq!(checked(&mut s), json!(true));
 
     // updateComponents carrying only the Text: the Checkbox keeps its state.
-    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "msg", "component": "Text", "text": "two"}]}})).expect("apply");
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": [{"id": "msg", "component": "Text", "text": "two"}]}})).expect("apply");
     s.layout(&mut m);
     assert_eq!(checked(&mut s), json!(true));
     assert_eq!(node(&mut s, "msg").props["text"], json!("two"));
@@ -489,7 +489,7 @@ fn a_partial_update_keeps_an_untouched_unbound_controls_local_value() {
     assert_eq!(checked(&mut s), json!(true));
 
     // The Checkbox itself re-sent different: its local value resets.
-    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "tg", "component": "Checkbox", "name": "agree", "label": "Italic"}]}})).expect("apply");
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": [{"id": "tg", "component": "Checkbox", "name": "agree", "label": "Italic"}]}})).expect("apply");
     s.layout(&mut m);
     assert_ne!(checked(&mut s), json!(true));
 }

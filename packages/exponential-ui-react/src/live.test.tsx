@@ -87,6 +87,7 @@ describe(`live re-renders`, () => {
       c.painted.length = 0
       act(() =>
         state.apply({
+          version: `1.0`,
           updateComponents: {
             surfaceId: `s`,
             components: [{ id: `transcript`, component: `Box`, children: [`m0`, `m1`] }, { id: `m1`, component: `Text`, text: `second` }] as unknown as FlatComponent[],

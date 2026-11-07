@@ -123,8 +123,8 @@ class SafePaintTest {
         val t = MemoryTransport()
         val h = ExponentialHost(HostOptions(transport = t, extensions = listOf(HostExtension(ext, mapOf("Spark" to Throws)))), CoroutineScope(Dispatchers.Unconfined))
         h.connect()
-        t.feed(JsonValue.parse("""{"version":"v0.9","createSurface":{"surfaceId":"x","catalogId":"https://acme.example/catalog/v1"}}"""))
-        t.feed(JsonValue.parse("""{"version":"v0.9","updateComponents":{"surfaceId":"x","components":[{"id":"root","component":"Spark","values":[1,2,3]}]}}"""))
+        t.feed(JsonValue.parse("""{"version":"1.0","createSurface":{"surfaceId":"x","catalogId":"https://acme.example/catalog/v1"}}"""))
+        t.feed(JsonValue.parse("""{"version":"1.0","updateComponents":{"surfaceId":"x","components":[{"id":"root","component":"Spark","values":[1,2,3]}]}}"""))
         val m = h.surface("x")!!
         var shaper: at.exponential.ui.measure.TextShaper? = null
         m.shaper = { shaper ?: robolectricShaper().also { shaper = it } }

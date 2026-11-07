@@ -4,8 +4,8 @@
 
 import { writePointer } from "../dynamic"
 import type { Failure } from "../dynamic"
-import { newSurfaceBridge, surfaceUpdates } from "../surface-updates"
-import type { SurfaceBridge, SurfaceRefusal } from "../surface-updates"
+import { surfaceUpdates } from "../surface-updates"
+import type { SurfaceRefusal, SurfaceStream } from "../surface-updates"
 import { reduceNested, reduceSurface } from "../reducer"
 import type { ResolvedTheme } from "../theme-types"
 import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, UiNode } from "../types"
@@ -38,7 +38,7 @@ export class SurfaceStore {
   /** Round 9 §1.3: `<surfaceId>:<n>`. */
   private callCounter = 0
   /** §1.5: the bare path's stream state. */
-  private bridge: SurfaceBridge
+  private stream: SurfaceStream
   /** A nested authoring tree in place of the flat components. */
   private nested: NestedNode | null
   /** The data model a `createSurface` without `dataModel` starts from. */
@@ -62,7 +62,7 @@ export class SurfaceStore {
   constructor(surfaceId: string, catalogId: string | undefined, private extensions: () => readonly ExtensionDef[], initial: { nested?: NestedNode; data?: Record<string, unknown> } = {}) {
     this.surfaceId = surfaceId
     this.catalogId = catalogId
-    this.bridge = newSurfaceBridge(catalogId)
+    this.stream = catalogId === undefined ? {} : { catalogId }
     this.nested = initial.nested ?? null
     this.seed = initial.data ?? {}
     this.data = this.seed
@@ -75,10 +75,10 @@ export class SurfaceStore {
   }
 
   /** Round 9 §1.5: a message straight into this surface (no router): the
-   *  version check with the 0.9 bridge, the entry check per component.
+   *  version check, the entry check per component.
    *  Answers what was refused. */
   apply(message: unknown): SurfaceRefusal[] {
-    const { updates, refused } = surfaceUpdates(message, this.bridge, { extensions: this.extensions() })
+    const { updates, refused } = surfaceUpdates(message, this.stream, { extensions: this.extensions() })
     for (const u of updates) {
       if (u.surfaceId !== this.surfaceId) continue
       if (u.kind === `create`) {

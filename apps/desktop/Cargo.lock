@@ -2945,6 +2945,7 @@ dependencies = [
  "eagent-hub-core",
  "ecore",
  "emcp",
+ "eui-core",
  "flume 0.11.1",
  "jiff",
  "log",

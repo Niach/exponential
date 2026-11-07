@@ -610,11 +610,11 @@ struct PlanCardSurfaceView: View {
 }
 
 #if canImport(ExponentialUI)
-/// Round 9 §14: what a card paints: a stored card without a version is the 0.9
-/// form, shown through the upgrade for good (a sealed one never migrates).
+/// Round 9 §14: what a card paints, through the ONE display reader: a stored
+/// card without a version is the 0.9 form, upgraded for good (a sealed one
+/// never migrates); a 1.0 card comes back as it is; any other version throws.
 private func paintedRootJSON(_ surface: CardSurface) throws -> String {
-    guard surface.version == nil else { return surface.rootJSON }
-    let card = try upgradeCard09(cardJson: "{\"root\":\(surface.rootJSON)}")
+    let card = try upgradeCard09(cardJson: surface.displayJSON)
     return CardSurface.parse(try JSONSerialization.jsonObject(with: Data(card.utf8)))?.rootJSON ?? surface.rootJSON
 }
 

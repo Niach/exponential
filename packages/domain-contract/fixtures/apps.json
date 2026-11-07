@@ -1341,7 +1341,7 @@
             "component": "FileUpload",
             "name": "receipt",
             "files": {
-              "path": "/draft/files"
+              "@path": "/draft/files"
             }
           }
         ],
@@ -1355,7 +1355,7 @@
             "id": "up",
             "component": "FileUpload",
             "files": {
-              "path": "/files"
+              "@path": "/files"
             }
           }
         ],
@@ -1370,7 +1370,7 @@
             "component": "FileUpload",
             "name": "photo",
             "files": {
-              "path": "/a"
+              "@path": "/a"
             }
           },
           {
@@ -1378,7 +1378,7 @@
             "component": "FileUpload",
             "name": "photo",
             "files": {
-              "path": "/b"
+              "@path": "/b"
             }
           }
         ],
@@ -1393,7 +1393,7 @@
             "component": "FileUpload",
             "name": "photo",
             "files": {
-              "path": "files"
+              "@path": "files"
             }
           }
         ],
@@ -1414,7 +1414,7 @@
             "component": "FileUpload",
             "name": "other",
             "files": {
-              "path": "/b"
+              "@path": "/b"
             }
           }
         ],

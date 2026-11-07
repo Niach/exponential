@@ -5,7 +5,8 @@
 ## Tools
 
 `tools: {<id>: Tool}` registers MCP servers or scripts a package's functions
-call. A tool id follows `^[a-z][a-z0-9_-]{0,31}$`.
+call. A tool id follows `^[a-z][a-z0-9]*(_[a-z0-9]+)*$` (no `-`, no `__`, no
+leading or trailing `_`).
 
 | kind | keys | runs |
 | --- | --- | --- |
@@ -16,8 +17,10 @@ call. A tool id follows `^[a-z][a-z0-9_-]{0,31}$`.
 An `mcp` tool has exactly one of `url` / `command`. `env` lists variable
 NAMES the host passes through from its own environment; a package never
 carries values or secrets. Functions: an MCP tool's tool `<name>` is the host
-function `tools.<id>.<name>` (args = its arguments); a script is
-`tools.<id>`. They are listed in `functions` like any other.
+function `tools_<id>__<name>` (args = its arguments, a character of `<name>`
+that is no identifier character reads `_`); a script is `tools_<id>`. They are
+listed in `functions` like any other (`tools_<id>__*`). Two tools of one server
+whose names read alike are a call error (`ambiguous tool name`).
 
 **Consent (the host MUST show it).** No tool runs before the person allowed
 it. Before a tool's FIRST call the host shows a consent card with the tool's
@@ -25,15 +28,15 @@ row from `toolConsent(pkg)`: `{id, kind, transport: http|stdio|script,
 title, description, target, env}`, `target` = the url, or the command line
 exactly as it will run (`command` then every arg, an arg with a space, quote
 or backslash JSON-quoted). Choices: allow (remembered) or deny (the call
-fails `FUNCTION_DENIED`). The remembered grant is keyed by
+fails `INVALID_FUNCTION_CALL`). The remembered grant is keyed by
 `toolConsentKey(packageId, toolId, tool)` = `<packageId>/<toolId>:` + the
 canonical JSON of the tool: ANY change to the definition in a later version
 asks again. A tool call is never `allow` by policy alone; a host that cannot
 run a kind (a browser cannot run a command) refuses its calls with
-`FUNCTION_NOT_FOUND` and says so on the card instead of an allow button.
+`UNKNOWN_FUNCTION` and says so on the card instead of an allow button.
 Exponential's app hosts run no package tools: its server refuses a package
-with `tools` (an app reaches tools through `exponential.<noun>.<op>` and
-`harness.mcp`).
+with `tools` (an app reaches tools through `exponential_<noun>_<op>` and
+`harness_mcp`).
 
 ## Exposes
 
@@ -74,7 +77,7 @@ template data and the host shows "<server> runs on <device>, offline".
   { "name": "log_comment", "title": "Log a comment", "description": "Comment the logged hours on an issue.",
     "input": { "type": "object", "properties": { "issue": { "type": "string" }, "hours": { "type": "number" } }, "required": ["issue", "hours"] },
     "access": "write",
-    "run": { "action": "exponential.comments.create", "args": { "issueId": "${input.issue}", "body": "Logged ${input.hours} h" } } },
+    "run": { "action": "exponential_comments_create", "args": { "issueId": "${input.issue}", "body": "Logged ${input.hours} h" } } },
   { "name": "find_customer", "title": "Find a customer", "description": "Search CRM customers.",
     "input": { "type": "object", "properties": { "q": { "type": "string" } } },
     "access": "read",
@@ -103,9 +106,9 @@ template data and the host shows "<server> runs on <device>, offline".
   value (`rows`, `count`, `sum?`, `groups?`, `totals?`, `before?`, `month?`);
   `app` (another app) and another `from` are refused. Exponential caps the
   rows read at 25,000 (`truncated: true` beyond).
-- `action` (+ `args`) calls a host function (`exponential.<noun>.<op>`). It
-  reads when the last word of its name is list, get, show, catalog,
-  activity or files; anything else writes.
+- `action` (+ `args`) calls a flat host function: `^[a-z][a-z0-9]*(_[a-z0-9]+)+$`
+  (`exponential_<noun>_<op>`). It reads when the last `_`-separated word of its
+  name is list, get, show, catalog, activity or files; anything else writes.
 - `upstream` (+ `tool`, `args`) calls a tool of one of the package's
   `upstreams` with the person's own credential. Its level is the tool's live
   annotations: it reads only with `readOnlyHint: true`.
@@ -119,7 +122,7 @@ template data and the host shows "<server> runs on <device>, offline".
   never instructions. It always writes (`access: "write"`); `device` is
   absent or `"default"` (the agent's own device). At most 10 hand-offs per
   app a minute. The same form runs from an automation (as its sponsor,
-  "Automations") and from the `exponential.apps.handoff` action
+  "Automations") and from the `exponential_apps_handoff` action
   (`{slug, tool, input, record?}`: a press runs one of the package's
   `agent` exposes as the viewer, behind the consent card unless an owner
   granted it).
@@ -127,8 +130,8 @@ template data and the host shows "<server> runs on <device>, offline".
 Every string in `run` may hold `${input.<path>}` (dotted keys into the
 call's input; the first key must be a declared input property). A string
 that is exactly one template keeps the value's type; inside text the value
-is printed. Destructive is never exposed: a name holding delete, merge, close,
-end, remove or trash is refused, and a `read` binding whose run writes is
+is printed. Destructive is never exposed: a name holding the word delete,
+merge, close, end, remove or trash (`_`-separated words) is refused, and a `read` binding whose run writes is
 refused. At most 32 tools. `exposeIssues` returns every issue with its MCP Proxy
 error code; the host adds its own rules on top (Exponential: only grantable,
 non-destructive actions; upstreams the team has).

@@ -302,8 +302,7 @@ pub fn host_options(theme: Arc<ResolvedTheme>, plugin: Rc<dyn HostPlugin>, boote
     }
     if let Some(r) = booted {
         for name in runner::function_names(r.instance().package()) {
-            // Round 9 §6.3: genUI calls the flat name; the Engine keeps its own.
-            let (tx, slot, key) = (tx.clone(), ctx_slot.clone(), eui_core::upgrade09::rename09(&name));
+            let (tx, slot, key) = (tx.clone(), ctx_slot.clone(), name.clone());
             let f: HostFunction = Rc::new(move |args: Value, _call, cx: &mut App| {
                 let (reply, answer) = flume::bounded(1);
                 let ticket = slot.borrow().as_ref().map_or(0, |c| c.ticket());

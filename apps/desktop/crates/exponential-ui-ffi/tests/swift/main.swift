@@ -424,10 +424,9 @@ equal(try! actionMessageJson(surfaceId: "s", componentId: "b", name: "go", conte
 check(a2uiVersion() == "1.0", "a2uiVersion")
 check(hostRouter.mintSurfaceId(base: "d") == "d#1", "mintSurfaceId")
 let upgradeCases = (load("upgrade09.json") as! [String: Any])["cases"] as! [[String: Any]]
-let upgradeClient = upgradeCases.first { $0["kind"] as? String == "client" }!
-equal(try! upgrade09Json(requestJson: text(["kind": "client", "input": upgradeClient["input"]!])), upgradeClient["expected"]!, "upgrade09 client")
 let upgradeCard = upgradeCases.first { $0["kind"] as? String == "card" }!
 equal(try! upgradeCard09(cardJson: text(upgradeCard["input"]!)), upgradeCard["expected"]!, "upgrade09 card")
+equal(try! upgradeCard09(cardJson: text(upgradeCard["expected"]!)), upgradeCard["expected"]!, "a 1.0 card comes back unchanged")
 check(try! templateMessagesJson(packageJson: text(hostPackages["acme.devices"]!), templateId: "nope", surfaceId: "x", dataJson: nil) == nil, "missing template")
 let fnSurface = try! Surface(surfaceId: "f", catalogId: coreCatalogId(), themeId: nil, mode: "light")
 _ = try! fnSurface.setNested(nestedJson: text(["id": "root", "component": "Box", "children": [["id": "b", "component": "Button", "props": ["label": "Go"], "on": ["press": ["functionCall": ["@call": "harness_toast", "args": ["message": ["@path": "/m"]]]]]]]]))

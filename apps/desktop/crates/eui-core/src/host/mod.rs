@@ -48,7 +48,7 @@ pub use exposes::{expose_action_access, expose_issues, expose_name_destructive, 
 pub use decoders::{decode_jsonl, mcp_action_call, mcp_action_call_with, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
 pub use package::{
     available_extensions, client_capabilities, merge_data, renderer_capabilities, package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package, validate_package_in, validate_package_with, version_satisfies, AvailableExtension, PackageIssue,
-    PACKAGE_FORMAT_VERSION,
+    PACKAGE_FORMAT_VERSION, PACKAGE_FORMAT_VERSION_09,
 };
 pub mod calls;
 pub use calls::{route_handle, CallEffect, CallHub, PressRoute, SettledCall, SharedCalls, MAX_SENT_ISSUES};

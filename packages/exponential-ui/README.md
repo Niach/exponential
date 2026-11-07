@@ -54,7 +54,7 @@ nothing from the Exponential app.
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createAppHost` |
 | `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`); the shared web runner (`browser-suites.ts`) and the web-parity check (`parity.ts`: Solid and the web component against React) |
 | `release/` | the npm build + staging scripts and the release runbook (all registries) |
-| `vendor/a2ui/` | A2UI v0.9 schemas, byte-pinned (see its README) |
+| `vendor/a2ui/` | the A2UI 1.0 schemas, basic catalog and test cases (`v1_0/`), byte-pinned (see its README); `v0_9/` stays as `upgrade09`'s reference |
 | `vendor/json-render/` | attribution for the borrowed description wording |
 
 ## The catalog
@@ -71,8 +71,10 @@ Ids: `CORE_CATALOG_ID` = `https://ui.exponential.at/catalogs/core/v1`,
 `CORE_LITE_CATALOG_ID` (the subset without overlays, media and Chart),
 `A2UI_BASIC_CATALOG_ID`; `SUPPORTED_CATALOG_IDS` is what a client advertises.
 
-Wire form = A2UI's: a flat list of `{id, component, …props, children: [ids] |
-{componentId, path}, slots?: {name: id}, on?: {event: Action}, style?}`.
+Wire form = A2UI 1.0's: a flat list of `{id, component, …props, children:
+[ids] | {componentId, path}, slots?: {name: id}, on?: {event: Action}, style?}`;
+a dynamic value is a literal, `{"@path": "/x"}` or `{"@call": "fn", "args": {}}`
+(`docs/round-9-contract.md` is the spec).
 Normalized form (what painters get) = `UiNode`: `{id, component, props,
 style?, on?, children: [UiNode], slots?, template?, recipe?}`.
 
@@ -219,25 +221,26 @@ platforms (TS here, the Rust core's `host` module, the Swift and Kotlin
 painters through the facade); `catalog/host.json` is the contract and
 `fixtures/host-{transport,policy,router}.json` lock it everywhere.
 
-- **Transport**: messages in = the four A2UI v0.9 messages plus two
-  extensions, `applyTemplate {surfaceId, templateId, packageId?, data?}` and
-  `bindDataModel {surfaceId, path, source}`; client messages out = A2UI's
-  `{version, action: {name, surfaceId, sourceComponentId, timestamp,
-  context, payload?}}` or `{version, error: {code, surfaceId, message,
-  path?}}`. Adapters: `MemoryTransport`, `JsonlStreamTransport`,
+- **Transport**: messages in = the six A2UI 1.0 messages (`"version": "1.0"`,
+  required; any other refused with `INVALID_MESSAGE`) plus two host-internal
+  ones only a trusted `route` takes, `applyTemplate {surfaceId, templateId,
+  packageId?, data?}` and `bindDataModel {surfaceId, path, source}`; client
+  messages out = A2UI's `{version, action: {name, surfaceId,
+  sourceComponentId, timestamp, context}}`, `{version, error: {code,
+  surfaceId | functionCallId, message, path?}}`, `callAgentFunction` and
+  `rendererFunctionResponse`. Adapters: `MemoryTransport`, `JsonlStreamTransport`,
   `SseTransport`, `WebSocketTransport`, `McpTransport` (A2UI resources with
-  `application/json+a2ui` in a tool result; actions back as tools/call
+  `application/a2ui+json` in a tool result; actions back as tools/call
   `a2ui_event`), all on the shared decoders (`JsonlDecoder`, `SseDecoder`,
   `messagesFromMcpResult`).
-- **Router**: `HostRouter.route(message)` → ops `create | components | data |
-  bind | delete | send` (pure; errors `UNSUPPORTED_CATALOG`,
+- **Router**: `HostRouter.route(message, {trusted})` → ops `create | components |
+  data | bind | delete | send | call | respond` (pure; errors `UNSUPPORTED_CATALOG`,
   `SURFACE_NOT_FOUND`, `INVALID_MESSAGE`, `TEMPLATE_NOT_FOUND` go back as
   `send`).
-- **Functions**: an `on.<event>` `{functionCall: {call, args}}` (A2UI's
-  key) to a non-built-in name runs the host's
+- **Functions**: an `on.<event>` `{functionCall: {"@call": name, args}}` to a non-built-in name runs the host's
   registered function after the gate: `decideFunction(policy, name,
   registered)` → `allow | ask | deny | not_found` (deny wins, then allow,
-  then ask, then `default`; `harness.*` prefixes), `ask` = the host's
+  then ask, then `default`; `harness_*` prefixes), `ask` = the host's
   `onFunctionCall` consent hook; a package surface's `functions` list
   narrows it (`combineDecisions`). The catalog's functions (the basic 14 + the 15 core ones) are built in.
 - **Bindings**: `source` URIs `<scheme>:<name>?k=v` (`parseSource`); a host
@@ -299,21 +302,21 @@ painters through the facade); `catalog/host.json` is the contract and
   three for the callback, `exchange(code, verifier, clientId)`, so a
   connector rebuilt after the redirect never registers a second client) and
   serves `exp:issues|boards|teams|members` over the instance's MCP tools
-  (`sources()`, polled) plus `exponential.mcp` (`functions()`). Hosted apps
+  (`sources()`, polled) plus `exponential_mcp` (`functions()`). Hosted apps
   (the peer-link transport, VAPP-10) embed through the same `Transport`
   interface.
-- **The package format, version 2** (VAPP-161, `docs/package-format.md`:
+- **The package format** (VAPP-161, `docs/package-format.md`:
   the prose spec other projects link to): `formatVersion`; the neutral
-  `records:<kind>?query` source + `records.upsert` / `records.delete` over a
+  `records:<kind>?query` source + `records_upsert` / `records_delete` over a
   host-provided `RecordStore` (`MemoryRecordStore` + `recordsHost` are the
   reference); `tools` (MCP servers and scripts, `toolConsent` = the consent
   card the host must show); `extensions` (declared, versioned); the package
   FILE's `author` + Ed25519 `signature` over RFC 8785 canonical JSON
-  (`signPackageFile` / `verifyPackageFile`). `formatVersion: 5` is
-  required; no older format is read. The host contract is version 3 (`catalog/host.json` `version`).
+  (`signPackageFile` / `verifyPackageFile`). `formatVersion: 6` is
+  required; no older format is read. The host contract is version 4 (`catalog/host.json` `version`).
 
 The Exponential app is a host like any other: web `apps/web/src/lib/exponential-ui-host.tsx`
-(`harness.*` functions, `exp:` over the Electric collections, the consent
+(`harness_*` functions, `exp:` over the Electric collections, the consent
 card, the app extension's painters from `@exp/ui`, the Devices package
 `packages/ui/exponential-ui/templates/devices.json` on `/exponential-ui-devices`).
 Samples outside the workspace: `samples/exponential-ui/` (a local A2UI

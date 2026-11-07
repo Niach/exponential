@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A2UI 1.0 flag day (#VAPP-289): the desktop host takes 1.0 messages and format 6 packages only.
+
 ## 0.19.0 (2026-11-07)
 
 - Round 9 parity: Markdown's inline code paints the `Markdown/code` recipe in its own type over a placeholder (a span wider than its line stays a breaking mono run), a disc at every list depth, an ordered marker one space before the text (`fixtures/markdown-inline.json` `documentPaint`).

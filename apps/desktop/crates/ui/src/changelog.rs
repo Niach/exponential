@@ -46,14 +46,11 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-07-canvas-and-a2ui",
+    id: "2026-11-07-apps-and-cards-a2ui-1",
     date: "2026-11-07",
-    title: "Drawing in apps, and the next app format",
-    summary: "Apps can draw on a canvas, show half-checked boxes and richer progress, and every app now reads the next version of the app format ahead of the switch.",
-    body: r#"- **Canvas**: apps can draw shapes, text and paths on a canvas and react to taps and drags, the same on the web, desktop, iPhone and Android.
-- **Controls**: a checkbox can be half-checked, a progress bar can show its value as text with a detail line, and a stepper can collapse its finished steps.
-- **Checks and accessibility**: an app's checks can warn instead of only failing, and screen readers hear live updates and skip hidden parts.
-- **The next app format**: every app now reads A2UI 1.0 and still reads today's format, so apps keep working when the switch comes."#,
+    title: "Apps and cards speak A2UI 1.0",
+    summary: "Apps and cards now speak A2UI 1.0; no action needed.",
+    body: r#"- **A2UI 1.0**: apps and cards now speak A2UI 1.0. Your apps and chat cards move over on their own; no action needed."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

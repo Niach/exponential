@@ -65,5 +65,5 @@ public enum ExponentialUICatalog {
     public static let limitNames: [String] = ["maxComponents", "maxDepth", "maxMessageBytes", "maxTemplateItems", "maxPointerBytes", "maxPointerSegments", "agentFunctionTimeoutMs"]
     public static let limitValues: [String] = ["20000", "48", "4194304", "10000", "1024", "64", "30000"]
     public static let componentLite: [Bool] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, false, true, false, false, true, false, false, false, true, true, false, true, true, true, true, false, true, true, true, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, false, true, false, false, false, false, false, true, true, true, false, true, true, true, true, true, true, true, true, false, false, true, false, true, true, true, true, true, true, true, true, false, true, true, true, true, false, false, true, true, true, true, true, false]
-    public static let acceptV09: Bool = true
+    public static let acceptV09: Bool = false
 }

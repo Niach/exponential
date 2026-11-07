@@ -26,7 +26,7 @@ The prompt is sectioned: `sections` picks what to print, `only` narrows the comp
 
 ## A2UI over MCP
 
-This MCP server has one tool whose description is the catalog prompt. A valid answer goes back as A2UI over MCP: a resource with the mime type `application/json+a2ui` holding the JSONL messages. The user's actions come back as a `tools/call` of `a2ui_event`.
+This MCP server has one tool whose description is the catalog prompt. A valid answer goes back as A2UI over MCP: a resource with the mime type `application/a2ui+json` holding the JSONL messages. The user's actions come back as a `tools/call` of `a2ui_event`.
 
 <GuideFile path="agent/server.ts" />
 

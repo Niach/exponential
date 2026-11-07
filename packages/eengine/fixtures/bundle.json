@@ -214,17 +214,17 @@
       "name": "a signed core package: prepared",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {
             "albums": {
@@ -266,11 +266,11 @@
         },
         "author": {
           "name": "Acme",
-          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
         },
         "signature": {
           "alg": "ed25519",
-          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+          "value": "X2D2nir37IbyfpKiS3x2hSSJ4EdTfx43-zx1AD7MUCXaTIK8hGWqBbz00UilDuESIyMmtyQy4Ag2QhBQLVJDDw"
         }
       },
       "bundleToml": {
@@ -313,17 +313,17 @@
       "name": "a tampered file: signature",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook 2",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {
             "albums": {
@@ -365,11 +365,11 @@
         },
         "author": {
           "name": "Acme",
-          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
         },
         "signature": {
           "alg": "ed25519",
-          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+          "value": "X2D2nir37IbyfpKiS3x2hSSJ4EdTfx43-zx1AD7MUCXaTIK8hGWqBbz00UilDuESIyMmtyQy4Ag2QhBQLVJDDw"
         }
       },
       "bundleToml": {
@@ -387,17 +387,17 @@
       "name": "unsigned: refused by default",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {
             "albums": {
@@ -453,17 +453,17 @@
       "name": "unsigned with --allow-unsigned: prepared",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {
             "albums": {
@@ -531,17 +531,17 @@
       "name": "the Exponential-app catalog (the samples/apps gallery): catalog",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {
             "albums": {
@@ -583,11 +583,11 @@
         },
         "author": {
           "name": "Acme",
-          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
         },
         "signature": {
           "alg": "ed25519",
-          "value": "uvb-Wm3GGN-8WrRYifXbUjSQTsPT03njvRQl7y79zsOIijotb-HERdAlEf0VrRHLpG2Bk33ROqRsMu3GrglIBw"
+          "value": "JAQIsHBqiv47uyGZtvR4TnK-TD8BtldfQuyoUzl5v4f5EAxRbO3AOU4IewpUkXx6ZtDhq-ax6enhT3tF2wevAg"
         }
       },
       "bundleToml": {
@@ -605,17 +605,17 @@
       "name": "a package genUI refuses: invalid",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {},
           "capabilities": [
@@ -639,11 +639,11 @@
         },
         "author": {
           "name": "Acme",
-          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
         },
         "signature": {
           "alg": "ed25519",
-          "value": "Cp2nYHZWQDWMgUnxt2ZjHSAeZlkxpkTw5k55b77TZ-y6TyeHG4dzHL_Nhc5KtpMDGVKYwdGeO7y9NmYYULBBDg"
+          "value": "YQUQWCfBA96Q3DFohiVeKVx1iKk4pXn0tqISNNEyBO_4iiIbE63KbfhC7BMcM5VhJf3R_3odSS3jRH2QC_JUCw"
         }
       },
       "bundleToml": {
@@ -661,13 +661,13 @@
       "name": "a host-only scope: capability",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
+            "records_*",
             "shell.edit"
           ],
           "templates": {
@@ -698,11 +698,11 @@
         },
         "author": {
           "name": "Acme",
-          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
         },
         "signature": {
           "alg": "ed25519",
-          "value": "dF-vrFWFT9DB7JmSZaG15Q2hXe5N-7NtKx7yN8Xzr_mMtMBU_ystznyAPfdpiHSKY3oe14sXOfFk6kTA0u7cCQ"
+          "value": "5kZ_HqHH7lj0A4A34tAOQIDp5YsQmDhwpbOV6vEXWARgzjd4Mhj-HO3vDOcphH4Kp0GhJzonHEdUmU04KvbKCA"
         }
       },
       "bundleToml": {
@@ -721,17 +721,17 @@
       "name": "bundle.toml without an id and with an update feed: config",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {
             "albums": {
@@ -773,11 +773,11 @@
         },
         "author": {
           "name": "Acme",
-          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
         },
         "signature": {
           "alg": "ed25519",
-          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+          "value": "X2D2nir37IbyfpKiS3x2hSSJ4EdTfx43-zx1AD7MUCXaTIK8hGWqBbz00UilDuESIyMmtyQy4Ag2QhBQLVJDDw"
         }
       },
       "bundleToml": {
@@ -796,17 +796,17 @@
       "name": "bundle.toml with a bad version: config",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {
             "albums": {
@@ -848,11 +848,11 @@
         },
         "author": {
           "name": "Acme",
-          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
         },
         "signature": {
           "alg": "ed25519",
-          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+          "value": "X2D2nir37IbyfpKiS3x2hSSJ4EdTfx43-zx1AD7MUCXaTIK8hGWqBbz00UilDuESIyMmtyQy4Ag2QhBQLVJDDw"
         }
       },
       "bundleToml": {
@@ -871,17 +871,17 @@
       "name": "bundle.toml network any",
       "file": {
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "catalogId": "https://ui.exponential.at/catalogs/core/v1",
           "id": "acme.photobook",
           "name": "Photobook",
           "version": "1.0.0",
           "functions": [
-            "records.*",
-            "photos.pick",
-            "print.pdf",
-            "share.send",
-            "files.save"
+            "records_*",
+            "photos_pick",
+            "print_pdf",
+            "share_send",
+            "files_save"
           ],
           "templates": {
             "albums": {
@@ -923,11 +923,11 @@
         },
         "author": {
           "name": "Acme",
-          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
         },
         "signature": {
           "alg": "ed25519",
-          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+          "value": "X2D2nir37IbyfpKiS3x2hSSJ4EdTfx43-zx1AD7MUCXaTIK8hGWqBbz00UilDuESIyMmtyQy4Ag2QhBQLVJDDw"
         }
       },
       "bundleToml": {

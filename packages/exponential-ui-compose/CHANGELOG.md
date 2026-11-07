@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A2UI 1.0 flag day (#VAPP-289): the core refuses 0.9 messages and format 5 packages; host function names are flat (`app_toast`, `harness_*`).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 9 parity: Markdown's inline code paints the `Markdown/code` recipe (its type, side padding reserved in the line, corners, in quotes too), a bullet is 0.36 em at 0.46 em into the indent, an ordered marker is in the text colour and ends one space before the text (`fixtures/markdown-inline.json` `documentPaint`). `MarkdownChipStyle.code`.

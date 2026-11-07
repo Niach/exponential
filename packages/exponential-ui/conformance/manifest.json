@@ -145,7 +145,7 @@
         "fixtures/a2ui10-messages.json"
       ],
       "unit": "flow or case",
-      "cases": 51,
+      "cases": 50,
       "check": "Route every flow's steps on one router ({trusted, acceptV09}): the ops byte for byte; ids, mint, errors, actions and cards equal the fixture."
     },
     {

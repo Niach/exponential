@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A2UI 1.0 flag day (#VAPP-289): `createSurface` takes 1.0 messages only; a 0.9 message is refused (`INVALID_MESSAGE`).
+
 ## 0.19.0 (2026-11-07)
 
 - Round 8: the `Canvas` native (DOM-parity with React) and Checkbox `indeterminate` (Radix's mixed DOM, the bubble input's `indeterminate`), the primitive Checkbox's dash.

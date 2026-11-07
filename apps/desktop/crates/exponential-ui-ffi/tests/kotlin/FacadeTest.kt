@@ -307,10 +307,9 @@ fun main(args: Array<String>) {
     check(a2uiVersion() == "1.0") { "a2uiVersion" }
     check(hostRouter.mintSurfaceId("d") == "d#1") { "mintSurfaceId" }
     val upgradeCases = list(obj(load("upgrade09.json"))["cases"]).map(::obj)
-    val upgradeClient = upgradeCases.first { it["kind"] == "client" }
-    equal(upgrade09Json(Json.write(mapOf("kind" to "client", "input" to upgradeClient["input"]))), upgradeClient["expected"], "upgrade09 client")
     val upgradeCard = upgradeCases.first { it["kind"] == "card" }
     equal(upgradeCard09(Json.write(upgradeCard["input"])), upgradeCard["expected"], "upgrade09 card")
+    equal(upgradeCard09(Json.write(upgradeCard["expected"])), upgradeCard["expected"], "a 1.0 card comes back unchanged")
     check(templateMessagesJson(Json.write(hostPackages["acme.devices"]), "nope", "x", null) == null) { "missing template" }
     val fnSurface = Surface("f", coreCatalogId(), null, "light")
     fnSurface.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "b", "component" to "Button", "props" to mapOf("label" to "Go"), "on" to mapOf("press" to mapOf("functionCall" to mapOf("@call" to "harness_toast", "args" to mapOf("message" to mapOf("@path" to "/m"))))))))))

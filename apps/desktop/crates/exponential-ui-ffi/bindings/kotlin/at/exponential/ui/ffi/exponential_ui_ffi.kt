@@ -757,8 +757,6 @@ internal object IntegrityCheckingUniffiLib {
     }
     external fun uniffi_exponential_ui_ffi_checksum_func_a2ui_version(
 ): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_accept_v09(
-): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json(
@@ -925,8 +923,6 @@ external fun uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(
 ): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_upgrade09_json(
-): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_upgrade_card09(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_package_json(
@@ -1016,8 +1012,6 @@ external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_exten
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids(
 ): Short
@@ -1372,8 +1366,6 @@ external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_cata
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_surface_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1664,8 +1656,6 @@ external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(`ptr`: Long,`
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_a2ui_version(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_accept_v09(uniffi_out_err: UniffiRustCallStatus, 
-): Byte
 external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,`userMessage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1690,7 +1680,7 @@ external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(`id`: RustBuff
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(`surfaceId`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_card_v10_json(`cardJson`: RustBuffer.ByValue,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_exponential_ui_ffi_fn_func_card_v10_json(`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1831,8 +1821,6 @@ external fun uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(`code`: RustBu
 external fun uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(`kindJson`: RustBuffer.ByValue,`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_transitions_from_json(`kindJson`: RustBuffer.ByValue,`recordJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_upgrade09_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_upgrade_card09(`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -4068,17 +4056,14 @@ public interface HostRouterInterface {
      */
     fun `registerInlineCatalog`(`id`: kotlin.String)
     
-    fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String
-    
     /**
      * One agent message (JSON) → the ops to perform, in order, as a JSON
      * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
      * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
      * §1.1: a transport routes with `trusted = false`; only host code passes
      * `true` (the host-internal `applyTemplate` / `bindDataModel`).
-     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
      */
-    fun `routeWithBridgeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean, `acceptV09`: kotlin.Boolean): kotlin.String
+    fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String
     
     fun `supportedCatalogIds`(): List<kotlin.String>
     
@@ -4294,19 +4279,6 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     
     
 
-    override fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String {
-            return FfiConverterString.lift(
-    callWithHandle {
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(
-        it,
-        FfiConverterString.lower(`messageJson`),FfiConverterBoolean.lower(`trusted`),_status)
-}
-    }
-    )
-    }
-    
-
     
     /**
      * One agent message (JSON) → the ops to perform, in order, as a JSON
@@ -4314,14 +4286,13 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
      * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
      * §1.1: a transport routes with `trusted = false`; only host code passes
      * `true` (the host-internal `applyTemplate` / `bindDataModel`).
-     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
-     */override fun `routeWithBridgeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean, `acceptV09`: kotlin.Boolean): kotlin.String {
+     */override fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(
         it,
-        FfiConverterString.lower(`messageJson`),FfiConverterBoolean.lower(`trusted`),FfiConverterBoolean.lower(`acceptV09`),_status)
+        FfiConverterString.lower(`messageJson`),FfiConverterBoolean.lower(`trusted`),_status)
 }
     }
     )
@@ -11851,19 +11822,6 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
-         * `ACCEPT_V09` (§14.1): every core entry upgrades 0.9 input while true.
-         */ fun `acceptV09`(): kotlin.Boolean {
-            return FfiConverterBoolean.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_accept_v09(
-    
-        _status)
-}
-    )
-    }
-    
-
-        /**
          * A renderer `action` message (A2UI 1.0) JSON. `payload_json` travels as
          * `metadata.extensions.at_exponential_payload`, merged over `context` (§1.3).
          */
@@ -12043,12 +12001,12 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
          * Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
          * 1.0, `cardProblems`, its reduce over the core catalog).
          */
-    @Throws(UiException::class) fun `cardV10Json`(`cardJson`: kotlin.String, `acceptV09`: kotlin.Boolean): kotlin.String {
+    @Throws(UiException::class) fun `cardV10Json`(`cardJson`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_card_v10_json(
     
-        FfiConverterString.lower(`cardJson`),FfiConverterBoolean.lower(`acceptV09`),_status)
+        FfiConverterString.lower(`cardJson`),_status)
 }
     )
     }
@@ -13091,23 +13049,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
-         * Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
-         * documented on `eui_core::upgrade09::upgrade09_json`.
-         */
-    @Throws(UiException::class) fun `upgrade09Json`(`requestJson`: kotlin.String): kotlin.String {
-            return FfiConverterString.lift(
-    uniffiRustCallWithError(UiException) { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade09_json(
-    
-        FfiConverterString.lower(`requestJson`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * A stored 0.9 `exponential_show` card (nested `{root, data}`) → 1.0
-         * (§18: to DISPLAY a card that has no `version: "1.0"`).
+         * A stored `exponential_show` card (nested `{version?, root, data}`) for
+         * DISPLAY (§18.2): a card with no `version` (sealed, the server cannot
+         * rewrite it) through `upgradeCard09`; `"1.0"` as it is. Nothing is ever
+         * emitted in this form's input.
          */
     @Throws(UiException::class) fun `upgradeCard09`(`cardJson`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(

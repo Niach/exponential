@@ -3101,7 +3101,7 @@
         },
         {
           "message": {
-            "version": "v0.9"
+            "version": "1.0"
           },
           "expected": [
             {
@@ -3119,7 +3119,7 @@
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
@@ -3144,7 +3144,7 @@
         },
         {
           "message": {
-            "version": "v0.9",
+            "version": "1.0",
             "beginRendering": {
               "surfaceId": "s1"
             }
@@ -3332,16 +3332,33 @@
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "s1",
-                "path": "/devices",
-                "source": "exp:devices?team=t1"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "s1",
+              "path": "/devices",
+              "source": "exp:devices?team=t1"
+            }
           },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "s1",
+              "path": "/devices",
+              "source": "exp:devices?team=t1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "s1",
+              "path": "/x",
+              "source": "not a source"
+            }
+          },
+          "trusted": true,
           "expected": [
             {
               "op": "send",
@@ -3349,8 +3366,8 @@
                 "version": "1.0",
                 "error": {
                   "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                  "surfaceId": "s1",
+                  "message": "bindDataModel needs a path and a scheme:name source"
                 }
               }
             }
@@ -3358,51 +3375,23 @@
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "s1",
-                "path": "/x",
-                "source": "not a source"
-              }
-            },
-            "trusted": true
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "nope",
+              "path": "/x",
+              "source": "exp:devices"
             }
-          ]
-        },
-        {
-          "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "nope",
-                "path": "/x",
-                "source": "exp:devices"
-              }
-            },
-            "trusted": true
           },
+          "trusted": true,
           "expected": [
             {
               "op": "send",
               "message": {
                 "version": "1.0",
                 "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "nope",
+                  "message": "no surface nope; send createSurface first"
                 }
               }
             }
@@ -3460,27 +3449,130 @@
       "steps": [
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "d1",
-                "templateId": "list",
-                "data": {
-                  "filter": "online"
-                }
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "d1",
+              "templateId": "list",
+              "data": {
+                "filter": "online"
+              }
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "d1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "data",
+              "surfaceId": "d1",
+              "path": "",
+              "value": {
+                "title": "Devices",
+                "filter": "online"
               }
             },
-            "trusted": true
+            {
+              "op": "components",
+              "surfaceId": "d1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "title"
+                  ]
+                },
+                {
+                  "id": "title",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/title"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "d1",
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "d2",
+              "templateId": "list",
+              "packageId": "acme.devices"
+            }
           },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "d2",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "data",
+              "surfaceId": "d2",
+              "path": "",
+              "value": {
+                "title": "Devices",
+                "filter": "all"
+              }
+            },
+            {
+              "op": "components",
+              "surfaceId": "d2",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "title"
+                  ]
+                },
+                {
+                  "id": "title",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/title"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "d2",
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "d3",
+              "templateId": "missing"
+            }
+          },
+          "trusted": true,
           "expected": [
             {
               "op": "send",
               "message": {
                 "version": "1.0",
                 "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                  "code": "TEMPLATE_NOT_FOUND",
+                  "surfaceId": "d3",
+                  "message": "no installed package has the template missing"
                 }
               }
             }
@@ -3488,76 +3580,23 @@
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "d2",
-                "templateId": "list",
-                "packageId": "acme.devices"
-              }
-            },
-            "trusted": true
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "d4",
+              "templateId": "t",
+              "packageId": "broken"
             }
-          ]
-        },
-        {
-          "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "d3",
-                "templateId": "missing"
-              }
-            },
-            "trusted": true
           },
+          "trusted": true,
           "expected": [
             {
               "op": "send",
               "message": {
                 "version": "1.0",
                 "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
-            }
-          ]
-        },
-        {
-          "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "d4",
-                "templateId": "t",
-                "packageId": "broken"
-              }
-            },
-            "trusted": true
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                  "code": "TEMPLATE_NOT_FOUND",
+                  "surfaceId": "d4",
+                  "message": "no installed package has the template t"
                 }
               }
             }
@@ -3583,25 +3622,61 @@
       "steps": [
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "s",
-                "templateId": "list",
-                "packageId": "acme.scoped"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "s",
+              "templateId": "list",
+              "packageId": "acme.scoped"
+            }
           },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/devices/count"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "s",
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "s",
+              "path": "/issues",
+              "source": "exp:issues?board=b1"
+            }
+          },
+          "trusted": true,
           "expected": [
             {
               "op": "send",
               "message": {
                 "version": "1.0",
                 "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                  "code": "SOURCE_DENIED",
+                  "surfaceId": "s",
+                  "message": "source exp:issues?board=b1 is not in package acme.scoped's sources",
+                  "path": "/issues"
                 }
               }
             }
@@ -3609,79 +3684,39 @@
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "s",
-                "path": "/issues",
-                "source": "exp:issues?board=b1"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "s",
+              "path": "/devices",
+              "source": "EXP:devices?limit=5"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+              "op": "bind",
+              "surfaceId": "s",
+              "path": "/devices",
+              "source": "EXP:devices?limit=5"
             }
           ]
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "s",
-                "path": "/devices",
-                "source": "EXP:devices?limit=5"
-              }
-            },
-            "trusted": true
-          },
-          "expected": [
-            {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "s",
+              "path": "/extra",
+              "source": "acme.data:list/items"
             }
-          ]
-        },
-        {
-          "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "s",
-                "path": "/extra",
-                "source": "acme.data:list/items"
-              }
-            },
-            "trusted": true
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+              "op": "bind",
+              "surfaceId": "s",
+              "path": "/extra",
+              "source": "acme.data:list/items"
             }
           ]
         },
@@ -3703,27 +3738,20 @@
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "free",
-                "path": "/issues",
-                "source": "exp:issues"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "free",
+              "path": "/issues",
+              "source": "exp:issues"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+              "op": "bind",
+              "surfaceId": "free",
+              "path": "/issues",
+              "source": "exp:issues"
             }
           ]
         }
@@ -3740,76 +3768,97 @@
       "steps": [
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "h",
-                "templateId": "month"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "h",
+              "templateId": "month"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+              "op": "create",
+              "surfaceId": "h",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "data",
+              "surfaceId": "h",
+              "path": "",
+              "value": {
+                "entries": {
+                  "rows": [],
+                  "count": 0
                 }
               }
+            },
+            {
+              "op": "components",
+              "surfaceId": "h",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "title"
+                  ]
+                },
+                {
+                  "id": "title",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/entries/month/label"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "records:entry?mine=1&by=date&sum=hours"
             }
           ]
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "h",
-                "path": "/entries",
-                "source": "records:entry?mine=1&by=date&sum=hours&month=2026-09"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "records:entry?mine=1&by=date&sum=hours&month=2026-09"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+              "op": "bind",
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "records:entry?mine=1&by=date&sum=hours&month=2026-09"
             }
           ]
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "h",
-                "path": "/entries",
-                "source": "exp:issues?board=b1"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "exp:issues?board=b1"
+            }
           },
+          "trusted": true,
           "expected": [
             {
               "op": "send",
               "message": {
                 "version": "1.0",
                 "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                  "code": "SOURCE_DENIED",
+                  "surfaceId": "h",
+                  "message": "source exp:issues?board=b1 is not in package acme.hours's sources",
+                  "path": "/entries"
                 }
               }
             }
@@ -3842,27 +3891,38 @@
       "steps": [
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "h",
-                "packageId": "acme.v2",
-                "templateId": "list"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "h",
+              "packageId": "acme.v2",
+              "templateId": "list"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+              "op": "create",
+              "surfaceId": "h",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "h",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/entries/count"
+                  }
                 }
-              }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "records:entry?mine=1&sort=date"
             }
           ]
         }
@@ -3879,78 +3939,87 @@
       "steps": [
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "q",
-                "templateId": "month"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "q",
+              "templateId": "month"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+              "op": "create",
+              "surfaceId": "q",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "q",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/days/count"
+                  }
                 }
-              }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?q=%7B%22aggregate%22%3A%7B%22hours%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22from%22%3A%22entry%22%2C%22group%22%3A%5B%22author%22%2C%7B%22bucket%22%3A%22date%22%2C%22by%22%3A%22day%22%7D%5D%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-10%22%7D%2C%22running%22%3A%7B%22hours%22%3A%22sum%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22between%22%2C%222026-10-01%22%2C%222026-10-31%22%5D%5D%7D"
+            },
+            {
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/carry",
+              "source": "records:entry?q=%7B%22aggregate%22%3A%7B%22total%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22before%22%3A%222026-10-01%22%2C%22group%22%3A%5B%22author%22%5D%7D"
+            },
+            {
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/plain",
+              "source": "records:entry?mine=1"
             }
           ]
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "q",
-                "path": "/days",
-                "source": "records:entry?query=month&month=2026-11&start=2026-11-01&end=2026-11-30"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?query=month&month=2026-11&start=2026-11-01&end=2026-11-30"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?q=%7B%22aggregate%22%3A%7B%22hours%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22from%22%3A%22entry%22%2C%22group%22%3A%5B%22author%22%2C%7B%22bucket%22%3A%22date%22%2C%22by%22%3A%22day%22%7D%5D%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-11%22%7D%2C%22running%22%3A%7B%22hours%22%3A%22sum%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22between%22%2C%222026-11-01%22%2C%222026-11-30%22%5D%5D%7D"
             }
           ]
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "q",
-                "path": "/days",
-                "source": "records:entry?query=unknown&month=2026-11"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?query=unknown&month=2026-11"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?query=unknown&month=2026-11"
             }
           ]
         }
@@ -3967,32 +4036,60 @@
       "steps": [
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "app",
-                "packageId": "acme.screens",
-                "templateId": "deals",
-                "data": {
-                  "params": {
-                    "stage": "won & lost"
-                  }
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "app",
+              "packageId": "acme.screens",
+              "templateId": "deals",
+              "data": {
+                "params": {
+                  "stage": "won & lost"
+                }
+              }
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "app",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "data",
+              "surfaceId": "app",
+              "path": "",
+              "value": {
+                "params": {
+                  "stage": "won & lost"
                 }
               }
             },
-            "trusted": true
-          },
-          "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+              "op": "components",
+              "surfaceId": "app",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "t"
+                  ]
+                },
+                {
+                  "id": "t",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/params/stage"
+                  }
                 }
-              }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "app",
+              "path": "/issues",
+              "source": "exp:issues?state=won%20%26%20lost&q="
             }
           ]
         }
@@ -4009,89 +4106,96 @@
       "steps": [
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "applyTemplate": {
-                "surfaceId": "t",
-                "packageId": "acme.today",
-                "templateId": "main",
-                "hostParams": {
-                  "today": "2026-11-05",
-                  "now": "2026-11-05T09:30:00.000Z",
-                  "month": "2026-11"
-                }
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "t",
+              "packageId": "acme.today",
+              "templateId": "main",
+              "hostParams": {
+                "today": "2026-11-05",
+                "now": "2026-11-05T09:30:00.000Z",
+                "month": "2026-11"
               }
-            },
-            "trusted": true
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+              "op": "create",
+              "surfaceId": "t",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "t",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Today"
                 }
-              }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "t",
+              "path": "/plain",
+              "source": "records:entry?date=2026-11-05&since=2026-11-05T09%3A30%3A00.000Z"
+            },
+            {
+              "op": "bind",
+              "surfaceId": "t",
+              "path": "/named",
+              "source": "records:entry?q=%7B%22from%22%3A%22entry%22%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-11%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22%3D%22%2C%222026-11-05%22%5D%5D%7D"
+            },
+            {
+              "op": "bind",
+              "surfaceId": "t",
+              "path": "/own",
+              "source": "records:entry?q=%7B%22from%22%3A%22entry%22%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-01%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22%3D%22%2C%222026-11-05%22%5D%5D%7D"
             }
           ]
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "t",
-                "path": "/later",
-                "source": "records:entry?query=day",
-                "hostParams": {
-                  "today": "2026-11-05",
-                  "now": "2026-11-05T09:30:00.000Z",
-                  "month": "2026-11"
-                }
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "t",
+              "path": "/later",
+              "source": "records:entry?query=day",
+              "hostParams": {
+                "today": "2026-11-05",
+                "now": "2026-11-05T09:30:00.000Z",
+                "month": "2026-11"
               }
-            },
-            "trusted": true
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+              "op": "bind",
+              "surfaceId": "t",
+              "path": "/later",
+              "source": "records:entry?q=%7B%22from%22%3A%22entry%22%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-11%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22%3D%22%2C%222026-11-05%22%5D%5D%7D"
             }
           ]
         },
         {
           "message": {
-            "message": {
-              "version": "1.0",
-              "bindDataModel": {
-                "surfaceId": "t",
-                "path": "/bare",
-                "source": "records:entry?date=${today}"
-              }
-            },
-            "trusted": true
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "t",
+              "path": "/bare",
+              "source": "records:entry?date=${today}"
+            }
           },
+          "trusted": true,
           "expected": [
             {
-              "op": "send",
-              "message": {
-                "version": "1.0",
-                "error": {
-                  "code": "INVALID_MESSAGE",
-                  "surfaceId": "",
-                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
-                }
-              }
+              "op": "bind",
+              "surfaceId": "t",
+              "path": "/bare",
+              "source": "records:entry?date=${today}"
             }
           ]
         }

@@ -64,9 +64,7 @@ impl AppInstance {
         if let Verification::Invalid { issues } = &verification {
             return Err(LoadError::Signature(issues.clone()));
         }
-        // Round 9 §12: a format 5 file runs as its upgrade while the bridge is on.
-        let raw = package_of(file);
-        let pkg = if eui_core::catalog::ACCEPT_V09 { eui_core::upgrade09::upgrade_package_body09(raw) } else { raw.clone() };
+        let pkg = package_of(file).clone();
         let issues = validate(&pkg);
         if !issues.is_empty() {
             return Err(LoadError::Invalid(issues));

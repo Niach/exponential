@@ -42,7 +42,7 @@ list's string `items` a list of files:
 
 The value is the host's attachment route, relative, nothing else:
 `/api/attachments/<lowercase uuid>`. A `FileUpload` gets it: bind its `files`
-to a path (`{"path": "/draft/files"}`), and the app host uploads the picked
+to a path (`{"@path": "/draft/files"}`), and the app host uploads the picked
 bytes and writes each file's `url` into the entry of the same `name` there.
 An action step then stores the urls (`data` = the surface data at the
 press): `"receipt": "orElse(data.draft.files[0].url, null)"`, `"photos":
@@ -281,12 +281,12 @@ tone?}`, one per query. The `Calendar` and `Timeline` components draw them
 ```json
 {"bindings": [{"path": "/leave", "source": "records:leave?query=month&month=${month}&day=${day}"}],
  "components": [{"id": "cal", "component": "Calendar", "source": "/leave", "labelField": "label",
-   "on": {"select": {"functionCall": {"call": "bind", "args": {"path": "/leave",
-     "source": "records:leave?query=month", "params": {"month": {"path": "/leave/month/key"}, "day": {"path": "date"}}}}}}}]}
+   "on": {"select": {"functionCall": {"@call": "bind", "args": {"path": "/leave",
+     "source": "records:leave?query=month", "params": {"month": {"@path": "/leave/month/key"}, "day": {"@path": "date"}}}}}}}]}
 ```
 
 A day's `select` and a bar's `open` run in the pressed item's scope: a
-relative `{"path": "date"}` reads the day, `{"path": "id"}` the record (a
+relative `{"@path": "date"}` reads the day, `{"@path": "id"}` the record (a
 bar's row is under `row`). `Timeline` takes `source` (a `view=timeline`
 binding), `labelField`, `rowTitle` and `showCount`.
 
@@ -317,13 +317,13 @@ issue). A package with a `sources` allowlist lists `records:<kind>` or
 `records:*`.
 
 **Write** = two host functions, listed in `functions` like any other (exact
-or `records.*`), never behind a consent card (the app's own rows):
+or `records_*`), never behind a consent card (the app's own rows):
 
-- `records.upsert {kind, data, id?}` → `{id}`: creates a record, or with `id`
+- `records_upsert {kind, data, id?}` → `{id}`: creates a record, or with `id`
   shallow-patches that record's `data`. The host validates the result against
   the kind's schema (`validateRecord`) BEFORE it stores anything; a refusal
   fails the call (the host's toast).
-- `records.delete {id}`: deletes one record.
+- `records_delete {id}`: deletes one record.
 
 Every write lands in every live `records:` binding of the package (on every
 peer, for a p2p store). `RecordStore` (`src/host/record-store.ts`) is the
@@ -332,8 +332,8 @@ are the reference (resolver + both functions); the evaluator reads the rows
 of whatever store the host has.
 
 Records have ONE spelling on every host: read `records:<kind>?q`, write
-`records.upsert` / `records.delete` / `records.batch` (Exponential's former
-`exp:records?kind=` and `harness.records.*` are gone).
+`records_upsert` / `records_delete` / `records_batch` (Exponential's former
+`exp:records?kind=` is gone).
 
 ## Record macros
 
@@ -360,7 +360,7 @@ macros put a kind's whole form or table on a screen as ONE node:
   the schema `description`. Checks come from the schema: required,
   `maxLength`, `minimum` / `maximum`. Short fields pair in a two-column
   FieldGroup on wide frames. The draft lives at `path` (default
-  `/recordForm/<id>`; seed it to edit); submit = `records.upsert {kind,
+  `/recordForm/<id>`; seed it to edit); submit = `records_upsert {kind,
   id: recordId, data}` unless the node has its own `on.submit`.
   `readOnly` disables the form and drops the submit. For a team owner the
   first field is **Author** (a searchable Select of the members, default the
@@ -373,7 +373,7 @@ macros put a kind's whole form or table on a screen as ONE node:
   with the Data tab's typed widths, a relative Updated column and an
   Edit / Delete cell; phones show the same rows as a List of Row, each
   with its own Delete. Add, Edit or a row press opens a RecordForm in a Drawer; Delete asks first,
-  then `records.delete`. The Drawer stays open on a refused save (Cancel
+  then `records_delete`. The Drawer stays open on a refused save (Cancel
   closes it, so no Escape or backdrop). Rows follow `records:<kind>?<query>` (default
   newest first) at `/recordTable/<id>/rows`. States: loading (Skeleton),
   empty (`No records yet`), an undeclared kind (the unknown state),
@@ -383,10 +383,10 @@ macros put a kind's whole form or table on a screen as ONE node:
   fills every RecordForm / RecordTable from the package's `records`: the
   fields, columns, bindings and actions (catalog props marked `host`,
   never written by hand and left out of the model's prompt). Install
-  needs `records.upsert` (a table also `records.delete`) in `functions`
+  needs `records_upsert` (a table also `records_delete`) in `functions`
   and `records:<kind>` in `sources` when `sources` is set; the macros' own
   member and issue lists (`/recordMembers`, `/recordIssues`) need no entry.
-- **A host's `records.upsert`** gets the form's `author` (write on behalf,
+- **A host's `records_upsert`** gets the form's `author` (write on behalf,
   when given) and `form {error, close}` (paths): a landed write clears
   `error` and sets `close` false; the TS runtime does it, and a rejection
   with `RecordRefusal` writes its message at `error`. Other SDKs' hosts write
@@ -453,7 +453,7 @@ The defaults are `member/member/author/author`. This is the common case; it ship
 
 The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. ✅ R6 (#VAPP-222): `role:<field>` levels live on a kind's `transitions.who` (the member a `member` ref names), not on `policy`.
 
-   ✅ #VAPP-206: a package reads the viewer through the `exp:me` source, `{id, name, email, avatar, role, access}` (`app-sources.json` ×4; in `sources` like any other), so an owners-only card hides itself: `"visible": {"call": "eq", "args": {"a": {"path": "/me/role"}, "b": "owner"}}`. An action reads it as `data.me.role`. This is presentation only: the policy above stays the authority.
+   ✅ #VAPP-206: a package reads the viewer through the `exp:me` source, `{id, name, email, avatar, role, access}` (`app-sources.json` ×4; in `sources` like any other), so an owners-only card hides itself: `"visible": {"@call": "eq", "args": {"a": {"@path": "/me/role"}, "b": "owner"}}`. An action reads it as `data.me.role`. This is presentation only: the policy above stays the authority.
 
 4. **Field-level privacy is out.** Use a separate kind with `read: owners` (for example, salary next to a hiring candidate).
 5. **The Postgres scope** ✅ (#VAPP-193), a backstop under layers 1 to 3, not a replacement. Every server read and write of a record runs through ONE service (`apps/web/src/lib/apps/records-service.ts`), which checks layers 1 to 3, ownership and quota, then runs the record statements as the `NOLOGIN` role `eapps` scoped to one team and its apps (§12.2). Ownership and policy stay in the service, never in RLS.

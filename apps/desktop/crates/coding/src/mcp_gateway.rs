@@ -1263,7 +1263,7 @@ impl ShowInput {
         let surface = match obj.get("surface") {
             None | Some(Value::Null) => None,
             Some(surface) => {
-                let s = strict(surface, "surface", &["root", "data"])?;
+                let s = strict(surface, "surface", &["version", "root", "data"])?;
                 if !s.get("root").is_some_and(Value::is_object) {
                     return Err("surface.root: expected an object".into());
                 }
@@ -1438,20 +1438,14 @@ pub fn validate_card_surface(surface: Option<&Value>) -> Result<Value, String> {
     if !root.get("id").is_some_and(Value::is_string) || !root.get("component").is_some_and(Value::is_string) {
         return Err("surface.root must be a genUI node: {id, component, props?, children?}".into());
     }
-    // Round 9 §14: until the flag day a card is stored as authored, in the 0.9
-    // form a released client reads (the server's input refuses `version` too),
-    // and checked as its 1.0 form, what every client paints.
-    if eui_core::catalog::ACCEPT_V09 && surface.get("version").is_some() {
-        return Err("surface: version is not accepted yet: send {root, data}".into());
-    }
-    let upgraded = eui_core::reducer::card_v10(surface, eui_core::catalog::ACCEPT_V09).map_err(|e| format!("surface: {e}"))?;
-    let problems = eui_core::reducer::card_problems(&upgraded["root"]);
+    let card = eui_core::reducer::card_v10(surface).map_err(|e| format!("surface: {e}"))?;
+    let problems = eui_core::reducer::card_problems(&card["root"]);
     if !problems.is_empty() {
         let more = if problems.len() > 10 { format!("; and {} more", problems.len() - 10) } else { String::new() };
         return Err(format!("surface is not valid: {}{more}", problems[..problems.len().min(10)].join("; ")));
     }
     let nested: eui_core::NestedNode =
-        serde_json::from_value(upgraded["root"].clone()).map_err(|e| format!("surface.root is not a valid genUI tree: {e}"))?;
+        serde_json::from_value(card["root"].clone()).map_err(|e| format!("surface.root is not a valid genUI tree: {e}"))?;
     let result = eui_core::reducer::reduce_nested(&nested, &eui_core::reducer::ReduceOptions::new(eui_core::CORE_CATALOG_ID));
     let count = count_nodes(&result.root) + result.templates.iter().flat_map(|t| t.values()).map(count_nodes).sum::<usize>();
     if count > PLAN_CARD_SURFACE_MAX_COMPONENTS {
@@ -1462,11 +1456,7 @@ pub fn validate_card_surface(surface: Option<&Value>) -> Result<Value, String> {
         let more = if result.issues.len() > 10 { format!("; and {} more", result.issues.len() - 10) } else { String::new() };
         return Err(format!("surface is not valid in the genUI core catalog: {}{more}", listed.join("; ")));
     }
-    let stored = json!({ "root": root, "data": surface.get("data").cloned().unwrap_or(Value::Null) });
-    Ok(match surface.get("version") {
-        Some(version) => json!({ "version": version, "root": stored["root"], "data": stored["data"] }),
-        None => stored,
-    })
+    Ok(json!({ "version": card["version"], "root": root, "data": surface.get("data").cloned().unwrap_or(Value::Null) }))
 }
 
 fn option_json(options: &[OptionInput]) -> Vec<Value> {
@@ -1602,7 +1592,7 @@ pub fn pictures_only_surface(title: Option<&str>, pictures: &[PictureInput]) -> 
         .filter(|t| !t.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| pictures.iter().map(|p| p.label.as_str()).collect::<Vec<_>>().join(", "));
-    json!({ "root": { "id": "s", "component": "Stack", "children": [{ "id": "h", "component": "Heading", "props": { "text": text } }] } })
+    json!({ "version": eui_core::catalog::A2UI_VERSION, "root": { "id": "s", "component": "Stack", "children": [{ "id": "h", "component": "Heading", "props": { "text": text } }] } })
 }
 
 fn component_group(component: &str) -> Option<String> {
@@ -1672,19 +1662,19 @@ pub fn build_show_card(input: &ShowInput) -> Result<Value, String> {
 mod tests {
     use super::*;
 
-    /// Round 9 §14: an agent's 0.9 card validates through the upgrade and is
-    /// stored as authored; a `version` waits for the flag day.
+    /// Round 9 §13: a card is 1.0, its version kept; a card with no version is
+    /// refused naming the fix.
     #[test]
-    fn a_0_9_card_is_stored_as_authored() {
-        let root = json!({"id": "s-1", "component": "Stack", "visible": {"path": "/on"}, "children": [
-            {"id": "t-1", "component": "Text", "props": {"text": {"path": "/title"}}},
-            {"id": "b-1", "component": "Button", "props": {"label": "Ship"}, "on": {"press": {"event": {"name": "reply", "context": {"text": {"call": "formatString", "args": {"value": "${/title}"}}}}}}}
+    fn a_card_keeps_its_version_and_0_9_is_refused() {
+        let root = json!({"id": "s_1", "component": "Stack", "visible": {"@path": "/on"}, "children": [
+            {"id": "t_1", "component": "Text", "props": {"text": {"@path": "/title"}}},
+            {"id": "b_1", "component": "Button", "props": {"label": "Ship"}, "on": {"press": {"event": {"name": "reply", "context": {"text": {"@call": "formatString", "args": {"value": "${/title}"}}}}}}}
         ]});
-        let card = json!({"root": root, "data": {"title": "x", "on": true}});
+        let card = json!({"version": "1.0", "root": root, "data": {"title": "x", "on": true}});
         assert_eq!(validate_card_surface(Some(&card)).unwrap(), card);
-        let versioned = json!({"version": "1.0", "root": {"id": "a", "component": "Text", "props": {"text": "x"}}});
-        assert!(validate_card_surface(Some(&versioned)).unwrap_err().contains("version"));
-        let refused = json!({"root": {"id": "a", "component": "Text", "props": {"text": {"call": "no_such_fn", "args": {}}}}});
+        let old = json!({"root": {"id": "a", "component": "Text", "props": {"text": "x"}}});
+        assert!(validate_card_surface(Some(&old)).unwrap_err().contains("\"version\": \"1.0\""));
+        let refused = json!({"version": "1.0", "root": {"id": "a", "component": "Text", "props": {"text": {"@call": "no_such_fn", "args": {}}}}});
         assert!(validate_card_surface(Some(&refused)).unwrap_err().contains("unknown function"));
     }
     use crate::sealing::test_support::{install_fake, serial};
@@ -1902,7 +1892,7 @@ mod tests {
         assert_eq!(opened["pictures"][0]["caption"], "the dock");
         // A refused card never reaches the upstream.
         let before = calls_of(&server, SHOW_TOOL).len();
-        let refused = call(&grant, SHOW_TOOL, json!({ "surface": { "root": { "id": "c", "component": "Card" } } }));
+        let refused = call(&grant, SHOW_TOOL, json!({ "surface": { "version": "1.0", "root": { "id": "c", "component": "Card" } } }));
         assert_eq!(refused["error"], SHOW_CARD_ROOT_ERROR);
         assert_eq!(calls_of(&server, SHOW_TOOL).len(), before);
 
@@ -2353,7 +2343,7 @@ mod tests {
     // --- card builders vs the TS reference --------------------------------
 
     fn stack() -> Value {
-        json!({ "root": { "id": "s", "component": "Stack", "children": [
+        json!({ "version": "1.0", "root": { "id": "s", "component": "Stack", "children": [
             { "id": "r", "component": "Row", "props": { "title": "Tests" }, "slots": { "trailing": { "id": "g", "component": "Badge", "props": { "text": "Green" } } } }
         ] } })
     }
@@ -2438,12 +2428,12 @@ mod tests {
         assert!(card.get("result").is_none());
 
         // Text only alone is refused; a Card root is refused.
-        let text = ShowInput::parse(&json!({ "surface": { "root": { "id": "s", "component": "Stack", "children": [{ "id": "t", "component": "Text", "props": { "text": "hi" } }] } } })).unwrap();
+        let text = ShowInput::parse(&json!({ "surface": { "version": "1.0", "root": { "id": "s", "component": "Stack", "children": [{ "id": "t", "component": "Text", "props": { "text": "hi" } }] } } })).unwrap();
         assert_eq!(build_show_card(&text).unwrap_err(), SHOW_TEXT_ONLY_ERROR);
         // Not a node / an unknown component: the reducer's verdict.
-        let bad = ShowInput::parse(&json!({ "surface": { "root": { "component": "Stack" } } })).unwrap();
+        let bad = ShowInput::parse(&json!({ "surface": { "version": "1.0", "root": { "component": "Stack" } } })).unwrap();
         assert_eq!(build_show_card(&bad).unwrap_err(), "surface.root must be a genUI node: {id, component, props?, children?}");
-        let unknown = ShowInput::parse(&json!({ "surface": { "root": { "id": "s", "component": "Stack", "children": [{ "id": "x", "component": "Blink" }] } } })).unwrap();
+        let unknown = ShowInput::parse(&json!({ "surface": { "version": "1.0", "root": { "id": "s", "component": "Stack", "children": [{ "id": "x", "component": "Blink" }] } } })).unwrap();
         assert!(build_show_card(&unknown).unwrap_err().starts_with("surface is not valid in the genUI core catalog: "));
         let empty = ShowInput::parse(&json!({})).unwrap();
         assert_eq!(build_show_card(&empty).unwrap_err(), "Pass surface, ask, plan or pictures.");
