@@ -102,7 +102,7 @@ jobs:
           echo "ios=$(grep -qE "$ios" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EXP-1680: the app and what it links. Not test.yml: an unrelated gate
           # edit must not take a Mac for this.
-          ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
+          ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi|eengine|eengine-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
           echo "ios_app=$(grep -qE "$ios_app" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-268: the iOS runner, the Engine's Swift facade + capabilities, what it paints with.
           ios_runner='^(apps/runner/ios/|apps/desktop/crates/(eengine|eengine-ffi|eengine-bundle|exponential-ui-ffi)/|packages/eengine/|packages/exponential-ui-swift/|scripts/lanes/runner-ios\.sh$|scripts/runner-kits/ios\.sh$|\.github/workflows/ios-runner\.yml$)'

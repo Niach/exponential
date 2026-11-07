@@ -124,222 +124,6 @@ final class AppUpstreamAnswers {
     }
 }
 
-/// VAPP-235: what the first replay of a host call's own entry did (the
-/// call awaits it only when its entry was the only pending one).
-enum AppRecordOutboxAttempt: Sendable {
-    /// The server took it: the online answer.
-    case done(AppRecordReplayed)
-    /// No network / a retry code: the call answers from its entry.
-    case retry
-    /// `NOT_FOUND` on a single update or delete: removed silently.
-    case dropped
-    /// The server refused it (the entry is gone): the call fails. `invalid`
-    /// = invalid input (BAD_REQUEST): a record form shows it inline.
-    case refused(message: String, invalid: Bool)
-}
-
-/// VAPP-235 (eApps O1, app-records.json `outbox`, docs/spec/apps.md §14):
-/// the OFFLINE OUTBOX of the app hosts' record writes. Every
-/// `records_upsert` / `.delete` / `.batch` call becomes ONE entry in the
-/// account's local `app_record_outbox` table (it survives a restart and a
-/// resync); one flusher per account replays the pending entries FIFO, ONE
-/// request at a time, each with its `writeId` (the server's idempotency
-/// key), and STOPS on a retry (no network, a 5xx, signed out). It runs on
-/// every enqueue, when the network comes back (`NetworkPathWatcher`) and
-/// at launch. A later refusal removes the entry (its optimistic rows roll
-/// back) and toasts `Couldn't <verb> the record`; dropped = removed
-/// silently; done = `acked` until the synced rows reflect it (the records
-/// binding prunes it, `AppRecords.outboxPrune`).
-@MainActor
-final class AppRecordOutbox {
-    private let db: DatabaseManager
-    private let api: AppsApi
-    private let auth: AuthRepository
-    /// Accounts with a flush running, and those asking for another pass.
-    private var flushing: Set<String> = []
-    private var again: Set<String> = []
-    /// The account's waiting retry (`retryWhilePending`).
-    private var retrying: [String: Task<Void, Never>] = [:]
-    private static let retryInterval: Duration = .seconds(30)
-    /// write id → the host call awaiting its entry's first replay.
-    private var waiters: [String: (accountId: String, resume: (AppRecordOutboxAttempt) -> Void)] = [:]
-
-    nonisolated init(db: DatabaseManager, api: AppsApi, auth: AuthRepository) {
-        self.db = db
-        self.api = api
-        self.auth = auth
-    }
-
-    /// Queue one host call: build its entry (client ids for the write and
-    /// every create), persist it, then, when it is the only pending entry,
-    /// await its first replay (`attempt`); otherwise answer at once (nil).
-    func write(
-        accountId: String, appId: String, call: AppRecords.OutboxCall, args: [String: CardJSON]
-    ) async throws -> (entry: AppRecords.OutboxEntry, attempt: AppRecordOutboxAttempt?) {
-        let pool = try db.pool(forAccountId: accountId)
-        let creates = AppRecords.outboxCreates(call: call, args: args)
-        let newIds = (0..<creates).map { _ in UUID().uuidString.lowercased() }
-        let entry = AppRecords.OutboxEntry(
-            writeId: UUID().uuidString.lowercased(),
-            appId: appId,
-            call: call,
-            writes: AppRecords.outboxWrites(call: call, args: args, newIds: newIds),
-            at: AppRecords.outboxNow()
-        )
-        let alone = try await pool.write { db -> Bool in
-            let pending = try AppRecordOutboxEntity.filter(Column("state") == "pending").fetchCount(db)
-            let seq = try Int64.fetchOne(db, sql: #"SELECT COALESCE(MAX("seq"), 0) FROM "app_record_outbox""#) ?? 0
-            try AppRecordOutboxEntity(entry, seq: seq + 1).insert(db)
-            return pending == 0
-        }
-        guard alone else {
-            flush(accountId: accountId)
-            return (entry, nil)
-        }
-        let attempt = await withCheckedContinuation { continuation in
-            waiters[entry.writeId] = (accountId, { continuation.resume(returning: $0) })
-            flush(accountId: accountId)
-        }
-        return (entry, attempt)
-    }
-
-    /// Flush every signed-in account (launch, the network coming back).
-    func flushAll() {
-        for accountId in auth.authenticatedAccountIds.sorted() {
-            flush(accountId: accountId)
-        }
-    }
-
-    /// Start the account's flusher (one at a time; a call while it runs
-    /// asks for another pass).
-    func flush(accountId: String) {
-        guard !flushing.contains(accountId) else {
-            again.insert(accountId)
-            return
-        }
-        flushing.insert(accountId)
-        Task { @MainActor in
-            repeat {
-                self.again.remove(accountId)
-                await self.drain(accountId: accountId)
-            } while self.again.contains(accountId)
-            self.flushing.remove(accountId)
-            self.retryWhilePending(accountId: accountId)
-            // Anything still waiting (no store) answers from its entry.
-            for (writeId, waiter) in self.waiters.filter({ $0.value.accountId == accountId }) {
-                self.waiters[writeId] = nil
-                waiter.resume(.retry)
-            }
-        }
-    }
-
-    /// A server that goes down while the network stays up raises no network
-    /// edge to replay on: entries a drain left pending try again on a timer
-    /// (one per account), instead of waiting for a relaunch.
-    private func retryWhilePending(accountId: String) {
-        guard retrying[accountId] == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
-        retrying[accountId] = Task { @MainActor in
-            let pending = (try? await pool.read { db in
-                try AppRecordOutboxEntity.filter(Column("state") == "pending").fetchCount(db)
-            }) ?? 0
-            if pending > 0 { try? await Task.sleep(for: Self.retryInterval) }
-            self.retrying[accountId] = nil
-            if pending > 0, !Task.isCancelled, self.auth.authenticatedAccountIds.contains(accountId) {
-                self.flush(accountId: accountId)
-            }
-        }
-    }
-
-    /// Replay the account's pending entries oldest first until none is
-    /// left or one must retry.
-    private func drain(accountId: String) async {
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        while true {
-            let head = try? await pool.read { db in
-                try AppRecordOutboxEntity
-                    .filter(Column("state") == "pending")
-                    .order(Column("seq"))
-                    .fetchOne(db)
-            }
-            guard let row = head else { return }
-            let writeId = row.writeId
-            guard let entry = row.entry else {
-                // An unreadable row can never replay: it leaves.
-                await Self.remove([writeId], pool: pool)
-                continue
-            }
-            var replayed: AppRecordReplayed?
-            let result: AppRecords.OutboxResult
-            var message = ""
-            let claim = await AppHostMcp.hostClaim(appId: entry.appId, pool: pool)
-            var invalid = false
-            do {
-                replayed = try await api.recordsReplay(accountId: accountId, entry: entry, viaApp: claim)
-                result = .ok
-            } catch {
-                result = AppRecords.outboxResult(error)
-                message = error.trpcUserMessage
-                invalid = error.trpcErrorCode == "BAD_REQUEST"
-            }
-            let outcome = AppRecords.outboxOutcome(entry, result: result)
-            switch outcome {
-            case .done:
-                let now = AppRecords.outboxNow()
-                _ = try? await pool.write { db in
-                    try db.execute(
-                        sql: #"UPDATE "app_record_outbox" SET "state" = 'acked', "acked_at" = ? WHERE "write_id" = ?"#,
-                        arguments: [now, writeId]
-                    )
-                }
-            case .retry:
-                break
-            case .dropped, .refused:
-                await Self.remove([writeId], pool: pool)
-            }
-            let waiter = waiters.removeValue(forKey: writeId)
-            if let waiter {
-                switch outcome {
-                case .done: waiter.resume(replayed.map { AppRecordOutboxAttempt.done($0) } ?? .retry)
-                case .retry: waiter.resume(.retry)
-                case .dropped: waiter.resume(.dropped)
-                case .refused: waiter.resume(.refused(message: message, invalid: invalid))
-                }
-            } else if outcome == .refused {
-                // A later replay's refusal: the failed-action toast.
-                Toaster.shared.error(
-                    FeedbackStates.Errors.title(verb: AppRecords.outboxVerb(entry), thing: "the record"),
-                    description: message
-                )
-            }
-            if outcome == .retry { return }
-        }
-    }
-
-    /// Remove entries (a refusal, a drop, a pruned ack).
-    nonisolated static func remove(_ writeIds: [String], pool: DatabasePool) async {
-        guard !writeIds.isEmpty else { return }
-        _ = try? await pool.write { db in
-            for writeId in writeIds {
-                try db.execute(sql: #"DELETE FROM "app_record_outbox" WHERE "write_id" = ?"#, arguments: [writeId])
-            }
-        }
-    }
-
-    /// The running app's header glyph: `outboxPendingLabel` of the account's
-    /// entries for the app, on every outbox change (nil = no glyph).
-    static func pendingLabels(accountId: String, appId: String, db: DatabaseManager, _ update: @escaping @MainActor (String?) -> Void) async {
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db in
-            try AppRecordOutboxEntity.filter(Column("app_id") == appId).order(Column("seq")).fetchAll(db)
-        }
-        do {
-            for try await rows in observation.values(in: pool) {
-                update(AppRecords.outboxPendingLabel(rows.compactMap(\.entry), appId: appId))
-            }
-        } catch {}
-    }
-}
-
 /// THE consent card over the host's surface (the app's own `GlassAlert`,
 /// never a system dialog): Deny focused, Allow the explicit default (the
 /// destructive entry when the call sounds destructive), the call's
@@ -534,36 +318,27 @@ final class ExpAppHost {
                     throw error
                 }
             }
-            let queued = try await outbox.write(
-                accountId: accountId, appId: appId, call: .upsert, args: args.compactMapValues { CardJSON(any: $0.any) }
+            let answer = try await outbox.write(
+                accountId: accountId, appId: appId, function: "records_upsert", args: args.compactMapValues { CardJSON(any: $0.any) }
             )
-            switch queued.attempt {
-            case let .done(.upserted(result))?:
+            switch answer {
+            case let .done(json), let .queued(json):
                 forms.landed(target)
-                return ["id": result.id]
-            case let .refused(message, invalid)?:
+                return AppRecordOutboxAnswer.value(json)
+            case let .refused(message, invalid):
                 if !(invalid && forms.refused(target, message: message)) {
-                    Toaster.shared.error(
-                        FeedbackStates.Errors.title(verb: AppRecords.outboxVerb(queued.entry), thing: "the record"),
-                        description: message
-                    )
+                    Toaster.shared.error(FeedbackStates.Errors.title(verb: "save", thing: "the record"), description: message)
                 }
                 throw AppHostMcp.CallError(message: message)
-            default:
-                forms.landed(target)
-                return queued.entry.answer?.any
             }
         }
         let recordsDelete: HostFunction = { args, _ in
             guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
-            let queued = try await outbox.write(
-                accountId: accountId, appId: appId, call: .delete, args: args.compactMapValues { CardJSON(any: $0.any) }
+            let answer = try await outbox.write(
+                accountId: accountId, appId: appId, function: "records_delete", args: args.compactMapValues { CardJSON(any: $0.any) }
             )
-            if case let .refused(message, _)? = queued.attempt {
-                Toaster.shared.error(
-                    FeedbackStates.Errors.title(verb: AppRecords.outboxVerb(queued.entry), thing: "the record"),
-                    description: message
-                )
+            if case let .refused(message, _) = answer {
+                Toaster.shared.error(FeedbackStates.Errors.title(verb: "delete", thing: "the record"), description: message)
                 throw AppHostMcp.CallError(message: message)
             }
             return nil
@@ -574,21 +349,22 @@ final class ExpAppHost {
         // so it shows once). VAPP-235: ONE outbox entry (all or nothing).
         let recordsBatch: HostFunction = { args, _ in
             guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
-            let queued = try await outbox.write(
-                accountId: accountId, appId: appId, call: .batch, args: args.compactMapValues { CardJSON(any: $0.any) }
+            let answer = try await outbox.write(
+                accountId: accountId, appId: appId, function: "records_batch", args: args.compactMapValues { CardJSON(any: $0.any) }
             )
-            switch queued.attempt {
-            case let .done(.batched(result))?:
+            switch answer {
+            case let .done(json):
+                let result = AppRecordOutboxAnswer.value(json) as? [String: Any]
                 // VAPP-215: a package action's writes toast Undo for 10 s (app-records.json `history`).
                 AppRecordUndo.toast(
-                    .batch, appId: appId, eventIds: result.eventIds ?? [], via: "app",
+                    .batch, appId: appId, eventIds: result?["eventIds"] as? [String] ?? [], via: "app",
                     accountId: accountId, api: appsApi, toaster: Toaster.shared
                 )
-                return ["ids": result.ids]
-            case let .refused(message, _)?:
+                return ["ids": result?["ids"] as? [String] ?? []]
+            case let .refused(message, _):
                 throw AppHostMcp.CallError(message: message)
-            default:
-                return queued.entry.answer?.any
+            case let .queued(json):
+                return AppRecordOutboxAnswer.value(json)
             }
         }
         host = ExponentialHost(HostOptions(
@@ -633,7 +409,9 @@ final class ExpAppHost {
                         emit(.null)
                         return nil
                     }
-                    return AppHostStore.records(pool: pool, scope: scope, query: query, emit: emit)
+                    return AppHostStore.records(pool: pool, scope: scope, query: query, emit: emit) { appId, rows in
+                        Task { @MainActor in outbox.reflect(accountId: accountId, appId: appId, rows: rows) }
+                    }
                 },
                 // #VAPP-230: `upstream:<server>/<tool>?…` (the broker's answer).
                 AppUpstream.scheme: { source, emit in
@@ -1195,7 +973,8 @@ enum AppHostStore {
     /// change of the records, the users or the apps (an `app=` slug may sync
     /// later); a value equal to the last one is not re-emitted.
     static func records(
-        pool: DatabasePool?, scope: RecordsScope, query: RecordsQuery, emit: @escaping (JSONValue?) -> Void
+        pool: DatabasePool?, scope: RecordsScope, query: RecordsQuery, emit: @escaping (JSONValue?) -> Void,
+        reflect: @escaping @Sendable (String, [AppRecords.Row]) -> Void
     ) -> (() -> Void)? {
         var last: String?
         // Dogfood G: the month view's today + default month in the TEAM zone (the day today() reads).
@@ -1209,15 +988,12 @@ enum AppHostStore {
         let transitions = query.app == nil ? RecordsQuery.transitions(records: scope.records, kind: query.from) : .null
         let push = { (snapshot: RecordsSnapshot) in
             // VAPP-235: the outbox laid over the synced rows (pending AND
-            // acked, oldest first); acked entries the rows reflect (or past
-            // the grace) leave the store. It reads only the rows it wrote.
+            // acked, oldest first); the Engine prunes acked entries the rows
+            // reflect (or past the grace). It reads only the rows it wrote.
             let written = AppRecords.outboxWrittenIds(snapshot.entries)
             let touched = written.isEmpty ? [] : snapshot.rows.filter { written.contains($0.id) }.map { AppRecords.Row($0) }
-            let kept = AppRecords.outboxPrune(snapshot.entries, rows: touched, now: AppRecords.outboxNow())
-            if kept.count < snapshot.entries.count, let pool {
-                let keptIds = Set(kept.map(\.writeId))
-                let gone = snapshot.entries.map(\.writeId).filter { !keptIds.contains($0) }
-                Task { await AppRecordOutbox.remove(gone, pool: pool) }
+            if let appId = snapshot.entries.first(where: { $0.state == .acked })?.appId {
+                reflect(appId, touched)
             }
             let draft = scope.migrateFrom != nil && scope.migrations != nil && query.app == nil
             func stored(_ row: AppRecords.Row) -> RecordRow {

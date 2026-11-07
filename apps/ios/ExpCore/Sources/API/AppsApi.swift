@@ -797,31 +797,31 @@ public final class AppsApi: Sendable {
         )
     }
 
-    /// VAPP-235: replay ONE outbox entry (`AppRecords.outboxRequest`: its
-    /// `writeId` beside the call's own input; a create's `newId`).
+    /// VAPP-235: replay ONE outbox entry: the Engine's request (`outboxRequest`:
+    /// its `writeId` beside the call's own input; a create's `newId`).
     /// VAPP-231: `viaApp` = the host's claim (via-app.json `claim`).
-    public func recordsReplay(accountId: String, entry: AppRecords.OutboxEntry, viaApp: ViaAppClaim? = nil) async throws -> AppRecordReplayed {
-        let request = AppRecords.outboxRequest(entry)
-        let input = request.input
+    public func recordsReplay(
+        accountId: String, appId: String, call: AppRecords.OutboxCall, input: [String: CardJSON], viaApp: ViaAppClaim? = nil
+    ) async throws -> AppRecordReplayed {
         func text(_ key: String) -> String? {
             if case let .string(value)? = input[key] { return value }
             return nil
         }
-        switch request.call {
+        switch call {
         case .upsert:
             return .upserted(try await recordsUpsert(
-                accountId: accountId, appId: entry.appId, kind: text("kind") ?? "", data: input["data"]?.objectValue ?? [:],
+                accountId: accountId, appId: appId, kind: text("kind") ?? "", data: input["data"]?.objectValue ?? [:],
                 recordId: text("recordId"), newId: text("newId"), writeId: text("writeId"), viaApp: viaApp
             ))
         case .delete:
             return .deleted(try await recordsDelete(
-                accountId: accountId, appId: entry.appId, recordId: text("recordId") ?? "", writeId: text("writeId")
+                accountId: accountId, appId: appId, recordId: text("recordId") ?? "", writeId: text("writeId")
             ))
         case .batch:
             var writes: [CardJSON] = []
             if case let .array(list)? = input["writes"] { writes = list }
             return .batched(try await recordsBatch(
-                accountId: accountId, appId: entry.appId, writes: writes, writeId: text("writeId"), viaApp: viaApp
+                accountId: accountId, appId: appId, writes: writes, writeId: text("writeId"), viaApp: viaApp
             ))
         }
     }
