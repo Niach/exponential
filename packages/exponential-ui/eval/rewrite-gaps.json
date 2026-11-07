@@ -163,6 +163,7 @@
     { "id": "ede-panel-menu", "class": "expressible", "with": "already a genUI document (apps/ede/ui/start-menu.json): Box + Row + Avatar + Image + Button + Menu + Input + ScrollArea + List + EmptyState, the sidebar's popup surface (Mint's start menu)" },
     { "id": "ede-rail", "class": "expressible", "with": "already a genUI document (apps/ede/ui/sidebar.json with /shell/rail): Sidebar's rail mode draws every Row as a tile with a tooltip; the same document at 56 px" },
     { "id": "ede-chat", "class": "expressible", "with": "already a genUI document (apps/ede/ui/chat.json): Box + Heading + Button + EmptyState + Composer, an on-demand surface in the middle of the screen" },
+    { "id": "ede-connect", "class": "expressible", "with": "already a genUI document (apps/ede/ui/connect.json): Box + Heading + Input + Button + Text + Alert, the sign-in's states on /connecting" },
     { "id": "ede-expo", "class": "expressible", "with": "already a genUI document (apps/ede/ui/expo.json): Box + Grid + Stack + Image + Text, an on-demand overlay with the compositor's captures per workspace" },
     { "id": "ede-scale", "class": "expressible", "with": "already a genUI document (apps/ede/ui/scale.json): Box + Stack + Image + Chip + Button + EmptyState, an on-demand overlay with the compositor's captures" },
     { "id": "ede-history", "class": "expressible", "with": "already a genUI document (apps/ede/ui/history.json): Box + Heading + Button + ScrollArea + List + Row + EmptyState over the shell documents' git log" },
