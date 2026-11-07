@@ -92,6 +92,29 @@ val buildEnetFfi = tasks.register<Exec>("buildEnetFfi") {
 }
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildEnetFfi) }
 
+// #VAPP-272: the Engine holds the apps' record outbox (`SyncedRecordStore`).
+// Like eNet: the Kotlin binding is a COMMITTED source, the `.so` per ABI is built
+// here into out/jniLibs (gitignored), without the bundled sqlite (the app has
+// Room's). No cargo-ndk here = the .so stays out and an app's writes fail.
+val engineFfiCrate = File(repoRoot, "apps/desktop/crates/eengine-ffi")
+val buildEngineFfi = tasks.register<Exec>("buildEngineFfi") {
+    description = "Builds the Engine .so per ABI (apps/desktop/crates/eengine-ffi/build-android.sh)."
+    val desktop = File(repoRoot, "apps/desktop")
+    inputs.dir(File(engineFfiCrate, "src"))
+    inputs.dir(File(desktop, "crates/eengine/src"))
+    inputs.files(File(engineFfiCrate, "build-android.sh"), File(engineFfiCrate, "Cargo.toml"), File(desktop, "crates/eengine/Cargo.toml"), File(desktop, "Cargo.lock"))
+    outputs.dir(File(engineFfiCrate, "out/jniLibs"))
+    onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
+        if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Engine .so")
+        System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
+    }
+    environment("SKIP_BINDINGS", "1")
+    environment("EENGINE_FFI_FEATURES", "")
+    environment("PATH", listOfNotNull(cargoNdk?.parent, System.getenv("PATH")).joinToString(File.pathSeparator))
+    commandLine("bash", File(engineFfiCrate, "build-android.sh").absolutePath)
+}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildEngineFfi) }
+
 // VAPP-110: the app host's assets = the shared package's `extension.json`
 // alone (its `templates/` are SDK samples, not built-in apps).
 val appHostAssetsDir = layout.buildDirectory.dir("generated/appHostAssets")
@@ -143,6 +166,8 @@ android {
         getByName("main") {
             kotlin.srcDir(File(enetFfiCrate, "bindings/kotlin"))
             jniLibs.srcDir(File(enetFfiCrate, "out/jniLibs"))
+            kotlin.srcDir(File(engineFfiCrate, "bindings/kotlin"))
+            jniLibs.srcDir(File(engineFfiCrate, "out/jniLibs"))
         }
     }
 

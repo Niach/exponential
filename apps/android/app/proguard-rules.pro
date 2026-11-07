@@ -13,6 +13,7 @@
 # error classes are looked up by name. JNA's AWT helper references classes
 # Android does not ship (VAPP-4).
 -keep class at.exponential.net.ffi.** { *; }
+-keep class at.exponential.engine.ffi.** { *; }
 -keep class com.sun.jna.** { *; }
 -keep class * implements com.sun.jna.** { *; }
 -dontwarn java.awt.**
