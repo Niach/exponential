@@ -65,6 +65,8 @@ import com.exponential.app.ui.styleguide.AskDockSpecimenScreen
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreenTestId
 import com.exponential.app.ui.styleguide.DockCardSpecimenScreen
 import com.exponential.app.ui.styleguide.DockCardSpecimenScreenTestId
+import com.exponential.app.ui.styleguide.RecordFormFieldStatesSpecimenScreen
+import com.exponential.app.ui.styleguide.RecordFormFieldStatesSpecimenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsScreen
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.styleguide.ChatListSpecimenScreen
@@ -161,7 +163,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card · sg_session-xref ·
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card · sg_session-xref ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_settings-skills · sg_settings-skill ·
  *   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
@@ -247,6 +249,7 @@ class StyleguideScreenshotsTest {
             // session walk (in the transcript, as web and desktop shoot them).
             "sg_feedback-states", "sg_comment-call-card",
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
+            "sg_record-form-field-states",
             // EXP-1635: the share flow's two steps + the + menu's sub-choice.
             "sg_share-targets", "sg_share-composer", "sg_composer-add-file",
             // S-3: THE inter-session link line.
@@ -1878,6 +1881,11 @@ class StyleguideScreenshotsTest {
         // fan, the sheet frame.
         show(DockCardSpecimenScreenTestId) { DockCardSpecimenScreen() }
         flow.screenshot("sg_dock-card")
+
+        // --- sg_record-form-field-states: Round 9 §6.6, one Input per check
+        // severity with its message showing.
+        show(RecordFormFieldStatesSpecimenTestId) { RecordFormFieldStatesSpecimenScreen() }
+        flow.screenshot("sg_record-form-field-states")
 
         // --- sg_plan-card: THE rich plan / question card (EXP-1280,
         // plan-card.json): session-thread.json's rich case — the pending plan

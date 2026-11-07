@@ -6518,6 +6518,11 @@
     "Button": {
       "type": "object",
       "description": "A press target with a label and optional icon (or one custom child).",
+      "allOf": [
+        {
+          "$ref": "common_types.json#/$defs/Checkable"
+        }
+      ],
       "properties": {
         "component": {
           "const": "Button"

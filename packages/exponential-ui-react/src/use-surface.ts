@@ -4,10 +4,9 @@
 // root, the issues and the data model, and hand the result to
 // `<ExponentialSurface surface={…}>`.
 
-import { useCallback, useMemo, useRef, useState } from "react"
-import { CORE_CATALOG_ID, newSurfaceBridge, reduceNested, reduceSurface, surfaceUpdates } from "@exponential_app/eui"
-import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, SurfaceBridge, SurfaceUpdate, UiNode } from "@exponential_app/eui"
-import { setPointer } from "@exponential_app/eui/web"
+import { useCallback, useRef, useSyncExternalStore } from "react"
+import { CORE_CATALOG_ID, SurfaceStore } from "@exponential_app/eui"
+import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential_app/eui"
 import type { DataModel } from "@exponential_app/eui/web"
 
 export interface A2uiMessage {
@@ -59,95 +58,51 @@ export interface SurfaceState {
   reset: () => void
 }
 
-interface Inner {
-  catalogId: string
-  components: FlatComponent[]
-  nested: NestedNode | null
-  data: DataModel
-  deleted: boolean
-  writeEpoch: number
-}
-
 /** One empty list: a fresh `[]` per render would re-reduce on every render. */
 const NO_EXTENSIONS: readonly ExtensionDef[] = []
-
-function applyUpdate(cur: Inner, update: SurfaceUpdate, surfaceId: string): Inner {
-  if (update.surfaceId !== surfaceId) return cur
-  switch (update.kind) {
-    case `create`:
-      return { ...cur, catalogId: update.catalogId ?? cur.catalogId, components: update.components, nested: null, deleted: false, ...(update.dataModel ? { data: update.dataModel } : {}) }
-    case `components`: {
-      // A later update replaces components by id and keeps the rest.
-      const byId = new Map(cur.components.map((c) => [c.id, c]))
-      for (const c of update.components) byId.set(c.id, c)
-      return { ...cur, components: [...byId.values()], nested: null, deleted: false }
-    }
-    case `data`:
-      return { ...cur, data: setPointer(cur.data, update.path, update.value) }
-    case `delete`:
-      return { ...cur, components: [], nested: null, deleted: true }
-  }
-}
 
 export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
   const surfaceId = options.surfaceId ?? `main`
   const extensions = options.extensions ?? NO_EXTENSIONS
-  const initialRef = useRef<Inner>({
-    catalogId: options.catalogId ?? CORE_CATALOG_ID,
-    components: [],
-    nested: options.initial ?? null,
-    data: options.data ?? {},
-    deleted: false,
-    writeEpoch: 0,
-  })
-  const [inner, setInner] = useState<Inner>(initialRef.current)
-
-  const bridge = useRef<SurfaceBridge>(newSurfaceBridge(options.catalogId ?? CORE_CATALOG_ID))
-  const apply = useCallback(
-    (message: A2uiMessage) => {
-      // Round 9 §1.5: the core parses the message (version, bridge, entries).
-      const { updates } = surfaceUpdates(message, bridge.current, { extensions })
-      setInner((cur) => updates.reduce((next, update) => applyUpdate(next, update, surfaceId), cur))
-    },
-    [surfaceId, extensions]
+  const catalogId = options.catalogId ?? CORE_CATALOG_ID
+  // The latest extensions, read when the store reduces.
+  const latest = useRef(extensions)
+  const made = useRef<{ store: SurfaceStore; start: { catalogId: string; nested: NestedNode | null; data: Record<string, unknown> } } | null>(null)
+  if (made.current?.store.surfaceId !== surfaceId) {
+    const start = made.current?.start ?? { catalogId, nested: options.initial ?? null, data: (options.data ?? {}) as Record<string, unknown> }
+    made.current = { start, store: new SurfaceStore(surfaceId, start.catalogId, () => latest.current, { nested: start.nested ?? undefined, data: start.data }) }
+  }
+  const { store, start } = made.current
+  if (latest.current !== extensions) {
+    latest.current = extensions
+    store.stale()
+  }
+  useSyncExternalStore(
+    useCallback((notify: () => void) => store.subscribe(notify), [store]),
+    () => store.version,
+    () => store.version
   )
 
-  const setData = useCallback((pointer: string, value: unknown) => {
-    setInner((cur) => ({ ...cur, data: setPointer(cur.data, pointer, value) }))
-  }, [])
-
-  const assign = useCallback((pointer: string, value: unknown) => {
-    setInner((cur) => ({ ...cur, data: setPointer(cur.data, pointer, value), writeEpoch: cur.writeEpoch + 1 }))
-  }, [])
-
-  const setNested = useCallback((tree: NestedNode) => {
-    setInner((cur) => ({ ...cur, nested: tree, components: [], deleted: false }))
-  }, [])
-
-  const reset = useCallback(() => setInner(initialRef.current), [])
-
-  const reduced = useMemo((): { root: UiNode | null; issues: ReduceIssue[]; templates?: Record<string, UiNode> } => {
-    if (inner.deleted) return { root: null, issues: [] as ReduceIssue[] }
-    if (inner.nested) return reduceNested(inner.nested, { catalogId: inner.catalogId, extensions })
-    if (inner.components.length === 0) return { root: null, issues: [] as ReduceIssue[] }
-    return reduceSurface(inner.components, { catalogId: inner.catalogId, extensions })
-    // extensions are a stable array in practice; a new array means a new catalog view.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inner.nested, inner.components, inner.catalogId, inner.deleted, extensions])
+  // Round 9 §1.5: `SurfaceStore.apply` is the one entry (version, bridge, entries).
+  const apply = useCallback((message: A2uiMessage) => void store.apply(message), [store])
+  const setData = useCallback((pointer: string, value: unknown) => void store.setData(pointer, value), [store])
+  const assign = useCallback((pointer: string, value: unknown) => void store.assign(pointer, value), [store])
+  const setNested = useCallback((tree: NestedNode) => store.setNested(tree), [store])
+  const reset = useCallback(() => store.restore(start.catalogId, start.nested, start.data), [store, start])
 
   return {
     surfaceId,
-    catalogId: inner.catalogId,
-    root: reduced.root,
-    issues: reduced.issues,
-    templates: reduced.templates,
-    data: inner.data,
-    deleted: inner.deleted,
-    components: inner.components,
+    catalogId: store.catalogId ?? start.catalogId,
+    root: store.root,
+    issues: store.issues,
+    templates: store.templates,
+    data: store.data,
+    deleted: store.deleted,
+    components: store.components,
     extensions,
     apply,
     setData,
-    writeEpoch: inner.writeEpoch,
+    writeEpoch: store.writeEpoch,
     assign,
     setNested,
     reset,

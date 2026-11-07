@@ -521,8 +521,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         }
         var height = Markdown.layout(blocks, styles, width: width, text: shaper).height
         // `lines`: the first n body lines (the web's -webkit-line-clamp).
-        if let n = Self.markdownClamp(leaf.props) { height = min(height, CGFloat(n) * styles.body.lineHeight) }
-        return MeasuredContent(width, max(height, blocks.isEmpty ? 0 : styles.body.lineHeight), Self.baseline(ts))
+        // The inline profile's lines are the paragraph's (a document's: the body).
+        let line = styles.spec(of: .paragraph)
+        if let n = Self.markdownClamp(leaf.props) { height = min(height, CGFloat(n) * line.lineHeight) }
+        let lead = MarkdownPainter.inlineVariant(leaf.props) == nil ? ts : TextStyle(fontSize: line.size, fontWeight: line.weight, lineHeight: line.lineHeight, fontFamily: line.family)
+        return MeasuredContent(width, max(height, blocks.isEmpty ? 0 : line.lineHeight), Self.baseline(lead))
     }
 
     private func button(_ leaf: LeafRequest) -> MeasuredContent {

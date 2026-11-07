@@ -15,7 +15,8 @@
 
 import { For, Show, createMemo, createSignal, useContext, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import type { MarkdownVariant } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
@@ -30,7 +31,7 @@ import { css } from "./style"
  *  props (`density`, a heading's `level`), so the theme's part rules reach
  *  every part. */
 function mdPart(host: HostPlugin, scope: string, name: string, extra?: Record<string, string | number>): Record<string, string> {
-  const p = markdownPartAttrs(scope, name, host.markdownOptions?.density, extra)
+  const p = markdownPartAttrs(scope, name, host.markdownOptions?.density, extra, (host as { markdownInline?: MarkdownVariant }).markdownInline)
   return { class: p.class, ...p.attrs }
 }
 
@@ -283,8 +284,9 @@ export function renderMarkdown(text: string, host: HostPlugin = {}, scope = ``, 
   return blocks(linkedMarkdown(host, parseMarkdown(text, host.markdownOptions)), host, scope, id)
 }
 
-export function BuiltinMarkdown(props: { text: string; class?: string; host?: HostPlugin; id?: string }): JSX.Element {
+export function BuiltinMarkdown(props: { text: string; class?: string; host?: HostPlugin; id?: string; inline?: MarkdownVariant }): JSX.Element {
   const ctx = useContext(SurfaceContext)
+  const host = createMemo(() => markdownProfileHost(props.host ?? {}, props.inline))
   // Parsed once per text (and host, and theme). #VAPP-258 step 5: the host's
   // options (catalog/host.json `markdown.options`); the blocks render keyed
   // by object, so a streamed text's finished blocks (the parser's memo keeps
@@ -300,7 +302,7 @@ export function BuiltinMarkdown(props: { text: string; class?: string; host?: Ho
       {(() => {
         // A theme change (its scope) re-renders every block.
         const s = scope()
-        return <For each={tree()}>{(b, k) => block(b, props.host ?? {}, s, props.id ?? `md`, k())}</For>
+        return <For each={tree()}>{(b, k) => block(b, host(), s, props.id ?? `md`, k())}</For>
       })()}
     </div>
   )

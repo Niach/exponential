@@ -487,7 +487,7 @@ accessibility, metadata`:
 | `on` | every component with `events` | `{<event>: EuiAction}`, events = the component's `events` |
 | `style` | every component | `Style` |
 | `visible` | every component | `DynamicBoolean` |
-| `checks` | every component whose source declares `checks` (today Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Select, ChipInput) | array of `CheckRule` (§6.6), via the `Checkable` trait |
+| `checks` | every component whose source declares `checks` (today Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Select, ChipInput, Button) | array of `CheckRule` (§6.6), via the `Checkable` trait |
 
 - `EuiAction` = `{event?: {name, context?, userMessage?}, functionCall?: {"@call", args?, catalogId?}}`,
   at least one of the two. Its `functionCall` names any function (a host
@@ -776,13 +776,20 @@ Severity semantics on every renderer (React, Solid, SwiftUI, Compose, gpui):
 - `error`: the field takes the `invalid` recipe state. A Button with a
   failing `error` check is disabled. A Form's `submit` is blocked and
   fires `invalid {errors}`.
-- `warning` / `info`: advisory. The field shows the message in its
-  description line with the new recipe states `warning` / `info`
-  (`recipes.json`; neutral theme: `$color.warning` / `$color.mutedForeground`
-  text). They never disable or block anything.
+- `warning` / `info`: advisory. The field shows the message on the line
+  under the control, in its `error` part (id `<field id>.error`; on the web
+  `role="status"` instead of `alert`) with the new recipe states `warning` /
+  `info` (`recipes.json`; neutral theme: `$color.warning` /
+  `$color.mutedForeground` text, the rest of the part unchanged). An authored
+  description stays. They never disable or block anything; the control keeps
+  its normal border. A submit reveals them, like every check.
 - A failing result with no message at all shows `$string.checkFailed`
   (new built-in string: "Invalid value").
 - `validateOn` (change | blur | submit) is unchanged.
+- `invalid {errors}`, a Form's `summary` and `failingChecks` list EVERY
+  failing `error`, in order. `fieldChecks(results, fallback)` (Rust
+  `data::field_checks`) gives both: `errors` and the one `shown`. Locked by
+  `interactions-round1.json` `checkSeverities`, `buttonChecks`.
 
 ### 6.7 Boolean coercion and presence
 
@@ -926,11 +933,15 @@ the inline profile:
 - a paragraph paints in the core `Text` `variant` type (body or caption):
   same recipe, same measure. So a plain basic Text looks the same as it
   did in 0.9;
-- ATX/setext headings paint with the `Heading` levels;
-- the rest of GFM is unchanged.
+- ATX/setext headings paint with the `Heading` levels (h5, h6 = h4);
+- the rest of GFM is unchanged;
+- a host's own Markdown painter is skipped.
+
+`markdownInlineRecipes(part, {variant, level})` names the recipes;
+`fixtures/markdown-inline.json` locks them.
 
 The parser is the same everywhere. `recipes.json` gains
-`Markdown/root` when-prop `profile`.
+the Markdown when-props `profile` and `variant`.
 
 ### 9.2 Basic function changes
 

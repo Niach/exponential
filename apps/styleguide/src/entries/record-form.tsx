@@ -1,4 +1,4 @@
-import { ExponentialUiSpecimen } from "@exp/ui"
+import { ExponentialUiFieldStates, ExponentialUiSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -16,7 +16,14 @@ export const entry: StyleguideEntry = {
     web: { state: `ok`, symbol: `RecordForm (macro)`, file: `packages/exponential-ui/catalog/macros.json`, note: `here: ExponentialUiSpecimen (packages/ui)` },
     desktop: { state: `ok`, symbol: `render`, file: `apps/desktop/crates/ui/src/styleguide/entries/record_form.rs` },
     ios: { state: `ok`, symbol: `RecordForm (macro)`, file: `packages/exponential-ui-swift/Sources/ExponentialUI` },
-    android: { state: `ok`, symbol: `RecordForm (macro)`, file: `packages/exponential-ui-compose/ui-compose/src/main/kotlin/at/exponential/ui/compose` },
+    android: { state: `ok`, symbol: `RecordForm (macro)`, file: `packages/exponential-ui-compose/ui-compose/src/main/kotlin/at/exponential/ui/compose`, note: `field states: RecordFormFieldStatesSpecimenScreen` },
   },
-  island: () => <ExponentialUiSpecimen id="exponential-ui-record-form" />,
+  // Round 9 §6.6: under it, a field's one message per check severity (error =
+  // the invalid state, warning and info advisory; fixtures/interactions-round1.json).
+  island: () => (
+    <div className="flex flex-col gap-6">
+      <ExponentialUiSpecimen id="exponential-ui-record-form" />
+      <ExponentialUiFieldStates />
+    </div>
+  ),
 }

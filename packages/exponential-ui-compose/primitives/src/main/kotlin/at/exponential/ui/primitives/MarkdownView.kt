@@ -65,6 +65,8 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextMotion
@@ -105,6 +107,9 @@ data class MarkdownColors(
     val codeBlockBackground: Color,
     /** The quote bar. */
     val quoteBorder: Color,
+    /** Round 9 §9.1: an inline-profile paragraph's and heading's text (Unspecified = [ink]). */
+    val paragraphInk: Color = Color.Unspecified,
+    val headingInk: Color = Color.Unspecified,
     /** A GFM task box = THE Checkbox box: the unchecked fill and hairline. */
     val taskFill: Color = Color.Transparent,
     /** Unspecified = [border]. */
@@ -200,7 +205,11 @@ class MarkdownComposeText(
         textMotion = TextMotion.Animated,
     )
 
-    /** The spans of [inlines] on [spec]: bold ≥ 600, italic, strike, mono code, underlined links. */
+    /**
+     * The spans of [inlines] on [spec]: bold ≥ 600, italic, strike, mono code,
+     * underlined links. Round 9: with [code], a code span takes its type and
+     * [MARKDOWN_CODE_PAD] on each side ([MarkdownPills] paints its fill).
+     */
     fun annotated(
         inlines: List<MarkdownInline>,
         spec: MarkdownTextSpec,
@@ -209,6 +218,7 @@ class MarkdownComposeText(
         codeBackground: Color? = null,
         boldFloor: Int? = null,
         onLink: ((String) -> Unit)? = null,
+        code: MarkdownCodeStyle? = null,
     ): AnnotatedString = buildAnnotatedString {
         val mono = fonts.family(monoFamily, mono = true)
         var chips = 0
@@ -231,10 +241,16 @@ class MarkdownComposeText(
                 color = if (span.link != null) link else ink,
                 fontWeight = FontWeight(weight),
                 fontStyle = if (span.italic) FontStyle.Italic else null,
+                fontSize = if (span.code && code != null) code.size(spec).sp else TextUnit.Unspecified,
                 fontFamily = if (span.code) mono else null,
                 textDecoration = if (decorations.isEmpty()) null else TextDecoration.combine(decorations),
-                background = if (span.code && codeBackground != null) codeBackground else Color.Unspecified,
+                background = if (span.code && code == null && codeBackground != null) codeBackground else Color.Unspecified,
             )
+            val pill = span.code && code != null
+            if (pill) {
+                pushStringAnnotation(MARKDOWN_CODE_TAG, "")
+                appendInlineContent(MARKDOWN_CODE_PAD_ID, MARKDOWN_CODE_PAD)
+            }
             val url = span.link
             if (url != null) {
                 val annotation = if (onLink != null) {
@@ -246,7 +262,24 @@ class MarkdownComposeText(
             } else {
                 withStyle(style) { append(span.text) }
             }
+            if (pill) {
+                appendInlineContent(MARKDOWN_CODE_PAD_ID, MARKDOWN_CODE_PAD)
+                pop()
+            }
         }
+    }
+
+    /** Round 9: the ascent and descent of [code]'s font at its size on [spec] (dp): the pill's height, as the web's inline box. */
+    fun codeMetrics(code: MarkdownCodeStyle, spec: MarkdownTextSpec): Pair<Float, Float> {
+        val r = measurer.measure(
+            "x",
+            style = TextStyle(
+                fontFamily = fonts.family(monoFamily, mono = true),
+                fontSize = code.size(spec).sp,
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+            ),
+        )
+        return (r.firstBaseline / density) to ((r.size.height - r.firstBaseline) / density)
     }
 
     private fun layout(
@@ -254,9 +287,10 @@ class MarkdownComposeText(
         spec: MarkdownTextSpec,
         width: Float?,
         placeholders: List<AnnotatedString.Range<Placeholder>> = emptyList(),
+        code: MarkdownCodeStyle? = null,
     ): TextLayoutResult =
         measurer.measure(
-            annotated(inlines, spec),
+            annotated(inlines, spec, code = code),
             style = style(spec),
             placeholders = placeholders,
             softWrap = width != null,
@@ -296,13 +330,13 @@ class MarkdownComposeText(
         markdownChipPlaceholders(inlines, spec, chips, cap) { t, sp -> labelWidth(t, sp, chips) }
 
     override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?, chips: MarkdownChipStyle): Float {
-        if (inlines.none { it.chip != null }) return height(inlines, spec, width)
-        return maxOf(1, layout(inlines, spec, width, placeholders(inlines, spec, chips, width)).lineCount) * spec.lineHeight
+        if (inlines.none { it.chip != null || it.code }) return height(inlines, spec, width)
+        return maxOf(1, layout(inlines, spec, width, placeholders(inlines, spec, chips, width), chips.code).lineCount) * spec.lineHeight
     }
 
     override fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
-        if (inlines.none { it.chip != null }) return width(inlines, spec)
-        val r = layout(inlines, spec, null, placeholders(inlines, spec, chips, null))
+        if (inlines.none { it.chip != null || it.code }) return width(inlines, spec)
+        val r = layout(inlines, spec, null, placeholders(inlines, spec, chips, null), chips.code)
         var widest = 0f
         for (line in 0 until r.lineCount) widest = maxOf(widest, r.getLineRight(line) - r.getLineLeft(line))
         return ceil(widest / density)
@@ -319,12 +353,21 @@ class MarkdownComposeText(
 /** #VAPP-258: the inline-content id of the [n]th chip of a run list. */
 fun markdownChipId(n: Int): String = "eui-chip-$n"
 
+/** Round 9: the word joiner a code span's side padding is a placeholder over: it keeps the padding on the span's line and adds nothing to a copy. */
+const val MARKDOWN_CODE_PAD = "\u2060"
+
+/** Round 9: the inline-content id of [MARKDOWN_CODE_PAD]. */
+const val MARKDOWN_CODE_PAD_ID = "eui-code-pad"
+
+/** Round 9: the annotation over a code span, its pads included. */
+const val MARKDOWN_CODE_TAG = "eui-code"
+
 /**
  * #VAPP-258: the placeholders of [inlines]' chip runs in the text built by
  * appending every non-empty run (a chip run as its label): each chip
  * [MarkdownChipStyle.width] wide (capped at [cap]) and
- * [MarkdownChipStyle.height] tall, centred in the line. What the painter's
- * inline content and every measurer agree on.
+ * [MarkdownChipStyle.height] tall, centred in the line, and a code run's
+ * side padding. What the painter's inline content and every measurer agree on.
  */
 fun markdownChipPlaceholders(
     inlines: List<MarkdownInline>,
@@ -339,7 +382,15 @@ fun markdownChipPlaceholders(
         if (span.text.isEmpty()) continue
         val chip = span.chip
         if (chip == null) {
-            at += span.text.length
+            if (span.code) {
+                val pad = Placeholder(chips.code.padH(spec).sp, 1.sp, PlaceholderVerticalAlign.Center)
+                out.add(AnnotatedString.Range(pad, at, at + MARKDOWN_CODE_PAD.length))
+                at += MARKDOWN_CODE_PAD.length + span.text.length
+                out.add(AnnotatedString.Range(pad, at, at + MARKDOWN_CODE_PAD.length))
+                at += MARKDOWN_CODE_PAD.length
+            } else {
+                at += span.text.length
+            }
             continue
         }
         val w = markdownChipWidth(chip, chips, cap, labelWidth)
@@ -547,18 +598,22 @@ private fun MarkdownBlockView(
     val onLink = hooks.onLink
     val uri = LocalUriHandler.current
     val open: (String) -> Unit = { href -> if (onLink != null) onLink(href) else runCatching { uri.openUri(href) } }
-    fun runs(inlines: List<MarkdownInline>, ink: Color, code: Color?, boldFloor: Int? = null) =
-        shaper.annotated(inlines, spec, ink = ink, link = colors.link, codeBackground = code, boldFloor = boldFloor, onLink = onLink)
+    fun runs(inlines: List<MarkdownInline>, ink: Color, boldFloor: Int? = null) =
+        shaper.annotated(inlines, spec, ink = ink, link = colors.link, boldFloor = boldFloor, onLink = onLink, code = styles.chip.code)
     // #VAPP-258: the chips of a run list wrapped at [cap] (the width its layout used).
     fun chips(inlines: List<MarkdownInline>, cap: Float): Map<String, InlineTextContent> =
         markdownChipContent(inlines, spec, styles.chip, cap, colors, shaper, hooks.chipIcon, open)
     when (val kind = block.kind) {
-        is MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> BasicText(
-            runs(block.inlines, colors.ink, colors.codeBackground),
-            style = shaper.style(spec, colors.ink),
-            modifier = Modifier.fillMaxWidth(),
-            inlineContent = chips(block.inlines, maxOf(width, 1f)),
-        )
+        is MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> {
+            val ink = (if (kind is MarkdownBlockKind.Heading) colors.headingInk else colors.paragraphInk).takeOrElse { colors.ink }
+            MarkdownPills(
+                runs(block.inlines, ink),
+                style = shaper.style(spec, ink),
+                modifier = Modifier.fillMaxWidth(),
+                inlineContent = chips(block.inlines, maxOf(width, 1f)),
+                spec = spec, styles = styles, colors = colors, shaper = shaper,
+            )
+        }
         is MarkdownBlockKind.Image -> {
             val ib = Markdown.imageBox(kind.width, kind.height, width, styles.imageHeight, styles.viewportHeight)
             val press = hooks.onImagePress
@@ -608,26 +663,29 @@ private fun MarkdownBlockView(
                 if (task != null) {
                     TaskBox(task, minOf(TASK_BOX, spec.lineHeight).dp, colors)
                 } else if (kind.marker == BULLET) {
-                    BulletDisc(spec.size, styles.listIndent, colors.ink)
+                    BulletDisc(spec.size, colors.ink)
                 } else {
-                    BasicText(kind.marker, style = shaper.style(spec, colors.muted))
+                    // Web's outside `3.`: in the text colour, one space before the item's text.
+                    BasicText(kind.marker, Modifier.align(Alignment.CenterEnd).padding(end = shaper.width(listOf(MarkdownInline(text = "\u00A0")), spec).dp), style = shaper.style(spec, colors.ink))
                 }
             }
-            BasicText(
-                runs(block.inlines, colors.ink, colors.codeBackground),
+            MarkdownPills(
+                runs(block.inlines, colors.ink),
                 style = shaper.style(spec, colors.ink),
                 modifier = Modifier.width((width - styles.listInset(kind.depth)).coerceAtLeast(1f).dp),
                 inlineContent = chips(block.inlines, maxOf(width - styles.listInset(kind.depth), 1f)),
+                spec = spec, styles = styles, colors = colors, shaper = shaper,
             )
         }
         is MarkdownBlockKind.Quote -> Row {
             Box(Modifier.width(styles.quoteBorder.dp).height(box.height.dp).background(colors.quoteBorder))
             Box(Modifier.width(styles.quotePad.dp))
-            BasicText(
-                runs(block.inlines, colors.muted, null),
+            MarkdownPills(
+                runs(block.inlines, colors.muted),
                 style = shaper.style(spec, colors.muted),
                 modifier = Modifier.width((width - styles.quoteBorder - styles.quotePad).coerceAtLeast(1f).dp),
                 inlineContent = chips(block.inlines, maxOf(width - styles.quoteBorder - styles.quotePad, 1f)),
+                spec = spec, styles = styles, colors = colors, shaper = shaper,
             )
         }
         is MarkdownBlockKind.CodeBlock -> Box(
@@ -639,7 +697,7 @@ private fun MarkdownBlockView(
                 .then(if (styles.codeBorder > 0f) Modifier.border(styles.codeBorder.dp, colors.codeBlockBorder.takeOrElse { colors.border }, RoundedCornerShape(codeBlockRadius)) else Modifier)
                 .padding((styles.codePad + styles.codeBorder).dp),
         ) {
-            BasicText(highlightedCode(runs(block.inlines, colors.ink, null), block.lang, hooks.codeHighlighter), style = shaper.style(spec, colors.ink), softWrap = false)
+            BasicText(highlightedCode(shaper.annotated(block.inlines, spec, ink = colors.ink, link = colors.link, onLink = onLink), block.lang, hooks.codeHighlighter), style = shaper.style(spec, colors.ink), softWrap = false)
         }
         is MarkdownBlockKind.Rule -> Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
         is MarkdownBlockKind.Table -> {
@@ -654,13 +712,14 @@ private fun MarkdownBlockView(
                     Row(Modifier.height(rowH.dp).then(if (r == 0) Modifier.background(colors.headerCellBackground) else Modifier)) {
                         for (c in 0 until cols) {
                             val cell = row.getOrNull(c) ?: emptyList()
-                            BasicText(
-                                runs(cell, colors.ink, colors.codeBackground, boldFloor = if (r == 0) 600 else null),
+                            MarkdownPills(
+                                runs(cell, colors.ink, boldFloor = if (r == 0) 600 else null),
                                 style = shaper.style(spec, colors.ink),
                                 inlineContent = chips(cell, maxOf(cellW - 2 * styles.cellPadH, 1f)),
                                 modifier = Modifier
                                     .width(cellW.dp)
                                     .padding(horizontal = styles.cellPadH.dp, vertical = styles.cellPadV.dp),
+                                spec = spec, styles = styles, colors = colors, shaper = shaper,
                             )
                         }
                     }
@@ -687,8 +746,10 @@ private fun markdownChipContent(
     icon: (@Composable (name: String, size: Float, color: Color) -> Unit)?,
     open: (String) -> Unit,
 ): Map<String, InlineTextContent> {
-    if (inlines.none { it.chip != null }) return emptyMap()
+    if (inlines.none { it.chip != null || it.code }) return emptyMap()
     val out = HashMap<String, InlineTextContent>()
+    // Round 9: nothing to compose, only the side padding the line reserves (the fill = [MarkdownPills]).
+    if (inlines.any { it.code }) out[MARKDOWN_CODE_PAD_ID] = InlineTextContent(Placeholder(chips.code.padH(spec).sp, 1.sp, PlaceholderVerticalAlign.Center)) {}
     var n = 0
     for (span in inlines) {
         if (span.text.isEmpty()) continue
@@ -800,21 +861,73 @@ private fun TaskBox(checked: Boolean, size: Dp, colors: MarkdownColors) {
     }
 }
 
+/**
+ * Round 9: a text block over its inline code's fills: each code span's
+ * `Markdown/code` box from its side padding to its side padding, per line it
+ * crosses, from the font's descent to its ascent around the baseline (+
+ * `paddingVertical`), as the web's inline box. Under the text and its chips.
+ */
+@Composable
+private fun MarkdownPills(
+    text: AnnotatedString,
+    style: TextStyle,
+    modifier: Modifier,
+    inlineContent: Map<String, InlineTextContent>,
+    spec: MarkdownTextSpec,
+    styles: MarkdownStyles,
+    colors: MarkdownColors,
+    shaper: MarkdownComposeText,
+) {
+    val fill = colors.codeBackground
+    val ranges = remember(text) { text.getStringAnnotations(MARKDOWN_CODE_TAG, 0, text.length) }
+    if (ranges.isEmpty() || fill == null) {
+        BasicText(text, modifier, style = style, inlineContent = inlineContent)
+        return
+    }
+    val code = styles.chip.code
+    val metrics = remember(code, spec, shaper) { shaper.codeMetrics(code, spec) }
+    val laid = remember { mutableStateOf<TextLayoutResult?>(null) }
+    BasicText(
+        text,
+        modifier.drawBehind {
+            val r = laid.value ?: return@drawBehind
+            val radius = CornerRadius(code.radius.dp.toPx())
+            val up = (metrics.first + code.padV).dp.toPx()
+            val down = (metrics.second + code.padV).dp.toPx()
+            for (range in ranges) {
+                val last = range.end - 1
+                for (line in r.getLineForOffset(range.start)..r.getLineForOffset(last)) {
+                    val from = maxOf(range.start, r.getLineStart(line))
+                    val to = minOf(last, r.getLineEnd(line, visibleEnd = true) - 1)
+                    val a = r.getHorizontalPosition(from, usePrimaryDirection = true)
+                    val b = r.getBoundingBox(to).right
+                    val baseline = r.getLineBaseline(line)
+                    drawRoundRect(fill, Offset(minOf(a, b), baseline - up), Size(kotlin.math.abs(b - a), up + down), radius)
+                }
+            }
+        },
+        style = style,
+        onTextLayout = { laid.value = it },
+        inlineContent = inlineContent,
+    )
+}
+
 /** The unordered list marker [Markdown.parse] writes. */
 private const val BULLET = "\u2022"
 
 /**
  * A bullet list's marker as the web draws `list-style: disc` (an outside
- * marker in the text colour): a filled disc 0.34 em across, its centre
- * 1 em before the item's text, on the first line's middle.
+ * marker in the text colour): a filled disc 0.36 em across, its centre
+ * 0.46 em into the indent, on the first line's middle
+ * (`fixtures/markdown-inline.json` `documentPaint`).
  */
 @Composable
-private fun BulletDisc(fontSize: Float, indent: Float, color: Color) {
-    val d = fontSize * 0.34f
+private fun BulletDisc(fontSize: Float, color: Color) {
+    val d = fontSize * MARKDOWN_BULLET_EM
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
-                .offset(x = maxOf(0f, indent - fontSize - d / 2f).dp)
+                .offset(x = maxOf(0f, fontSize * MARKDOWN_BULLET_CENTRE_EM - d / 2f).dp)
                 .size(d.dp)
                 .align(Alignment.CenterStart)
                 .background(color, CircleShape),

@@ -6048,6 +6048,15 @@
         "sha256": "c842c806d4571afd4b6a6c39f18b266ce337561f933ba8f2b4554d2e98f17fea"
       }
     },
+    "record-form-field-states": {
+      "android": {
+        "file": "shots/record-form-field-states/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 15458,
+        "sha256": "714a19264a6ede54366b0a79789800610e56748899dba7df126143cefe1ad688"
+      }
+    },
     "results-tab": {
       "android": {
         "file": "shots/results-tab/android.webp",

@@ -14,7 +14,7 @@ use eui_core::surface::{Layer, PlacedNode};
 use gpui::{canvas, div, linear_color_stop, linear_gradient, prelude::*, px, AnyElement, Context, Div, ExternalPaths, Hsla, MouseButton, SharedString, Stateful, Window};
 use serde_json::{json, Value};
 
-use super::state::{a11y_current, a11y_description, a11y_label, authored_role, is_text_field, role_of, NodeFlags};
+use super::state::{a11y_current, a11y_description, a11y_hidden, a11y_label, authored_role, is_text_field, role_of, NodeFlags};
 use super::SurfaceView;
 use crate::extension::PaintContext;
 use crate::host::PaintError;
@@ -473,6 +473,14 @@ impl SurfaceView {
 
     /// A node's role, name and description (`None` = no a11y node).
     pub(crate) fn node_a11y(&self, n: &PlacedNode) -> Option<super::AccessibleInfo> {
+        // Round 9 §5.1: `accessibility.hidden` covers the subtree.
+        let mut above = n.parent;
+        while let Some(p) = above.and_then(|p| self.cache.node(p)) {
+            if a11y_hidden(p) {
+                return None;
+            }
+            above = p.parent;
+        }
         let parent = n.parent.and_then(|p| self.cache.node(p)).map(|p| p.component.as_str());
         let macro_root = self.cache.macro_root(n.index);
         let role = match authored_role(n) {
@@ -489,7 +497,7 @@ impl SurfaceView {
         let count = |k: &str| a.and_then(|a| a.get(k)).and_then(Value::as_u64).map(|v| v as usize);
         let level = (role == gpui::Role::Heading).then(|| count("level").unwrap_or(3));
         let position = count("posInSet").zip(count("setSize"));
-        Some(super::AccessibleInfo { role, label: a11y_label(n, self.surface.strings()).or(title), description: a11y_description(n).or(footer), level, position })
+        Some(super::AccessibleInfo { role, label: a11y_label(n, self.surface.strings()).or(title), description: a11y_description(n).or(footer), level, position, live: n.live.clone().map(Into::into) })
     }
 
     /// The Composer's built-in button names: `(send or stop, attach)`.
@@ -1264,8 +1272,12 @@ impl SurfaceView {
     fn paint_markdown(&self, lcx: &LeafCx, index: u32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let (x, y, w, h) = lcx.inner();
         let text = lcx.str("text").to_string();
-        if let Some(el) = self.host.markdown(&text, lcx.text_style, w, window, cx) {
-            return div().absolute().left(px(x)).top(px(y)).w(px(w)).child(el).into_any_element();
+        // Round 9 §9.1: the inline profile is always the built-in painter.
+        let inline = markdown::inline_variant(&lcx.node.props);
+        if inline.is_none() {
+            if let Some(el) = self.host.markdown(&text, lcx.text_style, w, window, cx) {
+                return div().absolute().left(px(x)).top(px(y)).w(px(w)).child(el).into_any_element();
+            }
         }
         let blocks = {
             let mut cache = self.markdown.borrow_mut();
@@ -1303,7 +1315,8 @@ impl SurfaceView {
         let look_key = crate::paint::markdown_memo::look_key(&layout_key, lcx.ink, Rc::as_ptr(&self.host) as *const () as usize);
         let look = crate::paint::markdown_memo::look(look_key, || crate::paint::markdown_memo::MdLook {
             styles: MdStyles::resolve(lcx.theme, lcx.mode, body, &props).imaged(&options, viewport),
-            colors: MdPaint::colors(lcx.theme, lcx.mode, lcx.ink, &props),
+            // An inline paragraph IS a Text: its colour too (a dimmed layer keeps its ink).
+            colors: MdPaint::colors(lcx.theme, lcx.mode, inline.filter(|_| self.inks.get(index as usize) == Some(&lcx.ink)).and_then(|v| markdown::inline_ink(lcx.theme, lcx.mode, v)).unwrap_or(lcx.ink), &props),
             selection_bg: lcx.theme_color("ring").or_else(|| lcx.theme_color("primary")).unwrap_or(gpui::blue()).opacity(0.3),
             task_box: natives::task_box_painter(lcx, self.host.clone()),
             chip_box: crate::paint::PaintStyle::from_visual(&crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "root", &serde_json::Map::new(), &[])),

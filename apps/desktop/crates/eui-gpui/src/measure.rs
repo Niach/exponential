@@ -415,6 +415,15 @@ impl MdText for Shaper<'_> {
         f32::from(self.window.text_system().shape_line(text, px(spec.size), &runs, None).width)
     }
 
+    fn code_width(&mut self, text: &str, spec: &TextSpec, bold: bool, italic: bool) -> f32 {
+        if text.is_empty() {
+            return 0.0;
+        }
+        let (text, runs) = self.md_runs(&[Inline { text: text.to_string(), bold, italic, code: true, ..Inline::default() }], spec);
+        self.calls += 1;
+        f32::from(self.window.text_system().shape_line(text, px(spec.size), &runs, None).width)
+    }
+
     /// The text system's own wrapped lines (what `StyledText` paints): a
     /// byte at a wrap boundary starts the NEXT line.
     fn spots(&mut self, inlines: &[Inline], spec: &TextSpec, width: f32, at: &[usize]) -> Vec<(f32, f32, f32)> {
@@ -805,7 +814,16 @@ impl<'a> GpuiMeasure<'a> {
             }
         };
         self.shaped += s.calls;
-        let baseline = Some(self.line_baseline(ts));
+        // An inline paragraph's type, the Text's, sets the first baseline.
+        let inline_ts = markdown::inline_variant(leaf.props).map(|_| {
+            let mut t = ts.clone();
+            t.font_size = styles.body.size;
+            t.line_height = styles.body.line_height;
+            t.font_weight = styles.body.weight;
+            t.font_family = styles.body.family.clone();
+            t
+        });
+        let baseline = Some(self.line_baseline(inline_ts.as_ref().unwrap_or(ts)));
         (out.0, out.1.max(if blocks.is_empty() { 0.0 } else { line_height }), baseline)
     }
 

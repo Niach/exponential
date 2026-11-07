@@ -4,7 +4,8 @@
 // the built-in glyph names of `core.catalog.json` `builtinIcons`. Pure:
 // every web renderer paints with the same values.
 
-import { DEFAULT_STRINGS, checkResult, coreCatalog } from "@exponential_app/eui"
+import { DEFAULT_STRINGS, checkResult, coreCatalog, fieldChecks } from "@exponential_app/eui"
+import type { FieldChecks, ValidationResult } from "@exponential_app/eui"
 
 export const str = (v: unknown, fallback = ``): string => (v === undefined || v === null ? fallback : typeof v === `object` ? JSON.stringify(v) : String(v))
 export const num = (v: unknown, fallback = 0): number => (typeof v === `number` && Number.isFinite(v) ? v : typeof v === `string` && v.trim() !== `` && Number.isFinite(Number(v)) ? Number(v) : fallback)
@@ -70,18 +71,22 @@ export function acceptsFile(accept: string, file: { name: string; type: string }
   return rules.some((r) => (r.startsWith(`.`) ? name.endsWith(r) : r.endsWith(`/*`) ? type.startsWith(r.slice(0, -1)) : type === r))
 }
 
-/** A control's `checks` evaluated: EVERY failing message, in order (a
- *  check without one says `$string.invalidValue`: pass the surface's). The
- *  condition is already resolved; round 9 §6.6 turns it into a
- *  ValidationResult (`checkResult`). */
-export function failingChecks(checks: unknown, fallback: string = DEFAULT_STRINGS.invalidValue): string[] {
-  const out: string[] = []
+/** A control's RESOLVED `checks` as its check state (round 9 §6.6: each
+ *  condition → a ValidationResult, then `fieldChecks`): `errors` block, `shown`
+ *  is the one message the field paints. Without a message a failure reads
+ *  `$string.checkFailed`: pass the surface's. */
+export function resolvedFieldChecks(checks: unknown, fallback: string = DEFAULT_STRINGS.checkFailed): FieldChecks {
+  const results: ValidationResult[] = []
   for (const check of objects<{ condition?: unknown; message?: unknown }>(checks)) {
     if (!check || typeof check !== `object` || !(`condition` in check)) continue
-    const result = checkResult(check.condition, check.message)
-    if (!result.valid) out.push(result.message ?? fallback)
+    results.push(checkResult(check.condition, check.message))
   }
-  return out
+  return fieldChecks(results, fallback)
+}
+
+/** EVERY failing `error` message, in order (warning and info never count). */
+export function failingChecks(checks: unknown, fallback?: string): string[] {
+  return resolvedFieldChecks(checks, fallback).errors
 }
 
 /** The first failing message, or null (kept for hosts that used it). */

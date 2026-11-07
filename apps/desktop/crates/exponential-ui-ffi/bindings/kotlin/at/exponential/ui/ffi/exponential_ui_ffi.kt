@@ -1063,6 +1063,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_event(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_hold(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout(
@@ -1455,6 +1457,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(`p
 external fun uniffi_exponential_ui_ffi_fn_method_surface_event(`ptr`: Long,`index`: Int,`name`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_hold(`ptr`: Long,`index`: Int,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -6655,6 +6659,12 @@ public interface SurfaceInterface {
     fun `failingChecks`(`id`: kotlin.String): List<kotlin.String>
     
     /**
+     * Round 9 §6.6 (`data::field_checks`): a field's check state now, as
+     * `{"errors": [...], "shown": {"severity", "message"} | null}`.
+     */
+    fun `fieldChecksJson`(`id`: kotlin.String): kotlin.String
+    
+    /**
      * VAPP-162: one input on a `hold: true` Button (round-5 contract §9).
      * `input_json` = `{"do": "pointerdown"|"pointermove"|"pointerup", x, y}`
      * (px relative to the button's top-left), `{"do": "pointercancel"}`,
@@ -7195,6 +7205,23 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(
+        it,
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round 9 §6.6 (`data::field_checks`): a field's check state now, as
+     * `{"errors": [...], "shown": {"severity", "message"} | null}`.
+     */override fun `fieldChecksJson`(`id`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(
         it,
         FfiConverterString.lower(`id`),_status)
 }

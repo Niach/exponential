@@ -17,7 +17,8 @@
 // classifies is the Video / AudioPlayer native or the FileUpload file row.
 
 import { Fragment, createContext, createElement, memo, useContext, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
-import { linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import type { MarkdownVariant } from "@exponential_app/eui/web"
 import type { ResolvedTheme, UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
@@ -38,7 +39,7 @@ export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage,
  *  props (`density`, a heading's `level`), so the theme's part rules reach
  *  every part. */
 function mdPart(host: HostPlugin, scope: string, name: string, extra?: Record<string, string | number>): Record<string, string> {
-  const p = markdownPartAttrs(scope, name, host.markdownOptions?.density, extra)
+  const p = markdownPartAttrs(scope, name, host.markdownOptions?.density, extra, (host as { markdownInline?: MarkdownVariant }).markdownInline)
   return { className: p.class, ...p.attrs }
 }
 
@@ -274,7 +275,8 @@ const NO_HOST: HostPlugin = {}
 /** `scope` / `theme` = the theme scope class and the theme outside a surface
  *  (an app painting its own read-only text on genUI's Markdown, #VAPP-258);
  *  inside one the surface's. */
-export function BuiltinMarkdown({ text, className, host = NO_HOST, id = `md`, scope: scopeProp, theme }: { text: string; className?: string; host?: HostPlugin; id?: string; scope?: string; theme?: ResolvedTheme }) {
+export function BuiltinMarkdown({ text, className, host: hostProp = NO_HOST, id = `md`, scope: scopeProp, theme, inline: inlineProfile }: { text: string; className?: string; host?: HostPlugin; id?: string; scope?: string; theme?: ResolvedTheme; inline?: MarkdownVariant }) {
+  const host = useMemo(() => markdownProfileHost(hostProp, inlineProfile), [hostProp, inlineProfile])
   // Parsed once per text, not on every parent render; the host's text links
   // read live, like a `hostLinks` Text's. #VAPP-258 step 5: the host's
   // options (catalog/host.json `markdown.options`): hard breaks and a

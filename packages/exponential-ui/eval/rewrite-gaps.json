@@ -125,6 +125,7 @@
     { "id": "results-tab", "class": "expressible", "with": "the results sections alone (Text title + Image thumbnails + one line of Text each)" },
     { "id": "needs-you", "class": "expressible", "with": "List + Row (leading Icon, title, meta time, subtitle), the inbox row" },
     { "id": "pr-row", "class": "expressible", "with": "Row + Ring lead + depth (tree guides); the stack rail is Section tree" },
+    { "id": "record-form-field-states", "class": "expressible", "with": "Three Inputs under checks: a genUI specimen already" },
     { "id": "pr-checks", "class": "expressible", "with": "Button pill (Spinner / Icon lead) for the Merge state + a Menu submenu of Rows (status Icon, name, duration) whose press is openUrl; merging on red confirms through Dialog" },
     { "id": "composer-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button" },
     { "id": "composer-skills-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button, multi-pick rows" },

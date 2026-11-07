@@ -99,9 +99,9 @@ fn a2ui10_cases() -> Vec<Case> {
         for s in list(c, "steps") {
             let names = |ops: Vec<Value>| Value::Array(ops.iter().map(|o| o["op"].clone()).collect());
             let got = if let Some(id) = s.get("create") {
-                names(r.route(&json!({"version": "1.0", "createSurface": {"surfaceId": id, "catalogId": eui_core::CORE_CATALOG_ID}}), RouteOptions::default()))
+                names(r.route(&json!({"version": eui_core::catalog::A2UI_VERSION, "createSurface": {"surfaceId": id, "catalogId": eui_core::CORE_CATALOG_ID}}), RouteOptions::default()))
             } else if let Some(id) = s.get("delete") {
-                names(r.route(&json!({"version": "1.0", "deleteSurface": {"surfaceId": id}}), RouteOptions::default()))
+                names(r.route(&json!({"version": eui_core::catalog::A2UI_VERSION, "deleteSurface": {"surfaceId": id}}), RouteOptions::default()))
             } else {
                 json!(r.mint_surface_id(s["mint"].as_str().unwrap()))
             };

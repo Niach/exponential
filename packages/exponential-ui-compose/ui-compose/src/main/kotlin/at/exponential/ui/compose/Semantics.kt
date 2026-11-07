@@ -333,10 +333,14 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
     }
 }
 
-/** A text field's failing checks (`<owner>.error` nodes, round 1 §3 Form) as its error. */
+/**
+ * A text field's failing checks (`<owner>.error` nodes, round 1 §3 Form) as
+ * its error. Round 9 §6.6: only the `invalid` part: a `warning` / `info` is
+ * its own polite node, the field stays valid.
+ */
 private fun Modifier.fieldErrorSemantics(node: NodeInfo, model: SurfaceModel): Modifier {
     val owner = model.owner(node.index) ?: return this
-    val errors = model.nodes.filter { it.id == "${owner.id}.error" || it.id.startsWith("${owner.id}.error.") }.mapNotNull { it.props["text"]?.displayText?.takeIf { t -> t.isNotEmpty() } }
+    val errors = model.nodes.filter { (it.id == "${owner.id}.error" || it.id.startsWith("${owner.id}.error.")) && "invalid" in it.partStates }.mapNotNull { it.props["text"]?.displayText?.takeIf { t -> t.isNotEmpty() } }
     if (errors.isEmpty()) return this
     // One error per line: TalkBack pauses between them in any language
     // (no Latin punctuation).

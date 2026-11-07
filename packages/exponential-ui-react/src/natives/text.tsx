@@ -2,7 +2,7 @@
 // → `data-xui-shimmer`, base-css), Markdown (`lines` truncation), Icon.
 
 import { displayString } from "@exponential_app/eui"
-import { propAttribute, textLinkSegments } from "@exponential_app/eui/web"
+import { liveOf, propAttribute, textLinkSegments } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -23,9 +23,10 @@ export function TextNative({ props, rootProps }: NativeProps) {
   // `textAlign` (the node layer) wins over it (round 2 §2, text-direction.json).
   const style: Record<string, string | number> = {}
   if (lines > 1) style.WebkitLineClamp = lines
-  const live = props.live === `polite` || props.live === `assertive` ? props.live : undefined
+  // Round 9 §5.1: `accessibility.live` (already on the root) wins over `live`.
+  const live = liveOf(rootProps as Record<string, unknown>, props.live)
   return (
-    <span {...(rootProps as Record<string, unknown>)} aria-live={live} aria-atomic={live ? true : undefined} data-xui-align={align} data-lines={lines > 0 ? lines : undefined} data-clamp={lines > 1 ? `` : undefined} data-xui-shimmer={props.shimmer === true ? `` : undefined} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)}>
+    <span {...(rootProps as Record<string, unknown>)} aria-live={live} aria-atomic={live && live !== `off` ? true : undefined} data-xui-align={align} data-lines={lines > 0 ? lines : undefined} data-clamp={lines > 1 ? `` : undefined} data-xui-shimmer={props.shimmer === true ? `` : undefined} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)}>
       {segments
         ? segments.map((segment, i) =>
             segment.href ? (
@@ -57,9 +58,11 @@ export function MarkdownNative({ domId, props, rootProps }: NativeProps) {
   const text = displayString(props.text)
   const Host = ctx.host.Markdown
   const lines = num(props.lines, 0)
+  // Round 9 §9.1: the inline profile is always the built-in painter.
+  const inline = props.profile === `inline` ? (props.variant === `caption` ? `caption` : `body`) : undefined
   return (
     <div {...(rootProps as Record<string, unknown>)} {...(ctx.host.markdownOptions?.density ? { [propAttribute(false, `density`)]: ctx.host.markdownOptions.density } : {})} data-lines={lines > 0 ? lines : undefined} style={mergeStyle(rootProps, lines > 0 ? ({ WebkitLineClamp: lines } as React.CSSProperties) : undefined)}>
-      {Host ? <Host text={text} className="xui-md" /> : <BuiltinMarkdown text={text} host={ctx.host} id={domId} />}
+      {Host && !inline ? <Host text={text} className="xui-md" /> : <BuiltinMarkdown text={text} host={ctx.host} id={domId} inline={inline} />}
     </div>
   )
 }

@@ -20,8 +20,10 @@ public struct MarkdownInline: Equatable, Sendable {
     /// #VAPP-258 (`catalog/host.json` markdown): the host's inline chip for
     /// this (linked) run; a chip run never merges with a neighbour.
     public var chip: MarkdownChip?
+    /// Round 9: a fenced block's text: never the inline code's pill.
+    public var fenced = false
 
-    public init(text: String, bold: Bool = false, italic: Bool = false, code: Bool = false, strike: Bool = false, link: String? = nil, chip: MarkdownChip? = nil) {
+    public init(text: String, bold: Bool = false, italic: Bool = false, code: Bool = false, strike: Bool = false, link: String? = nil, chip: MarkdownChip? = nil, fenced: Bool = false) {
         self.text = text
         self.bold = bold
         self.italic = italic
@@ -29,6 +31,7 @@ public struct MarkdownInline: Equatable, Sendable {
         self.strike = strike
         self.link = link
         self.chip = chip
+        self.fenced = fenced
     }
 }
 
@@ -678,7 +681,7 @@ public enum Markdown {
                     i += 1
                 }
                 i += 1
-                blocks.append(MarkdownBlock(kind: .codeBlock, inlines: [MarkdownInline(text: body.joined(separator: "\n"), code: true)], lang: info))
+                blocks.append(MarkdownBlock(kind: .codeBlock, inlines: [MarkdownInline(text: body.joined(separator: "\n"), code: true, fenced: true)], lang: info))
                 continue
             }
             let hashes = trimmed.prefix(while: { $0 == "#" }).count
@@ -978,6 +981,9 @@ public struct MarkdownTextSpec: Equatable, Sendable {
 /// painter's, so the three native painters agree.
 public struct MarkdownStyles: Equatable, Sendable {
     public var body: MarkdownTextSpec
+    /// Round 9 §9.1: a paragraph's type under the inline profile (the Text
+    /// recipe of its `variant`); nil = `body`.
+    public var paragraph: MarkdownTextSpec?
     public var heading: MarkdownTextSpec
     public var code: MarkdownTextSpec
     public var codePad: CGFloat
@@ -1069,6 +1075,7 @@ public struct MarkdownStyles: Equatable, Sendable {
         switch kind {
         case let .heading(level): headingLevels[Self.levelSlot(level)] ?? heading
         case .codeBlock: code
+        case .paragraph: paragraph ?? body
         default: body
         }
     }
@@ -1091,6 +1098,35 @@ public struct MarkdownStyles: Equatable, Sendable {
     }
 }
 
+/// Round 9 (`fixtures/markdown-inline.json` `documentPaint`): a bullet's
+/// width and its centre in the indent, in em.
+public enum MarkdownBullet {
+    public static let width: CGFloat = 0.36
+    public static let centre: CGFloat = 0.46
+}
+
+/// Round 9 (`fixtures/markdown-inline.json` `documentPaint`): inline code,
+/// the `Markdown/code` recipe: its type (`size`; nil = 0.925 em of the run),
+/// a `radius`-cornered fill, `paddingH` (nil = 0.3 em) reserved in the line on
+/// each side and `paddingV` over the font's own ascent and descent, as the
+/// web's inline box. On `MarkdownChipStyle`: every measurer gets that one.
+public struct MarkdownCodeStyle: Equatable, Sendable {
+    public var size: CGFloat?
+    public var paddingH: CGFloat?
+    public var paddingV: CGFloat
+    public var radius: CGFloat
+
+    public init(size: CGFloat? = nil, paddingH: CGFloat? = nil, paddingV: CGFloat = 0, radius: CGFloat = 4) {
+        self.size = size
+        self.paddingH = paddingH
+        self.paddingV = paddingV
+        self.radius = radius
+    }
+
+    public func size(_ base: MarkdownTextSpec) -> CGFloat { size ?? base.size * 0.925 }
+    public func paddingH(_ base: MarkdownTextSpec) -> CGFloat { paddingH ?? base.size * 0.3 }
+}
+
 /// #VAPP-258: the inline chip (`catalog/host.json` markdown): a box of
 /// height min(`height` = `$control.badge`, the line height), `paddingH`
 /// ($spacing.sm) each side, the optional icon (`icon` = `$control.iconSm`)
@@ -1109,6 +1145,8 @@ public struct MarkdownChipStyle: Equatable, Sendable {
     /// #VAPP-258: a theme's `Markdown/chip*` rules per chip `kind` (the
     /// metrics; the painter resolves the colours itself).
     public var kinds: [String: MarkdownChipKindStyle] = [:]
+    /// Round 9: inline code.
+    public var code = MarkdownCodeStyle()
 
     public init(label: MarkdownTextSpec = MarkdownTextSpec(size: 12, lineHeight: 16, weight: 400, family: nil), paddingH: CGFloat = 8, gap: CGFloat = 4, icon: CGFloat = 16, height: CGFloat = 20) {
         self.label = label
@@ -1250,8 +1288,8 @@ public extension Markdown {
                 case .file: return s.fileIcon + s.fileGap + text.width([MarkdownInline(text: name)], s.body)
                 }
             case .codeBlock:
-                let first = b.inlines.first ?? MarkdownInline(text: "", code: true)
-                return (first.text.components(separatedBy: "\n").map { text.width([MarkdownInline(text: $0, code: true)], spec) }.max() ?? 0) + 2 * (s.codePad + s.codeBorder)
+                let first = b.inlines.first ?? MarkdownInline(text: "", code: true, fenced: true)
+                return (first.text.components(separatedBy: "\n").map { text.width([MarkdownInline(text: $0, code: true, fenced: true)], spec) }.max() ?? 0) + 2 * (s.codePad + s.codeBorder)
             case .rule: return 0
             case let .table(header, rows):
                 let cols = CGFloat(max(header.count, 1))

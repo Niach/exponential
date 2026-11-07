@@ -256,3 +256,17 @@ describe(`<exponential-surface>`, () => {
     expect(el.querySelector(`[data-xui-id="notify"]`)!.contains(document.activeElement)).toBe(true)
   })
 })
+
+// Round 9: `accessibility.live` + `hidden` and the inline Markdown reach the element's DOM.
+describe(`round 9 on the element`, () => {
+  it(`paints aria-live, aria-hidden and the inline profile`, async () => {
+    const el = await mount()
+    fixture(el, { id: `root`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Saved`, live: `polite` }, accessibility: { live: `assertive`, hidden: { "@path": `/h` } } }, { id: `m`, component: `Markdown`, props: { text: `## Two\n\nplain`, profile: `inline`, variant: `caption` } }] } as NestedNode, { h: `true` })
+    await tick()
+    const t = surfaceOf(el)!.querySelector(`[data-xui-id="t"]`)!
+    expect(t.getAttribute(`aria-live`)).toBe(`assertive`)
+    expect(t.getAttribute(`aria-hidden`)).toBe(`true`)
+    expect(surfaceOf(el)!.querySelector(`p`)!.getAttribute(`data-r-variant`)).toBe(`caption`)
+    expect(surfaceOf(el)!.querySelector(`h2`)!.getAttribute(`data-m-level`)).toBe(`h2`)
+  })
+})

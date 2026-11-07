@@ -5,7 +5,7 @@
 import { For, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { displayString } from "@exponential_app/eui"
-import { propAttribute, textLinkSegments } from "@exponential_app/eui/web"
+import { liveOf, propAttribute, textLinkSegments } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -23,12 +23,13 @@ export function TextNative(props: NativeProps): JSX.Element {
   const align = () => (props.props.align === `end` ? `end` : props.props.align === `center` ? `center` : props.props.align === `start` ? `start` : undefined)
   // `align` is a base-layer rule (`data-xui-align`), so a node style
   // `textAlign` (the node layer) wins over it.
-  const live = () => (props.props.live === `polite` || props.props.live === `assertive` ? (props.props.live as `polite` | `assertive`) : undefined)
+  // Round 9 §5.1: `accessibility.live` (already on the root) wins over `live`.
+  const live = () => liveOf(props.rootProps, props.props.live)
   return (
     <span
       {...props.rootProps}
       aria-live={live()}
-      aria-atomic={live() ? true : undefined}
+      aria-atomic={live() && live() !== `off` ? true : undefined}
       data-xui-align={align()}
       data-lines={lines() > 0 ? lines() : undefined}
       data-clamp={lines() > 1 ? `` : undefined}
@@ -68,9 +69,11 @@ export function MarkdownNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const text = () => displayString(props.props.text)
   const lines = () => num(props.props.lines, 0)
+  // Round 9 §9.1: the inline profile is always the built-in painter.
+  const inline = () => (props.props.profile === `inline` ? (props.props.variant === `caption` ? (`caption` as const) : (`body` as const)) : undefined)
   return (
     <div {...props.rootProps} {...(ctx.host.markdownOptions?.density ? { [propAttribute(false, `density`)]: ctx.host.markdownOptions.density } : {})} data-lines={lines() > 0 ? lines() : undefined} style={mergeStyle(props.rootProps, lines() > 0 ? { WebkitLineClamp: lines() } : undefined)}>
-      {ctx.host.Markdown ? <Dynamic component={ctx.host.Markdown} text={text()} class="xui-md" /> : <BuiltinMarkdown text={text()} host={ctx.host} id={props.domId} />}
+      {ctx.host.Markdown && !inline() ? <Dynamic component={ctx.host.Markdown} text={text()} class="xui-md" /> : <BuiltinMarkdown text={text()} host={ctx.host} id={props.domId} inline={inline()} />}
     </div>
   )
 }

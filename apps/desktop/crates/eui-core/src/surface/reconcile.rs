@@ -429,6 +429,13 @@ impl Surface {
                     self.engine.mark_dirty(slot);
                 }
             } else {
+                // Round 9 §6.6: a field message appearing speaks, a first
+                // build's stays quiet (a live region's first text never does).
+                if self.structure_version > 0 && n.live.is_some() && n.part.as_deref() == Some("error") && !n.hidden {
+                    let text = crate::format::display_opt(n.props.get("text"));
+                    let live = n.live.clone().unwrap_or_else(|| "polite".into());
+                    self.pending.push(super::OutEvent::Announce { text, live });
+                }
                 structure_changed = true;
                 self.delta_removed.remove(&slot);
                 self.delta_changed.remove(&slot);
@@ -473,5 +480,5 @@ fn find_ui<'a>(node: &'a UiNode, id: &str) -> Option<&'a UiNode> {
 
 /// A live region whose text changed (an announcement for screen readers).
 fn live_text_changed(old: &LNode, new: &LNode) -> bool {
-    new.live.is_some() && new.component == "Text" && old.props.get("text") != new.props.get("text") && !new.hidden
+    new.live.is_some() && matches!(new.component.as_str(), "Text" | "Markdown") && old.props.get("text") != new.props.get("text") && !new.hidden
 }

@@ -7,7 +7,7 @@
 
 import { useContext, useMemo, type ReactNode } from "react"
 import { displayString, nativeRecipeProps } from "@exponential_app/eui"
-import { arr, bool, builtinIconName, failingCheck, failingChecks, formatFileSize, num, objects, phrase, str } from "@exponential_app/eui/web"
+import { arr, bool, builtinIconName, failingCheck, failingChecks, resolvedFieldChecks, formatFileSize, num, objects, phrase, str } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { InstanceContext, useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
@@ -17,7 +17,7 @@ import { PLACED, partClass, propAttribute } from "@exponential_app/eui/web"
 export type Attrs = Record<string, unknown>
 
 // FEED-128: the pure helpers live in `@exponential_app/eui/web` (coerce.ts).
-export { str, num, bool, arr, objects, phrase, formatFileSize, failingChecks, failingCheck, builtinIconName }
+export { str, num, bool, arr, objects, phrase, formatFileSize, failingChecks, resolvedFieldChecks, failingCheck, builtinIconName }
 
 export type PartFn = ((name: string, ...states: (string | false | undefined | null)[]) => Attrs) & {
   /** The same with part-level recipe props (`{kind: "keyword"}`). */

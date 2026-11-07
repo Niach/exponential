@@ -8,6 +8,7 @@
 // the index first and `componentPrompt(name)` on demand, or `only` the
 // components a task needs; eval/ measures what each variant costs.
 
+import { A2UI_VERSION } from "./catalog"
 import { EXPRESSION_CALL_NAMES } from "./cel-names"
 import { CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, catalogView, coreCatalog, isOffered } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
@@ -37,7 +38,7 @@ export interface PromptOptions {
 /** The rules every surface author (a model) must follow, shared by the core
  *  and the basic catalog. Kept to a few lines on purpose. */
 export const PROMPT_RULES: readonly string[] = [
-  `Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one has id "root"; resend an id to change it) and updateDataModel{surfaceId, path, value} (no value removes the pointer). Keep data in the model; bind to it.`,
+  `Reply with A2UI ${A2UI_VERSION} messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one has id "root"; resend an id to change it) and updateDataModel{surfaceId, path, value} (no value removes the pointer). Keep data in the model; bind to it.`,
   `A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = the item field naming it.`,
   `Include every required prop. A ~ prop may be a binding {path: "/json/pointer"} or a call {call, args} (live). visible: false (or a binding) hides a component.`,
   `An action (on: {event: action}) = {event: {name, context?}} (sent to you; context may hold bindings, read after the component's own write) and/or {functionCall: {call, args}} (runs on the client: a function below, or a namespaced host function like app.toast).`,

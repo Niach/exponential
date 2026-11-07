@@ -330,7 +330,7 @@ export function resolveAccessibility(accessibility: unknown, ctx: ResolveContext
 /** The ARIA attributes of a RESOLVED `accessibility` (contract §6): `role`
  *  (`text` = none of its own, `hidden` = aria-hidden), label/description,
  *  `level`, `expanded`, `current` (page|step; false = absent), `selected`,
- *  `pressed`, `checked`, `valueNow/Min/Max`, `hidden`; `autoFocus` →
+ *  `pressed`, `checked`, `valueNow/Min/Max`, `hidden`, `live`; `autoFocus` →
  *  `data-xui-autofocus` (an opening dialog focuses it). */
 export function ariaAttributes(a11y: Record<string, unknown> | null): Record<string, string> {
   const out: Record<string, string> = {}
@@ -350,9 +350,21 @@ export function ariaAttributes(a11y: Record<string, unknown> | null): Record<str
     const v = a11y[key]
     if (typeof v === `number` && Number.isFinite(v)) out[attr] = String(v)
   }
-  if (a11y.hidden === true) out[`aria-hidden`] = `true`
+  // Round 9 §5.1 + §6.7: `hidden` is a DynamicBoolean (hides the subtree too,
+  // still painted); `live` wins over a Text's own `live` (the painter keeps
+  // what is set here).
+  if (coerceBoolean(a11y.hidden)) out[`aria-hidden`] = `true`
+  if (a11y.live === `polite` || a11y.live === `assertive` || a11y.live === `off`) out[`aria-live`] = a11y.live
   if (a11y.autoFocus === true) out[`data-xui-autofocus`] = ``
   return out
+}
+
+/** A Text's live region: the root's `aria-live` (`accessibility.live`,
+ *  round 9 §5.1) wins over the `live` prop. */
+export function liveOf(root: Record<string, unknown>, prop: unknown): `off` | `polite` | `assertive` | undefined {
+  const own = root[`aria-live`]
+  if (own === `off` || own === `polite` || own === `assertive`) return own
+  return prop === `polite` || prop === `assertive` ? prop : undefined
 }
 
 export function bindTree<T extends { id: string; component: string; props: Record<string, unknown>; children: T[]; style?: Record<string, unknown>; visible?: unknown; slots?: Record<string, T>; recipe?: { macro: string; part: string; props: Record<string, unknown> }; on?: unknown; accessibility?: unknown; template?: unknown }>(node: T, ctx: ResolveContext, extensions?: readonly ExtensionDef[]): T | null {

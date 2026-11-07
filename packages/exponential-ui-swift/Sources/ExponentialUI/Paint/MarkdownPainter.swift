@@ -29,10 +29,53 @@ enum MarkdownPainter {
     /// `density: chat` added under the host's chat rhythm (a
     /// painter-supplied recipe prop, `catalog/recipes.json`).
     static func props(_ props: Props, chat: Bool) -> Props {
-        guard chat else { return props }
+        // Round 9 §9.1: the inline profile answers to no host density.
+        guard chat, inlineVariant(props) == nil else { return props }
         var p = props
         p["density"] = .string("chat")
         return p
+    }
+
+    /// Round 9 §9.1: an inline-profile Markdown's `variant` (`body` or
+    /// `caption`); nil = the document profile.
+    static func inlineVariant(_ props: Props) -> String? {
+        guard props.str("profile") == "inline" else { return nil }
+        return props.str("variant") == "caption" ? "caption" : "body"
+    }
+
+    /// One recipe an inline-profile part paints with.
+    struct InlineRecipe: Equatable {
+        let component: String
+        let part: String
+        let props: Props
+    }
+
+    /// `markdownInlineRecipes` (fixtures/markdown-inline.json), first to
+    /// last, later over earlier: a paragraph IS a Text of its `variant`, a
+    /// heading a Heading of its level (h5, h6 paint h4).
+    static func inlineRecipes(paragraph variant: String) -> [InlineRecipe] {
+        [InlineRecipe(component: "Text", part: "root", props: ["variant": .string(variant)])]
+    }
+
+    static func inlineRecipes(heading level: Int) -> [InlineRecipe] {
+        [
+            InlineRecipe(component: "Text", part: "root", props: ["variant": .string("title")]),
+            InlineRecipe(component: "Heading", part: "root", props: ["level": .string("h\(min(max(level, 1), 4))")]),
+        ]
+    }
+
+    /// The ink of an inline-profile paragraph or heading: its recipes'
+    /// colour, nil = the node's.
+    @MainActor
+    static func inlineInk(_ kind: MarkdownBlockKind, props: Props, model: SurfaceModel) -> Color? {
+        guard let variant = inlineVariant(props) else { return nil }
+        let recipes: [InlineRecipe]
+        switch kind {
+        case .paragraph: recipes = inlineRecipes(paragraph: variant)
+        case let .heading(level): recipes = inlineRecipes(heading: level)
+        default: return nil
+        }
+        return recipes.reversed().lazy.compactMap { model.part($0.component, $0.part, props: $0.props).color }.first
     }
 
     /// `blocks` after the host's Markdown hooks (#VAPP-258, the measurer
@@ -108,6 +151,16 @@ enum MarkdownPainter {
         s.quotePad = quote.px("paddingHorizontal") ?? s.quotePad
         s.imageRadius = part("image").style.radius
         s.blockGap = root?.px("gap") ?? theme.spacing("sm")
+        // Round 9 §9.1: the inline profile's paragraph and heading type are
+        // the Text / Heading recipes, no `Markdown/*` type (the document
+        // gaps stay).
+        if let variant = inlineVariant(props) {
+            func type(_ recipes: [InlineRecipe]) -> MarkdownTextSpec {
+                recipes.reduce(s.body) { spec(theme.part($1.component, $1.part, props: $1.props, mode: mode), $0) }
+            }
+            s.paragraph = type(inlineRecipes(paragraph: variant))
+            for level in 1...6 { s.headingLevels[level] = type(inlineRecipes(heading: level)) }
+        }
         // #VAPP-258: every cell's paddings (`Markdown/cell`).
         let cell = part("cell")
         s.cellPadH = cell.px("paddingHorizontal") ?? cell.px("padding") ?? theme.spacing("sm")
@@ -133,6 +186,14 @@ enum MarkdownPainter {
             )
             if look != MarkdownChipKindStyle() { s.chip.kinds[kind] = look }
         }
+        // Round 9: inline code = the `Markdown/code` recipe, its type scaled with the rest.
+        let inlineCode = part("code")
+        s.chip.code = MarkdownCodeStyle(
+            size: inlineCode.px("fontSize").map { $0 * k },
+            paddingH: inlineCode.px("paddingHorizontal") ?? inlineCode.px("padding"),
+            paddingV: inlineCode.px("paddingVertical") ?? inlineCode.px("padding") ?? 0,
+            radius: inlineCode.px("borderRadius") ?? 4
+        )
         s.audioTitleGap = theme.spacing("xs")
         s.audioControls = theme.control("row", SurfaceMeasurer.audioControlsHeight)
         s.fileIcon = theme.control("iconSm", 16)
@@ -273,7 +334,26 @@ struct MarkdownView: View {
                 label
             }
         }
+        .background(alignment: .topLeading) { codeFills(runs, spec: spec, width: width) }
         .overlay(alignment: .topLeading) { chips(runs, spec: spec, width: width) }
+    }
+
+    /// Round 9: inline code's `Markdown/code` boxes, under the text.
+    @ViewBuilder
+    private func codeFills(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
+        let baseline = TextShaper.baseline(TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family))
+        let placed = TextShaper.codeRects(in: runs, lineHeight: spec.lineHeight, baseline: baseline, wrap: width, rtl: model.isRTL)
+        if !placed.isEmpty {
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
+                    RoundedRectangle(cornerRadius: p.radius)
+                        .fill(Color(p.fill))
+                        .frame(width: p.rect.width, height: p.rect.height)
+                        .offset(x: p.rect.minX, y: p.rect.minY)
+                }
+            }
+            .frame(width: width, alignment: .topLeading)
+        }
     }
 
     /// A text block's label. #VAPP-258: one carrying inline chips paints
@@ -355,19 +435,18 @@ struct MarkdownView: View {
     }
 
     /// Web's `list-style-position: outside` markers in the text colour: a
-    /// disc 0.34em wide whose centre sits 0.46em into the indent, on the
-    /// x-height's middle (Chromium's `disc`); an ordered `3.` ends one
-    /// space before the item text.
+    /// disc 0.36em wide whose centre sits 0.46em into the indent, on the
+    /// line's middle (Chromium's `disc`, `fixtures/markdown-inline.json`
+    /// `documentPaint`); an ordered `3.` ends one space before the item text.
     @ViewBuilder
     private func listMarker(_ marker: String, spec: MarkdownTextSpec) -> some View {
         let font = ExponentialUIFonts.font(family: spec.family, weight: spec.weight, size: spec.size)
-        let baseline = (spec.lineHeight - (font.ascender - font.descender)) / 2 + font.ascender
         if marker == "•" {
-            let d = spec.size * 0.34
+            let d = spec.size * MarkdownBullet.width
             Circle().fill(ink)
                 .frame(width: d, height: d)
-                .padding(.leading, spec.size * 0.46 - d / 2)
-                .padding(.top, baseline - font.xHeight / 2 - d / 2)
+                .padding(.leading, spec.size * MarkdownBullet.centre - d / 2)
+                .padding(.top, (spec.lineHeight - d) / 2)
                 .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .topLeading)
         } else {
             let space = (" " as NSString).size(withAttributes: [.font: font]).width
@@ -387,7 +466,7 @@ struct MarkdownView: View {
         let codeBlockBorder = codeBlockPart.borderColor
         switch block.kind {
         case .paragraph, .heading:
-            linked(runs(block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: width), spec: spec, width: width)
+            linked(runs(block.inlines, spec, ink: MarkdownPainter.inlineInk(block.kind, props: props, model: model) ?? ink, link: link, codeBackground: codeBg, width: width), spec: spec, width: width)
         case let .image(src, alt):
             let boxWidth = box.width ?? width
             let unsized = block.imageSize == nil
@@ -444,7 +523,7 @@ struct MarkdownView: View {
                 Rectangle().fill(quoteBorder).frame(width: styles.quoteBorder)
                 Color.clear.frame(width: styles.quotePad)
                 let inner = max(width - styles.quoteBorder - styles.quotePad, 1)
-                linked(runs(block.inlines, spec, ink: muted, link: link, codeBackground: nil, width: inner), spec: spec, width: inner)
+                linked(runs(block.inlines, spec, ink: muted, link: link, codeBackground: codeBg, width: inner), spec: spec, width: inner)
             }
         case .codeBlock:
             // One non-wrapping label per line (a single-line label would

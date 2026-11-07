@@ -4857,6 +4857,14 @@
           "description": "Shows it inert."
         },
         {
+          "name": "checks",
+          "type": "[check]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Validation rules: a failing `error` disables it (warning and info never do)."
+        },
+        {
           "name": "loading",
           "type": "boolean",
           "required": false,

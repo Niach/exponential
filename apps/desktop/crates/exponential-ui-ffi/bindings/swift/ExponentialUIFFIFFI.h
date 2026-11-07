@@ -782,6 +782,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_event(uint64_t ptr, uint3
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_FIELD_CHECKS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_FIELD_CHECKS_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_HOLD
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_HOLD
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_hold(uint64_t ptr, uint32_t index, RustBuffer input_json, RustCallStatus *_Nonnull out_status
@@ -2976,6 +2981,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_event(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_FAILING_CHECKS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_FAILING_CHECKS
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_FIELD_CHECKS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_FIELD_CHECKS_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json(void
     
 );
 #endif
