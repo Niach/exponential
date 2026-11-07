@@ -53,6 +53,7 @@ fn every_selector_case_replays() {
             let state = hydrate(&case["state"]).unwrap_or_else(|e| panic!("{name}: state: {e}"));
             let got = match selector.as_str() {
                 "taskbarButtons" => json!(taskbar_buttons(&state)),
+                "switcherSections" => json!(switcher_sections(&state)),
                 "taskbarPress" => json!(taskbar_press(&state, case["args"]["app"].as_str().unwrap())),
                 "taskbarScroll" => {
                     let direction: ScrollDirection = serde_json::from_value(case["args"]["direction"].clone()).unwrap();

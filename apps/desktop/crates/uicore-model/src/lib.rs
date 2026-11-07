@@ -23,6 +23,45 @@ pub struct SwitcherEntry {
     pub kind: SwitcherKind,
     pub id: String,
     pub name: String,
+    /// EDE-56: the Exponential account a team belongs to (its id); a local desktop has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// EDE-56: the account's email, the section's label.
+    #[serde(default, rename = "accountName", skip_serializing_if = "Option::is_none")]
+    pub account_name: Option<String>,
+}
+
+impl SwitcherEntry {
+    pub fn local(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self { kind: SwitcherKind::Local, id: id.into(), name: name.into(), account: None, account_name: None }
+    }
+
+    pub fn team(id: impl Into<String>, name: impl Into<String>, account: impl Into<String>, account_name: impl Into<String>) -> Self {
+        Self { kind: SwitcherKind::Team, id: id.into(), name: name.into(), account: Some(account.into()), account_name: Some(account_name.into()) }
+    }
+}
+
+/// EDE-56: one section of the switcher ([`switcher_sections`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwitcherSection {
+    pub kind: SwitcherSectionKind,
+    pub id: String,
+    pub label: String,
+    pub entries: Vec<SwitcherSectionEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SwitcherSectionKind {
+    Local,
+    Account,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwitcherSectionEntry {
+    #[serde(flatten)]
+    pub entry: SwitcherEntry,
+    pub current: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,8 +143,8 @@ impl Default for ShellState {
             rail: false,
             sidebar: Sidebar { pinned_open: true, workspaces_open: true, sessions_open: true },
             switcher: Switcher {
-                current: SwitcherEntry { kind: SwitcherKind::Local, id: "local".into(), name: "Local".into() },
-                entries: vec![SwitcherEntry { kind: SwitcherKind::Local, id: "local".into(), name: "Local".into() }],
+                current: SwitcherEntry::local("local", "Local"),
+                entries: vec![SwitcherEntry::local("local", "Local")],
             },
             windows: Vec::new(),
             mru: Vec::new(),
@@ -468,6 +507,32 @@ pub fn workspace_badges(state: &ShellState) -> Vec<WorkspaceBadge> {
     (0..state.workspaces.count)
         .map(|index| WorkspaceBadge { index, active: index == state.workspaces.active, count: state.windows.iter().filter(|w| w.workspace == index).count() })
         .collect()
+}
+
+/// EDE-56: the switcher's sections: the Local desktops first, then one per
+/// account in first-appearance order, the current entry marked.
+pub fn switcher_sections(state: &ShellState) -> Vec<SwitcherSection> {
+    let current = &state.switcher.current;
+    let mark = |e: &SwitcherEntry| SwitcherSectionEntry { entry: e.clone(), current: e.kind == current.kind && e.id == current.id };
+    let mut sections = vec![SwitcherSection {
+        kind: SwitcherSectionKind::Local,
+        id: "local".into(),
+        label: "Local desktops".into(),
+        entries: state.switcher.entries.iter().filter(|e| e.kind == SwitcherKind::Local).map(mark).collect(),
+    }];
+    for entry in state.switcher.entries.iter().filter(|e| e.kind != SwitcherKind::Local) {
+        let id = entry.account.clone().unwrap_or_default();
+        let index = match sections.iter().position(|s| s.kind == SwitcherSectionKind::Account && s.id == id) {
+            Some(i) => i,
+            None => {
+                let label = entry.account_name.clone().unwrap_or_else(|| if id.is_empty() { "Exponential".into() } else { id.clone() });
+                sections.push(SwitcherSection { kind: SwitcherSectionKind::Account, id: id.clone(), label, entries: Vec::new() });
+                sections.len() - 1
+            }
+        };
+        sections[index].entries.push(mark(entry));
+    }
+    sections
 }
 
 /// The switcher's order: the mru (minimized included), the active
