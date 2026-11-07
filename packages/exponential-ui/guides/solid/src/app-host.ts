@@ -11,7 +11,7 @@ export const app = createAppHost({
   package: pkg as AppPackage,
   // The host lends what the package names: the toast (its `functions` list
   // narrows the policy) and the `weather:` source its binding follows.
-  functions: { "app.toast": ({ text }) => console.info(String(text)) },
+  functions: { app_toast: ({ text }) => console.info(String(text)) },
   sources: { weather: (_source, emit) => emit({ summary: `Sunny, 21 °C` }) },
 })
 

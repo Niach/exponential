@@ -1,25 +1,26 @@
 // Registers <exponential-surface>: no framework, the element paints itself.
 import "@exponential_app/eui-element/define"
-import { CORE_CATALOG_ID } from "@exponential_app/eui"
+import { A2UI_VERSION, CORE_CATALOG_ID } from "@exponential_app/eui"
 import type { ExponentialSurfaceElement } from "@exponential_app/eui-element"
 import { metrics } from "./TrendLine"
 
 const el = document.querySelector<ExponentialSurfaceElement>(`exponential-surface`)!
 el.extensions = [metrics]
 
-// A2UI v0.9 server messages in; the element keeps the tree and the data.
-el.apply({ createSurface: { surfaceId: `main`, catalogId: CORE_CATALOG_ID } })
+// A2UI 1.0 server messages in; the element keeps the tree and the data.
 el.apply({
-  updateComponents: {
+  version: A2UI_VERSION,
+  createSurface: {
     surfaceId: `main`,
+    catalogId: CORE_CATALOG_ID,
     components: [
       { id: `root`, component: `Column`, children: [`title`, `body`] },
       { id: `title`, component: `Text`, text: `Hello from the agent`, variant: `title` },
-      { id: `body`, component: `Text`, text: { path: `/status` } },
+      { id: `body`, component: `Text`, text: { "@path": `/status` } },
     ],
+    dataModel: { status: `Waiting for the agent…` },
   },
 })
-el.apply({ updateDataModel: { surfaceId: `main`, path: `/status`, value: `Waiting for the agent…` } })
 
 // Messages from the agent, here one JSON message per line over SSE.
 const events = new EventSource(`/a2ui`)
