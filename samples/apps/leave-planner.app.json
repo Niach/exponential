@@ -928,5 +928,9 @@
   "author": {
     "name": "Exponential",
     "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs"
+  },
+  "signature": {
+    "alg": "ed25519",
+    "value": "4f_neeqQkas43cegY0LsZneRjuk4pLt9ZGHltnBw7Ncg0U3pVphm_f1b7PRqLjKcv2_H71aTvQnBAIjT-rOqCw"
   }
 }
