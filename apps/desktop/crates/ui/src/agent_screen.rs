@@ -17,7 +17,7 @@
 //! ([`ChannelSubject::App`], embedded in [`crate::app_screen`] without the
 //! header): the member's editor session (a root with that `app_id` and
 //! `user_id` = me), the app's glyph as the agent's mark, the first send
-//! `sessions.send({appId, text, deviceId})` on the caller's default device.
+//! `sessions.send({appId, text, deviceId})` on EDITOR DEVICE (#FEED-204).
 //! VAPP-176: a DRAFT's empty chat = the page-size EmptyState `starterTitle`
 //! whose `starters` pills SEND their text through that same first send (and,
 //! VAPP-234, a `Start from a template` pill opens the import dialog), the
@@ -277,9 +277,11 @@ pub struct AgentScreenView {
     agent: Option<AgentDefRow>,
     /// VAPP-110: the app an editor chat belongs to.
     app: Option<AppRow>,
-    /// VAPP-110: the device an editor chat's first send runs on (the
-    /// caller's default launch device).
+    /// VAPP-110: the device an editor chat's first send runs on
+    /// (#FEED-204: [`Self::editor_device`]'s).
     device_id: Option<String>,
+    /// #FEED-204 (apps.json EDITOR DEVICE): the composer's Device row.
+    editor_device: Option<crate::device_move::EditorDevice>,
     /// The caller's own conversation session with the agent (a root with
     /// that `agent_id` and `user_id` = me); `None` before the first message.
     conversation: Option<SessionRow>,
@@ -384,6 +386,7 @@ impl AgentScreenView {
             agent: None,
             app: None,
             device_id: None,
+            editor_device: None,
             conversation: None,
             rows: Default::default(),
             rows_gen: 0,
@@ -565,12 +568,8 @@ impl AgentScreenView {
                 self.app = Store::try_global(cx)
                     .and_then(|store| store.collections().apps.read(cx).get(&app_id).cloned());
                 self.conversation = crate::session_data::my_editor_session(&app_id, cx);
-                let team_id = self.app.as_ref().and_then(|app| app.team_id.clone());
-                self.device_id = crate::queries::settled_device(
-                    &crate::queries::launch_devices(team_id.as_deref(), cx),
-                    None,
-                    None,
-                );
+                self.editor_device = self.editor_device_row(&app_id, cx);
+                self.device_id = self.editor_device.as_ref().and_then(|device| device.device_id.clone());
             }
         }
         let name = self.subject_name();
@@ -605,6 +604,10 @@ impl AgentScreenView {
             }
             Some(_) => {}
             None => self.composer = None,
+        }
+        if let Some((_, composer)) = &self.composer {
+            let device = self.editor_device.clone();
+            composer.update(cx, |composer, cx| composer.set_editor_device(device, cx));
         }
         let conversation_id = self.conversation.as_ref().map(|row| row.id.clone());
         // The conversation's own card leads the contract's rows; the header
@@ -649,6 +652,67 @@ impl AgentScreenView {
             });
         }
         cx.notify();
+    }
+
+    /// #FEED-204 (apps.json EDITOR DEVICE): the Device row over the launch
+    /// devices (with a root: the ones it may move to), the pick remembered
+    /// per app, a live root's own device locked.
+    fn editor_device_row(
+        &self,
+        app_id: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<crate::device_move::EditorDevice> {
+        let team_id = self.app.as_ref()?.team_id.clone()?;
+        let launch = crate::queries::launch_devices(Some(team_id.as_str()), cx);
+        let root = self.conversation.as_ref();
+        let targets = match root {
+            Some(root) => crate::device_move::candidates(root, cx),
+            None => Vec::new(),
+        };
+        let move_session = root.map(|root| crate::device_move::move_session(root, cx));
+        let current = root.and_then(|root| root.device_id.as_deref());
+        let offered: Vec<_> = launch
+            .iter()
+            .filter(|device| match &move_session {
+                None => true,
+                Some(session) => {
+                    current == Some(device.device_id.as_str())
+                        || targets.iter().any(|target| {
+                            target.device_id == device.device_id
+                                && crate::device_move::refusal(target, session).is_none()
+                        })
+                }
+            })
+            .collect();
+        let candidates: Vec<(&str, bool)> =
+            offered.iter().map(|device| (device.device_id.as_str(), device.is_default)).collect();
+        let remembered = crate::ui_prefs::editor_device(app_id);
+        let choice = domain::apps::editor_device(
+            root.map(|root| (root.status.as_deref().unwrap_or_default(), current)),
+            &candidates,
+            remembered.as_deref(),
+        );
+        let mut rows: Vec<(String, String)> =
+            offered.iter().map(|device| (device.device_id.clone(), device.label.clone())).collect();
+        if let Some(id) = choice.device_id.as_deref().filter(|id| !rows.iter().any(|(row, _)| row == id)) {
+            // A root's own device off the launch list (offline).
+            let label = targets.iter().find(|target| target.device_id == id).map(|target| target.label.clone());
+            rows.insert(0, (id.to_string(), label.unwrap_or_else(|| id.to_string())));
+        }
+        let view = cx.entity().downgrade();
+        let picked_app = app_id.to_string();
+        Some(crate::device_move::EditorDevice {
+            app_id: app_id.to_string(),
+            team_id,
+            device_id: choice.device_id,
+            rows,
+            locked: choice.locked,
+            moves: choice.moves,
+            on_pick: std::rc::Rc::new(move |device_id: String, window: &mut Window, cx: &mut App| {
+                crate::ui_prefs::set_editor_device(&picked_app, &device_id);
+                let _ = view.update(cx, |this, cx| this.refresh(window, cx));
+            }),
+        })
     }
 
     // ── the first message (web `AgentComposer`) ──────────────────────────
@@ -871,7 +935,10 @@ impl AgentScreenView {
             })
             .unwrap_or_default();
         let assistant = self.to_assistant(cx);
+        let editor_device = self.editor_device.clone();
         let conditions = ComposerMenuConditions {
+            // #FEED-204: an app editor picks the device of its first send.
+            device: editor_device.is_some(),
             prompts: !prompts.is_empty(),
             // #EXP-1715: the viewer's Assistant in more than one team.
             assistant,
@@ -906,6 +973,11 @@ impl AgentScreenView {
                             cx,
                         )
                     }
+                    // #FEED-204 (apps.json EDITOR DEVICE).
+                    Row::Device => match &editor_device {
+                        Some(device) => device.menu_row(menu, row, window, cx),
+                        None => menu,
+                    },
                     Row::AddFile => {
                         let view = view.clone();
                         menu.item(crate::controls::pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {

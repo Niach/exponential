@@ -245,6 +245,35 @@ object Apps {
     /** VAPP-176: a DRAFT = an app with no version yet (head_version 0). */
     fun isDraft(headVersion: Int): Boolean = headVersion == 0
 
+    /** #FEED-204 (`editorDeviceCases`, apps.json EDITOR DEVICE): the device an
+     *  app editor's composer shows and sends on ([deviceId] null = none online
+     *  and no root to fall back on), [locked] on a live root's, [move] when an
+     *  ended root's next send goes to another device. */
+    data class EditorDeviceChoice(val deviceId: String?, val locked: Boolean, val move: Boolean)
+
+    data class EditorDeviceRoot(val status: String, val deviceId: String?)
+
+    data class EditorDeviceCandidate(val deviceId: String, val isDefault: Boolean)
+
+    /** [candidates] = the member's online devices (with a root: the targets a
+     *  move accepts). */
+    fun editorDevice(
+        root: EditorDeviceRoot?,
+        candidates: List<EditorDeviceCandidate>,
+        remembered: String?,
+    ): EditorDeviceChoice {
+        if (root != null && root.status != DomainContract.sessionStatusEnded) {
+            return EditorDeviceChoice(root.deviceId, locked = true, move = false)
+        }
+        fun known(id: String?) = id != null && candidates.any { it.deviceId == id }
+        val deviceId = when {
+            known(remembered) -> remembered
+            known(root?.deviceId) -> root?.deviceId
+            else -> candidates.firstOrNull { it.isDefault }?.deviceId ?: candidates.firstOrNull()?.deviceId ?: root?.deviceId
+        }
+        return EditorDeviceChoice(deviceId, locked = false, move = root != null && deviceId != root.deviceId)
+    }
+
     // Contract `apps` (packages/domain-contract/contract.json), locked by AppsTest.
     const val SLUG_MAX = 64
     const val NAME_MAX = 64

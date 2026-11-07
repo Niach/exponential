@@ -142,10 +142,16 @@ data class SessionsSendInput(
          * editor session with it (created on first use on [deviceId]; an
          * ended one continues server-side).
          */
-        fun toApp(appId: String, text: String, deviceId: String?): SessionsSendInput = SessionsSendInput(
+        fun toApp(
+            appId: String,
+            text: String,
+            deviceId: String?,
+            attachmentIds: List<String>? = null,
+        ): SessionsSendInput = SessionsSendInput(
             appId = appId,
             deviceId = deviceId,
             text = text,
+            attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
         )
 
         /** A CHILD session under [parentId] (a follow-up / sub-session). */

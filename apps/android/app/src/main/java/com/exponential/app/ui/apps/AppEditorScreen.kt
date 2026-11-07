@@ -75,6 +75,11 @@ import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.AppTemplates
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.domain.ComposerMenuConditions
+import com.exponential.app.domain.ComposerMenuEntry
+import com.exponential.app.domain.ComposerMenuRowId
+import com.exponential.app.domain.ComposerMenuSurface
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WireTimestamps
@@ -83,6 +88,7 @@ import com.exponential.app.ui.components.ChatMenuItem
 import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ComposerSubmitButton
+import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.FloatingBarEdge
@@ -101,7 +107,11 @@ import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.session.AgentSessionViewModel
+import com.exponential.app.ui.agent.ComposerPlusMenuSheet
+import com.exponential.app.ui.agent.teamsPagePlus
+import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.session.SessionComposer
+import com.exponential.app.ui.session.SessionComposerDevice
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
@@ -816,12 +826,22 @@ private fun AppChatPane(
 ) {
     if (rootId != null) {
         SessionArgsStore(rootId) {
-            AppEditorConversation(app = app, rootId = rootId, padding = padding, onOpenSession = onOpenSession)
+            AppEditorConversation(
+                app = app,
+                rootId = rootId,
+                padding = padding,
+                viewModel = viewModel,
+                onOpenSession = onOpenSession,
+            )
         }
         return
     }
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val deviceId by viewModel.deviceId.collectAsStateWithLifecycle()
+    // #FEED-204: the "+" (apps.json EDITOR DEVICE). This first composer takes
+    // text only, so Device is its one row.
+    val editorDevice by viewModel.editorDevice.collectAsStateWithLifecycle()
+    var plusOpen by remember { mutableStateOf(false) }
     // VAPP-176: a DRAFT (no version yet) with an empty chat = the starters +
     // the composer open and focused on `draftPlaceholder`.
     val draft = Apps.isDraft(app.headVersion)
@@ -908,6 +928,15 @@ private fun AppChatPane(
                 }
                 GlassComposer(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    tools = {
+                        ComposerToolButton(
+                            ExpIcons.uiAdd,
+                            contentDescription = ComposerMenu.PLUS_LABEL,
+                            onClick = { plusOpen = true },
+                            enabled = deviceId != null,
+                            modifier = Modifier.testTag(ComposerMenu.PLUS_TEST_ID),
+                        )
+                    },
                     submit = {
                         ComposerSubmitButton(
                             ExpIcons.uiSubmit,
@@ -938,7 +967,47 @@ private fun AppChatPane(
             }
         }
     }
+    if (plusOpen) {
+        val menu = editorDevice.composerDevice(viewModel::pickDevice)
+        ComposerPlusMenuSheet(
+            layout = ComposerMenu.composerMenuLayout(ComposerMenuSurface.Session, ComposerMenuConditions(device = true))
+                .filter { it is ComposerMenuEntry.Row && it.id == ComposerMenuRowId.Device },
+            codex = false,
+            effortValue = null,
+            effortEnabled = false,
+            subagentsValue = null,
+            ultracode = false,
+            mcpValue = null,
+            computerUse = false,
+            canAttach = false,
+            onRow = {},
+            onUltracodeChange = {},
+            onComputerUseChange = {},
+            onDismiss = { plusOpen = false },
+            issuePage = {},
+            values = mapOf(ComposerMenuRowId.Device to menu.label),
+            pages = teamsPagePlus(null, mapOf(
+                ComposerMenuRowId.Device to { close ->
+                    DevicePicker(
+                        devices = menu.devices,
+                        value = menu.value,
+                        onChange = menu.onPick,
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
+            )),
+        )
+    }
 }
+
+/** #FEED-204: the Device › row's binding. */
+private fun AppEditorViewModel.EditorDevice.composerDevice(onPick: (String) -> Unit) = SessionComposerDevice(
+    devices = rows,
+    value = choice.deviceId,
+    locked = choice.locked,
+    onPick = onPick,
+)
 
 /** VAPP-176: a draft's empty chat = the page-size EmptyState
  *  `starterTitle` whose actions are one pill per starter; a tap SENDS that
@@ -982,6 +1051,7 @@ private fun AppEditorConversation(
     app: AppListEntry,
     rootId: String,
     padding: PaddingValues,
+    viewModel: AppEditorViewModel,
     onOpenSession: (String) -> Unit,
 ) {
     val thread = hiltViewModel<ThreadViewModel>(key = "app-thread:$rootId")
@@ -995,6 +1065,9 @@ private fun AppEditorConversation(
         key = "session:$rootId",
     ) { factory -> factory.create(rootId) }
     LaunchedEffect(rootSession) { rootSession.ensureConnected() }
+    // #FEED-204: an ended root's next send may go to another device.
+    val editorDevice by viewModel.editorDevice.collectAsStateWithLifecycle()
+    LaunchedEffect(rootSession, editorDevice.appMove) { rootSession.appMove = editorDevice.appMove }
 
     val messagesById = remember(messages) { messages.associateBy { it.id } }
     val meta: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta? = { row ->
@@ -1072,6 +1145,7 @@ private fun AppEditorConversation(
                     placeholder = if (Apps.isDraft(app.headVersion)) Apps.Copy.DRAFT_PLACEHOLDER else Apps.Copy.COMPOSER_PLACEHOLDER,
                     capsuleTestTag = "app-composer-capsule",
                     showQueue = false,
+                    deviceMenu = editorDevice.composerDevice(viewModel::pickDevice),
                     modifier = Modifier.testTag(Apps.TestIds.COMPOSER),
                     // N-12: THE Dock: the tree's waiting cards, then the
                     // root's Queue and banners, over the composer.

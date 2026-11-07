@@ -41,6 +41,34 @@ class AppsTest {
         }
     }
 
+    // #FEED-204: `editorDevice` replays `editorDeviceCases`.
+    @Test
+    fun `editorDeviceCases replay`() {
+        val cases = fixture["editorDeviceCases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        fun opt(obj: JsonObject, key: String) = obj[key]?.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+        for (case in cases) {
+            val root = case["root"]!!.let { if (it is JsonNull) null else it.jsonObject }
+            val candidates = case["candidates"]!!.jsonArray.map { it.jsonObject }.map { row ->
+                Apps.EditorDeviceCandidate(row["deviceId"]!!.jsonPrimitive.content, row["isDefault"]!!.jsonPrimitive.boolean)
+            }
+            val expected = case["expected"]!!.jsonObject
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                Apps.EditorDeviceChoice(
+                    opt(expected, "deviceId"),
+                    expected["locked"]!!.jsonPrimitive.boolean,
+                    expected["move"]!!.jsonPrimitive.boolean,
+                ),
+                Apps.editorDevice(
+                    root?.let { Apps.EditorDeviceRoot(it["status"]!!.jsonPrimitive.content, opt(it, "deviceId")) },
+                    candidates,
+                    opt(case, "remembered"),
+                ),
+            )
+        }
+    }
+
     // #VAPP-256: rollbackWarns replays `rollbackCases`.
     @Test
     fun `rollbackCases replay`() {
