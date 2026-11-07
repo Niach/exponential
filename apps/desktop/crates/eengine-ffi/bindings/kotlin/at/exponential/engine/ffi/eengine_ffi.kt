@@ -4449,7 +4449,7 @@ public object FfiConverterTypeEngineClock: FfiConverter<EngineClock, Long> {
 public interface OutboxLog {
     
     /**
-     * The entries as a JSON array; a row that no longer parses is left out.
+     * The entries as a JSON array (a row the Engine cannot read is skipped).
      */
     fun `entriesJson`(): kotlin.String
     
@@ -4563,7 +4563,7 @@ open class OutboxLogImpl: Disposable, AutoCloseable, OutboxLog
 
     
     /**
-     * The entries as a JSON array; a row that no longer parses is left out.
+     * The entries as a JSON array (a row the Engine cannot read is skipped).
      */
     @Throws(EngineException::class)override fun `entriesJson`(): kotlin.String {
             return FfiConverterString.lift(

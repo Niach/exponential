@@ -22,6 +22,7 @@ import at.exponential.ui.ffi.defaultThemeId
 import at.exponential.ui.ffi.errorMessageJson
 import at.exponential.ui.ffi.extensionErrors
 import at.exponential.ui.ffi.packagePolicyJson
+import at.exponential.ui.ffi.upgrade09Json
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.SurfaceModel
@@ -205,7 +206,14 @@ class ExponentialHost(
     fun installPackage(packageJson: String): List<JsonValue> {
         val issues = JsonValue.parse(router.installPackage(packageJson)).array ?: emptyList()
         if (issues.isEmpty()) {
-            val pkg = JsonValue.parse(packageJson)
+            var pkg = JsonValue.parse(packageJson)
+            // Round 9 §12: the router installed a format-5 package UPGRADED (flat
+            // function names): the policy gate, the actions and navigation read
+            // that copy too, or `records.*` never matches `records_upsert`.
+            if (pkg["formatVersion"]?.number == 5.0) {
+                val request = JsonValue.Obj(mapOf("kind" to JsonValue.Str("package"), "input" to pkg)).json
+                runCatching { JsonValue.parse(upgrade09Json(request))["package"] }.getOrNull()?.takeUnless { it is JsonValue.Null }?.let { pkg = it }
+            }
             pkg["id"]?.string?.let { packages[it] = pkg }
         }
         return issues

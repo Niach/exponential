@@ -4271,6 +4271,33 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
+    // #VAPP-272: the Engine reads the outbox through `entry`: a row exactly as
+    // ios-v0.14.117 wrote it reads, and a row that cannot replay as written
+    // (not JSON, an unknown call, a write that does not parse) reads as nil,
+    // so `AppOutboxLog.entriesJson` removes it and the header glyph skips it.
+    func testAppRecordOutboxRowsReadOrAreUnreadable() throws {
+        func row(_ call: String, _ writes: String) -> AppRecordOutboxEntity {
+            AppRecordOutboxEntity(writeId: "w", seq: 1, appId: "a1", call: call, writes: writes, at: "2026-11-07T20:13:04.280Z")
+        }
+        let legacy = row(
+            "batch",
+            #"[{"data":{"date":"2026-11-05","hours":1.25,"issues":[],"note":"n"},"id":"98a1","kind":"entry","op":"create"},{"data":{"note":"m"},"id":"4195","kind":"entry","op":"update"}]"#
+        )
+        XCTAssertEqual(legacy.entry?.writes, [
+            AppRecords.OutboxWrite(op: .create, id: "98a1", kind: "entry", data: ["date": .string("2026-11-05"), "hours": .number(1.25), "issues": .array([]), "note": .string("n")]),
+            AppRecords.OutboxWrite(op: .update, id: "4195", kind: "entry", data: ["note": .string("m")]),
+        ])
+        XCTAssertEqual(row("upsert", #"[{"data":{},"id":"n1","kind":"entry","op":"create"}]"#).entry?.call, .upsert)
+        XCTAssertEqual(row("batch", "[]").entry?.writes, [])
+        XCTAssertNil(row("upsert", "not json").entry)
+        XCTAssertNil(row("frobnicate", #"[{"data":{},"id":"n1","kind":"entry","op":"create"}]"#).entry)
+        XCTAssertNil(row("upsert", #"[{"op":"create"}]"#).entry)
+        XCTAssertNil(row("upsert", "[]").entry)
+        XCTAssertNil(row("upsert", #"[{"data":{},"id":"n1","op":"create"}]"#).entry)
+        XCTAssertEqual(row("delete", #"[{"id":"n1","op":"delete"}]"#).entry?.call, .delete)
+        XCTAssertNil(row("batch", #"[{"data":{},"id":"n1","kind":"entry","op":"create"},{"op":"frobnicate","id":"x"}]"#).entry)
+    }
+
 
     // #EXP-1710: v101 adds the merge train's `pull_requests` columns and
     // `teams.merge_mode` (existing rows = checks / auto), resetting the

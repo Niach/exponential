@@ -262,16 +262,38 @@ class AppRecordOutbox @Inject constructor(
             ackedAt = row.ackedAt,
         )
 
-        /** The Engine's spelling of a stored entry. */
-        internal fun entryJson(row: AppRecordOutboxEntity): JsonObject = buildJsonObject {
-            put("writeId", row.writeId)
-            put("appId", row.appId)
-            put("call", row.call)
-            put("writes", Json.parseToJsonElement(row.writes).jsonArray)
-            put("at", row.at)
-            put("state", row.state)
-            row.ackedAt?.let { put("ackedAt", it) }
+        /** The Engine's spelling of a stored entry; throws on a row the Engine
+         *  could not read (`eengine::outbox::OutboxEntry`): the Engine skips such a
+         *  row and never removes it, so it would stay pending (and overlay its
+         *  rows) forever. */
+        internal fun entryJson(row: AppRecordOutboxEntity): JsonObject {
+            require(row.call in ENTRY_CALLS) { "unknown call ${row.call}" }
+            require(row.state in ENTRY_STATES) { "unknown state ${row.state}" }
+            val writes = Json.parseToJsonElement(row.writes).jsonArray
+            require(row.call == "batch" || writes.size == 1) { "a ${row.call} with ${writes.size} writes" }
+            for (write in writes) {
+                val w = write.jsonObject
+                fun text(key: String) = (w[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                val op = text("op")
+                require(op in WRITE_OPS) { "unknown op $op" }
+                requireNotNull(text("id")) { "a write without an id" }
+                if (op != "delete") requireNotNull(text("kind")) { "a $op without a kind" }
+                w["data"]?.let { require(it is JsonObject) { "data is not an object" } }
+            }
+            return buildJsonObject {
+                put("writeId", row.writeId)
+                put("appId", row.appId)
+                put("call", row.call)
+                put("writes", writes)
+                put("at", row.at)
+                put("state", row.state)
+                row.ackedAt?.let { put("ackedAt", it) }
+            }
         }
+
+        private val ENTRY_CALLS = setOf("upsert", "delete", "batch")
+        private val ENTRY_STATES = setOf("pending", "acked")
+        private val WRITE_OPS = setOf("create", "update", "delete")
 
         private fun rowJson(row: AppRecords.Row): JsonObject = buildJsonObject {
             put("id", row.id)
