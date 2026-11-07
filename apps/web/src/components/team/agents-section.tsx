@@ -66,6 +66,7 @@ import {
   type AgentRow,
 } from "@/lib/session-tree"
 import { useSession } from "@/hooks/use-session"
+import { useAgentRows } from "@/hooks/use-agent-row"
 import { useNow } from "@/hooks/use-now"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import { TriggerDialog } from "@/components/trigger-dialog"
@@ -80,6 +81,11 @@ import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.j
 import {
   ASSISTANT_COPY,
   ASSISTANT_SCHEDULES,
+  COORDINATOR,
+  COORDINATOR_COPY,
+  COORDINATOR_NONE,
+  coordinatorOf,
+  coordinatorOptions,
   assistantModelValue,
   assistantScheduleOf,
   assistantScheduleTriggers,
@@ -1209,5 +1215,51 @@ export function AgentEventsBand({ teamId }: { teamId: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** #EXP-1717 (agent-settings.json `coordinator`): Team settings › Agents'
+ *  Coordinator row, THE settings Picker row (the merge-mode row's look):
+ *  None or one team agent; owners pick, members read. */
+export function CoordinatorRow({ team, isOwner }: { team: Team; isOwner: boolean }) {
+  const agents = useAgentRows(team.id)
+  const [busy, setBusy] = useState(false)
+  const current = coordinatorOf(agents, team.id) ?? COORDINATOR_NONE
+  const items = coordinatorOptions(agents).map((option) =>
+    typeof option === `string`
+      ? { value: COORDINATOR_NONE, label: COORDINATOR_COPY.none }
+      : { value: option.id, label: option.name }
+  )
+  const save = async (next: string) => {
+    setBusy(true)
+    try {
+      await trpc.agents.setCoordinator.mutate(
+        { teamId: team.id, agentId: next === COORDINATOR_NONE ? null : next },
+        SKIP_ERROR_TOAST
+      )
+    } catch (error) {
+      failedAction(`save`, `the coordinator`, error, { retry: () => void save(next) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <GlassGroup>
+      <Picker
+        mode="single"
+        triggerVariant="row"
+        triggerLabel={COORDINATOR_COPY.label}
+        mobileTitle={COORDINATOR_COPY.label}
+        value={current}
+        onChange={(picked) => {
+          if (picked === null || picked === current) return
+          void save(picked)
+        }}
+        items={items}
+        width="md"
+        disabled={!isOwner || busy}
+        data-testid={COORDINATOR.testIds.row}
+      />
+    </GlassGroup>
   )
 }

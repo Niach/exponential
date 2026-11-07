@@ -214,6 +214,17 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(question["answers"] as? [String], ["Web", "Android"])
     }
 
+    // #EXP-1717 `agents.setCoordinator`: the team and the agent, an
+    // explicit null clearing it.
+    func testSetCoordinatorSendsAnExplicitNull() throws {
+        let set = try json(SetCoordinatorInput(teamId: "t-1", agentId: "ag-1"))
+        XCTAssertEqual(set.keys.sorted(), ["agentId", "teamId"])
+        XCTAssertEqual(set["agentId"] as? String, "ag-1")
+        let cleared = try json(SetCoordinatorInput(teamId: "t-1", agentId: nil))
+        XCTAssertEqual(cleared.keys.sorted(), ["agentId", "teamId"])
+        XCTAssertTrue(cleared["agentId"] is NSNull)
+    }
+
     // `agents.update`: omit keeps, an explicit null clears (`account` /
     // `model` only), and an empty trigger array still travels.
     func testUpdateAgentOmitVersusNull() throws {

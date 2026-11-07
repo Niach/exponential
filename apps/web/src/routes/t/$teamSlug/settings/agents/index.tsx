@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useAgents } from "@/hooks/use-session-tree"
 import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
-import { AgentEventsBand, AgentsListBand } from "@/components/team/agents-section"
+import { AgentEventsBand, AgentsListBand, CoordinatorRow } from "@/components/team/agents-section"
 import {
   SettingsSectionGuard,
   useSettingsPage,
@@ -27,6 +27,7 @@ function SettingsAgentsIndex() {
     <SettingsSectionGuard resolved={resolved} allowed={permissions.isMember}>
       {team && isReady && (
         <div className="space-y-6">
+          <CoordinatorRow team={team} isOwner={permissions.isOwner} />
           <AgentsListBand team={team} isOwner={permissions.isOwner} agents={agents} />
           <AgentEventsBand teamId={team.id} />
         </div>

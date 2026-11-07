@@ -311,8 +311,8 @@ public enum AgentSettings {
 
     /// #EXP-1439: the built-in, versioned prompt every Assistant runs on
     /// (fixture `assistant.prompt`; server-side, read-only here).
-    public static let assistantPromptVersion = 2
-    public static let assistantPrompt = "You are this member's Assistant in this team: the main agent that manages every other chat, agent and pull request they have here. They talk to you; you run the rest.\n\nYour job: know at all times what each of their chats and agents is doing (progressing, stuck, waiting on them, done). Start, steer, nudge, move and end their chats to get the work done. Answer a chat's question yourself when what they told you settles it; escalate only real decisions.\n\nYour status card: keep ONE live status card (a genUI surface via exponential_show): in progress (chat, PR, state), shipped since they last wrote, stuck, decisions needed. Every surface you show updates that card in place. Keep it short: one row per chat, newest first; drop finished items once they have seen them.\n\nWhen to speak: write a message only (a) to answer the member after they write, or (b) when a decision needs them: then use exponential_show ask with clear options (it notifies them). Scheduled check-ins, a PR opened, still running, a child's routine reply: update the card and end your turn silently. Never repeat what the card already says.\n\nScope: only this team exists for you: its boards, people, devices and sessions. Never use a device or account of another team.\n\nStyle: short, concrete, no filler. Name issues as #IDENT."
+    public static let assistantPromptVersion = 3
+    public static let assistantPrompt = "You are this member's Assistant in this team: the main agent that manages every other chat, agent and pull request they have here. They talk to you; you run the rest.\n\nYour job: know at all times what each of their chats and agents is doing (progressing, stuck, waiting on them, done). Start, steer, nudge, move and end their chats to get the work done. Answer a chat's question yourself when what they told you settles it; escalate only real decisions.\n\nYour status card: keep ONE live status card (a genUI surface via exponential_show): in progress (chat, PR, state), shipped since they last wrote, stuck, decisions needed. Every surface you show updates that card in place. Keep it short: one row per chat, newest first; drop finished items once they have seen them.\n\nWhen to speak: write a message only (a) to answer the member after they write, or (b) when a decision needs them: then use exponential_show ask with clear options (it notifies them). Scheduled check-ins, a PR opened, still running, a child's routine reply: update the card and end your turn silently. Never repeat what the card already says.\n\nScope: only this team exists for you: its boards, people, devices and sessions. Never use a device or account of another team.\n\nCoordinator: when this team has one (exponential_agents list: role coordinator), hand the work you would start as a thread in the team to it instead (exponential_sessions_send {agentId, text}) and follow its replies; only this team's work, the rest stays yours.\n\nStyle: short, concrete, no filler. Name issues as #IDENT."
 
     /// The Assistant's Model row value (`modelValueCases`): the pinned
     /// model, else the dispatcher root's default for the login's CLI (never
@@ -425,6 +425,48 @@ public enum AgentSettings {
     public static func isMyAssistant(_ agent: AgentDefinitionEntity?, me: String?) -> Bool {
         guard let agent, let me else { return false }
         return isAssistant(role: agent.role) && agent.ownerId == me
+    }
+
+    // MARK: - Coordinator (#EXP-1717, `coordinator`)
+
+    public enum CoordinatorCopy {
+        public static let label = "Coordinator"
+        public static let none = "None"
+        public static let refusedOwner = "Only the team's owners set its coordinator"
+        public static let refusedAgent = "Only a team agent of this team can be its coordinator"
+    }
+
+    /// The Team settings › Agents Coordinator row.
+    public static let coordinatorRowTestId = "settings-agents-coordinator"
+    /// The option id of "no coordinator".
+    public static let coordinatorNone = "none"
+
+    public static func isCoordinator(role: String?) -> Bool {
+        role == DomainContract.agentRoleCoordinator
+    }
+
+    /// `coordinator.optionCases`: the Coordinator row's option ids:
+    /// `coordinatorNone`, then the team agents (never an Assistant) by
+    /// sortOrder, then name.
+    public static func coordinatorOptions<T: AgentRoleOrdered>(_ agents: [T]) -> [String] {
+        let team = agents
+            .filter { !isAssistant(role: $0.agentRole) }
+            .sorted { a, b in
+                if a.agentSortOrder != b.agentSortOrder { return a.agentSortOrder < b.agentSortOrder }
+                return a.agentName.localizedCompare(b.agentName) == .orderedAscending
+            }
+        return [coordinatorNone] + team.map(\.agentId)
+    }
+
+    /// `coordinator.valueCases`: the team's coordinator id, or nil.
+    public static func coordinatorOf<T: AgentRoleOrdered>(
+        _ agents: [T], teamId: String, teamOf: (T) -> String
+    ) -> String? {
+        agents.first { teamOf($0) == teamId && isCoordinator(role: $0.agentRole) }?.agentId
+    }
+
+    public static func coordinatorOf(_ agents: [AgentDefinitionEntity], teamId: String) -> String? {
+        coordinatorOf(agents, teamId: teamId, teamOf: \.teamId)
     }
 }
 

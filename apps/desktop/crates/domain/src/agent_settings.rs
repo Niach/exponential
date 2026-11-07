@@ -472,6 +472,78 @@ pub fn my_assistant<'a>(
         .find(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
 }
 
+// ---------------------------------------------------------------------------
+// #EXP-1717: THE TEAM COORDINATOR (`coordinator` in the fixture; contract
+// `agentRole`). Replays `optionCases`, `valueCases`.
+// ---------------------------------------------------------------------------
+
+/// The Coordinator row's copy (`coordinator.copy`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoordinatorCopy {
+    pub label: String,
+    pub none: String,
+    pub refused_owner: String,
+    pub refused_agent: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct CoordinatorTestIds {
+    pub row: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoordinatorSpec {
+    pub copy: CoordinatorCopy,
+    pub test_ids: CoordinatorTestIds,
+}
+
+/// `coordinator` off the fixture.
+pub static COORDINATOR: LazyLock<CoordinatorSpec> = LazyLock::new(|| {
+    let fixture: Value = serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses");
+    serde_json::from_value(fixture["coordinator"].clone()).expect("coordinator block parses")
+});
+
+/// TS `COORDINATOR_NONE`: the option id of "no coordinator".
+pub const COORDINATOR_NONE: &str = "none";
+
+/// TS `isCoordinator`.
+pub fn is_coordinator_role(role: Option<&str>) -> bool {
+    role == Some(crate::contract::AGENT_ROLE_COORDINATOR)
+}
+
+/// TS `coordinatorOptions` (`optionCases`): the Coordinator row's options
+/// after [`COORDINATOR_NONE`]: the team agents (never an Assistant; a
+/// coordinator is one) by sortOrder, then name.
+pub fn coordinator_options<'a>(
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+) -> Vec<&'a crate::rows::AgentDefRow> {
+    let mut team: Vec<&crate::rows::AgentDefRow> = agents.into_iter().filter(|agent| !agent.is_assistant()).collect();
+    team.sort_by(|a, b| {
+        a.sort_order
+            .unwrap_or(0.0)
+            .partial_cmp(&b.sort_order.unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                let (an, bn) = (a.name.as_deref().unwrap_or(""), b.name.as_deref().unwrap_or(""));
+                an.to_lowercase().cmp(&bn.to_lowercase()).then_with(|| an.cmp(bn))
+            })
+    });
+    team
+}
+
+/// TS `coordinatorOf` (`valueCases`): the team's coordinator id, or `None`.
+pub fn coordinator_of<'a>(
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+    team_id: &str,
+) -> Option<&'a str> {
+    agents
+        .into_iter()
+        .find(|agent| agent.team_id.as_deref() == Some(team_id) && is_coordinator_role(Some(agent.role.as_str())))
+        .map(|agent| agent.id.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,7 +721,7 @@ mod tests {
         assert_eq!(ASSISTANT.default_schedule, "1h");
         assert_eq!(ASSISTANT.copy.check_in, "Check in");
         assert_eq!(ASSISTANT.sections, ["identity", "runs-on", "check-in", "voice"]);
-        assert_eq!(ASSISTANT.prompt.version, 2);
+        assert_eq!(ASSISTANT.prompt.version, 3);
         assert!(!ASSISTANT.prompt.text.is_empty());
         assert_eq!(ASSISTANT.copy.prompt_fixed, "The Assistant's prompt is built in");
     }
@@ -725,6 +797,42 @@ mod tests {
                 .collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
             assert_eq!(ids, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn coordinator_cases_match_the_fixture() {
+        let fixture = fixture();
+        let block = &fixture["coordinator"];
+        assert_eq!(COORDINATOR.copy.none, block["copy"]["none"].as_str().unwrap());
+        assert_eq!(COORDINATOR.test_ids.row, block["testIds"]["row"].as_str().unwrap());
+        let row_of = |agent: &Value| -> crate::rows::AgentDefRow {
+            serde_json::from_value(serde_json::json!({
+                "id": agent["id"], "role": agent["role"], "owner_id": agent["ownerId"],
+                "name": agent["name"], "sort_order": agent["sortOrder"], "team_id": agent["teamId"],
+            }))
+            .unwrap()
+        };
+        let option_cases = block["optionCases"].as_array().unwrap();
+        assert!(!option_cases.is_empty());
+        for case in option_cases {
+            let rows: Vec<crate::rows::AgentDefRow> = case["agents"].as_array().unwrap().iter().map(row_of).collect();
+            let ids: Vec<&str> = std::iter::once(COORDINATOR_NONE)
+                .chain(coordinator_options(&rows).into_iter().map(|row| row.id.as_str()))
+                .collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
+        }
+        let value_cases = block["valueCases"].as_array().unwrap();
+        assert!(!value_cases.is_empty());
+        for case in value_cases {
+            let rows: Vec<crate::rows::AgentDefRow> = case["agents"].as_array().unwrap().iter().map(row_of).collect();
+            assert_eq!(
+                coordinator_of(&rows, case["teamId"].as_str().unwrap()),
+                case["expected"].as_str(),
+                "{}",
+                case["name"]
+            );
         }
     }
 

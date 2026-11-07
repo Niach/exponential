@@ -48,6 +48,7 @@ import com.exponential.app.ui.components.DestructiveButton
 import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
@@ -123,9 +124,16 @@ fun AgentsSettingsList(
     val agents by viewModel.agents.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val events by viewModel.events.collectAsStateWithLifecycle()
+    val coordinator by viewModel.coordinator.collectAsStateWithLifecycle()
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    // FEED-79: a refused coordinator pick = the failed-action toast.
+    FailedActionToast(failure, onShown = viewModel::clearFailure)
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
     // NEW-2 (web Settings → Agents): the agents band over the team's Events.
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        // #EXP-1717: the Coordinator row heads the group (owners pick it).
+        CoordinatorRow(coordinator, enabled = isOwner && !busy, onPick = viewModel::setCoordinator)
         AgentsSettingsListContent(
             agents = agents,
             canCreate = isOwner,
@@ -133,6 +141,45 @@ fun AgentsSettingsList(
             onNewAgent = onNewAgent,
         )
         AgentEventsBand(events)
+    }
+}
+
+/**
+ * #EXP-1717 (agent-settings.json `coordinator`, web `CoordinatorRow`): THE
+ * settings Picker row (single-select, the merge-mode row's look): value =
+ * the coordinator's name or `None`; owners pick, members read it disabled.
+ */
+@Composable
+internal fun CoordinatorRow(
+    state: AgentSettingsViewModel.CoordinatorState,
+    enabled: Boolean,
+    onPick: (agentId: String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val none = AgentSettings.Coordinator.NONE
+    val items = state.options.map { (id, name) ->
+        com.exponential.app.ui.components.picker.PickerItem(id ?: none, name)
+    }
+    val current = state.value ?: none
+    Column(modifier.fillMaxWidth().glassGroup()) {
+        com.exponential.app.ui.components.picker.Picker(
+            items = items,
+            mode = com.exponential.app.ui.components.picker.PickerMode.Single,
+            value = setOf(current),
+            onChange = { picked ->
+                picked.firstOrNull()?.takeIf { it != current }?.let { id -> onPick(id.takeIf { it != none }) }
+            },
+            title = AgentSettings.Coordinator.LABEL,
+            enabled = enabled,
+        ) { open ->
+            PickerValueRow(
+                label = AgentSettings.Coordinator.LABEL,
+                value = items.firstOrNull { it.value == current }?.label ?: AgentSettings.Coordinator.NONE_LABEL,
+                onClick = open,
+                enabled = enabled,
+                modifier = Modifier.testTag(AgentSettings.Coordinator.TEST_ID_ROW),
+            )
+        }
     }
 }
 

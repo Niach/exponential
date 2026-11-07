@@ -269,6 +269,41 @@ object AgentSettings {
     fun runsOnDeviceIds(devices: List<RunsOnDevice>, boundId: String?, assistant: Boolean): List<String> =
         devices.filter { !assistant || it.kind == "desktop" || it.deviceId == boundId }.map { it.deviceId }
 
+    /**
+     * #EXP-1717 (agent-settings.json `coordinator`): THE team Coordinator, a
+     * ROLE on one team agent (`agents.role = coordinator`, at most one per
+     * team). Owners pick it in Team settings › Agents (ONE settings Picker
+     * row above the agents list; members read it); `agents.setCoordinator`.
+     */
+    object Coordinator {
+        const val ROLE: String = DomainContract.agentRoleCoordinator
+        /** The option id of "no coordinator". */
+        const val NONE = "none"
+        const val LABEL = "Coordinator"
+        const val NONE_LABEL = "None"
+        const val REFUSED_OWNER = "Only the team's owners set its coordinator"
+        const val REFUSED_AGENT = "Only a team agent of this team can be its coordinator"
+        const val TEST_ID_ROW = "settings-agents-coordinator"
+
+        data class OptionLike(val id: String, val name: String, val role: String?, val sortOrder: Double)
+
+        fun isCoordinator(role: String?): Boolean = role == ROLE
+
+        /** `optionCases`: null (= [NONE]) first, then the team agents (never
+         *  an Assistant) by sortOrder, then name. */
+        fun <T> coordinatorOptions(agents: List<T>, row: (T) -> OptionLike): List<T?> =
+            listOf<T?>(null) + agents
+                .filter { !Assistant.isAssistant(row(it).role) }
+                .sortedWith(
+                    compareBy<T> { row(it).sortOrder }
+                        .thenComparator { a, b -> compareNames(row(a).name, row(b).name) },
+                )
+
+        /** `valueCases`: the team's coordinator id, or null. */
+        fun <T> coordinatorOf(agents: List<T>, teamId: String, id: (T) -> String, team: (T) -> String, role: (T) -> String?): String? =
+            agents.firstOrNull { team(it) == teamId && isCoordinator(role(it)) }?.let(id)
+    }
+
     object Assistant {
         const val ROLE = "assistant"
         const val TITLE = "Assistant"

@@ -182,6 +182,20 @@ pub fn update(trpc: &TrpcClient, input: &UpdateInput) -> Result<Agent, ApiError>
     Ok(response.agent)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetCoordinatorInput<'a> {
+    team_id: &'a str,
+    agent_id: Option<&'a str>,
+}
+
+/// #EXP-1717 `agents.setCoordinator` (owner only): `agent_id` becomes the
+/// team's coordinator (the previous one goes back to `agent`); `None` (sent
+/// as null) = no coordinator.
+pub fn set_coordinator(trpc: &TrpcClient, team_id: &str, agent_id: Option<&str>) -> Result<TxOutput, ApiError> {
+    trpc.mutation("agents.setCoordinator", &SetCoordinatorInput { team_id, agent_id })
+}
+
 /// `agents.delete`: the definition and, by cascade, every conversation.
 pub fn delete(trpc: &TrpcClient, id: &str) -> Result<TxOutput, ApiError> {
     trpc.mutation("agents.delete", &IdInput { id })

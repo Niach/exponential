@@ -401,4 +401,53 @@ class AgentSettingsTest {
         assertTrue(!a.inTeamOrPersonal("p-x", "u-x", "t-a", listOf("t-a"), "u-me"))
         assertTrue(!a.inTeamOrPersonal("t-b", "u-me", "t-a", listOf("t-a", "t-b"), "u-me"))
     }
+
+    // #EXP-1717: the team Coordinator (`coordinator.*`, TS `agent-settings.test.ts`).
+    private val coordinator: JsonObject get() = fixture.getValue("coordinator").jsonObject
+
+    @Test
+    fun `coordinator copy and test id are the fixture's`() {
+        val copy = coordinator.getValue("copy").jsonObject
+        assertEquals(copy.str("label"), AgentSettings.Coordinator.LABEL)
+        assertEquals(copy.str("none"), AgentSettings.Coordinator.NONE_LABEL)
+        assertEquals(copy.str("refusedOwner"), AgentSettings.Coordinator.REFUSED_OWNER)
+        assertEquals(copy.str("refusedAgent"), AgentSettings.Coordinator.REFUSED_AGENT)
+        assertEquals(coordinator.getValue("testIds").jsonObject.str("row"), AgentSettings.Coordinator.TEST_ID_ROW)
+    }
+
+    @Test
+    fun `coordinator optionCases`() {
+        val cases = coordinator.getValue("optionCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val agents = case.getValue("agents").jsonArray.map { it.jsonObject }
+            val options = AgentSettings.Coordinator.coordinatorOptions(agents) {
+                AgentSettings.Coordinator.OptionLike(
+                    it.str("id")!!,
+                    it.str("name")!!,
+                    it.str("role"),
+                    it.getValue("sortOrder").jsonPrimitive.content.toDouble(),
+                )
+            }
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                options.map { it?.str("id") ?: AgentSettings.Coordinator.NONE },
+            )
+        }
+    }
+
+    @Test
+    fun `coordinator valueCases`() {
+        val cases = coordinator.getValue("valueCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val agents = case.getValue("agents").jsonArray.map { it.jsonObject }
+            assertEquals(
+                case.str("name"),
+                case.str("expected"),
+                AgentSettings.Coordinator.coordinatorOf(agents, case.str("teamId")!!, { it.str("id")!! }, { it.str("teamId")!! }, { it.str("role") }),
+            )
+        }
+    }
 }

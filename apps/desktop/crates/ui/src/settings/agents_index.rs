@@ -79,6 +79,8 @@ pub(crate) fn team_events<'a>(events: impl Iterator<Item = &'a EventRow>, team_i
 /// The Agents index pane.
 pub struct AgentsIndexPane {
     nav: Entity<Navigation>,
+    /// #EXP-1717: an `agents.setCoordinator` is in flight (row disabled).
+    coordinator_busy: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -95,8 +97,123 @@ impl AgentsIndexPane {
         }
         Self {
             nav,
+            coordinator_busy: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// #EXP-1717 (agent-settings.json `coordinator`, web `CoordinatorRow`):
+    /// THE settings Picker row (single select, the merge-mode row's look),
+    /// value = the coordinator's name or `copy.none`; options =
+    /// `coordinator_options` after None. Owners pick (saved at once);
+    /// members see it disabled.
+    fn render_coordinator(
+        &self,
+        team_id: &str,
+        owner: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        use domain::agent_settings::{coordinator_of, coordinator_options, COORDINATOR, COORDINATOR_NONE};
+        let (current, items) = {
+            let agents = Store::global(cx).collections().agents.read(cx);
+            let team: Vec<&domain::rows::AgentDefRow> =
+                agents.iter().filter(|agent| agent.team_id.as_deref() == Some(team_id)).collect();
+            let current = coordinator_of(team.iter().copied(), team_id).unwrap_or(COORDINATOR_NONE).to_string();
+            let items: Vec<crate::picker::PickerItem<String>> = std::iter::once(crate::picker::PickerItem::new(
+                COORDINATOR_NONE.to_string(),
+                COORDINATOR.copy.none.clone(),
+            ))
+            .chain(coordinator_options(team.iter().copied()).into_iter().map(|agent| {
+                crate::picker::PickerItem::new(agent.id.clone(), agent.name.clone().unwrap_or_default())
+            }))
+            .collect();
+            (current, items)
+        };
+        let label = items
+            .iter()
+            .find(|item| item.value == current)
+            .map(|item| item.label.to_string())
+            .unwrap_or_else(|| COORDINATOR.copy.none.clone());
+        use gpui_component::button::ButtonVariants as _;
+        let trigger = gpui_component::button::Button::new(SharedString::from(COORDINATOR.test_ids.row.clone()))
+            .ghost()
+            .cursor_pointer()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(cx.theme().foreground.opacity(0.7))
+            .child(crate::surface::picker_value_label(label))
+            .child(crate::surface::picker_row_chevron(cx));
+        let team_id = team_id.to_string();
+        let view = cx.entity().downgrade();
+        let control = crate::picker::Picker::single(
+            items,
+            Some(current.clone()),
+            trigger.into_any_element(),
+            std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                let Some(pick) = next.into_iter().next() else { return };
+                if pick == current {
+                    return;
+                }
+                let team_id = team_id.clone();
+                let _ = view.update(cx, |this, cx| this.set_coordinator(team_id, pick, cx));
+            }),
+        )
+        .disabled(!owner || self.coordinator_busy)
+        .id(SharedString::from(format!("{}-picker", COORDINATOR.test_ids.row)))
+        .render(window, cx);
+        crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row(
+            COORDINATOR.copy.label.clone(),
+            None,
+            control,
+            cx,
+        )])
+        .into_any_element()
+    }
+
+    /// #EXP-1717: `agents.setCoordinator` (owner-only server-side). No
+    /// optimistic flip: the Electric echo moves the rows; a failure toasts
+    /// with Retry.
+    fn set_coordinator(&mut self, team_id: String, pick: String, cx: &mut gpui::Context<Self>) {
+        if self.coordinator_busy {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("save", "the coordinator", None, cx);
+            return;
+        };
+        self.coordinator_busy = true;
+        cx.notify();
+        let view = cx.entity().downgrade();
+        cx.spawn(async move |this, cx| {
+            let (id, agent) = (team_id.clone(), pick.clone());
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let agent = (agent != domain::agent_settings::COORDINATOR_NONE).then_some(agent);
+                    api::agents::set_coordinator(&trpc, &id, agent.as_deref())
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.coordinator_busy = false;
+                if let Err(err) = result {
+                    log::warn!("[ui] agents.setCoordinator failed: {err}");
+                    crate::action_error::failed_action_with_retry(
+                        "save",
+                        "the coordinator",
+                        crate::action_error::action_error_description(&err),
+                        move |_, cx| {
+                            let (team_id, pick) = (team_id.clone(), pick.clone());
+                            let _ = view.update(cx, |this, cx| this.set_coordinator(team_id, pick, cx));
+                        },
+                        cx,
+                    );
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// The agents band (web `AgentsListBand`).
@@ -238,7 +355,7 @@ impl AgentsIndexPane {
 }
 
 impl Render for AgentsIndexPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
@@ -247,9 +364,12 @@ impl Render for AgentsIndexPane {
             ));
         };
         let owner = super::is_owner(cx, &team_id);
+        // #EXP-1717: the Coordinator row tops the pane.
+        let coordinator = self.render_coordinator(&team_id, owner, window, cx);
         v_flex()
             .w_full()
             .gap_6()
+            .child(coordinator)
             .child(self.render_agents(&team_id, owner, cx))
             .child(self.render_events(&team_id, cx))
     }
