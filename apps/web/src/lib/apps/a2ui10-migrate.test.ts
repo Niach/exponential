@@ -166,7 +166,7 @@ describe(`upgradeStagedRows`, () => {
     expect((app!.row.package as { formatVersion: number }).formatVersion).toBe(6)
     expect(app!.row.granted_tools).toEqual([`exponential_issues_update`, `exponential_mcp_servers_list`, `exponential_issues_create`])
     expect((version!.row.package as { formatVersion: number }).formatVersion).toBe(6)
-    expect((message!.row.card as { surface: { version: string } }).surface.version).toBe(`1.0`)
+    expect((message!.row.card as unknown as { surface: { version: string } }).surface.version).toBe(`1.0`)
     expect(issue).toEqual(rows[3])
   })
 })

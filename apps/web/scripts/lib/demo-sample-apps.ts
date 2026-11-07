@@ -17,12 +17,12 @@ import { importRecords } from "@/lib/apps/records-service"
 import { DEMO_OPS_APP_ID, DEMO_OPS_SHARE_TOKEN } from "../screenshot-demo"
 
 const opsPackage = {
-  formatVersion: 5,
+  formatVersion: 6,
   id: `exponential.ops-desk`,
   name: `Ops desk`,
   version: `1.0.0`,
   catalogId: `https://ui.exponential.at/catalogs/exponential-app/v1`,
-  functions: [`records.*`],
+  functions: [`records_*`],
   sources: [`records:lead`, `upstream:sentry/list_issues`],
   upstreams: [`sentry`, `stripe`],
   records: {
