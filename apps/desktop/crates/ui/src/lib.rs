@@ -138,6 +138,8 @@ mod macos_window;
 pub mod markdown;
 mod mention_input;
 mod menu_window;
+#[cfg(test)]
+mod overlay_anchor_tests;
 mod wysiwyg;
 mod native_dialog;
 mod navigation;

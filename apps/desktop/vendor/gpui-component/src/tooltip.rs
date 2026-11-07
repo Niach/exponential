@@ -1,3 +1,7 @@
+use crate::overlay_anchor::{AnchorGuard, OverlayAnchor, report_anchor, watch_anchor};
+use gpui::{Global, WindowId};
+use std::collections::HashMap;
+use std::cell::RefCell;
 use std::{cell::Cell, rc::Rc, time::Duration};
 
 use gpui::{
@@ -105,7 +109,7 @@ impl Render for Tooltip {
             }
         };
 
-        div().child(
+        gpui::InteractiveElement::debug_selector(div(), || "tooltip".into()).child(
             // Wrap in a child, to ensure the left margin is applied to the tooltip
             BaseTooltip::new("tooltip-popup")
                 .h_flex()
@@ -252,9 +256,13 @@ pub(crate) trait ManagedTooltipExt:
         let build_tooltip = Rc::new(build_tooltip);
         let trigger_bounds_cell: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
         let bounds_writer = trigger_bounds_cell.clone();
+        // #EXP-1739: the trigger is the tooltip's anchor (`overlay_anchor`).
+        let anchor_cell: Rc<RefCell<Option<OverlayAnchor>>> = Rc::new(RefCell::new(None));
+        let anchor_writer = anchor_cell.clone();
 
-        self.on_prepaint(move |bounds, _, _| {
+        self.on_prepaint(move |bounds, window, cx| {
             bounds_writer.set(bounds);
+            *anchor_writer.borrow_mut() = Some(report_anchor("tooltip-anchor", bounds, window, cx));
         })
         .on_hover({
             let trigger_bounds_cell = trigger_bounds_cell.clone();
@@ -274,6 +282,16 @@ pub(crate) trait ManagedTooltipExt:
                             };
                             o.request_show(request, window, cx);
                         });
+                        // A tooltip leaves with its trigger: moved, scrolled,
+                        // clipped away or gone.
+                        let anchor = anchor_cell.borrow().clone();
+                        let guard = anchor.and_then(|anchor| {
+                            let overlay = overlay.downgrade();
+                            watch_anchor(anchor, window, cx, move |_, cx| {
+                                let _ = overlay.update(cx, |overlay, cx| overlay.hide(cx));
+                            })
+                        });
+                        set_tooltip_guard(guard, window, cx);
                     } else {
                         overlay.update(cx, |o: &mut BaseTooltipOverlay, cx| {
                             o.request_hide(window, cx);
@@ -288,7 +306,27 @@ pub(crate) trait ManagedTooltipExt:
                     overlay.hide(cx);
                 });
             }
+            set_tooltip_guard(None, window, cx);
         })
+    }
+}
+
+/// #EXP-1739: the anchor watch of each window's one managed tooltip.
+#[derive(Default)]
+struct TooltipGuards(HashMap<WindowId, AnchorGuard>);
+
+impl Global for TooltipGuards {}
+
+fn set_tooltip_guard(guard: Option<AnchorGuard>, window: &Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let guards = &mut cx.default_global::<TooltipGuards>().0;
+    match guard {
+        Some(guard) => {
+            guards.insert(id, guard);
+        }
+        None => {
+            guards.remove(&id);
+        }
     }
 }
 

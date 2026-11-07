@@ -1046,6 +1046,12 @@ impl PopupMenu {
         }
     }
 
+    /// Exponential patch (#EXP-1739): close the menu and its parents as
+    /// Escape does (focus goes back), for an owner whose anchor was lost.
+    pub fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dismiss(&Cancel, window, cx);
+    }
+
     /// Dismiss the menu and the entire parent chain.
     ///
     /// The submenu is closed together with its parent, same as macOS menus.

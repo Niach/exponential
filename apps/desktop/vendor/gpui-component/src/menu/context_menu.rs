@@ -119,6 +119,8 @@ struct ContextMenuSharedState {
     open: bool,
     position: Point<Pixels>,
     _subscription: Option<Subscription>,
+    /// #EXP-1739: closes the menu when what it was opened on moves or goes.
+    _anchor: Option<crate::overlay_anchor::AnchorGuard>,
 }
 
 pub struct ContextMenuState {
@@ -135,6 +137,7 @@ impl Default for ContextMenuState {
                 open: false,
                 position: Default::default(),
                 _subscription: None,
+                _anchor: None,
             })),
         }
     }
@@ -142,7 +145,7 @@ impl Default for ContextMenuState {
 
 impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<E> {
     type RequestLayoutState = ContextMenuState;
-    type PrepaintState = Hitbox;
+    type PrepaintState = (Hitbox, crate::overlay_anchor::OverlayAnchor);
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -245,7 +248,8 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
         if let Some(element) = &mut request_layout.element {
             element.prepaint(window, cx);
         }
-        window.insert_hitbox(bounds, HitboxBehavior::Normal)
+        let anchor = crate::overlay_anchor::report_anchor("context-menu-anchor", bounds, window, cx);
+        (window.insert_hitbox(bounds, HitboxBehavior::Normal), anchor)
     }
 
     fn paint(
@@ -254,7 +258,7 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
         _: Option<&InspectorElementId>,
         _: gpui::Bounds<gpui::Pixels>,
         request_layout: &mut Self::RequestLayoutState,
-        hitbox: &mut Self::PrepaintState,
+        (hitbox, own_anchor): &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -273,6 +277,7 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
                 let shared_state = state.shared_state.clone();
 
                 let hitbox = hitbox.clone();
+                let own_anchor = own_anchor.clone();
                 // When right mouse click, to build content menu, and show it at the mouse position.
                 window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
                     if phase.bubble()
@@ -299,7 +304,29 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
                             shared_state._subscription = None;
                             shared_state.position = event.position;
                             shared_state.open = true;
+                            shared_state._anchor = None;
                         }
+
+                        // #EXP-1739: the menu follows what it was opened on —
+                        // the text under the pointer, else this element.
+                        let anchor = crate::overlay_anchor::anchor_at(event.position, window, cx)
+                            .unwrap_or_else(|| own_anchor.clone());
+                        let guard = crate::overlay_anchor::watch_anchor(anchor, window, cx, {
+                            let shared_state = shared_state.clone();
+                            move |window, cx| {
+                                let menu = {
+                                    let mut shared_state = shared_state.borrow_mut();
+                                    shared_state.open = false;
+                                    shared_state._anchor = None;
+                                    shared_state.menu_view.clone()
+                                };
+                                if let Some(menu) = menu {
+                                    menu.update(cx, |menu, cx| menu.close(window, cx));
+                                }
+                                window.refresh();
+                            }
+                        });
+                        shared_state.borrow_mut()._anchor = guard;
 
                         // Use defer to build the menu in the next frame, avoiding race conditions
                         window.defer(cx, {
