@@ -2012,6 +2012,15 @@
         "sha256": "e0020ae0962cb3a596671d918aa9221ab7303d40d6fa9908fb451c44d5088d91"
       }
     },
+    "ede-settings-share": {
+      "ede": {
+        "file": "shots/ede-settings-share/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 16266,
+        "sha256": "c109cafacb92d22bbb5c0d1212b14d4fe47ef99a5d833116cd3a3379be7c2aee"
+      }
+    },
     "ede-settings-team": {
       "ede": {
         "file": "shots/ede-settings-team/ede.webp",

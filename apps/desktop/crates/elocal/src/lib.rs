@@ -19,6 +19,9 @@
 //! ([`DesktopMeta`]: what the shapes leave out, prompt bodies and agent
 //! instructions). Hosts drain [`LocalStore::deltas`] to redraw.
 //!
+//! Share as a team (#EDE-57) is [`share`]: the uploader of the team import
+//! API, the fixture `team-import.json`'s chunking replayed here.
+//!
 //! gpui-free and Engine-free (`tests/dependency_gate.rs`): eDE hosts it now,
 //! the IDE after the parity gate, the Engine's record store later.
 
@@ -27,6 +30,7 @@ pub mod desktops;
 pub mod executor;
 pub mod identity;
 pub mod parity;
+pub mod share;
 pub mod store;
 pub mod time;
 

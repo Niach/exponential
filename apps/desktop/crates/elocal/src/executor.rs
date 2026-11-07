@@ -90,6 +90,11 @@ impl LocalExecutor {
         &self.team_id
     }
 
+    /// The sidecar as it stands (the identity, the device, the bodies).
+    pub fn meta(&self) -> DesktopMeta {
+        self.meta.lock().expect("meta").clone()
+    }
+
     pub fn store(&self) -> &Arc<LocalStore> {
         &self.store
     }
