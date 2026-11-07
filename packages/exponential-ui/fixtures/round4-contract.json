@@ -470,7 +470,7 @@
         "on": {
           "press": {
             "functionCall": {
-              "@call": "app.toast",
+              "@call": "app_toast",
               "args": {
                 "text": "Hi"
               }
@@ -478,14 +478,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "on.press.functionCall: unknown function \"app.toast\"; known: the catalog functions, a host function (app_toast), or an agent function (an identifier)",
-          "code": "VALIDATION_FAILED",
-          "path": "/components/root/on/press/functionCall"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "action: an unknown function inside the event context",

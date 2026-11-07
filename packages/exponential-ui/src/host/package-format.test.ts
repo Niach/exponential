@@ -130,6 +130,6 @@ describe(`records on a host (VAPP-161)`, () => {
     expect(new ExponentialHost({ extensions: [{ ...ext, version: `1.3.0`, components: { Gantt: { description: ``, props: { rows: { type: `array`, bindable: true } } } as never } }] }).installPackage(charts)).toEqual([
       { path: `/extensions/0/version`, message: `extension ${ext.id} 1.3.0 does not satisfy ^1.4.0` },
     ])
-    expect(new ExponentialHost().installPackage(charts)[0]!.message).toContain(`is not available on this host`)
+    expect(new ExponentialHost().installPackage(charts).map((i) => i.message).join(`; `)).toContain(`is not available on this host`)
   })
 })

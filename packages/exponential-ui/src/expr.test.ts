@@ -66,7 +66,7 @@ describe(`round 1: bound inputs emit calls`, () => {
 
   test(`interpolation, negation, $text, $map, $cond, $coalesce, len`, () => {
     expect(evalValue(`{props.page|1} / {props.total}`, bound)).toEqual({ "@call": `concat`, args: { values: [{ "@call": `fallback`, args: { value: { "@path": `/page` }, default: 1 } }, ` / `, 5] } })
-    expect(evalValue(`{!props.open}`, bound)).toEqual({ "@call": `not`, args: { value: { "@path": `/ui/open` } } })
+    expect(evalValue(`{!props.open}`, bound)).toEqual({ "@call": `not`, args: { value: { "@call": `cond`, args: { if: { "@path": `/ui/open` }, then: true, else: false } } } })
     expect(evalValue({ $text: `props.page` }, bound)).toEqual({ "@call": `text`, args: { value: { "@path": `/page` } } })
     expect(evalValue({ $map: { from: `props.page`, cases: { "1": `first` }, default: `other` } }, bound)).toEqual({ "@call": `map`, args: { value: { "@path": `/page` }, cases: { "1": `first` }, default: `other` } })
     expect(evalValue({ $cond: [`props.open`, `a`, `b`] }, bound)).toEqual({ "@call": `cond`, args: { if: { "@path": `/ui/open` }, then: `a`, else: `b` } })
@@ -77,7 +77,7 @@ describe(`round 1: bound inputs emit calls`, () => {
   })
 
   test(`conditions: decided when literal, the dynamic value when bound`, () => {
-    expect(evalConditionValue(`props.open`, bound)).toEqual({ "@path": `/ui/open` })
+    expect(evalConditionValue(`props.open`, bound)).toEqual({ "@call": `cond`, args: { if: { "@path": `/ui/open` }, then: true, else: false } })
     expect(evalConditionValue(`props.label`, bound)).toBe(true)
     expect(evalConditionValue({ $eq: [`{props.page}`, 2] }, bound)).toEqual({ "@call": `eq`, args: { a: { "@path": `/page` }, b: 2 } })
     expect(evalCondition(`props.open`, bound)).toBe(true)

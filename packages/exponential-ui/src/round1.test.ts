@@ -103,9 +103,10 @@ describe(`bound macro inputs (§1)`, () => {
     const bc = expandMacros({ id: `b`, component: `Breadcrumb`, props: { items: { "@path": `/items` } }, children: [] })
     expect(bc.children).toEqual([])
     const one = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: { "@path": `/l` } }, children: [] })
-    expect(one.children[0].visible).toEqual({ "@path": `/l` })
+    expect(one.children[0].visible).toEqual({ "@call": `cond`, args: { if: { "@path": `/l` }, then: true, else: false } })
     const both = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: { "@path": `/l` }, value: { "@path": `/v` } }, children: [] })
-    expect(both.children[0].visible).toEqual({ "@call": `or`, args: { values: [{ "@path": `/l` }, { "@path": `/v` }] } })
+    const has = (path: string) => ({ "@call": `cond`, args: { if: { "@path": path }, then: true, else: false } })
+    expect(both.children[0].visible).toEqual({ "@call": `or`, args: { values: [has(`/l`), has(`/v`)] } })
     const literal = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: `Disk`, value: { "@path": `/v` } }, children: [] })
     expect(literal.children[0].visible).toBeUndefined()
   })
@@ -178,8 +179,8 @@ describe(`the bind pass (§1)`, () => {
 
   test(`values resolve at any depth; unknown functions are undefined`, () => {
     expect(resolveDynamic({ series: [{ values: { "@path": `/v` } }], n: { "@call": `len`, args: { value: { "@path": `/v` } } } }, { v: [1, 2] })).toEqual({ series: [{ values: [1, 2] }], n: 2 })
-    expect(resolveDynamic({ "@call": `nope` }, {})).toBeUndefined()
-    expect(resolveDynamic({ "@call": `and`, args: { values: [true, { "@path": `/x` }] } }, { x: 0 })).toBe(true)
+    expect(resolveDynamic({ "@call": `nope` }, {})).toBeNull()
+    expect(resolveDynamic({ "@call": `and`, args: { values: [true, { "@path": `/x` }] } }, { x: 0 })).toBe(false)
   })
 
   test(`fixtures/bind-time.json replays: bound trees and presses`, () => {

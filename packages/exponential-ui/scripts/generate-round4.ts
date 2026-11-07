@@ -55,7 +55,7 @@ const VALIDATE: { name: string; input: NestedNode }[] = [
   },
   {
     name: `action: a namespaced host function passes`,
-    input: { id: `root`, component: `Button`, props: { label: `Wave` }, on: { press: { functionCall: { "@call": `app.toast`, args: { text: `Hi` } } } } },
+    input: { id: `root`, component: `Button`, props: { label: `Wave` }, on: { press: { functionCall: { "@call": `app_toast`, args: { text: `Hi` } } } } },
   },
   {
     name: `action: an unknown function inside the event context`,

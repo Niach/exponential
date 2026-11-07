@@ -1121,6 +1121,10 @@
       "issues": [
         {
           "path": "/templates/month/components/1/on/press/functionCall/args",
+          "message": "args is an object"
+        },
+        {
+          "path": "/templates/month/components/1/on/press/functionCall/args",
           "message": "args is an object of action log's params"
         }
       ]

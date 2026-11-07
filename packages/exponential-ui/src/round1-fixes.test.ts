@@ -64,12 +64,12 @@ describe(`row-scoped Table slot cells (§3, review blocker)`, () => {
     const row0 = bindRowSlot(bound.slots!.status, root.props.rows, rows, 0, data, STRINGS)!
     expect(byId(row0, `cell.label`)!.props.text).toBe(`ok`)
     expect(bindRowSlot(bound.slots!.status, root.props.rows, rows, 1, data, STRINGS)).toBeNull()
-    expect(rowScope(root.props.rows, rows, 1)).toEqual({ base: `/rows/1` })
+    expect(rowScope(root.props.rows, rows, 1)).toEqual({ base: `/rows/1`, index: 1 })
   })
 
   test(`literal rows bind relative paths inside the row; absolute ones read the data; a relative set writes nothing`, () => {
     const scope = rowScope([{ s: `x` }], [{ s: `x` }], 0)
-    expect(scope).toEqual({ item: { s: `x` } })
+    expect(scope).toEqual({ item: { s: `x` }, index: 0 })
     expect(readPath({ s: `root` }, `s`, scope)).toBe(`x`)
     expect(readPath({ s: `root` }, `/s`, scope)).toBe(`root`)
     expect(readPath({}, ``, scope)).toEqual({ s: `x` })
@@ -99,7 +99,7 @@ describe(`row-scoped Table slot cells (§3, review blocker)`, () => {
       }
     }
     const bound = extra[0].datasets[0]
-    expect(bound.rowSlots![0].rows.map((r) => (r.slots.status ? byId(r.slots.status, `cell.label`)!.props.text : null))).toEqual([`ok`, null, 0])
+    expect(bound.rowSlots![0].rows.map((r) => (r.slots.status ? byId(r.slots.status, `cell.label`)!.props.text : null))).toEqual([`ok`, null, null])
   })
 })
 
@@ -216,7 +216,7 @@ describe(`$set meets an author function (§1, review minor)`, () => {
   test(`the author's function is kept, no set is added, the reducer reports it once`, () => {
     const { root, issues } = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { "@path": `/open` } }, on: { change: { functionCall: { "@call": `openUrl`, args: { url: `https://x` } } } } })
     expect(root.children[0].on!.press).toEqual({ functionCall: { "@call": `openUrl`, args: { url: `https://x` } } })
-    expect(issues).toEqual([{ id: `s`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event` }])
+    expect(issues).toEqual([{ id: `s`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event`, code: `VALIDATION_FAILED`, path: `/components/s/on/change` }])
     // An event handler still gets the set.
     const ok = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { "@path": `/open` } }, on: { change: { event: { name: `fold` } } } })
     expect(ok.issues).toEqual([])
@@ -227,7 +227,7 @@ describe(`$set meets an author function (§1, review minor)`, () => {
     const { root, issues } = reduce({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/o` } }, on: { change: { functionCall: { "@call": `harness_track` } } } })
     const press = byId(root, `c.trigger`)!.on!.press as Record<string, unknown>
     expect(press).toEqual({ functionCall: { "@call": `harness_track` } })
-    expect(issues).toEqual([{ id: `c`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event` }])
+    expect(issues).toEqual([{ id: `c`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event`, code: `VALIDATION_FAILED`, path: `/components/c/on/change` }])
   })
 })
 
@@ -266,7 +266,7 @@ describe(`the bind function table (§1, review minor)`, () => {
   test(`every call the expander emits (catalog-macros.json, bind-time.json) is in BIND_FUNCTIONS`, () => {
     const called = new Set<string>()
     walk([macrosFixture, bindFixture], (v) => {
-      if (typeof v.call === `string` && (v.args === undefined || typeof v.args === `object`)) called.add(v.call)
+      if (typeof v[`@call`] === `string` && (v.args === undefined || typeof v.args === `object`)) called.add(v[`@call`] as string)
     })
     called.delete(`set`)
     called.delete(`openUrl`)
@@ -376,6 +376,6 @@ describe(`reducer: visible on the basic catalog (review minor)`, () => {
     expect(root.children[0].visible).toEqual({ "@path": `/show` })
     expect(bindTree(root, { show: false })!.children).toEqual([])
     const bad = reduceSurface([{ id: `root`, component: `Text`, text: `hi`, visible: `yes` as unknown as boolean }], { catalogId: A2UI_BASIC_CATALOG_ID })
-    expect(bad.issues).toContainEqual({ id: `root`, message: `visible: expected a boolean, a binding or a function call` })
+    expect(bad.issues).toContainEqual({ id: `root`, message: `visible: expected a boolean, a binding or a function call`, code: `VALIDATION_FAILED`, path: `/components/root/visible` })
   })
 })

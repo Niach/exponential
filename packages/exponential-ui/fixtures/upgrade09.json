@@ -3446,6 +3446,128 @@
         },
         "status": "unsigned"
       }
+    },
+    {
+      "name": "a binding or call AT a data prop converts, a literal's inside stays data",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "t",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": {
+                "path": "/rows"
+              }
+            },
+            {
+              "id": "u",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": {
+                "call": "filter",
+                "args": {
+                  "items": {
+                    "path": "/rows"
+                  }
+                }
+              }
+            },
+            {
+              "id": "v",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": [
+                {
+                  "path": "/not/a/binding"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "t",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": {
+                "@path": "/rows"
+              }
+            },
+            {
+              "id": "u",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": {
+                "@call": "filter",
+                "args": {
+                  "items": {
+                    "@path": "/rows"
+                  }
+                }
+              }
+            },
+            {
+              "id": "v",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": [
+                {
+                  "path": "/not/a/binding"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "t": "t",
+            "u": "u",
+            "v": "v"
+          }
+        },
+        "catalogs": {}
+      }
     }
   ]
 }

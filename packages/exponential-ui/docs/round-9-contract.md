@@ -283,10 +283,12 @@ a DYNAMIC POSITION:
 Inside a dynamic position, values are resolved at ANY depth (arrays and
 object literals included). This is unchanged and is an extension of upstream.
 
-DATA positions are never interpreted: a prop whose schema is a data schema
-(`isDataSchema`, TS `src/catalog.ts` / Rust `catalog::is_data_schema`:
-shape-less `object` props and Table `rows`), and anything a binding
-returns. `{"@path"}` there is plain data, and `@@` stays `@@`.
+DATA positions are never interpreted: the literal value of a prop whose
+schema is a data schema (`isDataSchema`, TS `src/dynamic.ts` / Rust
+`data::is_data_schema`: shape-less `object` props and Table `rows`), and
+anything a binding returns. Inside such a literal `{"@path"}` is plain data
+and `@@` stays `@@`. A `{"@path"}` or `{"@call"}` that IS the prop's value
+still resolves (a bound Table `rows`).
 `createSurface.dataModel`, `updateDataModel.value` and every data model
 value are data.
 
@@ -1319,7 +1321,9 @@ is always the FIRST key of a message or card. A package that does not name
 
 **Dynamic conversion** `dyn(v)` applies only in the 0.9 dynamic positions,
 which are the §3.2 positions read with the 0.9 key names: props except
-`isDataSchema` and `style`, `visible`, `accessibility.label/description`,
+`style` and the INSIDE of a literal at an `isDataSchema` prop (a binding or
+call AT such a prop, Table `rows: {"path": …}`, still converts, as §3.2's
+resolver reads it), `visible`, `accessibility.label/description`,
 `checks[].condition`, `on.*`/`action` event context and functionCall, and
 call args. Recursively:
 

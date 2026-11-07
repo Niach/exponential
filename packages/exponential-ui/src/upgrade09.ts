@@ -135,6 +135,9 @@ interface Ctx {
   tools: ToolMap
 }
 
+/** A 0.9 binding or call, as `dyn` reads them. */
+const isDirective09 = (v: unknown): boolean => isObj(v) && ((Object.keys(v).length === 1 && typeof v.path === `string`) || typeof v.call === `string`)
+
 /** §14.3 `dyn`. */
 function dyn(v: unknown, ctx: Ctx): unknown {
   if (Array.isArray(v)) return v.map((item) => dyn(item, ctx))
@@ -368,7 +371,9 @@ function upgradeProp(key: string, value: unknown, component: unknown, basic: boo
     return dyn(value, ctx)
   }
   if (isCoreIdProp(component, key)) return rekey.ref(value)
-  if (isDataSchema(corePropSchema(component, key))) return value
+  // A binding or call AT a DATA position still resolves (`resolveProp`): only
+  // what is INSIDE a literal there is data.
+  if (isDataSchema(corePropSchema(component, key))) return isDirective09(value) ? dyn(value, ctx) : value
   return dyn(value, ctx)
 }
 

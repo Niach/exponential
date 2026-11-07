@@ -61,8 +61,8 @@ describe(`VAPP-107 property: reduce + expand never throw`, () => {
         expect(out.root?.component, `${catalogId} ${name}`).toBe(`Unknown`)
         expect(reduceNested({ id: `root`, component: name, children: [] } as unknown as NestedNode, { catalogId }).root?.component, `${catalogId} ${name}`).toBe(`Unknown`)
       }
-      expect(() => resolveDynamic({ call: name, args: { a: 1 } }, {})).not.toThrow()
-      expect(resolveDynamic({ call: name, args: { a: 1 } }, {}), name).toBeUndefined()
+      expect(() => resolveDynamic({ "@call": name, args: { a: 1 } }, {})).not.toThrow()
+      expect(resolveDynamic({ "@call": name, args: { a: 1 } }, {}), name).toBeNull()
       const host = new ExponentialHost()
       expect(host.decide(`s`, name), name).toBe(`not_found`)
     }

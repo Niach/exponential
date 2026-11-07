@@ -66,7 +66,7 @@ describe(`Sidebar rail (#VAPP-277)`, () => {
     expect(find(rail, `trail`)).toBeUndefined()
     const bound = slotted({ "@path": `/c` })
     expect(find(bound, `lead`)?.visible).toEqual({ "@call": `not`, args: { value: { "@call": `cond`, args: { if: { "@path": `/c` }, then: true, else: false } } } })
-    expect(find(bound, `trail`)?.visible).toEqual({ "@call": `and`, args: { values: [{ "@path": `/show` }, { "@call": `not`, args: { value: { "@path": `/c` } } }] } })
+    expect(find(bound, `trail`)?.visible).toEqual({ "@call": `and`, args: { values: [{ "@path": `/show` }, { "@call": `not`, args: { value: { "@call": `cond`, args: { if: { "@path": `/c` }, then: true, else: false } } } }] } })
   })
 
   test(`a Section on the rail: no header, a rule instead, its rows shown even when closed, undivided`, () => {

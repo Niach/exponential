@@ -16,8 +16,8 @@ describe(`defineSurface`, () => {
   test(`the flat list has root first, generated ids, a template child and the slots`, () => {
     const flat = flattenSurface(devices)
     expect(flat.map((c) => c.id)).toEqual([`root`, `section_1`, `list_1`, `row_1`, `emptyState_1`])
-    expect(flat[0]).toEqual({ id: `root`, component: `Stack`, gap: `md`, children: [`section-1`, `list-1`, `emptyState-1`] })
-    expect(flat[2].children).toEqual({ componentId: `row-1`, path: `/devices/rows`, key: `id` })
+    expect(flat[0]).toEqual({ id: `root`, component: `Stack`, gap: `md`, children: [`section_1`, `list_1`, `emptyState_1`] })
+    expect(flat[2].children).toEqual({ componentId: `row_1`, path: `/devices/rows`, key: `id` })
     expect(flat[3].on).toEqual({ press: { functionCall: { "@call": `harness_toast`, args: { id: { "@path": `id` } } } } })
     expect(flat[4].visible).toEqual({ "@call": `eq`, args: { a: 0, b: { "@path": `/devices/count` } } })
   })

@@ -3853,7 +3853,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/visible/args/value/args/expr",
+          "path": "/templates/month/components/0/visible/args/value/args/if/args/expr",
           "message": "cannot compare number and string"
         }
       ]
@@ -4912,7 +4912,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/text/args/vars/h/path",
+          "path": "/templates/month/components/1/text/args/vars/h/@path",
           "message": "unknown field hourz in hourz"
         }
       ]
@@ -4992,7 +4992,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/text/args/vars/e/path",
+          "path": "/templates/month/components/0/text/args/vars/e/@path",
           "message": "unknown field rowz in /entries/rowz"
         }
       ]

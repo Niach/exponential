@@ -1288,7 +1288,14 @@
                               "checks": [
                                 {
                                   "condition": {
-                                    "@path": "/form/terms"
+                                    "@call": "cond",
+                                    "args": {
+                                      "if": {
+                                        "@path": "/form/terms"
+                                      },
+                                      "then": true,
+                                      "else": false
+                                    }
                                   },
                                   "message": "You must accept the terms to continue."
                                 }
@@ -1399,7 +1406,14 @@
                           "@call": "not",
                           "args": {
                             "value": {
-                              "@path": "mine"
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "mine"
+                                },
+                                "then": true,
+                                "else": false
+                              }
                             }
                           }
                         }
@@ -1419,7 +1433,14 @@
                           "@call": "not",
                           "args": {
                             "value": {
-                              "@path": "mine"
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "mine"
+                                },
+                                "then": true,
+                                "else": false
+                              }
                             }
                           }
                         },
@@ -1479,7 +1500,14 @@
                           "color": "$color.primaryForeground"
                         },
                         "visible": {
-                          "@path": "mine"
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "mine"
+                            },
+                            "then": true,
+                            "else": false
+                          }
                         },
                         "children": [
                           {
@@ -2564,7 +2592,14 @@
                       "backgroundColor": "$color.primary"
                     },
                     "visible": {
-                      "@path": "unread"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "unread"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     }
                   }
                 }
@@ -5976,7 +6011,14 @@
                         "@call": "not",
                         "args": {
                           "value": {
-                            "@path": "/viewer/hasPrev"
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "/viewer/hasPrev"
+                              },
+                              "then": true,
+                              "else": false
+                            }
                           }
                         }
                       }
@@ -6040,7 +6082,14 @@
                         "@call": "not",
                         "args": {
                           "value": {
-                            "@path": "/viewer/hasNext"
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "/viewer/hasNext"
+                              },
+                              "then": true,
+                              "else": false
+                            }
                           }
                         }
                       }
@@ -7121,7 +7170,14 @@
                   "gap": "sm"
                 },
                 "visible": {
-                  "@path": "/loading"
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "/loading"
+                    },
+                    "then": true,
+                    "else": false
+                  }
                 },
                 "children": [
                   {
@@ -7152,7 +7208,14 @@
                   "@call": "not",
                   "args": {
                     "value": {
-                      "@path": "/loading"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/loading"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     }
                   }
                 },
@@ -7252,7 +7315,14 @@
                       "dot": false
                     },
                     "visible": {
-                      "@path": "/loading"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/loading"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     }
                   },
                   {
@@ -7267,7 +7337,14 @@
                       "@call": "not",
                       "args": {
                         "value": {
-                          "@path": "/loading"
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/loading"
+                            },
+                            "then": true,
+                            "else": false
+                          }
                         }
                       }
                     }
@@ -7302,7 +7379,14 @@
                       "dot": true
                     },
                     "visible": {
-                      "@path": "/loading"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/loading"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     }
                   },
                   {
@@ -7315,7 +7399,14 @@
                       "@call": "not",
                       "args": {
                         "value": {
-                          "@path": "/loading"
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/loading"
+                            },
+                            "then": true,
+                            "else": false
+                          }
                         }
                       }
                     },
@@ -7886,7 +7977,14 @@
                                       "@call": "not",
                                       "args": {
                                         "value": {
-                                          "@path": "/playing"
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "/playing"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
                                         }
                                       }
                                     }

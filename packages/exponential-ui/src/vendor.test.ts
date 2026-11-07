@@ -62,12 +62,12 @@ describe(`vendored sources`, () => {
     })
   }
 
-  test(`the pinned basic catalog is the v0.9 spec the map targets`, () => {
-    const basic = JSON.parse(readFileSync(join(pkgRoot, `vendor/a2ui/v0_9/basic_catalog.json`), `utf8`)) as { catalogId: string; components: object; functions: object }
+  test(`the pinned basic catalog is the 1.0 spec the map targets`, () => {
+    const basic = JSON.parse(readFileSync(join(pkgRoot, `vendor/a2ui/v1_0/catalogs/basic/v1/catalog.json`), `utf8`)) as { catalogId: string; components: object; functions: object }
     expect(basic.catalogId).toBe(A2UI_BASIC_CATALOG_ID)
     expect(Object.keys(basic.components)).toHaveLength(18)
     expect(Object.keys(basic.functions)).toHaveLength(14)
-    const messages = readFileSync(join(pkgRoot, `vendor/a2ui/v0_9/server_to_client.json`), `utf8`)
+    const messages = readFileSync(join(pkgRoot, `vendor/a2ui/v1_0/json/agent_to_renderer.json`), `utf8`)
     expect(messages).toContain(`"const": "${A2UI_VERSION}"`)
   })
 
