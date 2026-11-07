@@ -111,6 +111,26 @@ function externals(pkg: Manifest): string[] {
   return [pkg.name, ...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})].flatMap((d) => [d, `${d}/*`])
 }
 
+/** Every `$comment` dropped, at every depth. */
+function withoutComments(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutComments)
+  if (!value || typeof value !== `object`) return value
+  return Object.fromEntries(Object.entries(value).filter(([k]) => k !== `$comment`).map(([k, v]) => [k, withoutComments(v)]))
+}
+
+/** VAPP-289: the catalog, generated and theme JSON a bundle inlines carries
+ *  its `$comment`s for people, ~40 KB nothing reads at runtime (35 KB of the
+ *  root and host entries): they stay in the source and leave the bundle. */
+const stripJsonComments: Bun.BunPlugin = {
+  name: `strip-json-comments`,
+  setup(build) {
+    build.onLoad({ filter: /packages\/exponential-ui\/(catalog|generated|themes)\/[^/]+\.json$/ }, async ({ path }) => ({
+      contents: JSON.stringify(withoutComments(JSON.parse(await Bun.file(path).text()))),
+      loader: `json`,
+    }))
+  },
+}
+
 /** The package's entries bundled the way the release ships them: ESM for the
  *  browser, every dependency external, JSON inlined, common code in shared
  *  chunks (Bun) or one file per entry (Vite, for Solid). Returns the metafile
@@ -130,6 +150,7 @@ export async function bundle(dir: string, options: BundleOptions): Promise<Bundl
     target: `browser`,
     splitting: true,
     external,
+    plugins: [stripJsonComments],
     minify: options.minify ?? false,
     sourcemap: options.sourcemap ? `linked` : `none`,
     define: { "process.env.NODE_ENV": `"production"` },

@@ -23,7 +23,7 @@
 
 // The package root is external to the web entries (like motion.ts).
 import { canvasDeclaredSize, canvasFit, canvasFitMatrix, canvasToDrawing, type CanvasEvent, type ModeName, type ResolvedTheme } from "@exponential_app/eui"
-import { cssValue } from "../theme-css"
+import { fontStack } from "../font-stack"
 import { MotionCanvasPool, MOTION_DEFAULT_FONTS, motionConcat, paintMotionFrame, type MotionTextFonts } from "./motion-paint"
 import { motionThemeSlots } from "./motion"
 
@@ -47,7 +47,7 @@ export function canvasCanPaint(): boolean {
 /** The font stacks a theme sets a drawing's `text` ops in. */
 export function canvasThemeFonts(theme: ResolvedTheme): MotionTextFonts {
   const family = (theme.tokens?.type?.family ?? {}) as Record<string, string>
-  const stack = (name: `sans` | `mono`) => (family[name] ? cssValue(`fontFamily`, family[name], theme.fonts ?? {}) : null) ?? MOTION_DEFAULT_FONTS[name]
+  const stack = (name: `sans` | `mono`) => (family[name] ? fontStack(family[name], theme.fonts ?? {}) : null) ?? MOTION_DEFAULT_FONTS[name]
   return { sans: stack(`sans`), mono: stack(`mono`) }
 }
 

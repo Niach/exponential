@@ -62,20 +62,53 @@ const pairs = (ranges: Range[], open: string, close: string, per = 6) => {
   return lines.join(`\n`)
 }
 
+/** The text form `decode` in generated/xid.ts reads. */
+function encode(ranges: Range[]): string {
+  const digits = `0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_`
+  let out = ``
+  let at = 0
+  for (const v of ranges.flat()) {
+    let n = v - at
+    at = v
+    for (; n >= 32; n = Math.floor(n / 32)) out += digits[32 + (n % 32)]
+    out += digits[n]
+  }
+  return out
+}
+
 function renderTs({ start, cont }: { start: Range[]; cont: Range[] }): string {
   return `// ${HEADER.split(`\n`).join(`\n// `)}
 
 export const UNICODE_VERSION = ${JSON.stringify(UNICODE_VERSION)}
 
+const DIGITS = \`0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_\`
+
+/** VAPP-289: a table as text (the npm bundles carry it): each number of the
+ *  flat ranges, as its distance from the one before, in base-32 digits low
+ *  first, a digit + 32 = more follow. Back to [lo, hi, lo, hi, …], sorted. */
+function decode(text: string): number[] {
+  const out: number[] = []
+  let at = 0
+  let n = 0
+  let shift = 0
+  for (const ch of text) {
+    const d = DIGITS.indexOf(ch)
+    n |= (d & 31) << shift
+    shift += 5
+    if (d < 32) {
+      at += n
+      out.push(at)
+      n = shift = 0
+    }
+  }
+  return out
+}
+
 /** XID_Start as flat [lo, hi, lo, hi, …] inclusive ranges, sorted. */
-export const XID_START: readonly number[] = [
-${flat(start)}
-]
+export const XID_START: readonly number[] = decode(${JSON.stringify(encode(start))})
 
 /** XID_Continue as flat [lo, hi, lo, hi, …] inclusive ranges, sorted. */
-export const XID_CONTINUE: readonly number[] = [
-${flat(cont)}
-]
+export const XID_CONTINUE: readonly number[] = decode(${JSON.stringify(encode(cont))})
 
 function inRanges(table: readonly number[], cp: number): boolean {
   let lo = 0

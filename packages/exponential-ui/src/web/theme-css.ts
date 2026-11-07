@@ -20,6 +20,7 @@
 
 import { ANIMATIONS, animatesOpacity, coreCatalog, easingCss, parseTokenRef, shadowCss } from "@exponential_app/eui"
 import type { Easing, FontSpec, RecipeRule, ResolvedTheme, Shadow } from "@exponential_app/eui"
+import { fontStack } from "./font-stack"
 
 export const LAYERS = `@layer xui-base, xui-recipe, xui-node, xui-part, xui-author;`
 
@@ -42,24 +43,6 @@ export function tokenVarName(ref: string): string | null {
 export function tokenVar(ref: string): string | null {
   const name = tokenVarName(ref)
   return name ? `var(${name})` : null
-}
-
-/** A CSS string literal: backslashes and quotes escaped, so a family name
- *  can never end the string early (`validateTheme` refuses them too; this
- *  mirrors the core's `css.ts` `cssString`). */
-function cssString(text: string): string {
-  return `"${text.replace(/\\/g, `\\\\`).replace(/"/g, `\\"`)}"`
-}
-
-/** The CSS generic font families (CSS Fonts 4): emitted bare, never quoted. */
-const CSS_GENERIC_FAMILIES: ReadonlySet<string> = new Set([`serif`, `sans-serif`, `monospace`, `cursive`, `fantasy`, `system-ui`, `ui-serif`, `ui-sans-serif`, `ui-monospace`, `ui-rounded`, `math`, `emoji`, `fangsong`])
-
-function fontStack(family: string, fonts: Record<string, FontSpec>): string {
-  const fallback = fonts[family]?.fallback
-  // VAPP-162: a CSS generic family (`ui-serif`, `ui-monospace`…) stays a
-  // keyword: quoted it would name a font no system has.
-  const name = CSS_GENERIC_FAMILIES.has(family) ? family : cssString(family)
-  return fallback ? `${name}, ${fallback}` : name
 }
 
 /** One style value → its CSS text; `null` = nothing to emit. */
