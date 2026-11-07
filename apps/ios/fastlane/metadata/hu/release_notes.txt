@@ -48,3 +48,4 @@
 - Az Asszisztensed minden csapatodban működik
 - A csapat tulajdonosai Koordinátor ügynököt jelölhetnek ki
 - Az appok vászonra rajzolhatnak, és reagálnak a koppintásra és húzásra
+- Az appok űrlapjain a rekordok mentése újra működik

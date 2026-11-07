@@ -48,3 +48,4 @@
 - Asistentul tău funcționează în toate echipele tale
 - Proprietarii pot alege un agent Coordonator
 - Aplicațiile pot desena pe o pânză și răspund la atingeri și trageri
+- Salvarea unei înregistrări într-un formular de aplicație funcționează din nou
