@@ -39,6 +39,8 @@ pub struct Ipc {
     pub shortcuts: crate::shortcuts::Shortcuts,
     /// The modifiers held for `InputEvent::Keysym` (#EDE-22).
     pub keysyms: crate::keysym::Keysyms,
+    /// `hold_input` (#EDE-23).
+    pub hold: crate::hold::Hold,
 }
 
 #[derive(Debug)]
@@ -59,7 +61,7 @@ impl Drop for Ipc {
     }
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
@@ -93,6 +95,11 @@ impl Ipc {
 
     fn grant(&self, token: &Token) -> Option<&Grant> {
         self.grants.iter().find(|g| &g.token == token)
+    }
+
+    pub(crate) fn next_event_id(&mut self) -> u64 {
+        self.next_event += 1;
+        self.next_event
     }
 
     /// A grant the compositor hands a process it starts (the sealed lock).
@@ -168,11 +175,13 @@ impl Ede {
         }
     }
 
-    /// A connection went; the shell's last one starts the recovery clock.
+    /// A connection went; its hold goes with it, the shell's last one
+    /// starts the recovery clock.
     fn ipc_dropped(&mut self, id: u64) {
         let was_shell = self.ipc.shell_subscribed();
         self.ipc.clients.retain(|c| c.id != id);
         self.ipc.shortcuts.drop_client(id);
+        self.release_input(id);
         if was_shell && !self.ipc.shell_subscribed() {
             self.shell_left();
         }
@@ -204,7 +213,7 @@ impl Ede {
         self.ipc.clients.iter().any(|c| c.id == id && !c.dead)
     }
 
-    fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<&[u8]>) -> bool {
+    pub(crate) fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<&[u8]>) -> bool {
         let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return false };
         let json = serde_json::to_vec(message).expect("messages serialize");
         let ok = write_frame(&mut conn.writer, &json).and_then(|_| extra.map_or(Ok(()), |b| write_frame(&mut conn.writer, b))).is_ok();
@@ -221,8 +230,7 @@ impl Ede {
         if !self.ipc.clients.iter().any(|c| c.subscribed) {
             return;
         }
-        self.ipc.next_event += 1;
-        let envelope = Envelope::new(&format!("ev-{}", self.ipc.next_event), kind, now_ms(), EVENT_SOURCE, None, data);
+        let envelope = Envelope::new(&format!("ev-{}", self.ipc.next_event_id()), kind, now_ms(), EVENT_SOURCE, None, data);
         let message = Message::Event { event: envelope };
         let now = now_ms();
         let ids: Vec<u64> = self
@@ -368,11 +376,11 @@ impl Ede {
                         Ok(())
                     }
                     (InputEvent::PointerMotion { x, y }, true) => {
-                        self.pointer_motion_to((x, y).into(), now as u32);
+                        self.person_pointer_motion_to((x, y).into(), now as u32);
                         Ok(())
                     }
                     (InputEvent::PointerButton { button, pressed }, true) => {
-                        self.pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
+                        self.person_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
                         Ok(())
                     }
                     (InputEvent::Key { key, pressed }, false) => {
@@ -381,7 +389,7 @@ impl Ede {
                     (InputEvent::PointerMotionRelative { dx, dy }, bindings) => {
                         let pos = self.seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
                         if bindings {
-                            self.pointer_motion_to(pos, now as u32);
+                            self.person_pointer_motion_to(pos, now as u32);
                             Ok(())
                         } else {
                             self.drive_pointer_motion(pos, now as u32)
@@ -404,6 +412,14 @@ impl Ede {
             Request::PointerPosition => {
                 let at = self.seat.get_pointer().unwrap().current_location();
                 json(serde_json::to_value(PointerInfo { x: at.x, y: at.y }).unwrap())
+            }
+            Request::HoldInput => {
+                self.hold_input(id);
+                json(serde_json::Value::Null)
+            }
+            Request::ReleaseInput => {
+                self.release_input(id);
+                json(serde_json::Value::Null)
             }
             Request::ReloadConfig => {
                 self.reload_config().map_err(|e| fail(ErrorCode::Invalid, &e))?;

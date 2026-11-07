@@ -1,7 +1,8 @@
 //! EXP-1273: computer use for coding runs, FOREGROUND only, on a thin
 //! backend of our own ([`backend`]): the agent drives the person's real
 //! pointer and keyboard through the OS input APIs (XTest, CGEvent,
-//! SendInput), sees the screen as a fitted screenshot ([`tools`]), and the
+//! SendInput; on eDE the compositor's `ede-protocol`, #EDE-23), sees the
+//! screen as a fitted screenshot ([`tools`]), and the
 //! person's own input is locked while it works (XInput2 slave grabs, a
 //! CGEventTap, low-level hooks) with Esc as the abort ([`host`]). No
 //! background mode, no second pointer, no accessibility tree: pixels only.
@@ -49,7 +50,8 @@ pub enum Readiness {
     Ready,
     /// An OS permission the person has to grant; the text names it.
     MissingPermission(String),
-    /// Nothing to drive here (a display-less box, a Wayland session).
+    /// Nothing to drive here (a display-less box, a Wayland session other
+    /// than eDE, an eDE session without its control socket).
     Unsupported(String),
 }
 
@@ -364,6 +366,13 @@ fn readiness_of(permissions: &[(Permission, bool)]) -> Readiness {
     }
 }
 
+/// #EDE-23: what drives the screen here: `eDE` (an eDE session, through
+/// `ede-protocol`), `X11`, `macOS` or `Windows`; [`readiness`] says whether
+/// it can.
+pub fn backend_name() -> &'static str {
+    backend::name()
+}
+
 /// Whether this machine can do computer use right now, without prompting
 /// and without starting anything (the doctor line).
 pub fn readiness() -> Readiness {
@@ -379,7 +388,7 @@ pub fn prepare() -> Readiness {
     if readiness == Readiness::Ready {
         match backend::open() {
             Ok(backend) => match backend.displays() {
-                Ok(displays) => log::info!("[computer] computer use is ready ({} display(s))", displays.len()),
+                Ok(displays) => log::info!("[computer] computer use is ready on {} ({} display(s))", backend::name(), displays.len()),
                 Err(reason) => log::warn!("[computer] the screen does not answer: {reason}"),
             },
             Err(reason) => log::warn!("[computer] {reason}"),

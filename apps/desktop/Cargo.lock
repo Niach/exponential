@@ -3147,6 +3147,7 @@ version = "0.1.0"
 dependencies = [
  "core-foundation 0.10.0",
  "core-graphics 0.24.0",
+ "ede-protocol",
  "emcp",
  "foreign-types",
  "image",
