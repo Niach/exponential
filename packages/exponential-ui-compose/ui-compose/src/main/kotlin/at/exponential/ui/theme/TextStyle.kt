@@ -33,12 +33,12 @@ data class ResolvedTextStyle(
      * counting text keeps its width as it counts (the Carousel `counter`
      * pill, `i / n`). The measurer and the leaf apply the same rule.
      * Round 8 (§3): the Progress `value` caption (`valueText`, the macro's
-     * `<id>.header.value` Text; [ownerComponent] = the macro for a macro part).
+     * `<id>.header.value` Text; [ownerComponent] = the macro for a macro part), and Meter's `value`, the same counting text.
      */
     fun forPart(ownerComponent: String?, part: String?, id: String? = null): ResolvedTextStyle {
         if (fontFeatures != null) return this
         val tabular = (ownerComponent == "Carousel" && part == "counter") ||
-            (ownerComponent == "Progress" && id != null && id.endsWith(".header.value"))
+            ((ownerComponent == "Progress" || ownerComponent == "Meter") && id != null && id.endsWith(".header.value"))
         return if (tabular) copy(fontFeatures = "tnum") else this
     }
 

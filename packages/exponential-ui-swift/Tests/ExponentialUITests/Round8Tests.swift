@@ -274,6 +274,30 @@ final class Round8Tests: XCTestCase {
         XCTAssertFalse(m.textStyle(label).tabular)
         XCTAssertNotNil(m.index(of: "p.detail"), "the detail caption")
     }
+
+    /// The value's box is the width it PAINTS at: the measurer shapes it in
+    /// the same tabular face the painter draws (round-8 iOS shot read
+    /// "41 MB/s · 12..." and ended short: the core names the leaf's owner
+    /// `Progress` to the measurer, the model's node has none).
+    func testProgressValueMeasuresAtItsPaintedWidth() throws {
+        let m = try makeModel(mode: .light)
+        try m.setNested(json: #"{"id":"p","component":"Progress","props":{"value":41,"label":"Download","valueText":"41 MB/s · 12 min"}}"#)
+        let value = try XCTUnwrap(m.index(of: "p.header.value"))
+        let ts = m.textStyle(value)
+        XCTAssertTrue(ts.tabular)
+        let painted = TextShaper.width(ts.shown("41 MB/s · 12 min"), ts)
+        XCTAssertEqual(m.frame(value).width, painted, accuracy: 0.01, "measured box = painted line")
+        let label = try XCTUnwrap(m.index(of: "p.header.label"))
+        XCTAssertEqual(m.frame(value).maxX, m.frame(m.index(of: "p")!).maxX, accuracy: 0.01, "flush right")
+        XCTAssertLessThan(m.frame(label).maxX, m.frame(value).minX)
+        // Meter's `value` is the same counting text (the core names its owner `Meter`).
+        let meter = try makeModel(mode: .light)
+        try meter.setNested(json: #"{"id":"mm","component":"Meter","props":{"segments":[{"value":40,"tone":"primary","label":"Posts"}],"max":100,"label":"Quota","value":"65%"}}"#)
+        let mv = try XCTUnwrap(meter.index(of: "mm.header.value"))
+        let mts = meter.textStyle(mv)
+        XCTAssertTrue(mts.tabular)
+        XCTAssertEqual(meter.frame(mv).width, TextShaper.width("65%", mts), accuracy: 0.01, "Meter value: measured box = painted line")
+    }
 }
 
 @MainActor

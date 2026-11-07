@@ -153,11 +153,14 @@ public struct TextStyle: Equatable, Hashable, Sendable {
 
     /// EXP-1495 (round-6 §3): the parts whose figures are tabular, so a
     /// counting text keeps its width as it counts (the Carousel `counter`;
-    /// round 8: the Progress `value`, e.g. "42 / 120 MB": the macro's
-    /// `<id>.header.value` Text, a macro part with no `part` / owner of its
-    /// own, so the measurer and the painter both key it by id).
+    /// round 8: the Progress and Meter `value`, e.g. "42 / 120 MB": the
+    /// macro's `<id>.header.value` Text, a macro part with no `part` of its
+    /// own, so it is keyed by id. The owner differs by side: the core names
+    /// the macro (`Progress` / `Meter`) on the measurer's `FfiLeaf` and nil
+    /// on the model's `FfiNode`; both sides must agree or the measured box
+    /// is narrower than the painted line, which then truncates).
     func forPart(owner: String?, part: String?, id: String = "") -> TextStyle {
-        let progressValue = owner == nil && part == nil && id.hasSuffix(".header.value")
+        let progressValue = (owner == nil || owner == "Progress" || owner == "Meter") && part == nil && id.hasSuffix(".header.value")
         guard owner == "Carousel" && part == "counter" || progressValue else { return self }
         var t = self
         t.tabular = true

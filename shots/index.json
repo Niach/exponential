@@ -2406,6 +2406,36 @@
         "sha256": "ba0a79d4149fe61c779f874cacf976cbd17a675443d57cca0b37e66e0cf754b9"
       }
     },
+    "exponential-ui-canvas": {
+      "android": {
+        "file": "shots/exponential-ui-canvas/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 16988,
+        "sha256": "1b736cc21b3967bbb22f434de03d4098bd3567b44510f5c437b603081fedbd06"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-canvas/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 32024,
+        "sha256": "1c7912cc08d12dc7d25a8fc0530629ddd71106727a3330df88e836e41d79c637"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-canvas/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 17222,
+        "sha256": "8fed2d353a32a53517a7de9f8b3e641430cbc34ba2bac7bed176023456239011"
+      },
+      "web": {
+        "file": "shots/exponential-ui-canvas/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 12200,
+        "sha256": "6e4bb8135abf145beec94ec4ab3d902d350a98521f747dcf05e2870feb4d2fb5"
+      }
+    },
     "exponential-ui-card": {
       "android": {
         "file": "shots/exponential-ui-card/android.webp",
@@ -2515,29 +2545,29 @@
         "file": "shots/exponential-ui-checkbox/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 8928,
-        "sha256": "19a786817935027b9c4aef731bb6f7ad4eefcb16c282f476e1da6fccb1bbc97f"
+        "bytes": 13152,
+        "sha256": "02abdf81bf7459cae7c82f591b463742af7b98a87f63cd5a20eca9137eb19466"
       },
       "desktop": {
         "file": "shots/exponential-ui-checkbox/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 26466,
-        "sha256": "256097c93567063e1e3b65bb7129f66f41d641ce80e75a9752926acdca8b5590"
+        "bytes": 29782,
+        "sha256": "671ddae6c8acf6e3acc090423bff57f54bffee8a650a70de560c15d8841c09e2"
       },
       "ios": {
         "file": "shots/exponential-ui-checkbox/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 9458,
-        "sha256": "1131a06bac7bd8d43a5e241fd72fbbcb6f5f20ea593d2167400b8468d5c7c701"
+        "bytes": 13626,
+        "sha256": "a4b37704443047c19f6aa38a1649b60e762c1a6de877b067600d71b4464a023d"
       },
       "web": {
         "file": "shots/exponential-ui-checkbox/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 6990,
-        "sha256": "1fc428d8d7fb20ed1343fdead34719db7b275ef2efe1a6013115806e4b2fa0da"
+        "bytes": 9596,
+        "sha256": "135854e2f88010b2b4da3c65b5d876dc6f11b3b9a594f79fce42b47b15accbec"
       }
     },
     "exponential-ui-chip": {
@@ -3843,29 +3873,29 @@
         "file": "shots/exponential-ui-progress/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 15620,
-        "sha256": "f764e9938f346738f11ab8de4c97208727783da7efe8cfa38f902f75c8a52049"
+        "bytes": 23014,
+        "sha256": "b5ebaf8923d074f35f74040076eed03ccfc1804b20b43eb31bfb829fa5e37e6c"
       },
       "desktop": {
         "file": "shots/exponential-ui-progress/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 31364,
-        "sha256": "452964ad21233ff447b3ff47d34fa40d0ba61c453317386874765ef2f33bb0e4"
+        "bytes": 37094,
+        "sha256": "49652301dcafd6da0ca62ec7f32d5db4402b45fafaee05f78c4cff09c6661cd3"
       },
       "ios": {
         "file": "shots/exponential-ui-progress/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 16332,
-        "sha256": "4b93f2d00f03ec2b4699486f65e834c848fcd55feaee6945e5aa4775d302358f"
+        "bytes": 24122,
+        "sha256": "01ca0e6794db7b684da52cc20daec8059249deee93503047f90665487a96fd73"
       },
       "web": {
         "file": "shots/exponential-ui-progress/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 12226,
-        "sha256": "b3cb906ad54fa315bd25040f2d452bf69e231dffcb563329869d2861047b54e4"
+        "bytes": 16944,
+        "sha256": "b6d290651041d4da02fdddb89c156c304abecebf82e741aae9bbb199e82dd21f"
       }
     },
     "exponential-ui-qr-code": {
@@ -4547,29 +4577,29 @@
         "file": "shots/exponential-ui-stepper/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 15342,
-        "sha256": "04eec4895296e15056386f2bd61c965e9f091d1fdc3c585341a890cb2cbad818"
+        "bytes": 18098,
+        "sha256": "3de48038a956d88e0039077c5670327967cb1070f010b2643e402a78f9ad39be"
       },
       "desktop": {
         "file": "shots/exponential-ui-stepper/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 30130,
-        "sha256": "d4c7752380b3b57330b0f719d77557f4e24e71b399ff1492081384a241b3a1e0"
+        "bytes": 32836,
+        "sha256": "1ccf0d2d183b061796c089c74804117bb574c33ae9abb0abff8df6aa97954f19"
       },
       "ios": {
         "file": "shots/exponential-ui-stepper/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 15574,
-        "sha256": "248d4ff7509c32fda709d04d3f9ec3b5245f7a0f9972fc56b1f5539bb41e8695"
+        "bytes": 18272,
+        "sha256": "162aaa29294ef7fc6fbef8615b991691c902a5ed1c3c42143179932fa4230c10"
       },
       "web": {
         "file": "shots/exponential-ui-stepper/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 11110,
-        "sha256": "0a91a8e2bc835ca5b01606e5a889cbc5718029c996cf885537b9f4975935c1c3"
+        "bytes": 12800,
+        "sha256": "e30b22ac3d70b34641930e02951baa484f0971d745bf7ee0b238bbebf7239546"
       }
     },
     "exponential-ui-switch": {

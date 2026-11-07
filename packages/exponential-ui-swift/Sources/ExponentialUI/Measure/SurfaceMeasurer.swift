@@ -851,7 +851,8 @@ final class MeasureMemo: @unchecked Sendable {
         if leaf.component == "Extension" || leaf.component == "Markdown" { return nil }
         var k = leaf
         k.index = 0
-        k.id = ""
+        // The id-keyed tabular part (`TextStyle.forPart`) keeps its suffix.
+        k.id = leaf.id.hasSuffix(".header.value") ? ".header.value" : ""
         return k
     }
 
