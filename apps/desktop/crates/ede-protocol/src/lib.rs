@@ -20,11 +20,12 @@
 //! (the sealed lock, a sandboxed agent) keeps that one.
 
 use std::{
-    collections::VecDeque,
     io::{Read, Write},
-    os::unix::net::UnixStream,
     path::{Path, PathBuf},
 };
+
+#[cfg(unix)]
+use std::{collections::VecDeque, os::unix::net::UnixStream};
 
 pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, Token, WindowId};
 use serde::{Deserialize, Serialize};
@@ -416,6 +417,7 @@ impl From<std::io::Error> for Error {
 
 /// A blocking client. Events that arrive while waiting for a reply queue
 /// up for [`Client::next_event`].
+#[cfg(unix)]
 pub struct Client {
     stream: UnixStream,
     next_id: u64,
@@ -424,6 +426,7 @@ pub struct Client {
     pub hello: Hello,
 }
 
+#[cfg(unix)]
 impl Client {
     /// Connects to `socket` and says hello with `token`.
     pub fn connect(socket: &Path, token: Token) -> Result<Self, Error> {

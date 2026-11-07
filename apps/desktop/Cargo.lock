@@ -12260,9 +12260,14 @@ dependencies = [
  "eui-core",
  "eui-gpui",
  "gpui",
+ "gpui-component",
+ "gpui_platform",
+ "image",
+ "rust-embed",
  "serde_json",
  "tracing",
  "uicore-data",
+ "uicore-docs",
 ]
 
 [[package]]
