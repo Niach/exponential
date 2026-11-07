@@ -48,3 +48,4 @@
 - O teu Assistente funciona em todas as tuas equipas
 - Os proprietários podem escolher um agente Coordenador
 - As apps podem desenhar numa tela e responder a toques e arrastos
+- Guardar um registo num formulário de app volta a funcionar

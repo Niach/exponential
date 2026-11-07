@@ -48,3 +48,4 @@
 - Your Assistant works across all your teams
 - Team owners can name a Coordinator agent
 - Apps can draw on a canvas and react to taps and drags
+- Saving a record in an app form works again
