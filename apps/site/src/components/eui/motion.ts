@@ -115,7 +115,7 @@ export const LEVEL: Props = {
   size: [200, 48],
   duration: 1300,
   label: `Upload level`,
-  inputs: { path: `/meter` },
+  inputs: { "@path": `/meter` },
   markers: [
     { name: `low`, time: 0, duration: 400 },
     { name: `high`, time: 400, duration: 400 },
@@ -160,7 +160,7 @@ export const INTERACTIVE: NestedNode = {
       style: { width: `200px` },
       children: [
         { id: `level`, component: `Motion`, props: LEVEL, on: { state: { event: { name: `level-state` } }, complete: { event: { name: `uploaded` } } } },
-        { id: `level-slider`, component: `Slider`, props: { label: `Level`, min: 0, max: 100, step: 10, value: { path: `/meter/level` } } },
+        { id: `level_slider`, component: `Slider`, props: { label: `Level`, min: 0, max: 100, step: 10, value: { "@path": `/meter/level` } } },
       ],
     },
   ],
@@ -194,12 +194,12 @@ export const SHOWCASE_TREE: NestedNode = {
   component: `Grid`,
   props: { columns: 3, gap: `md` },
   children: SHOWCASE.steps.map((s) => ({
-    id: `s-${s.id}`,
+    id: `s_${s.id}`,
     component: `Stack`,
     props: { gap: `xs`, align: `center` },
     children: [
-      { id: `m-${s.id}`, component: `Motion`, props: s.props, style: { width: `96px`, height: `96px` } },
-      { id: `t-${s.id}`, component: `Text`, props: { text: s.title, variant: `muted` } },
+      { id: `m_${s.id}`, component: `Motion`, props: s.props, style: { width: `96px`, height: `96px` } },
+      { id: `t_${s.id}`, component: `Text`, props: { text: s.title, variant: `muted` } },
     ],
   })),
 }

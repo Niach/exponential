@@ -1,8 +1,8 @@
 /* The playground's starter examples: one per input form it accepts. */
 import demo from "@exponential_app/eui/fixtures/demo-surface.json"
-import { CORE_CATALOG, createSurface, flatten, replayChunks, type Nested } from "./a2ui"
+import { A2UI_VERSION, CORE_CATALOG, createSurface, flatten, replayChunks, type Nested } from "./a2ui"
 
-const BASIC_CATALOG = `https://a2ui.org/specification/v0_9/basic_catalog.json`
+const BASIC_CATALOG = `https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json`
 
 export interface Example {
   id: string
@@ -22,8 +22,8 @@ const form: Nested = {
   component: `Card`,
   props: { title: `Join the beta`, description: `We will email you when your seat is ready.`, padded: true },
   children: [
-    { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, placeholder: `Ada Lovelace`, value: { path: `/form/name` } } },
-    { id: `email`, component: `Input`, props: { label: `Email`, name: `email`, type: `email`, placeholder: `ada@example.com`, value: { path: `/form/email` }, checks: [{ condition: { call: `email`, args: { value: { path: `/form/email` } } }, message: `Enter a valid email` }] } },
+    { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, placeholder: `Ada Lovelace`, value: { "@path": `/form/name` } } },
+    { id: `email`, component: `Input`, props: { label: `Email`, name: `email`, type: `email`, placeholder: `ada@example.com`, value: { "@path": `/form/email` }, checks: [{ condition: { "@call": `email`, args: { value: { "@path": `/form/email` } } }, message: `Enter a valid email` }] } },
     { id: `platform`, component: `Select`, props: { label: `Platform`, name: `platform`, options: [{ label: `Web`, value: `web` }, { label: `iOS`, value: `ios` }, { label: `Android`, value: `android` }, { label: `Desktop`, value: `desktop` }], value: `web` } },
     { id: `news`, component: `Switch`, props: { label: `Product news`, name: `news`, checked: true, description: `At most one email a month.` } },
     {
@@ -32,7 +32,7 @@ const form: Nested = {
       props: { direction: `horizontal`, gap: `sm`, justify: `end` },
       children: [
         { id: `cancel`, component: `Button`, props: { label: `Not now`, variant: `ghost` } },
-        { id: `submit`, component: `Button`, props: { label: `Request a seat` }, on: { press: { event: { name: `signup`, context: { name: { path: `/form/name` }, email: { path: `/form/email` } } } } } },
+        { id: `submit`, component: `Button`, props: { label: `Request a seat` }, on: { press: { event: { name: `signup`, context: { name: { "@path": `/form/name` }, email: { "@path": `/form/email` } } } } } },
       ],
     },
   ],
@@ -42,17 +42,17 @@ const form: Nested = {
 const list = [
   createSurface(`inbox`, CORE_CATALOG),
   {
-    version: `v0.9`,
+    version: A2UI_VERSION,
     updateComponents: {
       surfaceId: `inbox`,
       components: [
         { id: `root`, component: `Group`, title: `Inbox`, footer: `3 unread`, children: { componentId: `row`, path: `/items` } },
-        { id: `row`, component: `Row`, title: { path: `title` }, subtitle: { path: `who` }, meta: { path: `when` }, icon: `inbox`, chevron: `right`, pressable: true },
+        { id: `row`, component: `Row`, title: { "@path": `title` }, subtitle: { "@path": `who` }, meta: { "@path": `when` }, icon: `inbox`, chevron: `right`, pressable: true },
       ],
     },
   },
   {
-    version: `v0.9`,
+    version: A2UI_VERSION,
     updateDataModel: {
       surfaceId: `inbox`,
       path: `/items`,
@@ -69,14 +69,14 @@ const list = [
 const basic = [
   createSurface(`basic`, BASIC_CATALOG),
   {
-    version: `v0.9`,
+    version: A2UI_VERSION,
     updateComponents: {
       surfaceId: `basic`,
       components: [
         { id: `root`, component: `Column`, children: [`title`, `body`, `field`, `agree`, `row`] },
-        { id: `title`, component: `Text`, text: `Basic catalog`, variant: `h2` },
+        { id: `title`, component: `Text`, text: `## Basic catalog` },
         { id: `body`, component: `Text`, text: `Row, Column, TextField, CheckBox and a Button with a Text child: A2UI's basic catalog, mapped onto the core.` },
-        { id: `field`, component: `TextField`, label: `Your name`, value: { path: `/name` } },
+        { id: `field`, component: `TextField`, label: `Your name`, value: { "@path": `/name` } },
         { id: `agree`, component: `CheckBox`, label: `Send me updates`, value: true },
         { id: `row`, component: `Row`, children: [`ok`, `more`] },
         { id: `ok`, component: `Button`, child: `okText`, variant: `primary`, action: { event: { name: `submit` } } },

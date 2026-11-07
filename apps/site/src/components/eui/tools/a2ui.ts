@@ -1,9 +1,10 @@
 /* The playground's A2UI helpers (pure, no renderer, no React): the nested
-   authoring form → the flat A2UI v0.9 `updateComponents` list, the message
+   authoring form → the flat A2UI `updateComponents` list, the message
    envelope, and the editor's input parser (messages as a JSON array/object
    or JSONL, a flat component list, or a nested node). */
+import { A2UI_VERSION } from "@exponential_app/eui"
 
-export const A2UI_VERSION = `v0.9`
+export { A2UI_VERSION }
 export const CORE_CATALOG = `https://ui.exponential.at/catalogs/core/v1`
 
 /** The nested authoring form (fixtures/specimens.json). */
