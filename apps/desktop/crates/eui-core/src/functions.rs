@@ -74,6 +74,11 @@ pub fn is_effect_function(name: &str) -> bool {
 const HOST_PREFIXES: &[&str] =
     &["actions_", "harness_", "exponential_", "tools_", "upstream_", "camera_", "clipboard_", "files_", "http_", "location_", "notifications_", "photos_", "print_", "share_", "app_"];
 
+/// §6.3: does `name` start with a reserved host prefix?
+pub fn has_host_prefix(name: &str) -> bool {
+    HOST_PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
 /// §6.3: a host function name (an exact host name or a reserved prefix).
 pub fn is_host_function_name(name: &str) -> bool {
     matches!(name, "app_navigate" | "app_toast") || HOST_PREFIXES.iter().any(|p| name.starts_with(p) && name.len() > p.len())
