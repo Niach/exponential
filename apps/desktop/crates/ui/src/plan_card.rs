@@ -343,6 +343,7 @@ fn build(message_id: &str, needs: Needs, window: &mut Window, cx: &mut App) {
 fn ensure_closed_surface(message_id: &str, surface: Option<&CardSurface>, surface_data: Option<&Value>, window: &Window, cx: &mut App) {
     let Some(surface) = surface else { return };
     let surface = CardSurface {
+        version: surface.version.clone(),
         root: surface.root.clone(),
         data: surface_data.cloned().or_else(|| surface.data.clone()),
     };
@@ -509,6 +510,16 @@ fn surface_view(message_id: &str, surface: &CardSurface, window: &mut Window, cx
 /// behind `host`: the plan / question card's [`CardSurfaceHost`], the
 /// surface card's reply host ([`crate::surface_card`]). `None` when the
 /// root does not parse.
+/// Round 9 §14: what a card paints: a stored card without a version is the
+/// 0.9 form, shown through the upgrade for good (a sealed one never migrates).
+pub(crate) fn painted_surface(surface: &CardSurface) -> CardSurface {
+    if surface.version.is_some() {
+        return surface.clone();
+    }
+    let card = eui_core::upgrade09::upgrade_card09(&serde_json::json!({ "root": surface.root }));
+    CardSurface { version: Some(eui_core::catalog::A2UI_VERSION.to_string()), root: card["root"].clone(), data: surface.data.clone() }
+}
+
 pub(crate) fn card_surface_view(
     surface_id: &str,
     surface: &CardSurface,
@@ -517,6 +528,7 @@ pub(crate) fn card_surface_view(
     cx: &mut App,
 ) -> Option<Entity<SurfaceView>> {
     let message_id = surface_id;
+    let surface = &painted_surface(surface);
     let tree: eui_core::NestedNode = match serde_json::from_value(surface.root.clone()) {
         Ok(tree) => tree,
         Err(error) => {

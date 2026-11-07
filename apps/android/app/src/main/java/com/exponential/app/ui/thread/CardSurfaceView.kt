@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
+import at.exponential.ui.ffi.upgradeCard09
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.SurfaceActionEvent
 import at.exponential.ui.host.TextLinkSegment
@@ -152,6 +153,16 @@ private fun cardHost(
 }
 
 /**
+ * Round 9 §14: what a card paints: a stored card without a version is the 0.9
+ * form, shown through the upgrade for good (a sealed one never migrates).
+ */
+private fun paintedRoot(surface: CardSurface): String {
+    if (surface.version != null) return surface.root.toString()
+    val card = Json.parseToJsonElement(upgradeCard09("""{"root":${surface.root}}""")) as JsonObject
+    return card.getValue("root").toString()
+}
+
+/**
  * The [SurfaceModel] of a card's [surface] (the core catalog, the card host);
  * null when the core refuses it. [onAction] (thread 58cb32df) receives every
  * action event the surface raises.
@@ -183,7 +194,7 @@ internal fun rememberCardSurfaceModel(
                     linkBase = { expandTeamLink("~/", latestLinks.value?.team) },
                 ),
             ) { error("set by ExponentialSurface") }.also { m ->
-                m.setNested(surface.root.toString())
+                m.setNested(paintedRoot(surface))
                 surface.data?.forEach { (key, value) ->
                     m.setData("/" + key.replace("~", "~0").replace("/", "~1"), JsonValue.parse(value.toString()))
                 }

@@ -285,7 +285,7 @@ pub(crate) fn enter_frame(elapsed: Duration, reduced: bool) -> Option<EnterLook>
 /// the root has no children.
 pub(crate) fn children_entrance(started: Instant, surface: &CardSurface) -> Option<eui_gpui::view::NodeEntrance> {
     let enter = &CHATS.surface_card.enter;
-    let ids: Vec<String> = surface
+    let ids: Vec<String> = crate::plan_card::painted_surface(surface)
         .root
         .get("children")?
         .as_array()?
@@ -446,7 +446,7 @@ mod tests {
             id: id.into(),
             session_id: "s".into(),
             title: None,
-            surface: CardSurface { root: serde_json::json!({"id": "root"}), data: None },
+            surface: CardSurface { version: None, root: serde_json::json!({"id": "root"}), data: None },
         }
     }
 
@@ -509,14 +509,27 @@ mod tests {
     fn the_children_stagger_after_the_frame() {
         let enter = &CHATS.surface_card.enter;
         let children: Vec<serde_json::Value> = (0..10).map(|i| serde_json::json!({"id": format!("c{i}")})).collect();
-        let surface = CardSurface { root: serde_json::json!({"id": "root", "children": children}), data: None };
+        let surface = CardSurface { version: None, root: serde_json::json!({"id": "root", "children": children}), data: None };
         let entrance = children_entrance(Instant::now(), &surface).unwrap();
         assert_eq!(entrance.ids.len(), 10);
         assert_eq!(entrance.delays_ms[0], enter.children.start_after_ms as f32);
         assert_eq!(entrance.delays_ms[1] - entrance.delays_ms[0], enter.children.stagger_ms as f32);
         assert_eq!(entrance.delays_ms[9], entrance.delays_ms[enter.children.max_staggered - 1]);
         assert_eq!(entrance.from_translate_y, enter.children.from_translate_y);
-        let leaf = CardSurface { root: serde_json::json!({"id": "root"}), data: None };
+        let leaf = CardSurface { version: None, root: serde_json::json!({"id": "root"}), data: None };
         assert!(children_entrance(Instant::now(), &leaf).is_none());
+    }
+
+    /// Round 9 §14: a stored card without a version paints through the
+    /// upgrade (bindings, ids), a 1.0 card as it is.
+    #[test]
+    fn a_stored_0_9_card_paints_upgraded() {
+        let root = serde_json::json!({"id": "root", "component": "Stack", "children": [{"id": "a-b", "component": "Text", "props": {"text": {"path": "/t"}}}]});
+        let stored = CardSurface { version: None, root, data: None };
+        let painted = crate::plan_card::painted_surface(&stored);
+        assert_eq!(painted.root["children"][0], serde_json::json!({"id": "a_b", "component": "Text", "props": {"text": {"@path": "/t"}}}));
+        assert_eq!(children_entrance(Instant::now(), &stored).unwrap().ids, vec!["a_b".to_string()]);
+        let current = CardSurface { version: Some("1.0".into()), root: serde_json::json!({"id": "a-b"}), data: None };
+        assert_eq!(crate::plan_card::painted_surface(&current), current);
     }
 }

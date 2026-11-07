@@ -31,6 +31,7 @@ pub(crate) const OWNER: &str = "EXP-1373";
 pub(crate) fn launch_surface() -> CardSurface {
     let reply = |text: &str| json!({"press": {"event": {"name": CHATS.surface_card.reply_event, "context": {"text": text}}}});
     CardSurface {
+        version: None,
         root: json!({
             "id": "root", "component": "Stack", "props": {"gap": "md"},
             "children": [

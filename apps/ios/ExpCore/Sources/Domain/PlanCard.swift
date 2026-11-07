@@ -372,12 +372,15 @@ public struct ThreadPlanQuestion: Equatable, Sendable, Identifiable {
 
 /// EXP-1280: the inline Exponential UI core surface an agent authored.
 public struct CardSurface: Equatable, Sendable {
+    /// Round 9 §13: `"1.0"`; nil = the stored 0.9 form.
+    public let version: String?
     /// The NestedNode root (always an object).
     public let root: CardJSON
     /// The initial data model (an object), nil = none.
     public let data: CardJSON?
 
-    public init(root: CardJSON, data: CardJSON?) {
+    public init(version: String? = nil, root: CardJSON, data: CardJSON?) {
+        self.version = version
         self.root = root
         self.data = data
     }
@@ -386,7 +389,7 @@ public struct CardSurface: Equatable, Sendable {
     public static func parse(_ raw: Any?) -> CardSurface? {
         guard let object = raw as? [String: Any], let root = object["root"] as? [String: Any] else { return nil }
         let data = (object["data"] as? [String: Any]).flatMap(CardJSON.init(any:))
-        return CardSurface(root: CardJSON(any: root) ?? .object([:]), data: data)
+        return CardSurface(version: object["version"] as? String, root: CardJSON(any: root) ?? .object([:]), data: data)
     }
 
     /// The NestedNode the renderer's `setNested` takes (the data model is
