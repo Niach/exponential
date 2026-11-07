@@ -32,6 +32,41 @@ const openMenu = async (onAttach: (choice?: string) => void) => {
   return screen.findByTestId(`agent-composer-menu-add-file`)
 }
 
+// #FEED-204 (apps.json EDITOR DEVICE): an app editor's Device › on the
+// session surface: names the device, disabled while the root is live, and
+// `locked: false` outranks the ended session's `rowsDisabled`.
+describe(`an app editor's Device row (#FEED-204)`, () => {
+  const devices = [
+    { id: `mac`, name: `Mac` },
+    { id: `mint`, name: `Mint` },
+  ]
+  const openDevice = async (locked: boolean) => {
+    render(
+      <ComposerOptionsMenu
+        surface="session"
+        agent="claude"
+        onAttach={() => {}}
+        rowsDisabled
+        runner={{ device: { value: `mint`, devices, onChange: () => {}, locked } }}
+      />
+    )
+    const plus = screen.getByTestId(`agent-composer-plus-button`)
+    fireEvent.pointerDown(plus, { button: 0, ctrlKey: false })
+    fireEvent.click(plus)
+    return screen.findByTestId(`agent-composer-menu-device`)
+  }
+
+  it.each([
+    [`a live root's row is disabled`, true],
+    [`an ended root's row stays enabled`, false],
+  ])(`%s and names the device`, async (_name, locked) => {
+    phone.value = false
+    const row = await openDevice(locked)
+    expect(row.textContent).toContain(`Mint`)
+    expect(row.hasAttribute(`data-disabled`)).toBe(locked)
+  })
+})
+
 describe(`add-file on the "+" (EXP-1635)`, () => {
   beforeEach(() => {
     phone.value = false

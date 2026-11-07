@@ -36,6 +36,9 @@ struct ThreadEditorSlot {
     let band: AnyView
     let pane: AnyView?
     var trailing: AnyView? = nil
+    /// #FEED-204: the composer's Device row and an ended root's move.
+    var device: SessionComposerFooter.DeviceMenu? = nil
+    var appMove: ThreadComposerDraft.AppMove? = nil
 }
 
 /// EXP-1295: everything ONE root's screen reads, in one snapshot — the root

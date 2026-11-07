@@ -862,6 +862,8 @@ struct ThreadScreen: View {
                                     .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
                                     .map(\.id),
                                 agentRow: rows.agent,
+                                editorDevice: editor?.device,
+                                editorMove: editor?.appMove,
                                 onExpand: {
                                     // Remember the pin BEFORE the inset moves it.
                                     pinOnInset = atBottom
@@ -1756,10 +1758,18 @@ final class ThreadComposerDraft: SessionComposerDraft {
     /// #EXP-1715: the Assistant's Teams pick every send carries
     /// (`scopeTeamIds`); nil = not the viewer's Assistant root (never sent).
     var scope: TeamsScope?
+    /// #FEED-204: an ended editor root's next send, to another device.
+    var appMove: AppMove?
 
     @ObservationIgnored private let accountId: String
     @ObservationIgnored private let sessionsApi: SessionsApi
     @ObservationIgnored private let attachmentsApi: AttachmentsApi
+
+    /// `sessions.send({appId, deviceId})` revives the root on that device.
+    struct AppMove: Equatable {
+        let appId: String
+        let deviceId: String
+    }
 
     init(
         sessionId: String,
@@ -1802,7 +1812,12 @@ final class ThreadComposerDraft: SessionComposerDraft {
         let text = text.isEmpty ? nil : text
         let attachmentIds = attachmentIds?.isEmpty == false ? attachmentIds : nil
         do {
-            if let agentId {
+            if let appMove {
+                _ = try await sessionsApi.send(
+                    accountId: accountId,
+                    .app(appId: appMove.appId, deviceId: appMove.deviceId, text: text, attachmentIds: attachmentIds)
+                )
+            } else if let agentId {
                 _ = try await sessionsApi.send(
                     accountId: accountId,
                     .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, scope: scope)
@@ -1851,6 +1866,10 @@ struct ThreadComposer: View {
     /// `agentId`'s before the first send): the viewer's own Assistant gets
     /// the Teams pick.
     var agentRow: AgentDefinitionEntity?
+    /// #FEED-204: an app editor's "+" Device row, and an ended root's next
+    /// send to another device.
+    var editorDevice: SessionComposerFooter.DeviceMenu?
+    var editorMove: ThreadComposerDraft.AppMove?
     /// The capsule was tapped open (the host keeps its feed pinned).
     var onExpand: () -> Void = {}
 
@@ -2011,7 +2030,9 @@ struct ThreadComposer: View {
             }
             draft?.teamId = draftTeamId
             draft?.scope = teamsPick?.scope
+            draft?.appMove = editorMove
         }
+        .onChange(of: editorMove) { _, move in draft?.appMove = move }
         .task(id: root?.scopeTeamIds) { teamsPicked = root?.scopeTeamIds }
         .onChange(of: teamsPick?.scope) { _, scope in draft?.scope = scope }
         .task(id: lookupTeamId) {
@@ -2096,7 +2117,8 @@ struct ThreadComposer: View {
             // account switch on the root (its live model's rules).
             account: steerModel?.composerAccountMenu,
             // #EXP-1715: the viewer's Assistant chat's Teams pick.
-            teams: teamsPick
+            teams: teamsPick,
+            device: editorDevice
         )
     }
 

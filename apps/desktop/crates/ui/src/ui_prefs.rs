@@ -63,6 +63,10 @@ struct UiPrefs {
     /// touched here (`domain::devices_list::open_device_account`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     device_accounts: BTreeMap<String, Option<String>>,
+    /// #FEED-204: the device picked in an app editor's composer, per app id,
+    /// on this client only (apps.json EDITOR DEVICE).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    editor_devices: BTreeMap<String, String>,
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -180,6 +184,25 @@ pub(crate) fn set_skill_pick(team_id: &str, ids: &[String]) {
             return;
         }
         prefs.skill_picks.insert(team_id.to_string(), ids.to_vec());
+    }
+    schedule_write();
+}
+
+/// #FEED-204: the app's remembered editor device, `None` = never picked.
+pub(crate) fn editor_device(app_id: &str) -> Option<String> {
+    prefs().lock().ok()?.editor_devices.get(app_id).cloned()
+}
+
+/// #FEED-204: remember the app's editor device (debounced like the widths).
+pub(crate) fn set_editor_device(app_id: &str, device_id: &str) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        if prefs.editor_devices.get(app_id).map(String::as_str) == Some(device_id) {
+            return;
+        }
+        prefs.editor_devices.insert(app_id.to_string(), device_id.to_string());
     }
     schedule_write();
 }
