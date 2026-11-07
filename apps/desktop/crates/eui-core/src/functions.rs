@@ -65,6 +65,20 @@ pub fn requires_user_activation(name: &str) -> bool {
     name == "openUrl"
 }
 
+/// §6.1/§6.4: the effectful catalog functions (never in a reactive
+/// position): `set` writes, `bind` is a host effect, `openUrl` needs a gesture.
+pub fn is_effect_function(name: &str) -> bool {
+    matches!(name, "set" | "bind" | "openUrl")
+}
+
+const HOST_PREFIXES: &[&str] =
+    &["actions_", "harness_", "exponential_", "tools_", "upstream_", "camera_", "clipboard_", "files_", "http_", "location_", "notifications_", "photos_", "print_", "share_", "app_"];
+
+/// §6.3: a host function name (an exact host name or a reserved prefix).
+pub fn is_host_function_name(name: &str) -> bool {
+    matches!(name, "app_navigate" | "app_toast") || HOST_PREFIXES.iter().any(|p| name.starts_with(p) && name.len() > p.len())
+}
+
 /// §6.1 `returnType` of a declared function (`validationResult` for the
 /// validators).
 pub fn return_type(name: &str) -> Option<&'static str> {

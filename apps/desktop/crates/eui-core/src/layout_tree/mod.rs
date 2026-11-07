@@ -1059,7 +1059,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             return true;
         };
         self.template_refused = true;
-        self.issues.push(crate::types::ReduceIssue { id: template.to_string(), message });
+        self.issues.push(crate::types::ReduceIssue::new(template.to_string(), message));
         false
     }
 

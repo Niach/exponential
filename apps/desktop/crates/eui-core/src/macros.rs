@@ -369,7 +369,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                     spec.prop
                 );
                 if !exp.issues.iter().any(|i| i.id == exp.source.id && i.message == message) {
-                    exp.issues.push(ReduceIssue { id: exp.source.id.clone(), message });
+                    exp.issues.push(ReduceIssue::new(exp.source.id.clone(), message));
                 }
                 continue;
             }

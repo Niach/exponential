@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::basic_map::map_basic_component;
 use crate::limits;
-use crate::catalog::{CatalogView, A2UI_BASIC_CATALOG_ID, UNKNOWN_COMPONENT};
+use crate::catalog::{CatalogView, SURFACE_COMPONENT, UNKNOWN_COMPONENT};
 use crate::macros::expand_macros_with_templates;
 use crate::types::{FlatChildren, FlatComponent, NestedNode, Props, ReduceIssue, UiNode};
 use crate::validate::validate_props;
@@ -20,7 +20,56 @@ use crate::validate::validate_props;
 /// `ComponentCommon` envelope (`children`, `slots`, `on`, `style`,
 /// `visible`, `checks` are declared props of the core components now).
 pub const RESERVED_KEYS: &[&str] = &["id", "component", "catalogId", "accessibility", "metadata"];
-const RESERVED: &[&str] = RESERVED_KEYS;
+/// Round 9 §5.1: the closed `accessibility` object.
+pub const ACCESSIBILITY_KEYS: &[&str] = &["label", "description", "live", "hidden"];
+const LIVE_VALUES: &[&str] = &["off", "polite", "assertive"];
+const VALIDATION_FAILED: &str = "VALIDATION_FAILED";
+const UNALLOWED_CHILD: &str = "UNALLOWED_CHILD";
+const UNALLOWED_PARENT: &str = "UNALLOWED_PARENT";
+const UNSUPPORTED_CATALOG: &str = "UNSUPPORTED_CATALOG";
+
+fn escape_token(t: &str) -> String {
+    t.replace('~', "~0").replace('/', "~1")
+}
+
+/// A validate dotted path (`props.items[0].label`, `style.color`,
+/// `on.press.functionCall`) → the component pointer (`/items/0/label`).
+pub fn issue_pointer(path: &str) -> String {
+    let rest = if path == "props" { "" } else { path.strip_prefix("props.").unwrap_or(path) };
+    let mut out = String::new();
+    for part in rest.split('.').filter(|p| !p.is_empty()) {
+        let (head, tail) = part.find('[').map_or((part, ""), |i| part.split_at(i));
+        // `name[0][1]` only; anything else is one token.
+        let mut indexes = Vec::new();
+        let mut t = tail;
+        let well_formed = loop {
+            if t.is_empty() {
+                break true;
+            }
+            let Some(close) = t.find(']') else { break false };
+            let digits = &t[1..close];
+            if !t.starts_with('[') || digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                break false;
+            }
+            indexes.push(digits);
+            t = &t[close + 1..];
+        };
+        if !well_formed {
+            out.push('/');
+            out.push_str(&escape_token(part));
+            continue;
+        }
+        if !head.is_empty() {
+            out.push('/');
+            out.push_str(&escape_token(head));
+        }
+        for i in indexes {
+            out.push('/');
+            out.push_str(i);
+        }
+    }
+    out
+}
 
 /// A `visible` value is a boolean or a dynamic value (a binding or a call).
 pub fn valid_visible(value: &Value) -> bool {
@@ -34,10 +83,44 @@ pub fn slot_allowed(slots: Option<&Vec<String>>, name: &str) -> bool {
 
 const VISIBLE_ISSUE: &str = "visible: expected a boolean, a binding or a function call";
 
+/// Round 9 §5.6: `allowedChildren: []` when the component takes no children
+/// and has no slots.
+pub fn allows_children(def: &crate::types::ComponentDef) -> bool {
+    def.children != "none" || def.slots.as_ref().is_some_and(|s| !s.is_empty())
+}
+
+/// Round 9 §5.1: the closed accessibility object (unknown keys reported and
+/// dropped).
+fn accessibility_of(value: &Value, id: &str, issues: &mut Vec<ReduceIssue>) -> Option<Value> {
+    let Some(o) = value.as_object() else {
+        issues.push(ReduceIssue::at(id, "accessibility: expected an object", "/accessibility", VALIDATION_FAILED));
+        return None;
+    };
+    let mut out = serde_json::Map::new();
+    for (k, v) in o {
+        if !ACCESSIBILITY_KEYS.contains(&k.as_str()) {
+            issues.push(ReduceIssue::at(id, format!("accessibility.{k}: unknown key"), &format!("/accessibility/{}", escape_token(k)), VALIDATION_FAILED));
+            continue;
+        }
+        if k == "live" && !v.as_str().is_some_and(|l| LIVE_VALUES.contains(&l)) {
+            issues.push(ReduceIssue::at(id, format!("accessibility.live: expected one of {}", LIVE_VALUES.join("|")), "/accessibility/live", VALIDATION_FAILED));
+            continue;
+        }
+        out.insert(k.clone(), v.clone());
+    }
+    (!out.is_empty()).then_some(Value::Object(out))
+}
+
 #[derive(Debug, Clone)]
 pub struct ReduceOptions {
-    /// The surface's catalog: the core, the lite subset, the basic catalog or an extension's id.
+    /// The surface's DEFAULT catalog (round 9 §5.5: a component's own
+    /// `catalogId` wins): the core, the lite subset, the basic catalog or
+    /// an extension's id; `""` = none (a component without its own catalog
+    /// is the Unknown placeholder).
     pub catalog_id: String,
+    /// Round 9 §5.5: the router's AVAILABLE catalog ids (`None`: core,
+    /// core-lite, basic, then the view's extensions).
+    pub available: Option<Vec<String>>,
     /// The core plus the registered extensions.
     pub view: Arc<CatalogView>,
     /// The root component id (A2UI: `root`).
@@ -50,11 +133,26 @@ pub struct ReduceOptions {
 
 impl ReduceOptions {
     pub fn new(catalog_id: &str) -> Self {
-        ReduceOptions { catalog_id: catalog_id.to_string(), view: CatalogView::core(), root_id: None, expand: true, validate: true }
+        ReduceOptions { catalog_id: catalog_id.to_string(), available: None, view: CatalogView::core(), root_id: None, expand: true, validate: true }
     }
 
     pub fn with_view(self, view: Arc<CatalogView>) -> Self {
         ReduceOptions { view, ..self }
+    }
+
+    fn is_available(&self, catalog_id: &str) -> bool {
+        match &self.available {
+            Some(ids) => ids.iter().any(|id| id == catalog_id),
+            None => self.view.knows_catalog(catalog_id),
+        }
+    }
+
+    /// The Unknown placeholder's issue when `catalog` cannot be used.
+    fn unavailable(&self, id: &str, catalog: &str) -> Option<ReduceIssue> {
+        if catalog.is_empty() {
+            return Some(ReduceIssue::at(id, "no catalog for this component", "", UNSUPPORTED_CATALOG));
+        }
+        (!self.is_available(catalog)).then(|| ReduceIssue::at(id, format!("catalog {catalog} is not available"), "", UNSUPPORTED_CATALOG))
     }
 }
 
@@ -136,7 +234,7 @@ fn lift_templates(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missin
         if cyclic.is_empty() {
             issues.extend(pass_issues);
             if pass.root_named {
-                issues.push(ReduceIssue { id: original.id.clone(), message: "template: cycle through this id".into() });
+                issues.push(ReduceIssue::new(original.id.clone(), "template: cycle through this id"));
             }
             issues.extend(cycles);
             let mut found = pass.found;
@@ -148,7 +246,7 @@ fn lift_templates(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missin
             } else {
                 in_place.push(id.clone());
             }
-            cycles.push(ReduceIssue { id, message: "template: cycle through this id".into() });
+            cycles.push(ReduceIssue::new(id, "template: cycle through this id"));
         }
     }
 }
@@ -249,7 +347,7 @@ fn lift_pass(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &m
                 }
                 None => {
                     missing.push(id.clone());
-                    issues.push(ReduceIssue { id, message: "template: no component with this id".into() });
+                    issues.push(ReduceIssue::new(id, "template: no component with this id"));
                 }
             }
         }
@@ -263,23 +361,19 @@ fn lift_pass(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &m
 fn unknown(id: &str, component: &str, catalog_id: &str) -> UiNode {
     let mut node = UiNode::new(id, UNKNOWN_COMPONENT);
     node.props.insert("component".into(), Value::String(component.to_string()));
-    node.props.insert("catalogId".into(), Value::String(catalog_id.to_string()));
+    if !catalog_id.is_empty() {
+        node.props.insert("catalogId".into(), Value::String(catalog_id.to_string()));
+    }
     node
 }
 
 fn own_props(flat: &FlatComponent) -> Props {
-    flat.rest.iter().filter(|(k, _)| !RESERVED.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+    flat.rest.iter().filter(|(k, _)| !RESERVED_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
-/// JavaScript truthiness (`if (value)`).
-fn js_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.is_empty(),
-        _ => true,
-    }
+/// `metadata` is kept when it is an object (the entry check refused the rest).
+fn metadata_of(metadata: Option<&Value>) -> Option<Value> {
+    metadata.filter(|m| m.is_object()).cloned()
 }
 
 /// `skip_unknown`: the flat path never validates a placeholder; the nested
@@ -292,18 +386,40 @@ fn validate_node(node: &UiNode, id: &str, options: &ReduceOptions, skip_unknown:
     }
     let Some(def) = options.view.components.get(&node.component) else { return };
     for issue in validate_props(def, &node.props, "props", &options.view) {
-        issues.push(ReduceIssue { id: id.to_string(), message: format!("{}: {}", issue.path, issue.message) });
+        issues.push(ReduceIssue::at(id, format!("{}: {}", issue.path, issue.message), &issue_pointer(&issue.path), VALIDATION_FAILED));
     }
-    if def.children == "none" && !node.children.is_empty() {
-        issues.push(ReduceIssue { id: id.to_string(), message: format!("{} takes no children", node.component) });
+    if !allows_children(def) && !node.children.is_empty() {
+        issues.push(ReduceIssue::at(id, format!("{} takes no children", node.component), "/children", UNALLOWED_CHILD));
     }
     for slot in node.slots.iter().flat_map(|s| s.keys()) {
         if !slot_allowed(def.slots.as_ref(), slot) {
-            issues.push(ReduceIssue { id: id.to_string(), message: format!("slots.{slot}: {} has no such slot", node.component) });
+            issues.push(ReduceIssue::at(id, format!("slots.{slot}: {} has no such slot", node.component), &format!("/slots/{}", escape_token(slot)), VALIDATION_FAILED));
         }
     }
     for issue in crate::validate::validate_node_in(node, &options.view) {
-        issues.push(ReduceIssue { id: id.to_string(), message: format!("{}: {}", issue.path, issue.message) });
+        issues.push(ReduceIssue::at(id, format!("{}: {}", issue.path, issue.message), &issue_pointer(&issue.path), VALIDATION_FAILED));
+    }
+}
+
+/// Round 9 §5.6: every node against its own `allowedParents` (`Surface` =
+/// the root's parent). `parents` = node id → the (authored) parent component.
+fn check_parents(root: &UiNode, lifted: &IndexMap<String, UiNode>, parents: &HashMap<String, String>, view: &CatalogView, issues: &mut Vec<ReduceIssue>) {
+    fn walk(n: &UiNode, parents: &HashMap<String, String>, view: &CatalogView, issues: &mut Vec<ReduceIssue>) {
+        if let (Some(allowed), Some(parent)) = (view.components.get(&n.component).and_then(|d| d.parents.as_ref()), parents.get(&n.id)) {
+            if !allowed.contains(parent) {
+                issues.push(ReduceIssue::at(n.id.clone(), format!("{} cannot be a child of {parent}; allowed parents: {}", n.component, allowed.join("|")), "", UNALLOWED_PARENT));
+            }
+        }
+        for slot in n.slots.iter().flat_map(|s| s.values()) {
+            crate::deep(|| walk(slot, parents, view, issues));
+        }
+        for c in &n.children {
+            crate::deep(|| walk(c, parents, view, issues));
+        }
+    }
+    walk(root, parents, view, issues);
+    for t in lifted.values() {
+        walk(t, parents, view, issues);
     }
 }
 
@@ -315,7 +431,7 @@ fn expand(node: UiNode, issues: &mut Vec<ReduceIssue>, built: &mut Vec<UiNode>, 
             expanded
         }
         Err(message) => {
-            issues.push(ReduceIssue { id: node.id.clone(), message });
+            issues.push(ReduceIssue::new(node.id.clone(), message));
             node
         }
     }
@@ -391,7 +507,7 @@ fn cap_components(node: &mut UiNode, budget: &mut Budget, issues: &mut Vec<Reduc
 fn cap_depth(node: &mut UiNode, depth: usize, issues: &mut Vec<ReduceIssue>, catalog_id: &str) {
     if depth > limits::MAX_DEPTH {
         if node.component != UNKNOWN_COMPONENT || !node.children.is_empty() || node.slots.is_some() {
-            let issue = ReduceIssue { id: node.id.clone(), message: limits::depth_issue() };
+            let issue = ReduceIssue::new(node.id.clone(), limits::depth_issue());
             if !issues.contains(&issue) {
                 issues.push(issue);
             }
@@ -412,7 +528,8 @@ fn cap_depth(node: &mut UiNode, depth: usize, issues: &mut Vec<ReduceIssue>, cat
 struct Builder<'a> {
     by_id: HashMap<&'a str, &'a FlatComponent>,
     options: &'a ReduceOptions,
-    basic: bool,
+    /// Round 9 §5.6: node id → the parent it was built under.
+    parents: HashMap<String, String>,
     visiting: HashSet<String>,
     /// VAPP-103: every id already placed (a second place is refused).
     placed: HashSet<String>,
@@ -441,7 +558,7 @@ impl Budget {
             return true;
         }
         if !self.reported {
-            issues.push(ReduceIssue { id: id.to_string(), message: limits::components_issue() });
+            issues.push(ReduceIssue::new(id.to_string(), limits::components_issue()));
         }
         self.reported = true;
         false
@@ -459,7 +576,7 @@ impl Builder<'_> {
     /// stops at `maxComponents` placeholders (one budget issue), and a
     /// second place of an id is reported once per id.
     fn build_node(&mut self, id: &str, depth: usize) -> Option<UiNode> {
-        let catalog_id = self.options.catalog_id.as_str();
+        let default_catalog = self.options.catalog_id.as_str();
         let flat = self.by_id.get(id).copied();
         if let Some(flat) = flat {
             // A cycle (the id is an ancestor) before a second place: the
@@ -468,12 +585,12 @@ impl Builder<'_> {
                 if !self.budget.spend(id, &mut self.issues) {
                     return None;
                 }
-                self.issues.push(ReduceIssue { id: id.to_string(), message: "cycle through this id".into() });
-                return Some(unknown(id, &flat.component, catalog_id));
+                self.issues.push(ReduceIssue::new(id, "cycle through this id"));
+                return Some(unknown(id, &flat.component, flat.catalog_id.as_deref().unwrap_or(default_catalog)));
             }
             if self.placed.contains(id) {
                 if self.twice_reported.insert(id.to_string()) {
-                    self.issues.push(ReduceIssue { id: id.to_string(), message: limits::USED_TWICE_ISSUE.into() });
+                    self.issues.push(ReduceIssue::new(id, limits::USED_TWICE_ISSUE));
                 }
                 return None;
             }
@@ -482,38 +599,30 @@ impl Builder<'_> {
             return None;
         }
         let Some(flat) = flat else {
-            self.issues.push(ReduceIssue { id: id.to_string(), message: "no component with this id".into() });
-            return Some(unknown(id, &format!("#{id}"), catalog_id));
+            self.issues.push(ReduceIssue::new(id, "no component with this id"));
+            return Some(unknown(id, &format!("#{id}"), default_catalog));
         };
         self.placed.insert(id.to_string());
+        // Round 9 §5.5: the component's catalog = its own `catalogId`, else
+        // the surface default; a name is looked up ONLY there.
+        let catalog = flat.catalog_id.as_deref().unwrap_or(default_catalog);
         if depth > limits::MAX_DEPTH {
-            self.issues.push(ReduceIssue { id: id.to_string(), message: limits::depth_issue() });
-            return Some(unknown(id, &flat.component, catalog_id));
+            self.issues.push(ReduceIssue::new(id, limits::depth_issue()));
+            return Some(unknown(id, &flat.component, catalog));
         }
         self.visiting.insert(id.to_string());
         let mut node;
-        // Round 9 §5.5: the component's catalog = its own `catalogId`, else
-        // the surface default; a name is looked up ONLY there.
-        let own_catalog = flat.catalog_id.as_deref();
-        let catalog = own_catalog.unwrap_or(catalog_id);
-        let basic = if own_catalog.is_some() { crate::functions::is_basic_catalog(catalog) } else { self.basic };
-        let unavailable = if catalog.is_empty() {
-            Some("no catalog for this component".to_string())
-        } else if own_catalog.is_some() && !basic && !self.options.view.knows_catalog(catalog) {
-            Some(format!("catalog {catalog} is not available"))
-        } else {
-            None
-        };
-        if let Some(message) = unavailable {
-            self.issues.push(ReduceIssue { id: id.to_string(), message });
+        if let Some(issue) = self.options.unavailable(id, catalog) {
+            self.issues.push(issue);
             node = unknown(id, &flat.component, catalog);
-        } else if basic {
+        } else if crate::functions::is_basic_catalog(catalog) {
             let by_id = &self.by_id;
             let lookup = |id: &str| by_id.get(id).map(|f| (*f).clone());
-            match map_basic_component(flat, &lookup) {
+            let catalog_of = |f: &FlatComponent| f.catalog_id.clone().unwrap_or_else(|| default_catalog.to_string());
+            match map_basic_component(flat, &lookup, &catalog_of) {
                 None => {
-                    self.issues.push(ReduceIssue { id: id.to_string(), message: format!("basic component {} has no mapping", flat.component) });
-                    node = unknown(id, &flat.component, catalog_id);
+                    self.issues.push(ReduceIssue::new(id, format!("basic component {} has no mapping", flat.component)));
+                    node = unknown(id, &flat.component, catalog);
                 }
                 Some(mapped) => {
                     node = UiNode::new(id, mapped.component);
@@ -527,11 +636,14 @@ impl Builder<'_> {
                             node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), child);
                         }
                     }
+                    for (prop, message) in mapped.issues {
+                        self.issues.push(ReduceIssue::at(id, message, &format!("/{}", escape_token(&prop)), VALIDATION_FAILED));
+                    }
                 }
             }
-        } else if !self.options.view.components.contains_key(&flat.component) {
-            self.issues.push(ReduceIssue { id: id.to_string(), message: format!("unknown component {}", flat.component) });
-            node = unknown(id, &flat.component, catalog_id);
+        } else if self.options.view.catalog_component(catalog, &flat.component).is_none() {
+            self.issues.push(ReduceIssue::at(id, format!("unknown component {}", flat.component), "/component", VALIDATION_FAILED));
+            node = unknown(id, &flat.component, catalog);
         } else {
             node = UiNode::new(id, flat.component.clone());
             node.props = own_props(flat);
@@ -541,13 +653,6 @@ impl Builder<'_> {
                 None => {}
             }
             node.style = flat.style.clone();
-            if let Some(visible) = &flat.visible {
-                if valid_visible(visible) {
-                    node.visible = Some(visible.clone());
-                } else {
-                    self.issues.push(ReduceIssue { id: id.to_string(), message: VISIBLE_ISSUE.into() });
-                }
-            }
             node.on = flat.on.clone();
             for (slot, child_id) in flat.slots.iter().flatten() {
                 if let Some(child) = self.build(child_id, depth + 1) {
@@ -555,10 +660,21 @@ impl Builder<'_> {
                 }
             }
         }
-        if let Some(accessibility) = flat.accessibility.as_ref().filter(|a| js_truthy(a)) {
-            node.accessibility = Some(accessibility.clone());
+        for c in node.children.iter().chain(node.slots.iter().flat_map(|s| s.values())) {
+            self.parents.insert(c.id.clone(), flat.component.clone());
         }
-        node.metadata = flat.metadata.clone();
+        // `visible`, `accessibility` and `metadata` hold on EVERY component, basic or core.
+        if let Some(visible) = &flat.visible {
+            if valid_visible(visible) {
+                node.visible = Some(visible.clone());
+            } else {
+                self.issues.push(ReduceIssue::at(id, VISIBLE_ISSUE, "/visible", VALIDATION_FAILED));
+            }
+        }
+        if let Some(accessibility) = &flat.accessibility {
+            node.accessibility = accessibility_of(accessibility, id, &mut self.issues);
+        }
+        node.metadata = metadata_of(flat.metadata.as_ref());
         self.visiting.remove(id);
         validate_node(&node, id, self.options, true, &mut self.issues);
         Some(node)
@@ -577,18 +693,15 @@ pub fn component_issues(flat: &FlatComponent, options: &ReduceOptions, lookup: &
     let stub = |cid: &str| UiNode::new(cid, UNKNOWN_COMPONENT);
     let mut node;
     let catalog = flat.catalog_id.as_deref().unwrap_or(&options.catalog_id);
-    if catalog.is_empty() {
-        issues.push(ReduceIssue { id: id.to_string(), message: "no catalog for this component".into() });
+    if let Some(issue) = options.unavailable(id, catalog) {
+        issues.push(issue);
         return issues;
     }
-    if flat.catalog_id.is_some() && !crate::functions::is_basic_catalog(catalog) && !options.view.knows_catalog(catalog) {
-        issues.push(ReduceIssue { id: id.to_string(), message: format!("catalog {catalog} is not available") });
-        return issues;
-    }
-    if crate::functions::is_basic_catalog(catalog) || (catalog == options.catalog_id && options.catalog_id == A2UI_BASIC_CATALOG_ID) {
-        match map_basic_component(flat, lookup) {
+    if crate::functions::is_basic_catalog(catalog) {
+        let catalog_of = |f: &FlatComponent| f.catalog_id.clone().unwrap_or_else(|| options.catalog_id.clone());
+        match map_basic_component(flat, lookup, &catalog_of) {
             None => {
-                issues.push(ReduceIssue { id: id.to_string(), message: format!("basic component {} has no mapping", flat.component) });
+                issues.push(ReduceIssue::new(id, format!("basic component {} has no mapping", flat.component)));
                 return issues;
             }
             Some(mapped) => {
@@ -601,10 +714,13 @@ pub fn component_issues(flat: &FlatComponent, options: &ReduceOptions, lookup: &
                 for (slot, child_id) in &mapped.slots {
                     node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), stub(child_id));
                 }
+                for (prop, message) in mapped.issues {
+                    issues.push(ReduceIssue::at(id, message, &format!("/{}", escape_token(&prop)), VALIDATION_FAILED));
+                }
             }
         }
-    } else if !options.view.components.contains_key(&flat.component) {
-        issues.push(ReduceIssue { id: id.to_string(), message: format!("unknown component {}", flat.component) });
+    } else if options.view.catalog_component(catalog, &flat.component).is_none() {
+        issues.push(ReduceIssue::at(id, format!("unknown component {}", flat.component), "/component", VALIDATION_FAILED));
         return issues;
     } else {
         node = UiNode::new(id, flat.component.clone());
@@ -615,20 +731,20 @@ pub fn component_issues(flat: &FlatComponent, options: &ReduceOptions, lookup: &
             None => {}
         }
         node.style = flat.style.clone();
-        if let Some(visible) = &flat.visible {
-            if valid_visible(visible) {
-                node.visible = Some(visible.clone());
-            } else {
-                issues.push(ReduceIssue { id: id.to_string(), message: VISIBLE_ISSUE.into() });
-            }
-        }
         node.on = flat.on.clone();
         for (slot, child_id) in flat.slots.iter().flatten() {
             node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), stub(child_id));
         }
     }
-    if let Some(accessibility) = flat.accessibility.as_ref().filter(|a| js_truthy(a)) {
-        node.accessibility = Some(accessibility.clone());
+    if let Some(visible) = &flat.visible {
+        if valid_visible(visible) {
+            node.visible = Some(visible.clone());
+        } else {
+            issues.push(ReduceIssue::at(id, VISIBLE_ISSUE, "/visible", VALIDATION_FAILED));
+        }
+    }
+    if let Some(accessibility) = &flat.accessibility {
+        node.accessibility = accessibility_of(accessibility, id, &mut issues);
     }
     validate_node(&node, id, options, true, &mut issues);
     issues
@@ -650,18 +766,15 @@ fn reduce_flat(components: &[FlatComponent], options: &ReduceOptions) -> ReduceR
     let mut by_id: HashMap<&str, &FlatComponent> = HashMap::new();
     for flat in components {
         if by_id.contains_key(flat.id.as_str()) {
-            issues.push(ReduceIssue { id: flat.id.clone(), message: "duplicate id; the last definition wins".into() });
+            issues.push(ReduceIssue::new(flat.id.clone(), "duplicate id; the last definition wins"));
         }
         by_id.insert(flat.id.as_str(), flat);
     }
     let root_id = options.root_id.clone().unwrap_or_else(|| "root".to_string());
-    if !options.catalog_id.is_empty() && !crate::functions::is_basic_catalog(&options.catalog_id) && !options.view.knows_catalog(&options.catalog_id) {
-        issues.push(ReduceIssue { id: root_id.clone(), message: format!("unsupported catalog {}", options.catalog_id) });
-    }
     let mut builder = Builder {
         by_id,
         options,
-        basic: crate::functions::is_basic_catalog(&options.catalog_id),
+        parents: HashMap::new(),
         visiting: HashSet::new(),
         placed: HashSet::new(),
         twice_reported: HashSet::new(),
@@ -682,6 +795,10 @@ fn reduce_flat(components: &[FlatComponent], options: &ReduceOptions) -> ReduceR
         built.insert(id.to_string(), out.clone());
         out
     });
+    if options.validate {
+        builder.parents.insert(root.id.clone(), SURFACE_COMPONENT.to_string());
+        check_parents(&root, &lifted, &builder.parents, &options.view, &mut issues);
+    }
     finish(root, issues, lifted, options)
 }
 
@@ -694,45 +811,62 @@ pub fn reduce_nested(tree: &NestedNode, options: &ReduceOptions) -> ReduceResult
 fn reduce_tree(tree: &NestedNode, options: &ReduceOptions) -> ReduceResult {
     let mut issues = Vec::new();
     let mut budget = Budget::new();
-    let mut root = walk_nested(tree, options, &mut issues, &mut budget, 1).unwrap_or_else(|| unknown(&tree.id, &tree.component, &options.catalog_id));
+    let mut parents = HashMap::new();
+    let mut root = walk_nested(tree, options, &mut issues, &mut budget, &mut parents, 1).unwrap_or_else(|| unknown(&tree.id, &tree.component, &options.catalog_id));
     let lifted = lift_templates(&mut root, &mut issues, &mut |_| (None, Vec::new()));
+    if options.validate {
+        parents.insert(root.id.clone(), SURFACE_COMPONENT.to_string());
+        check_parents(&root, &lifted, &parents, &options.view, &mut issues);
+    }
     finish(root, issues, lifted, options)
 }
 
-fn walk_nested(n: &NestedNode, options: &ReduceOptions, issues: &mut Vec<ReduceIssue>, budget: &mut Budget, depth: usize) -> Option<UiNode> {
-    crate::deep(|| walk_nested_node(n, options, issues, budget, depth))
+fn walk_nested(n: &NestedNode, options: &ReduceOptions, issues: &mut Vec<ReduceIssue>, budget: &mut Budget, parents: &mut HashMap<String, String>, depth: usize) -> Option<UiNode> {
+    crate::deep(|| walk_nested_node(n, options, issues, budget, parents, depth))
 }
 
-fn walk_nested_node(n: &NestedNode, options: &ReduceOptions, issues: &mut Vec<ReduceIssue>, budget: &mut Budget, depth: usize) -> Option<UiNode> {
+fn walk_nested_node(n: &NestedNode, options: &ReduceOptions, issues: &mut Vec<ReduceIssue>, budget: &mut Budget, parents: &mut HashMap<String, String>, depth: usize) -> Option<UiNode> {
     if !budget.spend(&n.id, issues) {
         return None;
     }
+    let catalog = n.catalog_id.as_deref().unwrap_or(&options.catalog_id);
     if depth > limits::MAX_DEPTH {
-        issues.push(ReduceIssue { id: n.id.clone(), message: limits::depth_issue() });
-        return Some(unknown(&n.id, &n.component, &options.catalog_id));
+        issues.push(ReduceIssue::new(n.id.clone(), limits::depth_issue()));
+        return Some(unknown(&n.id, &n.component, catalog));
     }
-    if !options.view.components.contains_key(&n.component) {
-        issues.push(ReduceIssue { id: n.id.clone(), message: format!("unknown component {}", n.component) });
-        return Some(unknown(&n.id, &n.component, &options.catalog_id));
+    if let Some(issue) = options.unavailable(&n.id, catalog) {
+        issues.push(issue);
+        return Some(unknown(&n.id, &n.component, catalog));
+    }
+    if options.view.catalog_component(catalog, &n.component).is_none() {
+        issues.push(ReduceIssue::at(n.id.clone(), format!("unknown component {}", n.component), "/component", VALIDATION_FAILED));
+        return Some(unknown(&n.id, &n.component, catalog));
     }
     let mut node = UiNode::new(n.id.clone(), n.component.clone());
     node.props = n.props.clone().unwrap_or_default();
-    node.children = n.children.iter().flatten().filter_map(|c| walk_nested(c, options, issues, budget, depth + 1)).collect();
+    node.children = n.children.iter().flatten().filter_map(|c| walk_nested(c, options, issues, budget, parents, depth + 1)).collect();
+    for c in &node.children {
+        parents.insert(c.id.clone(), n.component.clone());
+    }
     node.style = n.style.clone();
     if let Some(visible) = &n.visible {
         if valid_visible(visible) {
             node.visible = Some(visible.clone());
         } else {
-            issues.push(ReduceIssue { id: n.id.clone(), message: VISIBLE_ISSUE.into() });
+            issues.push(ReduceIssue::at(n.id.clone(), VISIBLE_ISSUE, "/visible", VALIDATION_FAILED));
         }
     }
     node.on = n.on.clone();
-    node.accessibility = n.accessibility.clone().filter(js_truthy);
+    if let Some(accessibility) = &n.accessibility {
+        node.accessibility = accessibility_of(accessibility, &n.id, issues);
+    }
+    node.metadata = metadata_of(n.metadata.as_ref());
     node.template = n.template.clone();
     if let Some(slots) = &n.slots {
         let mut out = IndexMap::new();
         for (slot, child) in slots {
-            if let Some(built) = walk_nested(child, options, issues, budget, depth + 1) {
+            if let Some(built) = walk_nested(child, options, issues, budget, parents, depth + 1) {
+                parents.insert(built.id.clone(), n.component.clone());
                 out.insert(slot.clone(), built);
             }
         }

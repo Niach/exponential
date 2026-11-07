@@ -267,7 +267,7 @@ impl Surface {
         let taffy_style = match taffy_style {
             Ok(s) => s,
             Err(e) => {
-                let issue = crate::types::ReduceIssue { id: n.id.clone(), message: format!("style: {e}") };
+                let issue = crate::types::ReduceIssue::new(n.id.clone(), format!("style: {e}"));
                 if !self.issues.contains(&issue) {
                     self.issues.push(issue.clone());
                 }

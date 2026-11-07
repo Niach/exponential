@@ -270,7 +270,21 @@ pub struct LayoutOutput {
 pub enum OutEvent {
     /// A server event (A2UI `action`): forward it. `context` = the author's
     /// context with the event payload merged over it.
-    Action { name: String, component_id: String, event: String, context: Value, #[serde(skip_serializing_if = "Option::is_none")] payload: Option<Value> },
+    /// Round 9 §1.3: `user_message` = the Action's `event.userMessage`,
+    /// resolved to a string.
+    Action {
+        name: String,
+        component_id: String,
+        event: String,
+        context: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        payload: Option<Value>,
+        #[serde(default, rename = "userMessage", skip_serializing_if = "Option::is_none")]
+        user_message: Option<String>,
+    },
+    /// Round 9 §6.8: resolving an action failed: it stopped (no write, no
+    /// event). The host sends the `error`.
+    ActionFailed { component_id: String, code: String, message: String },
     /// `openUrl` or a `Link`.
     OpenUrl { url: String },
     /// An `on.<event>` `functionCall` naming a HOST function (not one of
@@ -1330,7 +1344,7 @@ impl Surface {
             };
             let issues = match result {
                 Ok(()) => Vec::new(),
-                Err(message) => vec![ReduceIssue { id: path.to_string(), message }],
+                Err(message) => vec![ReduceIssue::new(path.to_string(), message)],
             };
             return Ok(ApplyOutcome { structure_changed: self.needs_build, issues });
         }
@@ -1355,12 +1369,16 @@ impl Surface {
         for (i, entry) in components.iter().enumerate() {
             let catalog = entry.get("catalogId").and_then(Value::as_str).unwrap_or(&self.catalog_id);
             if let Some((at, message)) = crate::host::check_entry(entry, crate::functions::is_basic_catalog(catalog)) {
-                issues.push(ReduceIssue { id: format!("/{kind}/components/{i}{at}"), message });
+                let path = format!("/{kind}/components/{i}{at}");
+                issues.push(ReduceIssue { id: path.clone(), message, code: "INVALID_MESSAGE".into(), path });
                 continue;
             }
             match serde_json::from_value::<FlatComponent>(entry.clone()) {
                 Ok(c) => list.push(c),
-                Err(e) => issues.push(ReduceIssue { id: format!("/{kind}/components/{i}"), message: format!("components[{i}]: {e}") }),
+                Err(e) => {
+                    let path = format!("/{kind}/components/{i}");
+                    issues.push(ReduceIssue { id: path.clone(), message: format!("components[{i}]: {e}"), code: "INVALID_MESSAGE".into(), path });
+                }
             }
         }
         (list, issues)

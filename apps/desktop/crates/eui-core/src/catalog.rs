@@ -26,6 +26,8 @@ pub const ACCEPT_V09: bool = g::ACCEPT_V09;
 pub const A2UI_VERSION_09: &str = "v0.9";
 /// The placeholder component painted for anything unmapped.
 pub const UNKNOWN_COMPONENT: &str = g::UNKNOWN_COMPONENT;
+/// The reserved container `createSurface` implies (round 9 §5.4).
+pub const SURFACE_COMPONENT: &str = "Surface";
 /// What a client advertises as `supportedCatalogIds`.
 pub const SUPPORTED_CATALOG_IDS: &[&str] = &[CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, A2UI_BASIC_CATALOG_ID];
 
@@ -191,6 +193,41 @@ impl CatalogView {
             || catalog_id == CORE_LITE_CATALOG_ID
             || catalog_id == A2UI_BASIC_CATALOG_ID
             || self.extension_ids.iter().any(|id| id == catalog_id)
+    }
+
+    /// Round 9 §5.5: the ids a surface may name by default: the core,
+    /// core-lite, basic, then the extensions, de-duplicated.
+    pub fn available_catalogs(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for id in SUPPORTED_CATALOG_IDS.iter().copied().chain(self.extension_ids.iter().map(String::as_str)) {
+            if !out.iter().any(|x| x == id) {
+                out.push(id.to_string());
+            }
+        }
+        out
+    }
+
+    /// Round 9 §5.5: a component name looked up ONLY in its resolved
+    /// catalog: the core's components; core-lite = the `lite` subset; an
+    /// extension = its components ∪ the core's. (Basic components are
+    /// mapped first.)
+    pub fn catalog_component(&self, catalog_id: &str, name: &str) -> Option<&ComponentDef> {
+        if name == SURFACE_COMPONENT {
+            return None;
+        }
+        if catalog_id == CORE_CATALOG_ID {
+            return CORE.components.get(name);
+        }
+        if catalog_id == CORE_LITE_CATALOG_ID {
+            return CORE.components.get(name).filter(|d| d.lite || d.hidden == Some(true));
+        }
+        if !self.extension_ids.iter().any(|id| id == catalog_id) {
+            return None;
+        }
+        if self.owner.get(name).is_some_and(|o| o == catalog_id) {
+            return self.components.get(name);
+        }
+        CORE.components.get(name)
     }
 
     /// The extension that owns `component`, if it is not a core one.

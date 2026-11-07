@@ -279,6 +279,10 @@ impl Surface {
             };
             run_action(&action, &ctx)
         };
+        if let Some(failure) = outcome.failure {
+            out.push(OutEvent::ActionFailed { component_id: id.to_string(), code: failure.code, message: failure.message });
+            return out;
+        }
         if let Some((path, value)) = outcome.written {
             self.data = outcome.data;
             self.data_version += 1;
@@ -297,7 +301,7 @@ impl Surface {
                     context.insert(k.clone(), v.clone());
                 }
             }
-            out.push(OutEvent::Action { name: ev.name, component_id: id.to_string(), event: event.to_string(), context: Value::Object(context), payload });
+            out.push(OutEvent::Action { name: ev.name, component_id: id.to_string(), event: event.to_string(), context: Value::Object(context), payload, user_message: ev.user_message });
         }
         if let Some(call) = outcome.call {
             if call.call == "openUrl" {

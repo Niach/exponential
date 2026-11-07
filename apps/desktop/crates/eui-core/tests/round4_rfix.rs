@@ -77,7 +77,7 @@ fn out_events_are_camel_case_on_the_wire() {
     use eui_core::surface::OutEvent;
     let wire = |e: OutEvent| serde_json::to_value(e).unwrap();
     assert_eq!(
-        wire(OutEvent::Action { name: "save".into(), component_id: "b".into(), event: "press".into(), context: json!({}), payload: None }),
+        wire(OutEvent::Action { name: "save".into(), component_id: "b".into(), event: "press".into(), context: json!({}), payload: None, user_message: None }),
         json!({"kind": "action", "name": "save", "componentId": "b", "event": "press", "context": {}})
     );
     assert_eq!(
