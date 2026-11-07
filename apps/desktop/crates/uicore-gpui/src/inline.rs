@@ -30,6 +30,11 @@ pub fn document(doc: &uicore_docs::Doc) -> Document {
     parsed
 }
 
+/// A popup document as a host window draws it: on its own ground.
+pub fn popup(doc: &uicore_docs::Doc) -> Document {
+    ede_ui::validate_document(doc.name, &doc.json()).expect("a factory document validates")
+}
+
 /// Drops the nodes a host draws itself or has no use for.
 pub fn without(doc: &mut Document, ids: &[&str]) {
     fn prune(node: &mut eui_core::types::NestedNode, ids: &[&str]) {

@@ -61,10 +61,9 @@ const agentDot = (needsYou: boolean, busy: boolean): IdeDot | null => needsYou ?
 
 export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   const { screen } = input
-  const rows: IdeNavRow[] = [nav(`home`, `action-chat`, screen === `home`, null, null)]
+  const rows: IdeNavRow[] = []
   if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, String(input.needsYou), null))
   rows.push(nav(`threads`, `nav-threads`, screen === `threads`, null, input.threadsDot))
-  rows.push(nav(`devices`, `nav-devices`, screen === `devices`, null, null))
   if (input.drafts > 0 || screen === `drafts`) rows.push(nav(`drafts`, `nav-drafts`, screen === `drafts`, String(input.drafts), null))
   return {
     nav: rows,

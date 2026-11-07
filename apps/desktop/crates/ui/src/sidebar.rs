@@ -44,9 +44,8 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::PopupMenuItem,
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -54,7 +53,7 @@ use sync::Store;
 
 // EXP-282: `OpenSettings` is gone from this file — the rail gear navigates
 // directly (EXP-17) and the account dropdown no longer duplicates it.
-use crate::actions::{CreateTeam, JoinTeam, OpenAbout, OpenWhatsNew, SignOut, SwitchTeam};
+use crate::actions::{CreateTeam, JoinTeam, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::controls::WebControl as _;
@@ -442,7 +441,6 @@ const SYNCING_LABEL: &str = "Syncing\u{2026}";
 pub(crate) enum RailBadge {
     Dot(Hsla),
     Icon(ExpIcon, Hsla),
-    Syncing,
     /// EXP-963: a COUNT — the web rail's `Badge` (EXP-962): the Drafts
     /// entry's pile, muted. Zero renders nothing (the badge's own rule).
     Count(usize, crate::surface::BadgeTone),
@@ -471,15 +469,6 @@ pub(crate) fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> g
             .with_size(px(glyph_px))
             .text_color(color)
             .flex_shrink_0()
-            .into_any_element(),
-        RailBadge::Syncing => div()
-            .flex_shrink_0()
-            .child(
-                Spinner::new()
-                    .icon(registry::UI_REFRESH)
-                    .with_size(px(glyph_px))
-                    .color(cx.theme().muted_foreground),
-            )
             .into_any_element(),
     }
 }
@@ -720,99 +709,6 @@ impl RailView {
         Some(row.into_any_element())
     }
 
-    /// The footer's Computer button — THIS machine's tools behind one menu
-    /// on the menu surface: a new Terminal (the shell tab cmd-t opens,
-    /// EXP-791), Files and Source Control (EXP-1105: yolo mode hides those
-    /// two until a git failure needs a person). Source Control's attention /
-    /// error badge and its reason ride the button, so a trunk failure stays
-    /// visible with the menu closed. Lit while Files or Source Control is up.
-    fn rail_computer_entry(
-        &self,
-        files: bool,
-        source_control: bool,
-        sc_tooltip: SharedString,
-        sc_badge: Option<RailBadge>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let active = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::Files) | Some(Screen::SourceControl)
-        );
-        // Only a FAILURE rides the button (the attention triangle / error
-        // cross); the syncing spinner stays on the menu row.
-        let entry_badge = sc_badge
-            .clone()
-            .filter(|badge| source_control && matches!(badge, RailBadge::Icon(..)));
-        let tooltip: SharedString = if entry_badge.is_some() {
-            sc_tooltip
-        } else {
-            "Computer".into()
-        };
-        let menu_sc_badge = sc_badge.filter(|_| source_control);
-        let menu = move |mut menu: gpui_component::menu::PopupMenu,
-                         _window: &mut Window,
-                         _cx: &mut gpui::Context<gpui_component::menu::PopupMenu>| {
-            menu = menu.item(
-                crate::controls::pointer_label_item("Terminal", false)
-                    .icon(Icon::from(registry::NAV_TERMINAL))
-                    .on_click(|_, window, cx| crate::session_bar::open_new_shell(window, cx)),
-            );
-            if files {
-                menu = menu.item(
-                    crate::controls::pointer_label_item("Files", false)
-                        .icon(Icon::new(registry::NAV_FILES))
-                        .on_click(|_, window, cx| activate_tool(window, cx, ToolWindow::Files)),
-                );
-            }
-            if source_control {
-                let badge = menu_sc_badge.clone();
-                menu = menu.item(
-                    PopupMenuItem::element(move |_, cx| {
-                        h_flex()
-                            .flex_1()
-                            .gap_2()
-                            .items_center()
-                            .child(div().flex_1().min_w_0().truncate().child("Source Control"))
-                            .children(badge.clone().map(|badge| rail_badge_element(badge, 12., cx)))
-                    })
-                    .icon(Icon::from(registry::NAV_SOURCE_CONTROL))
-                    .on_click(|_, window, cx| {
-                        activate_tool(window, cx, ToolWindow::SourceControl)
-                    }),
-                );
-            }
-            menu
-        };
-
-        // The footer's small ghost square (the settings gear's shape), the
-        // failure badge in its top-right corner. It opens upward: the
-        // button sits at the window's bottom edge.
-        let button = crate::controls::PointerMenu::for_button(Button::new("rail-computer")
-            .ghost()
-            .cursor_pointer()
-            .small()
-            .icon(registry::NAV_COMPUTER)
-            .selected(active)
-            .tooltip(tooltip),
-            menu,
-        )
-        .anchor(gpui::Anchor::BottomLeft);
-        div()
-            .relative()
-            .flex_shrink_0()
-            .child(button)
-            .when_some(entry_badge, |this, badge| {
-                this.child(
-                    div()
-                        .absolute()
-                        .top(px(3.))
-                        .right(px(3.))
-                        .child(rail_badge_element(badge, 10., cx)),
-                )
-            })
-            .into_any_element()
-    }
-
     /// #NEW-97: the footer's voice button while no tray host shows the tray
     /// (`etalk::voice::rail_voice`): the Computer button's ghost square with
     /// the `settings-voice` glyph, the tray icon's red dot while the wake
@@ -888,108 +784,6 @@ impl RailView {
                 crate::getting_started::open_dialog(window, cx);
             }))
             .into_any_element()
-    }
-
-    /// The account button — the rail's bottom-left element, with the settings
-    /// gear on its right.
-    ///
-    /// EXP-723: its dropdown is the WEB account menu, exactly — What's new,
-    /// About, a separator, Sign out. Team switching moved UP into the header's
-    /// team switcher (where the web keeps it), and there is deliberately no
-    /// Admin entry: the admin console is web-only.
-    fn render_account_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let account = crate::queries::active_account(cx);
-        // EXP-311, web sidebar parity: the profile image (or hue-hashed
-        // initials) plus the FIRST name only — full name + email live in
-        // settings → Account. Name-less accounts (Apple sign-in) fall back
-        // to the email for the label/initials.
-        let full_name: SharedString = account
-            .as_ref()
-            .and_then(|account| account.name.clone())
-            .filter(|name| !name.trim().is_empty())
-            .or_else(|| account.as_ref().map(|account| account.email.clone()))
-            .map(SharedString::from)
-            .unwrap_or_else(|| "Not signed in".into());
-        let short_name: SharedString =
-            SharedString::from(crate::user_avatar::first_name(&full_name).to_string());
-        // The avatar URL rides the synced users row, never accounts.json.
-        let image_url = crate::queries::active_user(cx).and_then(|user| user.image);
-        let avatar_image = crate::user_avatar::cached_avatar_image(cx, image_url.as_deref());
-        let make_avatar = {
-            let full_name = full_name.clone();
-            // EXP-698: the hue key is the USER ID, so the rail's disc matches
-            // the one every member list draws for the same person.
-            let user_id = account
-                .as_ref()
-                .map(|account| account.user_id.clone())
-                .unwrap_or_default();
-            let signed_in = account.is_some();
-            move |size: gpui_component::Size, image: Option<std::sync::Arc<gpui::Image>>| {
-                // Signed out keeps the generic person placeholder instead of
-                // "NS" initials for "Not signed in".
-                if !signed_in {
-                    return gpui_component::avatar::Avatar::new()
-                        .with_size(size)
-                        .into_any_element();
-                }
-                crate::user_avatar::avatar_element(&user_id, &full_name, image, size)
-            }
-        };
-
-        crate::controls::PointerMenu::for_button(Button::new("rail-account")
-            .ghost().cursor_pointer()
-            .small()
-            // The trigger is a full-width row — the Button's own inner layout
-            // is centered and unreachable, so the row is a `w_full` child that
-            // left-aligns inside it.
-            .map(|button| {
-                button.w_full().h(px(36.)).px_1p5().child(
-                h_flex()
-                    .w_full()
-                    .gap_2()
-                    .items_center()
-                    .child(make_avatar(
-                        gpui_component::Size::Small,
-                        avatar_image.clone(),
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .truncate()
-                            .child(short_name.clone()),
-                    )
-                    .child(
-                        Icon::new(registry::NAV_TEAM_SWITCHER)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(cx.theme().muted_foreground),
-                    ),
-                )
-            })
-            .tooltip(full_name.clone()),
-            move |menu, _window, _cx| {
-                // EXP-723: the WEB account menu, item for item. No "Settings"
-                // (the gear beside this button is the single settings entry),
-                // no "Account" (it is a settings section), no identity header
-                // (the trigger already names the person) and no team switching
-                // — that lives in the header's team switcher now. There is no
-                // Admin entry either: the admin console is web-only.
-                //
-                // The separator is the ONE exception to the EXP-697 "no
-                // dividers in menus" rule, because the web menu has it here:
-                // Sign out is destructive and must not sit flush against a
-                // navigation item.
-                menu.menu_with_icon(
-                    "What's new",
-                    registry::NAV_CHANGELOG,
-                    Box::new(OpenWhatsNew),
-                )
-                .menu_with_icon("About", registry::SETTINGS_ABOUT, Box::new(OpenAbout))
-                .separator()
-                .menu_with_icon("Sign out", registry::NAV_SIGN_OUT, Box::new(SignOut))
-            }).anchor(gpui::Anchor::BottomLeft)
     }
 
 }
@@ -1230,93 +1024,6 @@ fn toggle_rail(cx: &mut App) {
 }
 
 impl RailView {
-    /// EXP-723: the footer's "What's new" card — the desktop mirror of the
-    /// web `WhatsNewCard`. Renders while the per-install `changelogSeenId`
-    /// differs from [`crate::changelog::LATEST`]'s id; the ✕ marks it seen
-    /// without opening anything, a click on the card opens the dialog (which
-    /// marks it seen too).
-    fn render_whats_new_card(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        let seen = coding_flow::CodingHub::global(cx)
-            .read(cx)
-            .settings
-            .changelog_seen_id
-            .clone();
-        if !crate::changelog::whats_new_visible(seen.as_deref()) {
-            return None;
-        }
-        // EXP-1022: the card FLOATS over the rail's scroll area, so the
-        // glass fill sits on an OPAQUE ground of its own (the window
-        // gradient's bottom stop, where the card lives) — rows sliding
-        // behind it must not show through — under a shadow that lifts it.
-        Some(
-            div()
-                .w_full()
-                .flex_shrink_0()
-                .rounded(px(theme::tokens::radius::LG))
-                .bg(theme::background_gradient_color_at(1.))
-                .shadow_md()
-                .child(
-                    div()
-                        .id("rail-whats-new")
-                        .w_full()
-                        .rounded(px(theme::tokens::radius::LG))
-                        .border_1()
-                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-                        .p_3()
-                        .cursor_pointer()
-                        .hover(|this| this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
-                        .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                            crate::changelog::open_whats_new(window, cx);
-                        }))
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .gap_2()
-                                .items_center()
-                                .child(
-                                    Icon::new(registry::NAV_CHANGELOG)
-                                        .small()
-                                        .flex_shrink_0()
-                                        .text_color(cx.theme().muted_foreground),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .text_sm()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .truncate()
-                                        .child("What's new"),
-                                )
-                                .child(
-                                    Button::new("rail-whats-new-dismiss")
-                                        .ghost().cursor_pointer()
-                                        .xsmall()
-                                        .flex_shrink_0()
-                                        .icon(registry::UI_CLOSE)
-                                        .tooltip("Dismiss")
-                                        .on_click(cx.listener(|_, _: &ClickEvent, _window, cx| {
-                                            // Without this the dismissal ALSO opens
-                                            // the dialog the card's own click handler
-                                            // owns.
-                                            cx.stop_propagation();
-                                            crate::changelog::mark_seen(cx);
-                                        })),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .mt_1()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .truncate()
-                                .child(crate::changelog::LATEST.summary),
-                        ),
-                )
-                .into_any_element(),
-        )
-    }
 }
 
 impl Render for RailView {
@@ -1367,18 +1074,7 @@ impl Render for RailView {
         // EXP-1105: the same two failure inputs the badge reads (attention
         // or a sticky sync error) — a pull merely in flight is not one.
         let sc_failing = sc_attention.is_some() || git_bar.read(cx).sync_error().is_some();
-        let sc_badge = if sc_attention.is_some() {
-            Some(RailBadge::Icon(
-                registry::UI_WARNING,
-                cx.theme().warning,
-            ))
-        } else if git_bar.read(cx).sync_error().is_some() {
-            Some(RailBadge::Icon(registry::UI_ERROR, cx.theme().danger))
-        } else if git_bar.read(cx).is_syncing() {
-            Some(RailBadge::Syncing)
-        } else {
-            None
-        };
+        let sc_attention_on = sc_attention.is_some();
         let sc_tooltip: SharedString = if let Some(reason) = sc_attention {
             format!("Source Control: {reason}").into()
         } else if let Some(error) = git_bar.read(cx).sync_error() {
@@ -1401,59 +1097,20 @@ impl Render for RailView {
             }
         };
 
-        // Settings gear — the SINGLE settings entry point (EXP-282 dropped
-        // the duplicate account-menu item). Navigates directly for the same
-        // EXP-17 reason as the search button above; the keymap still
-        // dispatches `OpenSettings`. EXP-340: icon-only — it sits in the
-        // account row, hugging the rail's right edge, instead of taking a
-        // full-width row of its own.
-        let settings_entry = Button::new("rail-settings")
-            .ghost().cursor_pointer()
-            .small()
-            .icon(registry::NAV_SETTINGS)
-            .selected(matches!(
-                resolved_screen(&self.nav, cx),
-                Some(Screen::Settings)
-            ))
-            .tooltip("Settings")
-            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                navigate(window, cx, Screen::Settings)
-            }));
         // EXP-1105: yolo mode hides Files / Source Control unless a git
         // failure needs a person (see `yolo_rail`).
         let rail_gate = yolo_rail(team_yolo.unwrap_or(false), sc_failing);
-        // The footer's Computer menu: Terminal (EXP-791's footer button),
-        // Files and Source Control.
-        let computer_entry = self.rail_computer_entry(
-            rail_gate.files,
-            rail_gate.source_control,
-            sc_tooltip,
-            sc_badge,
-            cx,
-        );
-
         // #NEW-97: no tray host = the voice button beside the Computer one.
-        let mut voice_entry = self.rail_voice_entry(cx);
-        let mut computer_entry = Some(computer_entry);
-        let mut settings_entry = Some(settings_entry);
+        let voice_entry = self.rail_voice_entry(cx);
         let rail = crate::ui_prefs::rail();
+        let badge = (rail_gate.source_control && sc_failing).then(|| if sc_attention_on { "ide:trunk:warning" } else { "ide:trunk:error" }.to_string());
+        self.region.update(cx, |region, _| region.set_tools(rail_gate.files, rail_gate.source_control, sc_tooltip.to_string(), badge));
 
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
         // them are the `Shell`'s (`render_left_column`), shared with the
         // settings nav, so the rail neither pads its top
         // nor renders a header of its own.
-        // EXP-1022: the What's-new card FLOATS over the scroll area's bottom
-        // edge (rows slide behind it) — rendered up front so the scroll
-        // content knows whether to keep clearance under its last row.
-        let whats_new_card = self.render_whats_new_card(cx);
-        // EXP-997: the column's 8px gutter belongs to the SCROLL CONTENT and
-        // the footer rows, not the column — the scroll pane spans the full
-        // column width. EXP-1095: the vendored thumb (6-8px, inset 4 in a
-        // 16px track) still reached 2-4px into the rows, so the sidebar's
-        // scrollers take `sidebar_scroll_pane`'s slim variant: a 3-4px thumb
-        // inset 1px from the column's right edge in an 8px hit strip, i.e.
-        // wholly inside that gutter, beside the rows instead of over them.
         // EXP-1156: the `main` width, read exactly as the Shell's column
         // reads it — a FIXED width rather than `w_full`, so while the column
         // animates into Settings the rows are clipped instead of reflowing
@@ -1502,41 +1159,20 @@ impl Render for RailView {
                         }
                     }),
             )
-            // EXP-723: the web sidebar footer's order, top to bottom — the
-            // muted Getting-started re-entry point, the sync spinner, then
-            // the account row with the settings gear (the What's-new card
-            // floats above, over the scroll area).
-            .child(
-                v_flex()
-                    .w_full()
-                    .px_2()
-                    .gap_1()
-                    .when(rail, |footer| footer.items_center())
-                    .when(!rail, |footer| {
-                        footer
-                            .children(whats_new_card)
-                            .children(getting_started_icon)
-                            .children(self.render_sync_indicator(cx))
-                    })
-                    // EXP-340: one bottom row — the account button fills the
-                    // width, the Computer menu and the gear ride its right
-                    // edge. #EXP-1724: in the rail they stack.
-                    .when(rail, |footer| {
-                        footer.children(voice_entry.take()).children(computer_entry.take()).children(settings_entry.take())
-                    })
-                    .when(!rail, |footer| {
-                        footer.child(
-                            h_flex()
-                                .w_full()
-                                .gap_1()
-                                .items_center()
-                                .child(div().flex_1().min_w_0().child(self.render_account_button(cx)))
-                                .children(voice_entry.take())
-                                .children(computer_entry.take())
-                                .children(settings_entry.take()),
-                        )
-                    }),
-            )
+            // #EXP-1723: the start and chat buttons are the document's corner;
+            // what stays under them is what still needs a person: the
+            // Getting-started entry, the sync spinner, the voice button.
+            .when(!rail, |column| {
+                column.child(
+                    v_flex()
+                        .w_full()
+                        .px_2()
+                        .gap_1()
+                        .children(getting_started_icon)
+                        .children(self.render_sync_indicator(cx))
+                        .children(voice_entry),
+                )
+            })
             .into_any_element()
     }
 }

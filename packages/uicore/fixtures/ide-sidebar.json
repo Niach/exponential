@@ -1,15 +1,13 @@
 {
-  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Agent, Needs you (while any, or on its page), Chats, Devices, Drafts (while any, or on its page). screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. An agent's dot = amber (needs you) before green (busy). gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (threads-list.json copy.title and needs-you.json copy.entry).",
+  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Drafts (while any, or on its page): the chat button beside the start button is the Agent entry, and Devices lives in the start menu (#EXP-1723). screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. An agent's dot = amber (needs you) before green (busy). gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (threads-list.json copy.title and needs-you.json copy.entry).",
   "version": 1,
   "copy": {
-    "home": "Agent",
     "needs-you": "Needs you",
     "threads": "Chats",
-    "devices": "Devices",
     "drafts": "Drafts"
   },
   "base": {
-    "screen": "home",
+    "screen": "threads",
     "needsYou": 0,
     "drafts": 0,
     "threadsDot": null,
@@ -22,31 +20,15 @@
   },
   "cases": [
     {
-      "name": "an empty team lists Agent, Chats and Devices and says it has no boards",
+      "name": "an empty team lists Chats and says it has no boards",
       "input": {},
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": true,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
-            "selected": false,
+            "selected": true,
             "count": null,
             "dot": null
           }
@@ -74,14 +56,6 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": true,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "needs-you",
             "title": "Needs you",
             "icon": "nav-needs-you",
@@ -93,15 +67,7 @@
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
-            "selected": false,
+            "selected": true,
             "count": null,
             "dot": null
           }
@@ -129,14 +95,6 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "needs-you",
             "title": "Needs you",
             "icon": "nav-needs-you",
@@ -148,14 +106,6 @@
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
             "selected": false,
             "count": null,
             "dot": null
@@ -184,26 +134,10 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": true,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
-            "selected": false,
+            "selected": true,
             "count": null,
             "dot": null
           },
@@ -239,25 +173,9 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
             "selected": false,
             "count": null,
             "dot": null
@@ -295,28 +213,12 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
             "selected": true,
             "count": null,
             "dot": "amber"
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
-            "selected": false,
-            "count": null,
-            "dot": null
           }
         ],
         "pins": [],
@@ -354,25 +256,9 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
             "selected": false,
             "count": null,
             "dot": null
@@ -437,25 +323,9 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
             "selected": false,
             "count": null,
             "dot": null
@@ -533,26 +403,10 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": true,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
-            "selected": false,
+            "selected": true,
             "count": null,
             "dot": null
           }
@@ -621,25 +475,9 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
             "selected": false,
             "count": null,
             "dot": null
@@ -697,25 +535,9 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
             "selected": false,
             "count": null,
             "dot": null
@@ -782,25 +604,9 @@
       "expected": {
         "nav": [
           {
-            "id": "home",
-            "title": "Agent",
-            "icon": "action-chat",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
             "id": "threads",
             "title": "Chats",
             "icon": "nav-threads",
-            "selected": false,
-            "count": null,
-            "dot": null
-          },
-          {
-            "id": "devices",
-            "title": "Devices",
-            "icon": "nav-devices",
             "selected": false,
             "count": null,
             "dot": null

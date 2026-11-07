@@ -163,12 +163,11 @@ pub fn agent_dot(needs_you: bool, busy: bool) -> Option<IdeDot> {
 pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
     let screen = input.screen.as_str();
     let on = |kind: &str, id: &str| screen.strip_prefix(kind).and_then(|s| s.strip_prefix(':')) == Some(id);
-    let mut rows = vec![nav("home", "action-chat", screen == "home", None, None)];
+    let mut rows = Vec::new();
     if input.needs_you > 0 || screen == "needs-you" {
         rows.push(nav("needs-you", "nav-needs-you", screen == "needs-you", Some(input.needs_you.to_string()), None));
     }
     rows.push(nav("threads", "nav-threads", screen == "threads", None, input.threads_dot));
-    rows.push(nav("devices", "nav-devices", screen == "devices", None, None));
     if input.drafts > 0 || screen == "drafts" {
         rows.push(nav("drafts", "nav-drafts", screen == "drafts", Some(input.drafts.to_string()), None));
     }

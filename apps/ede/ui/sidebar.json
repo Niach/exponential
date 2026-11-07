@@ -2461,6 +2461,30 @@
                     }
                   },
                   {
+                    "id": "ide_start_badge",
+                    "component": "Icon",
+                    "props": {
+                      "name": {
+                        "@path": "/shell/ide/startBadge"
+                      },
+                      "size": "sm"
+                    },
+                    "style": {
+                      "marginLeft": -20,
+                      "alignSelf": "flex-start"
+                    },
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/shell/ide/startBadge"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
+                  },
+                  {
                     "id": "chat",
                     "component": "Button",
                     "props": {
