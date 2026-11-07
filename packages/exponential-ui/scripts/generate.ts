@@ -1689,24 +1689,8 @@ function promptBudget() {
   const size = (text: string) => ({ chars: text.length, tokens: estimateTokens(text) })
   return {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate. VAPP-108: \`index\` = sections rules + index + functions + style (the components then come one at a time through componentPrompt, \`perComponent\`), \`rules\` = the rules alone.`,
-    // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
-    // EXP-1324: Trace + TraceItem (descriptions trimmed first).
-    // VAPP-126 (a named budget exception, see the Guide): the six layout macros: +1,396 chars / +349 tokens; VAPP-128 trims nine prop descriptions; the budget is the measured total (7,335), no slack.
-    // NEW-77: VoiceWave, the measured 7,410.
-    // VAPP-162 (a named budget exception): MessageBubble, CallSurface, Plan, QrCode, QrScanner + Segmented orientation, Button hold, VoiceWave variant: +1,967 chars / +490 tokens after trimming every new description; the budget is the measured total (7,900), no slack.
-    // EXP-1495 (a named budget exception): Outline, Mosaic + Carousel counter/thumbnails: +134 tokens after trimming the new descriptions; the measured total (8,034), no slack.
-    // EXP-1586 (a named budget exception): ZoomableImage, +97 tokens after trimming every new description; the measured total (8,131), no slack.
-    // EXP-1604/1605 (a named budget exception, approved in EXP-1584: ≤ +700): Motion with its dialect guide and state machine, +619 tokens; the measured total (8,750), no slack.
-    // VAPP-232 + VAPP-217 (eApps U3 + U2): raised for the U2/U3 macros, awaiting Danny's review: Calendar + Timeline (+198 tokens), RecordForm + RecordTable (+239 tokens, host-filled props stay out of the prompt); the measured total (9216), no slack.
-    // VAPP-286 (a named budget exception, round 7): Slider icon + endLabel + showValue, +21 tokens after trimming the new descriptions and the Slider's own sentence; the measured total (9237), no slack.
-    // VAPP-282 (a named budget exception, round 7): DatePicker inline + marks (the dateMark shape) + today + the month event, +55 tokens with terse descriptions; the measured total with VAPP-286 (9292), no slack.
-    // VAPP-279 (a named budget exception, round 7 for the eDE shell): Tabs `variant: strip` + its `reorder`/`more` events, +22 tokens after trimming the new description; the measured total with VAPP-286 + VAPP-282 (9314), no slack.
-    // VAPP-280 (a named budget exception, round 7 #VAPP-275): SettingsRow, +66 tokens after trimming its descriptions; the measured total with VAPP-279 (9381), no slack.
-    // #VAPP-284 (a named budget exception, round 7): Row's foldable parent (`open`, children, `change`) + Box `toggle`: +19 tokens after trimming; the measured total with VAPP-280 (9400), no slack.
-    // #VAPP-285 (a named budget exception, round 7): Tree (items, expanded, value, label; select/toggle/load): +91 tokens after trimming; the measured total with VAPP-284 (9491), no slack.
-    // VAPP-276 (a named budget exception, round 7): Popover align + anchor, Menu side + align + anchor: +62 tokens after trimming the new descriptions; the measured total with #VAPP-285 (9553), no slack.
-    // Round 8 (a named budget exception, docs/round-8-contract.md): Canvas (its text shape spelled out in the shapes line) + Checkbox indeterminate + Progress valueText/detail + Stepper collapse: +180 tokens after trimming every new description; the measured total (9733), no slack.
-    budgetTokens: 9733,
+    // Danny's ceiling (2026-11-07): 10,000 tokens for the full prompt; trim new descriptions before adding components, no named exceptions.
+    budgetTokens: 10000,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
