@@ -18,6 +18,9 @@ pub struct Workspaces {
     pub auth: Arc<api::AuthStore>,
     sync: Arc<SyncManager>,
     data_dir: PathBuf,
+    /// #EDE-65: the picked team (`switcher.json` beside `desktops.json`);
+    /// a Local desktop is the desktops index's.
+    current_path: PathBuf,
     demo: bool,
 }
 
@@ -37,7 +40,7 @@ impl Workspaces {
             .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local").join("share"))
             .join("exponential-desktop");
         let sync = Arc::new(SyncManager::new().on_unauthorized(auth.unauthorized_handler_fn()));
-        Ok(Self { desktops, auth, sync, data_dir, demo })
+        Ok(Self { desktops, auth, sync, data_dir, current_path: config_dir.join("switcher.json"), demo })
     }
 
     /// The change stream of the accounts' team stores.
@@ -122,6 +125,33 @@ impl Workspaces {
         Some(SwitcherEntry::local(&entry.id, &entry.name))
     }
 
+    /// #EDE-65: the team picked last, to pick again once its account's
+    /// teams are listed (None = the Local desktop the index names).
+    pub fn saved_team(&self) -> Option<String> {
+        if self.demo {
+            return None;
+        }
+        read_saved_team(&self.current_path)
+    }
+
+    /// #EDE-65: remembers the pick across logins (a Local pick forgets the team).
+    pub fn save_current(&self, entry: &SwitcherEntry) {
+        if self.demo {
+            return;
+        }
+        if let Err(e) = write_current(&self.current_path, entry) {
+            tracing::warn!("switcher.json: {e}");
+        }
+    }
+
+    /// #EDE-65: the signed-in accounts as (id, email).
+    pub fn signed_in(&self) -> Vec<(String, String)> {
+        if self.demo {
+            return vec![("demo".into(), "danny@example.com".into())];
+        }
+        self.auth.signed_in_accounts().into_iter().map(|a| (a.id, a.email)).collect()
+    }
+
     /// `/accounts`: what Settings' Account page lists.
     pub fn accounts_json(&self) -> Value {
         if self.demo {
@@ -137,6 +167,47 @@ impl Workspaces {
     }
 }
 
+fn read_saved_team(path: &Path) -> Option<String> {
+    let value: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    (value["kind"] == "team").then(|| value["id"].as_str().map(str::to_string)).flatten().filter(|id| !id.is_empty())
+}
+
+fn write_current(path: &Path, entry: &SwitcherEntry) -> std::io::Result<()> {
+    std::fs::write(path, serde_json::json!({"kind": entry.kind, "id": entry.id}).to_string())
+}
+
+/// #EDE-65: what the switcher and the chat say about the connection: is an
+/// account signed in (Connect Exponential only without one), is the current
+/// entry a Local desktop (Share as a team only there), and the account the
+/// current team belongs to (else the first signed-in one).
+pub fn connection_json(current: &SwitcherEntry, accounts: &[(String, String)]) -> Value {
+    let account = current.account.as_ref().and_then(|id| accounts.iter().find(|(a, _)| a == id)).or_else(|| accounts.first()).map(|(_, email)| email.clone()).unwrap_or_default();
+    serde_json::json!({
+        "connected": !accounts.is_empty(),
+        "onLocal": current.kind == uicore_model::SwitcherKind::Local,
+        "account": account,
+    })
+}
+
+/// #EDE-65: the deep link that brings the Exponential app onto a team.
+pub fn team_deep_link(team_id: &str) -> String {
+    format!("{}://team/{team_id}", api::login::OAUTH_CALLBACK_SCHEME)
+}
+
+/// #EDE-65: the Exponential app follows the switcher: the team link goes to
+/// the running app's single-instance socket (`exp-desktop.sock`); nothing
+/// runs = nothing to tell (it opens on its own last team, which this sets).
+pub fn ide_follow_team(team_id: &str) {
+    let sock = api::default_data_dir().join("exp-desktop.sock");
+    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else { return };
+    if socket.connect(&sock).is_ok() {
+        match socket.send(team_deep_link(team_id).as_bytes()) {
+            Ok(_) => tracing::info!(team = team_id, "the Exponential app follows the team"),
+            Err(e) => tracing::warn!("exp-desktop.sock: {e}"),
+        }
+    }
+}
+
 /// The goldens' switcher: two Local desktops and one account with two teams.
 fn demo_entries() -> Vec<SwitcherEntry> {
     vec![
@@ -145,4 +216,41 @@ fn demo_entries() -> Vec<SwitcherEntry> {
         SwitcherEntry::team("t-feedback", "Feedback", "demo", "danny@example.com"),
         SwitcherEntry::team("t-side", "Side project", "demo", "danny@example.com"),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uicore_model::SwitcherEntry;
+
+    fn accounts() -> Vec<(String, String)> {
+        vec![("a1".into(), "danny@example.com".into()), ("a2".into(), "work@example.com".into())]
+    }
+
+    #[test]
+    fn a_connected_account_hides_connect_and_names_the_teams_account() {
+        let team = SwitcherEntry::team("t1", "Acme", "a2", "work@example.com");
+        assert_eq!(connection_json(&team, &accounts()), serde_json::json!({"connected": true, "onLocal": false, "account": "work@example.com"}));
+        let local = SwitcherEntry::local("local", "Local");
+        assert_eq!(connection_json(&local, &accounts()), serde_json::json!({"connected": true, "onLocal": true, "account": "danny@example.com"}));
+        assert_eq!(connection_json(&local, &[]), serde_json::json!({"connected": false, "onLocal": true, "account": ""}));
+    }
+
+    #[test]
+    fn the_picked_team_survives_a_restart_and_a_local_pick_forgets_it() {
+        let dir = std::env::temp_dir().join(format!("ede-switcher-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("switcher.json");
+        assert_eq!(read_saved_team(&path), None);
+        write_current(&path, &SwitcherEntry::team("t1", "Acme", "a1", "danny@example.com")).unwrap();
+        assert_eq!(read_saved_team(&path).as_deref(), Some("t1"));
+        write_current(&path, &SwitcherEntry::local("local", "Local")).unwrap();
+        assert_eq!(read_saved_team(&path), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_team_link_is_the_one_the_app_parses() {
+        assert_eq!(team_deep_link("e891ab20"), "exponential://team/e891ab20");
+    }
 }

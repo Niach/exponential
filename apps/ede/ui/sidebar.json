@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sidebar (#EDE-44): the IDE's left column as a top layer surface on the left edge, 272 px (the shell re-opens it at 56 px as the icon rail when /shell/rail is set: Sidebar's rail mode draws every Row as a tile with a tooltip). Top: the desktop/team switcher (#EDE-56: its sections, Local desktops first then one per connected account with its teams, from /shell/switcher/sections; New local desktop, Share as a team, Connect Exponential), the inbox, search and new buttons, the rail toggle. Nav: Needs you, Chats (they open the Exponential app). Sections: Pinned (the taskbar's pins), Workspaces (badges with the window counts), Active (sessions, when there are any). Bottom-left: the Exponential start button (the start menu, start-menu.json anchored here) and the chat button (chat.json). The host functions: ede_rail, ede_sidebar, ede_pin/unpin, ede_taskbar, ede_workspace, ede_start_menu, ede_chat, ede_launch, ede_switcher. The IDE mounts this document too (#EXP-1725): it prunes what it draws itself and fills the ide_* lists from /shell/ide (packages/uicore/fixtures/ide-sidebar.json); eDE never feeds that path, so they stay hidden here.",
+  "$comment": "Exponential Desktop's factory sidebar (#EDE-44): the IDE's left column as a top layer surface on the left edge, 272 px (the shell re-opens it at 56 px as the icon rail when /shell/rail is set: Sidebar's rail mode draws every Row as a tile with a tooltip). Top: the desktop/team switcher (#EDE-56: its sections, Local desktops first then one per connected account with its teams, from /shell/switcher/sections; New local desktop, Share as a team only on a Local desktop, Connect Exponential only without a signed-in account (#EDE-65: /shell/switcher/connection {connected, onLocal, account}); a pick makes the entry current, remembered across logins, and the Exponential app follows a picked team), the inbox, search and new buttons, the rail toggle. Nav: Needs you, Chats (they open the Exponential app). Sections: Pinned (the taskbar's pins), Workspaces (badges with the window counts), Active (sessions, when there are any). Bottom-left: the Exponential start button (the start menu, start-menu.json anchored here) and the chat button (chat.json). The host functions: ede_rail, ede_sidebar, ede_pin/unpin, ede_taskbar, ede_workspace, ede_start_menu, ede_chat, ede_launch, ede_switcher. The IDE mounts this document too (#EXP-1725): it prunes what it draws itself and fills the ide_* lists from /shell/ide (packages/uicore/fixtures/ide-sidebar.json); eDE never feeds that path, so they stay hidden here.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -370,6 +370,16 @@
                               }
                             }
                           }
+                        },
+                        "visible": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/shell/switcher/connection/onLocal"
+                            },
+                            "then": true,
+                            "else": false
+                          }
                         }
                       },
                       {
@@ -387,6 +397,21 @@
                               "@call": "ede_switcher",
                               "args": {
                                 "action": "connect"
+                              }
+                            }
+                          }
+                        },
+                        "visible": {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "/shell/switcher/connection/connected"
+                                },
+                                "then": true,
+                                "else": false
                               }
                             }
                           }
@@ -2647,7 +2672,12 @@
             "name": "Local",
             "current": true
           }
-        ]
+        ],
+        "connection": {
+          "connected": false,
+          "onLocal": true,
+          "account": ""
+        }
       },
       "sidebar": {
         "pinnedOpen": true,
