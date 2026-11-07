@@ -2,6 +2,7 @@ import ExpCore
 import ExpUI
 import Foundation
 import GRDB
+import SwiftUI
 #if canImport(ExponentialEngine)
 import ExponentialEngine
 #endif
@@ -19,6 +20,34 @@ enum AppRecordOutboxAnswer: Sendable {
     static func value(_ json: String) -> Any? {
         let value = try? JSONSerialization.jsonObject(with: Data(json.utf8), options: [.fragmentsAllowed])
         return value is NSNull ? nil : value
+    }
+}
+
+/// VAPP-235 (app-records.json `outbox`): the running app's header glyph
+/// while it has writes waiting to sync (the editor's and the run view's):
+/// the muted `ui-offline` glyph, labelled with the count; none = nothing.
+struct AppOutboxPendingGlyph: View {
+    let appId: String
+    @Environment(\.accountId) private var accountId
+    @Environment(AppDependencies.self) private var deps
+    @State private var label: String?
+
+    var body: some View {
+        // A ZStack, not a Group: an empty Group hands its modifiers to no
+        // child, so the task below would never run.
+        ZStack {
+            if let label {
+                AppIcon(AppIcons.uiOffline, size: 14)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .help(label)
+                    .accessibilityLabel(label)
+                    .accessibilityIdentifier("app-outbox-pending")
+            }
+        }
+        .task(id: "\(accountId)/\(appId)") {
+            label = nil
+            await AppRecordOutbox.pendingLabels(accountId: accountId, appId: appId, db: deps.db) { label = $0 }
+        }
     }
 }
 
