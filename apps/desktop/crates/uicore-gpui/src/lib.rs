@@ -1,20 +1,26 @@
 //! `uicore-gpui` (#EDE-50): the shell's gpui host, shared by Exponential
-//! Desktop's shell today and the IDE later. A [`ShellHost`] says how a
+//! Desktop's shell and the IDE. A [`ShellHost`] says how a
 //! document's surface becomes a window: [`LayerShellHost`] = one
 //! wlr-layer-shell surface per region (the sidebar, the taskbar, the ground),
 //! a popup document and a hosted Popover / Menu layer (VAPP-281) as
-//! `xdg_popup`s of their parent surface; [`WindowedHost`] = normal windows
-//! and popup windows (`--windowed`, macOS, the IDE's regions later).
+//! `xdg_popup`s of their parent surface (Linux); [`WindowedHost`] = normal
+//! windows and popup windows (`--windowed`, macOS).
 //! [`Surfaces`] owns the open windows: it opens a layer document, toggles a
 //! popup document under its anchor, mirrors a surface's hosted layers as
 //! popup windows, feeds every open view from a [`uicore_data::Feed`] and
 //! redraws a document after an edit. The host plugin (actions, host
 //! functions, icons) stays the application's: it is handed in per surface.
+//! [`inline`] mounts a document in place inside a host's own window instead
+//! (the IDE's regions, #EXP-1725).
+
+pub mod inline;
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+#[cfg(target_os = "linux")]
+use ede_ui::surface::{Edge, Keyboard, Layer as DocLayer};
 use ede_ui::{
-    surface::{Edge, Keyboard, Layer as DocLayer, Placement, SurfaceHeader},
+    surface::{Placement, SurfaceHeader},
     Document,
 };
 use eui_core::{
@@ -24,8 +30,10 @@ use eui_core::{
 };
 use eui_gpui::host::HostPlugin;
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
+#[cfg(target_os = "linux")]
+use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer as ShellLayer, LayerShellOptions};
 use gpui::{
-    div, layer_shell::{Anchor, KeyboardInteractivity, Layer as ShellLayer, LayerShellOptions}, point, popup::{PopupAnchor, PopupConstraintAdjustment, PopupGravity, PopupOptions}, prelude::*, px, size, AnyWindowHandle, App, Bounds, Entity, Pixels, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
+    div, point, popup::{PopupAnchor, PopupConstraintAdjustment, PopupGravity, PopupOptions}, prelude::*, px, size, AnyWindowHandle, App, Bounds, Entity, Pixels, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
 };
 use serde_json::Value;
 use uicore_data::Feed;
@@ -85,24 +93,37 @@ pub trait ShellHost {
 }
 
 /// Exponential Desktop: layer-shell surfaces, popups as `xdg_popup`s.
+#[cfg(target_os = "linux")]
 pub struct LayerShellHost {
     /// The layer-shell namespace prefix; the document's name is appended
     /// (`exponential-shell:sidebar`), so a compositor rule can tell them apart.
     pub namespace: String,
 }
 
+#[cfg(target_os = "linux")]
 impl Default for LayerShellHost {
     fn default() -> Self {
         Self { namespace: "exponential-shell".into() }
     }
 }
 
-/// Normal windows: `--windowed`, macOS, the IDE's regions later.
+/// Normal windows: `--windowed`, macOS.
 pub struct WindowedHost;
 
+/// The size a layer header asks for.
+pub fn layer_bounds(header: &SurfaceHeader) -> Bounds<Pixels> {
+    let SurfaceHeader::Layer { size: s, .. } = header else {
+        unreachable!("a layer header");
+    };
+    let width = s.width.map(|w| w as f32).unwrap_or(DEFAULT_SIZE.0);
+    let height = s.height.map(|h| h as f32).unwrap_or(DEFAULT_SIZE.1);
+    Bounds { origin: point(px(0.0), px(0.0)), size: size(px(width), px(height)) }
+}
+
 /// The layer-shell options a layer header asks for.
+#[cfg(target_os = "linux")]
 pub fn layer_options(namespace: &str, header: &SurfaceHeader) -> (WindowKind, Bounds<Pixels>) {
-    let SurfaceHeader::Layer { layer, anchor, size: s, exclusive_zone, margin, keyboard, .. } = header else {
+    let SurfaceHeader::Layer { layer, anchor, exclusive_zone, margin, keyboard, .. } = header else {
         unreachable!("a layer header");
     };
     let mut anchors = Anchor::empty();
@@ -114,8 +135,6 @@ pub fn layer_options(namespace: &str, header: &SurfaceHeader) -> (WindowKind, Bo
             Edge::Right => Anchor::RIGHT,
         };
     }
-    let width = s.width.map(|w| w as f32).unwrap_or(DEFAULT_SIZE.0);
-    let height = s.height.map(|h| h as f32).unwrap_or(DEFAULT_SIZE.1);
     let kind = WindowKind::LayerShell(LayerShellOptions {
         namespace: namespace.into(),
         layer: match layer {
@@ -134,7 +153,7 @@ pub fn layer_options(namespace: &str, header: &SurfaceHeader) -> (WindowKind, Bo
             Keyboard::Exclusive => KeyboardInteractivity::Exclusive,
         },
     });
-    (kind, Bounds { origin: point(px(0.0), px(0.0)), size: size(px(width), px(height)) })
+    (kind, layer_bounds(header))
 }
 
 /// A popup document's placement as an `xdg_positioner` anchor + gravity.
@@ -182,6 +201,7 @@ fn popup_bounds(anchor_rect: Bounds<Pixels>, size_px: (f32, f32)) -> Bounds<Pixe
     Bounds { origin: point(anchor_rect.origin.x, anchor_rect.origin.y + anchor_rect.size.height + px(POPUP_GAP)), size: size(px(size_px.0), px(size_px.1)) }
 }
 
+#[cfg(target_os = "linux")]
 impl ShellHost for LayerShellHost {
     fn layer(&self, header: &SurfaceHeader) -> Placed {
         let (kind, bounds) = layer_options(&self.namespace, header);
@@ -217,8 +237,7 @@ impl ShellHost for LayerShellHost {
 
 impl ShellHost for WindowedHost {
     fn layer(&self, header: &SurfaceHeader) -> Placed {
-        let (_, bounds) = layer_options("", header);
-        Placed { kind: WindowKind::Normal, bounds }
+        Placed { kind: WindowKind::Normal, bounds: layer_bounds(header) }
     }
 
     fn popup(&self, parent: &Region, anchor_rect: Bounds<Pixels>, _placement: Placement, size: (u32, u32), cx: &mut App) -> Placed {

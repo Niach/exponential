@@ -8,6 +8,7 @@
 //! [`apps`] (the desktop entries) and [`clock`].
 
 pub mod apps;
+#[cfg(unix)]
 pub mod clock;
 pub mod feed;
 pub mod windows;
