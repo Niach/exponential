@@ -2773,6 +2773,8 @@ version = "0.14.138"
 dependencies = [
  "api",
  "base64 0.22.1",
+ "chrono",
+ "domain",
  "eagent",
  "ede-protocol",
  "ede-services",
@@ -10808,6 +10810,7 @@ version = "0.14.138"
 dependencies = [
  "api",
  "domain",
+ "eengine",
  "enet-core",
  "flume 0.11.1",
  "gpui",

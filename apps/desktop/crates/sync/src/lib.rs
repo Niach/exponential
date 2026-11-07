@@ -22,6 +22,7 @@
 //! AuthExpired — a dead token routes to login, never an empty board).
 
 pub mod activity;
+pub mod app_outbox;
 pub mod client;
 #[cfg(feature = "gpui")]
 pub mod collections;

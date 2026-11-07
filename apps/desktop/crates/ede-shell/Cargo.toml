@@ -26,6 +26,8 @@ eengine-desktop = { path = "../eengine-desktop" }
 emcp = { path = "../emcp" }
 # #EDE-56: Local desktops (elocal), the accounts (api) and their teams (sync, no gpui).
 api = { path = "../api" }
+# #VAPP-273: a connected team's rows (apps, app_records, team_members) as the IDE types them.
+domain = { path = "../domain" }
 elocal = { path = "../elocal" }
 eagent = { path = "../eagent" }
 sync = { path = "../sync", default-features = false }
@@ -50,6 +52,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rust-embed = "8"
 # localtime_r for the clock.
 libc = "0.2"
+# #VAPP-273: a connected team's record timestamps as ISO 8601 UTC.
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 # The switcher's thumbnails: captures as PNG data URLs.
 png = "0.17"
 base64 = "0.22"

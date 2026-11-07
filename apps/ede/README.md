@@ -672,6 +672,15 @@ Records of every app live in one `SqliteRecordStore`
 overrides), their files next to it, each app's grants in the keyring (or
 its `vault.json` without one).
 
+- **A connected team:** when the switcher's current entry is a team of a
+  signed-in account, the apps are the TEAM's published packages (the
+  account's `apps` shape) over the team's records: the Engine's
+  `SyncedRecordStore` (the synced `app_records` as the cache, the account's
+  `app_record_outbox` as the queue, tRPC `apps.records.*` out, the same
+  providers the IDE uses, `sync::app_outbox`), the viewer the account's
+  user with their team role (`team_members`), so every kind policy is the
+  team's. A pick of another desktop closes the apps and boots the new set;
+  a Local desktop runs the installed packages over the local records.
 - **The window:** the start menu lists each app with the installed
   applications; `ede_launch {app: <package id>}` opens its window, a plain
   toplevel of the shell process whose app id is the package id (the

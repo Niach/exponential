@@ -11,6 +11,9 @@ use eengine::broker::{GrantValue, Verdict};
 use eengine::capability::Broker;
 use eengine::consent::{ConsentAnswer, GrantVia};
 use eengine::providers::SystemClock;
+use eengine::providers::{engine_record_refusal, engine_viewer, Failure, Identity, RecordEvent, Subscription, WriteAck, WriteBatch};
+use eengine::outbox::{outbox_writes, OutboxEntry, OutboxWrite};
+use eengine::synced::{record_call, SyncedRecordStore};
 use eengine::{
     runner_failure, runner_package, runner_toast, AppInstance, BlobStore, CallResult, Capability, Effect, FormFactor, HostConfig, HostInfo, LifecycleEvent, LoadError, Presentation, RecordStore, RunnerConfig, RunnerFailure, Vault, WindowHost,
 };
@@ -144,6 +147,46 @@ pub struct Providers {
     pub blobs: Arc<dyn BlobStore>,
     pub vault: Arc<dyn Vault>,
     pub capabilities: Vec<Arc<dyn Capability>>,
+    /// #VAPP-273: the viewer; `None` = this device (identity `local`).
+    pub identity: Option<Arc<dyn Identity>>,
+    /// #VAPP-273: a connected host's synced store: the app's rows are its
+    /// visible rows (the synced cache with the outbox over it) and every
+    /// `records_*` call goes through its outbox, never `storage.write`.
+    pub synced: Option<Synced>,
+}
+
+/// A connected host's synced store for one app (`app` = the app's key in
+/// that store, the server's app id).
+#[derive(Clone)]
+pub struct Synced {
+    pub store: Arc<SyncedRecordStore>,
+    pub app: String,
+    /// The host's view of the connection (an offline write queues).
+    pub online: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// The synced store as the instance reads it: the visible rows of one app.
+struct Overlay {
+    synced: Synced,
+    me: String,
+}
+
+impl RecordStore for Overlay {
+    fn rows(&self, _app: &str) -> Result<Vec<eui_core::host::RecordRow>, Failure> {
+        Ok(self.synced.store.visible_rows(&self.synced.app, Some(&self.me)))
+    }
+
+    fn write(&self, _app: &str, _batch: &WriteBatch, _by: Option<&str>) -> Result<WriteAck, Failure> {
+        Err(Failure::new("BAD_REQUEST", "a synced store writes through its outbox"))
+    }
+
+    fn history(&self, _app: &str, _id: &str) -> Result<Vec<RecordEvent>, Failure> {
+        Ok(Vec::new())
+    }
+
+    fn subscribe(&self, _app: &str, on: Box<dyn Fn(eui_core::host::RecordsDelta) + Send + Sync>) -> Subscription {
+        self.synced.store.subscribe(&self.synced.app, on)
+    }
 }
 
 /// A function call that waits for the person (`CallResult::Ask`).
@@ -162,6 +205,11 @@ pub enum Dispatch {
     /// A capability: [`Broker::call`] on a worker thread (its natives block
     /// on dialogs), then [`Runner::finish`] with the answer.
     Broker(Arc<Broker>),
+    /// #VAPP-273: a records write of a connected host: `store.submit(entry,
+    /// online)` on a worker thread (it may wait for the server), then
+    /// [`Runner::finish`]: `Done` = its answer, `Queued` = the entry's,
+    /// `Refused` = the server's refusal.
+    Synced { synced: Synced, entry: OutboxEntry },
 }
 
 pub struct Runner {
@@ -172,6 +220,8 @@ pub struct Runner {
     config: RunnerConfig,
     form: FormFactor,
     pending: Option<PendingAsk>,
+    identity: Arc<dyn Identity>,
+    synced: Option<Synced>,
 }
 
 impl Runner {
@@ -180,12 +230,19 @@ impl Runner {
     pub fn boot(config: RunnerConfig, file: &Value, providers: Providers, form: FormFactor) -> Result<Runner, RunnerFailure> {
         let opens = Arc::new(Opens::default());
         let device = crate::vault::device_id(providers.vault.as_ref());
+        let identity: Arc<dyn Identity> = providers.identity.clone().unwrap_or_else(|| Arc::new(eengine::LocalIdentity { device_id: device }));
+        let me = engine_viewer(&identity.identity()).id;
+        // A connected host: the instance reads the synced store's visible rows.
+        let storage: Arc<dyn RecordStore> = match &providers.synced {
+            Some(synced) => Arc::new(Overlay { synced: synced.clone(), me }),
+            None => providers.storage.clone(),
+        };
         let host = HostInfo { kind: providers.host_kind, platform: providers.platform, form_factor: form_name(form).into(), locale: providers.locale };
         let host_config = HostConfig {
             host,
-            storage: providers.storage.clone(),
+            storage: storage.clone(),
             blobs: providers.blobs.clone(),
-            identity: Arc::new(eengine::LocalIdentity { device_id: device }),
+            identity: identity.clone(),
             vault: providers.vault,
             window: opens.clone(),
             clock: Arc::new(SystemClock),
@@ -201,7 +258,7 @@ impl Runner {
             LoadError::Signature(_) => RunnerFailure::Signature,
             LoadError::Invalid(_) => RunnerFailure::Invalid,
         })?;
-        Ok(Runner { instance, opens, storage: providers.storage, blobs: providers.blobs, config, form, pending: None })
+        Ok(Runner { instance, opens, storage, blobs: providers.blobs, config, form, pending: None, identity, synced: providers.synced })
     }
 
     pub fn config(&self) -> &RunnerConfig {
@@ -339,11 +396,45 @@ impl Runner {
     /// Where an app's function call goes: `records_*` and `app_navigate`
     /// here (fresh uuids for the creates), a capability to the broker.
     pub fn dispatch(&mut self, name: &str, args: &Value) -> Dispatch {
+        if let (Some(synced), Some(call)) = (&self.synced, record_call(name)) {
+            // A connected host: the kind policy as the viewer, then the outbox.
+            let entry = synced.store.entry(&synced.app, call, args);
+            if let Some(refusal) = self.refusal(&entry.writes) {
+                return Dispatch::Done(CallResult::Refused(Failure::new("FORBIDDEN", refusal)));
+            }
+            return Dispatch::Synced { synced: synced.clone(), entry };
+        }
         if name.starts_with("records_") || name == "app_navigate" {
             Dispatch::Done(self.instance.call(name, args, &new_ids(name, args)))
         } else {
             Dispatch::Broker(self.instance.broker().clone())
         }
+    }
+
+    /// The kind policy check of a synced write, as the instance does for a
+    /// direct one (`engine_record_refusal` over the package's policies).
+    fn refusal(&self, writes: &[OutboxWrite]) -> Option<String> {
+        let identity = self.identity.identity();
+        let rows = self.storage.rows(self.instance.app_id()).unwrap_or_default();
+        let pkg = self.instance.package();
+        for w in writes {
+            let (kind, op, row) = match w {
+                OutboxWrite::Create { kind, .. } => (Some(kind.clone()), eui_core::host::RecordOp::Create, None),
+                OutboxWrite::Update { id, kind, .. } => (Some(kind.clone()), eui_core::host::RecordOp::Update, rows.iter().find(|r| r.id == *id)),
+                OutboxWrite::Delete { id } => {
+                    let row = rows.iter().find(|r| r.id == *id);
+                    (row.map(|r| r.kind.clone()), eui_core::host::RecordOp::Delete, row)
+                }
+            };
+            let def = kind.as_deref().and_then(|k| pkg.get("records").and_then(|r| r.get(k)));
+            let policy = eui_core::host::record_policy(def);
+            let row = row.map(|r| json!({"authorId": r.author_id, "createdBy": r.created_by}));
+            if let Some(refusal) = engine_record_refusal(&identity, &policy, op, row.as_ref()) {
+                return Some(refusal.to_string());
+            }
+        }
+        let _ = outbox_writes;
+        None
     }
 
     /// A call's answer → its result for genUI (`None` = it waits for the
@@ -422,3 +513,23 @@ pub fn brokered(answer: eengine::BrokerAnswer) -> CallResult {
 
 #[cfg(test)]
 mod tests;
+
+/// #VAPP-273: a synced write's outcome as the call's result: the server's
+/// answer, the entry's own when it queued, the refusal's code and words.
+pub fn submitted(synced: &Synced, entry: OutboxEntry) -> CallResult {
+    let answer = entry.answer();
+    match synced.store.submit(entry, synced.online.load(std::sync::atomic::Ordering::SeqCst)) {
+        Ok(eengine::synced::Submitted::Done(value)) => CallResult::Value(value),
+        Ok(eengine::synced::Submitted::Queued) => CallResult::Value(answer),
+        Ok(eengine::synced::Submitted::Refused(pushed)) => {
+            let code = match &pushed.result {
+                eengine::outbox::OutboxResult::Code(code) => code.clone(),
+                _ => "UNAVAILABLE".to_string(),
+            };
+            CallResult::Refused(Failure::new(code, pushed.message.unwrap_or_else(|| "the server refused the write".into())))
+        }
+        Err(failure) => CallResult::Refused(failure),
+    }
+}
+
+

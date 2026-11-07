@@ -391,13 +391,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file: Value = serde_json::from_str(SAMPLE).unwrap();
         let stores = crate::engine::Stores::open(dir.path().join("data"), Vec::new()).unwrap();
-        let providers = RunnerProviders { host_kind: "ede".into(), platform: "linux".into(), locale: "en-US".into(), storage: stores.storage.clone(), blobs: stores.blobs.clone(), vault: Arc::new(eengine::MemoryVault::default()), capabilities: Vec::new() };
+        let providers = RunnerProviders { host_kind: "ede".into(), platform: "linux".into(), locale: "en-US".into(), storage: stores.storage.clone(), blobs: stores.blobs.clone(), vault: Arc::new(eengine::MemoryVault::default()), capabilities: Vec::new(), identity: None, synced: None };
         let config = RunnerConfig { id: "at.exponential.notes".into(), name: "Notes".into(), version: "1.0.0".into(), network: NetworkPolicy::Any };
         let mut runner = Runner::boot(config, &file, providers, FormFactor::Wide).expect("boots");
         let _ = runner.launch(Vec::new());
         let package = runner.instance().package().clone();
         let runner = Arc::new(Mutex::new(runner));
-        let writes = Arc::new(Direct(Mutex::new(Runner::boot(RunnerConfig { id: "at.exponential.notes".into(), name: "Notes".into(), version: "1.0.0".into(), network: NetworkPolicy::Any }, &file, RunnerProviders { host_kind: "ede".into(), platform: "linux".into(), locale: "en-US".into(), storage: stores.storage.clone(), blobs: stores.blobs.clone(), vault: Arc::new(eengine::MemoryVault::default()), capabilities: Vec::new() }, FormFactor::Wide).unwrap())));
+        let writes = Arc::new(Direct(Mutex::new(Runner::boot(RunnerConfig { id: "at.exponential.notes".into(), name: "Notes".into(), version: "1.0.0".into(), network: NetworkPolicy::Any }, &file, RunnerProviders { host_kind: "ede".into(), platform: "linux".into(), locale: "en-US".into(), storage: stores.storage.clone(), blobs: stores.blobs.clone(), vault: Arc::new(eengine::MemoryVault::default()), capabilities: Vec::new(), identity: None, synced: None }, FormFactor::Wide).unwrap())));
         std::mem::forget(dir);
         (Arc::new(AppTools { id: "at.exponential.notes".into(), server: server_name("at.exponential.notes"), package, storage: stores.storage.clone(), me: "device-1".into(), writes }), runner)
     }

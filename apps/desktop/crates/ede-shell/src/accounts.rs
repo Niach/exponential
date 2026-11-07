@@ -21,8 +21,10 @@ pub struct Workspaces {
     demo: bool,
 }
 
-/// The shapes the shell syncs per account: the teams the switcher lists.
-const SHAPES: &[&str] = &["teams"];
+/// The shapes the shell syncs per account: the teams the switcher lists;
+/// #VAPP-273: the members (the viewer's role), the apps (the team's
+/// published packages) and their records, for a connected desktop.
+const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records"];
 
 impl Workspaces {
     /// Opens the desktops index under `config_dir` and the shared accounts.
@@ -89,6 +91,25 @@ impl Workspaces {
             }
         }
         entries
+    }
+
+    /// A signed-in account by id.
+    pub fn account(&self, account_id: &str) -> Option<api::accounts::Account> {
+        self.auth.account(account_id)
+    }
+
+    /// An account's synced store (once its sync started).
+    pub fn store(&self, account_id: &str) -> Option<Arc<sync::store::ShapeStore>> {
+        self.sync.store(account_id)
+    }
+
+    pub fn manager(&self) -> Arc<SyncManager> {
+        self.sync.clone()
+    }
+
+    /// A tRPC client on the account's instance with its token.
+    pub fn trpc(&self, account: &api::accounts::Account) -> api::TrpcClient {
+        api::TrpcClient::new(&account.instance_url, self.auth.token_provider(&account.id))
     }
 
     /// The entry the desktops index says is current (a Local desktop).
