@@ -7,7 +7,8 @@ public enum ExponentialUICatalog {
     public static let catalogId: String = "https://ui.exponential.at/catalogs/core/v1"
     public static let liteCatalogId: String = "https://ui.exponential.at/catalogs/core-lite/v1"
     public static let basicCatalogId: String = "https://a2ui.org/specification/v0_9/basic_catalog.json"
-    public static let basicVersion: String = "v0.9"
+    public static let a2uiVersion: String = "1.0"
+    public static let basicVersion: String = "1.0"
     public static let catalogVersion: String = "1"
     public static let unknownComponent: String = "Unknown"
     public static let basicPlaceholderIcon: String = "ui-icon-placeholder"
@@ -64,4 +65,5 @@ public enum ExponentialUICatalog {
     public static let limitNames: [String] = ["maxComponents", "maxDepth", "maxMessageBytes", "maxTemplateItems", "maxPointerBytes", "maxPointerSegments"]
     public static let limitValues: [String] = ["20000", "48", "4194304", "10000", "1024", "64"]
     public static let componentLite: [Bool] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, false, true, false, false, true, false, false, false, true, true, false, true, true, true, true, false, true, true, true, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, false, true, false, false, false, false, false, true, true, true, false, true, true, true, true, true, true, true, true, false, false, true, false, true, true, true, true, true, true, true, true, false, true, true, true, true, false, false, true, true, true, true, true, false]
+    public static let acceptV09: Bool = true
 }

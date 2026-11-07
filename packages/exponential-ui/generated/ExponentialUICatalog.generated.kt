@@ -7,7 +7,8 @@ object ExponentialUICatalog {
     const val catalogId: String = "https://ui.exponential.at/catalogs/core/v1"
     const val liteCatalogId: String = "https://ui.exponential.at/catalogs/core-lite/v1"
     const val basicCatalogId: String = "https://a2ui.org/specification/v0_9/basic_catalog.json"
-    const val basicVersion: String = "v0.9"
+    const val a2uiVersion: String = "1.0"
+    const val basicVersion: String = "1.0"
     const val catalogVersion: String = "1"
     const val unknownComponent: String = "Unknown"
     const val basicPlaceholderIcon: String = "ui-icon-placeholder"
@@ -64,4 +65,5 @@ object ExponentialUICatalog {
     val limitNames: List<String> = listOf("maxComponents", "maxDepth", "maxMessageBytes", "maxTemplateItems", "maxPointerBytes", "maxPointerSegments")
     val limitValues: List<String> = listOf("20000", "48", "4194304", "10000", "1024", "64")
     val componentLite: List<Boolean> = listOf(true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, false, true, false, false, true, false, false, false, true, true, false, true, true, true, true, false, true, true, true, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, false, true, false, false, false, false, false, true, true, true, false, true, true, true, true, true, true, true, true, false, false, true, false, true, true, true, true, true, true, true, true, false, true, true, true, true, false, false, true, true, true, true, true, false)
+    const val acceptV09: Boolean = true
 }

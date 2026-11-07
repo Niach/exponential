@@ -1,7 +1,11 @@
 {
   "$comment": "VAPP-91: the host API contract, the same on all four platforms (TS src/host/, the Rust core's `host` module, which the Swift and Kotlin painters reach through exponential-ui-ffi). A surface needs exactly these from its host: transport, functions, bindings (optional), extensions, theme, catalog negotiation and policy hooks. Every pure rule here is locked by fixtures/host-*.json, replayed by every renderer's conformance runner (conformance/manifest.json).",
-  "version": 3,
-  "a2uiVersion": "v0.9",
+  "version": 4,
+  "a2uiVersion": "1.0",
+  "transition": {
+    "$comment": "VAPP-289 (docs/round-9-contract.md §14): while `acceptV09` is true every core entry (route, SurfaceStore.apply / Surface::apply, reduceNested cards, package load) runs upgrade09 on A2UI v0.9 input (version \"v0.9\" or absent; a card without version; formatVersion 5) and continues with the 1.0 result. The flag-day PR sets it false: 0.9 is refused.",
+    "acceptV09": true
+  },
   "messages": {
     "$comment": "Server → client. The four A2UI v0.9 messages plus two Exponential UI extensions: `applyTemplate` (a registered declarative package's template becomes create + components + data + binds) and `bindDataModel` (a data model path follows a host `source`). A message is ONE object with `version` (optional, must equal a2uiVersion when present) and exactly one kind key.",
     "a2ui": ["createSurface", "updateComponents", "updateDataModel", "deleteSurface"],

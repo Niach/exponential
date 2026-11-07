@@ -54,6 +54,7 @@ import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
 import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
 import { renderHost } from "./generate-host"
+import { renderXid } from "./generate-xid"
 import { renderRound2 } from "./generate-round2"
 import { renderRound4 } from "./generate-round4"
 import { ANIMATION_NAMES } from "../src/animation"
@@ -68,6 +69,7 @@ import localeJson from "../catalog/locale.json" with { type: "json" }
 import type { CatalogSource, ComponentDef, ExtensionDef, FlatComponent, NestedNode, PropSchema, UiNode } from "../src/types"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
+const HOST_JSON = JSON.parse(readFileSync(join(pkgRoot, `catalog/host.json`), `utf8`)) as { a2uiVersion: string; transition: { acceptV09: boolean } }
 const repoRoot = join(pkgRoot, `..`, `..`)
 
 // VAPP-106: the generator works on the SOURCE catalog (descriptions, examples,
@@ -238,7 +240,10 @@ import type { DataBinding, FunctionCall } from "./types"
 export const CATALOG_ID = ${JSON.stringify(CORE_CATALOG_ID)}
 export const LITE_CATALOG_ID = ${JSON.stringify(CORE_LITE_CATALOG_ID)}
 export const BASIC_CATALOG_ID = ${JSON.stringify(A2UI_BASIC_CATALOG_ID)}
-export const BASIC_VERSION = ${JSON.stringify(A2UI_VERSION)}
+/** VAPP-289: the A2UI wire version every core entry accepts and emits (catalog/host.json \`a2uiVersion\`). */
+export const A2UI_VERSION = ${JSON.stringify(HOST_JSON.a2uiVersion)}
+/** VAPP-289 (round 9 §14): while true, every core entry upgrades 0.9 input through upgrade09 (catalog/host.json \`transition.acceptV09\`). */
+export const ACCEPT_V09: boolean = ${JSON.stringify(HOST_JSON.transition.acceptV09)}
 export const CATALOG_VERSION = ${JSON.stringify(coreCatalog.version)}
 export const UNKNOWN_COMPONENT_NAME = ${JSON.stringify(coreCatalog.unknownComponent)}
 
@@ -357,7 +362,9 @@ const scalars: [string, string][] = [
   [`catalogId`, CORE_CATALOG_ID],
   [`liteCatalogId`, CORE_LITE_CATALOG_ID],
   [`basicCatalogId`, A2UI_BASIC_CATALOG_ID],
-  [`basicVersion`, A2UI_VERSION],
+  [`a2uiVersion`, HOST_JSON.a2uiVersion],
+  // VAPP-289: the round-8 name of a2uiVersion, kept until the natives read a2uiVersion (phase B).
+  [`basicVersion`, HOST_JSON.a2uiVersion],
   [`catalogVersion`, coreCatalog.version],
   [`unknownComponent`, coreCatalog.unknownComponent],
   [`basicPlaceholderIcon`, basicMap.placeholderIcon],
@@ -377,6 +384,7 @@ public enum ExponentialUICatalog {
 ${scalars.map(([k, v]) => `    public static let ${k}: String = ${JSON.stringify(v)}`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
     public static let componentLite: [Bool] = [${liteFlags.join(`, `)}]
+    public static let acceptV09: Bool = ${HOST_JSON.transition.acceptV09}
 }
 `
 }
@@ -395,6 +403,7 @@ object ExponentialUICatalog {
 ${scalars.map(([k, v]) => `    const val ${k}: String = ${ktString(v)}`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
     val componentLite: List<Boolean> = listOf(${liteFlags.join(`, `)})
+    const val acceptV09: Boolean = ${HOST_JSON.transition.acceptV09}
 }
 `
 }
@@ -455,6 +464,8 @@ function renderRust(icons: string[]): string {
 ${scalars.map(([k, v]) => `pub const ${screaming(k)}: &str = ${JSON.stringify(v)};`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
 pub const COMPONENT_LITE: &[bool] = &[${liteFlags.join(`, `)}];
+/// VAPP-289 (round 9 §14): while true, every core entry upgrades 0.9 input through upgrade09.
+pub const ACCEPT_V09: bool = ${HOST_JSON.transition.acceptV09};
 /// The Icon prop's vocabulary (packages/icons/icons.json at generate time).
 ${arr(`iconNames`, icons)}
 /// The catalog source files, embedded (minified, \`$comment\`s dropped); parse once at startup.
@@ -1832,6 +1843,8 @@ function renderFiles(): Record<string, string> {
     "fixtures/zoom.json": json(zoomCases(readJson<ZoomCaseFile>(`fixtures/zoom.json`))),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
+    // VAPP-289: the UAX #31 identifier tables (round 9 §4).
+    ...renderXid(),
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).
     ...renderHost(),
     // Round 2: the contract fixtures (inputs in scripts/generate-round2.ts).

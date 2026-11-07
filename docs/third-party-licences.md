@@ -219,6 +219,12 @@ unpublished until VAPP-91) carries two Apache-2.0 sources:
   never edited: the basic catalog is MAPPED onto ours (`catalog/basic-map.json`),
   not modified, so Apache-2.0 section 4(b) (a statement of changes) does not
   apply; 4(a)/4(c) are met by the vendored licence and the untouched headers.
+  Round 9 (VAPP-289) adds the A2UI **1.0** schemas, basic catalog, test cases
+  and protocol document under `packages/exponential-ui/vendor/a2ui/v1_0/`
+  (a2ui-project/a2ui `main`, commit `1e9ed04b5585721ac6df8313030f9bfb42ccc6fa`),
+  pinned the same way, and **Unicode 17.0.0** `DerivedCoreProperties.txt`
+  (Unicode licence, data file, byte-for-byte) under
+  `packages/exponential-ui/vendor/unicode/`, read by the identifier tables.
 - **json-render** (vercel-labs/json-render, Apache-2.0, Vercel, Inc.): the
   model-facing descriptions and the prop vocabulary of the 36 shadcn-named
   components in `catalog/core.catalog.json` were DERIVED from
