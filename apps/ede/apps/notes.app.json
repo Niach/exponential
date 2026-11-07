@@ -1,0 +1,68 @@
+{
+  "formatVersion": 6,
+  "id": "at.exponential.notes",
+  "name": "Notes",
+  "version": "1.0.0",
+  "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+  "description": "Quick notes on this desktop, with a tile that counts them.",
+  "functions": ["records_*", "actions_*", "bind"],
+  "sources": ["records:*"],
+  "records": {
+    "note": {
+      "title": "Note",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "maxLength": 500 }
+        }
+      }
+    }
+  },
+  "actions": {
+    "add": {
+      "params": {
+        "type": "object",
+        "required": ["text"],
+        "properties": { "text": { "type": "string" } }
+      },
+      "steps": [
+        { "require": "size(params.text) > 0", "message": "Write something first" },
+        { "records_upsert": { "kind": "note", "data": { "text": "params.text" } } }
+      ]
+    }
+  },
+  "screens": [
+    { "template": "notes", "title": "Notes", "icon": "ui-file", "widget": { "template": "tile", "size": "s" } }
+  ],
+  "templates": {
+    "notes": {
+      "data": { "draft": "", "notes": { "rows": [], "count": 0 } },
+      "bindings": [{ "path": "/notes", "source": "records:note" }],
+      "components": [
+        { "id": "root", "component": "Page", "title": "Notes", "children": ["composer", "list"] },
+        { "id": "composer", "component": "Stack", "direction": "horizontal", "gap": "sm", "align": "end", "children": ["draft", "add"] },
+        { "id": "draft", "component": "Input", "name": "draft", "label": "New note", "placeholder": "What to remember", "value": { "@path": "/draft" } },
+        { "id": "add", "component": "Button", "label": "Add", "icon": "ui-add", "on": { "press": { "functionCall": { "@call": "actions_add", "args": { "text": { "@path": "/draft" } } } } } },
+        { "id": "list", "component": "List", "divided": true, "children": { "componentId": "note", "path": "/notes/rows", "key": "id" } },
+        { "id": "note", "component": "Row", "title": { "@path": "text" }, "meta": { "@path": "createdAt" } }
+      ]
+    },
+    "tile": {
+      "data": { "notes": { "rows": [], "count": 0 } },
+      "bindings": [{ "path": "/notes", "source": "records:note" }],
+      "components": [
+        {
+          "id": "root",
+          "component": "Stack",
+          "gap": "sm",
+          "style": { "padding": "$spacing.md", "height": "100%", "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg" },
+          "children": ["stat", "open"]
+        },
+        { "id": "stat", "component": "StatTile", "label": "Notes", "value": { "@call": "formatNumber", "args": { "decimals": 0, "value": { "@path": "/notes/count" } } } },
+        { "id": "open", "component": "Button", "label": "Open", "variant": "outline", "on": { "press": { "functionCall": { "@call": "app_navigate", "args": { "screen": "notes" } } } } }
+      ]
+    }
+  }
+}

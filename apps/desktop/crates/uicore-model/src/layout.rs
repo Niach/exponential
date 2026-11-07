@@ -26,6 +26,25 @@ pub struct ShellLayout {
     pub applet_button_size: u32,
     pub start_menu: Size,
     pub previews_tile: Size,
+    /// #VAPP-273 (C26): the desktop widgets' grid.
+    pub widgets: Widgets,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Widgets {
+    pub cell: u32,
+    pub gap: u32,
+    pub margin: u32,
+    /// Cells per size class (`s`, `m`, `l`): columns, rows.
+    pub sizes: std::collections::BTreeMap<String, [u32; 2]>,
+}
+
+impl Widgets {
+    /// A widget's size in px for its class (`s` when unknown).
+    pub fn size_px(&self, class: &str) -> Size {
+        let [cols, rows] = self.sizes.get(class).copied().unwrap_or([1, 1]);
+        Size { width: cols * self.cell + cols.saturating_sub(1) * self.gap, height: rows * self.cell + rows.saturating_sub(1) * self.gap }
+    }
 }
 
 /// The fixture's numbers, parsed once.
@@ -44,5 +63,8 @@ mod tests {
         assert_eq!((l.sidebar_width, l.rail_width, l.taskbar_height), (272, 56, 48));
         assert_eq!((l.panel_margin, l.panel_radius), (10, 12));
         assert_eq!(l.start_menu, Size { width: 760, height: 620 });
+        assert_eq!(l.widgets.size_px("s"), Size { width: 160, height: 160 });
+        assert_eq!(l.widgets.size_px("m"), Size { width: 336, height: 160 });
+        assert_eq!(l.widgets.size_px("l"), Size { width: 336, height: 336 });
     }
 }

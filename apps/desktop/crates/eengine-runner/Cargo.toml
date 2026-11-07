@@ -14,6 +14,15 @@ name = "eengine_runner"
 [[bin]]
 name = "exponential-runner"
 path = "src/main.rs"
+required-features = ["runner"]
+
+# `runner` (default): the binary's platform layer (gpui_platform: X11 and
+# Wayland on Linux). Off, the lib alone: the painter-free core plus the
+# gpui half in `paint`, which Exponential Desktop's shell hosts (#VAPP-273;
+# a Wayland-only client, it must not link X11).
+[features]
+default = ["runner"]
+runner = ["dep:gpui_platform"]
 
 # THE RULE (gated by `tests/dependency_gate.rs`): the Engine, its desktop
 # capabilities, genUI and gpui, nothing of the Exponential app (ui, app,
@@ -26,7 +35,7 @@ eui-core = { path = "../eui-core" }
 # No `net`: the runner never reaches the network for its UI (file:/data: media only).
 eui-gpui = { path = "../eui-gpui", default-features = false }
 gpui.workspace = true
-gpui_platform.workspace = true
+gpui_platform = { workspace = true, optional = true }
 gpui-component.workspace = true
 gpui-component-assets.workspace = true
 serde_json = { workspace = true }
