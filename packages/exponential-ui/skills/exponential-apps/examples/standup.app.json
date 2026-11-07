@@ -1,5 +1,5 @@
 {
-  "formatVersion": 5,
+  "formatVersion": 6,
   "id": "exponential.standup",
   "name": "Standup",
   "version": "1.0.0",
@@ -13,9 +13,9 @@
     "exp:members"
   ],
   "functions": [
-    "records.*",
+    "records_*",
     "bind",
-    "harness.toast"
+    "harness_toast"
   ],
   "records": {
     "update": {
@@ -159,7 +159,7 @@
           "message": "You already posted for this day: edit that update"
         },
         {
-          "records.upsert": {
+          "records_upsert": {
             "kind": "update",
             "data": {
               "date": "orElse(params.date, today())",
@@ -181,7 +181,7 @@
           }
         },
         {
-          "call": "harness.toast",
+          "call": "harness_toast",
           "args": {
             "message": "has(params.blockers) && params.blockers != '' ? 'Posted, with a blocker' : 'Posted'"
           }
@@ -217,7 +217,7 @@
           "message": "Say what you will do today"
         },
         {
-          "records.upsert": {
+          "records_upsert": {
             "kind": "update",
             "id": "params.entry",
             "data": {
@@ -249,7 +249,7 @@
       },
       "steps": [
         {
-          "records.delete": {
+          "records_delete": {
             "id": "params.entry"
           }
         },
@@ -332,7 +332,7 @@
           "component": "Page",
           "title": "Standup",
           "subtitle": {
-            "path": "/recent/month/today"
+            "@path": "/recent/month/today"
           },
           "children": [
             "stats",
@@ -352,7 +352,7 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/draft/open",
                   "value": true
@@ -380,17 +380,17 @@
           "component": "StatTile",
           "label": "Posted today",
           "value": {
-            "call": "formatNumber",
+            "@call": "formatNumber",
             "args": {
               "decimals": 0,
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "size(r.rows.filter(u, u.date == today()))",
                   "default": 0,
                   "vars": {
                     "r": {
-                      "path": "/recent"
+                      "@path": "/recent"
                     }
                   }
                 }
@@ -403,20 +403,20 @@
           "component": "StatTile",
           "label": "Still to post",
           "value": {
-            "call": "formatNumber",
+            "@call": "formatNumber",
             "args": {
               "decimals": 0,
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "max(orElse(m.count, 0) - size(r.rows.filter(u, u.date == today())), 0)",
                   "default": 0,
                   "vars": {
                     "r": {
-                      "path": "/recent"
+                      "@path": "/recent"
                     },
                     "m": {
-                      "path": "/members"
+                      "@path": "/members"
                     }
                   }
                 }
@@ -429,28 +429,28 @@
           "component": "StatTile",
           "label": "Blockers",
           "tone": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "size(r.rows.filter(u, u.date == today() && has(u.blockers) && u.blockers != '')) > 0 ? 'warning' : 'success'",
               "default": "neutral",
               "vars": {
                 "r": {
-                  "path": "/recent"
+                  "@path": "/recent"
                 }
               }
             }
           },
           "value": {
-            "call": "pluralize",
+            "@call": "pluralize",
             "args": {
               "value": {
-                "call": "expr",
+                "@call": "expr",
                 "args": {
                   "expr": "size(r.rows.filter(u, u.date == today() && has(u.blockers) && u.blockers != ''))",
                   "default": 0,
                   "vars": {
                     "r": {
-                      "path": "/recent"
+                      "@path": "/recent"
                     }
                   }
                 }
@@ -465,7 +465,7 @@
           "id": "tabs",
           "component": "Tabs",
           "value": {
-            "path": "/tab"
+            "@path": "/tab"
           },
           "tabs": [
             {
@@ -484,20 +484,20 @@
           "on": {
             "change": {
               "functionCall": {
-                "call": "bind",
+                "@call": "bind",
                 "args": {
                   "path": "/week",
                   "source": "records:update?query=week",
                   "params": {
                     "start": {
-                      "call": "expr",
+                      "@call": "expr",
                       "args": {
                         "expr": "startOf(today(), 'week')",
                         "default": ""
                       }
                     },
                     "end": {
-                      "call": "expr",
+                      "@call": "expr",
                       "args": {
                         "expr": "endOf(today(), 'week')",
                         "default": ""
@@ -530,15 +530,22 @@
           "icon": "ui-team",
           "title": "Nobody has posted today",
           "visible": {
-            "call": "expr",
+            "@call": "cond",
             "args": {
-              "expr": "size(r.rows.filter(u, u.date == today())) == 0",
-              "default": false,
-              "vars": {
-                "r": {
-                  "path": "/recent"
+              "if": {
+                "@call": "expr",
+                "args": {
+                  "expr": "size(r.rows.filter(u, u.date == today())) == 0",
+                  "default": false,
+                  "vars": {
+                    "r": {
+                      "@path": "/recent"
+                    }
+                  }
                 }
-              }
+              },
+              "then": true,
+              "else": false
             }
           }
         },
@@ -556,33 +563,40 @@
           "id": "todayRow",
           "component": "Row",
           "title": {
-            "path": "author"
+            "@path": "author"
           },
           "subtitle": {
-            "path": "today"
+            "@path": "today"
           },
           "meta": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "b != null && b != '' ? 'blocked' : ''",
               "default": "",
               "vars": {
                 "b": {
-                  "path": "blockers"
+                  "@path": "blockers"
                 }
               }
             }
           },
           "visible": {
-            "call": "expr",
+            "@call": "cond",
             "args": {
-              "expr": "d == today()",
-              "default": false,
-              "vars": {
-                "d": {
-                  "path": "date"
+              "if": {
+                "@call": "expr",
+                "args": {
+                  "expr": "d == today()",
+                  "default": false,
+                  "vars": {
+                    "d": {
+                      "@path": "date"
+                    }
+                  }
                 }
-              }
+              },
+              "then": true,
+              "else": false
             }
           },
           "pressable": true,
@@ -590,34 +604,34 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/detail",
                   "value": {
                     "open": true,
                     "id": {
-                      "path": "id"
+                      "@path": "id"
                     },
                     "author": {
-                      "path": "author"
+                      "@path": "author"
                     },
                     "authorId": {
-                      "path": "authorId"
+                      "@path": "authorId"
                     },
                     "date": {
-                      "path": "date"
+                      "@path": "date"
                     },
                     "yesterday": {
-                      "path": "yesterday"
+                      "@path": "yesterday"
                     },
                     "today": {
-                      "path": "today"
+                      "@path": "today"
                     },
                     "blockers": {
-                      "call": "fallback",
+                      "@call": "fallback",
                       "args": {
                         "value": {
-                          "path": "blockers"
+                          "@path": "blockers"
                         },
                         "default": ""
                       }
@@ -643,18 +657,18 @@
           "label": "Day",
           "name": "day",
           "value": {
-            "path": "/picked"
+            "@path": "/picked"
           },
           "on": {
             "change": {
               "functionCall": {
-                "call": "bind",
+                "@call": "bind",
                 "args": {
                   "path": "/day",
                   "source": "records:update?query=day",
                   "params": {
                     "day": {
-                      "path": "/picked"
+                      "@path": "/picked"
                     }
                   }
                 }
@@ -676,19 +690,19 @@
           "id": "dayRow",
           "component": "Row",
           "title": {
-            "path": "author"
+            "@path": "author"
           },
           "subtitle": {
-            "path": "today"
+            "@path": "today"
           },
           "meta": {
-            "call": "expr",
+            "@call": "expr",
             "args": {
               "expr": "b != null && b != '' ? 'blocked' : ''",
               "default": "",
               "vars": {
                 "b": {
-                  "path": "blockers"
+                  "@path": "blockers"
                 }
               }
             }
@@ -725,7 +739,7 @@
             }
           ],
           "rows": {
-            "path": "/week/groups"
+            "@path": "/week/groups"
           }
         },
         {
@@ -733,7 +747,7 @@
           "component": "Dialog",
           "title": "Post your update",
           "open": {
-            "path": "/draft/open"
+            "@path": "/draft/open"
           },
           "children": [
             "postForm"
@@ -752,16 +766,16 @@
           "on": {
             "submit": {
               "functionCall": {
-                "call": "actions.post",
+                "@call": "actions_post",
                 "args": {
                   "yesterday": {
-                    "path": "/draft/yesterday"
+                    "@path": "/draft/yesterday"
                   },
                   "today": {
-                    "path": "/draft/today"
+                    "@path": "/draft/today"
                   },
                   "blockers": {
-                    "path": "/draft/blockers"
+                    "@path": "/draft/blockers"
                   }
                 }
               }
@@ -775,7 +789,7 @@
           "name": "yesterday",
           "autosize": true,
           "value": {
-            "path": "/draft/yesterday"
+            "@path": "/draft/yesterday"
           }
         },
         {
@@ -785,15 +799,15 @@
           "name": "today",
           "autosize": true,
           "value": {
-            "path": "/draft/today"
+            "@path": "/draft/today"
           },
           "checks": [
             {
               "condition": {
-                "call": "required",
+                "@call": "required",
                 "args": {
                   "value": {
-                    "path": "/draft/today"
+                    "@path": "/draft/today"
                   }
                 }
               },
@@ -808,7 +822,7 @@
           "name": "blockers",
           "placeholder": "Nothing blocks me",
           "value": {
-            "path": "/draft/blockers"
+            "@path": "/draft/blockers"
           }
         },
         {
@@ -819,7 +833,7 @@
           "on": {
             "cancel": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/draft/open",
                   "value": false
@@ -834,7 +848,7 @@
           "side": "right",
           "title": "Update",
           "open": {
-            "path": "/detail/open"
+            "@path": "/detail/open"
           },
           "children": [
             "dHead",
@@ -848,22 +862,22 @@
           "id": "dHead",
           "component": "Row",
           "title": {
-            "path": "/detail/author"
+            "@path": "/detail/author"
           },
           "meta": {
-            "path": "/detail/date"
+            "@path": "/detail/date"
           }
         },
         {
           "id": "dYesterday",
           "component": "Markdown",
           "text": {
-            "call": "concat",
+            "@call": "concat",
             "args": {
               "values": [
                 "**Yesterday**\n\n",
                 {
-                  "path": "/detail/yesterday"
+                  "@path": "/detail/yesterday"
                 }
               ]
             }
@@ -873,12 +887,12 @@
           "id": "dToday",
           "component": "Markdown",
           "text": {
-            "call": "concat",
+            "@call": "concat",
             "args": {
               "values": [
                 "**Today**\n\n",
                 {
-                  "path": "/detail/today"
+                  "@path": "/detail/today"
                 }
               ]
             }
@@ -889,26 +903,33 @@
           "component": "Text",
           "tone": "warning",
           "text": {
-            "call": "concat",
+            "@call": "concat",
             "args": {
               "values": [
                 "Blocked: ",
                 {
-                  "path": "/detail/blockers"
+                  "@path": "/detail/blockers"
                 }
               ]
             }
           },
           "visible": {
-            "call": "expr",
+            "@call": "cond",
             "args": {
-              "expr": "b != ''",
-              "default": false,
-              "vars": {
-                "b": {
-                  "path": "/detail/blockers"
+              "if": {
+                "@call": "expr",
+                "args": {
+                  "expr": "b != ''",
+                  "default": false,
+                  "vars": {
+                    "b": {
+                      "@path": "/detail/blockers"
+                    }
+                  }
                 }
-              }
+              },
+              "then": true,
+              "else": false
             }
           }
         },
@@ -928,7 +949,7 @@
           "label": "Today",
           "name": "today",
           "value": {
-            "path": "/detail/today"
+            "@path": "/detail/today"
           }
         },
         {
@@ -937,7 +958,7 @@
           "label": "Blockers",
           "name": "blockers",
           "value": {
-            "path": "/detail/blockers"
+            "@path": "/detail/blockers"
           }
         },
         {
@@ -959,10 +980,10 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "actions.remove",
+                "@call": "actions_remove",
                 "args": {
                   "entry": {
-                    "path": "/detail/id"
+                    "@path": "/detail/id"
                   }
                 }
               }
@@ -977,19 +998,19 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "actions.edit",
+                "@call": "actions_edit",
                 "args": {
                   "entry": {
-                    "path": "/detail/id"
+                    "@path": "/detail/id"
                   },
                   "yesterday": {
-                    "path": "/detail/yesterday"
+                    "@path": "/detail/yesterday"
                   },
                   "today": {
-                    "path": "/detail/today"
+                    "@path": "/detail/today"
                   },
                   "blockers": {
-                    "path": "/detail/blockers"
+                    "@path": "/detail/blockers"
                   }
                 }
               }
