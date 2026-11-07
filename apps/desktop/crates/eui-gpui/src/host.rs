@@ -151,6 +151,13 @@ pub trait HostPlugin: 'static {
     /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).
     fn on_function_call(&self, _event: &FunctionCallEvent, _cx: &mut gpui::App) {}
 
+    /// Round 9 §6.8: an action with both: the function first, `then` (its
+    /// event) only when the function did not fail.
+    fn on_function_call_then(&self, event: &FunctionCallEvent, then: Box<dyn FnOnce(&mut gpui::App)>, cx: &mut gpui::App) {
+        self.on_function_call(event, cx);
+        then(cx);
+    }
+
     /// The URL policy EVERY href passes (Link, markdown links, `openUrl`):
     /// `catalog/host.json` urls. `None` = the default schemes, no base.
     fn url_policy(&self) -> Option<UrlPolicy> {

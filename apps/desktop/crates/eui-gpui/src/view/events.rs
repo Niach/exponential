@@ -121,8 +121,16 @@ impl SurfaceView {
     pub(crate) fn dispatch(&mut self, events: Vec<OutEvent>, input: Option<u64>, cx: &mut Context<Self>) {
         let host = self.host.clone();
         let surface_id = self.surface.id.clone();
-        for e in events {
+        let mut events = events.into_iter().peekable();
+        while let Some(e) = events.next() {
             match e {
+                // Round 9 §6.8: the function first, its event only when it did not fail.
+                OutEvent::FunctionCall { component_id, name, args } if matches!(events.peek(), Some(OutEvent::Action { .. })) => {
+                    let Some(OutEvent::Action { name: action, component_id: source, event, context, payload, user_message }) = events.next() else { continue };
+                    let then_host = host.clone();
+                    let then = ActionEvent { surface_id: surface_id.clone(), event, name: action, component_id: source, context, payload, user_message };
+                    host.on_function_call_then(&FunctionCallEvent { surface_id: surface_id.clone(), component_id, name, args }, Box::new(move |cx| then_host.on_action(&then, cx)), cx);
+                }
                 OutEvent::Action { name, component_id, event, context, payload, user_message } => host.on_action(&ActionEvent { surface_id: surface_id.clone(), event, name, component_id, context, payload, user_message }, cx),
                 OutEvent::OpenUrl { url } => host.open_url(&url, cx),
                 OutEvent::FunctionCall { component_id, name, args } => host.on_function_call(&FunctionCallEvent { surface_id: surface_id.clone(), component_id, name, args }, cx),

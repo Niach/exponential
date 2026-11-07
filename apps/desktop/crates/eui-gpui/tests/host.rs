@@ -773,3 +773,42 @@ fn the_agent_answers_what_the_host_lacks(cx: &mut TestAppContext) {
     let out = outcome(task, cx);
     assert_eq!((out.decision, out.result), (FunctionDecision::Allow, Some(json!(7))));
 }
+
+/// Round 9 §6.8: an action with both: a failing function means no event.
+#[gpui::test]
+fn a_failed_function_stops_its_event(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let fail = sync_function(|_, _, _| Err("boom".to_string()));
+    let ok = sync_function(|_, _, _| Ok(Value::Null));
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), functions: HashMap::from([("harness_fail".to_string(), fail), ("harness_ok".to_string(), ok)]), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([
+        create("s"),
+        components(
+            "s",
+            json!([
+                {"id": "root", "component": "Stack", "direction": "horizontal", "children": ["bad", "good"]},
+                {"id": "bad", "component": "Button", "label": "Bad", "on": {"press": {"functionCall": {"@call": "harness_fail"}, "event": {"name": "never"}}}},
+                {"id": "good", "component": "Button", "label": "Good", "on": {"press": {"functionCall": {"@call": "harness_ok"}, "event": {"name": "fired"}}}}
+            ]),
+        ),
+    ]);
+    cx.run_until_parked();
+    let view = host.read_with(cx, |h, _| h.surface("s")).unwrap();
+    let v2 = view.clone();
+    let (_, vcx) = cx.add_window_view(move |_, _| Holder(Some(v2)));
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx.run_until_parked();
+    for id in ["bad", "good"] {
+        vcx.update(|window, cx| {
+            view.update(cx, |v, cx| {
+                let i = v.index_of(id).unwrap();
+                v.press(i, window, cx);
+            })
+        });
+        vcx.run_until_parked();
+    }
+    let names: Vec<Value> = t.sent().iter().filter_map(|m| m["action"].get("name").cloned()).collect();
+    assert_eq!(names, vec![json!("fired")]);
+}

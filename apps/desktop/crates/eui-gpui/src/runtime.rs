@@ -1441,6 +1441,22 @@ impl HostPlugin for HostAdapter {
         self.base.on_function_call(event, cx)
     }
 
+    fn on_function_call_then(&self, event: &FunctionCallEvent, then: Box<dyn FnOnce(&mut App)>, cx: &mut App) {
+        let Some(host) = self.host.upgrade() else { return then(cx) };
+        let call = event.clone();
+        cx.defer(move |cx| {
+            let task = host.update(cx, |h, cx| h.call_function(call, cx));
+            cx.spawn(async move |cx| {
+                let outcome = task.await;
+                if outcome.error.is_none() && !matches!(outcome.decision, FunctionDecision::Deny | FunctionDecision::NotFound) {
+                    let _ = cx.update(then);
+                }
+            })
+            .detach();
+        });
+        self.base.on_function_call(event, cx)
+    }
+
     fn url_policy(&self) -> Option<UrlPolicy> {
         Some(self.urls.borrow().clone())
     }
