@@ -542,18 +542,11 @@ object AppRecords {
         else -> HistoryCopy.UNDO_BATCH
     }
 
-    // VAPP-235 (O1) THE OFFLINE OUTBOX (fixture `outbox`, locked by
-    // AppRecordsTest): every host record write is ONE entry, laid over the
-    // synced rows and replayed in order with an idempotency key (TS
-    // `outboxWrites`, `outboxRequest`, `outboxRows`, `outboxOutcome`,
-    // `outboxVerb`, `outboxFlush`, `outboxReflected`, `outboxPrune`,
-    // `outboxPendingLabel`).
+    // VAPP-235 (O1) THE OFFLINE OUTBOX (fixture `outbox`): VAPP-272: the queue
+    // is the Engine's (`SyncedRecordStore`). What stays here is how the entries
+    // read over the synced rows: the overlay and the pending label
+    // (AppRecordsTest replays `rowsCases` and `pendingCases`).
     object Outbox {
-        const val ACK_GRACE_SECONDS = 30
-        val RETRY_CODES: List<String> = listOf(
-            "UNAUTHORIZED", "TIMEOUT", "TOO_MANY_REQUESTS", "CLIENT_CLOSED_REQUEST",
-            "INTERNAL_SERVER_ERROR", "BAD_GATEWAY", "SERVICE_UNAVAILABLE", "GATEWAY_TIMEOUT",
-        )
         const val PENDING_ONE = "1 change waiting to sync"
         const val PENDING = "{n} changes waiting to sync"
 
@@ -588,20 +581,6 @@ object AppRecords {
         data class Code(val code: String) : OutboxResult()
     }
 
-    object OutboxOutcome {
-        const val DONE = "done"
-        const val RETRY = "retry"
-        const val DROPPED = "dropped"
-        const val REFUSED = "refused"
-    }
-
-    /** The replay request of an entry: the call and its input (the host adds the app). */
-    data class OutboxRequest(val call: String, val input: Map<String, JsonValue>)
-
-    data class OutboxRefusal(val writeId: String, val verb: String)
-
-    data class OutboxFlush(val sent: List<String>, val refused: List<OutboxRefusal>, val after: List<OutboxEntry>)
-
     /** A write as stored / in the fixture (`{op, id, kind?, data?}`). */
     fun outboxWrite(v: JsonValue): OutboxWrite {
         val op = v["op"]?.string.orEmpty()
@@ -622,59 +601,6 @@ object AppRecords {
 
     fun outboxWritesOf(text: String): List<OutboxWrite> =
         runCatching { JsonValue.parse(text).array.orEmpty().map(::outboxWrite) }.getOrDefault(emptyList())
-
-    /** A host call's writes (`writesCases`): a create takes the next client id. */
-    fun outboxWrites(call: String, args: Map<String, JsonValue>, newIds: List<String>): List<OutboxWrite> {
-        var next = 0
-        fun upsert(w: Map<String, JsonValue>): OutboxWrite {
-            val data = (w["data"] as? JsonValue.Obj)?.v ?: emptyMap()
-            val kind = w["kind"]?.string.orEmpty()
-            val id = w["id"]?.string
-            return if (id != null) OutboxWrite("update", id, kind, data) else OutboxWrite("create", newIds.getOrNull(next++).orEmpty(), kind, data)
-        }
-        return when (call) {
-            "upsert" -> listOf(upsert(args))
-            "delete" -> listOf(OutboxWrite("delete", args["id"]?.string.orEmpty()))
-            else -> (args["writes"]?.array.orEmpty()).mapNotNull { it.obj }.map { w ->
-                if (w["op"]?.string == "delete") OutboxWrite("delete", w["id"]?.string.orEmpty()) else upsert(w)
-            }
-        }
-    }
-
-    /** How many client ids a call's writes take (its creates). */
-    fun outboxCreates(call: String, args: Map<String, JsonValue>): Int = when (call) {
-        "upsert" -> if (args["id"]?.string == null) 1 else 0
-        "delete" -> 0
-        else -> (args["writes"]?.array.orEmpty()).mapNotNull { it.obj }.count { it["op"]?.string != "delete" && it["id"]?.string == null }
-    }
-
-    /** The replay request of an entry (`requestCases`). */
-    fun outboxRequest(entry: OutboxEntry): OutboxRequest {
-        val writeId = JsonValue.Str(entry.writeId)
-        if (entry.call == "batch") {
-            val writes = entry.writes.map { w ->
-                JsonValue.Obj(
-                    when (w.op) {
-                        "delete" -> linkedMapOf("op" to JsonValue.Str("delete"), "id" to JsonValue.Str(w.id))
-                        "create" -> linkedMapOf("op" to JsonValue.Str("upsert"), "kind" to JsonValue.Str(w.kind), "data" to JsonValue.Obj(w.data), "newId" to JsonValue.Str(w.id))
-                        else -> linkedMapOf("op" to JsonValue.Str("upsert"), "kind" to JsonValue.Str(w.kind), "data" to JsonValue.Obj(w.data), "id" to JsonValue.Str(w.id))
-                    },
-                )
-            }
-            return OutboxRequest("batch", linkedMapOf("writes" to JsonValue.Arr(writes), "writeId" to writeId))
-        }
-        val w = entry.writes.first()
-        if (w.op == "delete") return OutboxRequest("delete", linkedMapOf("recordId" to JsonValue.Str(w.id), "writeId" to writeId))
-        return OutboxRequest(
-            "upsert",
-            linkedMapOf(
-                "kind" to JsonValue.Str(w.kind),
-                "data" to JsonValue.Obj(w.data),
-                (if (w.op == "create") "newId" else "recordId") to JsonValue.Str(w.id),
-                "writeId" to writeId,
-            ),
-        )
-    }
 
     /** The visible rows: the synced rows with every entry laid over them,
      *  oldest first (`rowsCases`). */
@@ -710,65 +636,13 @@ object AppRecords {
         return OutboxOverlay(upserts, written.filter { it !in kept })
     }
 
-    /** What a replay's answer does to its entry (`outcomeCases`). */
-    fun outboxOutcome(entry: OutboxEntry, result: OutboxResult): String = when (result) {
-        OutboxResult.Ok -> OutboxOutcome.DONE
-        OutboxResult.Transport -> OutboxOutcome.RETRY
-        is OutboxResult.Code -> when {
-            result.code in Outbox.RETRY_CODES -> OutboxOutcome.RETRY
-            result.code == "NOT_FOUND" && entry.call != "batch" && entry.writes.none { it.op == "create" } -> OutboxOutcome.DROPPED
-            else -> OutboxOutcome.REFUSED
-        }
-    }
-
-    /** The failed-action toast's verb for a refused entry (`save` | `delete`). */
-    fun outboxVerb(entry: OutboxEntry): String = if (entry.writes.all { it.op == "delete" }) "delete" else "save"
-
     /** One flush (`flushCases`): pending entries oldest first, one at a time;
      *  a retry stops it; [results] = each write id's answer (none = no network). */
-    fun outboxFlush(entries: List<OutboxEntry>, results: Map<String, OutboxResult>, now: String): OutboxFlush {
-        val sent = mutableListOf<String>()
-        val refused = mutableListOf<OutboxRefusal>()
-        val after = mutableListOf<OutboxEntry>()
-        var stopped = false
-        for (entry in entries) {
-            if (stopped || entry.state == Outbox.ACKED_STATE) {
-                after += entry
-                continue
-            }
-            sent += entry.writeId
-            when (outboxOutcome(entry, results[entry.writeId] ?: OutboxResult.Transport)) {
-                OutboxOutcome.DONE -> after += entry.copy(state = Outbox.ACKED_STATE, ackedAt = now)
-                OutboxOutcome.RETRY -> {
-                    stopped = true
-                    after += entry
-                }
-                OutboxOutcome.REFUSED -> refused += OutboxRefusal(entry.writeId, outboxVerb(entry))
-            }
-        }
-        return OutboxFlush(sent, refused, after)
-    }
-
-    /** Do the synced rows reflect an entry? */
-    fun outboxReflected(entry: OutboxEntry, rows: List<Row>): Boolean = entry.writes.all { w ->
-        val row = rows.firstOrNull { it.id == w.id }
-        if (w.op == "delete") row == null else row != null && w.data.all { (k, v) -> jsonEqual(row.data[k], v) }
-    }
 
     private fun epochMs(iso: String?): Long? = iso?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() ?: WireTimestamps.parseEpochMs(it) }
 
     /** The entries that stay (`pruneCases`): pending ones, and acked ones the
      *  rows don't reflect yet within the grace. */
-    fun outboxPrune(entries: List<OutboxEntry>, rows: List<Row>, now: String): List<OutboxEntry> {
-        val grace = Outbox.ACK_GRACE_SECONDS * 1000L
-        val nowMs = epochMs(now) ?: return entries
-        return entries.filter { e ->
-            if (e.state != Outbox.ACKED_STATE) return@filter true
-            if (outboxReflected(e, rows)) return@filter false
-            val acked = epochMs(e.ackedAt ?: e.at) ?: return@filter false
-            nowMs - acked < grace
-        }
-    }
 
     /** The header glyph's label for an app's pending entries
      *  (`pendingCases`); null = no glyph. */
