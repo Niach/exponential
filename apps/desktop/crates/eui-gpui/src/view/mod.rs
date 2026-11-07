@@ -381,6 +381,10 @@ pub struct SurfaceView {
     sticky: HashMap<u32, (f32, f32)>,
     /// Round 2: when each animated node entered the tree (by painted id).
     anim_start: RefCell<HashMap<SharedString, Instant>>,
+    /// Each Image's last decoded picture (by painted id): a new `src` keeps
+    /// it on screen until its own decode lands, as a browser's `<img>` does
+    /// (#EDE-65: live thumbnails blanked at every refresh).
+    pub(crate) held_images: RefCell<HashMap<SharedString, std::sync::Arc<gpui::RenderImage>>>,
     /// When the pending repaint of the `shimmer` Texts fires (they share one).
     shimmer_armed_until: Cell<Option<Instant>>,
     /// A host-driven entrance ([`SurfaceView::set_entrance`]).
@@ -619,6 +623,7 @@ impl SurfaceView {
             tab_drag: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
+            held_images: RefCell::new(HashMap::new()),
             shimmer_armed_until: Cell::new(None),
             entrance: None,
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
@@ -1300,6 +1305,7 @@ impl SurfaceView {
             self.anim_start
                 .borrow_mut()
                 .retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed && !n.hidden));
+            self.held_images.borrow_mut().retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed));
         }
         self.rtl = out.direction == "rtl";
         self.surface_height = out.surface_height;

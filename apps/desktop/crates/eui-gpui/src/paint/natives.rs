@@ -827,11 +827,36 @@ pub(crate) fn render_image(source: &ImageSource, window: &mut Window, cx: &mut A
 /// (the placeholder while loading and on failure), clipped to the leaf's
 /// (and its rounded ancestors') corners. `focalX` / `focalY` (CSS
 /// `object-position`) place the decoded image with [`focal_bounds`].
-pub fn image(cx: &LeafCx, around: ImageSurround, window: &mut Window, app: &mut App) -> AnyElement {
+/// An Image's decode now against its last picture: a decoded one becomes
+/// the held one, a failed one drops it, and while one loads the held one
+/// is what to paint (`Some`).
+pub(crate) fn hold(decoded: Option<Result<Arc<RenderImage>, ()>>, id: &gpui::SharedString, held: &mut std::collections::HashMap<gpui::SharedString, Arc<RenderImage>>) -> Option<Arc<RenderImage>> {
+    match decoded {
+        Some(Ok(data)) => {
+            held.insert(id.clone(), data);
+            None
+        }
+        Some(Err(())) => {
+            held.remove(id);
+            None
+        }
+        None => held.get(id).cloned(),
+    }
+}
+
+/// `held` = the view's last decoded picture of this node (by painted id):
+/// while a changed `src` loads, the previous picture stays.
+pub fn image(cx: &LeafCx, around: ImageSurround, held: Option<(&gpui::SharedString, &std::cell::RefCell<std::collections::HashMap<gpui::SharedString, Arc<RenderImage>>>)>, window: &mut Window, app: &mut App) -> AnyElement {
     let src = cx.str("src");
-    let Some(source) = crate::media::image_source(cx.host, src) else {
+    let Some(mut source) = crate::media::image_source(cx.host, src) else {
         return rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx, around)).into_any_element();
     };
+    if let Some((id, held)) = held {
+        let decoded = render_image(&source, window, app);
+        if let Some(previous) = hold(decoded, id, &mut held.borrow_mut()) {
+            source = ImageSource::Render(previous);
+        }
+    }
     let fit_name = match cx.str("fit") {
         f @ ("contain" | "fill" | "none" | "scaleDown") => f,
         _ => "cover",
@@ -1575,6 +1600,21 @@ mod tests {
         assert_eq!(focal_bounds("none", (0.0, 0.0, 100.0, 100.0), (40.0, 20.0), (0.0, 0.0)), (0.0, 0.0, 40.0, 20.0));
         assert_eq!(focal_bounds("scaleDown", (0.0, 0.0, 100.0, 100.0), (40.0, 20.0), (1.0, 1.0)), (60.0, 80.0, 40.0, 20.0));
         assert_eq!(focal_bounds("fill", (0.0, 0.0, 100.0, 100.0), (40.0, 20.0), (1.0, 1.0)), (0.0, 0.0, 100.0, 100.0));
+    }
+
+    /// #EDE-65: a changed `src` keeps the last picture until its own lands.
+    #[test]
+    fn an_image_holds_its_last_picture_while_the_next_loads() {
+        let picture = |shade: u8| Arc::new(RenderImage::new([image::Frame::new(image::RgbaImage::from_pixel(2, 2, image::Rgba([shade, 0, 0, 255])))]));
+        let (id, mut held) = (gpui::SharedString::from("thumb"), std::collections::HashMap::new());
+        assert!(hold(None, &id, &mut held).is_none(), "nothing yet: the placeholder");
+        let first = picture(1);
+        assert!(hold(Some(Ok(first.clone())), &id, &mut held).is_none(), "decoded: paint it");
+        assert!(Arc::ptr_eq(&hold(None, &id, &mut held).unwrap(), &first), "the next one loading: the first stays");
+        let second = picture(2);
+        assert!(hold(Some(Ok(second.clone())), &id, &mut held).is_none());
+        assert!(Arc::ptr_eq(&hold(None, &id, &mut held).unwrap(), &second));
+        assert!(hold(Some(Err(())), &id, &mut held).is_none() && held.is_empty(), "a failed one drops it");
     }
 
     #[test]

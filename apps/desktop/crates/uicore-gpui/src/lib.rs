@@ -271,11 +271,13 @@ pub struct Surfaces {
     open: HashMap<String, Region>,
     /// Hosted popup windows by (document, owner).
     hosted: HashMap<(String, String), WindowHandle<SurfaceRoot>>,
+    /// The size each hosted popup window was last given.
+    hosted_sizes: HashMap<(String, String), gpui::Size<Pixels>>,
 }
 
 impl Surfaces {
     pub fn new(host: Box<dyn ShellHost>, theme: std::sync::Arc<ResolvedTheme>, plugin_for: PluginFor, on_frame: OnFrame, app_id: &str) -> Self {
-        Self { host, theme, plugin_for, on_frame, app_id: app_id.into(), open: HashMap::new(), hosted: HashMap::new() }
+        Self { host, theme, plugin_for, on_frame, app_id: app_id.into(), open: HashMap::new(), hosted: HashMap::new(), hosted_sizes: HashMap::new() }
     }
 
     pub fn is_open(&self, name: &str) -> bool {
@@ -381,6 +383,7 @@ impl Surfaces {
     pub fn close(&mut self, name: &str, cx: &mut App) -> bool {
         let hosted: Vec<(String, String)> = self.hosted.keys().filter(|(doc, _)| doc == name).cloned().collect();
         for key in hosted {
+            self.hosted_sizes.remove(&key);
             if let Some(h) = self.hosted.remove(&key) {
                 let _ = h.update(cx, |_, window, _| window.remove_window());
             }
@@ -410,16 +413,34 @@ impl Surfaces {
         let wanted: Vec<&Layer> = layers.iter().filter(|l| l.hosted).collect();
         let gone: Vec<(String, String)> = self.hosted.keys().filter(|(doc, owner)| doc == document && !wanted.iter().any(|l| &l.owner == owner)).cloned().collect();
         for key in gone {
+            self.hosted_sizes.remove(&key);
             if let Some(h) = self.hosted.remove(&key) {
                 let _ = h.update(cx, |_, window, _| window.remove_window());
             }
         }
         for layer in wanted {
             let key = (document.to_string(), layer.owner.clone());
-            if self.hosted.contains_key(&key) {
+            let Some(placed) = self.host.hosted(&parent, layer, cx) else { continue };
+            if let Some(handle) = self.hosted.get(&key) {
+                // #EDE-65: the layer laid out again (its data arrived after
+                // it opened, the taskbar previews' thumbnails): the window
+                // follows, else it stays at its first, clipped size. A popup
+                // the compositor has not configured yet cannot reposition, so
+                // the size goes again once it has drawn.
+                if self.hosted_sizes.get(&key) != Some(&placed.bounds.size) {
+                    let size = placed.bounds.size;
+                    let _ = handle.update(cx, |_, window, _| {
+                        window.resize(size);
+                        window.on_next_frame(move |window, _| {
+                            if window.bounds().size != size {
+                                window.resize(size);
+                            }
+                        });
+                    });
+                    self.hosted_sizes.insert(key, placed.bounds.size);
+                }
                 continue;
             }
-            let Some(placed) = self.host.hosted(&parent, layer, cx) else { continue };
             let view = parent.view.clone();
             let owner = layer.owner.clone();
             let opened = cx.open_window(
@@ -429,6 +450,7 @@ impl Surfaces {
             match opened {
                 Ok(handle) => {
                     tracing::info!(document, owner = %layer.owner, "hosted popup opened");
+                    self.hosted_sizes.insert(key.clone(), placed.bounds.size);
                     self.hosted.insert(key, handle);
                 }
                 Err(e) => tracing::warn!(document, owner = %layer.owner, "hosted popup: {e}"),
