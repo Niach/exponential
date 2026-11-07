@@ -363,6 +363,8 @@ class SessionTreeTest {
             put("root", root)
         }
         org.junit.Assert.assertEquals("1.0", SessionTree.cardSurface(v10)?.version)
+        org.junit.Assert.assertTrue(SessionTree.cardSurface(v10)!!.displayJson().startsWith("""{"version":"1.0","root":"""))
+        org.junit.Assert.assertEquals("""{"root":{}}""", CardSurface(JsonObject(emptyMap()), null).displayJson())
         org.junit.Assert.assertNull(SessionTree.cardSurface(kotlinx.serialization.json.buildJsonObject { put("root", root) })?.version)
     }
 
