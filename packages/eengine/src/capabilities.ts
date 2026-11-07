@@ -24,6 +24,8 @@ export interface CapabilityDef {
   name: string
   label: string
   scopes: readonly CapabilityScope[]
+  /** #VAPP-273: a capability one host alone provides (`ede`); every other host answers `unavailable`. */
+  host?: string
 }
 
 /** One entry of a package's capability manifest (format 5 `capabilities`). */
