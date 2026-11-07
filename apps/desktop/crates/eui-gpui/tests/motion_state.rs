@@ -119,7 +119,7 @@ fn the_state_fixture_replays_through_the_view(cx: &mut TestAppContext) {
     let lottie = f["lottie"].clone();
     for c in f["cases"].as_array().unwrap() {
         let id = c["id"].as_str().unwrap();
-        let motion = json!({"id": "m", "component": "Motion", "props": {"lottie": lottie, "stateMachine": c["machine"], "inputs": {"path": "/sm"}, "size": [40, 40]}, "on": on_all()});
+        let motion = json!({"id": "m", "component": "Motion", "props": {"lottie": lottie, "stateMachine": c["machine"], "inputs": {"@path": "/sm"}, "size": [40, 40]}, "on": on_all()});
         let mut data = c["initial"]["inputs"].clone();
         let (view, log, vcx) = surface(cx, motion, data.clone());
         let check = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext, want: &Value, at: &str| {

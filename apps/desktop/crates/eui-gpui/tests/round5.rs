@@ -134,7 +134,7 @@ fn a_dark_theme_still_paints_dark_modules_on_the_lighter_plate(cx: &mut TestAppC
 
 fn scanner_tree() -> Value {
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "alignItems": "flex-start", "gap": 16}, "children": [
-        {"id": "scan", "component": "QrScanner", "props": {"hint": "Point at the code on your computer", "formats": ["qr"]}, "style": {"width": 320}, "on": {"scanned": {"event": {"name": "paired", "context": {"code": {"path": "/x"}}}}}},
+        {"id": "scan", "component": "QrScanner", "props": {"hint": "Point at the code on your computer", "formats": ["qr"]}, "style": {"width": 320}, "on": {"scanned": {"event": {"name": "paired", "context": {"code": {"@path": "/x"}}}}}},
         {"id": "off", "component": "QrScanner", "props": {"hint": "Paused", "disabled": true}, "style": {"width": 320}, "on": {"scanned": {"event": {"name": "paired"}}}}
     ]})
 }

@@ -115,7 +115,7 @@ fn near(a: f32, b: f32) -> bool {
 
 fn carousel(counter: bool, thumbnails: Value) -> Value {
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": 480}, "children": [
-        {"id": "deck", "component": "Carousel", "props": {"counter": counter, "thumbnails": thumbnails}, "on": {"change": {"event": {"name": "paged", "context": {"page": {"path": "page"}}}}}, "children": [
+        {"id": "deck", "component": "Carousel", "props": {"counter": counter, "thumbnails": thumbnails}, "on": {"change": {"event": {"name": "paged", "context": {"page": {"@path": "page"}}}}}, "children": [
             {"id": "p1", "component": "Box", "style": {"height": 120, "backgroundColor": "$color.muted"}},
             {"id": "p2", "component": "Box", "style": {"height": 120}},
             {"id": "p3", "component": "Box", "style": {"height": 120}}
@@ -207,7 +207,7 @@ fn a_single_page_has_no_counter_and_no_strip(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_outline_specimen_paints_rows_with_the_active_bar_and_selects_on_press(cx: &mut TestAppContext) {
     let mut tree = specimen("exponential-ui-outline");
-    tree["children"][0]["children"][1]["on"] = json!({"select": {"event": {"name": "jump", "context": {"id": {"path": "id"}}}}});
+    tree["children"][0]["children"][1]["on"] = json!({"select": {"event": {"name": "jump", "context": {"id": {"@path": "id"}}}}});
     let (view, log, cx) = surface(cx, tree);
     let unknown = view.read_with(cx, |v, _| v.placed_nodes().iter().filter(|n| !n.removed && n.component == "Unknown").count());
     assert_eq!(unknown, 0);
@@ -235,7 +235,7 @@ fn the_outline_specimen_paints_rows_with_the_active_bar_and_selects_on_press(cx:
 #[gpui::test]
 fn the_mosaic_specimen_paints_tiles_and_the_more_overlay_and_selects_on_press(cx: &mut TestAppContext) {
     let mut tree = specimen("exponential-ui-mosaic");
-    tree["children"][0]["children"][1]["on"] = json!({"select": {"event": {"name": "open", "context": {"index": {"path": "index"}}}}});
+    tree["children"][0]["children"][1]["on"] = json!({"select": {"event": {"name": "open", "context": {"index": {"@path": "index"}}}}});
     let (view, log, cx) = surface(cx, tree);
     let unknown = view.read_with(cx, |v, _| v.placed_nodes().iter().filter(|n| !n.removed && n.component == "Unknown").count());
     assert_eq!(unknown, 0);

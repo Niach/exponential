@@ -80,7 +80,7 @@ fn sizes(view: &Entity<SurfaceView>, cx: &mut VisualTestContext) -> Vec<f64> {
 fn split() -> Value {
     json!({"id": "root", "component": "Box", "style": {"width": 400, "padding": 0}, "children": [
         {"id": "split", "component": "Resizable", "props": {"sizes": [40, 60], "panels": [{"min": 20}, {"min": 30, "collapsible": true}], "handle": true}, "style": {"height": 120},
-         "on": {"change": {"event": {"name": "resized", "context": {"sizes": {"path": "sizes"}}}}},
+         "on": {"change": {"event": {"name": "resized", "context": {"sizes": {"@path": "sizes"}}}}},
          "children": [
             {"id": "a", "component": "Text", "props": {"text": "Left"}},
             {"id": "b", "component": "Text", "props": {"text": "Right"}}
@@ -197,7 +197,7 @@ fn a_pinned_section_header_paints_at_the_lists_top_as_a_heading(cx: &mut TestApp
     let items: Vec<Value> = (0..120).map(|i| json!({"id": format!("i{i}"), "day": format!("d{}", i / 10)})).collect();
     let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
         {"id": "l", "component": "List", "props": {"sectionBy": "day", "stickyHeaders": true}, "style": {"height": 400}, "template": {"component": "row", "path": "/items", "key": "id"},
-         "slots": {"section": {"id": "hdr", "component": "Text", "props": {"text": {"path": "value"}}, "style": {"height": 24, "backgroundColor": "$color.background"}}}},
+         "slots": {"section": {"id": "hdr", "component": "Text", "props": {"text": {"@path": "value"}}, "style": {"height": 24, "backgroundColor": "$color.background"}}}},
         {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}}
     ]});
     let (view, _log, cx) = surface(cx, tree);
@@ -256,7 +256,7 @@ fn scroll_to_index_moves_the_own_scroller(cx: &mut TestAppContext) {
     let rows: Vec<Value> = (0..200).map(|i| json!({"label": format!("Row {i}")})).collect();
     let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
         {"id": "feed", "component": "List", "props": {"direction": "vertical"}, "style": {"height": 200}, "template": {"component": "row", "path": "/rows"}},
-        {"id": "row", "component": "Box", "style": {"height": 40}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"path": "label"}}}]}
+        {"id": "row", "component": "Box", "style": {"height": 40}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"@path": "label"}}}]}
     ]});
     let (view, log, cx) = surface(cx, tree);
     view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx)).unwrap();
@@ -282,7 +282,7 @@ fn scroll_to_index_asks_the_host_to_scroll_an_unbounded_list(cx: &mut TestAppCon
     let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
         {"id": "intro", "component": "Box", "style": {"height": 100, "flexShrink": 0}},
         {"id": "feed", "component": "List", "props": {"direction": "vertical"}, "template": {"component": "row", "path": "/rows"}},
-        {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"path": "label"}}}]}
+        {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"@path": "label"}}}]}
     ]});
     let (view, log, cx) = surface(cx, tree);
     view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx)).unwrap();
@@ -356,7 +356,7 @@ fn only_a_surface_showing_a_relative_time_ticks(cx: &mut TestAppContext) {
     let still = json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Text", "props": {"text": "Saved"}}]});
     let (view, _log, cx) = surface(cx, still);
     assert!(!view.read_with(cx, |v, _| v.ticks_minutely()), "nothing reads the clock");
-    let moving = json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Text", "props": {"text": {"call": "formatRelativeTime", "args": {"value": "2026-01-01T00:00:00Z"}}}}]});
+    let moving = json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Text", "props": {"text": {"@call": "formatRelativeTime", "args": {"value": "2026-01-01T00:00:00Z"}}}}]});
     view.update(cx, |v, cx| {
         v.set_nested(serde_json::from_value::<NestedNode>(moving).unwrap(), cx);
     });
@@ -662,7 +662,7 @@ fn a_voice_wave_rests_under_reduced_motion_and_hides_the_child_at_sm(cx: &mut Te
 /// conformance measurement.
 fn voice_wave_child_cases() -> Vec<(String, f64, Value, Value)> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/voice-wave.json");
-    let doc: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("voice-wave.json")).unwrap();
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("voice_wave.json")).unwrap();
     let cases: Vec<_> = doc["cases"]
         .as_array()
         .unwrap()

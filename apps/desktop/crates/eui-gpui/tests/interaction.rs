@@ -423,7 +423,7 @@ fn toasts_time_out_unless_hovered(cx: &mut TestAppContext) {
 fn a_failed_submit_announces_and_focuses_the_first_invalid_field(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
         {"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"invalid": {"event": {"name": "bad"}}, "submit": {"event": {"name": "ok"}}}, "children": [
-            {"id": "agree", "component": "Checkbox", "props": {"label": "Agree", "name": "agree", "checks": [{"condition": {"call": "required", "args": {"value": {"path": "/agree"}}}, "message": "Agree first"}]}},
+            {"id": "agree", "component": "Checkbox", "props": {"label": "Agree", "name": "agree", "checks": [{"condition": {"@call": "required", "args": {"value": {"@path": "/agree"}}}, "message": "Agree first"}]}},
             {"id": "go", "component": "Button", "props": {"label": "Send", "submit": true}}
         ]}
     ]});
@@ -446,7 +446,7 @@ fn a_failed_submit_announces_and_focuses_the_first_invalid_field(cx: &mut TestAp
 fn a_press_right_after_typing_submits_what_was_typed(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
         {"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"invalid": {"event": {"name": "bad"}}, "submit": {"event": {"name": "ok"}}}, "children": [
-            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "value": {"path": "/hours"}, "checks": [{"condition": {"call": "lt", "args": {"a": 0, "b": {"path": "/hours"}}}, "message": "More than 0"}]}},
+            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "value": {"@path": "/hours"}, "checks": [{"condition": {"@call": "lt", "args": {"a": 0, "b": {"@path": "/hours"}}}, "message": "More than 0"}]}},
             {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
         ]}
     ]});
@@ -470,7 +470,7 @@ fn a_press_right_after_typing_submits_what_was_typed(cx: &mut TestAppContext) {
 fn a_focused_number_field_selects_its_seed_and_typing_replaces_it(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
         {"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"invalid": {"event": {"name": "bad"}}, "submit": {"event": {"name": "ok"}}}, "children": [
-            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "step": 0.25, "value": {"path": "/hours"}, "checks": [{"condition": {"call": "lt", "args": {"a": 0, "b": {"path": "/hours"}}}, "message": "More than 0"}]}},
+            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "step": 0.25, "value": {"@path": "/hours"}, "checks": [{"condition": {"@call": "lt", "args": {"a": 0, "b": {"@path": "/hours"}}}, "message": "More than 0"}]}},
             {"id": "note", "component": "Input", "props": {"label": "Note", "name": "note", "value": "seeded"}},
             {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
         ]}
@@ -712,7 +712,7 @@ fn hovering_a_toast_pauses_its_timer(cx: &mut TestAppContext) {
 #[gpui::test]
 fn dragging_a_drawer_toward_its_edge_dismisses_it(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
-        {"id": "sheet", "component": "Drawer", "props": {"title": "Filters", "open": true, "side": "bottom"}, "children": [{"id": "sheet-body", "component": "Text", "props": {"text": "Body"}}]}
+        {"id": "sheet", "component": "Drawer", "props": {"title": "Filters", "open": true, "side": "bottom"}, "children": [{"id": "sheet_body", "component": "Text", "props": {"text": "Body"}}]}
     ]});
     let (view, _log, cx) = surface(cx, tree, false);
     view.update(cx, |v, _| v.record_bounds(true));
@@ -742,7 +742,7 @@ fn a_windowed_list_follows_the_host_scroller(cx: &mut TestAppContext) {
     init(cx);
     let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
         {"id": "feed", "component": "List", "props": {"direction": "vertical"}, "template": {"component": "row-tpl", "path": "/rows"}, "children": []},
-        {"id": "row-tpl", "component": "Box", "style": {"height": 40}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"path": "label"}}}]}
+        {"id": "row-tpl", "component": "Box", "style": {"height": 40}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"@path": "label"}}}]}
     ]});
     let rows: Vec<Value> = (0..300).map(|i| json!({"label": format!("Row {i}")})).collect();
     let handle = gpui::ScrollHandle::new();
@@ -998,7 +998,7 @@ fn built_in_labels_come_from_the_strings_table(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_markdown_selection_drops_when_its_text_changes(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
-        {"id": "md", "component": "Markdown", "props": {"text": {"path": "/reply"}}}
+        {"id": "md", "component": "Markdown", "props": {"text": {"@path": "/reply"}}}
     ]});
     init(cx);
     let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: eui_core::theme::Mode::Light, ..Default::default() };

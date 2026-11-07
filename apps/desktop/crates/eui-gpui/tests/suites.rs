@@ -620,7 +620,7 @@ fn host_suite(id: &str) -> Vec<Case> {
             }
             for c in list(&f, "negotiation") {
                 let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
-                let r = same(&to_value(&supported_catalog_ids(&ids)), &c["expected"]["supportedCatalogIds"]).and_then(|_| same(&client_capabilities(&ids), &c["expected"]["clientCapabilities"]));
+                let r = same(&to_value(&supported_catalog_ids(&ids)), &c["expected"]["supportedCatalogIds"]).and_then(|_| same(&client_capabilities(&ids), &c["expected"]["rendererCapabilities"]));
                 out.push((format!("negotiation: {} extension ids", ids.len()), r));
             }
         }

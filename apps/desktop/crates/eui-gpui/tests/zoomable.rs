@@ -58,7 +58,7 @@ fn draw(cx: &mut VisualTestContext) {
 /// (`extra` props merged), its `zoom` / `tap` reported as actions and its
 /// `scale` bound to `/zoom`.
 fn surface(cx: &mut TestAppContext, extra: Value) -> (Entity<SurfaceView>, Recorder, &mut VisualTestContext) {
-    let mut props = json!({"src": PNG, "alt": "Screenshot", "naturalWidth": 1440, "naturalHeight": 900, "controls": "always", "scale": {"path": "/zoom"}});
+    let mut props = json!({"src": PNG, "alt": "Screenshot", "naturalWidth": 1440, "naturalHeight": 900, "controls": "always", "scale": {"@path": "/zoom"}});
     for (k, v) in extra.as_object().cloned().unwrap_or_default() {
         props[k] = v;
     }

@@ -55,7 +55,7 @@ fn router_ops_reach_surfaces_through_the_memory_transport(cx: &mut TestAppContex
     init(cx);
     let t = MemoryTransport::new();
     // Queued before the host connects.
-    t.feed([create("s1"), components("s1", json!([{"id": "root", "component": "Stack", "children": ["a", "b"]}, {"id": "a", "component": "Text", "text": "A"}, {"id": "b", "component": "Text", "text": {"path": "/b"}}]))]);
+    t.feed([create("s1"), components("s1", json!([{"id": "root", "component": "Stack", "children": ["a", "b"]}, {"id": "a", "component": "Text", "text": "A"}, {"id": "b", "component": "Text", "text": {"@path": "/b"}}]))]);
     let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
     assert!(host.read_with(cx, |h, _| h.has_transport()));
     host.update(cx, |h, cx| h.connect(cx));
@@ -83,7 +83,7 @@ fn router_ops_reach_surfaces_through_the_memory_transport(cx: &mut TestAppContex
     assert_eq!(data(&host, "s1", cx), json!({"x": 1}));
 
     // Errors go back on the transport.
-    t.feed([components("nope", json!([]))]);
+    t.feed([components("nope", json!([{"id": "root", "component": "Text", "text": "x"}]))]);
     cx.run_until_parked();
     assert_eq!(sent_errors(&t), vec![("SURFACE_NOT_FOUND".to_string(), "no surface nope; send createSurface first".to_string())]);
 
@@ -171,11 +171,12 @@ fn sources_bind_emit_and_cancel(cx: &mut TestAppContext) {
     t.feed([json!({"version": VERSION, "deleteSurface": {"surfaceId": "s"}})]);
     cx.run_until_parked();
     assert_eq!(probe.cancels.load(Ordering::SeqCst), 1);
-    t.feed([create("s")]);
+    // Ids are unique for the renderer's lifetime: a new surface, a new id.
+    t.feed([create("s2")]);
     cx.run_until_parked();
     (probe.emit.lock().unwrap().clone().unwrap())(json!(["late"]));
     cx.run_until_parked();
-    assert_eq!(data(&host, "s", cx), json!({}));
+    assert_eq!(data(&host, "s2", cx), json!({}));
 }
 
 fn outcome(task: Task<FunctionOutcome>, cx: &mut TestAppContext) -> FunctionOutcome {
@@ -199,17 +200,17 @@ fn the_function_gate_consent_and_package_narrowing(cx: &mut TestAppContext) {
     let a = asked.clone();
     let consent = Rc::new(move |c: &FunctionCallEvent, _: &mut App| {
         a.borrow_mut().push(c.name.clone());
-        Task::ready(c.name == "harness.confirm")
+        Task::ready(c.name == "harness_confirm")
     });
     let double = sync_function(|args, _call, _cx| Ok(json!(args["n"].as_i64().unwrap() * 2)));
     let fail = sync_function(|_, _, _| Err("boom".to_string()));
     let mut functions = HashMap::new();
-    for name in ["harness.toast", "harness.confirm", "harness.refuse", "admin.wipe"] {
+    for name in ["harness_toast", "harness_confirm", "harness_refuse", "admin.wipe"] {
         functions.insert(name.to_string(), double.clone());
     }
-    functions.insert("harness.fail".to_string(), fail);
+    functions.insert("harness_fail".to_string(), fail);
     let policy = HostPolicy {
-        functions: Some(FunctionPolicy { allow: Some(vec!["harness.toast".into(), "harness.fail".into()]), ask: Some(vec!["harness.*".into()]), deny: Some(vec!["admin.*".into()]), default: None }),
+        functions: Some(FunctionPolicy { allow: Some(vec!["harness_toast".into(), "harness_fail".into()]), ask: Some(vec!["harness_*".into()]), deny: Some(vec!["admin.*".into()]), default: None }),
         on_function_call: Some(consent),
         ..Default::default()
     };
@@ -222,11 +223,11 @@ fn the_function_gate_consent_and_package_narrowing(cx: &mut TestAppContext) {
         let task = host.update(cx, |h, cx| h.call_function(call(sid, name), cx));
         outcome(task, cx)
     };
-    assert_eq!(run("harness.toast", "plain", cx), FunctionOutcome { decision: FunctionDecision::Allow, result: Some(json!(4)), error: None });
-    assert_eq!(run("harness.fail", "plain", cx).error.as_deref(), Some("boom"));
-    assert_eq!(run("harness.confirm", "plain", cx).result, Some(json!(4)));
-    assert_eq!(run("harness.refuse", "plain", cx).decision, FunctionDecision::Deny);
-    assert_eq!(*asked.borrow(), vec!["harness.confirm".to_string(), "harness.refuse".to_string()]);
+    assert_eq!(run("harness_toast", "plain", cx), FunctionOutcome { decision: FunctionDecision::Allow, result: Some(json!(4)), error: None });
+    assert_eq!(run("harness_fail", "plain", cx).error.as_deref(), Some("boom"));
+    assert_eq!(run("harness_confirm", "plain", cx).result, Some(json!(4)));
+    assert_eq!(run("harness_refuse", "plain", cx).decision, FunctionDecision::Deny);
+    assert_eq!(*asked.borrow(), vec!["harness_confirm".to_string(), "harness_refuse".to_string()]);
     assert_eq!(run("admin.wipe", "plain", cx).decision, FunctionDecision::Deny);
     assert_eq!(run("missing.fn", "plain", cx).decision, FunctionDecision::NotFound);
     // A built-in other than openUrl is allowed and does nothing.
@@ -234,9 +235,9 @@ fn the_function_gate_consent_and_package_narrowing(cx: &mut TestAppContext) {
     assert_eq!(
         sent_errors(&t),
         vec![
-            ("FUNCTION_DENIED".to_string(), "harness.refuse was not allowed".to_string()),
-            ("FUNCTION_DENIED".to_string(), "admin.wipe was not allowed".to_string()),
-            ("FUNCTION_NOT_FOUND".to_string(), "no function missing.fn".to_string()),
+            ("INVALID_FUNCTION_CALL".to_string(), "harness_refuse was not allowed".to_string()),
+            ("INVALID_FUNCTION_CALL".to_string(), "admin.wipe was not allowed".to_string()),
+            ("UNKNOWN_FUNCTION".to_string(), "no function missing.fn".to_string()),
         ]
     );
 
@@ -247,9 +248,9 @@ fn the_function_gate_consent_and_package_narrowing(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(host.read_with(cx, |h, _| h.package_id_of("pkg").map(str::to_string)), Some("acme.devices".to_string()));
     assert_eq!(data(&host, "pkg", cx)["title"], json!("Devices"));
-    assert_eq!(host.read_with(cx, |h, _| h.decide("pkg", "harness.toast")), FunctionDecision::Allow);
-    assert_eq!(host.read_with(cx, |h, _| h.decide("pkg", "harness.confirm")), FunctionDecision::Deny);
-    assert_eq!(host.read_with(cx, |h, _| h.decide("plain", "harness.confirm")), FunctionDecision::Ask);
+    assert_eq!(host.read_with(cx, |h, _| h.decide("pkg", "harness_toast")), FunctionDecision::Allow);
+    assert_eq!(host.read_with(cx, |h, _| h.decide("pkg", "harness_confirm")), FunctionDecision::Deny);
+    assert_eq!(host.read_with(cx, |h, _| h.decide("plain", "harness_confirm")), FunctionDecision::Ask);
     // The template's `exp:` binding had no resolver.
     assert!(sent_errors(&t).iter().any(|(c, m)| c == "VALIDATION_FAILED" && m.contains("exp")));
 }
@@ -349,7 +350,7 @@ fn painter_presses_become_client_messages_and_function_calls(cx: &mut TestAppCon
         c.borrow_mut().push(json!({"args": args, "component": call.component_id}));
         Ok(Value::Null)
     });
-    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), functions: HashMap::from([("harness.toast".to_string(), toast)]), ..Default::default() });
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), functions: HashMap::from([("harness_toast".to_string(), toast)]), ..Default::default() });
     host.update(cx, |h, cx| h.connect(cx));
     t.feed([
         create("s"),
@@ -357,8 +358,8 @@ fn painter_presses_become_client_messages_and_function_calls(cx: &mut TestAppCon
             "s",
             json!([
                 {"id": "root", "component": "Stack", "direction": "horizontal", "children": ["save", "toast"]},
-                {"id": "save", "component": "Button", "label": "Save", "on": {"press": {"event": {"name": "save", "context": {"title": {"path": "/title"}}}}}},
-                {"id": "toast", "component": "Button", "label": "Toast", "on": {"press": {"functionCall": {"call": "harness.toast", "args": {"text": {"path": "/title"}}}}}}
+                {"id": "save", "component": "Button", "label": "Save", "on": {"press": {"event": {"name": "save", "context": {"title": {"@path": "/title"}}}}}},
+                {"id": "toast", "component": "Button", "label": "Toast", "on": {"press": {"functionCall": {"@call": "harness_toast", "args": {"text": {"@path": "/title"}}}}}}
             ]),
         ),
         json!({"version": VERSION, "updateDataModel": {"surfaceId": "s", "value": {"title": "Hello"}}}),
@@ -407,11 +408,11 @@ fn create_surface_theme_applies_a_builtin_or_a_theme_json_and_an_unusable_one_is
         assert!(host.read_with(cx, |h, _| h.surface(sid).is_some()), "the surface {sid} is still created");
     }
     let sent: Vec<(String, String, String)> = t.sent().iter().filter_map(|m| m.get("error")).map(|e| (e["code"].as_str().unwrap().into(), e["surfaceId"].as_str().unwrap().into(), e["path"].as_str().unwrap_or("").into())).collect();
-    assert_eq!(sent, vec![("VALIDATION_FAILED".into(), "d".into(), "/createSurface/theme".into()), ("VALIDATION_FAILED".into(), "e".into(), "/createSurface/theme".into())]);
+    assert_eq!(sent, vec![("VALIDATION_FAILED".into(), "d".into(), "/createSurface/metadata/extensions/at_exponential_theme".into()), ("VALIDATION_FAILED".into(), "e".into(), "/createSurface/metadata/extensions/at_exponential_theme".into())]);
     let issues = host.read_with(cx, |h, _| h.issues().to_vec());
     assert_eq!(issues.len(), 2);
     assert!(issues[0].message.contains("unknown built-in theme \"nope\""), "{:?}", issues[0]);
-    assert_eq!(issues[1].path.as_deref(), Some("/createSurface/theme"));
+    assert_eq!(issues[1].path.as_deref(), Some("/createSurface/metadata/extensions/at_exponential_theme"));
 }
 
 #[gpui::test]
@@ -432,7 +433,7 @@ fn host_issues_record_sent_errors_and_package_problems_without_a_transport(cx: &
     // FUNCTION_DENIED lands there too.
     let task = host.update(cx, |h, cx| h.call_function(call("x", "admin.wipe"), cx));
     let _ = outcome(task, cx);
-    assert!(host.read_with(cx, |h, _| h.issues().iter().any(|i| i.code == "FUNCTION_NOT_FOUND" || i.code == "FUNCTION_DENIED")));
+    assert!(host.read_with(cx, |h, _| h.issues().iter().any(|i| i.code == "UNKNOWN_FUNCTION" || i.code == "INVALID_FUNCTION_CALL")));
 
     // A package that fails validation: PACKAGE_INVALID, not installed.
     let bad = json!({"id": "acme.bad", "templates": "nope"});
@@ -508,8 +509,8 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
         HostOptions {
             transport: Some(Box::new(t.clone())),
             packages: vec![pkg.clone()],
-            functions: HashMap::from([("records.batch".to_string(), batch), ("harness.toast".to_string(), toast)]),
-            policy: HostPolicy { functions: Some(FunctionPolicy { ask: Some(vec!["harness.toast".into()]), ..Default::default() }), on_function_call: Some(Rc::new(move |_: &FunctionCallEvent, _: &mut App| Task::ready(*cc.borrow()))), ..Default::default() },
+            functions: HashMap::from([("records_batch".to_string(), batch), ("harness_toast".to_string(), toast)]),
+            policy: HostPolicy { functions: Some(FunctionPolicy { ask: Some(vec!["harness_toast".into()]), ..Default::default() }), on_function_call: Some(Rc::new(move |_: &FunctionCallEvent, _: &mut App| Task::ready(*cc.borrow()))), ..Default::default() },
             me: Some("u1".into()),
             now: Some(Rc::new(|| 1_793_611_800_000.0)),
             zone: Some(Arc::new(|_| 60)),
@@ -536,7 +537,7 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
     let before = *batches.borrow();
     view.update(cx, |v, cx| {
         let plugin = v.host_plugin();
-        plugin.on_function_call(&FunctionCallEvent { surface_id: "s".into(), component_id: "log".into(), name: "actions.log".into(), args: json!({"date": "2026-11-05", "hours": 1}) }, cx);
+        plugin.on_function_call(&FunctionCallEvent { surface_id: "s".into(), component_id: "log".into(), name: "actions_log".into(), args: json!({"date": "2026-11-05", "hours": 1}) }, cx);
     });
     cx.run_until_parked();
     assert_eq!(*batches.borrow(), before + 1, "the pressed action committed its batch");
@@ -544,7 +545,7 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
     toasts.borrow_mut().clear();
 
     // The plan lands: one batch, the sets, then the calls.
-    let out = press("actions.log", json!({"date": "2026-11-03", "hours": 2}), cx);
+    let out = press("actions_log", json!({"date": "2026-11-03", "hours": 2}), cx);
     assert_eq!(out.error, None);
     assert_eq!(out.result, Some(json!({"ids": ["n1"]})));
     assert!(rows.borrow().iter().any(|r| r["data"] == json!({"date": "2026-11-03", "hours": 2})));
@@ -553,26 +554,26 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
 
     // A false require lands nothing and is the failure's message.
     let before = rows.borrow().clone();
-    let out = press("actions.log", json!({"date": "2026-11-03", "hours": 0}), cx);
+    let out = press("actions_log", json!({"date": "2026-11-03", "hours": 0}), cx);
     assert_eq!(out.error.as_deref(), Some("Log more than 0 hours"));
     assert_eq!(*rows.borrow(), before);
 
     // A refused write lands nothing: the batch is one unit.
-    let out = press("actions.swap", json!({"a": "e1", "b": "missing"}), cx);
+    let out = press("actions_swap", json!({"a": "e1", "b": "missing"}), cx);
     assert_eq!(out.error.as_deref(), Some("write 1: record missing not found"));
     assert_eq!(*rows.borrow(), before);
 
     // A host call the person refuses lands nothing (asked before the commit).
     *consent.borrow_mut() = false;
     let commits = *batches.borrow();
-    let out = press("actions.log", json!({"date": "2026-11-04", "hours": 1}), cx);
-    assert_eq!(out.error.as_deref(), Some("harness.toast was not allowed"));
+    let out = press("actions_log", json!({"date": "2026-11-04", "hours": 1}), cx);
+    assert_eq!(out.error.as_deref(), Some("harness_toast was not allowed"));
     assert_eq!(*batches.borrow(), commits);
     assert_eq!(*rows.borrow(), before);
 
-    assert_eq!(*failed.borrow(), vec!["Log more than 0 hours".to_string(), "write 1: record missing not found".to_string(), "harness.toast was not allowed".to_string()]);
+    assert_eq!(*failed.borrow(), vec!["Log more than 0 hours".to_string(), "write 1: record missing not found".to_string(), "harness_toast was not allowed".to_string()]);
     let codes: Vec<String> = sent_errors(&t).into_iter().map(|(c, _)| c).collect();
-    assert_eq!(codes.iter().filter(|c| *c == "ACTION_FAILED").count(), 3);
+    assert_eq!(codes.iter().filter(|c| *c == "EXECUTION_ERROR").count(), 3);
 }
 
 /// VAPP-271: `fixtures/actions.json` `results.host`: a call's answer
@@ -618,10 +619,10 @@ fn a_result_call_runs_before_the_commit_and_feeds_the_later_steps(cx: &mut TestA
                 transport: Some(Box::new(t.clone())),
                 packages: vec![pkg.clone()],
                 functions: HashMap::from([
-                    ("records.batch".to_string(), batch),
-                    ("photos.pick".to_string(), fake("photos.pick")),
-                    ("print.pdf".to_string(), fake("print.pdf")),
-                    ("harness.toast".to_string(), fake("harness.toast")),
+                    ("records_batch".to_string(), batch),
+                    ("photos_pick".to_string(), fake("photos_pick")),
+                    ("print_pdf".to_string(), fake("print_pdf")),
+                    ("harness_toast".to_string(), fake("harness_toast")),
                 ]),
                 policy: HostPolicy { functions: Some(FunctionPolicy { deny: Some(deny), ..Default::default() }), ..Default::default() },
                 me: Some("u1".into()),
@@ -635,7 +636,7 @@ fn a_result_call_runs_before_the_commit_and_feeds_the_later_steps(cx: &mut TestA
         h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}}), cx);
     });
         cx.run_until_parked();
-        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "add".into(), name: format!("actions.{}", c["action"].as_str().unwrap()), args: json!({}) };
+        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "add".into(), name: format!("actions_{}", c["action"].as_str().unwrap()), args: json!({}) };
         let task = host.update(cx, |h, cx| h.call_function(call, cx));
         let out = outcome(task, cx);
         assert_eq!(out.error.as_deref(), c["error"].as_str(), "{name}: error");
@@ -680,7 +681,7 @@ fn an_action_step_runs_bind_and_open_url(cx: &mut TestAppContext) {
         h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}}), cx);
     });
         cx.run_until_parked();
-        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: format!("actions.{}", c["action"].as_str().unwrap()), args: c["args"].clone() };
+        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: format!("actions_{}", c["action"].as_str().unwrap()), args: c["args"].clone() };
         let task = host.update(cx, |h, cx| h.call_function(call, cx));
         let out = outcome(task, cx);
         assert_eq!(out.error.as_deref(), c["error"].as_str(), "{name}: error");
@@ -725,7 +726,7 @@ fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     let call = |args: Value, cx: &mut TestAppContext| {
-        let task = host.update(cx, |h, cx| h.call_function(FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: "app.navigate".into(), args }, cx));
+        let task = host.update(cx, |h, cx| h.call_function(FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: "app_navigate".into(), args }, cx));
         outcome(task, cx)
     };
 
@@ -741,7 +742,7 @@ fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
     let out = call(json!({"screen": "nope"}), cx);
     assert_eq!(out.decision, FunctionDecision::Deny);
     assert_eq!(seen.borrow().len(), before);
-    assert!(sent_errors(&t).contains(&("FUNCTION_DENIED".into(), "navigate: nope is not a screen".into())));
+    assert!(sent_errors(&t).contains(&("INVALID_FUNCTION_CALL".into(), "navigate: nope is not a screen".into())));
 
     // The shell declining is a refusal too.
     let out = call(json!({"screen": "deals"}), cx);
