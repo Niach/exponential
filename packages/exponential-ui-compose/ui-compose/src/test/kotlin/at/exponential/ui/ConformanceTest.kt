@@ -512,7 +512,7 @@ class ConformanceTest {
         return list(f, "jsonl").map { c -> case("jsonl: ${s(c, "name")}") { same(feed(jsonl, list(c, "chunks")), c["expected"]!!) } } +
             list(f, "sse").map { c -> case("sse: ${s(c, "name")}") { same(feed(sse, list(c, "chunks")), c["expected"]!!) } } +
             list(f, "mcp").map { c -> case("mcp: ${s(c, "name")}") { same(messagesFromMcpResultJson(c["result"]!!.json), c["expected"]!!) } } +
-            list(f, "mcpAction").map { c -> case("mcpAction: ${s(c, "name")}") { same(mcpActionCallJson(c["message"]!!.json, c["tool"]?.string), c["expected"]!!) } }
+            list(f, "mcpAction").map { c -> case("mcpAction: ${s(c, "name")}") { same(mcpActionCallJson(c["message"]!!.json, c["tool"]?.string, null), c["expected"]!!) } }
     }
 
     private fun hostPolicySuite(): List<Case> {

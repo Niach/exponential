@@ -41,6 +41,9 @@ interface Transport {
     /** One client message (A2UI `action` / `error`). */
     suspend fun send(message: JsonValue)
 
+    /** Round 9 §1.3: a message with the `sendDataModel` metadata beside it: `{"message", "metadata"}` on the wire (the MCP carrier sends it beside). */
+    suspend fun send(message: JsonValue, metadata: JsonValue) = send(JsonValue.Obj(mapOf("message" to message, "metadata" to metadata)))
+
     fun close()
 }
 
@@ -377,8 +380,12 @@ class McpTransport(
         }
     }
 
-    override suspend fun send(message: JsonValue) {
-        val call = JsonValue.parse(mcpActionCallJson(message.json, actionTool))
+    override suspend fun send(message: JsonValue) = call(message, null)
+
+    override suspend fun send(message: JsonValue, metadata: JsonValue) = call(message, metadata)
+
+    private suspend fun call(message: JsonValue, metadata: JsonValue?) {
+        val call = JsonValue.parse(mcpActionCallJson(message.json, actionTool, metadata?.json))
         val result = withContext(Dispatchers.IO) { rpc(call["method"]?.string ?: "tools/call", call["params"] ?: JsonValue.Null) }
         val r = receiveFn ?: return
         decodedMessages(messagesFromMcpResultJson(result.json)).forEach(r)

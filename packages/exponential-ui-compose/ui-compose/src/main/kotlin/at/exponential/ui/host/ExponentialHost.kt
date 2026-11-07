@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.extension.ExtensionPainter
+import at.exponential.ui.ffi.HostCalls
 import at.exponential.ui.ffi.HostRouter
 import at.exponential.ui.ffi.HostZone
 import at.exponential.ui.ffi.actionMessageJson
@@ -28,10 +29,13 @@ import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.SurfaceSettings
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 
@@ -83,6 +87,8 @@ data class HostOptions(
     val onActionFailed: ((ActionFailure) -> Unit)? = null,
     /** VAPP-218 (U1): open one of the surface's package screens (`app_navigate`, checked by [Screens.target]); the host's shell opens it. Null = no shell, so a navigate is refused. True when it navigated. */
     val navigate: ((NavigateTarget) -> Boolean)? = null,
+    /** Round 9 §6.5: the transport's far end reads renderer → agent messages: a surface an untrusted `createSurface` made has an agent. */
+    val agent: Boolean = false,
 )
 
 /** The A2UI protocol version the host's own messages carry (the catalog's). */
@@ -114,6 +120,15 @@ class ExponentialHost(
     /** Reported paint failures: surfaceId → component ids. */
     private val paintErrors = HashMap<String, MutableSet<String>>()
     private val bridge = Bridge()
+    /** Round 9 §6.5: the routed calls (the core's `CallHub`). */
+    private val calls = HostCalls(options.agent)
+    /** The press waiting for each action call to the agent. */
+    private val agentWaiters = HashMap<String, CompletableDeferred<JsonValue>>()
+    private var flushingCalls = false
+    /** The one timer, armed at `calls.nextDeadlineMs()`. */
+    private var deadlineTimer: Job? = null
+    private var armedDeadline: Double? = null
+    private val sendDataModel = HashSet<String>()
 
     /** The plugin every surface of this host sees (the policy's hooks over [HostOptions.plugin]; tests). */
     internal val surfaceHost: HostPlugin get() = bridge
@@ -149,6 +164,8 @@ class ExponentialHost(
         for (e in options.extensions) require(extensionErrors(e.json).isEmpty()) { "extension ${e.id}: ${extensionErrors(e.json)}" }
         extensions.addAll(options.extensions.distinctBy { it.id })
         router = HostRouter(extensions.map { it.id })
+        calls.setRegistered(functions.keys.toList())
+        calls.setPolicyJson(options.policy.functions?.json)
         for (p in options.packages) installPackage(p)
     }
 
@@ -177,6 +194,7 @@ class ExponentialHost(
 
     fun registerFunction(name: String, fn: HostFunction) {
         functions[name] = fn
+        calls.setRegistered(functions.keys.toList())
     }
 
     fun registerSource(scheme: String, resolver: SourceResolver) {
@@ -239,13 +257,17 @@ class ExponentialHost(
     /** Close the transport and drop every surface (and its subscriptions). */
     fun close() {
         options.transport?.close()
-        for (id in surfaceIds()) perform(JsonValue.Obj(mapOf("op" to JsonValue.Str("delete"), "surfaceId" to JsonValue.Str(id))))
+        val ops = surfaceIds().map { JsonValue.Obj(mapOf("op" to JsonValue.Str("delete"), "surfaceId" to JsonValue.Str(it))) }
+        perform(ops)
+        observe(JsonValue.Arr(ops).json)
         status = TransportStatus.Closed
     }
 
     /** Close and stop the scope (a host that will not be reused). */
     fun dispose() {
         close()
+        agentWaiters.values.forEach { it.cancel() }
+        agentWaiters.clear()
         scope.cancel()
     }
 
@@ -254,9 +276,13 @@ class ExponentialHost(
      * is untrusted; only host code passes `trusted = true` (`applyTemplate`,
      * `bindDataModel`).
      */
-    fun receive(json: String, trusted: Boolean = false): List<JsonValue> =
+    fun receive(json: String, trusted: Boolean = false): List<JsonValue> {
         // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
-        perform(JsonValue.parse(router.routeJson(HostParams.adding(json, options.now?.invoke(), options.zone), trusted)).array ?: emptyList())
+        val opsJson = router.routeJson(HostParams.adding(json, options.now?.invoke(), options.zone), trusted)
+        val ops = perform(JsonValue.parse(opsJson).array ?: emptyList())
+        observe(opsJson)
+        return ops
+    }
 
     /** One server message; the ops performed. On the host's thread. */
     fun receive(message: JsonValue, trusted: Boolean = false): List<JsonValue> = receive(message.json, trusted)
@@ -276,15 +302,167 @@ class ExponentialHost(
     /** A client message out (the transport, then [HostOptions.onSend]). */
     fun send(message: JsonValue) {
         options.transport?.let { t ->
+            val metadata = dataModelMetadata(message)
             scope.launch {
                 try {
-                    t.send(message)
+                    if (metadata != null) t.send(message, metadata) else t.send(message)
                 } catch (e: Exception) {
                     statusDetail = e.message ?: e.toString()
                 }
             }
         }
         options.onSend?.invoke(message)
+    }
+
+    /** Round 9 §1.3: the metadata beside a message about a `sendDataModel` surface. */
+    private fun dataModelMetadata(message: JsonValue): JsonValue? {
+        if (sendDataModel.isEmpty()) return null
+        val id = listOf("action", "callAgentFunction", "error").firstNotNullOfOrNull { message[it]?.get("surfaceId")?.string } ?: return null
+        val model = surfaces[id]?.takeIf { id in sendDataModel } ?: return null
+        return calls.dataModelMetadataJson(message.json, model.surface.dataJson())?.let(JsonValue::parse)
+    }
+
+    // Routed calls (round 9 §6.5–§6.8, §18.3)
+
+    /** Every router answer, AFTER its ops ran: the hub follows the surfaces and settles the `respond` ops, then the one flush. */
+    private fun observe(opsJson: String) {
+        answerPresses(calls.observeJson(opsJson, router))
+        flushCalls()
+    }
+
+    /** `[SettledCall]` JSON: the presses waiting for those calls go on. */
+    private fun answerPresses(settledJson: String) {
+        for (call in JsonValue.parse(settledJson).array ?: emptyList()) {
+            agentWaiters.remove(call["functionCallId"]?.string)?.complete(call)
+        }
+    }
+
+    /**
+     * What the hub queued: messages out, reactive effects run, surfaces whose
+     * routed value settled bound again, until all three are empty; then the
+     * timer. A flush a rebind's layout asks for is this loop's next round.
+     */
+    private fun flushCalls() {
+        if (flushingCalls) return
+        flushingCalls = true
+        try {
+            while (true) {
+                val outbox = JsonValue.parse(calls.takeOutboxJson()).array ?: emptyList()
+                val effects = JsonValue.parse(calls.takeEffectsJson()).array ?: emptyList()
+                val dirty = calls.takeDirty()
+                if (outbox.isEmpty() && effects.isEmpty() && dirty.isEmpty()) break
+                outbox.forEach(::send)
+                effects.forEach(::runEffect)
+                dirty.forEach { surfaces[it]?.rebind() }
+            }
+        } finally {
+            flushingCalls = false
+        }
+        armDeadline()
+    }
+
+    private fun runEffect(effect: JsonValue) {
+        val ticket = effect["ticket"]?.number?.toULong() ?: return
+        val call = FunctionCallInfo(effect["surfaceId"]?.string ?: "", "", effect["name"]?.string ?: "", effect["args"]?.obj ?: emptyMap())
+        when (effect["effect"]?.string) {
+            "ask" -> scope.launch {
+                val allowed = try {
+                    options.policy.onFunctionCall?.invoke(call) == true
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    false
+                }
+                calls.consent(ticket, allowed)
+                flushCalls()
+            }
+            "runLocal" -> scope.launch {
+                var value: String? = null
+                var failure: String? = null
+                try {
+                    value = functions[call.name]?.invoke(call.args, call)?.let { JsonValue.of(it).json }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    failure = e.message ?: e.toString()
+                }
+                calls.settleLocal(ticket, value, failure)
+                flushCalls()
+            }
+        }
+    }
+
+    private fun armDeadline() {
+        val next = calls.nextDeadlineMs()
+        if (next == armedDeadline) return
+        deadlineTimer?.cancel()
+        deadlineTimer = null
+        armedDeadline = next
+        if (next == null) return
+        deadlineTimer = scope.launch {
+            delay((next - System.currentTimeMillis()).toLong().coerceAtLeast(0) + 1)
+            deadlineTimer = null
+            armedDeadline = null
+            answerPresses(calls.expireJson())
+            flushCalls()
+        }
+    }
+
+    /**
+     * Round 9 §5.2, §6.8: a layout may leave issues, failures or routed calls:
+     * to the hub, then out. The core reports no cheap "anything pending?" for
+     * failures, and this is as cheap as that read.
+     */
+    private fun afterLayout(surfaceId: String) {
+        val model = surfaces[surfaceId] ?: return
+        calls.flushSurface(surfaceId, model.surface)
+        flushCalls()
+    }
+
+    /** An action call to the agent: the policy, the consent, one new `callAgentFunction`, its answer or the timeout (§6.5: never shared). */
+    private suspend fun callAgent(call: FunctionCallInfo): FunctionOutcome {
+        val args = JsonValue.Obj(call.args).json
+        fun press(consent: Boolean?) = JsonValue.parse(calls.pressJson(call.surfaceId, call.name, null, args, consent))
+        var route = press(null)
+        if (route["route"]?.string == "ask") {
+            val allowed = try {
+                options.policy.onFunctionCall?.invoke(call) == true
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                false
+            }
+            route = press(allowed)
+        }
+        val id = route["functionCallId"]?.string
+        return when (route["route"]?.string) {
+            "agent" -> {
+                val waiter = CompletableDeferred<JsonValue>()
+                agentWaiters[id ?: ""] = waiter
+                flushCalls()
+                val answer = waiter.await()
+                FunctionOutcome(FunctionDecision.Allow, result = answer["value"], error = answer["error"]?.string)
+            }
+            "notFound" -> {
+                flushCalls()
+                FunctionOutcome(FunctionDecision.NotFound)
+            }
+            "local" -> {
+                flushCalls()
+                runLocal(call)
+            }
+            else -> {
+                flushCalls()
+                FunctionOutcome(FunctionDecision.Deny)
+            }
+        }
+    }
+
+    /** [run]; §6.8: a local function that threw is an EXECUTION_ERROR. */
+    private suspend fun runLocal(call: FunctionCallInfo): FunctionOutcome {
+        val outcome = run(call)
+        outcome.error?.let {
+            calls.localFailed(call.surfaceId, it)
+            flushCalls()
+        }
+        return outcome
     }
 
     private fun sendError(code: String, surfaceId: String, message: String, path: String? = null) =
@@ -298,17 +476,17 @@ class ExponentialHost(
                 unbind(sid)
                 forgetPaintErrors(sid)
                 surfaces.remove(sid)
-                // Round 4: an unusable `createSurface.theme` never fails the
+                // Round 9 §8: an unusable `at_exponential_theme` never fails the
                 // host: the surface paints with the host's theme and the
                 // server hears VALIDATION_FAILED (the TS / gpui hosts' rule).
                 val opTheme = op["theme"]?.takeIf { it != JsonValue.Null }?.let { t ->
                     val named = t.string
                     if (named != null) {
-                        ThemeHandle.builtin(named) ?: null.also { sendError("VALIDATION_FAILED", sid, "createSurface.theme is unusable: unknown built-in theme \"$named\"", "/createSurface/theme") }
+                        ThemeHandle.builtin(named) ?: null.also { sendError("VALIDATION_FAILED", sid, "createSurface.metadata.extensions.at_exponential_theme is unusable: unknown built-in theme \"$named\"", "/createSurface/metadata/extensions/at_exponential_theme") }
                     } else {
                         var refused: List<at.exponential.ui.theme.ThemeIssue> = emptyList()
                         val loaded = ThemeHandle.loadOrDefault(t.json) { refused = it }
-                        if (refused.isEmpty()) loaded else null.also { sendError("VALIDATION_FAILED", sid, "createSurface.theme is unusable: ${refused.joinToString("; ") { i -> "${i.path}: ${i.message}" }}", "/createSurface/theme") }
+                        if (refused.isEmpty()) loaded else null.also { sendError("VALIDATION_FAILED", sid, "createSurface.metadata.extensions.at_exponential_theme is unusable: ${refused.joinToString("; ") { i -> "${i.path}: ${i.message}" }}", "/createSurface/metadata/extensions/at_exponential_theme") }
                     }
                 }
                 val model = SurfaceModel(
@@ -327,7 +505,9 @@ class ExponentialHost(
                 components[sid] = LinkedHashMap()
                 val pkgId = router.packageIdOf(sid)
                 if (pkgId != null) packageOf[sid] = pkgId else packageOf.remove(sid)
+                if (op["sendDataModel"]?.bool == true) sendDataModel.add(sid) else sendDataModel.remove(sid)
                 surfaces[sid] = model
+                calls.attachSurface(sid, model.surface)
             }
             "components" -> {
                 val model = surfaces[sid] ?: return
@@ -361,6 +541,7 @@ class ExponentialHost(
                 surfaces.remove(sid)
                 components.remove(sid)
                 packageOf.remove(sid)
+                sendDataModel.remove(sid)
             }
             "send" -> {
                 val message = op["message"] ?: return
@@ -403,9 +584,12 @@ class ExponentialHost(
         runBuiltIn(call)?.let { return it }
         if (call.name == Screens.NAVIGATE_FUNCTION) return navigate(call)
         Actions.actionName(call.name)?.let { return runPackageAction(call, it) }
+        // Round 9 §6.5: nothing local: the hub knows which surfaces have an
+        // agent, and a built-in answers `local`.
+        if (options.agent && call.name !in functions) return callAgent(call)
         val verdict = gate(call)
         if (verdict.decision != FunctionDecision.Allow) return verdict
-        return run(call)
+        return runLocal(call)
     }
 
     /** VAPP-218: `app.navigate {screen, params?}` → the host's shell, when the surface's package has that screen. A refusal = INVALID_FUNCTION_CALL. */
@@ -621,6 +805,8 @@ class ExponentialHost(
         }
 
         override fun onInput(event: SurfaceInputEvent) = base.onInput(event)
+
+        override fun afterLayout(surfaceId: String) = this@ExponentialHost.afterLayout(surfaceId)
 
         override fun onFunctionCall(event: SurfaceFunctionCallEvent) {
             val call = FunctionCallInfo(event.surfaceId, event.componentId, event.name, event.args)

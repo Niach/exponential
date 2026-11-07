@@ -111,6 +111,9 @@ interface HostPlugin {
      */
     fun icon(name: String, size: Float): (@Composable () -> Unit)? = null
 
+    /** Round 9 §5.2, §6.8: a layout ran; the host sends what it left. */
+    fun afterLayout(surfaceId: String) {}
+
     /** Every A2UI action. */
     fun onAction(event: SurfaceActionEvent) {}
 

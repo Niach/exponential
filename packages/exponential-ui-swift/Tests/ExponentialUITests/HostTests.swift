@@ -62,6 +62,26 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(transport.sentMessages.last?["error"]?["code"]?.string, "EXPRESSION_ERROR")
     }
 
+    /// Round 9 §6.5: a reactive position's call leaves after the layout, once,
+    /// and its answer binds the surface again.
+    func testAReactiveCallGoesToTheAgentAndItsAnswerRebinds() async throws {
+        let transport = MemoryTransport()
+        let host = ExponentialHost(HostOptions(transport: transport, agent: true))
+        host.connect()
+        host.receive(#"{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"\#(core)"}}"#)
+        host.receive(#"{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Text","text":{"@call":"lookup","args":{"q":"hi"}}}]}}"#)
+        let model = try XCTUnwrap(host.surface("s1"))
+        model.fixedMeasure = true
+        model.setViewport(width: 300, height: 400)
+        await settle()
+        XCTAssertEqual(transport.sentMessages.count, 1, "\(transport.sent)")
+        XCTAssertEqual(transport.sentMessages.first?["callAgentFunction"]?["functionCallId"]?.string, "s1:1")
+        host.receive(#"{"version":"1.0","agentFunctionResponse":{"functionCallId":"s1:1","value":"Ada"}}"#)
+        XCTAssertEqual(model.nodes.first?.props["text"], .string("Ada"))
+        await settle()
+        XCTAssertEqual(transport.sentMessages.count, 1)
+    }
+
     func testRouterOpsThroughAHost() throws {
         let host = ExponentialHost()
         let ops = host.receive(create("s1"))

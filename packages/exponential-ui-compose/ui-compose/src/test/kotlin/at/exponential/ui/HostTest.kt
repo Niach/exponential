@@ -9,6 +9,7 @@ import at.exponential.ui.host.ExponentialHost
 import at.exponential.ui.host.FilePickRequest
 import at.exponential.ui.host.FunctionCallInfo
 import at.exponential.ui.host.FunctionDecision
+import at.exponential.ui.host.FunctionOutcome
 import at.exponential.ui.host.FunctionPolicy
 import at.exponential.ui.host.HostExtension
 import at.exponential.ui.host.HostOptions
@@ -26,6 +27,7 @@ import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.fire
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -52,6 +54,54 @@ class HostTest {
     private fun create(id: String = "s1", catalog: String = core) = msg("""{"version":"v0.9","createSurface":{"surfaceId":"$id","catalogId":"$catalog"}}""")
 
     private fun components(id: String, vararg c: String) = msg("""{"version":"v0.9","updateComponents":{"surfaceId":"$id","components":[${c.joinToString(",")}]}}""")
+
+    /** Round 9 §6.5: a function the host lacks goes to the surface's agent and the press gets the answer (fixtures a2ui10-functions.json `sequences`). */
+    @Test
+    fun aFunctionTheHostLacksGoesToTheAgent() {
+        val transport = MemoryTransport()
+        val h = host(HostOptions(transport = transport, agent = true))
+        h.connect()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"$core","sendDataModel":true}}"""))
+        h.surface("s1")!!.setData("/name", JsonValue.Str("Ada"))
+        val call = FunctionCallInfo("s1", "b", "lookup", mapOf("q" to JsonValue.Str("hi")))
+        var outcome: FunctionOutcome? = null
+        h.scope.launch { outcome = h.callFunction(call) }
+        // `sendDataModel`: the metadata travels beside the message.
+        val wrapped = transport.sent.last()
+        assertEquals(JsonValue.Str("Ada"), wrapped["metadata"]?.get("a2uiRendererDataModel")?.get("surfaces")?.get("s1")?.get("name"))
+        val sent = wrapped["message"]!!["callAgentFunction"]!!
+        assertEquals("s1:1", sent["functionCallId"]?.string)
+        assertEquals("lookup", sent["callFunction"]?.get("@call")?.string)
+        assertEquals(JsonValue.Str("hi"), sent["callFunction"]?.get("args")?.get("q"))
+        assertNull(outcome)
+        h.receive(msg("""{"version":"1.0","agentFunctionResponse":{"functionCallId":"s1:1","value":42}}"""))
+        assertEquals(FunctionDecision.Allow, outcome?.decision)
+        assertEquals(JsonValue.Num(42.0), outcome?.result)
+        assertNull(outcome?.error)
+        // A press never shares a call.
+        outcome = null
+        h.scope.launch { outcome = h.callFunction(call) }
+        assertEquals("s1:2", transport.sent.last()["message"]?.get("callAgentFunction")?.get("functionCallId")?.string)
+        h.receive(msg("""{"version":"1.0","agentFunctionResponse":{"functionCallId":"s1:2","error":{"code":"UNKNOWN_FUNCTION","message":"no"}}}"""))
+        assertEquals("no", outcome?.error)
+        // The failure names the call, no surface: nothing to sync beside it.
+        assertEquals("EXPRESSION_ERROR", transport.sent.last()["error"]?.get("code")?.string)
+    }
+
+    /** Round 9 §6.5: a reactive position's call leaves after the layout, once, and its answer binds the surface again. */
+    @Test
+    fun aReactiveCallGoesToTheAgentAndItsAnswerRebinds() {
+        val transport = MemoryTransport()
+        val h = host(HostOptions(transport = transport, agent = true))
+        h.connect()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
+        h.receive(msg("""{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Text","text":{"@call":"lookup","args":{"q":"hi"}}}]}}"""))
+        val m = laidOut(h.surface("s1")!!)
+        assertEquals(transport.sent.toString(), "s1:1", transport.sent.single()["callAgentFunction"]?.get("functionCallId")?.string)
+        h.receive(msg("""{"version":"1.0","agentFunctionResponse":{"functionCallId":"s1:1","value":"Ada"}}"""))
+        assertEquals(JsonValue.Str("Ada"), m.nodes.first().props["text"])
+        assertEquals(1, transport.sent.size)
+    }
 
     private fun laidOut(m: SurfaceModel): SurfaceModel {
         m.fixedMeasure = true

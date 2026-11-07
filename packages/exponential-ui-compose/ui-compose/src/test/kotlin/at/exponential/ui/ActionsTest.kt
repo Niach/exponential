@@ -45,7 +45,7 @@ class ActionsTest {
 
     private fun fixture(): JsonValue {
         Fixtures.require()
-        return Fixtures.json("actions_json")
+        return Fixtures.json("actions.json")
     }
 
     @Test
