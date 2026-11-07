@@ -141,10 +141,19 @@ export interface PrChecksBrief {
   total: number
   failing: Array<{ name: string; url: string | null; required: boolean }>
   pending: string[]
+  /** #FEED-198: why there are no rows; absent while rows exist or unread. */
+  unknown?: PrChecksUnknown
+  note?: string
 }
 
+export type PrChecksUnknown = keyof typeof uiFixture.unknownText
+
 /** What `exponential_pr` returns as `checks` on every op. */
-export function checksBrief(state: PrChecksState, checks: readonly PrCheckLike[]): PrChecksBrief {
+export function checksBrief(
+  state: PrChecksState,
+  checks: readonly PrCheckLike[],
+  unknown?: PrChecksUnknown | null
+): PrChecksBrief {
   return {
     state,
     total: checks.length,
@@ -152,6 +161,7 @@ export function checksBrief(state: PrChecksState, checks: readonly PrCheckLike[]
       .filter(isFailingCheck)
       .map((check) => ({ name: check.name, url: check.detailsUrl ?? null, required: Boolean(check.required) })),
     pending: checks.filter((check) => check.status !== `completed`).map((check) => check.name),
+    ...(unknown && checks.length === 0 ? { unknown, note: uiFixture.unknownText[unknown] } : {}),
   }
 }
 
