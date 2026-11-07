@@ -14,31 +14,37 @@ by every renderer through the core), `fixtures/records-query.json` (the
 records query and its value) and `fixtures/host-package.json` (tool consent,
 extension compatibility, canonical JSON, signatures).
 
-> **Format 6 is coming.** Hosts already read it (A2UI 1.0: `@path`, `@call`,
-> flat function names; `docs/round-9-contract.md` §12), but this document and
-> what the server stores stay at format 5 until the flag day (§14.1): write 5.
-
 ## Versions
 
 A package MUST carry `formatVersion`. This document is format version
-**5** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
-`policy`, 4 added a screen's `nav` and `exposed`, 5 added `capabilities`), and a host reads exactly its
-own version: Apps keeps no backwards compatibility. A missing one is
-`/formatVersion: formatVersion is required (5)`, an older one `format version
-3 is no longer read: write 5`, a newer one `format version 6 is newer than
-this host (5)`; a host never guesses at keys it does not know. The catalog a package
-renders against keeps its own version in its id (`catalogId`,
-`…/catalogs/core/v1`) and is negotiated as before (`supportedCatalogIds`).
+**6** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
+`policy`, 4 added a screen's `nav` and `exposed`, 5 added `capabilities`, 6
+moved to A2UI 1.0: `@path`, `@call`, identifier ids, flat function names), and
+a host reads exactly its own version: Apps keeps no backwards compatibility. A
+missing one is `/formatVersion: formatVersion is required (6)`, an older one
+`format version 5 is no longer read; 6 is required`, a newer one `format
+version 7 is newer than this host (6)`; a host never guesses at keys it does
+not know. The catalog a package renders against keeps its own version in its
+id (`catalogId`, `…/catalogs/core/v1`) and is negotiated as before
+(`supportedCatalogIds`).
+
+Template components are A2UI 1.0 entries: ids are identifiers (`user_card`,
+never `user-card`), a binding is `{"@path": "/x"}`, a call is `{"@call": "fn",
+"args": {}}`, and a literal object with a key that starts with `@` writes it
+`@@`. `bindings[].path`, `children.path`, the `set` and `bind` function's
+`path` argument and a `set` step's `path` are plain strings, not bindings. A
+host function name has no dots (`records_upsert`, `actions_log`,
+`tools_weather__forecast`); capability scope ids (`photos.read`) keep theirs.
 
 ## The package
 
 ```jsonc
 {
-  "formatVersion": 5,                  // required: the current format
+  "formatVersion": 6,                  // required: the current format
   "id": "acme.hours", "name": "Working hours", "version": "1.2.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "templates": { "<id>": { "components": [/* flat, one root */], "data": {}, "bindings": [{ "path": "/entries", "source": "records:entry?sort=date" }] } },
-  "functions": ["records.*", "tools.weather.*"],   // allowlist: listed = allow, else deny
+  "functions": ["records_*", "tools_weather__*"],   // allowlist: listed = allow, else deny
   "sources": ["records:*"],                         // allowlist for bindings, unset = any
   "records": { "entry": { "title": "Entry", "schema": { "type": "object", "properties": { "date": { "type": "string", "format": "date" } } } } },
   "tools": { "weather": { "kind": "mcp", "title": "Weather", "url": "https://mcp.example.com/weather" } },
@@ -92,7 +98,7 @@ is the navigation manifest: the templates a person can open, in order.
   navigation screen, an unknown key, a bad icon or a non-string param.
 - **`nav: false`** (the only allowed value) is a detail screen: outside the
   sidebar and the bottom bar, and not counted in the 5, since that limit is the
-  phone bar's room. It opens by `app.navigate` or a link. A package with only
+  phone bar's room. It opens by `app_navigate` or a link. A package with only
   `nav: false` screens is refused.
 - **`exposed: {description, params?}`** is the screen's public contract, the
   one thing another app may link to: a stable name and checked params
@@ -101,20 +107,20 @@ is the navigation manifest: the templates a person can open, in order.
   target's own policy still decides what the viewer sees.
 - **The host draws the navigation**, never the app: a sidebar on wide
   frames (desktop, web ≥ md), the phone bottom bar on phones. A package
-  without `screens` shows its first template as before. `app.navigate`
+  without `screens` shows its first template as before. `app_navigate`
   opens screens only, so a detail view is a `nav: false` screen or a
-  Dialog/Drawer. `app.navigate` is for the app's OWN screens and replaces the
+  Dialog/Drawer. `app_navigate` is for the app's OWN screens and replaces the
   one shown.
-- **`app.navigate {screen, params?}`** opens a screen: as a press
-  (`on.press.functionCall {call: "app.navigate", args: {screen, params}}`)
-  or as an action step (`{call: "app.navigate", args: {screen: "'deals'",
+- **`app_navigate {screen, params?}`** opens a screen: as a press
+  (`on.press.functionCall {"@call": "app_navigate", args: {screen, params}}`)
+  or as an action step (`{call: "app_navigate", args: {screen: "'deals'",
   params: {stage: "params.stage"}}}`, CEL like every step arg), after the
   action's writes. It is always allowed (the package need not list it in
   `functions`). A literal target names a screen at install (`navigate:
   <x> is not a screen`); at run time a target that is no screen, or params
-  that are not strings, is refused with `FUNCTION_DENIED`.
+  that are not strings, is refused with `INVALID_FUNCTION_CALL`.
 - **Params:** the opened template gets `{params}` over its own data, so a
-  component reads `{"path": "/params/<key>"}`, and a binding source's
+  component reads `{"@path": "/params/<key>"}`, and a binding source's
   `${params.<key>}` is filled with the percent-encoded value (missing = empty)
   when the template opens (`records:deal?query=byStage&stage=${params.stage}`).
   A screen's params = its own `params`, then the request's, key by key
@@ -128,8 +134,8 @@ is the navigation manifest: the templates a person can open, in order.
   segment (percent-encoded too) is always denied. On Exponential `linkBase` is
   `/t/<team>`: `~/issues/EXP-12` opens the issue, `~/devices` the Devices page,
   `~/apps/<slug>/<screen>?k=v` an app screen. `href` is a literal; a link per
-  list row is a press: `{"on": {"press": {"functionCall": {"call": "openUrl",
-  "args": {"url": {"call": "formatString", "args": {"value": "~/issues/${identifier}"}}}}}}}`.
+  list row is a press: `{"on": {"press": {"functionCall": {"@call": "openUrl",
+  "args": {"url": {"@call": "formatString", "args": {"value": "~/issues/${identifier}"}}}}}}}`.
 - **A link at another app** (`~/apps/<slug>/<screen>?k=v`, from a surface of a
   different app): the screen must be `exposed` and its required params present
   and non-empty; only declared params arrive. Anything else, a missing app
@@ -138,11 +144,11 @@ is the navigation manifest: the templates a person can open, in order.
   person's URL or an agent's chat link opens any declared screen.
 - **App files** (VAPP-271, `catalog/host.json` `media.appFile`): an image
   `src` of the form `app-file:<fileId>` (the `fileId` a capability answered:
-  `photos.pick`, `print.pdf`, `files.open`) shows that file of the app. The
+  `photos_pick`, `print_pdf`, `files_open`) shows that file of the app. The
   host resolves it from its own file store under the usual image limits; the
   Engine's runners do (web, desktop, iOS, Android). A host without app files
   (Exponential itself) loads nothing and paints the image's fallback. Bind it:
-  `{"src": {"call": "expr", "args": {"expr": "'app-file:' + f", "vars": {"f": {"path": ""}}, "default": ""}}}`.
+  `{"src": {"@call": "expr", "args": {"expr": "'app-file:' + f", "vars": {"f": {"@path": ""}}, "default": ""}}}`.
 - **`@media (form-factor: phone|wide)`** is the style condition for a
   layout that truly differs on phones (the host's form factor; unset = the
   surface width against `$breakpoint.md`).
@@ -187,7 +193,7 @@ list's string `items` a list of files:
 
 The value is the host's attachment route, relative, nothing else:
 `/api/attachments/<lowercase uuid>`. A `FileUpload` gets it: bind its `files`
-to a path (`{"path": "/draft/files"}`), and the app host uploads the picked
+to a path (`{"@path": "/draft/files"}`), and the app host uploads the picked
 bytes and writes each file's `url` into the entry of the same `name` there.
 An action step then stores the urls (`data` = the surface data at the
 press): `"receipt": "orElse(data.draft.files[0].url, null)"`, `"photos":
@@ -426,12 +432,12 @@ tone?}`, one per query. The `Calendar` and `Timeline` components draw them
 ```json
 {"bindings": [{"path": "/leave", "source": "records:leave?query=month&month=${month}&day=${day}"}],
  "components": [{"id": "cal", "component": "Calendar", "source": "/leave", "labelField": "label",
-   "on": {"select": {"functionCall": {"call": "bind", "args": {"path": "/leave",
-     "source": "records:leave?query=month", "params": {"month": {"path": "/leave/month/key"}, "day": {"path": "date"}}}}}}}]}
+   "on": {"select": {"functionCall": {"@call": "bind", "args": {"path": "/leave",
+     "source": "records:leave?query=month", "params": {"month": {"@path": "/leave/month/key"}, "day": {"@path": "date"}}}}}}}]}
 ```
 
 A day's `select` and a bar's `open` run in the pressed item's scope: a
-relative `{"path": "date"}` reads the day, `{"path": "id"}` the record (a
+relative `{"@path": "date"}` reads the day, `{"@path": "id"}` the record (a
 bar's row is under `row`). `Timeline` takes `source` (a `view=timeline`
 binding), `labelField`, `rowTitle` and `showCount`.
 
@@ -462,13 +468,13 @@ issue). A package with a `sources` allowlist lists `records:<kind>` or
 `records:*`.
 
 **Write** = two host functions, listed in `functions` like any other (exact
-or `records.*`), never behind a consent card (the app's own rows):
+or `records_*`), never behind a consent card (the app's own rows):
 
-- `records.upsert {kind, data, id?}` → `{id}`: creates a record, or with `id`
+- `records_upsert {kind, data, id?}` → `{id}`: creates a record, or with `id`
   shallow-patches that record's `data`. The host validates the result against
   the kind's schema (`validateRecord`) BEFORE it stores anything; a refusal
   fails the call (the host's toast).
-- `records.delete {id}`: deletes one record.
+- `records_delete {id}`: deletes one record.
 
 Every write lands in every live `records:` binding of the package (on every
 peer, for a p2p store). `RecordStore` (`src/host/record-store.ts`) is the
@@ -477,8 +483,8 @@ are the reference (resolver + both functions); the evaluator reads the rows
 of whatever store the host has.
 
 Records have ONE spelling on every host: read `records:<kind>?q`, write
-`records.upsert` / `records.delete` / `records.batch` (Exponential's former
-`exp:records?kind=` and `harness.records.*` are gone).
+`records_upsert` / `records_delete` / `records_batch` (Exponential's former
+`exp:records?kind=` is gone).
 
 ## Record macros
 
@@ -505,7 +511,7 @@ macros put a kind's whole form or table on a screen as ONE node:
   the schema `description`. Checks come from the schema: required,
   `maxLength`, `minimum` / `maximum`. Short fields pair in a two-column
   FieldGroup on wide frames. The draft lives at `path` (default
-  `/recordForm/<id>`; seed it to edit); submit = `records.upsert {kind,
+  `/recordForm/<id>`; seed it to edit); submit = `records_upsert {kind,
   id: recordId, data}` unless the node has its own `on.submit`.
   `readOnly` disables the form and drops the submit. For a team owner the
   first field is **Author** (a searchable Select of the members, default the
@@ -518,7 +524,7 @@ macros put a kind's whole form or table on a screen as ONE node:
   with the Data tab's typed widths, a relative Updated column and an
   Edit / Delete cell; phones show the same rows as a List of Row, each
   with its own Delete. Add, Edit or a row press opens a RecordForm in a Drawer; Delete asks first,
-  then `records.delete`. The Drawer stays open on a refused save (Cancel
+  then `records_delete`. The Drawer stays open on a refused save (Cancel
   closes it, so no Escape or backdrop). Rows follow `records:<kind>?<query>` (default
   newest first) at `/recordTable/<id>/rows`. States: loading (Skeleton),
   empty (`No records yet`), an undeclared kind (the unknown state),
@@ -528,10 +534,10 @@ macros put a kind's whole form or table on a screen as ONE node:
   fills every RecordForm / RecordTable from the package's `records`: the
   fields, columns, bindings and actions (catalog props marked `host`,
   never written by hand and left out of the model's prompt). Install
-  needs `records.upsert` (a table also `records.delete`) in `functions`
+  needs `records_upsert` (a table also `records_delete`) in `functions`
   and `records:<kind>` in `sources` when `sources` is set; the macros' own
   member and issue lists (`/recordMembers`, `/recordIssues`) need no entry.
-- **A host's `records.upsert`** gets the form's `author` (write on behalf,
+- **A host's `records_upsert`** gets the form's `author` (write on behalf,
   when given) and `form {error, close}` (paths): a landed write clears
   `error` and sets `close` false; the TS runtime does it, and a rejection
   with `RecordRefusal` writes its message at `error`. Other SDKs' hosts write
@@ -579,7 +585,7 @@ links an owner can turn on; nothing is public until one does.
 
 ## Capabilities
 
-VAPP-260 (format version 5, `src/host/capabilities.ts`, Rust
+VAPP-260 (since format version 5, `src/host/capabilities.ts`, Rust
 `host::capabilities`, `fixtures/host-router.json` `acme.capabilities` /
 `acme.badcapabilities`; the runtime: `packages/eengine`
 `fixtures/capabilities.json` + `consent.json`). `capabilities` is the
@@ -614,11 +620,11 @@ compact string form, with its inputs as `vars` (each a literal or any
 dynamic value: a binding, another call):
 
 ```jsonc
-{ "call": "expr", "args": {
+{ "@call": "expr", "args": {
     "expr": "formatDuration(target - entries.sum, 'h:mm')",
-    "vars": { "target": { "path": "/target" }, "entries": { "path": "/entries" } },
+    "vars": { "target": { "@path": "/target" }, "entries": { "@path": "/entries" } },
     "default": "–" } }
-{ "call": "dateAdd", "args": { "date": { "path": "/day" }, "n": 1, "unit": "month" } }
+{ "@call": "dateAdd", "args": { "date": { "@path": "/day" }, "n": 1, "unit": "month" } }
 ```
 
 The string form is a **subset of CEL** (the Common Expression Language),
@@ -688,9 +694,9 @@ view, `groups` without a group, `totals` without an aggregate, `before`
 without a before; the query is the binding's source with `query=`
 expanded, so `records:entry?sum=hours` makes `sum` a `number`). Inside a row
 template (a component's `children: {componentId, path}`), a relative
-`{"path": "hours"}` var is typed against the list's item: a records row's
+`{"@path": "hours"}` var is typed against the list's item: a records row's
 field is its schema type, and a field the row has not is the install issue
-`unknown field hourz in hourz` at the var's `…/path` (also below a records
+`unknown field hourz in hourz` at the var's `…/@path` (also below a records
 binding's absolute path; a kind with `additionalProperties: true` stays
 open). `has(x)` takes a field; for a bare name write `x != null`.
 Arithmetic, `< <= > >=`, `&& || !`, a condition, a
@@ -701,10 +707,10 @@ orElse()`); `==` / `!=` take one. Three guards narrow it to `T`:
 - `has(r.f)` (true when the field is there and not null) or `r.f != null`
   in a condition: `has(r.note) ? size(r.note) : 0`, also through `&&`,
   `||` and `!` (`r.note == null || size(r.note) > 2`);
-- `orElse(x, default)` (A2UI `{call: "orElse", args: {value, default}}`):
+- `orElse(x, default)` (A2UI `{"@call": "orElse", "args": {"value": x, "default": d}}`):
   `x`, or `default` when `x` is null, of `x`'s type.
 
-**Every binding has a fallback.** A `{"call": "expr"}` in a package needs a
+**Every binding has a fallback.** A `{"@call": "expr"}` in a package needs a
 `default` (`{"expr": "…", "vars": {…}, "default": "0:00"}`), shown when the
 evaluation fails (an error, the step limit). Every bind-time call takes the
 same optional `default`, and a call that fails or throws resolves to it, so
@@ -714,7 +720,7 @@ no renderer paints undefined or throws on a binding.
 10 000 evaluation steps (nodes + macro iterations) per run.
 
 **Type checking at validation:** `validatePackage` parses and type-checks
-every `{"call": "expr"}` anywhere in a template. A var's type comes from a
+every `{"@call": "expr"}` anywhere in a template. A var's type comes from a
 literal, from a records binding the path lies under (`records:<kind>`:
 `{rows: [row], count, sum, groups, totals, before,
 month}`, a row = the kind's schema fields + `id createdAt updatedAt
@@ -729,14 +735,14 @@ and these issues.
 
 VAPP-194 (E1, spec `docs/spec/apps.md` §4.5): **typed effects**. Every
 function has an effect (`functionEffect`): `pure` (every expression and
-bind-time function), `write` (`set`, `records.upsert`, `records.delete`,
-`records.batch`) or `host` (`openUrl`, `bind`, and every
-name under `actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`).
+bind-time function), `write` (`set`, `records_upsert`, `records_delete`,
+`records_batch`) or `host` (`openUrl`, `bind`, and every
+name under `actions_`, `harness_`, `exponential_`, `tools_`, `upstream_`).
 
 - **Expressions are pure.** A binding, `visible`, a computed value, a call's
   args and an event's context never write: `validatePackage` refuses a write
   or host function anywhere in a template except an `on.<event>.functionCall`
-  (`/templates/t/components/3/props/text/call: records.upsert writes: a
+  (`/templates/t/components/3/props/text/@call: records_upsert writes: a
   binding is pure, name an action in on.press`), and CEL refuses one in a
   string (`at 0: set writes: an expression is pure, use an action step`).
 - **Actions** are the package's writes, named and checked at install:
@@ -747,25 +753,25 @@ name under `actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`).
     "params": { "type": "object", "properties": { "date": { "type": "string", "format": "date" }, "hours": { "type": "number" } }, "required": ["date", "hours"] },
     "steps": [
       { "require": "params.hours > 0 && params.hours <= 24", "message": "Log 0 to 24 hours" },
-      { "records.upsert": { "kind": "entry", "data": { "date": "params.date", "hours": "params.hours" } } },
+      { "records_upsert": { "kind": "entry", "data": { "date": "params.date", "hours": "params.hours" } } },
       { "set": { "path": "/form/hours", "value": 0 } },
-      { "call": "harness.toast", "args": { "message": "'Logged ' + formatDuration(params.hours, 'h:mm')" } }
+      { "call": "harness_toast", "args": { "message": "'Logged ' + formatDuration(params.hours, 'h:mm')" } }
     ]
   }
 }
-// a Button: "on": { "press": { "functionCall": { "call": "actions.log", "args": { "date": { "path": "/form/date" }, "hours": { "path": "/form/hours" } } } } }
+// a Button: "on": { "press": { "functionCall": { "@call": "actions_log", "args": { "date": { "@path": "/form/date" }, "hours": { "@path": "/form/hours" } } } } }
 ```
 
 `params` is a records schema (the call's args are checked against it). A
-step is ONE of `require` (+ `message`), `records.upsert {kind, data, id?}`,
-`records.delete {id}`, `set {path, value}` and `call` (a host function the
+step is ONE of `require` (+ `message`), `records_upsert {kind, data, id?}`,
+`records_delete {id}`, `set {path, value}` and `call` (a host function the
 package lists in `functions`, + `args`, + `result`); at most 32 actions of 64 steps. A
 JSON string in a step is CEL over `params`, `data` (the surface data at the
 press), `me` (the member's id) and `results` (the answers named so far);
 anything else is a literal. Install
 checks every expression's type (a `require` is a bool, an upsert's fields
 are in the kind's schema with its types, a create names every required
-field). VAPP-204: a press's `actions.<name>` args are checked against
+field). VAPP-204: a press's `actions_<name>` args are checked against
 `params` at install too (a key that is not a param, a required param left
 out, a literal of another type; a dynamic arg is checked when it runs), and
 a press of `bind` with a literal `source` is checked like a template binding
@@ -779,9 +785,9 @@ and the steps after it read that answer as `results.<name>` (open: `dyn`):
 "addPage": {
   "params": { "type": "object", "properties": { "album": { "type": "string" } }, "required": ["album"] },
   "steps": [
-    { "call": "photos.pick", "args": { "limit": 10 }, "result": "picked" },
+    { "call": "photos_pick", "args": { "limit": 10 }, "result": "picked" },
     { "require": "size(orElse(results.picked.photos, [])) > 0", "message": "No photos picked" },
-    { "records.upsert": { "kind": "page", "data": { "album": "params.album", "photos": "orElse(results.picked.photos, []).map(p, p.fileId)" } } }
+    { "records_upsert": { "kind": "page", "data": { "album": "params.album", "photos": "orElse(results.picked.photos, []).map(p, p.fileId)" } } }
   ]
 }
 ```
@@ -792,14 +798,14 @@ lands. Every other call still runs after the commit. Install refuses a
 `result` on a step that is no call, a bad or repeated name, and a step that
 reads `results.<name>` before the step naming it (`unknown field <name>`). A
 list of open items (an answer mapped) fits any list field; the kind's schema
-checks it when it runs. Every Engine capability (`photos.`, `files.`,
-`print.`, `share.`, `camera.`, `clipboard.`, `http.`, `location.`,
-`notifications.`) is a host function: a step may call it when `functions`
+checks it when it runs. Every Engine capability (`photos_`, `files_`,
+`print_`, `share_`, `camera_`, `clipboard_`, `http_`, `location_`,
+`notifications_`) is a host function: a step may call it when `functions`
 lists it, a binding never. A package test gives the answers:
 `{"action": {"name": "addPage", "params": {…}, "results": {"picked": {"photos": [{"fileId": "f1"}]}}}}`.
 
 **Create or patch, and absent stays absent** (VAPP-206). One action can do
-both: `params` may name `id` (a param is no record), and a `records.upsert`
+both: `params` may name `id` (a param is no record), and a `records_upsert`
 `id` may be `string?`; then its `data` names every required field, and at run
 time a null or `""` id creates while a non-empty string patches. Writing a
 field: an expression that evaluates to null writes nothing, so a param left
@@ -817,11 +823,11 @@ an answer: the host runs it and runs the action again with
 false `require` (its `message`, the toast), an evaluation error, a create
 the kind's schema refuses, or the run's budget of 100 000 evaluation steps
 (`step <i>: …`). The host then asks every call's policy and consent, commits
-the writes as ONE unit through `records.batch` (`RecordStore.batch`;
+the writes as ONE unit through `records_batch` (`RecordStore.batch`;
 Exponential: one Postgres transaction, `apps.records.batch`, where the
 server checks every write again and stays the authority), applies the sets
 and runs the calls. A failure before the commit lands nothing and is sent as
-`ACTION_FAILED` (the host's `onActionFailed` shows the toast). A press runs
+`EXECUTION_ERROR` (the host's `onActionFailed` shows the toast). A press runs
 an action on the client host; the server broker will run them for `exposes`
 and automations (A1). P2P stores (spezl) promise no cross-peer invariants.
 
@@ -871,7 +877,8 @@ characters). `runPackageTests(pkg)` returns every result.
 ## Tools
 
 `tools: {<id>: Tool}` registers MCP servers or scripts a package's functions
-call. A tool id follows `^[a-z][a-z0-9_-]{0,31}$`.
+call. A tool id follows `^[a-z][a-z0-9]*(_[a-z0-9]+)*$` (no `-`, no `__`, no
+leading or trailing `_`).
 
 | kind | keys | runs |
 | --- | --- | --- |
@@ -882,8 +889,10 @@ call. A tool id follows `^[a-z][a-z0-9_-]{0,31}$`.
 An `mcp` tool has exactly one of `url` / `command`. `env` lists variable
 NAMES the host passes through from its own environment; a package never
 carries values or secrets. Functions: an MCP tool's tool `<name>` is the host
-function `tools.<id>.<name>` (args = its arguments); a script is
-`tools.<id>`. They are listed in `functions` like any other.
+function `tools_<id>__<name>` (args = its arguments, a character of `<name>`
+that is no identifier character reads `_`); a script is `tools_<id>`. They are
+listed in `functions` like any other (`tools_<id>__*`). Two tools of one server
+whose names read alike are a call error (`ambiguous tool name`).
 
 **Consent (the host MUST show it).** No tool runs before the person allowed
 it. Before a tool's FIRST call the host shows a consent card with the tool's
@@ -891,15 +900,15 @@ row from `toolConsent(pkg)`: `{id, kind, transport: http|stdio|script,
 title, description, target, env}`, `target` = the url, or the command line
 exactly as it will run (`command` then every arg, an arg with a space, quote
 or backslash JSON-quoted). Choices: allow (remembered) or deny (the call
-fails `FUNCTION_DENIED`). The remembered grant is keyed by
+fails `INVALID_FUNCTION_CALL`). The remembered grant is keyed by
 `toolConsentKey(packageId, toolId, tool)` = `<packageId>/<toolId>:` + the
 canonical JSON of the tool: ANY change to the definition in a later version
 asks again. A tool call is never `allow` by policy alone; a host that cannot
 run a kind (a browser cannot run a command) refuses its calls with
-`FUNCTION_NOT_FOUND` and says so on the card instead of an allow button.
+`UNKNOWN_FUNCTION` and says so on the card instead of an allow button.
 Exponential's app hosts run no package tools: its server refuses a package
-with `tools` (an app reaches tools through `exponential.<noun>.<op>` and
-`harness.mcp`).
+with `tools` (an app reaches tools through `exponential_<noun>_<op>` and
+`harness_mcp`).
 
 ## Exposes
 
@@ -940,7 +949,7 @@ template data and the host shows "<server> runs on <device>, offline".
   { "name": "log_comment", "title": "Log a comment", "description": "Comment the logged hours on an issue.",
     "input": { "type": "object", "properties": { "issue": { "type": "string" }, "hours": { "type": "number" } }, "required": ["issue", "hours"] },
     "access": "write",
-    "run": { "action": "exponential.comments.create", "args": { "issueId": "${input.issue}", "body": "Logged ${input.hours} h" } } },
+    "run": { "action": "exponential_comments_create", "args": { "issueId": "${input.issue}", "body": "Logged ${input.hours} h" } } },
   { "name": "find_customer", "title": "Find a customer", "description": "Search CRM customers.",
     "input": { "type": "object", "properties": { "q": { "type": "string" } } },
     "access": "read",
@@ -969,9 +978,9 @@ template data and the host shows "<server> runs on <device>, offline".
   value (`rows`, `count`, `sum?`, `groups?`, `totals?`, `before?`, `month?`);
   `app` (another app) and another `from` are refused. Exponential caps the
   rows read at 25,000 (`truncated: true` beyond).
-- `action` (+ `args`) calls a host function (`exponential.<noun>.<op>`). It
-  reads when the last word of its name is list, get, show, catalog,
-  activity or files; anything else writes.
+- `action` (+ `args`) calls a flat host function: `^[a-z][a-z0-9]*(_[a-z0-9]+)+$`
+  (`exponential_<noun>_<op>`). It reads when the last `_`-separated word of its
+  name is list, get, show, catalog, activity or files; anything else writes.
 - `upstream` (+ `tool`, `args`) calls a tool of one of the package's
   `upstreams` with the person's own credential. Its level is the tool's live
   annotations: it reads only with `readOnlyHint: true`.
@@ -985,7 +994,7 @@ template data and the host shows "<server> runs on <device>, offline".
   never instructions. It always writes (`access: "write"`); `device` is
   absent or `"default"` (the agent's own device). At most 10 hand-offs per
   app a minute. The same form runs from an automation (as its sponsor,
-  "Automations") and from the `exponential.apps.handoff` action
+  "Automations") and from the `exponential_apps_handoff` action
   (`{slug, tool, input, record?}`: a press runs one of the package's
   `agent` exposes as the viewer, behind the consent card unless an owner
   granted it).
@@ -993,8 +1002,8 @@ template data and the host shows "<server> runs on <device>, offline".
 Every string in `run` may hold `${input.<path>}` (dotted keys into the
 call's input; the first key must be a declared input property). A string
 that is exactly one template keeps the value's type; inside text the value
-is printed. Destructive is never exposed: a name holding delete, merge, close,
-end, remove or trash is refused, and a `read` binding whose run writes is
+is printed. Destructive is never exposed: a name holding the word delete,
+merge, close, end, remove or trash (`_`-separated words) is refused, and a `read` binding whose run writes is
 refused. At most 32 tools. `exposeIssues` returns every issue with its MCP Proxy
 error code; the host adds its own rules on top (Exponential: only grantable,
 non-destructive actions; upstreams the team has).
