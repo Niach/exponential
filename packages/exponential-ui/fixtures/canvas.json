@@ -1,0 +1,1025 @@
+{
+  "$comment": "Round 8 (docs/round-8-contract.md §1): THE Canvas contract, replayed by the engine (apps/desktop/crates/eui-motion/tests/canvas.rs; gpui paints these lists), the TS core over the WASM CanvasPlayer (src/canvas.test.ts) and the Swift and Kotlin painters over uniffi. AUTO-GENERATED expected values: `UPDATE_CANVAS_FIXTURES=1 cargo test -p eui-motion --test canvas` (inputs kept). A Canvas node's `{size, shapes}` compiles (eui-motion `canvas::Canvas::compile`) into a ONE-FRAME Motion and samples into the Motion display list (fixtures/motion-frames.json documents every op) plus `text` ops. `compile`: `canvas` = the node's {size, shapes}, `slots` (optional) = the host's slot overrides, exactly a Motion player's (`$color.<token>` → {p: {a: 0, k: [r, g, b, a]}} from the theme, `$mode`: dark picks the dark half of {light, dark} pairs); expected `slotIds` = every slot the canvas declares (sorted: the token slots a host fills, `ld:<light>:<dark>` pairs), `list` (serde JSON) and `packed` (the f32 stream, VERSION 2). THE TEXT RULE: every `text` op comes after every other op (after the frame's final `pop`), in SOURCE order, whatever the shapes around it; {op: text, transform, text, font: sans|mono, weight: regular|medium|semibold|bold, size, align: start|center|end, baseline: top|middle|alphabetic, color}: the anchor is the op's local origin, so a painter maps (0, 0) through fit × transform and sets ONE line (never wrapped; a line break in the source became a space) UPRIGHT: a text op takes ONLY the translation and the uniform scale √|det| of (fit × its transform), rotation and skew never apply to text (gpui cannot rotate text, so one look everywhere), so the line is horizontal at font px `size` × √|det|, in the theme's `$type.family.sans` / `$type.family.mono` at that CSS weight; `align` = where x is: start = the line's left edge, center = its middle, end = its right edge (physical: a drawing never mirrors); `baseline` = where y is: top = baseline at y + ascent, middle = baseline at y + (ascent − descent) / 2, alphabetic = the baseline (ascent, descent = the font's own hhea ascender and descender magnitudes at that size, what every native text system reports; no leading); the colour is straight RGBA, the groups' opacity already multiplied into alpha. Packed text: 7, t[6], font (0 sans, 1 mono), weight (400, 500, 600, 700), size, align (0 start, 1 center, 2 end), baseline (0 top, 1 middle, 2 alphabetic), r, g, b, a, n, then n UTF-16 code units. Text is never outlined by the engine and the tiny-skia reference skips it (the gpui painter rasters the shapes, then draws native text on top). `refuse`: the expected `issues` [{code, path, message}]; a replay compares `code` and `path` (in order), the message is the engine's: `canvas-animated` (any `{keys}`: a Canvas is static, Motion animates), `canvas-shape-type` (outside rect, ellipse, star, polygon, path, fill, stroke, gradient-fill, trim, repeater, round-corners, group, text), `canvas-lottie` (raw `lottie` keys), `canvas-text` (a text field), `color`, `size`, `shapes`, the dialect's own codes with their paths under /shapes, and the budget: `limit-ops` (ops per frame > limits.json canvas.maxOps), `limit-texts` (> canvas.maxTexts), `limit-text` (characters > canvas.maxTextChars), `limit-shapes` / `limit-bytes` (the Motion limits on the compiled one-frame Lottie; vertices are not counted, as for a Motion). `fit`: drawing `size` [w, h] in a `box` [w, h] px under `fit` → the `matrix` [a, b, c, d, e, f] (drawing units → box px): contain = uniform min(bw/w, bh/h) centred, cover = uniform max(…) centred (the overflow clipped by the box), fill = bw/w, bh/h from the top-left. `pointer`: what `press` / `move` carry with `pointer: true`: a point `at` [x, y] box px (relative to the Canvas box's top-left) → `drawing` [x, y] = the fit mapping inverted, rounded to two decimals (compare within 0.01); a point in a contain letterbox maps outside 0..size, never clamped. `upright`: a `canvas` in a `box` [w, h] px under `fit` → its `texts` in source order, {text, anchor [x, y] box px = (fit × the op's transform) applied to (0, 0), size = the op's size × √|det(fit × transform)|} (compare within 1e-3): the text-is-upright rule, whatever rotation, skew or non-uniform scale its groups carry.",
+  "limits": {"maxOps":4000,"maxTexts":500,"maxTextChars":1000},
+  "compile": [
+    {
+      "id": "rect-fill",
+      "covers": "rect (centre position, size, radius) + fill #hex",
+      "canvas": {"size":[100,60],"shapes":[{"type":"rect","position":[50,30],"size":[80,40],"radius":6},{"type":"fill","color":"#3366cc"}]},
+      "slotIds": [],
+      "list": {
+        "width": 100.0,
+        "height": 60.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":100.0,"y":0.0},{"v":"l","x":100.0,"y":60.0},{"v":"l","x":0.0,"y":60.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.2,0.4,0.8,1.0]
+            },
+            "path": [{"v":"m","x":90.0,"y":16.0},{"v":"l","x":90.0,"y":44.0},{"v":"c","x1":90.0,"y1":47.3114,"x2":87.3114,"y2":50.0,"x":84.0,"y":50.0},{"v":"l","x":16.0,"y":50.0},{"v":"c","x1":12.6886,"y1":50.0,"x2":10.0,"y2":47.3114,"x":10.0,"y":44.0},{"v":"l","x":10.0,"y":16.0},{"v":"c","x1":10.0,"y1":12.6886,"x2":12.6886,"y2":10.0,"x":16.0,"y":10.0},{"v":"l","x":84.0,"y":10.0},{"v":"c","x1":87.3114,"y1":10.0,"x2":90.0,"y2":12.6886,"x":90.0,"y":16.0},{"v":"z"}]
+          },
+          {"op":"pop"}
+        ]
+      },
+      "packed": [2.0,100.0,60.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,100.0,0.0,1.0,100.0,60.0,1.0,0.0,60.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.2,0.4,0.8,1.0,10.0,0.0,90.0,16.0,1.0,90.0,44.0,2.0,90.0,47.3114,87.3114,50.0,84.0,50.0,1.0,16.0,50.0,2.0,12.6886,50.0,10.0,47.3114,10.0,44.0,1.0,10.0,16.0,2.0,10.0,12.6886,12.6886,10.0,16.0,10.0,1.0,84.0,10.0,2.0,87.3114,10.0,90.0,12.6886,90.0,16.0,3.0,3.0]
+    },
+    {
+      "id": "ellipse-stroke-dash",
+      "covers": "ellipse + stroke width/cap/join/dash/dashOffset",
+      "canvas": {"size":[80,80],"shapes":[{"type":"ellipse","position":[40,40],"size":[60,40]},{"type":"stroke","color":"#222222","width":3,"cap":"butt","join":"bevel","dash":[6,3],"dashOffset":2}]},
+      "slotIds": [],
+      "list": {
+        "width": 80.0,
+        "height": 80.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":80.0,"y":0.0},{"v":"l","x":80.0,"y":80.0},{"v":"l","x":0.0,"y":80.0},{"v":"z"}]
+          },
+          {
+            "op": "stroke",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "style": {
+              "width": 3.0,
+              "cap": "butt",
+              "join": "bevel",
+              "miter": 4.0,
+              "dashes": [6.0,3.0],
+              "dash_offset": 2.0
+            },
+            "brush": {
+              "kind": "solid",
+              "color": [0.13333334,0.13333334,0.13333334,1.0]
+            },
+            "path": [{"v":"m","x":40.0,"y":20.0},{"v":"c","x1":56.557,"y1":20.0,"x2":70.0,"y2":28.962,"x":70.0,"y":40.0},{"v":"c","x1":70.0,"y1":51.038,"x2":56.557,"y2":60.0,"x":40.0,"y":60.0},{"v":"c","x1":23.443,"y1":60.0,"x2":10.0,"y2":51.038,"x":10.0,"y":40.0},{"v":"c","x1":10.0,"y1":28.962,"x2":23.443,"y2":20.0,"x":40.0,"y":20.0},{"v":"z"}]
+          },
+          {"op":"pop"}
+        ]
+      },
+      "packed": [2.0,80.0,80.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,80.0,0.0,1.0,80.0,80.0,1.0,0.0,80.0,3.0,5.0,1.0,0.0,0.0,1.0,0.0,0.0,3.0,0.0,2.0,4.0,2.0,2.0,6.0,3.0,0.0,0.13333334,0.13333334,0.13333334,1.0,6.0,0.0,40.0,20.0,2.0,56.557,20.0,70.0,28.962,70.0,40.0,2.0,70.0,51.038,56.557,60.0,40.0,60.0,2.0,23.443,60.0,10.0,51.038,10.0,40.0,2.0,10.0,28.962,23.443,20.0,40.0,20.0,3.0,3.0]
+    },
+    {
+      "id": "star-polygon",
+      "covers": "star + polygon, each filled (styles paint every shape before them in their group)",
+      "canvas": {"size":[120,60],"shapes":[{"type":"group","shapes":[{"type":"star","position":[30,30],"points":5,"outerRadius":25,"innerRadius":10},{"type":"fill","color":"#ffcc00"}]},{"type":"group","shapes":[{"type":"polygon","position":[90,30],"points":6,"outerRadius":25,"rotation":30},{"type":"fill","color":[0.2,0.6,0.4,0.8]}]}]},
+      "slotIds": [],
+      "list": {
+        "width": 120.0,
+        "height": 60.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":120.0,"y":0.0},{"v":"l","x":120.0,"y":60.0},{"v":"l","x":0.0,"y":60.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.2,0.6,0.4,0.8]
+            },
+            "path": [{"v":"m","x":102.5,"y":8.349365},{"v":"l","x":115.0,"y":30.0},{"v":"l","x":102.5,"y":51.650635},{"v":"l","x":77.5,"y":51.650635},{"v":"l","x":65.0,"y":30.0},{"v":"l","x":77.5,"y":8.349365},{"v":"l","x":102.5,"y":8.349365},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [1.0,0.8,0.0,1.0]
+            },
+            "path": [{"v":"m","x":30.0,"y":5.0},{"v":"l","x":35.877853,"y":21.90983},{"v":"l","x":53.776413,"y":22.274574},{"v":"l","x":39.510567,"y":33.09017},{"v":"l","x":44.69463,"y":50.225426},{"v":"l","x":30.0,"y":40.0},{"v":"l","x":15.305368,"y":50.225426},{"v":"l","x":20.489435,"y":33.09017},{"v":"l","x":6.223587,"y":22.274574},{"v":"l","x":24.122147,"y":21.90983},{"v":"l","x":30.0,"y":5.0},{"v":"z"}]
+          },
+          {"op":"pop"}
+        ]
+      },
+      "packed": [2.0,120.0,60.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,120.0,0.0,1.0,120.0,60.0,1.0,0.0,60.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.2,0.6,0.4,0.8,8.0,0.0,102.5,8.349365,1.0,115.0,30.0,1.0,102.5,51.650635,1.0,77.5,51.650635,1.0,65.0,30.0,1.0,77.5,8.349365,1.0,102.5,8.349365,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.8,0.0,1.0,12.0,0.0,30.0,5.0,1.0,35.877853,21.90983,1.0,53.776413,22.274574,1.0,39.510567,33.09017,1.0,44.69463,50.225426,1.0,30.0,40.0,1.0,15.305368,50.225426,1.0,20.489435,33.09017,1.0,6.223587,22.274574,1.0,24.122147,21.90983,1.0,30.0,5.0,3.0,3.0]
+    },
+    {
+      "id": "path-arcs-curves",
+      "covers": "path d (M L H V C S Q T A Z, relative + absolute) + stroke round caps",
+      "canvas": {"size":[100,100],"shapes":[{"type":"path","d":"M10 90 L30 50 H50 V30 C60 10 80 10 90 30 S90 60 70 70 Q50 80 40 90 T20 95 A10 10 0 0 1 10 90 Z"},{"type":"stroke","color":"#000000","width":2,"cap":"round","join":"round"}]},
+      "slotIds": [],
+      "list": {
+        "width": 100.0,
+        "height": 100.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":100.0,"y":0.0},{"v":"l","x":100.0,"y":100.0},{"v":"l","x":0.0,"y":100.0},{"v":"z"}]
+          },
+          {
+            "op": "stroke",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "style": {"width":2.0,"cap":"round","join":"round","miter":4.0,"dash_offset":0.0},
+            "brush": {
+              "kind": "solid",
+              "color": [0.0,0.0,0.0,1.0]
+            },
+            "path": [{"v":"m","x":10.0,"y":90.0},{"v":"l","x":30.0,"y":50.0},{"v":"l","x":50.0,"y":50.0},{"v":"l","x":50.0,"y":30.0},{"v":"c","x1":60.0,"y1":10.0,"x2":80.0,"y2":10.0,"x":90.0,"y":30.0},{"v":"c","x1":100.0,"y1":50.0,"x2":90.0,"y2":60.0,"x":70.0,"y":70.0},{"v":"c","x1":56.666668,"y1":76.666664,"x2":46.666668,"y2":83.333336,"x":40.0,"y":90.0},{"v":"c","x1":33.333332,"y1":96.666664,"x2":26.666666,"y2":98.333336,"x":20.0,"y":95.0},{"v":"c","x1":15.959286,"y1":95.52643,"x2":12.0032835,"y2":93.54843,"x":10.0,"y":90.0},{"v":"z"}]
+          },
+          {"op":"pop"}
+        ]
+      },
+      "packed": [2.0,100.0,100.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,100.0,0.0,1.0,100.0,100.0,1.0,0.0,100.0,3.0,5.0,1.0,0.0,0.0,1.0,0.0,0.0,2.0,1.0,1.0,4.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,10.0,0.0,10.0,90.0,1.0,30.0,50.0,1.0,50.0,50.0,1.0,50.0,30.0,2.0,60.0,10.0,80.0,10.0,90.0,30.0,2.0,100.0,50.0,90.0,60.0,70.0,70.0,2.0,56.666668,76.666664,46.666668,83.333336,40.0,90.0,2.0,33.333332,96.666664,26.666666,98.333336,20.0,95.0,2.0,15.959286,95.52643,12.0032835,93.54843,10.0,90.0,3.0,3.0]
+    },
+    {
+      "id": "gradients",
+      "covers": "gradient-fill linear and radial (stops with alpha)",
+      "canvas": {"size":[100,50],"shapes":[{"type":"group","shapes":[{"type":"rect","position":[25,25],"size":[50,50]},{"type":"gradient-fill","kind":"linear","start":[0,0],"end":[50,0],"stops":[[0,"#ff0000"],[1,"#0000ff80"]]}]},{"type":"group","shapes":[{"type":"ellipse","position":[75,25],"size":[50,50]},{"type":"gradient-fill","kind":"radial","start":[75,25],"end":[100,25],"stops":[[0,"#ffffff"],[1,"#000000"]]}]}]},
+      "slotIds": [],
+      "list": {
+        "width": 100.0,
+        "height": 50.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":100.0,"y":0.0},{"v":"l","x":100.0,"y":50.0},{"v":"l","x":0.0,"y":50.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "radial",
+              "center": [75.0,25.0],
+              "focal": [75.0,25.0],
+              "radius": 25.0,
+              "stops": [
+                {
+                  "offset": 0.0,
+                  "color": [1.0,1.0,1.0,1.0]
+                },
+                {
+                  "offset": 1.0,
+                  "color": [0.0,0.0,0.0,1.0]
+                }
+              ]
+            },
+            "path": [{"v":"m","x":75.0,"y":0.0},{"v":"c","x1":88.7975,"y1":0.0,"x2":100.0,"y2":11.2025,"x":100.0,"y":25.0},{"v":"c","x1":100.0,"y1":38.7975,"x2":88.7975,"y2":50.0,"x":75.0,"y":50.0},{"v":"c","x1":61.2025,"y1":50.0,"x2":50.0,"y2":38.7975,"x":50.0,"y":25.0},{"v":"c","x1":50.0,"y1":11.2025,"x2":61.2025,"y2":0.0,"x":75.0,"y":0.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "linear",
+              "start": [0.0,0.0],
+              "end": [50.0,0.0],
+              "stops": [
+                {
+                  "offset": 0.0,
+                  "color": [1.0,0.0,0.0,1.0]
+                },
+                {
+                  "offset": 1.0,
+                  "color": [0.0,0.0,1.0,0.5019608]
+                }
+              ]
+            },
+            "path": [{"v":"m","x":50.0,"y":0.0},{"v":"l","x":50.0,"y":50.0},{"v":"l","x":0.0,"y":50.0},{"v":"l","x":0.0,"y":0.0},{"v":"l","x":50.0,"y":0.0},{"v":"z"}]
+          },
+          {"op":"pop"}
+        ]
+      },
+      "packed": [2.0,100.0,50.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,100.0,0.0,1.0,100.0,50.0,1.0,0.0,50.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,2.0,75.0,25.0,75.0,25.0,25.0,2.0,0.0,1.0,1.0,1.0,1.0,1.0,0.0,0.0,0.0,1.0,6.0,0.0,75.0,0.0,2.0,88.7975,0.0,100.0,11.2025,100.0,25.0,2.0,100.0,38.7975,88.7975,50.0,75.0,50.0,2.0,61.2025,50.0,50.0,38.7975,50.0,25.0,2.0,50.0,11.2025,61.2025,0.0,75.0,0.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,0.0,0.0,50.0,0.0,2.0,0.0,1.0,0.0,0.0,1.0,1.0,0.0,0.0,1.0,0.5019608,6.0,0.0,50.0,0.0,1.0,50.0,50.0,1.0,0.0,50.0,1.0,0.0,0.0,1.0,50.0,0.0,3.0,3.0]
+    },
+    {
+      "id": "trim",
+      "covers": "trim (start/end percent) on a stroked line",
+      "canvas": {"size":[100,20],"shapes":[{"type":"path","d":"M0 10 L100 10"},{"type":"trim","start":10,"end":60},{"type":"stroke","color":"#ff00ff","width":4}]},
+      "slotIds": [],
+      "list": {
+        "width": 100.0,
+        "height": 20.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":100.0,"y":0.0},{"v":"l","x":100.0,"y":20.0},{"v":"l","x":0.0,"y":20.0},{"v":"z"}]
+          },
+          {
+            "op": "stroke",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "style": {"width":4.0,"cap":"round","join":"round","miter":4.0,"dash_offset":0.0},
+            "brush": {
+              "kind": "solid",
+              "color": [1.0,0.0,1.0,1.0]
+            },
+            "path": [{"v":"m","x":9.999,"y":10.0},{"v":"c","x1":21.691,"y1":10.0,"x2":41.77,"y2":10.0,"x":60.0,"y":10.0}]
+          },
+          {"op":"pop"}
+        ]
+      },
+      "packed": [2.0,100.0,20.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,100.0,0.0,1.0,100.0,20.0,1.0,0.0,20.0,3.0,5.0,1.0,0.0,0.0,1.0,0.0,0.0,4.0,1.0,1.0,4.0,0.0,0.0,0.0,1.0,0.0,1.0,1.0,2.0,0.0,9.999,10.0,2.0,21.691,10.0,41.77,10.0,60.0,10.0,3.0]
+    },
+    {
+      "id": "repeater",
+      "covers": "repeater copies with a transform",
+      "canvas": {"size":[100,20],"shapes":[{"type":"rect","position":[5,10],"size":[6,6]},{"type":"repeater","copies":4,"transform":{"position":[20,0]}},{"type":"fill","color":"#008800"}]},
+      "slotIds": [],
+      "list": {
+        "width": 100.0,
+        "height": 20.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":100.0,"y":0.0},{"v":"l","x":100.0,"y":20.0},{"v":"l","x":0.0,"y":20.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.0,0.53333336,0.0,1.0]
+            },
+            "path": [{"v":"m","x":8.0,"y":7.0},{"v":"l","x":8.0,"y":13.0},{"v":"l","x":2.0,"y":13.0},{"v":"l","x":2.0,"y":7.0},{"v":"l","x":8.0,"y":7.0},{"v":"z"},{"v":"m","x":28.0,"y":7.0},{"v":"l","x":28.0,"y":13.0},{"v":"l","x":22.0,"y":13.0},{"v":"l","x":22.0,"y":7.0},{"v":"l","x":28.0,"y":7.0},{"v":"z"},{"v":"m","x":48.0,"y":7.0},{"v":"l","x":48.0,"y":13.0},{"v":"l","x":42.0,"y":13.0},{"v":"l","x":42.0,"y":7.0},{"v":"l","x":48.0,"y":7.0},{"v":"z"},{"v":"m","x":68.0,"y":7.0},{"v":"l","x":68.0,"y":13.0},{"v":"l","x":62.0,"y":13.0},{"v":"l","x":62.0,"y":7.0},{"v":"l","x":68.0,"y":7.0},{"v":"z"}]
+          },
+          {"op":"pop"}
+        ]
+      },
+      "packed": [2.0,100.0,20.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,100.0,0.0,1.0,100.0,20.0,1.0,0.0,20.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.53333336,0.0,1.0,24.0,0.0,8.0,7.0,1.0,8.0,13.0,1.0,2.0,13.0,1.0,2.0,7.0,1.0,8.0,7.0,3.0,0.0,28.0,7.0,1.0,28.0,13.0,1.0,22.0,13.0,1.0,22.0,7.0,1.0,28.0,7.0,3.0,0.0,48.0,7.0,1.0,48.0,13.0,1.0,42.0,13.0,1.0,42.0,7.0,1.0,48.0,7.0,3.0,0.0,68.0,7.0,1.0,68.0,13.0,1.0,62.0,13.0,1.0,62.0,7.0,1.0,68.0,7.0,3.0,3.0]
+    },
+    {
+      "id": "round-corners",
+      "covers": "round-corners on a rect",
+      "canvas": {"size":[60,60],"shapes":[{"type":"rect","position":[30,30],"size":[40,40]},{"type":"round-corners","radius":8},{"type":"fill","color":"#884400"}]},
+      "slotIds": [],
+      "list": {
+        "width": 60.0,
+        "height": 60.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":60.0,"y":0.0},{"v":"l","x":60.0,"y":60.0},{"v":"l","x":0.0,"y":60.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.53333336,0.26666668,0.0,1.0]
+            },
+            "path": [{"v":"m","x":42.0,"y":10.0},{"v":"c","x1":46.4152,"y1":10.0,"x2":50.0,"y2":13.5848,"x":50.0,"y":18.0},{"v":"l","x":50.0,"y":42.0},{"v":"c","x1":50.0,"y1":46.4152,"x2":46.4152,"y2":50.0,"x":42.0,"y":50.0},{"v":"l","x":18.0,"y":50.0},{"v":"c","x1":13.5848,"y1":50.0,"x2":10.0,"y2":46.4152,"x":10.0,"y":42.0},{"v":"l","x":10.0,"y":18.0},{"v":"c","x1":10.0,"y1":13.5848,"x2":13.5848,"y2":10.0,"x":18.0,"y":10.0},{"v":"l","x":42.0,"y":10.0},{"v":"z"}]
+          },
+          {"op":"pop"}
+        ]
+      },
+      "packed": [2.0,60.0,60.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,60.0,0.0,1.0,60.0,60.0,1.0,0.0,60.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.53333336,0.26666668,0.0,1.0,10.0,0.0,42.0,10.0,2.0,46.4152,10.0,50.0,13.5848,50.0,18.0,1.0,50.0,42.0,2.0,50.0,46.4152,46.4152,50.0,42.0,50.0,1.0,18.0,50.0,2.0,13.5848,50.0,10.0,46.4152,10.0,42.0,1.0,10.0,18.0,2.0,10.0,13.5848,13.5848,10.0,18.0,10.0,1.0,42.0,10.0,3.0,3.0]
+    },
+    {
+      "id": "group-transform-text",
+      "covers": "group transform (anchor, position, scale, rotation, opacity) applies to its shapes AND its text: the text op's transform = the groups' matrices × translate(position), its alpha × the groups' opacity",
+      "canvas": {"size":[100,100],"shapes":[{"type":"group","transform":{"anchor":[10,10],"position":[50,50],"scale":[200,100],"rotation":90,"opacity":50},"shapes":[{"type":"rect","position":[10,10],"size":[10,10]},{"type":"fill","color":"#000000"},{"type":"group","transform":{"position":[5,0],"opacity":50},"shapes":[{"type":"text","text":"nested","position":[2,3],"size":8,"color":"#ff0000"}]}]}]},
+      "slotIds": [],
+      "list": {
+        "width": 100.0,
+        "height": 100.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":100.0,"y":0.0},{"v":"l","x":100.0,"y":100.0},{"v":"l","x":0.0,"y":100.0},{"v":"z"}]
+          },
+          {
+            "op": "layer",
+            "blend": "normal",
+            "alpha": 0.5,
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "clip": [
+              {"v":"m","x":0.0,"y":0.0},
+              {"v":"l","x":100.0,"y":0.0},
+              {"v":"l","x":100.0,"y":100.0},
+              {"v":"l","x":0.0,"y":100.0},
+              {"v":"z"}
+            ]
+          },
+          {
+            "op": "layer",
+            "blend": "normal",
+            "alpha": 0.5,
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "clip": [
+              {"v":"m","x":0.0,"y":0.0},
+              {"v":"l","x":100.0,"y":0.0},
+              {"v":"l","x":100.0,"y":100.0},
+              {"v":"l","x":0.0,"y":100.0},
+              {"v":"z"}
+            ]
+          },
+          {"op":"pop"},
+          {
+            "op": "fill",
+            "transform": [1.2246469e-16,2.0,-1.0,6.123234e-17,60.0,30.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.0,0.0,0.0,1.0]
+            },
+            "path": [{"v":"m","x":15.0,"y":5.0},{"v":"l","x":15.0,"y":15.0},{"v":"l","x":5.0,"y":15.0},{"v":"l","x":5.0,"y":5.0},{"v":"l","x":15.0,"y":5.0},{"v":"z"}]
+          },
+          {"op":"pop"},
+          {"op":"pop"},
+          {
+            "op": "text",
+            "transform": [1.2246469e-16,2.0,-1.0,6.123234e-17,57.0,44.0],
+            "text": "nested",
+            "font": "sans",
+            "weight": "regular",
+            "size": 8.0,
+            "align": "start",
+            "baseline": "alphabetic",
+            "color": [1.0,0.0,0.0,0.25]
+          }
+        ]
+      },
+      "packed": [2.0,100.0,100.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,100.0,0.0,1.0,100.0,100.0,1.0,0.0,100.0,3.0,1.0,0.0,0.5,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,100.0,0.0,1.0,100.0,100.0,1.0,0.0,100.0,3.0,0.0,1.0,0.0,0.5,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,100.0,0.0,1.0,100.0,100.0,1.0,0.0,100.0,3.0,0.0,3.0,4.0,1.2246469e-16,2.0,-1.0,6.123234e-17,60.0,30.0,0.0,0.0,0.0,0.0,0.0,1.0,6.0,0.0,15.0,5.0,1.0,15.0,15.0,1.0,5.0,15.0,1.0,5.0,5.0,1.0,15.0,5.0,3.0,3.0,3.0,7.0,1.2246469e-16,2.0,-1.0,6.123234e-17,57.0,44.0,0.0,400.0,8.0,0.0,2.0,1.0,0.0,0.0,0.25,6.0,110.0,101.0,115.0,116.0,101.0,100.0]
+    },
+    {
+      "id": "tokens-default-slots",
+      "covers": "$color tokens without host slots: shapes and text show the placeholder grey; slotIds lists every token",
+      "canvas": {"size":[50,20],"shapes":[{"type":"rect","position":[25,10],"size":[50,20]},{"type":"fill","color":"$color.primary"},{"type":"text","text":"x","position":[25,10],"color":"$color.mutedForeground"}]},
+      "slotIds": ["$color.mutedForeground","$color.primary"],
+      "list": {
+        "width": 50.0,
+        "height": 20.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":50.0,"y":0.0},{"v":"l","x":50.0,"y":20.0},{"v":"l","x":0.0,"y":20.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.5,0.5,0.5,1.0]
+            },
+            "path": [{"v":"m","x":50.0,"y":0.0},{"v":"l","x":50.0,"y":20.0},{"v":"l","x":0.0,"y":20.0},{"v":"l","x":0.0,"y":0.0},{"v":"l","x":50.0,"y":0.0},{"v":"z"}]
+          },
+          {"op":"pop"},
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,25.0,10.0],
+            "text": "x",
+            "font": "sans",
+            "weight": "regular",
+            "size": 14.0,
+            "align": "start",
+            "baseline": "alphabetic",
+            "color": [0.5,0.5,0.5,1.0]
+          }
+        ]
+      },
+      "packed": [2.0,50.0,20.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,50.0,0.0,1.0,50.0,20.0,1.0,0.0,20.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.5,0.5,0.5,1.0,6.0,0.0,50.0,0.0,1.0,50.0,20.0,1.0,0.0,20.0,1.0,0.0,0.0,1.0,50.0,0.0,3.0,3.0,7.0,1.0,0.0,0.0,1.0,25.0,10.0,0.0,400.0,14.0,0.0,2.0,0.5,0.5,0.5,1.0,1.0,120.0]
+    },
+    {
+      "id": "tokens-host-slots",
+      "covers": "$color tokens filled by the host's slot overrides ({\"p\": {\"a\": 0, \"k\": rgba}}), a {light, dark} pair under $mode dark; the default text colour is $color.foreground",
+      "canvas": {"size":[50,40],"shapes":[{"type":"rect","position":[25,10],"size":[50,20]},{"type":"fill","color":"$color.primary"},{"type":"text","text":"muted","position":[0,10],"color":"$color.mutedForeground"},{"type":"text","text":"pair","position":[0,30],"color":{"light":"#000000","dark":"#ffffff"}},{"type":"text","text":"default","position":[25,30]}]},
+      "slots": {"$color.primary":{"p":{"a":0,"k":[0.1,0.2,0.3,1]}},"$color.mutedForeground":{"p":{"a":0,"k":[0.5,0.5,0.6,1]}},"$color.foreground":{"p":{"a":0,"k":[0.9,0.9,0.9,1]}},"$mode":"dark"},
+      "slotIds": ["$color.foreground","$color.mutedForeground","$color.primary","ld:#000000:#ffffff"],
+      "list": {
+        "width": 50.0,
+        "height": 40.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":50.0,"y":0.0},{"v":"l","x":50.0,"y":40.0},{"v":"l","x":0.0,"y":40.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.1,0.2,0.3,1.0]
+            },
+            "path": [{"v":"m","x":50.0,"y":0.0},{"v":"l","x":50.0,"y":20.0},{"v":"l","x":0.0,"y":20.0},{"v":"l","x":0.0,"y":0.0},{"v":"l","x":50.0,"y":0.0},{"v":"z"}]
+          },
+          {"op":"pop"},
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,0.0,10.0],
+            "text": "muted",
+            "font": "sans",
+            "weight": "regular",
+            "size": 14.0,
+            "align": "start",
+            "baseline": "alphabetic",
+            "color": [0.5,0.5,0.6,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,0.0,30.0],
+            "text": "pair",
+            "font": "sans",
+            "weight": "regular",
+            "size": 14.0,
+            "align": "start",
+            "baseline": "alphabetic",
+            "color": [1.0,1.0,1.0,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,25.0,30.0],
+            "text": "default",
+            "font": "sans",
+            "weight": "regular",
+            "size": 14.0,
+            "align": "start",
+            "baseline": "alphabetic",
+            "color": [0.9,0.9,0.9,1.0]
+          }
+        ]
+      },
+      "packed": [2.0,50.0,40.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,50.0,0.0,1.0,50.0,40.0,1.0,0.0,40.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.1,0.2,0.3,1.0,6.0,0.0,50.0,0.0,1.0,50.0,20.0,1.0,0.0,20.0,1.0,0.0,0.0,1.0,50.0,0.0,3.0,3.0,7.0,1.0,0.0,0.0,1.0,0.0,10.0,0.0,400.0,14.0,0.0,2.0,0.5,0.5,0.6,1.0,5.0,109.0,117.0,116.0,101.0,100.0,7.0,1.0,0.0,0.0,1.0,0.0,30.0,0.0,400.0,14.0,0.0,2.0,1.0,1.0,1.0,1.0,4.0,112.0,97.0,105.0,114.0,7.0,1.0,0.0,0.0,1.0,25.0,30.0,0.0,400.0,14.0,0.0,2.0,0.9,0.9,0.9,1.0,7.0,100.0,101.0,102.0,97.0,117.0,108.0,116.0]
+    },
+    {
+      "id": "text-variants",
+      "covers": "every weight, align, baseline and font; text ops come AFTER every shape op in SOURCE order (the first text is written before the shapes); a line break becomes a space; packed text = code 7, t[6], font, weight (CSS), size, align, baseline, rgba, UTF-16 length, code units (an emoji = 2 units)",
+      "canvas": {"size":[200,100],"shapes":[{"type":"text","text":"first","position":[0,0],"baseline":"top"},{"type":"rect","position":[100,50],"size":[200,100]},{"type":"fill","color":"#eeeeee"},{"type":"text","text":"Regular start","position":[10,20],"size":12,"color":"#000000"},{"type":"text","text":"Medium centre","position":[100,40],"size":12,"weight":"medium","align":"center","baseline":"middle","color":"#000000"},{"type":"text","text":"Semibold end","position":[190,60],"size":12,"weight":"semibold","align":"end","baseline":"top","color":"#000000"},{"type":"text","text":"bold\nmono 42 é—🚀","position":[10,90],"size":10,"weight":"bold","font":"mono","color":"#000000"}]},
+      "slotIds": ["$color.foreground"],
+      "list": {
+        "width": 200.0,
+        "height": 100.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":200.0,"y":0.0},{"v":"l","x":200.0,"y":100.0},{"v":"l","x":0.0,"y":100.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.93333334,0.93333334,0.93333334,1.0]
+            },
+            "path": [{"v":"m","x":200.0,"y":0.0},{"v":"l","x":200.0,"y":100.0},{"v":"l","x":0.0,"y":100.0},{"v":"l","x":0.0,"y":0.0},{"v":"l","x":200.0,"y":0.0},{"v":"z"}]
+          },
+          {"op":"pop"},
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "text": "first",
+            "font": "sans",
+            "weight": "regular",
+            "size": 14.0,
+            "align": "start",
+            "baseline": "top",
+            "color": [0.5,0.5,0.5,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,10.0,20.0],
+            "text": "Regular start",
+            "font": "sans",
+            "weight": "regular",
+            "size": 12.0,
+            "align": "start",
+            "baseline": "alphabetic",
+            "color": [0.0,0.0,0.0,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,100.0,40.0],
+            "text": "Medium centre",
+            "font": "sans",
+            "weight": "medium",
+            "size": 12.0,
+            "align": "center",
+            "baseline": "middle",
+            "color": [0.0,0.0,0.0,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,190.0,60.0],
+            "text": "Semibold end",
+            "font": "sans",
+            "weight": "semibold",
+            "size": 12.0,
+            "align": "end",
+            "baseline": "top",
+            "color": [0.0,0.0,0.0,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,10.0,90.0],
+            "text": "bold mono 42 é—🚀",
+            "font": "mono",
+            "weight": "bold",
+            "size": 10.0,
+            "align": "start",
+            "baseline": "alphabetic",
+            "color": [0.0,0.0,0.0,1.0]
+          }
+        ]
+      },
+      "packed": [2.0,200.0,100.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,200.0,0.0,1.0,200.0,100.0,1.0,0.0,100.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.93333334,0.93333334,0.93333334,1.0,6.0,0.0,200.0,0.0,1.0,200.0,100.0,1.0,0.0,100.0,1.0,0.0,0.0,1.0,200.0,0.0,3.0,3.0,7.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,400.0,14.0,0.0,0.0,0.5,0.5,0.5,1.0,5.0,102.0,105.0,114.0,115.0,116.0,7.0,1.0,0.0,0.0,1.0,10.0,20.0,0.0,400.0,12.0,0.0,2.0,0.0,0.0,0.0,1.0,13.0,82.0,101.0,103.0,117.0,108.0,97.0,114.0,32.0,115.0,116.0,97.0,114.0,116.0,7.0,1.0,0.0,0.0,1.0,100.0,40.0,0.0,500.0,12.0,1.0,1.0,0.0,0.0,0.0,1.0,13.0,77.0,101.0,100.0,105.0,117.0,109.0,32.0,99.0,101.0,110.0,116.0,114.0,101.0,7.0,1.0,0.0,0.0,1.0,190.0,60.0,0.0,600.0,12.0,2.0,0.0,0.0,0.0,0.0,1.0,12.0,83.0,101.0,109.0,105.0,98.0,111.0,108.0,100.0,32.0,101.0,110.0,100.0,7.0,1.0,0.0,0.0,1.0,10.0,90.0,1.0,700.0,10.0,0.0,2.0,0.0,0.0,0.0,1.0,17.0,98.0,111.0,108.0,100.0,32.0,109.0,111.0,110.0,111.0,32.0,52.0,50.0,32.0,233.0,8212.0,55357.0,56960.0]
+    },
+    {
+      "id": "bar-chart",
+      "covers": "a small bar chart: axis line, three bars (one group each), value labels centred above the bars, category labels under them",
+      "canvas": {"size":[160,100],"shapes":[{"type":"path","d":"M20 80 H150"},{"type":"stroke","color":"$color.border","width":1},{"type":"group","shapes":[{"type":"rect","position":[45,60],"size":[20,40],"radius":2},{"type":"fill","color":"$color.chart1"}]},{"type":"group","shapes":[{"type":"rect","position":[85,50],"size":[20,60],"radius":2},{"type":"fill","color":"$color.chart2"}]},{"type":"group","shapes":[{"type":"rect","position":[125,70],"size":[20,20],"radius":2},{"type":"fill","color":"$color.chart3"}]},{"type":"text","text":"40","position":[45,38],"size":10,"align":"center","color":"$color.foreground"},{"type":"text","text":"60","position":[85,18],"size":10,"align":"center","color":"$color.foreground"},{"type":"text","text":"20","position":[125,58],"size":10,"align":"center","color":"$color.foreground"},{"type":"text","text":"Mon","position":[45,84],"size":10,"align":"center","baseline":"top","color":"$color.mutedForeground"},{"type":"text","text":"Tue","position":[85,84],"size":10,"align":"center","baseline":"top","color":"$color.mutedForeground"},{"type":"text","text":"Wed","position":[125,84],"size":10,"align":"center","baseline":"top","color":"$color.mutedForeground"}]},
+      "slotIds": ["$color.border","$color.chart1","$color.chart2","$color.chart3","$color.foreground","$color.mutedForeground"],
+      "list": {
+        "width": 160.0,
+        "height": 100.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":160.0,"y":0.0},{"v":"l","x":160.0,"y":100.0},{"v":"l","x":0.0,"y":100.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.5,0.5,0.5,1.0]
+            },
+            "path": [{"v":"m","x":135.0,"y":62.0},{"v":"l","x":135.0,"y":78.0},{"v":"c","x1":135.0,"y1":79.1038,"x2":134.1038,"y2":80.0,"x":133.0,"y":80.0},{"v":"l","x":117.0,"y":80.0},{"v":"c","x1":115.8962,"y1":80.0,"x2":115.0,"y2":79.1038,"x":115.0,"y":78.0},{"v":"l","x":115.0,"y":62.0},{"v":"c","x1":115.0,"y1":60.8962,"x2":115.8962,"y2":60.0,"x":117.0,"y":60.0},{"v":"l","x":133.0,"y":60.0},{"v":"c","x1":134.1038,"y1":60.0,"x2":135.0,"y2":60.8962,"x":135.0,"y":62.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.5,0.5,0.5,1.0]
+            },
+            "path": [{"v":"m","x":95.0,"y":22.0},{"v":"l","x":95.0,"y":78.0},{"v":"c","x1":95.0,"y1":79.1038,"x2":94.1038,"y2":80.0,"x":93.0,"y":80.0},{"v":"l","x":77.0,"y":80.0},{"v":"c","x1":75.8962,"y1":80.0,"x2":75.0,"y2":79.1038,"x":75.0,"y":78.0},{"v":"l","x":75.0,"y":22.0},{"v":"c","x1":75.0,"y1":20.8962,"x2":75.8962,"y2":20.0,"x":77.0,"y":20.0},{"v":"l","x":93.0,"y":20.0},{"v":"c","x1":94.1038,"y1":20.0,"x2":95.0,"y2":20.8962,"x":95.0,"y":22.0},{"v":"z"}]
+          },
+          {
+            "op": "fill",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "rule": "nonzero",
+            "brush": {
+              "kind": "solid",
+              "color": [0.5,0.5,0.5,1.0]
+            },
+            "path": [{"v":"m","x":55.0,"y":42.0},{"v":"l","x":55.0,"y":78.0},{"v":"c","x1":55.0,"y1":79.1038,"x2":54.1038,"y2":80.0,"x":53.0,"y":80.0},{"v":"l","x":37.0,"y":80.0},{"v":"c","x1":35.8962,"y1":80.0,"x2":35.0,"y2":79.1038,"x":35.0,"y":78.0},{"v":"l","x":35.0,"y":42.0},{"v":"c","x1":35.0,"y1":40.8962,"x2":35.8962,"y2":40.0,"x":37.0,"y":40.0},{"v":"l","x":53.0,"y":40.0},{"v":"c","x1":54.1038,"y1":40.0,"x2":55.0,"y2":40.8962,"x":55.0,"y":42.0},{"v":"z"}]
+          },
+          {
+            "op": "stroke",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "style": {"width":1.0,"cap":"round","join":"round","miter":4.0,"dash_offset":0.0},
+            "brush": {
+              "kind": "solid",
+              "color": [0.5,0.5,0.5,1.0]
+            },
+            "path": [{"v":"m","x":20.0,"y":80.0},{"v":"l","x":150.0,"y":80.0}]
+          },
+          {"op":"pop"},
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,45.0,38.0],
+            "text": "40",
+            "font": "sans",
+            "weight": "regular",
+            "size": 10.0,
+            "align": "center",
+            "baseline": "alphabetic",
+            "color": [0.5,0.5,0.5,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,85.0,18.0],
+            "text": "60",
+            "font": "sans",
+            "weight": "regular",
+            "size": 10.0,
+            "align": "center",
+            "baseline": "alphabetic",
+            "color": [0.5,0.5,0.5,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,125.0,58.0],
+            "text": "20",
+            "font": "sans",
+            "weight": "regular",
+            "size": 10.0,
+            "align": "center",
+            "baseline": "alphabetic",
+            "color": [0.5,0.5,0.5,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,45.0,84.0],
+            "text": "Mon",
+            "font": "sans",
+            "weight": "regular",
+            "size": 10.0,
+            "align": "center",
+            "baseline": "top",
+            "color": [0.5,0.5,0.5,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,85.0,84.0],
+            "text": "Tue",
+            "font": "sans",
+            "weight": "regular",
+            "size": 10.0,
+            "align": "center",
+            "baseline": "top",
+            "color": [0.5,0.5,0.5,1.0]
+          },
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,125.0,84.0],
+            "text": "Wed",
+            "font": "sans",
+            "weight": "regular",
+            "size": 10.0,
+            "align": "center",
+            "baseline": "top",
+            "color": [0.5,0.5,0.5,1.0]
+          }
+        ]
+      },
+      "packed": [2.0,160.0,100.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,160.0,0.0,1.0,160.0,100.0,1.0,0.0,100.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.5,0.5,0.5,1.0,10.0,0.0,135.0,62.0,1.0,135.0,78.0,2.0,135.0,79.1038,134.1038,80.0,133.0,80.0,1.0,117.0,80.0,2.0,115.8962,80.0,115.0,79.1038,115.0,78.0,1.0,115.0,62.0,2.0,115.0,60.8962,115.8962,60.0,117.0,60.0,1.0,133.0,60.0,2.0,134.1038,60.0,135.0,60.8962,135.0,62.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.5,0.5,0.5,1.0,10.0,0.0,95.0,22.0,1.0,95.0,78.0,2.0,95.0,79.1038,94.1038,80.0,93.0,80.0,1.0,77.0,80.0,2.0,75.8962,80.0,75.0,79.1038,75.0,78.0,1.0,75.0,22.0,2.0,75.0,20.8962,75.8962,20.0,77.0,20.0,1.0,93.0,20.0,2.0,94.1038,20.0,95.0,20.8962,95.0,22.0,3.0,4.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.5,0.5,0.5,1.0,10.0,0.0,55.0,42.0,1.0,55.0,78.0,2.0,55.0,79.1038,54.1038,80.0,53.0,80.0,1.0,37.0,80.0,2.0,35.8962,80.0,35.0,79.1038,35.0,78.0,1.0,35.0,42.0,2.0,35.0,40.8962,35.8962,40.0,37.0,40.0,1.0,53.0,40.0,2.0,54.1038,40.0,55.0,40.8962,55.0,42.0,3.0,5.0,1.0,0.0,0.0,1.0,0.0,0.0,1.0,1.0,1.0,4.0,0.0,0.0,0.0,0.5,0.5,0.5,1.0,2.0,0.0,20.0,80.0,1.0,150.0,80.0,3.0,7.0,1.0,0.0,0.0,1.0,45.0,38.0,0.0,400.0,10.0,1.0,2.0,0.5,0.5,0.5,1.0,2.0,52.0,48.0,7.0,1.0,0.0,0.0,1.0,85.0,18.0,0.0,400.0,10.0,1.0,2.0,0.5,0.5,0.5,1.0,2.0,54.0,48.0,7.0,1.0,0.0,0.0,1.0,125.0,58.0,0.0,400.0,10.0,1.0,2.0,0.5,0.5,0.5,1.0,2.0,50.0,48.0,7.0,1.0,0.0,0.0,1.0,45.0,84.0,0.0,400.0,10.0,1.0,0.0,0.5,0.5,0.5,1.0,3.0,77.0,111.0,110.0,7.0,1.0,0.0,0.0,1.0,85.0,84.0,0.0,400.0,10.0,1.0,0.0,0.5,0.5,0.5,1.0,3.0,84.0,117.0,101.0,7.0,1.0,0.0,0.0,1.0,125.0,84.0,0.0,400.0,10.0,1.0,0.0,0.5,0.5,0.5,1.0,3.0,87.0,101.0,100.0]
+    },
+    {
+      "id": "text-only",
+      "covers": "no shapes: the frame is the composition clip and its pop, then the text",
+      "canvas": {"size":[40,20],"shapes":[{"type":"text","text":"hi","position":[20,10],"align":"center","baseline":"middle","color":"#123456"}]},
+      "slotIds": [],
+      "list": {
+        "width": 40.0,
+        "height": 20.0,
+        "ops": [
+          {
+            "op": "clip",
+            "transform": [1.0,0.0,0.0,1.0,0.0,0.0],
+            "path": [{"v":"m","x":0.0,"y":0.0},{"v":"l","x":40.0,"y":0.0},{"v":"l","x":40.0,"y":20.0},{"v":"l","x":0.0,"y":20.0},{"v":"z"}]
+          },
+          {"op":"pop"},
+          {
+            "op": "text",
+            "transform": [1.0,0.0,0.0,1.0,20.0,10.0],
+            "text": "hi",
+            "font": "sans",
+            "weight": "regular",
+            "size": 14.0,
+            "align": "center",
+            "baseline": "middle",
+            "color": [0.07058824,0.20392157,0.3372549,1.0]
+          }
+        ]
+      },
+      "packed": [2.0,40.0,20.0,2.0,1.0,0.0,0.0,1.0,0.0,0.0,5.0,0.0,0.0,0.0,1.0,40.0,0.0,1.0,40.0,20.0,1.0,0.0,20.0,3.0,3.0,7.0,1.0,0.0,0.0,1.0,20.0,10.0,0.0,400.0,14.0,1.0,1.0,0.07058824,0.20392157,0.3372549,1.0,2.0,104.0,105.0]
+    }
+  ],
+  "refuse": [
+    {
+      "id": "animated-value",
+      "covers": "an animated {keys} value anywhere in a shape",
+      "canvas": {"size":[10,10],"shapes":[{"type":"rect","position":[5,5],"size":{"keys":[{"t":0,"v":[1,1]},{"t":500,"v":[9,9]}]}},{"type":"fill","color":"#000000"}]},
+      "issues": [{"code":"canvas-animated","path":"/shapes/0/size","message":"Canvas values are static; use Motion to animate"}]
+    },
+    {
+      "id": "animated-group-transform",
+      "covers": "an animated group transform",
+      "canvas": {"size":[10,10],"shapes":[{"type":"group","transform":{"rotation":{"keys":[{"t":0,"v":0},{"t":1000,"v":360}]}},"shapes":[{"type":"ellipse","position":[5,5],"size":[4,4]},{"type":"fill","color":"#000000"}]}]},
+      "issues": [{"code":"canvas-animated","path":"/shapes/0/transform/rotation","message":"Canvas values are static; use Motion to animate"}]
+    },
+    {
+      "id": "animated-colour",
+      "covers": "an animated colour",
+      "canvas": {"size":[10,10],"shapes":[{"type":"rect","position":[5,5],"size":[4,4]},{"type":"fill","color":{"keys":[{"t":0,"v":"#000000"},{"t":100,"v":"#ffffff"}]}}]},
+      "issues": [{"code":"canvas-animated","path":"/shapes/1/color","message":"Canvas values are static; use Motion to animate"}]
+    },
+    {
+      "id": "animated-text",
+      "covers": "an animated text position",
+      "canvas": {"size":[10,10],"shapes":[{"type":"text","text":"a","position":{"keys":[{"t":0,"v":[0,0]},{"t":100,"v":[5,5]}]}}]},
+      "issues": [{"code":"canvas-animated","path":"/shapes/0/position","message":"Canvas values are static; use Motion to animate"}]
+    },
+    {
+      "id": "not-canvas-shapes",
+      "covers": "shape types outside the Canvas vocabulary (merge, gradient-stroke, raw lottie items) and raw `lottie` keys",
+      "canvas": {"size":[10,10],"shapes":[{"type":"merge"},{"type":"gradient-stroke"},{"type":"lottie","lottie":{"ty":"rc"}},{"type":"rect","position":[5,5],"size":[4,4],"lottie":{"d":3}}]},
+      "issues": [{"code":"canvas-shape-type","path":"/shapes/0/type","message":"not a Canvas shape type"},{"code":"canvas-shape-type","path":"/shapes/1/type","message":"not a Canvas shape type"},{"code":"canvas-shape-type","path":"/shapes/2/type","message":"not a Canvas shape type"},{"code":"canvas-lottie","path":"/shapes/3/lottie","message":"no raw Lottie in a Canvas"}]
+    },
+    {
+      "id": "bad-text",
+      "covers": "a text without `text`, an unknown weight / align / baseline / font, a bad size, a bad colour (an unknown field such as `opacity` is ignored, as the dialect ignores unknown keys)",
+      "canvas": {"size":[10,10],"shapes":[{"type":"text","position":[1,1]},{"type":"text","text":"a","weight":"heavy","align":"left","baseline":"bottom","font":"serif"},{"type":"text","text":"b","size":0,"opacity":50},{"type":"text","text":"c","color":"red"}]},
+      "issues": [{"code":"canvas-text","path":"/shapes/0/text","message":"needs a string"},{"code":"canvas-text","path":"/shapes/1/weight","message":"unknown value"},{"code":"canvas-text","path":"/shapes/1/align","message":"unknown value"},{"code":"canvas-text","path":"/shapes/1/baseline","message":"unknown value"},{"code":"canvas-text","path":"/shapes/1/font","message":"unknown value"},{"code":"canvas-text","path":"/shapes/2/size","message":"expected font px > 0"},{"code":"color","path":"/shapes/3/color","message":"expected a colour"}]
+    },
+    {
+      "id": "no-size",
+      "covers": "size [w, h] is required (positive)",
+      "canvas": {"shapes":[]},
+      "issues": [{"code":"size","path":"/size","message":"size [width, height] is required (positive numbers)"}]
+    },
+    {
+      "id": "bad-size",
+      "covers": "a zero size",
+      "canvas": {"size":[0,10],"shapes":[]},
+      "issues": [{"code":"size","path":"/size","message":"size [width, height] is required (positive numbers)"}]
+    },
+    {
+      "id": "no-shapes",
+      "covers": "shapes is required",
+      "canvas": {"size":[10,10]},
+      "issues": [{"code":"shapes","path":"/shapes","message":"shapes [...] is required"}]
+    },
+    {
+      "id": "dialect-error",
+      "covers": "the dialect's own refusals keep their path under /shapes (bad path data)",
+      "canvas": {"size":[10,10],"shapes":[{"type":"text","text":"keeps the index"},{"type":"path","d":"Q 1"},{"type":"stroke","color":"#000000"}]},
+      "issues": [{"code":"path","path":"/shapes/1/d","message":"expected a number at ``"}]
+    },
+    {
+      "id": "limit-ops",
+      "covers": "the canvas op budget (limits.json motion.canvas.maxOps): a filled group repeated 80 × 60 times by two nested repeaters (one fill op per copy; a repeater makes at most 1,000 copies)",
+      "canvas": {"size":[100,100],"shapes":[{"type":"group","shapes":[{"type":"group","shapes":[{"type":"rect","position":[1,1],"size":[1,1]},{"type":"fill","color":"#000000"}]},{"type":"repeater","copies":80,"transform":{"position":[1,0]}}]},{"type":"repeater","copies":60,"transform":{"position":[0,1]}}]},
+      "issues": [{"code":"limit-ops","path":"/shapes","message":"too many drawing ops"}]
+    }
+  ],
+  "fit": [
+    {
+      "size": [200,100],
+      "box": [100,100],
+      "fit": "contain",
+      "matrix": [0.5,0.0,0.0,0.5,0.0,25.0]
+    },
+    {
+      "size": [200,100],
+      "box": [100,100],
+      "fit": "cover",
+      "matrix": [1.0,0.0,0.0,1.0,-50.0,0.0]
+    },
+    {
+      "size": [200,100],
+      "box": [100,100],
+      "fit": "fill",
+      "matrix": [0.5,0.0,0.0,1.0,0.0,0.0]
+    },
+    {
+      "size": [200,100],
+      "box": [400,100],
+      "fit": "contain",
+      "matrix": [1.0,0.0,0.0,1.0,100.0,0.0]
+    },
+    {
+      "size": [200,100],
+      "box": [400,100],
+      "fit": "cover",
+      "matrix": [2.0,0.0,0.0,2.0,0.0,-50.0]
+    },
+    {
+      "size": [200,100],
+      "box": [400,100],
+      "fit": "fill",
+      "matrix": [2.0,0.0,0.0,1.0,0.0,0.0]
+    },
+    {
+      "size": [200,100],
+      "box": [300,300],
+      "fit": "contain",
+      "matrix": [1.5,0.0,0.0,1.5,0.0,75.0]
+    },
+    {
+      "size": [200,100],
+      "box": [300,300],
+      "fit": "cover",
+      "matrix": [3.0,0.0,0.0,3.0,-150.0,0.0]
+    },
+    {
+      "size": [200,100],
+      "box": [300,300],
+      "fit": "fill",
+      "matrix": [1.5,0.0,0.0,3.0,0.0,0.0]
+    },
+    {
+      "size": [200,100],
+      "box": [200,100],
+      "fit": "contain",
+      "matrix": [1.0,0.0,0.0,1.0,0.0,0.0]
+    },
+    {
+      "size": [200,100],
+      "box": [200,100],
+      "fit": "cover",
+      "matrix": [1.0,0.0,0.0,1.0,0.0,0.0]
+    },
+    {
+      "size": [200,100],
+      "box": [200,100],
+      "fit": "fill",
+      "matrix": [1.0,0.0,0.0,1.0,0.0,0.0]
+    }
+  ],
+  "pointer": [
+    {
+      "size": [200,100],
+      "fit": "contain",
+      "box": [300,300],
+      "points": [
+        {
+          "at": [150.0,150.0],
+          "drawing": [100.0,50.0]
+        },
+        {
+          "at": [0,0],
+          "drawing": [0.0,-50.0]
+        },
+        {
+          "at": [300,300],
+          "drawing": [200.0,150.0]
+        },
+        {
+          "at": [75.0,30.0],
+          "drawing": [50.0,-30.0]
+        },
+        {
+          "at": [270.0,210.0],
+          "drawing": [180.0,90.0]
+        }
+      ]
+    },
+    {
+      "size": [200,100],
+      "fit": "contain",
+      "box": [100,25],
+      "points": [
+        {
+          "at": [50.0,12.5],
+          "drawing": [100.0,50.0]
+        },
+        {
+          "at": [0,0],
+          "drawing": [-100.0,0.0]
+        },
+        {
+          "at": [100,25],
+          "drawing": [300.0,100.0]
+        },
+        {
+          "at": [25.0,2.5],
+          "drawing": [0.0,10.0]
+        },
+        {
+          "at": [90.0,17.5],
+          "drawing": [260.0,70.0]
+        }
+      ]
+    },
+    {
+      "size": [200,100],
+      "fit": "cover",
+      "box": [300,300],
+      "points": [
+        {
+          "at": [150.0,150.0],
+          "drawing": [100.0,50.0]
+        },
+        {
+          "at": [0,0],
+          "drawing": [50.0,0.0]
+        },
+        {
+          "at": [300,300],
+          "drawing": [150.0,100.0]
+        },
+        {
+          "at": [75.0,30.0],
+          "drawing": [75.0,10.0]
+        },
+        {
+          "at": [270.0,210.0],
+          "drawing": [140.0,70.0]
+        }
+      ]
+    },
+    {
+      "size": [200,100],
+      "fit": "cover",
+      "box": [100,25],
+      "points": [
+        {
+          "at": [50.0,12.5],
+          "drawing": [100.0,50.0]
+        },
+        {
+          "at": [0,0],
+          "drawing": [0.0,25.0]
+        },
+        {
+          "at": [100,25],
+          "drawing": [200.0,75.0]
+        },
+        {
+          "at": [25.0,2.5],
+          "drawing": [50.0,30.0]
+        },
+        {
+          "at": [90.0,17.5],
+          "drawing": [180.0,60.0]
+        }
+      ]
+    },
+    {
+      "size": [200,100],
+      "fit": "fill",
+      "box": [300,300],
+      "points": [
+        {
+          "at": [150.0,150.0],
+          "drawing": [100.0,50.0]
+        },
+        {
+          "at": [0,0],
+          "drawing": [0.0,0.0]
+        },
+        {
+          "at": [300,300],
+          "drawing": [200.0,100.0]
+        },
+        {
+          "at": [75.0,30.0],
+          "drawing": [50.0,10.0]
+        },
+        {
+          "at": [270.0,210.0],
+          "drawing": [180.0,70.0]
+        }
+      ]
+    },
+    {
+      "size": [200,100],
+      "fit": "fill",
+      "box": [100,25],
+      "points": [
+        {
+          "at": [50.0,12.5],
+          "drawing": [100.0,50.0]
+        },
+        {
+          "at": [0,0],
+          "drawing": [0.0,0.0]
+        },
+        {
+          "at": [100,25],
+          "drawing": [200.0,100.0]
+        },
+        {
+          "at": [25.0,2.5],
+          "drawing": [50.0,10.0]
+        },
+        {
+          "at": [90.0,17.5],
+          "drawing": [180.0,70.0]
+        }
+      ]
+    }
+  ],
+  "upright": [
+    {
+      "id": "rotated-scaled-group",
+      "covers": "a text inside a rotated (90°) and scaled (150%) group under a contain fit of 2: the anchor follows the rotation (the group carries the origin round), the size takes √|det| = 1.5 × 2, and the line stays horizontal; a nested non-uniform scale [200, 50] multiplies √|det| by 1",
+      "canvas": {"size":[200,100],"shapes":[{"type":"group","transform":{"position":[100,50],"rotation":90,"scale":[150,150]},"shapes":[{"type":"text","text":"Upright","position":[20,0],"size":10,"align":"center","baseline":"middle"},{"type":"group","transform":{"position":[0,-20],"scale":[200,50]},"shapes":[{"type":"text","text":"Squashed","position":[0,0],"size":8}]}]}]},
+      "box": [400,400],
+      "fit": "contain",
+      "texts": [
+        {
+          "text": "Upright",
+          "anchor": [200.0,260.0],
+          "size": 30.0
+        },
+        {
+          "text": "Squashed",
+          "anchor": [260.0,200.0],
+          "size": 24.0
+        }
+      ]
+    }
+  ]
+}

@@ -176,3 +176,63 @@ fn sync(g: &mut Inner) {
         g.playback = m.playback().clone();
     }
 }
+
+/// Round 8: a compiled Canvas (`{size, shapes}`, a static drawing) for the
+/// SwiftUI and Compose painters: compile once per props change, `sample`
+/// with the theme's slot overrides (the Motion player's contract) whenever
+/// the props, the theme or the mode change. The packed frame (VERSION 2)
+/// holds the shapes' ops, then one `text` op per text shape (README ›
+/// Packed frames): the painter sets those natively, on top.
+#[derive(uniffi::Object)]
+pub struct CanvasPlayer {
+    inner: Mutex<CanvasInner>,
+}
+
+struct CanvasInner {
+    canvas: eui_motion::canvas::Canvas,
+    list: DisplayList,
+    packed: Vec<f32>,
+}
+
+#[uniffi::export]
+impl CanvasPlayer {
+    /// Compile a Canvas node's `{size, shapes}` JSON; the issues as
+    /// `UiError::Invalid` (a JSON array) when refused.
+    #[uniffi::constructor]
+    pub fn new(canvas_json: String) -> Result<std::sync::Arc<Self>, UiError> {
+        let doc: serde_json::Value = serde_json::from_str(&canvas_json).map_err(invalid)?;
+        let canvas = eui_motion::canvas::Canvas::compile(&doc)
+            .map_err(|issues| UiError::Invalid { reason: serde_json::to_string(&issues).unwrap_or_default() })?;
+        Ok(std::sync::Arc::new(Self { inner: Mutex::new(CanvasInner { canvas, list: DisplayList::default(), packed: Vec::new() }) }))
+    }
+
+    /// The drawing's width and height (its coordinate space).
+    pub fn size(&self) -> Vec<f32> {
+        let (w, h) = self.inner.lock().unwrap().canvas.size();
+        vec![w, h]
+    }
+
+    /// Every slot the canvas declares (`$color.<token>`, `ld:<light>:<dark>`), sorted.
+    pub fn slot_ids(&self) -> Vec<String> {
+        self.inner.lock().unwrap().canvas.slot_ids()
+    }
+
+    /// The packed frame with these slot overrides (`{id: value}` JSON, or "").
+    pub fn sample(&self, slots_json: String) -> Vec<f32> {
+        let slots: serde_json::Map<String, serde_json::Value> = if slots_json.is_empty() { Default::default() } else { serde_json::from_str(&slots_json).unwrap_or_default() };
+        let mut g = self.inner.lock().unwrap();
+        let CanvasInner { canvas, list, packed } = &mut *g;
+        canvas.render(&slots, list);
+        list.encode(packed);
+        packed.clone()
+    }
+}
+
+/// Round 8: a pointer at box px `(x, y)` → drawing units (THE fit mapping
+/// inverted, two decimals; `fit` = contain | cover | fill): what a Canvas
+/// with `pointer: true` sends as `press` / `move` `{x, y}`. Empty for an
+/// empty box.
+#[uniffi::export]
+pub fn canvas_to_drawing(x: f64, y: f64, width: f64, height: f64, box_width: f64, box_height: f64, fit: String) -> Vec<f64> {
+    eui_motion::canvas::to_drawing(x, y, width, height, box_width, box_height, eui_motion::canvas::Fit::parse(&fit)).map(|p| p.to_vec()).unwrap_or_default()
+}

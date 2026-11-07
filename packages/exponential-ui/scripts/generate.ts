@@ -575,6 +575,12 @@ const STATE_CASES: Record<string, Record<string, Record<string, unknown>>> = {
   // EXP-1548: wider than its box: the table scrolls sideways, cells wrap,
   // the `truncate` column keeps one line with an ellipsis.
   Table: { wide: wideTableProps() },
+  // Round 8: the label row with only its trailing text, the caption under the bar.
+  Progress: { "valueText-only": { label: ``, valueText: `41 MB/s · 12 min` }, detail: { detail: `3 of 8 files` } },
+  // Round 8: the collapsed line on the first step, and with no step current.
+  Stepper: { "collapse=always+current=0": { collapse: `always`, current: 0 }, "collapse=always+current=9": { collapse: `always`, current: 9 } },
+  // Round 8: mixed wins over checked in the look.
+  Checkbox: { "indeterminate=true+checked=true": { indeterminate: true, checked: true } },
 }
 
 /** EXP-1548: a table whose columns need more than a phone's width. */
@@ -854,6 +860,35 @@ const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => 
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // Round 8 (docs/round-8-contract.md): the download row, a bar with only
+  // its trailing text, the collapsed Stepper, the mixed Checkbox.
+  Progress: [
+    { label: `valueText · detail`, node: { id: `download`, component: `Progress`, props: { value: 41, label: `Downloading`, valueText: `41 MB/s · 12 min`, detail: `3 of 8 files` } } },
+    { label: `valueText only`, node: { id: `sync`, component: `Progress`, props: { value: 80, valueText: `80%` } } },
+  ],
+  Stepper: [{ label: `collapse · always`, node: { id: `wizard`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: 1, collapse: `always` } } }],
+  // The mixed parent of two packs, one checked and one not.
+  Checkbox: [{
+    label: `indeterminate · a parent of two`,
+    node: {
+      id: `packs`,
+      component: `Stack`,
+      props: { direction: `vertical`, gap: `xs`, align: `start` },
+      children: [
+        { id: `all`, component: `Checkbox`, props: { label: `All packs`, name: `all`, indeterminate: true } },
+        {
+          id: `pack-list`,
+          component: `Stack`,
+          props: { direction: `vertical`, gap: `xs`, align: `start` },
+          style: { paddingInlineStart: `$spacing.lg` },
+          children: [
+            { id: `icons`, component: `Checkbox`, props: { label: `Icons`, name: `icons`, checked: true } },
+            { id: `fonts`, component: `Checkbox`, props: { label: `Fonts`, name: `fonts`, checked: false } },
+          ],
+        },
+      ],
+    },
+  }],
   // VAPP-280: a settings page's group (a Switch that stays inline on phones,
   // a Select with a description, a Slider), then the stacked phone layout at
   // any width (`stackBelow: xl` is above the specimen's 720).
@@ -1092,11 +1127,40 @@ function generatedCases(name: string, all: ComponentCase[]): { label: string; no
   return out
 }
 
+/** Specimens whose WHOLE tree is a shared source file (`{data, cases}`), so
+ *  every platform's picture and the styleguide entry paint the same thing.
+ *  Round 8: the Canvas (a bar chart, a line plot, a pointer pad), also read
+ *  by the styleguide's `canvas` entry and its desktop twin. */
+const SPECIMEN_SOURCES: Record<string, string> = { Canvas: `fixtures/canvas-specimen.json` }
+
+/** `{path}` bindings replaced by their value in `data` (a specimen carries no data model). */
+function inlineBindings(value: unknown, data: Record<string, unknown>): unknown {
+  if (Array.isArray(value)) return value.map((v) => inlineBindings(v, data))
+  if (!value || typeof value !== `object`) return value
+  const o = value as Record<string, unknown>
+  if (Object.keys(o).length === 1 && typeof o.path === `string`) {
+    const got = o.path.split(`/`).filter(Boolean).reduce<unknown>((at, k) => (at && typeof at === `object` ? (at as Record<string, unknown>)[k] : undefined), data)
+    if (got === undefined) throw new Error(`specimen source: ${o.path} has no data`)
+    return got
+  }
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, inlineBindings(v, data)]))
+}
+
 /** One component's specimen: a padded column of captioned cases. */
 function specimenNode(name: string, all: ComponentCase[]): NestedNode {
   const inline = INLINE_SPECIMENS.has(name)
   const root = `specimen-${kebab(name)}`
   const wrap = SPECIMEN_WRAP[name]
+  const source = SPECIMEN_SOURCES[name]
+  if (source) {
+    const { data, cases } = readJson<{ data?: Record<string, unknown>; cases: NestedNode }>(source)
+    return {
+      id: root,
+      component: `Box`,
+      style: { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: 720 },
+      children: [inlineBindings(cases, data ?? {}) as NestedNode],
+    }
+  }
   return {
     id: root,
     component: `Box`,
@@ -1495,6 +1559,19 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     input: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed: { path: `/collapsed` }, collapseBelow: `never` }, slots: { sidebar: railNav() } },
     datasets: [{ collapsed: true }, { collapsed: false }, {}],
   },
+  // Round 8: a collapsed Stepper bound to /current shows ONE line (each
+  // step's line is visible while it is current; none past the last); a
+  // Progress whose trailing text and caption are bound.
+  {
+    name: `Stepper/collapse-always:bound-current`,
+    input: { id: `wizard`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: { path: `/current` }, collapse: `always` } },
+    datasets: [{ current: 0 }, { current: 2 }, { current: 5 }, {}],
+  },
+  {
+    name: `Progress/bound:valueText+detail`,
+    input: { id: `download`, component: `Progress`, props: { value: { path: `/done` }, valueText: { path: `/rate` }, detail: { path: `/files` } } },
+    datasets: [{ done: 41, rate: `41 MB/s · 12 min`, files: `3 of 8 files` }, { done: 0 }],
+  },
 ]
 
 function bindExtraCases() {
@@ -1662,23 +1739,8 @@ function promptBudget() {
   const size = (text: string) => ({ chars: text.length, tokens: estimateTokens(text) })
   return {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate. VAPP-108: \`index\` = sections rules + index + functions + style (the components then come one at a time through componentPrompt, \`perComponent\`), \`rules\` = the rules alone.`,
-    // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
-    // EXP-1324: Trace + TraceItem (descriptions trimmed first).
-    // VAPP-126 (a named budget exception, see the Guide): the six layout macros: +1,396 chars / +349 tokens; VAPP-128 trims nine prop descriptions; the budget is the measured total (7,335), no slack.
-    // NEW-77: VoiceWave, the measured 7,410.
-    // VAPP-162 (a named budget exception): MessageBubble, CallSurface, Plan, QrCode, QrScanner + Segmented orientation, Button hold, VoiceWave variant: +1,967 chars / +490 tokens after trimming every new description; the budget is the measured total (7,900), no slack.
-    // EXP-1495 (a named budget exception): Outline, Mosaic + Carousel counter/thumbnails: +134 tokens after trimming the new descriptions; the measured total (8,034), no slack.
-    // EXP-1586 (a named budget exception): ZoomableImage, +97 tokens after trimming every new description; the measured total (8,131), no slack.
-    // EXP-1604/1605 (a named budget exception, approved in EXP-1584: ≤ +700): Motion with its dialect guide and state machine, +619 tokens; the measured total (8,750), no slack.
-    // VAPP-232 + VAPP-217 (eApps U3 + U2): raised for the U2/U3 macros, awaiting Danny's review: Calendar + Timeline (+198 tokens), RecordForm + RecordTable (+239 tokens, host-filled props stay out of the prompt); the measured total (9216), no slack.
-    // VAPP-286 (a named budget exception, round 7): Slider icon + endLabel + showValue, +21 tokens after trimming the new descriptions and the Slider's own sentence; the measured total (9237), no slack.
-    // VAPP-282 (a named budget exception, round 7): DatePicker inline + marks (the dateMark shape) + today + the month event, +55 tokens with terse descriptions; the measured total with VAPP-286 (9292), no slack.
-    // VAPP-279 (a named budget exception, round 7 for the eDE shell): Tabs `variant: strip` + its `reorder`/`more` events, +22 tokens after trimming the new description; the measured total with VAPP-286 + VAPP-282 (9314), no slack.
-    // VAPP-280 (a named budget exception, round 7 #VAPP-275): SettingsRow, +66 tokens after trimming its descriptions; the measured total with VAPP-279 (9381), no slack.
-    // #VAPP-284 (a named budget exception, round 7): Row's foldable parent (`open`, children, `change`) + Box `toggle`: +19 tokens after trimming; the measured total with VAPP-280 (9400), no slack.
-    // #VAPP-285 (a named budget exception, round 7): Tree (items, expanded, value, label; select/toggle/load): +91 tokens after trimming; the measured total with VAPP-284 (9491), no slack.
-    // VAPP-276 (a named budget exception, round 7): Popover align + anchor, Menu side + align + anchor: +62 tokens after trimming the new descriptions; the measured total with #VAPP-285 (9553), no slack.
-    budgetTokens: 9553,
+    // Danny's ceiling (2026-11-07): 10,000 tokens for the full prompt; trim new descriptions before adding components, no named exceptions.
+    budgetTokens: 10000,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

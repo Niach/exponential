@@ -84,6 +84,8 @@ pub(crate) mod mosaic;
 // EXP-1586: the lightbox picture (the eUI zoom view).
 pub(crate) mod zoomable_image;
 pub(crate) mod motion;
+// eUI round 8: the Canvas (raster shapes + native text).
+pub(crate) mod canvas;
 pub(crate) mod calendar;
 pub(crate) mod timeline;
 pub(crate) mod nav_rail;
@@ -182,6 +184,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: mosaic::ID, owner: mosaic::OWNER, render: mosaic::render },
     Entry { id: zoomable_image::ID, owner: zoomable_image::OWNER, render: zoomable_image::render },
     Entry { id: motion::ID, owner: motion::OWNER, render: motion::render },
+    Entry { id: canvas::ID, owner: canvas::OWNER, render: canvas::render },
     Entry { id: calendar::ID, owner: calendar::OWNER, render: calendar::render },
     Entry { id: timeline::ID, owner: timeline::OWNER, render: timeline::render },
     Entry { id: record_form::ID, owner: record_form::OWNER, render: record_form::render },

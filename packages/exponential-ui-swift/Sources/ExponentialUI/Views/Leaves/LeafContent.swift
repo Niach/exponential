@@ -57,6 +57,8 @@ struct LeafContent: View {
             ZoomableImageLeaf(cx: cx)
         case ("Motion", _):
             MotionLeaf(cx: cx)
+        case ("Canvas", _):
+            CanvasLeaf(cx: cx)
         case ("AudioPlayer", _):
             AudioLeaf(cx: cx)
         case ("Spinner", _):

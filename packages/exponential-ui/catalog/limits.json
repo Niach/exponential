@@ -13,6 +13,12 @@
     "maxVertices": 100000,
     "maxSeconds": 120,
     "maxFps": 60,
-    "maxPlayingPerSurface": 8
+    "maxPlayingPerSurface": 8,
+    "canvas": {
+      "$comment": "Round 8 (docs/round-8-contract.md §1): the CANVAS budget, on top of the Motion limits above (a canvas compiles into a one-frame Motion: maxBytes and maxShapes apply to it as they stand; maxVertices is not counted, as for any Motion: maxOps bounds the frame). maxOps = display-list ops one canvas frame holds, text ops included (`limit-ops`); maxTexts = `text` shapes in one canvas (`limit-texts`); maxTextChars = characters (Unicode scalar values) in one text shape (`limit-text`). Enforced by eui-motion `canvas::CanvasLimits` (the WASM and uniffi builds too); cases: fixtures/canvas.json `refuse`.",
+      "maxOps": 4000,
+      "maxTexts": 500,
+      "maxTextChars": 1000
+    }
   }
 }

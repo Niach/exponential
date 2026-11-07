@@ -76,6 +76,19 @@ describe(`inputs: interactions replayed on both`, () => {
     expectParity(one({ id: `c`, component: `Checkbox`, props: { label: `C`, checked: false } }), (root) => {
       fire(root.querySelector(`button`), `click`)
     }))
+  it(`Checkbox indeterminate (round 8): mixed, a press checks it, then toggles`, async () =>
+    expectParity(one({ id: `c`, component: `Checkbox`, props: { label: `C`, checked: false, indeterminate: true } }), (root) => {
+      fire(root.querySelector(`button`), `click`)
+    }, (root) => fire(root.querySelector(`button`), `click`)))
+  it(`Checkbox indeterminate bound, inside a Form (the bubble input)`, async () =>
+    expectParity(
+      {
+        tree: { id: `f`, component: `Form`, props: { name: `f` }, children: [{ id: `c`, component: `Checkbox`, props: { label: `All`, name: `all`, checked: { path: `/c` }, indeterminate: { path: `/m` } } }] } as NestedNode,
+        data: { c: true, m: true },
+        theme: `neutral`,
+      },
+      (root) => fire(root.querySelector(`button`), `click`)
+    ))
   it(`Switch: the row toggles`, async () =>
     expectParity(one({ id: `s`, component: `Switch`, props: { label: `S`, checked: false } }), (root) => {
       fire(root.querySelector(`[data-xui-id="s"]`), `click`)

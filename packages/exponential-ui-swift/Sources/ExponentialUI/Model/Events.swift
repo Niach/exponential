@@ -407,6 +407,14 @@ extension SurfaceModel {
         return o.props["checked"]?.bool ?? o.checked
     }
 
+    /// Round 8: a Checkbox in the mixed state (`indeterminate`, the owner's
+    /// resolved prop; an unbound box a press resolved reads false). Mixed
+    /// wins over `checked`: the checked look with the dash, a11y "mixed".
+    public func indeterminate(_ index: Int) -> Bool {
+        guard let n = node(index), let o = owner(of: index), o.component == "Checkbox" || n.component == "Checkbox" else { return false }
+        return o.props["indeterminate"]?.bool ?? n.props["indeterminate"]?.bool ?? false
+    }
+
     /// Is this Radio dot / row the chosen one?
     public func radioChecked(_ index: Int) -> Bool {
         guard let n = node(index), let o = owner(of: index) else { return false }

@@ -5265,6 +5265,44 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-stepper-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-stepper-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "collapse · always",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-wizard",
+                "component": "Stepper",
+                "props": {
+                  "steps": [
+                    {
+                      "label": "Account"
+                    },
+                    {
+                      "label": "Team"
+                    },
+                    {
+                      "label": "Done"
+                    }
+                  ],
+                  "current": 1,
+                  "collapse": "always"
+                }
+              }
+            ]
           }
         ]
       }
@@ -6735,7 +6773,8 @@
                 "props": {
                   "value": 65,
                   "max": 100,
-                  "label": "Upload"
+                  "label": "Upload",
+                  "valueText": "65%"
                 }
               }
             ]
@@ -6764,6 +6803,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "neutral"
                 }
               }
@@ -6793,6 +6833,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "primary"
                 }
               }
@@ -6822,6 +6863,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "success"
                 }
               }
@@ -6851,6 +6893,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "warning"
                 }
               }
@@ -6880,6 +6923,7 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "danger"
                 }
               }
@@ -6909,7 +6953,64 @@
                   "value": 65,
                   "max": 100,
                   "label": "Upload",
+                  "valueText": "65%",
                   "tone": "info"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-progress-case-7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-progress-case-7-label",
+                "component": "Text",
+                "props": {
+                  "text": "valueText · detail",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7-download",
+                "component": "Progress",
+                "props": {
+                  "value": 41,
+                  "label": "Downloading",
+                  "valueText": "41 MB/s · 12 min",
+                  "detail": "3 of 8 files"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-progress-case-8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-progress-case-8-label",
+                "component": "Text",
+                "props": {
+                  "text": "valueText only",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8-sync",
+                "component": "Progress",
+                "props": {
+                  "value": 80,
+                  "valueText": "80%"
                 }
               }
             ]
@@ -10462,6 +10563,77 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-checkbox-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-checkbox-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "indeterminate · a parent of two",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-packs",
+                "component": "Stack",
+                "props": {
+                  "direction": "vertical",
+                  "gap": "xs",
+                  "align": "start"
+                },
+                "children": [
+                  {
+                    "id": "c3-all",
+                    "component": "Checkbox",
+                    "props": {
+                      "label": "All packs",
+                      "name": "all",
+                      "indeterminate": true
+                    }
+                  },
+                  {
+                    "id": "c3-pack-list",
+                    "component": "Stack",
+                    "props": {
+                      "direction": "vertical",
+                      "gap": "xs",
+                      "align": "start"
+                    },
+                    "style": {
+                      "paddingInlineStart": "$spacing.lg"
+                    },
+                    "children": [
+                      {
+                        "id": "c3-icons",
+                        "component": "Checkbox",
+                        "props": {
+                          "label": "Icons",
+                          "name": "icons",
+                          "checked": true
+                        }
+                      },
+                      {
+                        "id": "c3-fonts",
+                        "component": "Checkbox",
+                        "props": {
+                          "label": "Fonts",
+                          "name": "fonts",
+                          "checked": false
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -13003,6 +13175,768 @@
                   ],
                   "fit": "fill"
                 }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-canvas",
+      "component": "Canvas",
+      "title": "Canvas",
+      "node": {
+        "id": "specimen-canvas",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "sg-canvas",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "xl",
+              "align": "start",
+              "wrap": true
+            },
+            "children": [
+              {
+                "id": "sg-canvas-bars-case",
+                "component": "Stack",
+                "props": {
+                  "direction": "vertical",
+                  "gap": "xs"
+                },
+                "children": [
+                  {
+                    "id": "sg-canvas-bars-caption",
+                    "component": "Text",
+                    "props": {
+                      "text": "Bar chart",
+                      "variant": "caption"
+                    }
+                  },
+                  {
+                    "id": "sg-canvas-bars",
+                    "component": "Canvas",
+                    "props": {
+                      "label": "Visits by day",
+                      "size": [
+                        240,
+                        140
+                      ],
+                      "shapes": [
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "path",
+                              "d": "M36 14 H228 M36 62.0 H228"
+                            },
+                            {
+                              "type": "stroke",
+                              "color": "$color.border",
+                              "width": 1,
+                              "dash": [
+                                3,
+                                3
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "path",
+                              "d": "M36 110 H228"
+                            },
+                            {
+                              "type": "stroke",
+                              "color": "$color.border",
+                              "width": 1
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "0",
+                          "position": [
+                            30,
+                            110
+                          ],
+                          "size": 10,
+                          "align": "end",
+                          "baseline": "middle",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "50",
+                          "position": [
+                            30,
+                            62
+                          ],
+                          "size": 10,
+                          "align": "end",
+                          "baseline": "middle",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "100",
+                          "position": [
+                            30,
+                            14
+                          ],
+                          "size": 10,
+                          "align": "end",
+                          "baseline": "middle",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "rect",
+                              "position": [
+                                55.2,
+                                89.84
+                              ],
+                              "size": [
+                                22,
+                                40.32
+                              ],
+                              "radius": 3
+                            },
+                            {
+                              "type": "fill",
+                              "color": "$color.chart1"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "42",
+                          "position": [
+                            55.2,
+                            65.68
+                          ],
+                          "size": 9,
+                          "weight": "medium",
+                          "align": "center",
+                          "color": "$color.foreground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Mon",
+                          "position": [
+                            55.2,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "rect",
+                              "position": [
+                                93.6,
+                                77.36
+                              ],
+                              "size": [
+                                22,
+                                65.28
+                              ],
+                              "radius": 3
+                            },
+                            {
+                              "type": "fill",
+                              "color": "$color.chart1"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "68",
+                          "position": [
+                            93.6,
+                            40.72
+                          ],
+                          "size": 9,
+                          "weight": "medium",
+                          "align": "center",
+                          "color": "$color.foreground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Tue",
+                          "position": [
+                            93.6,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "rect",
+                              "position": [
+                                132,
+                                83.6
+                              ],
+                              "size": [
+                                22,
+                                52.8
+                              ],
+                              "radius": 3
+                            },
+                            {
+                              "type": "fill",
+                              "color": "$color.chart1"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "55",
+                          "position": [
+                            132,
+                            53.2
+                          ],
+                          "size": 9,
+                          "weight": "medium",
+                          "align": "center",
+                          "color": "$color.foreground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Wed",
+                          "position": [
+                            132,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "rect",
+                              "position": [
+                                170.4,
+                                66.8
+                              ],
+                              "size": [
+                                22,
+                                86.4
+                              ],
+                              "radius": 3
+                            },
+                            {
+                              "type": "fill",
+                              "color": "$color.chart1"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "90",
+                          "position": [
+                            170.4,
+                            19.6
+                          ],
+                          "size": 9,
+                          "weight": "medium",
+                          "align": "center",
+                          "color": "$color.foreground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Thu",
+                          "position": [
+                            170.4,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "rect",
+                              "position": [
+                                208.8,
+                                95.6
+                              ],
+                              "size": [
+                                22,
+                                28.8
+                              ],
+                              "radius": 3
+                            },
+                            {
+                              "type": "fill",
+                              "color": "$color.chart1"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "30",
+                          "position": [
+                            208.8,
+                            77.2
+                          ],
+                          "size": 9,
+                          "weight": "medium",
+                          "align": "center",
+                          "color": "$color.foreground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Fri",
+                          "position": [
+                            208.8,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "sg-canvas-line-case",
+                "component": "Stack",
+                "props": {
+                  "direction": "vertical",
+                  "gap": "xs"
+                },
+                "children": [
+                  {
+                    "id": "sg-canvas-line-caption",
+                    "component": "Text",
+                    "props": {
+                      "text": "Line plot",
+                      "variant": "caption"
+                    }
+                  },
+                  {
+                    "id": "sg-canvas-line",
+                    "component": "Canvas",
+                    "props": {
+                      "label": "Sign-ups this week",
+                      "size": [
+                        240,
+                        140
+                      ],
+                      "shapes": [
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "path",
+                              "d": "M36 14 H228 M36 62.0 H228"
+                            },
+                            {
+                              "type": "stroke",
+                              "color": "$color.border",
+                              "width": 1,
+                              "dash": [
+                                3,
+                                3
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "path",
+                              "d": "M36 110 H228"
+                            },
+                            {
+                              "type": "stroke",
+                              "color": "$color.border",
+                              "width": 1
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "0",
+                          "position": [
+                            30,
+                            110
+                          ],
+                          "size": 10,
+                          "align": "end",
+                          "baseline": "middle",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "50",
+                          "position": [
+                            30,
+                            62
+                          ],
+                          "size": 10,
+                          "align": "end",
+                          "baseline": "middle",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "100",
+                          "position": [
+                            30,
+                            14
+                          ],
+                          "size": 10,
+                          "align": "end",
+                          "baseline": "middle",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "path",
+                              "d": "M36.0 90.8 L68.0 76.4 L100.0 81.2 L132.0 57.2 L164.0 63.92 L196.0 40.88 L228.0 28.4"
+                            },
+                            {
+                              "type": "stroke",
+                              "color": "$color.chart2",
+                              "width": 2,
+                              "cap": "round",
+                              "join": "round"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "ellipse",
+                              "position": [
+                                36,
+                                90.8
+                              ],
+                              "size": [
+                                6,
+                                6
+                              ]
+                            },
+                            {
+                              "type": "ellipse",
+                              "position": [
+                                68,
+                                76.4
+                              ],
+                              "size": [
+                                6,
+                                6
+                              ]
+                            },
+                            {
+                              "type": "ellipse",
+                              "position": [
+                                100,
+                                81.2
+                              ],
+                              "size": [
+                                6,
+                                6
+                              ]
+                            },
+                            {
+                              "type": "ellipse",
+                              "position": [
+                                132,
+                                57.2
+                              ],
+                              "size": [
+                                6,
+                                6
+                              ]
+                            },
+                            {
+                              "type": "ellipse",
+                              "position": [
+                                164,
+                                63.92
+                              ],
+                              "size": [
+                                6,
+                                6
+                              ]
+                            },
+                            {
+                              "type": "ellipse",
+                              "position": [
+                                196,
+                                40.88
+                              ],
+                              "size": [
+                                6,
+                                6
+                              ]
+                            },
+                            {
+                              "type": "ellipse",
+                              "position": [
+                                228,
+                                28.4
+                              ],
+                              "size": [
+                                6,
+                                6
+                              ]
+                            },
+                            {
+                              "type": "fill",
+                              "color": "$color.chart2"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "Mon",
+                          "position": [
+                            36,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Tue",
+                          "position": [
+                            68,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Wed",
+                          "position": [
+                            100,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Thu",
+                          "position": [
+                            132,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Fri",
+                          "position": [
+                            164,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Sat",
+                          "position": [
+                            196,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "Sun",
+                          "position": [
+                            228,
+                            116
+                          ],
+                          "size": 10,
+                          "align": "center",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "sg-canvas-pointer-case",
+                "component": "Stack",
+                "props": {
+                  "direction": "vertical",
+                  "gap": "xs"
+                },
+                "children": [
+                  {
+                    "id": "sg-canvas-pointer-caption",
+                    "component": "Text",
+                    "props": {
+                      "text": "Pointer",
+                      "variant": "caption"
+                    }
+                  },
+                  {
+                    "id": "sg-canvas-pointer",
+                    "component": "Canvas",
+                    "props": {
+                      "label": "Pointer pad",
+                      "size": [
+                        240,
+                        120
+                      ],
+                      "pointer": true,
+                      "shapes": [
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "rect",
+                              "position": [
+                                120,
+                                60
+                              ],
+                              "size": [
+                                240,
+                                120
+                              ],
+                              "radius": 10
+                            },
+                            {
+                              "type": "fill",
+                              "color": "$color.muted"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "group",
+                          "shapes": [
+                            {
+                              "type": "path",
+                              "d": "M120 12 V108 M12 60 H228"
+                            },
+                            {
+                              "type": "stroke",
+                              "color": "$color.border",
+                              "width": 1,
+                              "dash": [
+                                4,
+                                4
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": "Press anywhere",
+                          "position": [
+                            120,
+                            60
+                          ],
+                          "size": 12,
+                          "weight": "medium",
+                          "align": "center",
+                          "baseline": "middle",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "0, 0",
+                          "position": [
+                            6,
+                            6
+                          ],
+                          "size": 9,
+                          "font": "mono",
+                          "baseline": "top",
+                          "color": "$color.mutedForeground"
+                        },
+                        {
+                          "type": "text",
+                          "text": "240, 120",
+                          "position": [
+                            234,
+                            114
+                          ],
+                          "size": 9,
+                          "font": "mono",
+                          "align": "end",
+                          "color": "$color.mutedForeground"
+                        }
+                      ]
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "canvasPress"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "sg-canvas-pointer-readout",
+                    "component": "Text",
+                    "props": {
+                      "text": "Last press: none",
+                      "variant": "caption"
+                    }
+                  }
+                ]
               }
             ]
           }

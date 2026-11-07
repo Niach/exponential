@@ -76,11 +76,12 @@ extension SurfaceModel {
 
 /// Which pressables handle their own gestures (no Button wrapper): every
 /// host text field (incl. a NumberField / ChipInput `input`, a Select
-/// `search`), the slider track, a Segmented, the carousel dots.
+/// `search`), the slider track, a Segmented, the carousel dots, a Canvas.
 private func selfHandling(_ n: NodeInfo) -> Bool {
     if n.isTextField { return true }
     switch (n.component, n.part) {
-    case ("Slider", "track"), ("Segmented", _), ("Box", "indicator"): return true
+    // Round 8: a Canvas sends its own `press {x, y}` (CanvasLeaf).
+    case ("Slider", "track"), ("Segmented", _), ("Box", "indicator"), ("Canvas", _): return true
     default: return false
     }
 }

@@ -36,6 +36,7 @@ import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.checked
 import at.exponential.ui.model.holdInput
 import at.exponential.ui.model.isHoldButton
+import at.exponential.ui.model.mixed
 import at.exponential.ui.model.nodeKey
 import at.exponential.ui.model.press
 import at.exponential.ui.model.radioChecked
@@ -242,13 +243,15 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
         }
         (c == "Checkbox" && (p == "box" || p == "checkbox")) || (c == "Switch" && p == "track") -> {
             val on = model.checked(node.index)
+            // Round 8 (a11y.json): mixed wins over checked.
+            val mixed = c == "Checkbox" && model.mixed(node.index)
             val name = a.label ?: node.props.str("label").ifEmpty { model.ownerProps(node.index).str("label") }
             val disabledNow = model.isDisabled(node.index)
             val index = node.index
             clearAndSetSemantics {
                 contentDescription = name
                 role = if (c == "Switch") Role.Switch else Role.Checkbox
-                toggleableState = ToggleableState(on)
+                toggleableState = if (mixed) ToggleableState.Indeterminate else ToggleableState(on)
                 if (disabledNow) disabled() else onClick { model.press(index); true }
             }
         }
@@ -280,7 +283,9 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
                 onClick { model.press(index); true }
             }
         }
-        c == "QrCode" || c == "Motion" -> {
+        // Round 8 (a11y.json `Canvas`): an image named by `label`, hidden
+        // without one; `pointer` (and an `on.press`) adds no role.
+        c == "QrCode" || c == "Motion" || c == "Canvas" -> {
             val name = a.label ?: node.props.str("label").ifEmpty { null }
             if (name == null) hiddenFromAccessibility() else clearAndSetSemantics {
                 contentDescription = name

@@ -19,12 +19,14 @@
 //! - [`runtime`] + [`transport`] (VAPP-91): the host runtime
 //!   ([`runtime::ExponentialHost`]: transport, router, one `SurfaceView` per
 //!   surface, sources, functions, policy) and its transports.
+//! - [`canvas`] (round 8): the Canvas player (raster + native text ops).
 //! - [`media`]: images through the host's media rules (headers).
 //! - [`chrome`] + [`controls`]: the generic glass controls the IDE and the SDK
 //!   share, keyed on a host-installed [`chrome::Chrome`].
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod canvas;
 pub mod chrome;
 pub mod controls;
 pub mod extension;

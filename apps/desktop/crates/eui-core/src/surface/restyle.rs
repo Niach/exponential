@@ -71,6 +71,7 @@ impl Surface {
             states: Vec::new(),
             breakpoints: self.breakpoints(),
             form_factor: self.settings.form_factor,
+            container_width: None,
         }
     }
 
@@ -131,6 +132,7 @@ impl Surface {
     fn styled_flat(&self, n: &LNode, states: &[String], base: &ConditionContext, parent_dir: Direction, parent_font: f32) -> Styled {
         let themed = self.themed_style(n, states);
         let conditional = themed.keys().any(|k| parse_media_condition(k).is_some());
+        let container = themed.keys().any(|k| k.starts_with("@container"));
         let ctx = ConditionContext { states: states.to_vec(), ..base.clone() };
         let mut flat = crate::conditions::resolve_conditions(&themed, &ctx);
         let direction = style::direction_of(&flat).unwrap_or(parent_dir);
@@ -190,7 +192,7 @@ impl Surface {
             let corners = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"].map(|k| flat.get(k).and_then(style::percent_value));
             (all.is_some() || corners.iter().any(Option::is_some)).then_some(RadiusPercent { all, corners })
         };
-        Styled { flat, conditional, direction, radius_pct, built: None }
+        Styled { flat, conditional, container, direction, radius_pct, built: None }
     }
 
     /// The engine style and the painted visual of a flat style (the node's
@@ -234,14 +236,15 @@ impl Surface {
         let parent_dir = n.parent.and_then(|p| self.node_state.get(p as usize)).filter(|s| s.styled).map(|s| s.direction).unwrap_or(self.direction);
         let parent_font = n.parent.and_then(|p| self.node_state.get(p as usize)).map(|s| s.text.font_size).unwrap_or(14.0);
         let kind = if n.kind == NodeKind::Leaf { BoxKind::Leaf } else { BoxKind::Container };
-        let extra = StyleExtra { parent_dir, parent_font: parent_font.to_bits(), hidden: n.hidden, leaf: kind == BoxKind::Leaf, lines: n.lines };
+        let container_width = self.node_state[i].container_width;
+        let extra = StyleExtra { container_width: container_width.map(f32::to_bits), parent_dir, parent_font: parent_font.to_bits(), hidden: n.hidden, leaf: kind == BoxKind::Leaf, lines: n.lines };
         // VAPP-132: template instances share their style inputs, so 10,000
         // rows resolve their recipes, conditions and boxes once.
         let bucket = memo.by_key.entry(style_key(n, &states, &extra)).or_default();
         let at = match bucket.iter().position(|e| e.extra == extra && e.states == states && same_style_inputs(n, &self.nodes[e.slot as usize])) {
             Some(at) => at,
             None => {
-                let styled = self.styled_flat(n, &states, base, parent_dir, parent_font);
+                let styled = self.styled_flat(n, &states, &ConditionContext { container_width, ..base.clone() }, parent_dir, parent_font);
                 bucket.push(StyleEntry { slot, states, extra, styled });
                 bucket.len() - 1
             }
@@ -252,6 +255,7 @@ impl Surface {
         let unchanged = state.styled && state.flat == styled.flat && state.direction == direction;
         let direction_changed = state.styled && state.direction != direction;
         self.node_state[i].conditional = styled.conditional;
+        self.node_state[i].container = styled.container;
         if unchanged {
             return;
         }
@@ -388,6 +392,8 @@ struct StyleEntry {
 /// What a restyle reads besides the style inputs ([`same_style_inputs`]).
 #[derive(Clone, Copy, PartialEq)]
 struct StyleExtra {
+    /// Round 8: the parent's content width an `@container` block matches.
+    container_width: Option<u32>,
     parent_dir: Direction,
     parent_font: u32,
     hidden: bool,
@@ -398,6 +404,7 @@ struct StyleExtra {
 struct Styled {
     flat: Map<String, Value>,
     conditional: bool,
+    container: bool,
     direction: Direction,
     radius_pct: Option<RadiusPercent>,
     /// [`Surface::styled_box`], computed the first time a node needs it.

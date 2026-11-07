@@ -104,6 +104,7 @@ struct MotionLeaf: View {
         let fit = props.str("fit")
         let size = cx.size
         let key = key
+        let font = CanvasSource.font(theme: cx.model.theme)
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !ticking)) { tl in
             Canvas { ctx, box in
                 guard let source, sourceKey == key else { return }
@@ -118,7 +119,7 @@ struct MotionLeaf: View {
                     frame = t.frame
                 }
                 guard let list = MotionList(packed: source.player.sample(frame: frame)) else { return }
-                MotionPainter.paint(list, in: &ctx, box: box, fit: fit.isEmpty ? "contain" : fit, images: source.images)
+                MotionPainter.paint(list, in: &ctx, box: box, fit: fit.isEmpty ? "contain" : fit, images: source.images, font: font)
             }
         }
         .frame(width: size.width, height: size.height)

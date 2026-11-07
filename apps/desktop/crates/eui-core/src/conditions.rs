@@ -26,6 +26,10 @@ const SIZE_FEATURES: [&str; 4] = ["min-width", "max-width", "min-height", "max-h
 /// One parsed `@media (feature: value)` key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MediaCondition {
+    /// Round 8: an `@container (min-width|max-width: …)` key, matched
+    /// against [`ConditionContext::container_width`] (the parent box).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub container: bool,
     /// `min-width | max-width | min-height | max-height | orientation | hover | prefers-reduced-motion | form-factor`
     pub feature: String,
     /// The px value (`600px`) or `$breakpoint.<name>` for the size features;
@@ -54,6 +58,12 @@ pub fn breakpoint_ref(value: &str) -> Option<&str> {
 /// `"@media (min-width: $breakpoint.md)"` → `{feature, value}`; `None` when
 /// the key is not a media condition of the grammar (`STYLE_MEDIA_PATTERN`).
 pub fn parse_media_condition(key: &str) -> Option<MediaCondition> {
+    // Round 8: `@container (min-width|max-width: N)`, the parent box's width.
+    if let Some(inner) = key.strip_prefix("@container (").and_then(|k| k.strip_suffix(')')) {
+        let (feature, value) = inner.split_once(": ")?;
+        let ok = matches!(feature, "min-width" | "max-width") && (value.strip_suffix("px").is_some_and(decimal) || breakpoint_ref(value).is_some());
+        return ok.then(|| MediaCondition { container: true, feature: feature.to_string(), value: value.to_string() });
+    }
     let inner = key.strip_prefix("@media (")?.strip_suffix(')')?;
     let (feature, value) = inner.split_once(": ")?;
     let ok = match feature {
@@ -64,7 +74,7 @@ pub fn parse_media_condition(key: &str) -> Option<MediaCondition> {
         "form-factor" => FormFactor::parse(value).is_some(),
         _ => false,
     };
-    ok.then(|| MediaCondition { feature: feature.to_string(), value: value.to_string() })
+    ok.then(|| MediaCondition { container: false, feature: feature.to_string(), value: value.to_string() })
 }
 
 /// A `@media` key of the grammar.
@@ -146,6 +156,11 @@ pub struct ConditionContext {
     /// ([`form_factor_of`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub form_factor: Option<FormFactor>,
+    /// Round 8: the width of the node's PARENT box (its content box, after
+    /// layout), what `@container` matches; `None` = not laid out yet (a
+    /// container condition never matches).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_width: Option<f32>,
 }
 
 /// The built-in breakpoints (every built-in theme's, Tailwind's).
@@ -165,7 +180,7 @@ pub fn media_matches(condition: &MediaCondition, ctx: &ConditionContext) -> bool
     match condition.feature.as_str() {
         f if SIZE_FEATURES.contains(&f) => {
             let Some(n) = size_value(&condition.value, &ctx.breakpoints) else { return false };
-            let size = if f.ends_with("width") { Some(ctx.width) } else { ctx.height };
+            let size = if condition.container { ctx.container_width } else if f.ends_with("width") { Some(ctx.width) } else { ctx.height };
             let Some(size) = size else { return false };
             if f.starts_with("min") {
                 size >= n

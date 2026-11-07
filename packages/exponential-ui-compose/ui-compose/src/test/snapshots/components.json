@@ -4443,6 +4443,96 @@
       }
     ]
   },
+  "Canvas\/example" : {
+    "height" : 100,
+    "nodes" : [
+      {
+        "component" : "Canvas",
+        "frame" : [
+          0,
+          0,
+          160,
+          100
+        ],
+        "id" : "canvas"
+      }
+    ]
+  },
+  "Canvas\/fit=contain" : {
+    "height" : 100,
+    "nodes" : [
+      {
+        "component" : "Canvas",
+        "frame" : [
+          0,
+          0,
+          160,
+          100
+        ],
+        "id" : "canvas"
+      }
+    ]
+  },
+  "Canvas\/fit=cover" : {
+    "height" : 100,
+    "nodes" : [
+      {
+        "component" : "Canvas",
+        "frame" : [
+          0,
+          0,
+          160,
+          100
+        ],
+        "id" : "canvas"
+      }
+    ]
+  },
+  "Canvas\/fit=fill" : {
+    "height" : 100,
+    "nodes" : [
+      {
+        "component" : "Canvas",
+        "frame" : [
+          0,
+          0,
+          160,
+          100
+        ],
+        "id" : "canvas"
+      }
+    ]
+  },
+  "Canvas\/pointer=false" : {
+    "height" : 100,
+    "nodes" : [
+      {
+        "component" : "Canvas",
+        "frame" : [
+          0,
+          0,
+          160,
+          100
+        ],
+        "id" : "canvas"
+      }
+    ]
+  },
+  "Canvas\/pointer=true" : {
+    "height" : 100,
+    "nodes" : [
+      {
+        "component" : "Canvas",
+        "frame" : [
+          0,
+          0,
+          160,
+          100
+        ],
+        "id" : "canvas"
+      }
+    ]
+  },
   "Card\/example" : {
     "height" : 120,
     "nodes" : [
@@ -5329,6 +5419,129 @@
         "id" : "checkbox.box",
         "part" : "box",
         "radius" : 4
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          366,
+          20
+        ],
+        "id" : "checkbox.label",
+        "part" : "label"
+      }
+    ]
+  },
+  "Checkbox\/indeterminate=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "checkbox"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "checkbox.box",
+        "part" : "box",
+        "radius" : 4
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          366,
+          20
+        ],
+        "id" : "checkbox.label",
+        "part" : "label"
+      }
+    ]
+  },
+  "Checkbox\/indeterminate=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "checkbox"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "checkbox.box",
+        "part" : "box",
+        "radius" : 4
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          366,
+          20
+        ],
+        "id" : "checkbox.label",
+        "part" : "label"
+      }
+    ]
+  },
+  "Checkbox\/indeterminate=true+checked=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "checkbox"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "checkbox.box",
+        "part" : "box",
+        "radius" : 4,
+        "states" : [
+          "checked"
+        ]
       },
       {
         "component" : "Text",
@@ -18152,6 +18365,85 @@
       }
     ]
   },
+  "Progress\/detail" : {
+    "height" : 56,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          56
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          358,
+          20
+        ],
+        "id" : "progress.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          24,
+          20
+        ],
+        "id" : "progress.header.value"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          36,
+          390,
+          20
+        ],
+        "id" : "progress.detail"
+      }
+    ]
+  },
   "Progress\/example" : {
     "height" : 32,
     "nodes" : [
@@ -18166,14 +18458,34 @@
         "id" : "progress"
       },
       {
-        "component" : "Text",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
           20
         ],
-        "id" : "progress.label"
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          358,
+          20
+        ],
+        "id" : "progress.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          24,
+          20
+        ],
+        "id" : "progress.header.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -18215,14 +18527,34 @@
         "id" : "progress"
       },
       {
-        "component" : "Text",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
           20
         ],
-        "id" : "progress.label"
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          358,
+          20
+        ],
+        "id" : "progress.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          24,
+          20
+        ],
+        "id" : "progress.header.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -18264,14 +18596,34 @@
         "id" : "progress"
       },
       {
-        "component" : "Text",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
           20
         ],
-        "id" : "progress.label"
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          358,
+          20
+        ],
+        "id" : "progress.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          24,
+          20
+        ],
+        "id" : "progress.header.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -18313,14 +18665,34 @@
         "id" : "progress"
       },
       {
-        "component" : "Text",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
           20
         ],
-        "id" : "progress.label"
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          358,
+          20
+        ],
+        "id" : "progress.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          24,
+          20
+        ],
+        "id" : "progress.header.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -18362,14 +18734,34 @@
         "id" : "progress"
       },
       {
-        "component" : "Text",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
           20
         ],
-        "id" : "progress.label"
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          358,
+          20
+        ],
+        "id" : "progress.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          24,
+          20
+        ],
+        "id" : "progress.header.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -18411,14 +18803,34 @@
         "id" : "progress"
       },
       {
-        "component" : "Text",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
           20
         ],
-        "id" : "progress.label"
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          358,
+          20
+        ],
+        "id" : "progress.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          24,
+          20
+        ],
+        "id" : "progress.header.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -18460,14 +18872,34 @@
         "id" : "progress"
       },
       {
-        "component" : "Text",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
           20
         ],
-        "id" : "progress.label"
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          358,
+          20
+        ],
+        "id" : "progress.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          24,
+          20
+        ],
+        "id" : "progress.header.value"
       },
       {
         "bg" : "#ffffff0a",
@@ -18483,6 +18915,65 @@
       },
       {
         "bg" : "#facc15",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Progress\/valueText-only" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          262,
+          0,
+          128,
+          20
+        ],
+        "id" : "progress.header.value"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#e5e5e5",
         "component" : "Box",
         "frame" : [
           0,
@@ -30905,6 +31396,449 @@
           32
         ],
         "id" : "stat-tile.card.trend"
+      }
+    ]
+  },
+  "Stepper\/collapse=always" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stepper"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stepper.line.1"
+      }
+    ]
+  },
+  "Stepper\/collapse=always+current=0" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stepper"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stepper.line.0"
+      }
+    ]
+  },
+  "Stepper\/collapse=always+current=9" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "stepper"
+      }
+    ]
+  },
+  "Stepper\/collapse=auto" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stepper"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.0"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.0.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.0.marker.check"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.0.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.0.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.1"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.1.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.1.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.1.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.1.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.2"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.2.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.2.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.2.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "stepper.full.step.2.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stepper.compact"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stepper.compact.line.1"
+      }
+    ]
+  },
+  "Stepper\/collapse=never" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          48
+        ],
+        "id" : "stepper"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.0"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          49,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.0.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          53,
+          4,
+          16,
+          16
+        ],
+        "id" : "stepper.step.0.marker.check"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          33,
+          28,
+          56,
+          20
+        ],
+        "id" : "stepper.step.0.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          28,
+          56,
+          20
+        ],
+        "id" : "stepper.step.0.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          134,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.1"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          183,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.1.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          191,
+          2,
+          8,
+          20
+        ],
+        "id" : "stepper.step.1.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          179,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.1.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          179,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.1.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          268,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.2"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          317,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.2.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          325,
+          2,
+          8,
+          20
+        ],
+        "id" : "stepper.step.2.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          313,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.2.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          313,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.2.body.label"
       }
     ]
   },

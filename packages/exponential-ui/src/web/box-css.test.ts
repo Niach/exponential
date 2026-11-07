@@ -25,6 +25,18 @@ describe(`compileNodeSheet`, () => {
   })
 })
 
+describe(`@container (round 8)`, () => {
+  it(`a real container query against the PARENT, made an inline-size container; @media stays on the surface`, () => {
+    const t = node(`root`, undefined, [node(`kid`, { display: `flex`, "@container (max-width: 480px)": { display: `none` }, "@media (min-width: 900px)": { gap: 4 } })])
+    const css = compileNodeSheet([t], `s`).chunks.get(`kid`)!
+    expect(css).toContain(`.xui-s-s:has(> .xui-n-kid),.xui-s-s :has(> .xui-n-kid){container-type:inline-size}`)
+    expect(css).toContain(`@container (width < 480px){.xui-s-s .xui-n-kid{display:none}}`)
+    expect(css).toContain(`@container xui (width >= 900px)`)
+    const min = compileNodeSheet([node(`r`, undefined, [node(`k`, { "@container (min-width: 200px)": { gap: 4 } })])], `s`).chunks.get(`k`)!
+    expect(min).toContain(`@container (width >= 200px)`)
+  })
+})
+
 describe(`nodeSheetBatches`, () => {
   const step = (prev: readonly NodeSheetBatch[], cards: number) => nodeSheetBatches(prev, compileNodeSheet([tree(cards)], `s`).chunks)
   it(`a first sheet is one batch, equal to the whole sheet`, () => {

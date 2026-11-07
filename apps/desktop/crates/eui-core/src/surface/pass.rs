@@ -38,6 +38,8 @@ pub(super) struct PassState {
     rounds: u32,
     /// VAPP-279: strip Tabs refits this pass.
     refits: u32,
+    /// Round 8: `@container` refits this pass.
+    container_refits: u32,
     missing: Vec<usize>,
     heights: Vec<HeightRequest>,
 }
@@ -250,7 +252,7 @@ impl Surface {
     /// pass as resumable STEPS for a host that must not be called back
     /// while the surface is locked (the FFI).
     pub fn layout(&mut self, measure: &mut dyn Measure) -> LayoutOutput {
-        let mut state = PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, missing: Vec::new(), heights: Vec::new() };
+        let mut state = PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, missing: Vec::new(), heights: Vec::new() };
         self.prepare(measure.measure_id());
         loop {
             state.rounds += 1;
@@ -262,7 +264,7 @@ impl Surface {
                 self.apply_intrinsics(&missing, &answers);
             }
             let (frames, placed, pending) = self.compute_all();
-            if pending.is_empty() && self.refit_tab_strips(&frames, &mut state) {
+            if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state)) {
                 continue;
             }
             if pending.is_empty() || state.rounds >= 3 {
@@ -294,6 +296,37 @@ impl Surface {
         true
     }
 
+    /// Round 8 (style.json `@container`): every node with `@container`
+    /// blocks takes its parent's laid-out CONTENT width; when one moved the
+    /// styles re-resolve and the pass lays out again (at most twice; the
+    /// first pass matches no container condition: no width yet).
+    fn refit_containers(&mut self, frames: &[Frame], state: &mut PassState) -> bool {
+        if state.container_refits >= 2 {
+            return false;
+        }
+        let mut changed = false;
+        for i in 0..self.nodes.len() {
+            if !self.live.get(i).copied().unwrap_or(false) || !self.node_state.get(i).is_some_and(|s| s.container) {
+                continue;
+            }
+            let Some(p) = self.nodes[i].parent else { continue };
+            let Some(frame) = frames.get(p as usize) else { continue };
+            let l = self.engine.layout(p);
+            let w = (frame.w - l.padding.left - l.padding.right - l.border.left - l.border.right).max(0.0);
+            if self.node_state[i].container_width.is_none_or(|o| (o - w).abs() > 0.5) {
+                self.node_state[i].container_width = Some(w);
+                self.style_dirty.insert(i as u32);
+                changed = true;
+            }
+        }
+        if changed {
+            state.container_refits += 1;
+            state.rounds = state.rounds.saturating_sub(1);
+            self.restyle();
+        }
+        changed
+    }
+
     fn owned_leaves(&self, indices: impl Iterator<Item = usize>) -> Vec<LeafData> {
         indices
             .map(|i| {
@@ -311,7 +344,7 @@ impl Surface {
     /// without holding the surface.
     pub fn layout_begin(&mut self, measure_id: u64) -> LayoutStep {
         self.prepare(measure_id);
-        self.step_state = Some(PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, missing: Vec::new(), heights: Vec::new() });
+        self.step_state = Some(PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, missing: Vec::new(), heights: Vec::new() });
         self.step_round()
     }
 
@@ -330,7 +363,7 @@ impl Surface {
     fn step_compute(&mut self) -> LayoutStep {
         let (frames, placed, pending) = self.compute_all();
         let Some(mut state) = self.step_state.take() else { return LayoutStep::Idle };
-        if pending.is_empty() && self.refit_tab_strips(&frames, &mut state) {
+        if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state)) {
             self.step_state = Some(state);
             return self.step_round();
         }

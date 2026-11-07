@@ -16,6 +16,7 @@ mod events;
 mod input;
 mod motion;
 mod motion_leaf;
+mod canvas_leaf;
 mod paint;
 mod pinned;
 pub(crate) mod state;
@@ -351,6 +352,8 @@ pub struct SurfaceView {
     zooms: HashMap<String, zoom::Zoom>,
     /// EXP-1604: the Motion leaves by node id (player, clock, last image).
     motion_leaves: motion_leaf::MotionLeaves,
+    /// Round 8: the Canvas leaves by node id (player, last image, pointer).
+    canvas_leaves: canvas_leaf::CanvasLeaves,
     /// EXP-1604: Motions show their posters while the window is inactive.
     motion_background_pause: bool,
     revisions: HashMap<String, u64>,
@@ -594,6 +597,7 @@ impl SurfaceView {
             fields: HashMap::new(),
             zooms: HashMap::new(),
             motion_leaves: Default::default(),
+            canvas_leaves: Default::default(),
             motion_background_pause: true,
             revisions: HashMap::new(),
             hover_timer: None,
@@ -1240,7 +1244,7 @@ impl SurfaceView {
             }
             if let Some(t) = self.surface.text_style(i as u32) {
                 let font = self.fonts.for_style(t);
-                let tabular = self.cache.nodes.get(i).is_some_and(|n| crate::measure::tabular_nums(n.owner_component.as_deref(), n.part.as_deref()));
+                let tabular = self.cache.nodes.get(i).is_some_and(|n| crate::measure::tabular_text(&n.id, n.owner_component.as_deref(), n.part.as_deref()));
                 self.node_fonts[i] = if tabular { crate::measure::with_tabular_nums(font) } else { font };
                 self.texts[i] = t.clone();
             }
@@ -1453,6 +1457,14 @@ impl SurfaceView {
     /// platform tree is only built while a screen reader is on). Also
     /// answers the built-in sub-controls: `<composer>.send`,
     /// `<composer>.attach`, `<indicator>.dot.<i>`.
+    /// The toggled state node `id` announces (checkboxes, switches,
+    /// radios): round 8, `Mixed` for an indeterminate Checkbox.
+    pub fn toggled_state(&self, id: &str) -> Option<gpui::Toggled> {
+        let n = self.cache.index_of(id).and_then(|i| self.cache.node(i))?;
+        let info = self.node_a11y(n)?;
+        matches!(info.role, gpui::Role::CheckBox | gpui::Role::Switch | gpui::Role::RadioButton | gpui::Role::MenuItemCheckBox).then(|| self.toggled(n))
+    }
+
     pub fn accessible_info(&self, id: &str) -> Option<AccessibleInfo> {
         if let Some(n) = self.cache.index_of(id).and_then(|i| self.cache.node(i)) {
             return self.node_a11y(n);

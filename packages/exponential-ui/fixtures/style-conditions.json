@@ -1,5 +1,5 @@
 {
-  "$comment": "Round 1 (docs/round-1-contract.md §2): the STYLE CONDITION contract. Inputs hand-written (name, style, contexts); `expected` is filled by scripts/generate.ts from src/style.ts resolveConditions: the base keys, then every matching @media block in SOURCE order, then :hover, :focus-visible, :pressed (pressed wins). Sizes are the SURFACE box; min-* = size >= N, max-* = size < N; a $breakpoint token resolves through the context's breakpoints (the file's when absent; an unknown token never matches); orientation portrait = height >= width (landscape when the height is unknown); form-factor (VAPP-218) = the HOST's form factor, the context's `formFactor` (`phone`|`wide`) when set, else derived from the SURFACE width: `phone` when width < the breakpoints' `md` (the context's, else the file's), else `wide`; it is a media feature like orientation, so its blocks apply in source order with the other @media blocks. Token VALUES pass through untouched (the theme resolves them after). Every renderer replays it.",
+  "$comment": "Round 1 (docs/round-1-contract.md §2): the STYLE CONDITION contract. Inputs hand-written (name, style, contexts); `expected` is filled by scripts/generate.ts from src/style.ts resolveConditions: the base keys, then every matching @media block in SOURCE order, then :hover, :focus-visible, :pressed (pressed wins). Sizes are the SURFACE box; min-* = size >= N, max-* = size < N; a $breakpoint token resolves through the context's breakpoints (the file's when absent; an unknown token never matches); orientation portrait = height >= width (landscape when the height is unknown); form-factor (VAPP-218) = the HOST's form factor, the context's `formFactor` (`phone`|`wide`) when set, else derived from the SURFACE width: `phone` when width < the breakpoints' `md` (the context's, else the file's), else `wide`; it is a media feature like orientation, so its blocks apply in source order with the other @media blocks. Token VALUES pass through untouched (the theme resolves them after). Every renderer replays it. Round 8 (docs/round-8-contract.md §4): `@container (min-width|max-width: N)` matches the context's `containerWidth` (the node's PARENT content box after layout) instead of the surface width; a context without `containerWidth` (not laid out yet) matches no container block; it applies in source order with the @media blocks.",
   "breakpoints": {
     "sm": 640,
     "md": 768,
@@ -485,6 +485,70 @@
         },
         {
           "padding": 4
+        }
+      ]
+    },
+    {
+      "name": "container blocks match the parent box, not the surface",
+      "style": {
+        "display": "flex",
+        "gap": 8,
+        "@media (max-width: 700px)": {
+          "gap": 4
+        },
+        "@container (max-width: $breakpoint.sm)": {
+          "display": "none"
+        },
+        "@container (min-width: 1000px)": {
+          "gap": 16
+        }
+      },
+      "contexts": [
+        {
+          "label": "not laid out yet",
+          "width": 1200
+        },
+        {
+          "label": "a narrow column of a wide surface",
+          "width": 1200,
+          "containerWidth": 400
+        },
+        {
+          "label": "exactly sm",
+          "width": 1200,
+          "containerWidth": 640
+        },
+        {
+          "label": "a wide column",
+          "width": 1200,
+          "containerWidth": 1100
+        },
+        {
+          "label": "a narrow surface, then the container block",
+          "width": 600,
+          "containerWidth": 600
+        }
+      ],
+      "expected": [
+        {
+          "display": "flex",
+          "gap": 8
+        },
+        {
+          "display": "none",
+          "gap": 8
+        },
+        {
+          "display": "flex",
+          "gap": 8
+        },
+        {
+          "display": "flex",
+          "gap": 16
+        },
+        {
+          "display": "none",
+          "gap": 4
         }
       ]
     }

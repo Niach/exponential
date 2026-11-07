@@ -599,12 +599,33 @@ impl Surface {
                 out.push(OutEvent::Relayout);
             }
             ("Resizable", Some("handle"), "drag" | "key") => out.extend(self.resize_event(&n, &owner_id, event, payload.as_ref())),
+            // Round 8: a Canvas without `pointer: true` is inert (an image);
+            // with it, `press` / `move` / `leave` fire with the painter's
+            // `{x, y}` (drawing units, eui-motion `canvas::to_drawing`).
+            ("Canvas", _, "press" | "move" | "leave") if n.props.get("pointer").and_then(Value::as_bool) != Some(true) => {}
             ("Checkbox" | "Switch", _, "press" | "change") => {
                 let current = self.current_prop(&owner_id, "checked").and_then(|v| v.as_bool()).unwrap_or(false);
-                let checked = payload.as_ref().and_then(|p| p.get("checked")).and_then(Value::as_bool).unwrap_or(!current);
+                // Round 8 (fixtures/interactions-round1.json `checkbox`): a
+                // MIXED Checkbox resolves to checked whatever the painter
+                // sent, writes `indeterminate: false` (only then) and says
+                // both in `change`.
+                let mixed = owner_component == "Checkbox" && self.current_prop(&owner_id, "indeterminate").and_then(|v| v.as_bool()) == Some(true);
+                let checked = if mixed { true } else { payload.as_ref().and_then(|p| p.get("checked")).and_then(Value::as_bool).unwrap_or(!current) };
                 self.local.errors.remove(&owner_id);
                 out.extend(self.write_field(&owner_id, "checked", Value::Bool(checked)));
-                out.extend(self.fire(&owner_id, "change", Some(json!({"checked": checked}))));
+                if mixed {
+                    let wrote = self.write_through(&owner_id, "indeterminate", Value::Bool(false));
+                    if wrote.is_empty() {
+                        // Unbound: kept locally under `<id>.indeterminate`
+                        // (a part-style key, so it lives while the
+                        // component is unchanged, like any field value).
+                        self.local.field_values.insert(format!("{owner_id}.indeterminate"), Value::Bool(false));
+                        self.needs_build = true;
+                    }
+                    out.extend(wrote);
+                }
+                let change = if owner_component == "Checkbox" { json!({"checked": checked, "indeterminate": false}) } else { json!({"checked": checked}) };
+                out.extend(self.fire(&owner_id, "change", Some(change)));
                 out.push(OutEvent::Relayout);
             }
             ("Radio", Some("item" | "dot" | "label"), "press") => {
@@ -1014,6 +1035,7 @@ impl Surface {
             "selected" => self.local.selected.get(id).map(|v| Value::Array(v.iter().cloned().map(Value::String).collect())),
             "sort" => self.local.sort.get(id).map(|(k, d)| json!({"key": k, "direction": d})),
             "checked" | "value" => self.local.field_values.get(id).cloned(),
+            "indeterminate" => self.local.field_values.get(&format!("{id}.indeterminate")).cloned(),
             _ => None,
         };
         local.or_else(|| self.node_by_id(id).and_then(|o| o.props.get(prop)).cloned())

@@ -123,10 +123,12 @@ struct CheckBoxLeaf: View {
 
     var body: some View {
         let own = cx.node.part == "checkbox" || cx.node.recipeComponent == "Table"
+        let mixed = !own && cx.model.indeterminate(cx.index)
         let checked = own ? (cx.node.checked || cx.props.flag("checked")) : cx.model.checked(cx.index)
-        if checked {
+        if checked || mixed {
             let check = cx.part("Checkbox", "check")
-            ConceptIcon(name: BuiltinIcons.name("Checkbox.check"), size: check.width ?? 12, color: check.color ?? cx.style.color ?? cx.ink, model: cx.model, weight: .bold)
+            // Round 8: the mixed box = the checked look with the dash.
+            ConceptIcon(name: BuiltinIcons.name(mixed ? "Checkbox.check.indeterminate" : "Checkbox.check"), size: check.width ?? 12, color: check.color ?? cx.style.color ?? cx.ink, model: cx.model, weight: .bold)
                 .frame(width: cx.size.width, height: cx.size.height)
         } else {
             Color.clear

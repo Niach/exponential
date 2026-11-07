@@ -634,6 +634,189 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 
+/**
+ * Round 8: a compiled Canvas (`{size, shapes}`, a static drawing) for the
+ * SwiftUI and Compose painters: compile once per props change, `sample`
+ * with the theme's slot overrides (the Motion player's contract) whenever
+ * the props, the theme or the mode change. The packed frame (VERSION 2)
+ * holds the shapes' ops, then one `text` op per text shape (README ›
+ * Packed frames): the painter sets those natively, on top.
+ */
+public protocol CanvasPlayerProtocol: AnyObject, Sendable {
+    
+    /**
+     * The packed frame with these slot overrides (`{id: value}` JSON, or "").
+     */
+    func sample(slotsJson: String)  -> [Float]
+    
+    /**
+     * The drawing's width and height (its coordinate space).
+     */
+    func size()  -> [Float]
+    
+    /**
+     * Every slot the canvas declares (`$color.<token>`, `ld:<light>:<dark>`), sorted.
+     */
+    func slotIds()  -> [String]
+    
+}
+/**
+ * Round 8: a compiled Canvas (`{size, shapes}`, a static drawing) for the
+ * SwiftUI and Compose painters: compile once per props change, `sample`
+ * with the theme's slot overrides (the Motion player's contract) whenever
+ * the props, the theme or the mode change. The packed frame (VERSION 2)
+ * holds the shapes' ops, then one `text` op per text shape (README ›
+ * Packed frames): the painter sets those natively, on top.
+ */
+open class CanvasPlayer: CanvasPlayerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_canvasplayer(self.handle, $0) }
+    }
+    /**
+     * Compile a Canvas node's `{size, shapes}` JSON; the issues as
+     * `UiError::Invalid` (a JSON array) when refused.
+     */
+public convenience init(canvasJson: String)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_constructor_canvasplayer_new(
+        FfiConverterString.lower(canvasJson),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_canvasplayer(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The packed frame with these slot overrides (`{id: value}` JSON, or "").
+     */
+open func sample(slotsJson: String) -> [Float]  {
+    return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_canvasplayer_sample(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(slotsJson),$0
+    )
+})
+}
+    
+    /**
+     * The drawing's width and height (its coordinate space).
+     */
+open func size() -> [Float]  {
+    return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_canvasplayer_size(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Every slot the canvas declares (`$color.<token>`, `ld:<light>:<dark>`), sorted.
+     */
+open func slotIds() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_canvasplayer_slot_ids(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCanvasPlayer: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = CanvasPlayer
+
+    public static func lift(_ handle: UInt64) throws -> CanvasPlayer {
+        return CanvasPlayer(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: CanvasPlayer) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CanvasPlayer {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: CanvasPlayer, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCanvasPlayer_lift(_ handle: UInt64) throws -> CanvasPlayer {
+    return try FfiConverterTypeCanvasPlayer.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCanvasPlayer_lower(_ value: CanvasPlayer) -> UInt64 {
+    return FfiConverterTypeCanvasPlayer.lower(value)
+}
+
+
+
+
+
+
 public protocol HostFormatter: AnyObject, Sendable {
     
     /**
@@ -7114,6 +7297,31 @@ fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceDouble: FfiConverterRustBuffer {
+    typealias SwiftType = [Double]
+
+    public static func write(_ value: [Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterDouble.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Double] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Double]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterDouble.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -8530,6 +8738,25 @@ public func zoomJson(requestJson: String) -> String  {
 })
 }
 /**
+ * Round 8: a pointer at box px `(x, y)` → drawing units (THE fit mapping
+ * inverted, two decimals; `fit` = contain | cover | fill): what a Canvas
+ * with `pointer: true` sends as `press` / `move` `{x, y}`. Empty for an
+ * empty box.
+ */
+public func canvasToDrawing(x: Double, y: Double, width: Double, height: Double, boxWidth: Double, boxHeight: Double, fit: String) -> [Double]  {
+    return try!  FfiConverterSequenceDouble.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_canvas_to_drawing(
+        FfiConverterDouble.lower(x),
+        FfiConverterDouble.lower(y),
+        FfiConverterDouble.lower(width),
+        FfiConverterDouble.lower(height),
+        FfiConverterDouble.lower(boxWidth),
+        FfiConverterDouble.lower(boxHeight),
+        FfiConverterString.lower(fit),$0
+    )
+})
+}
+/**
  * Compile an authoring-dialect document (a Motion's inline `layers` plus
  * `size`, `fps`, `duration`, `start`, `time`, `assets`, `markers`) into Lottie
  * JSON; the issues as `UiError::Invalid` (JSON) otherwise.
@@ -8828,6 +9055,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_zoom_json() != 60442) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_canvas_to_drawing() != 9519) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_motion_compile() != 7142) {
@@ -9160,6 +9390,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_theme_type_size() != 27563) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_sample() != 7316) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_size() != 16901) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_canvasplayer_slot_ids() != 17144) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_add_font() != 11928) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9221,6 +9460,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_theme_load() != 18071) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_canvasplayer_new() != 60256) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_motionplayer_new() != 47836) {

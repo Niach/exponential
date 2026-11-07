@@ -610,7 +610,7 @@
     }
   },
   "conditions": {
-    "media": "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$|^@media \\(form-factor: (phone|wide)\\)$",
+    "media": "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$|^@media \\(form-factor: (phone|wide)\\)$|^@container \\((min-width|max-width): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$",
     "states": [
       ":hover",
       ":focus-visible",

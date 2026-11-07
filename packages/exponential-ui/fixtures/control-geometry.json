@@ -622,7 +622,8 @@
           "default": {
             "props": {
               "checked": false,
-              "disabled": false
+              "disabled": false,
+              "indeterminate": false
             },
             "geometry": {
               "width": 16,
@@ -1955,7 +1956,8 @@
           "default": {
             "props": {
               "checked": false,
-              "disabled": false
+              "disabled": false,
+              "indeterminate": false
             },
             "geometry": {
               "width": 16,
@@ -3288,7 +3290,8 @@
           "default": {
             "props": {
               "checked": false,
-              "disabled": false
+              "disabled": false,
+              "indeterminate": false
             },
             "geometry": {
               "width": 20,
@@ -4624,7 +4627,8 @@
           "default": {
             "props": {
               "checked": false,
-              "disabled": false
+              "disabled": false,
+              "indeterminate": false
             },
             "geometry": {
               "width": 16,

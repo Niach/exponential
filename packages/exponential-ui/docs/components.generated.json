@@ -2801,11 +2801,20 @@
           "responsive": false,
           "default": "horizontal",
           "description": "In a row or stacked."
+        },
+        {
+          "name": "collapse",
+          "type": "never | auto | always",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "never",
+          "description": "One line \"Step n of m · label\"; auto when narrower than sm."
         }
       ],
       "accessibility": {
         "role": "list",
-        "notes": "list; the current step aria-current=step. Each step a listitem labelled `stepDone`/`stepCurrent`/`stepUpcoming`; the current one aria-current=step ($a11y).",
+        "notes": "list; the current step aria-current=step. Each step a listitem labelled `stepDone`/`stepCurrent`/`stepUpcoming`; the current one aria-current=step ($a11y). `collapse` (always, or auto below sm): ONE text line \"Step n of m · label\" (`stepCompact`) inside the list, as the current step's listitem (aria-current=step).",
         "keys": []
       },
       "example": {
@@ -3824,6 +3833,22 @@
           "description": "A caption above the bar."
         },
         {
+          "name": "valueText",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Text after the label (rate, time left)."
+        },
+        {
+          "name": "detail",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Muted line under the bar."
+        },
+        {
           "name": "tone",
           "type": "neutral | primary | success | warning | danger | info",
           "required": false,
@@ -3835,7 +3860,7 @@
       ],
       "accessibility": {
         "role": "progressbar",
-        "notes": "progressbar (valuenow/valuemax, labelled by its label)",
+        "notes": "progressbar (valuenow/valuemax, labelled by its label; `detail` = its description)",
         "keys": []
       },
       "example": {
@@ -3843,7 +3868,8 @@
         "component": "Progress",
         "value": 65,
         "max": 100,
-        "label": "Upload"
+        "label": "Upload",
+        "valueText": "65%"
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Progress/<part>."
     },
@@ -5613,6 +5639,15 @@
           "description": "On or off."
         },
         {
+          "name": "indeterminate",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Mixed: a dash; a press checks it."
+        },
+        {
           "name": "disabled",
           "type": "boolean",
           "required": false,
@@ -5632,9 +5667,9 @@
       ],
       "accessibility": {
         "role": "checkbox",
-        "notes": "checkbox",
+        "notes": "checkbox; `indeterminate` = checked state MIXED (aria-checked=mixed / the platform's mixed toggle state), whatever `checked`; Space checks it (checked true, indeterminate false)",
         "keys": [
-          "Space: toggle"
+          "Space: toggle (mixed → checked)"
         ]
       },
       "example": {
@@ -7608,6 +7643,201 @@
                 "width": 4
               }
             ]
+          }
+        ]
+      },
+      "macro": null
+    },
+    {
+      "name": "Canvas",
+      "kind": "native",
+      "group": "media",
+      "lite": true,
+      "specimenId": "exponential-ui-canvas",
+      "description": "A static drawing (chart, diagram, illustration) of shapes and text; Motion animates.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "press",
+        "move",
+        "leave"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "size",
+          "type": "[number]",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "Drawing units [w, h], origin top-left."
+        },
+        {
+          "name": "shapes",
+          "type": "[object]",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Motion's shapes, no keys, + text {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color} on top, always upright."
+        },
+        {
+          "name": "fit",
+          "type": "contain | cover | fill",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "contain",
+          "description": "How it fills the box."
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "What it shows, for screen readers."
+        },
+        {
+          "name": "pointer",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "press/move/leave get {x, y} in drawing units."
+        },
+        {
+          "name": "style",
+          "type": "style",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Extra Box styles for the box."
+        }
+      ],
+      "accessibility": {
+        "role": "img",
+        "notes": "img named by label; decorative (hidden) without one. `pointer` adds no focus stop or role: press/move/leave carry drawing coordinates for pointer users, so put what it shows in the label (or a Table beside it)",
+        "keys": [
+          "None: press/move/leave are pointer-only (keyboard users read the label)"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Canvas",
+        "size": [
+          160,
+          100
+        ],
+        "label": "Visits by day",
+        "shapes": [
+          {
+            "type": "path",
+            "d": "M20 80 H150"
+          },
+          {
+            "type": "stroke",
+            "color": "$color.border",
+            "width": 1
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  45,
+                  60
+                ],
+                "size": [
+                  20,
+                  40
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart1"
+              }
+            ]
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  85,
+                  50
+                ],
+                "size": [
+                  20,
+                  60
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart2"
+              }
+            ]
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  125,
+                  70
+                ],
+                "size": [
+                  20,
+                  20
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart3"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "Mon",
+            "position": [
+              45,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
+          },
+          {
+            "type": "text",
+            "text": "Tue",
+            "position": [
+              85,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
+          },
+          {
+            "type": "text",
+            "text": "Wed",
+            "position": [
+              125,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
           }
         ]
       },

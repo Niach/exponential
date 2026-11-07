@@ -39962,7 +39962,8 @@
       "part": "box",
       "props": {
         "checked": false,
-        "disabled": false
+        "disabled": false,
+        "indeterminate": false
       },
       "visuals": {
         "neutral": {
@@ -40172,7 +40173,8 @@
       "part": "box",
       "props": {
         "checked": true,
-        "disabled": false
+        "disabled": false,
+        "indeterminate": false
       },
       "visuals": {
         "neutral": {
@@ -40382,7 +40384,8 @@
       "part": "box",
       "props": {
         "checked": false,
-        "disabled": true
+        "disabled": true,
+        "indeterminate": false
       },
       "visuals": {
         "neutral": {
@@ -40608,7 +40611,8 @@
       "part": "check",
       "props": {
         "checked": false,
-        "disabled": false
+        "disabled": false,
+        "indeterminate": false
       },
       "visuals": {
         "neutral": {
@@ -40682,7 +40686,8 @@
       "part": "label",
       "props": {
         "checked": false,
-        "disabled": false
+        "disabled": false,
+        "indeterminate": false
       },
       "visuals": {
         "neutral": {
@@ -40764,7 +40769,8 @@
       "part": "description",
       "props": {
         "checked": false,
-        "disabled": false
+        "disabled": false,
+        "indeterminate": false
       },
       "visuals": {
         "neutral": {
@@ -65836,6 +65842,63 @@
     },
     {
       "component": "Progress",
+      "part": "value",
+      "props": {
+        "tone": "primary"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Progress",
       "part": "fill",
       "props": {
         "tone": "neutral"
@@ -66114,6 +66177,63 @@
           "dark": {
             "default": {
               "backgroundColor": "#3b82f6"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Progress",
+      "part": "detail",
+      "props": {
+        "tone": "primary"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
             }
           }
         }

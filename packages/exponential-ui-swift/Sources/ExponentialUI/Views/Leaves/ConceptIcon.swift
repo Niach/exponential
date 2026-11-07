@@ -16,7 +16,7 @@ enum BuiltinIcons {
     /// here and `Round1NativesTests` checks them against it).
     static let slots: [String: String] = [
         "Accordion.trigger": "ui-chevron-down", "Carousel.previous": "ui-chevron-left", "Carousel.next": "ui-chevron-right",
-        "Checkbox.check": "ui-check", "ChipInput.remove": "ui-close", "CodeBlock.copy": "ui-copy", "CodeBlock.copied": "ui-check",
+        "Checkbox.check": "ui-check", "Checkbox.check.indeterminate": "ui-minus", "ChipInput.remove": "ui-close", "CodeBlock.copy": "ui-copy", "CodeBlock.copied": "ui-check",
         "Composer.attachment": "ui-attach", "Composer.send": "ui-send", "Composer.stop": "ui-stop",
         "DatePicker.trigger": "calendar", "DatePicker.previousMonth": "ui-chevron-left", "DatePicker.nextMonth": "ui-chevron-right",
         "DateRangePicker.trigger": "calendar", "Dialog.close": "ui-close",

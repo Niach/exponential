@@ -456,3 +456,57 @@ fn assign_data_bumps_the_write_epoch_and_set_data_does_not() {
     assert!(s.assign_data("/list/9", Some(json!(1))).is_err());
     assert_eq!(s.write_epoch(), 1);
 }
+
+/// Round 8: `checkbox`: a mixed box resolves to checked (both paths
+/// written); a plain toggle leaves `indeterminate` alone; `change` carries
+/// both. The state = what the `box` part says (mixed wins).
+#[test]
+fn checkbox_cases_resolve_mixed_like_the_reference() {
+    let f = fixture();
+    let section = &f["checkbox"];
+    for c in section["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut tree = section["surface"].clone();
+        if let Some(Value::Object(u)) = c.get("unbound") {
+            for (k, v) in u {
+                tree["props"][k] = v.clone();
+            }
+        }
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [tree]}));
+        if let Some(Value::Object(data)) = c.get("data") {
+            for (k, v) in data {
+                s.set_data(&format!("/{k}"), Some(v.clone())).unwrap();
+            }
+        }
+        let mut m = fixed();
+        let state = |s: &mut Surface, m: &mut FixedMeasure| -> (Value, Value, String) {
+            s.layout(m);
+            let b = s.nodes().into_iter().find(|n| n.id == "c.box").expect("c.box");
+            let (ch, mx) = (b.props.get("checked").cloned().unwrap_or(json!(false)), b.props.get("indeterminate").cloned().unwrap_or(json!(false)));
+            let st = if mx == json!(true) { "mixed" } else if ch == json!(true) { "true" } else { "false" };
+            (ch, mx, st.to_string())
+        };
+        assert_eq!(state(&mut s, &mut m).2, c["before"].as_str().unwrap(), "{name}: before");
+        for (k, step) in c["steps"].as_array().unwrap().iter().enumerate() {
+            let idx = s.index_of("c.box").expect("box");
+            let mut change = Value::Null;
+            for e in s.event(idx, "press", None) {
+                if let OutEvent::Action { name, context, .. } = e {
+                    if name == "change" {
+                        change = json!({"checked": context["checked"], "indeterminate": context["indeterminate"]});
+                    }
+                }
+            }
+            assert_eq!(change, step["change"], "{name} #{k}: change");
+            let (ch, mx, st) = state(&mut s, &mut m);
+            if c.get("unbound").is_some() {
+                assert_eq!(ch, step["checked"], "{name} #{k}: checked");
+                assert_eq!(mx, step["mixed"], "{name} #{k}: mixed");
+            } else {
+                assert_eq!(s.get_data("/checked").cloned().unwrap_or(Value::Null), step["checked"], "{name} #{k}: /checked");
+                assert_eq!(s.get_data("/mixed").cloned().unwrap_or(Value::Null), step["mixed"], "{name} #{k}: /mixed");
+            }
+            assert_eq!(st, step["state"].as_str().unwrap(), "{name} #{k}: state");
+        }
+    }
+}

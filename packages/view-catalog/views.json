@@ -4711,6 +4711,39 @@
       }
     },
     {
+      "id": "exponential-ui-canvas",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · Canvas",
+      "blurb": "A static vector drawing (charts, plots, diagrams) on Motion's engine, its text set natively in the theme's fonts; `pointer` reports press, move and leave in drawing units. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/canvas/.",
+      "order": 113,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-canvas",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-canvas"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-canvas",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-canvas",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-choice-tiles",
       "group": "exponential-ui-catalog",
       "title": "genUI · ChoiceTiles",

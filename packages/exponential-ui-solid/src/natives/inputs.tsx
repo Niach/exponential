@@ -17,6 +17,7 @@
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from "solid-js"
 import { boundPath, hostPath, switchTravel, parseLocaleNumber } from "@exponential_app/eui/web"
+import { checkboxAriaChecked, checkboxPress } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
 import { IconGlyph } from "../icons"
@@ -332,21 +333,34 @@ export function NumberFieldNative(props: NativeProps): JSX.Element {
 // ---------------------------------------------------------------------------
 
 export function CheckboxNative(props: NativeProps): JSX.Element {
-  const part = parts(props)
   const id = createUniqueId()
   const [checked, setCheckedState] = createBoundState(() => props.node, () => props.scope, `checked`, () => bool(props.props.checked))
+  // Round 8 (§2): `indeterminate` = the mixed look (the checked box with the
+  // dash, Radix's `checked="indeterminate"`); mixed wins over checked for
+  // a11y; a press on a mixed box checks it and clears the dash.
+  const [mixed, setMixed] = createBoundState(() => props.node, () => props.scope, `indeterminate`, () => bool(props.props.indeterminate))
+  const partProps = createMemo(() => (bool(props.props.indeterminate) === mixed() ? props.props : { ...props.props, indeterminate: mixed() }))
+  const part = parts({
+    get node() {
+      return props.node
+    },
+    get props() {
+      return partProps()
+    },
+  })
   const [box, setBox] = createSignal<HTMLButtonElement>()
   const f = createField({ node: () => props.node, domId: () => props.domId, props: () => props.props, value: checked, focusEl: box })
   const disabled = () => bool(props.props.disabled) || Boolean(f.form?.disabled)
   const inForm = createInForm(box)
+  const state = () => (mixed() ? `indeterminate` : checked() ? `checked` : `unchecked`)
   let stopped = false
   return (
     <div {...props.rootProps}>
       <button
         type="button"
         role="checkbox"
-        aria-checked={checked()}
-        data-state={checked() ? `checked` : `unchecked`}
+        aria-checked={checkboxAriaChecked(checked(), mixed())}
+        data-state={state()}
         data-disabled={disabled() ? `` : undefined}
         disabled={disabled()}
         value="on"
@@ -359,25 +373,26 @@ export function CheckboxNative(props: NativeProps): JSX.Element {
           if (e.key === `Enter`) e.preventDefault()
         }}
         onClick={(e) => {
-          const value = !checked()
-          setCheckedState(value)
-          f.change(value)
+          const press = checkboxPress(checked(), mixed())
+          setCheckedState(press.checked)
+          if (press.writesIndeterminate) setMixed(false)
+          f.change(press.checked)
           f.touch()
-          void props.emit(`change`, { checked: value }, { checked: value })
+          void props.emit(`change`, press.change, press.change)
           if (inForm()) {
             stopped = e.cancelBubble
             if (!stopped) e.stopPropagation()
           }
         }}
       >
-        <Show when={checked()}>
-          <span data-state="checked" data-disabled={disabled() ? `` : undefined} {...part(`check`)} style={css({ pointerEvents: `none` })}>
-            <BuiltinIcon slot="Checkbox.check" />
+        <Show when={checked() || mixed()}>
+          <span data-state={state()} data-disabled={disabled() ? `` : undefined} {...part(`check`)} style={css({ pointerEvents: `none` })}>
+            <BuiltinIcon slot={mixed() ? `Checkbox.check.indeterminate` : `Checkbox.check`} />
           </span>
         </Show>
       </button>
       <Show when={inForm()}>
-        <BubbleCheck type="checkbox" control={box()} checked={checked()} name={str(props.props.name, props.node.id)} value="on" disabled={disabled()} transformFirst={false} bubbles={() => !stopped} />
+        <BubbleCheck type="checkbox" control={box()} checked={checked() && !mixed()} indeterminate={mixed()} name={str(props.props.name, props.node.id)} value="on" disabled={disabled()} transformFirst={false} bubbles={() => !stopped} />
       </Show>
       <div class="xui-field-text">
         <TextPart part={part(`label`)} text={props.props.label} as="label" htmlFor={id} />

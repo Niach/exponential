@@ -13,6 +13,7 @@
 //! ```
 
 pub mod anim;
+pub mod canvas;
 #[cfg(feature = "decompile")]
 mod decompile;
 pub mod dialect;
@@ -32,6 +33,7 @@ pub mod state_machine;
 pub mod text;
 pub mod validate;
 
+pub use canvas::Canvas;
 pub use display::{DisplayList, Op};
 pub use model::Marker;
 pub use validate::{Issue, Limits};

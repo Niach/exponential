@@ -50,3 +50,25 @@ export function compileMotionProps(props: Record<string, unknown>): unknown | nu
   const out = JSON.parse(motionWasmSync().compile(JSON.stringify(doc))) as { lottie?: unknown }
   return out.lottie ?? null
 }
+
+/** Round 8: problems with one Canvas node's `{size, shapes}` (empty =
+ *  accepted): the engine's refusals (`CanvasPlayer`'s constructor) with
+ *  their paths. Bound `shapes` (a binding or call) are checked when the
+ *  data arrives, by the painter. */
+export function canvasPropsProblems(props: Record<string, unknown>): string[] {
+  const shapes = props.shapes
+  if (shapes !== null && typeof shapes === `object` && !Array.isArray(shapes)) return []
+  const wasm = motionWasmSync()
+  try {
+    new wasm.CanvasPlayer(JSON.stringify({ size: props.size, shapes })).free()
+    return []
+  } catch (e) {
+    let issues: MotionIssue[] = []
+    try {
+      issues = JSON.parse(String(e)) as MotionIssue[]
+    } catch {
+      return [String(e)]
+    }
+    return describe(issues)
+  }
+}

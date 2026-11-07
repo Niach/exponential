@@ -1052,6 +1052,36 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_theme_spacing(uint64_t ptr, RustB
 RustBuffer uniffi_exponential_ui_ffi_fn_method_theme_type_size(uint64_t ptr, RustBuffer name, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_CLONE_CANVASPLAYER
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_CLONE_CANVASPLAYER
+uint64_t uniffi_exponential_ui_ffi_fn_clone_canvasplayer(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FREE_CANVASPLAYER
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FREE_CANVASPLAYER
+void uniffi_exponential_ui_ffi_fn_free_canvasplayer(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_CONSTRUCTOR_CANVASPLAYER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_CONSTRUCTOR_CANVASPLAYER_NEW
+uint64_t uniffi_exponential_ui_ffi_fn_constructor_canvasplayer_new(RustBuffer canvas_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_CANVASPLAYER_SAMPLE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_CANVASPLAYER_SAMPLE
+RustBuffer uniffi_exponential_ui_ffi_fn_method_canvasplayer_sample(uint64_t ptr, RustBuffer slots_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_CANVASPLAYER_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_CANVASPLAYER_SIZE
+RustBuffer uniffi_exponential_ui_ffi_fn_method_canvasplayer_size(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_CANVASPLAYER_SLOT_IDS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_CANVASPLAYER_SLOT_IDS
+RustBuffer uniffi_exponential_ui_ffi_fn_method_canvasplayer_slot_ids(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_CLONE_MOTIONPLAYER
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_CLONE_MOTIONPLAYER
 uint64_t uniffi_exponential_ui_ffi_fn_clone_motionplayer(uint64_t handle, RustCallStatus *_Nonnull out_status
@@ -1551,6 +1581,11 @@ uint8_t uniffi_exponential_ui_ffi_fn_func_week_start(RustBuffer locale, RustCall
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_ZOOM_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_ZOOM_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_zoom_json(RustBuffer request_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CANVAS_TO_DRAWING
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CANVAS_TO_DRAWING
+RustBuffer uniffi_exponential_ui_ffi_fn_func_canvas_to_drawing(double x, double y, double width, double height, double box_width, double box_height, RustBuffer fit, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MOTION_COMPILE
@@ -2332,6 +2367,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_zoom_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CANVAS_TO_DRAWING
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CANVAS_TO_DRAWING
+uint16_t uniffi_exponential_ui_ffi_checksum_func_canvas_to_drawing(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MOTION_COMPILE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MOTION_COMPILE
 uint16_t uniffi_exponential_ui_ffi_checksum_func_motion_compile(void
@@ -2992,6 +3033,24 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_theme_type_size(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_CANVASPLAYER_SAMPLE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_CANVASPLAYER_SAMPLE
+uint16_t uniffi_exponential_ui_ffi_checksum_method_canvasplayer_sample(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_CANVASPLAYER_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_CANVASPLAYER_SIZE
+uint16_t uniffi_exponential_ui_ffi_checksum_method_canvasplayer_size(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_CANVASPLAYER_SLOT_IDS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_CANVASPLAYER_SLOT_IDS
+uint16_t uniffi_exponential_ui_ffi_checksum_method_canvasplayer_slot_ids(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_MOTIONPLAYER_ADD_FONT
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_MOTIONPLAYER_ADD_FONT
 uint16_t uniffi_exponential_ui_ffi_checksum_method_motionplayer_add_font(void
@@ -3115,6 +3174,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_CONSTRUCTOR_THEME_LOAD
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_CONSTRUCTOR_THEME_LOAD
 uint16_t uniffi_exponential_ui_ffi_checksum_constructor_theme_load(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_CONSTRUCTOR_CANVASPLAYER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_CONSTRUCTOR_CANVASPLAYER_NEW
+uint16_t uniffi_exponential_ui_ffi_checksum_constructor_canvasplayer_new(void
     
 );
 #endif

@@ -98,6 +98,8 @@ class NodeInfo(n: FfiNode) {
     val isFocusable: Boolean
         get() {
             if (hidden || disabled) return false
+            // Round 8 (a11y.json): a Canvas's `pointer` adds no focus stop.
+            if (component == "Canvas") return false
             if (pressable) return true
             return when (component) {
                 "Button", "Link", "Toggle", "Segmented", "Composer" -> true

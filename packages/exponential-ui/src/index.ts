@@ -182,3 +182,6 @@ export { foldKey } from "./fold"
 // #VAPP-285: the Tree rules (flat rows, the WAI-ARIA tree keys).
 export { treeRows, treeKey } from "./tree"
 export type { TreeRow, TreeRowKind, TreeKeyRow, TreeKeyResult } from "./tree"
+// Round 8: the Canvas node's pure core and the Checkbox press rule.
+export * from "./canvas"
+export * from "./checkbox"

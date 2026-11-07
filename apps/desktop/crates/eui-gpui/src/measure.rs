@@ -248,6 +248,15 @@ pub fn tabular_nums(owner: Option<&str>, part: Option<&str>) -> bool {
     matches!((owner, part), (Some("Carousel"), Some("counter")))
 }
 
+/// [`tabular_nums`] for a leaf by id too. Round 8: a Progress `value`
+/// (the `valueText` caption, `41 MB/s · 12 min`) is set in tabular figures
+/// by every painter (round-8-contract §3). It is a MACRO part, which a
+/// `LeafRequest` does not name, so the measurer and the painter both key
+/// it on the expansion's id (`<progress>.header.value`).
+pub fn tabular_text(id: &str, owner: Option<&str>, part: Option<&str>) -> bool {
+    tabular_nums(owner, part) || id.ends_with(".header.value")
+}
+
 /// `font` with tabular figures (`tnum`).
 pub fn with_tabular_nums(font: Font) -> Font {
     Font { features: FontFeatures(Arc::new(vec![("tnum".into(), 1)])), ..font }
@@ -1106,7 +1115,7 @@ impl<'a> GpuiMeasure<'a> {
                 } else if part == Some("cell") && str_prop(props, "cellType") == "badge" {
                     let (w, h, b) = self.para(raw, &TextStyle { font_size: (ts.font_size - 2.0).max(10.0), ..ts.clone() }, None, Some(1));
                     (w + 16.0, h.max(ts.line_height), b)
-                } else if tabular_nums(leaf.owner_component, part) {
+                } else if tabular_text(leaf.id, leaf.owner_component, part) {
                     let font = with_tabular_nums(self.fonts.for_style(ts));
                     self.para_in(raw, ts, &font, inner, leaf.lines)
                 } else {

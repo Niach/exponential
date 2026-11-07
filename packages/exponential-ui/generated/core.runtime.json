@@ -357,6 +357,11 @@
     "calendarView": [
       "month",
       "week"
+    ],
+    "stepperCollapse": [
+      "never",
+      "auto",
+      "always"
     ]
   },
   "defs": {
@@ -1216,7 +1221,8 @@
     "Unknown.root": "ui-warning",
     "ZoomableImage.zoomOut": "ui-minus",
     "ZoomableImage.zoomIn": "ui-add",
-    "ZoomableImage.fit": "ui-fullscreen"
+    "ZoomableImage.fit": "ui-fullscreen",
+    "Checkbox.check.indeterminate": "ui-minus"
   },
   "components": {
     "Box": {
@@ -2414,6 +2420,11 @@
           "type": "enum",
           "enum": "orientation",
           "default": "horizontal"
+        },
+        "collapse": {
+          "type": "enum",
+          "enum": "stepperCollapse",
+          "default": "never"
         }
       }
     },
@@ -2863,6 +2874,14 @@
         },
         "label": {
           "type": "string"
+        },
+        "valueText": {
+          "type": "string",
+          "bindable": true
+        },
+        "detail": {
+          "type": "string",
+          "bindable": true
         },
         "tone": {
           "type": "enum",
@@ -3655,6 +3674,11 @@
           "required": true
         },
         "checked": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "indeterminate": {
           "type": "boolean",
           "default": false,
           "bindable": true
@@ -4572,6 +4596,49 @@
         "visible",
         "complete",
         "state"
+      ]
+    },
+    "Canvas": {
+      "kind": "native",
+      "group": "media",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "required": true
+        },
+        "shapes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "required": true,
+          "bindable": true
+        },
+        "fit": {
+          "type": "enum",
+          "enum": "motionFit",
+          "default": "contain"
+        },
+        "label": {
+          "type": "string"
+        },
+        "pointer": {
+          "type": "boolean",
+          "default": false
+        },
+        "style": {
+          "type": "style"
+        }
+      },
+      "events": [
+        "press",
+        "move",
+        "leave"
       ]
     },
     "Calendar": {

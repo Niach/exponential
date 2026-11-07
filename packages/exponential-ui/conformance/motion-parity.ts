@@ -99,3 +99,55 @@ export async function runMotionParity(page: Page, cases = motionParityCases()): 
   }
   return results
 }
+
+export type MotionFilterParityResult = { name: string; size: number; native: boolean; share: number; maxDiff: number }
+
+/** The native filter path (`ctx.filter` blur, the drop shadow built on it)
+ *  against the pixel ports it replaces, on synthetic layers whose content
+ *  stays off the canvas edge: within 2/255 per premultiplied channel on
+ *  ≥ 99 % of the pixels. `native` = the engine took the native path. */
+export async function runMotionFilterParity(page: Page): Promise<MotionFilterParityResult[]> {
+  if (!(await page.evaluate(() => `__motionPaint` in window))) await page.addScriptTag({ content: await motionPainterScript() })
+  const matrix = [1, 0.3, 0.3, 0.3, 0, 0, 0.3, 0.3, 0.3, 0, 0, 0.3, 0.3, 0.3, 0, 0, 0, 0, 0, 1, 0]
+  const cases: [string, number[][]][] = []
+  for (const s of [0.5, 1.5, 2, 4, 8, 16]) cases.push([`blur ${s}`, [[0, s, s]]])
+  cases.push([`blur 4×1 (anisotropic: the port)`, [[0, 4, 1]]])
+  for (const s of [0, 1, 2, 4, 10]) for (const [dx, dy] of [[0, 0], [12, 7], [3.4, -5.7]]) cases.push([`shadow σ${s} ${dx},${dy}`, [[3, 0.1, 0.2, 0.3, 0.7, dx!, dy!, s]]])
+  cases.push([`blur 4 then matrix`, [[0, 4, 4], [1, ...matrix]]])
+  cases.push([`matrix then blur 4`, [[1, ...matrix], [0, 4, 4]]])
+  return page.evaluate(
+    ({ cases, tol }) => {
+      const P = (window as unknown as { __motionPaint: typeof import("../src/web/primitives/motion-paint") }).__motionPaint
+      const I = [1, 0, 0, 1, 0, 0]
+      const rect = (x: number, y: number, w: number, h: number) => [5, 0, x, y, 1, x + w, y, 1, x + w, y + h, 1, x, y + h, 3]
+      // A 200×200 Motion: one layer (the filters) over an opaque and a translucent rect.
+      const frame = (filters: number[][]) => [1, 200, 200, 1, 0, 1, ...I, ...rect(0, 0, 200, 200), filters.length, ...filters.flat(), 4, ...I, 0, 0, 0.9, 0.3, 0.1, 1, ...rect(60, 50, 70, 90), 4, ...I, 0, 0, 0.1, 0.4, 0.9, 0.6, ...rect(100, 100, 40, 30), 3]
+      const out: { name: string; size: number; native: boolean; share: number; maxDiff: number }[] = []
+      for (const size of [200, 512])
+        for (const [name, filters] of cases) {
+          const shot = (pool: InstanceType<typeof P.MotionCanvasPool>) => {
+            const c = document.createElement(`canvas`)
+            c.width = c.height = size
+            const ctx = c.getContext(`2d`, { willReadFrequently: true })!
+            P.paintMotionFrame(ctx, size, size, frame(filters), P.motionFitMatrix(200, 200, size, size), [], pool)
+            return ctx.getImageData(0, 0, size, size).data
+          }
+          const pool = new P.MotionCanvasPool()
+          const got = shot(pool)
+          const want = shot(new P.MotionCanvasPool(undefined, { nativeFilters: false }))
+          let matched = 0
+          let maxDiff = 0
+          for (let k = 0; k < got.length; k += 4) {
+            let worst = Math.abs(got[k + 3]! - want[k + 3]!)
+            for (let ch = 0; ch < 3; ch++) worst = Math.max(worst, Math.abs(got[k + ch]! * got[k + 3]! - want[k + ch]! * want[k + 3]!) / 255)
+            worst = Math.round(worst)
+            maxDiff = Math.max(maxDiff, worst)
+            if (worst <= tol) matched++
+          }
+          out.push({ name, size, native: pool.nativeFilters(), share: matched / (got.length / 4), maxDiff })
+        }
+      return out
+    },
+    { cases, tol: MOTION_PARITY_TOLERANCE }
+  )
+}

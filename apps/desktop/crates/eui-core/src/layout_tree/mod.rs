@@ -832,7 +832,8 @@ impl<'a, 'b> Builder<'a, 'b> {
         match node.component.as_str() {
             "Image" | "Video" => self.media_ratio(index),
             "ZoomableImage" => self.zoomable_box(index),
-            "Motion" => self.motion_box(index),
+            // Round 8: a Canvas boxes like a Motion with a declared `size`.
+            "Motion" | "Canvas" => self.motion_box(index),
             // VAPP-162: a vertical `bar` (THE navigation rail) is a column of
             // fixed items: as wide as its root recipe (72), `items × tabBar`
             // tall, never stretched across its parent (full height is the
@@ -934,6 +935,12 @@ impl<'a, 'b> Builder<'a, 'b> {
                     };
                     props.insert(key.into(), v.clone());
                 }
+            }
+        }
+        // Round 8: an unbound mixed Checkbox a press resolved.
+        if component == "Checkbox" {
+            if let Some(v) = local.field_values.get(&format!("{id}.indeterminate")) {
+                props.insert("indeterminate".into(), v.clone());
             }
         }
         // VAPP-162: a held `hold` Button paints its `holdingLabel`.
@@ -1229,7 +1236,8 @@ pub fn build_subtree(node: &UiNode, parent: &LNode, scope: &str, seed: BuildSeed
 }
 
 /// EXP-1604: a Motion's composition size in px: the dialect's `size`, else
-/// the inline Lottie's `w` × `h`; `None` for a `src` animation.
+/// the inline Lottie's `w` × `h`; `None` for a `src` animation. Round 8: a
+/// Canvas's drawing `size` (the same rule; it has no `lottie`).
 pub fn motion_size(props: &Props) -> Option<(f64, f64)> {
     let pos = |v: Option<&Value>| v.and_then(Value::as_f64).filter(|v| v.is_finite() && *v > 0.0);
     let size = props.get("size").and_then(Value::as_array);

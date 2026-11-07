@@ -16,6 +16,7 @@ import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.Typeface
 import android.os.Build
 import android.util.Base64
 import kotlin.math.abs
@@ -54,10 +55,18 @@ class MotionList(val width: Float, val height: Float, val ops: List<Op>) {
         class Fill(val t: FloatArray, val evenOdd: Boolean, val brush: Brush, val path: Path) : Op()
         class Stroke(val t: FloatArray, val style: StrokeStyle, val brush: Brush, val path: Path) : Op()
         class Image(val t: FloatArray, val asset: Int, val alpha: Float, val width: Float, val height: Float) : Op()
+
+        /**
+         * Round 8 (VERSION 2): one line of native text at the op's local
+         * origin. [mono] = `font` 1; [weight] CSS (400…700); [align] 0 start |
+         * 1 center | 2 end (physical); [baseline] 0 top | 1 middle | 2
+         * alphabetic; [color] straight RGBA.
+         */
+        class Text(val t: FloatArray, val mono: Boolean, val weight: Int, val size: Float, val align: Int, val baseline: Int, val color: FloatArray, val text: String) : Op()
     }
 
     companion object {
-        /** Decode a packed frame; null when it is not VERSION 1 or ends early. */
+        /** Decode a packed frame; null when it is not VERSION 1 or 2 (round 8: + `text`) or ends early. */
         fun decode(p: List<Float>): MotionList? = try {
             Reader(p).list()
         } catch (_: IndexOutOfBoundsException) {
@@ -73,7 +82,7 @@ class MotionList(val width: Float, val height: Float, val ops: List<Op>) {
         fun n(): Int = p[i++].toInt()
 
         fun list(): MotionList {
-            check(n() == 1)
+            check(n() in 1..2)
             val w = f()
             val h = f()
             val ops = ArrayList<Op>()
@@ -132,6 +141,17 @@ class MotionList(val width: Float, val height: Float, val ops: List<Op>) {
                 Op.Stroke(t, style, brush(), path())
             }
             6 -> Op.Image(t(), n(), f(), f(), f())
+            7 -> {
+                val t = t()
+                val mono = n() == 1
+                val weight = n()
+                val size = f()
+                val align = n()
+                val baseline = n()
+                val color = color()
+                val units = CharArray(n()) { n().toChar() }
+                Op.Text(t, mono, weight, size, align, baseline, color, String(units))
+            }
             else -> error("op")
         }
     }
@@ -154,22 +174,60 @@ object MotionPainter {
         return floatArrayOf(s, s, (boxW - w * s) / 2f, (boxH - h * s) / 2f)
     }
 
-    /** Paint [list] into the `boxW × boxH` px box at the canvas origin (clipped to it). */
-    fun paint(canvas: Canvas, list: MotionList, boxW: Float, boxH: Float, fit: String = "contain", images: List<Bitmap?> = emptyList()) {
+    /**
+     * Round 8: the typeface of a `text` op ([mono], CSS [weight]): the
+     * theme's `$type.family.sans` / `.mono` at that weight; null = the
+     * platform's sans / monospace.
+     */
+    fun interface Typefaces {
+        fun typeface(mono: Boolean, weight: Int): Typeface?
+    }
+
+    /** The platform faces (no theme): sans-serif / monospace at the CSS weight. */
+    val PLATFORM_TYPEFACES = Typefaces { mono, weight -> weighted(if (mono) Typeface.MONOSPACE else Typeface.SANS_SERIF, weight) }
+
+    /** [base] at a CSS weight (API 28+: exact; older: bold from 600). */
+    fun weighted(base: Typeface, weight: Int): Typeface =
+        if (Build.VERSION.SDK_INT >= 28) Typeface.create(base, weight.coerceIn(1, 1000), false)
+        else Typeface.create(base, if (weight >= 600) Typeface.BOLD else Typeface.NORMAL)
+
+    /** Paint [list] into the `boxW × boxH` px box at the canvas origin (clipped to it); `text` ops in [typefaces]. */
+    fun paint(canvas: Canvas, list: MotionList, boxW: Float, boxH: Float, fit: String = "contain", images: List<Bitmap?> = emptyList(), typefaces: Typefaces = PLATFORM_TYPEFACES) {
         val f = fit(list.width, list.height, boxW, boxH, fit)
         val save = canvas.save()
         canvas.clipRect(0f, 0f, boxW, boxH)
         canvas.translate(f[2], f[3])
         canvas.scale(f[0], f[1])
         val scale = sqrt(abs(f[0] * f[1]))
-        Run(list.ops, canvas, scale, images).group(0, Mods())
+        val run = Run(list.ops, canvas, scale, images, typefaces)
+        run.group(0, Mods())
+        // The text ops last, UPRIGHT, in box px (only the box clips them).
         canvas.restoreToCount(save)
+        val boxed = canvas.save()
+        canvas.clipRect(0f, 0f, boxW, boxH)
+        for (op in list.ops) if (op is MotionList.Op.Text) run.text(op, textAnchor(f, op.t, op.size))
+        canvas.restoreToCount(boxed)
+    }
+
+    /**
+     * Round 8: text is UPRIGHT (round-8 contract §1). A text op takes ONLY
+     * the translation and the uniform scale √|det| of (fit × its transform
+     * [t]); rotation and skew never apply (gpui cannot rotate text, so one
+     * look everywhere). [fit] = [fit]'s `[sx, sy, tx, ty]`. Returns the
+     * anchor in box px and the font px: `[x, y, size]`.
+     */
+    fun textAnchor(fit: FloatArray, t: FloatArray, size: Float): FloatArray {
+        val a = fit[0] * t[0]
+        val b = fit[1] * t[1]
+        val c = fit[0] * t[2]
+        val d = fit[1] * t[3]
+        return floatArrayOf(fit[0] * t[4] + fit[2], fit[1] * t[5] + fit[3], size * sqrt(abs(a * d - b * c)))
     }
 
     /** What a filtered group changes on every draw it repeats (blur, shadow tint). */
     private class Mods(val blur: Float = 0f)
 
-    private class Run(val ops: List<MotionList.Op>, val canvas: Canvas, val scale: Float, val images: List<Bitmap?>) {
+    private class Run(val ops: List<MotionList.Op>, val canvas: Canvas, val scale: Float, val images: List<Bitmap?>, val typefaces: Typefaces) {
         /** Paint ops from [start] to the `pop` closing the group; the index after it. */
         fun group(start: Int, mods: Mods): Int {
             var i = start
@@ -212,6 +270,8 @@ object MotionPainter {
                         canvas.drawBitmap(img, Rect(0, 0, img.width, img.height), RectF(0f, 0f, w, h), paint)
                         canvas.restoreToCount(save)
                     }
+                    // Painted after the run, upright, by [paint].
+                    is MotionList.Op.Text -> {}
                 }
             }
             return i
@@ -279,6 +339,33 @@ object MotionPainter {
             canvas.concat(matrix(t))
             canvas.drawPath(path, paint)
             canvas.restoreToCount(save)
+        }
+
+        /**
+         * Round 8: one horizontal line at [at] = `[x, y, size]` box px
+         * ([textAnchor]: the translation and √|det| only, never a rotation
+         * or skew): align physical (Paint.Align), the baseline from the
+         * face's own ascent / descent (Paint.FontMetrics, no leading). Only
+         * the box clips it.
+         */
+        fun text(op: MotionList.Op.Text, at: FloatArray) {
+            val px = at[2]
+            if (op.text.isEmpty() || !(px > 0f) || !px.isFinite()) return
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG or Paint.LINEAR_TEXT_FLAG).apply {
+                typeface = typefaces.typeface(op.mono, op.weight) ?: PLATFORM_TYPEFACES.typeface(op.mono, op.weight)
+                textSize = px
+                color = argb(op.color)
+                textAlign = when (op.align) { 1 -> Paint.Align.CENTER; 2 -> Paint.Align.RIGHT; else -> Paint.Align.LEFT }
+            }
+            val fm = paint.fontMetrics
+            val ascent = -fm.ascent
+            val descent = fm.descent
+            val dy = when (op.baseline) {
+                0 -> ascent
+                1 -> (ascent - descent) / 2f
+                else -> 0f
+            }
+            canvas.drawText(op.text, at[0], at[1] + dy, paint)
         }
 
         fun colorMatrix(f: MotionList.Filter): android.graphics.ColorMatrix? = when (f) {

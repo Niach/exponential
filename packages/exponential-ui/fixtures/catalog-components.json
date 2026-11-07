@@ -4802,6 +4802,116 @@
       }
     },
     {
+      "name": "Stepper/collapse=never",
+      "node": {
+        "id": "stepper",
+        "component": "Stepper",
+        "props": {
+          "steps": [
+            {
+              "label": "Account"
+            },
+            {
+              "label": "Team"
+            },
+            {
+              "label": "Done"
+            }
+          ],
+          "current": 1,
+          "collapse": "never"
+        }
+      }
+    },
+    {
+      "name": "Stepper/collapse=auto",
+      "node": {
+        "id": "stepper",
+        "component": "Stepper",
+        "props": {
+          "steps": [
+            {
+              "label": "Account"
+            },
+            {
+              "label": "Team"
+            },
+            {
+              "label": "Done"
+            }
+          ],
+          "current": 1,
+          "collapse": "auto"
+        }
+      }
+    },
+    {
+      "name": "Stepper/collapse=always",
+      "node": {
+        "id": "stepper",
+        "component": "Stepper",
+        "props": {
+          "steps": [
+            {
+              "label": "Account"
+            },
+            {
+              "label": "Team"
+            },
+            {
+              "label": "Done"
+            }
+          ],
+          "current": 1,
+          "collapse": "always"
+        }
+      }
+    },
+    {
+      "name": "Stepper/collapse=always+current=0",
+      "node": {
+        "id": "stepper",
+        "component": "Stepper",
+        "props": {
+          "steps": [
+            {
+              "label": "Account"
+            },
+            {
+              "label": "Team"
+            },
+            {
+              "label": "Done"
+            }
+          ],
+          "current": 0,
+          "collapse": "always"
+        }
+      }
+    },
+    {
+      "name": "Stepper/collapse=always+current=9",
+      "node": {
+        "id": "stepper",
+        "component": "Stepper",
+        "props": {
+          "steps": [
+            {
+              "label": "Account"
+            },
+            {
+              "label": "Team"
+            },
+            {
+              "label": "Done"
+            }
+          ],
+          "current": 9,
+          "collapse": "always"
+        }
+      }
+    },
+    {
       "name": "Dialog/example",
       "node": {
         "id": "dialog",
@@ -6592,7 +6702,8 @@
         "props": {
           "value": 65,
           "max": 100,
-          "label": "Upload"
+          "label": "Upload",
+          "valueText": "65%"
         }
       }
     },
@@ -6605,6 +6716,7 @@
           "value": 65,
           "max": 100,
           "label": "Upload",
+          "valueText": "65%",
           "tone": "neutral"
         }
       }
@@ -6618,6 +6730,7 @@
           "value": 65,
           "max": 100,
           "label": "Upload",
+          "valueText": "65%",
           "tone": "primary"
         }
       }
@@ -6631,6 +6744,7 @@
           "value": 65,
           "max": 100,
           "label": "Upload",
+          "valueText": "65%",
           "tone": "success"
         }
       }
@@ -6644,6 +6758,7 @@
           "value": 65,
           "max": 100,
           "label": "Upload",
+          "valueText": "65%",
           "tone": "warning"
         }
       }
@@ -6657,6 +6772,7 @@
           "value": 65,
           "max": 100,
           "label": "Upload",
+          "valueText": "65%",
           "tone": "danger"
         }
       }
@@ -6670,7 +6786,35 @@
           "value": 65,
           "max": 100,
           "label": "Upload",
+          "valueText": "65%",
           "tone": "info"
+        }
+      }
+    },
+    {
+      "name": "Progress/valueText-only",
+      "node": {
+        "id": "progress",
+        "component": "Progress",
+        "props": {
+          "value": 65,
+          "max": 100,
+          "label": "",
+          "valueText": "41 MB/s · 12 min"
+        }
+      }
+    },
+    {
+      "name": "Progress/detail",
+      "node": {
+        "id": "progress",
+        "component": "Progress",
+        "props": {
+          "value": 65,
+          "max": 100,
+          "label": "Upload",
+          "valueText": "65%",
+          "detail": "3 of 8 files"
         }
       }
     },
@@ -9920,6 +10064,32 @@
       }
     },
     {
+      "name": "Checkbox/indeterminate=true",
+      "node": {
+        "id": "checkbox",
+        "component": "Checkbox",
+        "props": {
+          "label": "I agree",
+          "name": "agree",
+          "checked": false,
+          "indeterminate": true
+        }
+      }
+    },
+    {
+      "name": "Checkbox/indeterminate=false",
+      "node": {
+        "id": "checkbox",
+        "component": "Checkbox",
+        "props": {
+          "label": "I agree",
+          "name": "agree",
+          "checked": false,
+          "indeterminate": false
+        }
+      }
+    },
+    {
       "name": "Checkbox/disabled=true",
       "node": {
         "id": "checkbox",
@@ -9942,6 +10112,19 @@
           "name": "agree",
           "checked": false,
           "disabled": false
+        }
+      }
+    },
+    {
+      "name": "Checkbox/indeterminate=true+checked=true",
+      "node": {
+        "id": "checkbox",
+        "component": "Checkbox",
+        "props": {
+          "label": "I agree",
+          "name": "agree",
+          "checked": true,
+          "indeterminate": true
         }
       }
     },
@@ -11964,6 +12147,755 @@
             }
           ],
           "fit": "fill"
+        }
+      }
+    },
+    {
+      "name": "Canvas/example",
+      "node": {
+        "id": "canvas",
+        "component": "Canvas",
+        "props": {
+          "size": [
+            160,
+            100
+          ],
+          "label": "Visits by day",
+          "shapes": [
+            {
+              "type": "path",
+              "d": "M20 80 H150"
+            },
+            {
+              "type": "stroke",
+              "color": "$color.border",
+              "width": 1
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    45,
+                    60
+                  ],
+                  "size": [
+                    20,
+                    40
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart1"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    85,
+                    50
+                  ],
+                  "size": [
+                    20,
+                    60
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart2"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    125,
+                    70
+                  ],
+                  "size": [
+                    20,
+                    20
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart3"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "Mon",
+              "position": [
+                45,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Tue",
+              "position": [
+                85,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Wed",
+              "position": [
+                125,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Canvas/fit=contain",
+      "node": {
+        "id": "canvas",
+        "component": "Canvas",
+        "props": {
+          "size": [
+            160,
+            100
+          ],
+          "label": "Visits by day",
+          "shapes": [
+            {
+              "type": "path",
+              "d": "M20 80 H150"
+            },
+            {
+              "type": "stroke",
+              "color": "$color.border",
+              "width": 1
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    45,
+                    60
+                  ],
+                  "size": [
+                    20,
+                    40
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart1"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    85,
+                    50
+                  ],
+                  "size": [
+                    20,
+                    60
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart2"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    125,
+                    70
+                  ],
+                  "size": [
+                    20,
+                    20
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart3"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "Mon",
+              "position": [
+                45,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Tue",
+              "position": [
+                85,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Wed",
+              "position": [
+                125,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            }
+          ],
+          "fit": "contain"
+        }
+      }
+    },
+    {
+      "name": "Canvas/fit=cover",
+      "node": {
+        "id": "canvas",
+        "component": "Canvas",
+        "props": {
+          "size": [
+            160,
+            100
+          ],
+          "label": "Visits by day",
+          "shapes": [
+            {
+              "type": "path",
+              "d": "M20 80 H150"
+            },
+            {
+              "type": "stroke",
+              "color": "$color.border",
+              "width": 1
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    45,
+                    60
+                  ],
+                  "size": [
+                    20,
+                    40
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart1"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    85,
+                    50
+                  ],
+                  "size": [
+                    20,
+                    60
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart2"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    125,
+                    70
+                  ],
+                  "size": [
+                    20,
+                    20
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart3"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "Mon",
+              "position": [
+                45,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Tue",
+              "position": [
+                85,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Wed",
+              "position": [
+                125,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            }
+          ],
+          "fit": "cover"
+        }
+      }
+    },
+    {
+      "name": "Canvas/fit=fill",
+      "node": {
+        "id": "canvas",
+        "component": "Canvas",
+        "props": {
+          "size": [
+            160,
+            100
+          ],
+          "label": "Visits by day",
+          "shapes": [
+            {
+              "type": "path",
+              "d": "M20 80 H150"
+            },
+            {
+              "type": "stroke",
+              "color": "$color.border",
+              "width": 1
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    45,
+                    60
+                  ],
+                  "size": [
+                    20,
+                    40
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart1"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    85,
+                    50
+                  ],
+                  "size": [
+                    20,
+                    60
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart2"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    125,
+                    70
+                  ],
+                  "size": [
+                    20,
+                    20
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart3"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "Mon",
+              "position": [
+                45,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Tue",
+              "position": [
+                85,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Wed",
+              "position": [
+                125,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            }
+          ],
+          "fit": "fill"
+        }
+      }
+    },
+    {
+      "name": "Canvas/pointer=true",
+      "node": {
+        "id": "canvas",
+        "component": "Canvas",
+        "props": {
+          "size": [
+            160,
+            100
+          ],
+          "label": "Visits by day",
+          "shapes": [
+            {
+              "type": "path",
+              "d": "M20 80 H150"
+            },
+            {
+              "type": "stroke",
+              "color": "$color.border",
+              "width": 1
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    45,
+                    60
+                  ],
+                  "size": [
+                    20,
+                    40
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart1"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    85,
+                    50
+                  ],
+                  "size": [
+                    20,
+                    60
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart2"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    125,
+                    70
+                  ],
+                  "size": [
+                    20,
+                    20
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart3"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "Mon",
+              "position": [
+                45,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Tue",
+              "position": [
+                85,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Wed",
+              "position": [
+                125,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            }
+          ],
+          "pointer": true
+        }
+      }
+    },
+    {
+      "name": "Canvas/pointer=false",
+      "node": {
+        "id": "canvas",
+        "component": "Canvas",
+        "props": {
+          "size": [
+            160,
+            100
+          ],
+          "label": "Visits by day",
+          "shapes": [
+            {
+              "type": "path",
+              "d": "M20 80 H150"
+            },
+            {
+              "type": "stroke",
+              "color": "$color.border",
+              "width": 1
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    45,
+                    60
+                  ],
+                  "size": [
+                    20,
+                    40
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart1"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    85,
+                    50
+                  ],
+                  "size": [
+                    20,
+                    60
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart2"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "shapes": [
+                {
+                  "type": "rect",
+                  "position": [
+                    125,
+                    70
+                  ],
+                  "size": [
+                    20,
+                    20
+                  ],
+                  "radius": 2
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.chart3"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "Mon",
+              "position": [
+                45,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Tue",
+              "position": [
+                85,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            },
+            {
+              "type": "text",
+              "text": "Wed",
+              "position": [
+                125,
+                84
+              ],
+              "size": 10,
+              "align": "center",
+              "baseline": "top",
+              "color": "$color.mutedForeground"
+            }
+          ],
+          "pointer": false
         }
       }
     },

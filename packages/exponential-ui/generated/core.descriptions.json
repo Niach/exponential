@@ -982,6 +982,9 @@
         },
         "orientation": {
           "description": "In a row or stacked."
+        },
+        "collapse": {
+          "description": "One line \"Step n of m · label\"; auto when narrower than sm."
         }
       },
       "description": "Wizard progress: numbered steps, finished ones ticked.",
@@ -1333,6 +1336,12 @@
         "label": {
           "description": "A caption above the bar."
         },
+        "valueText": {
+          "description": "Text after the label (rate, time left)."
+        },
+        "detail": {
+          "description": "Muted line under the bar."
+        },
         "tone": {
           "description": "The fill colour tone."
         }
@@ -1341,7 +1350,8 @@
       "example": {
         "value": 65,
         "max": 100,
-        "label": "Upload"
+        "label": "Upload",
+        "valueText": "65%"
       }
     },
     "Meter": {
@@ -1987,6 +1997,9 @@
         },
         "checked": {
           "description": "On or off."
+        },
+        "indeterminate": {
+          "description": "Mixed: a dash; a press checks it."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2776,6 +2789,146 @@
                 "width": 4
               }
             ]
+          }
+        ]
+      }
+    },
+    "Canvas": {
+      "props": {
+        "size": {
+          "description": "Drawing units [w, h], origin top-left."
+        },
+        "shapes": {
+          "description": "Motion's shapes, no keys, + text {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color} on top, always upright."
+        },
+        "fit": {
+          "description": "How it fills the box."
+        },
+        "label": {
+          "description": "What it shows, for screen readers."
+        },
+        "pointer": {
+          "description": "press/move/leave get {x, y} in drawing units."
+        },
+        "style": {
+          "description": "Extra Box styles for the box."
+        }
+      },
+      "description": "A static drawing (chart, diagram, illustration) of shapes and text; Motion animates.",
+      "example": {
+        "size": [
+          160,
+          100
+        ],
+        "label": "Visits by day",
+        "shapes": [
+          {
+            "type": "path",
+            "d": "M20 80 H150"
+          },
+          {
+            "type": "stroke",
+            "color": "$color.border",
+            "width": 1
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  45,
+                  60
+                ],
+                "size": [
+                  20,
+                  40
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart1"
+              }
+            ]
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  85,
+                  50
+                ],
+                "size": [
+                  20,
+                  60
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart2"
+              }
+            ]
+          },
+          {
+            "type": "group",
+            "shapes": [
+              {
+                "type": "rect",
+                "position": [
+                  125,
+                  70
+                ],
+                "size": [
+                  20,
+                  20
+                ],
+                "radius": 2
+              },
+              {
+                "type": "fill",
+                "color": "$color.chart3"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "Mon",
+            "position": [
+              45,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
+          },
+          {
+            "type": "text",
+            "text": "Tue",
+            "position": [
+              85,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
+          },
+          {
+            "type": "text",
+            "text": "Wed",
+            "position": [
+              125,
+              84
+            ],
+            "size": 10,
+            "align": "center",
+            "baseline": "top",
+            "color": "$color.mutedForeground"
           }
         ]
       }

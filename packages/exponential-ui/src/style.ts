@@ -165,7 +165,7 @@ export interface StyleProps {
   animationDuration?: `$motion.${string}`
 }
 
-export type MediaKey = `@media (${string})`
+export type MediaKey = `@media (${string})` | `@container (${string})`
 export type StateKey = `:hover` | `:focus-visible` | `:pressed`
 /** A style = base props + media condition blocks + state blocks, one level. */
 export type Style = StyleProps & {
@@ -300,7 +300,7 @@ export function validateStyle(
         continue
       }
       if (!KEYS.has(key)) {
-        issues.push({ path: `${at}.${key}`, message: key.startsWith(`@media`) || key.startsWith(`:`) ? `not a supported condition` : `not in the Box style whitelist` })
+        issues.push({ path: `${at}.${key}`, message: key.startsWith(`@media`) || key.startsWith(`@container`) || key.startsWith(`:`) ? `not a supported condition` : `not in the Box style whitelist` })
         continue
       }
       if (SPEC[key].rootOnly && options.root === false)
@@ -379,6 +379,10 @@ export interface ConditionContext {
   /** VAPP-218: the HOST's form factor (an editor preview's phone frame, a
    *  phone); unset = derived from the width (`formFactorOf`). */
   formFactor?: FormFactor
+  /** Round 8: the width of the node's PARENT box (its content box, after
+   *  layout), what `@container (…)` matches; unset = not laid out yet, a
+   *  container condition never matches. */
+  containerWidth?: number
 }
 
 /** VAPP-218: what `@media (form-factor: …)` matches. */
@@ -401,9 +405,12 @@ export interface MediaCondition {
   /** The px value or the `$breakpoint.<name>` token for the size features;
    *  the keyword for the others. */
   value: string
+  /** Round 8: an `@container (min-width|max-width: …)` key: matched against
+   *  `ConditionContext.containerWidth` (the parent box), not the surface. */
+  container?: true
 }
 
-const MEDIA_PARSE = /^@media \(([a-z-]+): ([^)]+)\)$/
+const MEDIA_PARSE = /^@(media|container) \(([a-z-]+): ([^)]+)\)$/
 
 /** `"@media (min-width: $breakpoint.md)"` → `{feature, value}`; null when the
  *  key is not a media condition of the grammar. */
@@ -411,7 +418,9 @@ export function parseMediaCondition(key: string): MediaCondition | null {
   if (!STYLE_MEDIA.test(key)) return null
   const m = MEDIA_PARSE.exec(key)
   if (!m) return null
-  return { feature: m[1] as MediaCondition[`feature`], value: m[2] }
+  const condition: MediaCondition = { feature: m[2] as MediaCondition[`feature`], value: m[3]! }
+  if (m[1] === `container`) condition.container = true
+  return condition
 }
 
 function sizeValue(value: string, ctx: ConditionContext): number | null {
@@ -436,7 +445,7 @@ export function mediaMatches(condition: MediaCondition, ctx: ConditionContext): 
     case `max-height`: {
       const n = sizeValue(condition.value, ctx)
       if (n === null) return false
-      const size = condition.feature.endsWith(`width`) ? ctx.width : ctx.height
+      const size = condition.container ? ctx.containerWidth : condition.feature.endsWith(`width`) ? ctx.width : ctx.height
       if (size === undefined) return false
       return condition.feature.startsWith(`min`) ? size >= n : size < n
     }
