@@ -90,7 +90,7 @@ const PACKAGE = {
       description: `Comment the logged hours on an issue.`,
       input: { type: `object`, properties: { issue: { type: `string` }, hours: { type: `number` } }, required: [`issue`, `hours`] },
       access: `write`,
-      run: { action: `exponential.comments.create`, args: { issueId: `\${input.issue}`, body: `Logged \${input.hours} h` } },
+      run: { action: `exponential_comments_create`, args: { issueId: `\${input.issue}`, body: `Logged \${input.hours} h` } },
     },
     {
       name: `find_customer`,
@@ -120,7 +120,7 @@ async function world(opts: { grantComments?: boolean } = {}) {
       package: PACKAGE as never,
       headVersion: 1,
       createdBy: owner,
-      grantedTools: opts.grantComments === false ? [] : [`exponential.comments.create`],
+      grantedTools: opts.grantComments === false ? [] : [`exponential_comments_create`],
     })
     .returning({ id: apps.id })
   return { owner, teamId, issueId: issue!.id, appId: app!.id }
@@ -245,9 +245,9 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
         name: `Filer`,
         headVersion: 1,
         createdBy: w.owner,
-        grantedTools: [`exponential.issues.create`],
+        grantedTools: [`exponential_issues_create`],
         package: {
-          functions: [`exponential.issues.create`],
+          functions: [`exponential_issues_create`],
           exposes: [
             {
               name: `file_issue`,
@@ -255,7 +255,7 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
               description: `File an issue on a board.`,
               input: { type: `object`, properties: { title: { type: `string` } }, required: [`title`] },
               access: `write`,
-              run: { action: `exponential.issues.create`, args: { boardId: board.id, title: `\${input.title}` } },
+              run: { action: `exponential_issues_create`, args: { boardId: board.id, title: `\${input.title}` } },
             },
           ],
         } as never,
@@ -276,7 +276,7 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
     const w = await world()
     const [app] = await db
       .insert(apps)
-      .values({ teamId: w.teamId, slug: `claimed`, name: `Claimed`, headVersion: 2, publishedVersion: 1, createdBy: w.owner, package: { formatVersion: 5, functions: [`records.*`, `harness.mcp`, `exponential.issues.create`] } as never })
+      .values({ teamId: w.teamId, slug: `claimed`, name: `Claimed`, headVersion: 2, publishedVersion: 1, createdBy: w.owner, package: { formatVersion: 6, functions: [`records_*`, `harness_mcp`, `exponential_issues_create`] } as never })
       .returning({ id: apps.id })
     const appId = app!.id
     const check = (userId: string, version: number, fn: ViaAppCall) => verifiedViaApp(userId, { appId, version }, [fn])

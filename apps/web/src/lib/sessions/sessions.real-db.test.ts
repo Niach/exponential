@@ -2863,7 +2863,7 @@ describe.skipIf(!ready.ok)(`the plan card (S-3: exponential_show plan)`, async (
       plan: `1. Tiles\n\n![Grid](upload:grid)`,
       pictures: [{ label: `grid` }],
       questions: [{ id: `layout`, prompt: `Layout?`, custom: false, options: [{ label: `Grid`, picture: `grid` }, { label: `List` }] }],
-      surface: { root: { id: `r`, component: `Text`, props: { text: { path: `/name` } } }, data: { name: `x` } },
+      surface: { version: `1.0`, root: { id: `r`, component: `Text`, props: { text: { "@path": `/name` } } }, data: { name: `x` } },
     })
     const posted = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card })
     expect(posted.uploads).toHaveLength(1)
@@ -2991,7 +2991,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
       .filter((m) => m.authorKind === `agent` && m.card === null)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       .map((m) => m.body)
-  const surface = (text: string) => buildSurfaceCard({ surface: { root: { id: `t`, component: `Text`, props: { text } } } })
+  const surface = (text: string) => buildSurfaceCard({ surface: { version: `1.0`, root: { id: `t`, component: `Text`, props: { text } } } })
   // The device delivers every waiting input (the turn edge).
   const deliver = async (host: ReturnType<typeof caller>, sessionId: string) => {
     const waiting = (await db.select().from(messages).where(inSession(sessionId))).filter(
@@ -3045,7 +3045,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
     await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
     await deliver(host, sent.sessionId)
     const titled = (title: string, text: string) =>
-      buildSurfaceCard({ title, surface: { root: { id: `t`, component: `Text`, props: { text } } } })
+      buildSurfaceCard({ title, surface: { version: `1.0`, root: { id: `t`, component: `Text`, props: { text } } } })
     // No earlier card: a new one.
     const first = await postShowCard({ userId: w.mate, sessionId: sent.sessionId, card: titled(`Green`, `a`), replace: true })
     expect(first.replaced).toBe(false)
@@ -3164,7 +3164,7 @@ describe.skipIf(!ready.ok)(`S-3: seen marks, result pictures, PR pictures`, asyn
       db,
       request: new Request(`http://x.test`),
     } as never)
-  const surface = { root: { id: `t`, component: `Text`, props: { text: `Green` } } }
+  const surface = { version: `1.0`, root: { id: `t`, component: `Text`, props: { text: `Green` } } }
 
   it(`markStoriesSeen keeps the greatest mark on the ROOT's row and never marks the chat read`, async () => {
     const w = await world()

@@ -1127,7 +1127,7 @@ pub fn app_upload_path(app_id: &str) -> String {
 
 /// The absolute `files` path of the FIRST FileUpload (component order)
 /// named `name` (its `name`, else its id); None when it has no absolute
-/// `{path}` binding (`targetCases`).
+/// `{"@path"}` binding (`targetCases`).
 pub fn app_upload_target(components: &[serde_json::Value], name: &str) -> Option<String> {
     let upload = components.iter().find(|c| {
         c["component"].as_str() == Some("FileUpload")
@@ -1136,7 +1136,7 @@ pub fn app_upload_target(components: &[serde_json::Value], name: &str) -> Option
                 None => c["id"].as_str() == Some(name),
             }
     })?;
-    let path = upload.get("files")?.as_object()?.get("path")?.as_str()?;
+    let path = upload.get("files")?.as_object()?.get("@path")?.as_str()?;
     path.starts_with('/').then(|| path.to_string())
 }
 

@@ -98,13 +98,13 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   })
   // VAPP-161: the format's tools need a host that runs MCP servers and
   // scripts; Exponential's app hosts run none (an app calls the typed
-  // exponential.<noun>.<op> functions or harness.mcp instead).
+  // exponential_<noun>_<op> functions or harness_mcp instead).
   if (valid.tools !== undefined) {
-    rules.push({ path: `/tools`, message: `Exponential's app hosts run no package tools: call exponential.<noun>.<op> or harness.mcp instead` })
+    rules.push({ path: `/tools`, message: `Exponential's app hosts run no package tools: call exponential_<noun>_<op> or harness_mcp instead` })
   }
   // VAPP-180: the SDK checked the format of `exposes`; eMCP's contract adds
   // what only this host knows: an action binding names an OFFERED, grantable
-  // exponential.<noun>.<op> whose call is not destructive by its arguments.
+  // exponential_<noun>_<op> whose call is not destructive by its arguments.
   if (valid.exposes !== undefined) {
     const ctx = { kinds: Object.keys(valid.records ?? {}), upstreams: valid.upstreams ?? [] }
     for (const error of validateExposes(valid.exposes as unknown as Expose[], ctx)) {
@@ -151,7 +151,7 @@ function upstreamDeclareMessage(code: string, source: string): string {
 /** VAPP-180: the eMCP codes the SDK leaves to the host (an action binding
  *  over Exponential's typed operations). */
 const EXPOSE_HOST_MESSAGES: Record<string, string> = {
-  action: `an exposed action is one of the exponential.<noun>.<op> operations (exponential_apps {op: "catalog"} lists them)`,
+  action: `an exposed action is one of the exponential_<noun>_<op> operations (exponential_apps {op: "catalog"} lists them)`,
   ownerOnly: `an owner-only operation is never grantable, so never exposed`,
   destructive: `a destructive call (a delete, merge, close, end, remove or trash, or sessions.send with stop) is never exposed`,
 }

@@ -3,12 +3,12 @@ import { isPrPictureCard } from "@exp/domain-contract/results-tab"
 import { buildSurfaceCard } from "@/lib/sessions/plan"
 
 // A surface card may carry screenshots and a result flag.
-const surface = { root: { id: `t`, component: `Text`, props: { text: `Green` } } }
+const surface = { version: `1.0`, root: { id: `t`, component: `Text`, props: { text: `Green` } } }
 
 describe(`buildSurfaceCard (results)`, () => {
   it(`a plain surface carries neither pictures nor a flag, and is no result`, () => {
     const card = buildSurfaceCard({ surface })
-    expect(card).toEqual({ kind: `surface`, surface: { root: surface.root, data: null }, title: null })
+    expect(card).toEqual({ kind: `surface`, surface: { version: `1.0`, root: surface.root, data: null }, title: null })
     expect(isPrPictureCard(card)).toBe(false)
   })
 
@@ -32,7 +32,7 @@ describe(`buildSurfaceCard (results)`, () => {
 
 // EXP-1604: a Motion's animation is validated by the engine (WASM).
 describe(`buildSurfaceCard (Motion)`, () => {
-  const motion = (props: Record<string, unknown>) => ({ root: { id: `m`, component: `Motion`, props } })
+  const motion = (props: Record<string, unknown>) => ({ version: `1.0`, root: { id: `m`, component: `Motion`, props } })
   const spinner = {
     size: [48, 48],
     duration: 1000,

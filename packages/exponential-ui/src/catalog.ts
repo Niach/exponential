@@ -29,7 +29,7 @@ export const CORE_CATALOG_ID: string = coreCatalog.id
  *  Chart, data tables or the rarer controls). A lite surface is a valid core
  *  surface, so it is a second id over the same definitions. */
 export const CORE_LITE_CATALOG_ID: string = coreCatalog.liteId
-/** The vendored A2UI basic catalog (vendor/a2ui/v0_9). */
+/** The vendored A2UI basic catalog (vendor/a2ui/v1_0). */
 export const A2UI_BASIC_CATALOG_ID: string = basicMapJson.from
 /** The A2UI wire `version` (round 9: `"1.0"`, generated from catalog/host.json `a2uiVersion`). */
 export const A2UI_VERSION: string = GENERATED_A2UI_VERSION

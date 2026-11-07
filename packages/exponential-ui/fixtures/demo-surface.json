@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-93: the home page demo of ui.exponential.at, in the nested authoring form. The site replays it as A2UI v0.9 messages (createSurface, then updateComponents in growing chunks, the answer an agent would stream for the prompt `How did last night's release go?`); generate.ts copies it into fixtures/specimens.json as `exponential-ui-demo`, so every renderer paints the same surface for the shots beside the replay.",
+  "$comment": "VAPP-93: the home page demo of ui.exponential.at, in the nested authoring form. The site replays it as A2UI 1.0 messages (createSurface, then updateComponents in growing chunks, the answer an agent would stream for the prompt `How did last night's release go?`); generate.ts copies it into fixtures/specimens.json as `exponential-ui-demo`, so every renderer paints the same surface for the shots beside the replay.",
   "id": "demo",
   "component": "Box",
   "style": {

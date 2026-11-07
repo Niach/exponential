@@ -3202,6 +3202,7 @@ describe(`exponential_show {plan | ask} (S-3, the EXP-1280 cards)`, () => {
     next: PLAN_CARD_COPY.proposeNext,
   }
   const surface = {
+    version: `1.0`,
     root: { id: `r`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Hi` } }] },
     data: { name: `x` },
   }
@@ -3279,19 +3280,20 @@ describe(`exponential_show {plan | ask} (S-3, the EXP-1280 cards)`, () => {
       `listed twice`,
     ],
     [`an unanswerable question`, { questions: [{ id: `q`, prompt: `Q?`, custom: false, options: [] }] }, `cannot be answered`],
-    [`a surface outside the core catalog`, { surface: { root: { id: `r`, component: `Nope` } } }, `unknown component Nope`],
-    [`a surface with invalid props`, { surface: { root: { id: `r`, component: `Text` } } }, `props.text: required`],
-    [`a surface root that is no node`, { surface: { root: { kind: `x` } } }, `genUI node`],
-    [`a malformed surface tree`, { surface: { root: { id: `r`, component: `Stack`, children: `x` } } }, `not a valid`],
+    [`a surface outside the core catalog`, { surface: { version: `1.0`, root: { id: `r`, component: `Nope` } } }, `unknown component Nope`],
+    [`a surface with invalid props`, { surface: { version: `1.0`, root: { id: `r`, component: `Text` } } }, `props.text: required`],
+    [`a surface root that is no node`, { surface: { version: `1.0`, root: { kind: `x` } } }, `genUI node`],
+    [`a malformed surface tree`, { surface: { version: `1.0`, root: { id: `r`, component: `Stack`, children: `x` } } }, `not a valid`],
     [
       `a surface past the byte cap`,
-      { surface: { root: { id: `r`, component: `Text`, props: { text: `x`.repeat(70_000) } } } },
+      { surface: { version: `1.0`, root: { id: `r`, component: `Text`, props: { text: `x`.repeat(70_000) } } } },
       `the cap is 65536`,
     ],
     [
       `a surface past the component cap`,
       {
         surface: {
+          version: `1.0`,
           root: {
             id: `r`,
             component: `Stack`,
@@ -3421,6 +3423,7 @@ describe(`exponential_show {plan | ask} (S-3, the EXP-1280 cards)`, () => {
 // card's surface (the builder runs for real; the DB write is stubbed).
 describe(`exponential_show {surface} (Chats)`, () => {
   const surface = {
+    version: `1.0`,
     root: { id: `r`, component: `Stack`, children: [{ id: `t`, component: `Badge`, props: { text: `Hi` } }] },
   }
   const show = (args: Record<string, unknown>) => collectTools(USER, SESSION).get(`exponential_show`)!(args)
@@ -3438,7 +3441,7 @@ describe(`exponential_show {surface} (Chats)`, () => {
       userId: USER.id,
       sessionId: SESSION,
       replace: false,
-      card: { kind: `surface`, surface: { root: surface.root, data: null }, title: `Login screen` },
+      card: { kind: `surface`, surface: { version: `1.0`, root: surface.root, data: null }, title: `Login screen` },
     })
   })
 
@@ -3447,7 +3450,7 @@ describe(`exponential_show {surface} (Chats)`, () => {
     [`a surface root that is no node`, { root: { kind: `x` } }, `genUI node`],
     [`a surface past the byte cap`, { root: { id: `r`, component: `Text`, props: { text: `x`.repeat(70_000) } } }, `the cap is 65536`],
   ])(`refuses %s`, async (_name, bad, message) => {
-    const result = await show({ surface: bad })
+    const result = await show({ surface: { version: `1.0`, ...bad } })
     expect(result.isError).toBe(true)
     expect(result.content[0]!.text).toContain(message)
     expect(postShowCard).not.toHaveBeenCalled()
@@ -3457,6 +3460,16 @@ describe(`exponential_show {surface} (Chats)`, () => {
     const schema = collectToolDefs().get(`exponential_show`)!.inputSchema!
     expect(schema.safeParse({ surface }).success).toBe(true)
     expect(schema.safeParse({ surface, extra: 1 }).success).toBe(false)
+  })
+
+  // Round 9 §13: a card names 1.0; the refusal names the fix.
+  it(`refuses a surface without version 1.0`, () => {
+    const schema = collectToolDefs().get(`exponential_show`)!.inputSchema!
+    const { version: _version, ...old } = surface
+    const missing = schema.safeParse({ surface: old })
+    expect(missing.success).toBe(false)
+    expect(missing.error!.issues[0]!.message).toContain(`"version": "1.0"`)
+    expect(schema.safeParse({ surface: { ...surface, version: `v0.9` } }).success).toBe(false)
   })
 
   it(`only works inside a session`, async () => {
@@ -3474,7 +3487,7 @@ describe(`exponential_show {surface} (Chats)`, () => {
       SHOW_TEXT_ONLY_ERROR,
     ],
   ])(`refuses %s (EXP-1445)`, async (_name, bad, message) => {
-    const result = await show({ surface: bad })
+    const result = await show({ surface: { version: `1.0`, ...bad } })
     expect(result.isError).toBe(true)
     expect(result.content[0]!.text).toBe(message)
     expect(postShowCard).not.toHaveBeenCalled()

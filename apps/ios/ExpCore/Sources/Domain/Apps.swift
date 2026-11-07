@@ -378,7 +378,7 @@ public enum Apps {
             return named == .string(name)
         }
         let files = upload?.objectValue?["files"]?.objectValue
-        guard case let .string(path)? = files?["@path"] ?? files?["path"], path.hasPrefix("/") else {
+        guard case let .string(path)? = files?["@path"], path.hasPrefix("/") else {
             return nil
         }
         return path
