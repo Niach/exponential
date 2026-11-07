@@ -220,6 +220,12 @@ struct Shell {
     chat_local: Option<local_runs::LocalChat>,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
     engine: Option<engine::SharedEngine>,
+    /// The installed packages (the factory and the person's directories).
+    engine_apps: Vec<engine::EngineApp>,
+    /// The launcher's entries, for the `launch` capability.
+    launchable: Arc<Vec<apps::App>>,
+    /// #VAPP-273: the connected team's synced store, when the current entry is a team.
+    team_stores: Option<Arc<engine::synced::TeamStores>>,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -560,6 +566,8 @@ impl HostPlugin for Host {
                                 shell.borrow_mut().local = None;
                             }
                             chatting_changed(&shell, cx);
+                            // #VAPP-273: the apps follow the desktop (local records or the team's).
+                            engine_boot(&shell, cx);
                         }
                     }
                     Some("new") => {
@@ -785,6 +793,78 @@ fn settings_open_page(shell: &SharedShell, page: &str, cx: &mut App) {
     open_on_demand(shell, "settings", cx);
     refresh(shell, cx);
     shell.borrow_mut().feed.remove("/settings");
+}
+
+/// #VAPP-273: the apps on the Engine for the current switcher entry: a
+/// Local desktop runs the installed packages over the local records; a
+/// connected team runs the team's published apps over its synced records
+/// as the member (`engine::synced`). Any earlier set goes first.
+fn engine_boot(shell: &SharedShell, cx: &mut App) {
+    if let Some(engine) = shell.borrow_mut().engine.take() {
+        engine::shutdown(&engine, cx);
+    }
+    shell.borrow_mut().team_stores = None;
+    let current = shell.borrow().model.switcher.current.clone();
+    let connect: Arc<dyn engine::capabilities::Connect> = Arc::new(engine::capabilities::Minted::default());
+    let capabilities = engine::capabilities::ede_capabilities(connect, shell.borrow().launchable.clone());
+    let (apps, stores) = if current.kind == uicore_model::SwitcherKind::Team {
+        let Some(account_id) = current.account.clone() else { return };
+        let (account, store) = {
+            let s = shell.borrow();
+            (s.workspaces.account(&account_id), s.workspaces.store(&account_id))
+        };
+        let (Some(account), Some(store)) = (account, store) else {
+            tracing::info!(team = %current.id, "no synced store for the team yet");
+            return;
+        };
+        let apps_rows = sync::shapes::shape_by_name("apps").and_then(|spec| store.read_all(spec).ok()).unwrap_or_default();
+        let members = sync::shapes::shape_by_name("team_members").and_then(|spec| store.read_all(spec).ok()).unwrap_or_default();
+        let team_apps = engine::synced::team_apps(&apps_rows, &current.id);
+        if team_apps.is_empty() {
+            return;
+        }
+        let team = match engine::synced::TeamStores::open(&shell.borrow().workspaces, &account, &current.id) {
+            Ok(t) => Arc::new(t),
+            Err(e) => {
+                tracing::warn!(team = %current.id, "team records: {e}");
+                return;
+            }
+        };
+        team.feed(&store);
+        let identity: Arc<dyn eengine::Identity> = Arc::new(engine::synced::MemberIdentity(engine::synced::member_identity(&members, &account.user_id, &current.id)));
+        let data_dir = engine::data_dir().join("teams").join(&current.id);
+        let stores = match engine::Stores::open(data_dir, capabilities) {
+            Ok(s) => s.connected(identity, team.clone()),
+            Err(e) => {
+                tracing::warn!("apps: {e}");
+                return;
+            }
+        };
+        shell.borrow_mut().team_stores = Some(team);
+        (team_apps.into_iter().map(|t| t.app).collect::<Vec<_>>(), stores)
+    } else {
+        let apps = shell.borrow().engine_apps.clone();
+        if apps.is_empty() {
+            return;
+        }
+        match engine::Stores::open(engine::data_dir(), capabilities) {
+            Ok(stores) => (apps, stores),
+            Err(e) => {
+                tracing::warn!("apps: {e}");
+                return;
+            }
+        }
+    };
+    let eng = engine::boot(apps, &stores, cx);
+    eng.borrow_mut().window_max = {
+        let s = shell.borrow();
+        engine::window_max(output_size(&s), s.model.rail)
+    };
+    engine::open_widgets(&eng, cx);
+    if let Some(team) = &stores.synced {
+        team.flush();
+    }
+    shell.borrow_mut().engine = Some(eng);
 }
 
 /// The current Local desktop, opened once (#EDE-57).
@@ -1943,6 +2023,9 @@ fn main() {
             pending_pick: None,
             chat_local: None,
             engine: None,
+            engine_apps: Vec::new(),
+            launchable: Arc::new(Vec::new()),
+            team_stores: None,
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
@@ -1979,23 +2062,14 @@ fn main() {
             tracing::warn!(dir = %dir.display(), "no layer document to draw (is the factory directory installed? exponential-ui --factory apps/ede/ui check)");
         }
         // #VAPP-273: the apps on the Engine: booted, their widgets on the ground.
-        if !engine_apps.is_empty() {
-            let connect: Arc<dyn engine::capabilities::Connect> = Arc::new(engine::capabilities::Minted::default());
-            match engine::Stores::open(engine::data_dir(), engine::capabilities::ede_capabilities(connect, launchable.clone())) {
-                Ok(stores) => {
-                    let eng = engine::boot(engine_apps, &stores, cx);
-                    eng.borrow_mut().window_max = {
-                        let s = shell.borrow();
-                        engine::window_max(output_size(&s), s.model.rail)
-                    };
-                    engine::open_widgets(&eng, cx);
-                    let open_apps = shell.borrow().options.open_app.clone();
-                    for app in open_apps {
-                        engine::open_window(&eng, &app, cx);
-                    }
-                    shell.borrow_mut().engine = Some(eng);
-                }
-                Err(e) => tracing::warn!("apps: {e}"),
+        shell.borrow_mut().engine_apps = engine_apps;
+        shell.borrow_mut().launchable = launchable.clone();
+        engine_boot(&shell, cx);
+        let open_apps = shell.borrow().options.open_app.clone();
+        let eng = shell.borrow().engine.clone();
+        if let Some(eng) = eng {
+            for app in open_apps {
+                engine::open_window(&eng, &app, cx);
             }
         }
 
@@ -2042,9 +2116,28 @@ fn main() {
                 }
                 // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
                 let mut teams_changed = false;
+                let mut records_changed = false;
                 while let Ok(delta) = team_deltas.try_recv() {
-                    if matches!(delta, sync::ShapeDelta::Applied { .. }) {
-                        teams_changed = true;
+                    if let sync::ShapeDelta::Applied { shape, account_id, .. } = &delta {
+                        match *shape {
+                            "teams" | "team_members" => teams_changed = true,
+                            // #VAPP-273: the connected team's apps and records.
+                            "apps" | "app_records" => {
+                                if s.borrow().team_stores.as_ref().is_some_and(|t| &t.account_id == account_id) {
+                                    records_changed = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                if records_changed {
+                    let (team, store) = {
+                        let sh = s.borrow();
+                        (sh.team_stores.clone(), sh.team_stores.as_ref().and_then(|t| sh.workspaces.store(&t.account_id)))
+                    };
+                    if let (Some(team), Some(store)) = (team, store) {
+                        team.feed(&store);
                     }
                 }
                 while let Ok(url) = urls_rx.try_recv() {

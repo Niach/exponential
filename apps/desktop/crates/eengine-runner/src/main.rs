@@ -107,6 +107,8 @@ fn main() {
                             blobs: Arc::new(eengine::FsBlobStore::new(storage::files_dir(&dir))),
                             vault: Arc::new(RunnerVault::platform(&b.config.id, &b.config.name, &dir)),
                             capabilities: eengine_desktop::desktop_capabilities(desktop),
+                            identity: None,
+                            synced: None,
                         };
                         let name = b.config.name.clone();
                         Runner::boot(b.config, &b.file, providers, FormFactor::Wide).map_err(|kind| (kind, name))

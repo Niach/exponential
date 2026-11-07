@@ -56,6 +56,8 @@ fn providers() -> Providers {
         blobs: Arc::new(FsBlobStore::new(std::env::temp_dir().join("eengine-runner-test-blobs"))),
         vault: Arc::new(MemoryVault::default()),
         capabilities: vec![Arc::new(Photos)],
+        identity: None,
+        synced: None,
     }
 }
 
@@ -344,4 +346,101 @@ fn the_photobook_sample_picks_photos_and_exports_a_pdf() {
     let bytes = blobs.get(r.app_id(), pdf_id).unwrap().expect("the PDF in the BlobStore");
     assert!(bytes.starts_with(b"%PDF-"), "a PDF");
     assert_eq!(r.instance().grants().get("photos.read"), Some(&GrantValue::Granted));
+}
+
+// #VAPP-273: a connected host's synced store behind the runner.
+mod synced {
+    use super::*;
+    use std::sync::Mutex;
+
+    use eengine::outbox::{OutboxEntry, OutboxResult};
+    use eengine::providers::{EngineIdentity, Identity, Pushed, SyncTransport, SystemClock};
+    use eengine::{OutboxLog, SyncedRecordStore};
+    use eui_core::host::RecordRow;
+
+    #[derive(Default)]
+    struct MemoryLog(Mutex<Vec<OutboxEntry>>);
+
+    impl OutboxLog for MemoryLog {
+        fn entries(&self) -> Result<Vec<OutboxEntry>, Failure> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        fn push(&self, entry: &OutboxEntry) -> Result<(), Failure> {
+            self.0.lock().unwrap().push(entry.clone());
+            Ok(())
+        }
+        fn ack(&self, write_id: &str, at: &str) -> Result<(), Failure> {
+            for e in self.0.lock().unwrap().iter_mut().filter(|e| e.write_id == write_id) {
+                e.state = eengine::outbox::OutboxState::Acked;
+                e.acked_at = Some(at.to_string());
+            }
+            Ok(())
+        }
+        fn remove(&self, write_ids: &[String]) -> Result<(), Failure> {
+            self.0.lock().unwrap().retain(|e| !write_ids.contains(&e.write_id));
+            Ok(())
+        }
+    }
+
+    /// The server takes every write, answering the id it was given.
+    struct Server(Mutex<Vec<(String, String, Value)>>);
+
+    impl SyncTransport for Server {
+        fn push(&self, app: &str, call: &str, input: &Value) -> OutboxResult {
+            self.0.lock().unwrap().push((app.into(), call.into(), input.clone()));
+            OutboxResult::Ok
+        }
+        fn send(&self, app: &str, call: &str, input: &Value) -> Pushed {
+            let result = self.push(app, call, input);
+            Pushed { answer: json!({"id": input.get("newId").cloned().unwrap_or(Value::Null)}), ..Pushed::of(result) }
+        }
+    }
+
+    struct Member(&'static str);
+
+    impl Identity for Member {
+        fn identity(&self) -> EngineIdentity {
+            EngineIdentity::Member { user_id: "u1".into(), role: Some(self.0.into()), access: None }
+        }
+    }
+
+    fn connected(role: &'static str) -> (Runner, Arc<SyncedRecordStore>, Arc<Server>) {
+        let server = Arc::new(Server(Mutex::default()));
+        let store = Arc::new(SyncedRecordStore::new(Arc::new(MemoryLog::default()), server.clone(), Arc::new(SystemClock), None).unwrap());
+        let synced = Synced { store: store.clone(), app: "app-uuid".into(), online: Arc::new(std::sync::atomic::AtomicBool::new(true)) };
+        let providers = Providers { identity: Some(Arc::new(Member(role))), synced: Some(synced), ..providers() };
+        let mut r = Runner::boot(config(), &package(), providers, FormFactor::Wide).expect("boots");
+        let _ = r.launch(Vec::new());
+        (r, store, server)
+    }
+
+    #[test]
+    fn a_write_goes_through_the_synced_outbox_under_the_servers_app_id() {
+        let (mut r, store, server) = connected("member");
+        let Dispatch::Synced { synced, entry } = r.dispatch("records_upsert", &json!({"kind": "note", "data": {"text": "hi"}})) else { panic!("a synced write") };
+        assert_eq!(synced.app, "app-uuid");
+        let result = submitted(&synced, entry);
+        let CallResult::Value(value) = result else { panic!("{result:?}") };
+        let id = value["id"].as_str().unwrap().to_string();
+        let sent = server.0.lock().unwrap();
+        assert_eq!((sent[0].0.as_str(), sent[0].1.as_str()), ("app-uuid", "upsert"));
+        assert_eq!(sent[0].2["newId"], json!(id));
+        drop(sent);
+        // The queued row shows through the instance's reads until the shape reflects it.
+        let notes = r.records("records:note").unwrap();
+        assert_eq!(notes["count"], json!(1));
+        assert_eq!(notes["rows"][0]["text"], json!("hi"));
+        store.set_rows("app-uuid", vec![RecordRow { id: id.clone(), kind: "note".into(), data: json!({"text": "hi"}), created_by: Some("u1".into()), author_id: Some("u1".into()), created_at: "2026-11-07T10:00:00.000Z".into(), updated_at: "2026-11-07T10:00:00.000Z".into() }]);
+        store.prune();
+        assert_eq!(r.records("records:note").unwrap()["count"], json!(1));
+    }
+
+    #[test]
+    fn the_kind_policy_is_judged_as_the_member_before_the_queue() {
+        let (mut r, _, server) = connected("member");
+        // The sample's `note` kind lets members create; a delete of someone else's row is the author's alone.
+        let Dispatch::Done(CallResult::Refused(f)) = r.dispatch("records_delete", &json!({"id": "not-mine"})) else { panic!("refused") };
+        assert_eq!(f.code, "FORBIDDEN");
+        assert!(server.0.lock().unwrap().is_empty());
+    }
 }

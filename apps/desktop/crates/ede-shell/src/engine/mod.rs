@@ -15,6 +15,7 @@
 
 pub mod capabilities;
 pub mod shell_edit;
+pub mod synced;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -47,6 +48,9 @@ pub struct EngineApp {
     pub path: PathBuf,
     /// The package file as read (a signed file or a bare package).
     pub file: Value,
+    /// #VAPP-273: on a connected team, the server's app id (the key of its
+    /// records in the synced store); `None` on a Local desktop.
+    pub store_key: Option<String>,
 }
 
 /// `$EDE_APPS_DIR`, else the `apps` directory next to the shell's `ui` one.
@@ -94,7 +98,7 @@ pub fn scan(dir: &Path) -> Vec<EngineApp> {
             continue;
         };
         let text = |k: &str| pkg.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-        out.push(EngineApp { id: id.to_string(), name: if text("name").is_empty() { id.to_string() } else { text("name") }, description: text("description"), version: if text("version").is_empty() { "0.0.0".into() } else { text("version") }, path, file });
+        out.push(EngineApp { id: id.to_string(), name: if text("name").is_empty() { id.to_string() } else { text("name") }, description: text("description"), version: if text("version").is_empty() { "0.0.0".into() } else { text("version") }, path, file, store_key: None });
     }
     out
 }
@@ -161,12 +165,16 @@ impl Engine {
     }
 }
 
-/// What every app shares: the stores under the data directory and eDE's capabilities.
+/// What every app shares: the stores under the data directory and eDE's
+/// capabilities; on a connected team (#VAPP-273 `synced`) the viewer and
+/// the team's synced store instead of the local records.
 pub struct Stores {
     pub data_dir: PathBuf,
     pub storage: Arc<SqliteRecordStore>,
     pub blobs: Arc<FsBlobStore>,
     pub capabilities: Vec<Arc<dyn eengine::Capability>>,
+    pub identity: Option<Arc<dyn eengine::Identity>>,
+    pub synced: Option<Arc<synced::TeamStores>>,
 }
 
 impl Stores {
@@ -175,7 +183,14 @@ impl Stores {
         std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
         let storage = SqliteRecordStore::open(data_dir.join("records.sqlite")).map_err(|e| e.to_string())?;
         let blobs = FsBlobStore::new(data_dir.join("files"));
-        Ok(Stores { data_dir, storage: Arc::new(storage), blobs: Arc::new(blobs), capabilities })
+        Ok(Stores { data_dir, storage: Arc::new(storage), blobs: Arc::new(blobs), capabilities, identity: None, synced: None })
+    }
+
+    /// The same stores for a connected team: the viewer and the team's synced store.
+    pub fn connected(mut self, identity: Arc<dyn eengine::Identity>, team: Arc<synced::TeamStores>) -> Self {
+        self.identity = Some(identity);
+        self.synced = Some(team);
+        self
     }
 }
 
@@ -204,6 +219,10 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
         desktop.app_id = Some(app.id.clone());
         let mut capabilities = eengine_desktop::desktop_capabilities(desktop);
         capabilities.extend(stores.capabilities.iter().cloned());
+        let synced = match (&stores.synced, &app.store_key) {
+            (Some(team), Some(key)) => Some(eengine_runner::runner::Synced { store: team.store.clone(), app: key.clone(), online: team.online.clone() }),
+            _ => None,
+        };
         let providers = Providers {
             host_kind: "ede".into(),
             platform: "linux".into(),
@@ -212,7 +231,12 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
             blobs: stores.blobs.clone(),
             vault: Arc::new(RunnerVault::platform(&app.id, &app.name, &app_dir)),
             capabilities,
+            identity: stores.identity.clone(),
+            synced,
         };
+        if let Some(team) = &stores.synced {
+            team.pumps.lock().unwrap_or_else(|p| p.into_inner()).push(tx.clone());
+        }
         let config = RunnerConfig { id: app.id.clone(), name: app.name.clone(), version: app.version.clone(), network: NetworkPolicy::Any };
         let mut runner = match Runner::boot(config, &app.file, providers, FormFactor::Wide) {
             Ok(r) => r,
@@ -283,6 +307,19 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
         .detach();
     }
     engine
+}
+
+/// Every app's windows and widgets go (another desktop was picked); the
+/// instances with them.
+pub fn shutdown(engine: &SharedEngine, cx: &mut App) {
+    let running = std::mem::take(&mut engine.borrow_mut().running);
+    for r in running {
+        for handle in r.window.into_iter().chain(r.widget_windows) {
+            let _ = handle.update(cx, |_, window, _| window.remove_window());
+        }
+        let paints = r.ctx.runner.borrow_mut().as_mut().map(Runner::terminate).unwrap_or_default();
+        r.ctx.apply(paints, cx);
+    }
 }
 
 /// The app's window: a plain toplevel of the shell process (its app id is
@@ -454,6 +491,8 @@ mod tests {
             blobs: stores.blobs.clone(),
             vault: Arc::new(eengine::MemoryVault::default()),
             capabilities: Vec::new(),
+            identity: None,
+            synced: None,
         };
         let config = RunnerConfig { id: app.id.clone(), name: app.name.clone(), version: app.version.clone(), network: NetworkPolicy::Any };
         let mut runner = Runner::boot(config, &app.file, providers, FormFactor::Wide).expect("boots");

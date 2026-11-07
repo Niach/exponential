@@ -176,6 +176,15 @@ impl Ctx {
                         });
                         Vec::new()
                     }
+                    Dispatch::Synced { synced, entry } => {
+                        // The server may take a while: never the main thread.
+                        let tx = self.tx.clone();
+                        std::thread::spawn(move || {
+                            let result = runner::submitted(&synced, entry);
+                            let _ = tx.send(Inbound::Answered { ticket, name, args, result });
+                        });
+                        Vec::new()
+                    }
                 }
             }
             Inbound::Answered { ticket, name, args, result } => self.finish(ticket, &name, &args, result),
@@ -184,7 +193,7 @@ impl Ctx {
                 let result = match self.runner.borrow_mut().as_mut() {
                     Some(r) => match r.dispatch("app_navigate", &args) {
                         Dispatch::Done(result) => result,
-                        Dispatch::Broker(_) => return,
+                        Dispatch::Broker(_) | Dispatch::Synced { .. } => return,
                     },
                     None => return,
                 };

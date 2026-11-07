@@ -7,6 +7,8 @@ publish = false
 
 [dependencies]
 domain = { path = "../domain" }
+# #VAPP-273: the synced-store providers (OutboxLog, SyncTransport) the connected hosts share.
+eengine = { path = "../eengine" }
 # For `api::http::shared()` — the ONE HTTP client the whole app uses (EXP-304),
 # so shape long-polls and tRPC share a single HTTP/2 connection per host. `api`
 # is the gpui-free plain-types crate and does not depend on `sync`, so this edge
