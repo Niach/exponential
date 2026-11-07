@@ -397,13 +397,11 @@
     "check": {
       "properties": {
         "condition": {
-          "type": "boolean",
-          "required": true,
-          "bindable": true
+          "type": "dynamic",
+          "required": true
         },
         "message": {
-          "type": "string",
-          "required": true
+          "type": "string"
         }
       }
     },
@@ -1080,14 +1078,14 @@
         "args": {
           "value": "any"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "regex": {
         "args": {
           "value": "string",
           "pattern": "string"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "length": {
         "args": {
@@ -1095,7 +1093,7 @@
           "min": "number",
           "max": "number"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "numeric": {
         "args": {
@@ -1103,13 +1101,13 @@
           "min": "number",
           "max": "number"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "email": {
         "args": {
           "value": "string"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "formatString": {
         "args": {
@@ -1714,6 +1712,22 @@
           "required": true,
           "bindable": true
         },
+        "profile": {
+          "type": "enum",
+          "values": [
+            "document",
+            "inline"
+          ],
+          "default": "document"
+        },
+        "variant": {
+          "type": "enum",
+          "values": [
+            "body",
+            "caption"
+          ],
+          "default": "body"
+        },
         "lines": {
           "type": "number"
         },
@@ -1799,7 +1813,7 @@
           "bindable": true
         },
         "for": {
-          "type": "string"
+          "type": "componentId"
         },
         "required": {
           "type": "boolean",
@@ -2610,7 +2624,7 @@
           "default": "center"
         },
         "anchor": {
-          "type": "string"
+          "type": "componentId"
         },
         "openOn": {
           "type": "enum",
@@ -2670,7 +2684,7 @@
           "default": "start"
         },
         "anchor": {
-          "type": "string"
+          "type": "componentId"
         },
         "openOn": {
           "type": "enum",

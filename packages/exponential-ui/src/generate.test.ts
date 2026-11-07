@@ -18,6 +18,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `../../apps/desktop/crates/eui-core/src/generated/catalog.rs`,
       `../../apps/desktop/crates/eui-core/src/generated/descriptions.rs`,
       `../../apps/desktop/crates/eui-core/src/generated/themes.rs`,
+      `catalog/core-lite.schema.json`,
       `catalog/core.schema.json`,
       `catalog/theme.schema.json`,
       `conformance/manifest.json`,
@@ -82,20 +83,20 @@ describe(`generated outputs (VAPP-85)`, () => {
   }
 })
 
-describe(`core.schema.json actions (VAPP-99)`, () => {
-  const schema = JSON.parse(readFileSync(join(pkgRoot, `catalog/core.schema.json`), `utf8`)) as { $defs: Record<string, Record<string, unknown>> }
+describe(`core.schema.json actions (VAPP-99, round 9)`, () => {
+  const schema = JSON.parse(readFileSync(join(pkgRoot, `catalog/core.schema.json`), `utf8`)) as { $defs: Record<string, Record<string, unknown>>; functions: Record<string, unknown> }
 
-  test(`an Action takes A2UI's functionCall and no other function key (round 4)`, () => {
-    const action = schema.$defs.Action as { properties: Record<string, unknown>; anyOf: unknown[] }
-    expect(action.properties.functionCall).toEqual({ $ref: `#/$defs/ActionFunctionCall` })
-    expect(action.properties.function).toBeUndefined()
+  test(`an action takes A2UI's functionCall, an event, or both`, () => {
+    const action = schema.$defs.EuiAction as { properties: Record<string, unknown>; anyOf: unknown[] }
+    expect(Object.keys(action.properties)).toEqual([`event`, `functionCall`])
     expect(action.anyOf).toContainEqual({ required: [`functionCall`] })
   })
 
-  test(`an action may call a host function; a value position stays catalog-only`, () => {
-    const call = (schema.$defs.ActionFunctionCall as { properties: { call: Record<string, unknown> } }).properties.call
+  test(`an action may call a host function; the catalog's function map stays catalog-only`, () => {
+    const call = ((schema.$defs.EuiAction as { properties: { functionCall: { properties: Record<string, Record<string, unknown>> } } }).properties.functionCall.properties)[`@call`]
     expect(call.enum).toBeUndefined()
     expect(call.type).toBe(`string`)
-    expect((schema.$defs.FunctionCall as { properties: { call: { enum: string[] } } }).properties.call.enum).toContain(`formatNumber`)
+    expect(Object.keys(schema.functions)).toContain(`formatNumber`)
+    expect(Object.keys(schema.functions).some((n) => n.startsWith(`app_`))).toBe(false)
   })
 })

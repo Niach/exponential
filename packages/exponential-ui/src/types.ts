@@ -16,6 +16,10 @@ export type PropType =
   | `object`
   | `date`
   | `url`
+  /** Round 9 §5.3: a component id reference (Label.for, Popover.anchor, Menu.anchor); a string. */
+  | `componentId`
+  /** Round 9 §6.6: a binding or a call ONLY, never a literal (a check's `condition`). */
+  | `dynamic`
 
 export interface PropSchema {
   type: PropType
@@ -46,6 +50,10 @@ export interface PropSchema {
    *  bindings), never written by an author: the model-facing prompt leaves
    *  it out. */
   host?: boolean
+  /** Round 9 §11: `deprecated` = the 1.0 schema marks the prop `deprecated: true`
+   *  with `x-deprecated-reason` (`deprecatedReason`, else the description). */
+  status?: `deprecated`
+  deprecatedReason?: string
 }
 
 export interface DefSchema {
@@ -74,6 +82,9 @@ export interface ComponentDef {
   hidden?: boolean
   /** `planned` = in the catalog, painters land later. */
   status?: string
+  /** Round 9 §5.6: the component types it may sit in (`Surface` = as the
+   *  surface root); the 1.0 `allowedParents`. Absent = anywhere. */
+  parents?: readonly string[]
   /** Model-facing. VAPP-106: ABSENT at runtime on the runtime catalog (`coreCatalog`) until
    *  `describeCatalog()` attaches it; typed present because its readers (the prompt, the schema
    *  emitter, the docs, an extension's validation) always see it attached. */
@@ -89,6 +100,9 @@ export interface CatalogSource {
   liteId: string
   name: string
   version: string
+  /** Round 9 §11: the catalog rules (Markdown), the 1.0 catalog file's
+   *  `instructions`; model-facing, so it lives on the descriptions side. */
+  instructions?: string
   unknownComponent: string
   enums: Record<string, readonly string[]>
   defs: Record<string, DefSchema>
@@ -103,6 +117,7 @@ export interface CatalogSource {
 export interface FunctionSignature {
   /** Argument name → its type (`number`, `string`, `boolean`, `array`, `object`, `any`). */
   args: Record<string, string>
+  /** `string number boolean array object any void`, or (round 9) `validationResult`. */
   returns: string
 }
 
@@ -203,6 +218,8 @@ export interface ExtensionDef {
    *  is checked against (caret); unset = satisfies any. */
   version?: string
   extends: string
+  /** Round 9 §11: the extension's own rules (Markdown) for its 1.0 catalog file. */
+  instructions?: string
   enums?: Record<string, readonly string[]>
   defs?: Record<string, DefSchema>
   components: Record<string, ComponentDef>

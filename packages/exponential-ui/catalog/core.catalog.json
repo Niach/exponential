@@ -1,9 +1,10 @@
 {
-  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls) for small prompts. Round 3 (VAPP-102, docs/round-3-contract.md) folded the app vocabulary onto Row, Section, Chip, Segmented and Menu; round 4 (VAPP-103) REMOVED the old names: there are no aliases: an old name reduces to the `unknownComponent` placeholder with an `unknown component <name>` issue. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (a `$color.*` token ONLY: a literal `#hex`/`rgb()` in a node is refused so light and dark themes both apply; themes keep literals) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Round 1 (docs/round-1-contract.md): `responsive` props ALSO take `{base, sm?, md?, lg?, xl?}` keyed by the `$breakpoint` token names (on a macro the expander turns them into `@media (min-width: $breakpoint.<bp>)` blocks; on a native the RENDERER picks the value of the active breakpoint, src/macros.ts responsiveAt + src/style.ts activeBreakpoint); EVERY component takes the common `visible` (a boolean or a binding; false = not rendered, no layout), `style` and `accessibility`; `slots: [\"*\"]` = any slot name (Table cell templates); a string default or value of the form `$string.<id>` is a built-in UI string (catalog/strings.json) the renderer shows in the surface locale; `object` props without a `shape` take any object. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here. EXP-1259 (the UI batch) adds the low-level feedback and search pieces the app settled on: `SearchList`, Spinner `xs`, Button `pendingLabel`, Skeleton rows, Tabs `closable`/`addable`, searchable Menu submenus. Round 8 (docs/round-8-contract.md): Canvas (a static vector drawing in Motion's shapes plus native `text`, always UPRIGHT: a text op takes only the translation and the uniform scale √|det| of fit × its transform, never a rotation or skew, so it looks the same on gpui; drawn through eui-motion's display list on every renderer; `pointer` press/move/leave in drawing units), Checkbox `indeterminate` (a dash, aria-checked mixed; a press checks it), Progress `valueText` + `detail`, Stepper `collapse` (`stepperCollapse`: never | auto | always; `auto` collapses below the `sm` breakpoint of the Stepper's own box through the new `@container` style condition).",
+  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls) for small prompts. Round 3 (VAPP-102, docs/round-3-contract.md) folded the app vocabulary onto Row, Section, Chip, Segmented and Menu; round 4 (VAPP-103) REMOVED the old names: there are no aliases: an old name reduces to the `unknownComponent` placeholder with an `unknown component <name>` issue. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (a `$color.*` token ONLY: a literal `#hex`/`rgb()` in a node is refused so light and dark themes both apply; themes keep literals) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Round 1 (docs/round-1-contract.md): `responsive` props ALSO take `{base, sm?, md?, lg?, xl?}` keyed by the `$breakpoint` token names (on a macro the expander turns them into `@media (min-width: $breakpoint.<bp>)` blocks; on a native the RENDERER picks the value of the active breakpoint, src/macros.ts responsiveAt + src/style.ts activeBreakpoint); EVERY component takes the common `visible` (a boolean or a binding; false = not rendered, no layout), `style` and `accessibility`; `slots: [\"*\"]` = any slot name (Table cell templates); a string default or value of the form `$string.<id>` is a built-in UI string (catalog/strings.json) the renderer shows in the surface locale; `object` props without a `shape` take any object. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here. EXP-1259 (the UI batch) adds the low-level feedback and search pieces the app settled on: `SearchList`, Spinner `xs`, Button `pendingLabel`, Skeleton rows, Tabs `closable`/`addable`, searchable Menu submenus. Round 8 (docs/round-8-contract.md): Canvas (a static vector drawing in Motion's shapes plus native `text`, always UPRIGHT: a text op takes only the translation and the uniform scale √|det| of fit × its transform, never a rotation or skew, so it looks the same on gpui; drawn through eui-motion's display list on every renderer; `pointer` press/move/leave in drawing units), Checkbox `indeterminate` (a dash, aria-checked mixed; a press checks it), Progress `valueText` + `detail`, Stepper `collapse` (`stepperCollapse`: never | auto | always; `auto` collapses below the `sm` breakpoint of the Stepper's own box through the new `@container` style condition). Round 9 (docs/round-9-contract.md, A2UI 1.0): `instructions` = the catalog rules as Markdown (the 1.0 catalog file's `instructions`); prop type `componentId` = a component id reference (Label.for, Popover.anchor, Menu.anchor); prop type `dynamic` = a binding or a call only, never a literal (a check's `condition`); optional component `parents: [names]` = the 1.0 `allowedParents` (`Surface` = only as root; none set); a function `returns` may be `validationResult` (the validators).",
   "id": "https://ui.exponential.at/catalogs/core/v1",
   "liteId": "https://ui.exponential.at/catalogs/core-lite/v1",
   "name": "Exponential UI core",
   "version": "1",
+  "instructions": "Exponential UI core: shadcn-named components for app-shaped surfaces.\n\n## Catalog rules\n\n1. Components are flat: `{id, component, ...props}`. Exactly one has the id `root`. Ids are identifiers (letters, digits, `_`). `children` are ids (`[\"a\", \"b\"]`), never inline components, or `{componentId, path, key?}`: one `componentId` per item of the array at `path` (`key` = the item field naming it). `slots` = `{name: id}`.\n2. A dynamic prop takes a literal, a binding `{\"@path\": \"/json/pointer\"}` or a call `{\"@call\": \"name\", \"args\": {…}}`. Keep data in the data model and bind to it; a path without a leading `/` reads the current item.\n3. `on: {<event>: action}`: an action is `{event: {name, context?, userMessage?}}` (sent to the agent) and/or `{functionCall: {\"@call\", args}}` (runs on the renderer: a catalog function, `set`, or a host function such as `app_toast`).\n4. `visible: false` (or a binding) removes a component and its space. Inputs take `checks: [{condition, message?}]`; a condition is a binding or a call (`required`, `regex`, `length`, `numeric`, `email`).\n5. Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List. A row of controls is a Toolbar, fields side by side a FieldGroup, the Cancel/submit row FormActions; Box + `style` only for the rest. Wrap fields in Form.\n6. Prefer catalog components over Markdown, labels and tones over colours. A colour is a `$color.*` token, never `#hex`. Leave built-in copy (Cancel, Search…) unset: it is localized.\n7. One default Button per screen (the submit or main action); the rest outline, secondary or ghost.",
   "unknownComponent": "Unknown",
   "enums": {
     "variant": [
@@ -407,15 +408,13 @@
       "description": "A client-side validation rule.",
       "properties": {
         "condition": {
-          "type": "boolean",
+          "type": "dynamic",
           "required": true,
-          "bindable": true,
-          "description": "A function call or binding that must be true for the input to be valid."
+          "description": "A binding or a function call that must hold (true, or a validation result) for the input to be valid."
         },
         "message": {
           "type": "string",
-          "required": true,
-          "description": "The error shown when the condition is false."
+          "description": "The error shown when the condition fails."
         }
       }
     },
@@ -1219,14 +1218,14 @@
         "args": {
           "value": "any"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "regex": {
         "args": {
           "value": "string",
           "pattern": "string"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "length": {
         "args": {
@@ -1234,7 +1233,7 @@
           "min": "number",
           "max": "number"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "numeric": {
         "args": {
@@ -1242,13 +1241,13 @@
           "min": "number",
           "max": "number"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "email": {
         "args": {
           "value": "string"
         },
-        "returns": "boolean"
+        "returns": "validationResult"
       },
       "formatString": {
         "args": {
@@ -2014,6 +2013,24 @@
           "bindable": true,
           "description": "The GFM source."
         },
+        "profile": {
+          "type": "enum",
+          "values": [
+            "document",
+            "inline"
+          ],
+          "default": "document",
+          "description": "`inline` = a run of text (no outer block gap, paragraphs in the Text type of `variant`), `document` = full prose."
+        },
+        "variant": {
+          "type": "enum",
+          "values": [
+            "body",
+            "caption"
+          ],
+          "default": "body",
+          "description": "The paragraph type of the inline profile."
+        },
         "lines": {
           "type": "number",
           "description": "Truncates the rendered body to this many lines with an ellipsis."
@@ -2127,7 +2144,7 @@
           "description": "The caption."
         },
         "for": {
-          "type": "string",
+          "type": "componentId",
           "description": "The id of the control it labels."
         },
         "required": {
@@ -3289,7 +3306,7 @@
           "description": "Along the side."
         },
         "anchor": {
-          "type": "string",
+          "type": "componentId",
           "description": "A node id to open at; it toggles it."
         },
         "openOn": {
@@ -3366,7 +3383,7 @@
           "description": "Along the side."
         },
         "anchor": {
-          "type": "string",
+          "type": "componentId",
           "description": "A node id to open at; it toggles it."
         },
         "openOn": {

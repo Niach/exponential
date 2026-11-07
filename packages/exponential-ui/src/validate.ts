@@ -40,6 +40,15 @@ function checkScalar(
       else if (parseStringRef(value) !== null && !isStringRef(value))
         issues.push({ path, message: `unknown built-in string ${value} (catalog/strings.json)` })
       return
+    case `componentId`:
+      // Round 9 §5.3: a component id reference; the router's entry check
+      // refuses a non-identifier, the reducer a missing id.
+      if (typeof value !== `string`) issues.push({ path, message: `expected a string` })
+      return
+    case `dynamic`:
+      // Round 9 §6.6: a binding or a call, never a literal (a check's condition).
+      if (!isDynamic(value)) issues.push({ path, message: `expected a binding or a function call` })
+      return
     case `date`:
       if (typeof value !== `string` || (value !== `` && !ISO_DATE.test(value)))
         issues.push({ path, message: `expected yyyy-mm-dd` })

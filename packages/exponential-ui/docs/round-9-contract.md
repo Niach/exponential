@@ -481,14 +481,16 @@ accessibility, metadata`:
 | prop | declared on | schema (leaf `$defs` in `core.schema.json`) |
 |---|---|---|
 | `children` | `children: one\|many` components | `ChildList` = array of `ComponentId` \| `{componentId, path, key?}` |
-| `slots` | components with `slots` | `{<slot name>: ComponentId}`; the names come from the component's `slots` (`*` = any identifier) |
+| `slots` | components with `slots` | `Slots_<C>` = `{<slot name>: ComponentId}`; the names come from the component's `slots` (`*` = any name: Table's column keys) |
 | `on` | every component with `events` | `{<event>: EuiAction}`, events = the component's `events` |
 | `style` | every component | `Style` |
 | `visible` | every component | `DynamicBoolean` |
 | `checks` | every component whose source declares `checks` (today Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Select, ChipInput) | array of `CheckRule` (§6.6), via the `Checkable` trait |
 
-- `EuiAction` = `{event?: {name, context?, userMessage?}, functionCall?: FunctionCall}`,
-  at least one of the two (anyOf, round 1: both = evaluate, run the call,
+- `EuiAction` = `{event?: {name, context?, userMessage?}, functionCall?: {"@call", args?, catalogId?}}`,
+  at least one of the two. Its `functionCall` names any function (a host
+  function such as `app_toast` included), so it is our own closed object,
+  not `common_types.json` `FunctionCall` (which admits only `anyFunction`) (anyOf, round 1: both = evaluate, run the call,
   then the event; §6.8 for failure). The basic catalog's `action` stays
   upstream's `oneOf` Action.
 - A prop that holds a component id is typed `componentId` in
@@ -569,7 +571,14 @@ renders, as today's `takes no children` issue does.
 ### 6.1 Catalog function definitions
 
 Every catalog function is a flat definition (§11):
-`{type: "object", properties: {"@call": {const: <name>}, args: {…, unevaluatedProperties: false}}, required: ["@call", (+ "args" when an arg is required)], returnType, allowedCallers, requiresUserActivation, unevaluatedProperties: false}`.
+`{type: "object", description?, properties: {"@call": {const: <name>}, args: {…, unevaluatedProperties: false}}, required: ["@call", (+ "args" when an arg is required)], returnType, allowedCallers, requiresUserActivation}`.
+There is no root `unevaluatedProperties`: upstream's `FunctionDefinition`
+is itself closed over exactly these keys, and the wire `FunctionCall` adds
+`catalogId` through `FunctionCommon`. The 14 basic functions keep upstream
+1.0's argument schemas (required args included). A core function's args
+come from `core.catalog.json` (`string`/`number`/`boolean` → the Dynamic*,
+`array`/`object` → the literal or a binding or a call, `any` → `{}`; the
+`path` of `set`/`bind` is a plain string) and none is required.
 
 `returnType` takes one of `string number boolean array object
 validationResult any void`. The mapping from core.catalog.json `returns`:
@@ -1091,7 +1100,7 @@ upstream `catalog_definition.json`:
   "instructions": "<Markdown: the catalog rules, from core.catalog.json $comment-free `instructions`>",
   "metadata": {"extensions": {"at_exponential_lite_catalog_id": "https://ui.exponential.at/catalogs/core-lite/v1"}},
   "components": {"Button": {"type": "object", "properties": {"component": {"const": "Button"}, "label": {"$ref": "common_types.json#/$defs/DynamicString"}, "on": {"$ref": "#/$defs/On_Button"}, "style": {"$ref": "#/$defs/Style"}, "visible": {"$ref": "common_types.json#/$defs/DynamicBoolean"}}, "required": ["component"], "metadata": {"extensions": {"at_exponential_component": {"kind": "native", "group": "action", "lite": true, "children": "one"}}}}},
-  "functions": {"formatDate": {"type": "object", "properties": {"@call": {"const": "formatDate"}, "args": {"type": "object", "properties": {}, "unevaluatedProperties": false}}, "required": ["@call", "args"], "returnType": "string", "allowedCallers": "rendererOrAgent", "unevaluatedProperties": false}},
+  "functions": {"formatDate": {"type": "object", "properties": {"@call": {"const": "formatDate"}, "args": {"type": "object", "properties": {…}, "required": ["format", "value"], "unevaluatedProperties": false}}, "required": ["@call", "args"], "returnType": "string", "allowedCallers": "rendererOrAgent", "requiresUserActivation": false}},
   "$defs": {"anyComponent": {"oneOf": [{"$ref": "#/components/Button"}], "discriminator": {"propertyName": "component"}}, "anyFunction": {"oneOf": [{"$ref": "#/functions/formatDate"}]}}
 }
 ```
@@ -1110,7 +1119,11 @@ Rules:
   "common_types.json#/$defs/Checkable"}]` for components with `checks`.
   `component.const` = the key, and the declared props follow §5.3.
   `allowedParents`/`allowedChildren` follow §5.6. `deprecated: true` plus
-  `x-deprecated-reason` mark `status: deprecated` props.
+  `x-deprecated-reason` mark `status: deprecated` props. A component
+  definition carries no `unevaluatedProperties` (as upstream's basic
+  catalog): the message schema closes the entry over `ComponentCommon` +
+  `anyComponent`. A source prop named like an envelope key (the hidden
+  `Unknown` placeholder's `component`/`catalogId`) is left out.
 - **`$ref` targets**:
   - relative `common_types.json#/$defs/{ComponentId, Child, ChildList,
     DynamicString, DynamicNumber, DynamicBoolean, DynamicStringList,
@@ -1125,13 +1138,26 @@ Rules:
   `ComponentId`/`DataBinding`/`FunctionCall`/`Visible`/`Action`/`ComponentCommon`
   copies in `$defs` are deleted.
 - **Prop schemas**:
-  - a `bindable` prop of type string, number or boolean is
-    `DynamicString`, `DynamicNumber` or `DynamicBoolean`;
+  - a `bindable` prop of type string (also `markdown`, `url`, `date`,
+    `color`), number or boolean is `DynamicString`, `DynamicNumber` or
+    `DynamicBoolean`; the literal's `format`/`pattern`/bounds ride along
+    as siblings of the `$ref` (they only constrain a literal);
   - a bindable array of strings is `DynamicStringList`;
-  - any other bindable prop is `DynamicValue`;
-  - `componentId` is `ComponentId`;
-  - `responsive` props add the `{base, sm?, …}` object as a leaf.
-- **Functions**: as in §6.1.
+  - a bindable shape-less `object` or array of shape-less objects is
+    `DynamicValue`;
+  - any other bindable prop (an enum, an icon, a shaped object, a typed
+    list) is `oneOf [<the literal schema>, DataBinding, FunctionCall]`, so
+    the literal keeps its constraint;
+  - `componentId` is `ComponentId`; `dynamic` (a check's `condition`) is
+    `oneOf [DataBinding, FunctionCall]`;
+  - `responsive` props are `oneOf [<the above>, {base, sm?, …}]`, the
+    breakpoint object inline (`additionalProperties: false`).
+- **Functions**: as in §6.1, in `functions.names` order.
+- **core-lite** = the `lite: true` components and the core's functions and
+  leaves; no `metadata`. **An extension's file** is self-contained (an
+  inline catalog must be): the core's components then its own, the core's
+  functions, the core's shapes plus its own; it has no `extends` key (not
+  in the root whitelist).
 - **Lint**: `src/schema.test.ts` checks every generated file against these
   rules with a hand-written structural checker (no ajv):
   - the root key whitelist;
@@ -1144,7 +1170,10 @@ Rules:
   - no reserved host prefix (§6.3).
   
   Rust `eui-core` `catalog::check_catalog_definition` mirrors the checker
-  for inline catalogs it receives.
+  for inline catalogs it receives. `checkCatalogDefinition(doc, {flat:
+  false})` admits upstream's style, the props inside an `allOf` member: the
+  vendored 1.0 basic catalog passes it (and fails only flatness without
+  it).
 
 `core.catalog.json` (the SOURCE) keeps its own format, plus:
 
