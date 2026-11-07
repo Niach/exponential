@@ -73,6 +73,8 @@ fn media_info_for(tile: &crate::media_tile::MediaTile) -> gpui_markdown_editor::
 struct ImageMenuState {
     src: String,
     position: Point<Pixels>,
+    /// #EXP-1739: closes the menu once the editor it was opened in moves or goes.
+    _anchor: Option<gpui_component::overlay_anchor::AnchorGuard>,
 }
 
 /// An active `@`/`#` completion (host-rendered popup over the vendored
@@ -262,9 +264,19 @@ impl WysiwygDescription {
                     }
                 }
                 MarkdownEditorEvent::ImageContextMenuRequested { src, position } => {
+                    let entity = cx.entity().downgrade();
+                    let anchor = gpui_component::overlay_anchor::anchor_at(*position, window, cx).and_then(|anchor| {
+                        gpui_component::overlay_anchor::watch_anchor(anchor, window, cx, move |_, cx| {
+                            let _ = entity.update(cx, |this, cx| {
+                                this.image_menu = None;
+                                cx.notify();
+                            });
+                        })
+                    });
                     this.image_menu = Some(ImageMenuState {
                         src: src.clone(),
                         position: *position,
+                        _anchor: anchor,
                     });
                     cx.notify();
                 }
@@ -1900,7 +1912,8 @@ impl Render for WysiwygDescription {
             .capture_action(cx.listener(Self::on_editor_focus_prev))
             .capture_action(cx.listener(Self::on_editor_focus_next))
             .capture_action(cx.listener(Self::on_editor_dismiss))
-            .child(self.editor.clone())
+            // #EXP-1739: the editor is what its image menu follows.
+            .child(gpui_component::overlay_anchor::anchor_source("description-editor-anchor", self.editor.clone()))
             .child(
                 div()
                     .w_full()

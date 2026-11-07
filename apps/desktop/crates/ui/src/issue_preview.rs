@@ -289,6 +289,8 @@ struct Pending {
     target: PreviewTarget,
     anchor: Bounds<Pixels>,
     open: bool,
+    /// #EXP-1739: dismisses the card once the pill it hangs off moves or goes.
+    watch: Option<gpui_component::overlay_anchor::AnchorGuard>,
 }
 
 /// One per window: the open/close state machine plus the overlay element.
@@ -367,6 +369,7 @@ impl IssuePreviewHost {
             target,
             anchor,
             open: false,
+            watch: None,
         });
         self.card_bounds.set(None);
         self.card_hovered.set(false);
@@ -438,9 +441,17 @@ impl Render for IssuePreviewHost {
         if !window.is_window_active() && self.pending.is_some() {
             self.dismiss(cx);
         }
-        let Some(pending) = self.pending.as_ref().filter(|pending| pending.open) else {
+        let Some(pending) = self.pending.as_mut().filter(|pending| pending.open) else {
             return div();
         };
+        if pending.watch.is_none() {
+            let entity = cx.entity().downgrade();
+            pending.watch = gpui_component::overlay_anchor::anchor_at(pending.anchor.center(), window, cx).and_then(|anchor| {
+                gpui_component::overlay_anchor::watch_anchor(anchor, window, cx, move |_, cx| {
+                    let _ = entity.update(cx, |this, cx| this.dismiss(cx));
+                })
+            });
+        }
         let anchor = pending.anchor;
         let Some(card) = card_for_target(&pending.target, cx) else {
             return div();

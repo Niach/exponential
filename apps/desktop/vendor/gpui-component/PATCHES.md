@@ -18,6 +18,17 @@ re-apply the change below (or drop the patch once upstream carries it).
   between the label and the chevron, and `PopupMenu::submenu_with_value`
   builds one (`submenu_with_icon` = no value). This is the trailing value of
   web/iOS/Android THE Menu's submenu row (`Checks   1 failing  ›`).
+- #EXP-1739, anchored overlays close when their source is lost: a new
+  `src/overlay_anchor.rs` (sources report their bounds in element state;
+  `watch_anchor` closes an overlay once its anchor moves, scrolls, is clipped
+  away or leaves the tree; `Root` mounts `sweep_layer()` after its content).
+  It is adopted by the managed tooltip (`src/tooltip.rs`), `ContextMenu`
+  (`src/menu/context_menu.rs`), `Popover` and so `DropdownMenu`
+  (`src/popover.rs`), and the drawn `NativeMenu` fallback
+  (`src/native_menu/fallback.rs`). `PopupMenu::close` is public (Escape's
+  dismiss), the managed tooltip's outer div carries the `tooltip` debug
+  selector, and a `test-support` feature skips `Root`'s macOS hit-test
+  forwarder so dependents' headless tests can mount `Root`.
 - Packaging only: `Cargo.toml` resolves the upstream workspace's inherited
   keys (`*.workspace = true`, edition, lints) to the values of the upstream
   workspace manifest at that rev; `tests/` dropped. No other source is
