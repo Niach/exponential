@@ -523,6 +523,7 @@ first; each op needs the Core capability it names:
 | `focus_window` (a minimized window comes back first, a parked one brings its workspace along), `close_window`, `move_window`, `minimize_window`, `restore_window` (#EDE-48: into the taskbar and back; a minimized window keeps its geometry and workspace, `WindowInfo.minimized`; `exponential-ctl minimize <id>` / `restore <id>`) | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
+| `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 
 The compositor writes the root token (every capability) to
@@ -543,6 +544,18 @@ for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
 // Anyone else: a grant of its own, minted from the root token and no wider than it needs.
 let mut agent = ede_protocol::Client::connect_as(SessionId::new("my-agent")?, vec![Capability::Capture], None)?;
 ```
+
+### ePilot on eDE (#EDE-23)
+
+ePilot (`apps/desktop/crates/epilot`) drives an eDE session through this
+socket instead of XTest: `XDG_CURRENT_DESKTOP=Exponential` and the socket
+present = the eDE backend (`epilot::backend_name()` says `eDE`). On first
+use it mints its own grant (`capture`, `input:person`) from the root token
+and keeps it for the process; a tool call is `input` (keysyms, so the
+compositor's layout decides the key) / `capture` / `list_windows`; its lock
+is `hold_input` on a connection of its own, so the IDE's banner and Esc
+work as on X11. Headless test: `EDE_COMPOSITOR=<target>/debug/exponential-compositor
+cargo test -p epilot headless_ede` (in `apps/desktop`).
 
 ## Apps (#EDE-20)
 

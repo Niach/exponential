@@ -6,7 +6,8 @@
 //! ext-session-lock, idle notify/inhibit, input methods, and protected
 //! surfaces that are never captured, lent or driven. `ede-protocol`, the
 //! control socket with capability tokens ([`ipc`]); the hotkeys the shell
-//! answers ([`hotkeys`]).
+//! answers ([`hotkeys`]); the person's input held out while an agent
+//! drives the seat ([`hold`]).
 //! Backends: `winit` (nested, for development), `udev` (the real session:
 //! DRM/KMS + libinput, feature `udev`) and `headless` (CI).
 
@@ -17,6 +18,7 @@ pub mod fallback;
 pub mod frames;
 pub mod grabs;
 mod handlers;
+pub mod hold;
 pub mod hotkeys;
 pub mod idle;
 pub mod input;

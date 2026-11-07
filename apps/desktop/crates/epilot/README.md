@@ -1,8 +1,8 @@
 # epilot
 
 Computer use as a library: an agent drives this machine's **real** pointer and
-keyboard through the OS input APIs (XTest on X11, CGEvent on macOS, SendInput on
-Windows) and sees the screen as screenshots fitted to the model's frame. While it
+keyboard through the OS input APIs (XTest on X11, eDE's `ede-protocol` on eDE,
+CGEvent on macOS, SendInput on Windows) and sees the screen as screenshots fitted to the model's frame. While it
 works the person's own input is locked; **Esc** aborts. Foreground only: no second
 pointer, no background mode, no accessibility tree, pixels only.
 
@@ -109,7 +109,8 @@ agent's own injected events are tagged and pass the lock.
 | --- | --- | --- |
 | macOS | **Accessibility** (input + the event tap lock) and **Screen Recording** (screenshots, window titles); `prepare()` triggers both prompts, `permissions()` reads them | `Readiness::MissingPermission("… is not granted.")` |
 | Linux X11 | a `DISPLAY` (pure-Rust x11rb, nothing at load time: a headless daemon links it too) | `Unsupported("No display session (DISPLAY is not set).")` |
-| Linux Wayland | not supported yet (sign in to an X11 "on Xorg" session) | `Unsupported(…)` |
+| Linux eDE | `XDG_CURRENT_DESKTOP` names `Exponential`, the compositor's socket `$XDG_RUNTIME_DIR/exponential-desktop/$WAYLAND_DISPLAY.sock` and its token file (or `EDE_TOKEN`); a grant of its own (`capture`, `input:person`) minted on first use; input `input` (keysyms), screenshots `capture`, the lock `hold_input` with the person's Esc as `input.escape` (#EDE-23) | `Unsupported("eDE's control socket is missing …")` |
+| Linux Wayland (other) | not supported yet (sign in to an X11 "on Xorg" session, or eDE) | `Unsupported(…)` |
 | Windows | nothing up front (SendInput, GDI capture, per-monitor DPI awareness set on open) | — |
 
 ## Exponential couplings

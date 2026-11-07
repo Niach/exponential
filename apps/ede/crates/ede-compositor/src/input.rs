@@ -65,7 +65,9 @@ impl Ede {
             InputEvent::Keyboard { event, .. } => self.keyboard_key(event.key_code(), event.state(), event.time_msec()),
             InputEvent::PointerMotion { event, .. } => {
                 let pos = self.seat.get_pointer().unwrap().current_location() + event.delta();
-                self.pointer_motion_to(pos, event.time_msec());
+                if !self.person_pointer_motion_to(pos, event.time_msec()) {
+                    return;
+                }
                 let pointer = self.seat.get_pointer().unwrap();
                 let under = self.surface_under(pointer.current_location());
                 pointer.relative_motion(
@@ -79,9 +81,11 @@ impl Ede {
                 let Some(output) = self.space.outputs().next().cloned() else { return };
                 let Some(geo) = self.space.output_geometry(&output) else { return };
                 let pos = event.position_transformed(geo.size) + geo.loc.to_f64();
-                self.pointer_motion_to(pos, event.time_msec());
+                self.person_pointer_motion_to(pos, event.time_msec());
             }
-            InputEvent::PointerButton { event, .. } => self.pointer_button(event.button_code(), event.state(), event.time_msec()),
+            InputEvent::PointerButton { event, .. } => self.person_pointer_button(event.button_code(), event.state(), event.time_msec()),
+            // Held (#EDE-23): the person's wheel reaches no window.
+            InputEvent::PointerAxis { .. } if self.person_input_held() => {}
             InputEvent::PointerAxis { event, .. } => {
                 let source = event.source();
                 let amount = |axis| event.amount(axis).unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.);
@@ -158,10 +162,13 @@ impl Ede {
         pointer.frame(self);
     }
 
-    /// A key from the person's keyboard.
+    /// A key from the person's keyboard; held back while an agent holds
+    /// their input ([`crate::hold`]), where their Esc ends the hold.
     pub fn keyboard_key(&mut self, keycode: Keycode, state: KeyState, time: u32) {
         self.note_activity();
-        self.key(keycode, state, time, true);
+        if self.person_key_passes(keycode, state) {
+            self.key(keycode, state, time, true);
+        }
     }
 
     pub(crate) fn key(&mut self, keycode: Keycode, state: KeyState, time: u32, bindings: bool) {
