@@ -535,7 +535,7 @@ class AppEditorViewModel @Inject constructor(
      *  ones it may move to) and the remembered pick. */
     data class EditorDevice(
         val rows: List<DevicePickerDevice> = emptyList(),
-        val choice: Apps.EditorDeviceChoice = Apps.EditorDeviceChoice(null, locked = false, move = false),
+        val choice: Apps.EditorDeviceChoice = Apps.EditorDeviceChoice(null, move = false),
         val appMove: AgentSessionViewModel.AppMove? = null,
     )
 

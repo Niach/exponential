@@ -247,9 +247,9 @@ object Apps {
 
     /** #FEED-204 (`editorDeviceCases`, apps.json EDITOR DEVICE): the device an
      *  app editor's composer shows and sends on ([deviceId] null = none online
-     *  and no root to fall back on), [locked] on a live root's, [move] when an
-     *  ended root's next send goes to another device. */
-    data class EditorDeviceChoice(val deviceId: String?, val locked: Boolean, val move: Boolean)
+     *  and no root to fall back on), [move] when an ended root's next send goes
+     *  to another device. A live root keeps its device: only a pick moves it. */
+    data class EditorDeviceChoice(val deviceId: String?, val move: Boolean)
 
     data class EditorDeviceRoot(val status: String, val deviceId: String?)
 
@@ -263,7 +263,7 @@ object Apps {
         remembered: String?,
     ): EditorDeviceChoice {
         if (root != null && root.status != DomainContract.sessionStatusEnded) {
-            return EditorDeviceChoice(root.deviceId, locked = true, move = false)
+            return EditorDeviceChoice(root.deviceId, move = false)
         }
         fun known(id: String?) = id != null && candidates.any { it.deviceId == id }
         val deviceId = when {
@@ -271,7 +271,7 @@ object Apps {
             known(root?.deviceId) -> root?.deviceId
             else -> candidates.firstOrNull { it.isDefault }?.deviceId ?: candidates.firstOrNull()?.deviceId ?: root?.deviceId
         }
-        return EditorDeviceChoice(deviceId, locked = false, move = root != null && deviceId != root.deviceId)
+        return EditorDeviceChoice(deviceId, move = root != null && deviceId != root.deviceId)
     }
 
     // Contract `apps` (packages/domain-contract/contract.json), locked by AppsTest.

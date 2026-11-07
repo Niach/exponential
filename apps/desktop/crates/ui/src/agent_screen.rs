@@ -656,7 +656,7 @@ impl AgentScreenView {
 
     /// #FEED-204 (apps.json EDITOR DEVICE): the Device row over the launch
     /// devices (with a root: the ones it may move to), the pick remembered
-    /// per app, a live root's own device locked.
+    /// per app, a live root on its own device until a pick moves it.
     fn editor_device_row(
         &self,
         app_id: &str,
@@ -706,13 +706,26 @@ impl AgentScreenView {
             team_id,
             device_id: choice.device_id,
             rows,
-            locked: choice.locked,
             moves: choice.moves,
             on_pick: std::rc::Rc::new(move |device_id: String, window: &mut Window, cx: &mut App| {
                 crate::ui_prefs::set_editor_device(&picked_app, &device_id);
-                let _ = view.update(cx, |this, cx| this.refresh(window, cx));
+                let _ = view.update(cx, |this, cx| {
+                    this.move_live_root(&device_id, cx);
+                    this.refresh(window, cx);
+                });
             }),
         })
+    }
+
+    /// #EXP-1738: a pick on a live editor root moves it at once (an ended
+    /// root's next send does, [`crate::device_move::EditorDevice::move_target`]).
+    fn move_live_root(&self, picked: &str, cx: &mut App) {
+        let Some(root) = self.conversation.as_ref().filter(|root| root.is_live()) else {
+            return;
+        };
+        if let Some(device_id) = crate::device_move::pick_outcome(picked, root.device_id.as_deref()) {
+            crate::device_move::request_move(root.id.clone(), device_id, cx);
+        }
     }
 
     // ── the first message (web `AgentComposer`) ──────────────────────────
