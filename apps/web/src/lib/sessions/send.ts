@@ -105,8 +105,9 @@ import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notificati
 //   - `sessionId`: a person's (or a session's) message into a session (the
 //     DB is the bus: a `messages` row the device delivers, resuming an
 //     idle session in place). `answer` answers its open card; `issueIds`
-//     forward issues to it; `deviceId` moves it (a queued row re-targets,
-//     a live one ends here and continues there). An ENDED thread ROOT
+//     forward issues to it; `deviceId` moves it (a queued row re-targets, a
+//     live ROOT re-queues there in place, a live child ends here and continues
+//     there). An ENDED thread ROOT
 //     revives (FEED-134): the SAME row goes idle with the message pending;
 //     an ENDED child continues in a NEW session carrying the message, as
 //     its sibling, on the same branch.
@@ -1082,10 +1083,12 @@ export async function effectiveCli(
 }
 
 /** NEW-1: what a message's `deviceId` asks for. `none` = no device, or the
- *  current one; `direct` = a QUEUED session simply re-targets; `relocate` =
- *  a LIVE session ends here and continues on the target (same branch, the
- *  message pending there). An ENDED session's `deviceId` = the device its
- *  continuation starts on (handled by the continuation itself). */
+ *  current one; `direct` = the SAME row re-targets: a QUEUED session, or
+ *  (#EXP-1737) a LIVE ROOT, so a tree keeps ONE worker and an editor its one
+ *  root; `relocate` = a LIVE CHILD ends here and continues on the target
+ *  (same branch, the message pending there). An ENDED session's `deviceId`
+ *  = the device its continuation starts on (handled by the continuation
+ *  itself). */
 type MovePlan =
   | { kind: `none` }
   | { kind: `direct` | `relocate`; target: MoveTarget }
@@ -1100,7 +1103,7 @@ async function planMove(session: Session, input: SessionsSendInput, moverId: str
     requireOnline: true,
     moverId: session.status === `queued` ? moverId : undefined,
   })
-  return { kind: session.status === `queued` ? `direct` : `relocate`, target }
+  return { kind: session.status === `queued` || session.parentId === null ? `direct` : `relocate`, target }
 }
 
 /** The row changed under the plan (a claim or an end raced the send). */
@@ -1109,7 +1112,11 @@ function moveRaced(): never {
 }
 
 /** A queued row re-targets (guarded on the device and status the plan was
- *  made for: a row the device claimed since is CONFLICT, never re-targeted). */
+ *  made for: a row the device claimed since is CONFLICT, never re-targeted).
+ *  #EXP-1737: a LIVE root re-queues the same way, keeping its `startedAt`
+ *  (the target launches it with its messages pending): its old device sees a
+ *  row naming another device, releases the engine without writing to the row
+ *  and hands the branch on (`session.moved`). */
 async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
   // #EXP-1259: the plan read the target outside this transaction; the
   // share is re-read under its lock before the row names the box (a
@@ -1120,9 +1127,11 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
     await loadDeviceRow(session.deviceId, await sessionDeviceOwner(session)),
     session.deviceId
   )
+  const live = session.status !== `queued`
   const updated = await tx
     .update(sessions)
     .set({
+      ...(live ? { status: `queued` as const, busy: false, background: false } : {}),
       deviceId: target.deviceId,
       account: target.account,
       // #FEED-177: a queued root takes its new box's sharing (`visibilityMove`).
@@ -1133,7 +1142,7 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
       and(
         eq(sessions.id, session.id),
         eq(sessions.deviceId, session.deviceId),
-        eq(sessions.status, `queued`),
+        live ? ne(sessions.status, `ended`) : eq(sessions.status, `queued`),
         // A sub-session started since the plan pins the tree's visibility.
         ...(target.shared === session.shared
           ? []
@@ -1143,6 +1152,17 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
     .returning({ id: sessions.id })
   if (updated.length === 0) moveRaced()
   await postMovedMessage(tx, session, movedText(from, target.name))
+  if (live) {
+    // A wall was the old device's; an open card still waits for its answer.
+    await clearBlockedInTx(tx, [session.id])
+    await recordMoveInTx(tx, {
+      teamId: session.teamId,
+      sessionId: session.id,
+      continuationId: session.id,
+      fromDeviceId: session.deviceId,
+      toDeviceId: target.deviceId,
+    })
+  }
   if (target.shared !== session.shared) await restampRootVisibilityInTx(tx, session.id, target.shared)
 }
 
@@ -1269,7 +1289,7 @@ async function messageSession(
     : null
 
   if (move.kind === `relocate`) {
-    // A live session moves: it ends here (its children re-parent onto the
+    // A live CHILD moves: it ends here (its children re-parent onto the
     // continuation, its watchers follow) and continues on the target.
     const outcome = await db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
@@ -1358,9 +1378,11 @@ async function messageSession(
           .where(eq(sessions.id, target.id))
       }
       let queued: SendOutcome[`queued`] = null
+      let status = target.status
       if (move.kind === `direct`) {
         await applyDirectMove(tx, target, move.target)
         queued = { ownerId: move.target.ownerId, deviceId: move.target.deviceId }
+        status = `queued`
       }
       // NEW-1: the answer to the target's open card (first answer wins).
       if (input.answer) await answerSessionCardInTx(tx, target, input.answer)
@@ -1385,7 +1407,7 @@ async function messageSession(
       if (messageId && !from?.asSession) await retakeHeldIssues(tx, target, userId)
       await applyWakeOn(tx, caller, input)
       await extras.within?.(tx, { sessionId: target.id, messageId, rootId: target.rootId })
-      return { sessionId: target.id, messageId, status: target.status, txid, queued }
+      return { sessionId: target.id, messageId, status, txid, queued }
     })
   }
   if (!hasMessage && !input.issueIds?.length) {
@@ -1554,10 +1576,9 @@ async function messageApp(
 /**
  * The continuation of an ENDED session: a new session on `device` with the
  * ended row's pickers, branch (the device reuses its worktree) and title,
- * taking over its issue rows. An ended ROOT continues as a child of itself;
- * an ended CHILD (#FEED-84) as its SIBLING: same parent and depth. `adopt`
- * (a move): the ended row's live children re-parent onto it and its
- * watchers follow.
+ * taking over its issue rows, as its SIBLING (#FEED-84): same parent and
+ * depth. `adopt` (a move): the ended row's live children re-parent onto it
+ * and its watchers follow.
  * FEED-134: an ended thread ROOT revives: the SAME row goes `idle` again
  * (`endedAt` cleared, not busy, nothing flagged), keeping its `startedAt`,
  * title, branch, pickers and issue rows, with this message pending on it,
@@ -1650,10 +1671,9 @@ async function reviveRoot(
  * The continuation of an ENDED CHILD (#FEED-84): a new session on `device`
  * with the ended row's pickers, branch (the device reuses its worktree) and
  * title, taking over its issue rows, as its SIBLING: same parent and depth.
- * A ROOT gets here only through a MOVE (`adopt`): a live root ends here and
- * continues on the target as a child of itself, its live children
- * re-parenting onto it and its watchers following. (An ended root's
- * message revives it instead, `reviveRoot`.)
+ * `adopt` (a live child's MOVE): its live children re-parent onto it and its
+ * watchers follow. A ROOT never gets here: it revives (`reviveRoot`) or moves
+ * in place (`applyDirectMove`), so a tree keeps ONE worker.
  */
 async function continueSession(
   tx: Tx,
@@ -1670,12 +1690,11 @@ async function continueSession(
   }
 ): Promise<Omit<SendOutcome, `txid`>> {
   const { ended, userId, input, caller } = args
-  const endedChild = ended.parentId !== null
-  const depth = endedChild ? ended.depth || 1 : 1
+  const depth = ended.depth || 1
   await assertTreeRoom(tx, ended.rootId, depth)
   const [root] = await tx.select().from(sessions).where(eq(sessions.id, ended.rootId)).limit(1)
   if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
-  const parentId = ended.parentId ?? root.id
+  const parentId = ended.parentId!
   const id = crypto.randomUUID()
   const child = await insertSession(tx, {
     id,
@@ -1707,13 +1726,10 @@ async function continueSession(
   })
   await takeOverIssues(tx, ended, child, userId)
   if (args.adopt) {
-    // (A moved ROOT's continuation is itself a child of the ended row.)
     await tx
       .update(sessions)
       .set({ parentId: child.id, updatedAt: new Date() })
-      .where(
-        and(eq(sessions.parentId, ended.id), ne(sessions.id, child.id), ne(sessions.status, `ended`))
-      )
+      .where(and(eq(sessions.parentId, ended.id), ne(sessions.status, `ended`)))
     await tx
       .update(sessions)
       .set({ wakeOn: sql`(${sessions.wakeOn} - ${ended.id}::text) || ${JSON.stringify([child.id])}::jsonb` })
@@ -1733,7 +1749,7 @@ async function continueSession(
     })
   }
   const messageId = await postSendMessage(tx, child, input, userId, args.uploaderIds, args.from)
-  await postSystemCard(tx, endedChild ? parentId : root, { kind: `session`, sessionId: child.id })
+  await postSystemCard(tx, parentId, { kind: `session`, sessionId: child.id })
   await args.extras.within?.(tx, { sessionId: child.id, messageId, rootId: root.id })
   return {
     sessionId: child.id,
