@@ -569,9 +569,6 @@
                       "pressable": true,
                       "selected": {
                         "@path": "selected"
-                      },
-                      "meta": {
-                        "@path": "meta"
                       }
                     },
                     "on": {
@@ -1371,9 +1368,6 @@
                                   "selected": {
                                     "@path": "selected"
                                   },
-                                  "meta": {
-                                    "@path": "meta"
-                                  },
                                   "icon": {
                                     "@path": "icon"
                                   }
@@ -1584,9 +1578,6 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
-                                  },
-                                  "meta": {
-                                    "@path": "meta"
                                   }
                                 },
                                 "on": {
@@ -1828,9 +1819,6 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
-                                  },
-                                  "meta": {
-                                    "@path": "meta"
                                   }
                                 },
                                 "on": {
@@ -2054,9 +2042,6 @@
                                   "pressable": true,
                                   "selected": {
                                     "@path": "selected"
-                                  },
-                                  "meta": {
-                                    "@path": "meta"
                                   }
                                 },
                                 "on": {

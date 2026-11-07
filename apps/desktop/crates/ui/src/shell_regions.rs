@@ -212,14 +212,19 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
             row["hover"] = json!(hover == row["id"].as_str());
             // #EXP-1724: a rail tile says its count (or that there is news)
             // in its corner, and a pin needs a glyph of its own.
-            row["meta"] = match (rail, row["count"].as_str(), row["dot"].is_null()) {
-                (true, Some(count), _) => json!(count),
-                (true, None, false) => json!("•"),
-                _ => Value::Null,
-            };
             if rail && row.get("identifier").is_some() {
                 row["icon"] = json!("ui-pin");
                 row["identifier"] = Value::Null;
+            }
+            // A rail row keeps only its glyph: the count or the dot rides
+            // the glyph's corner (`ide:badge:<count|dot:tone>|<glyph>`).
+            let badge = match (row["count"].as_str(), row["dot"].as_str()) {
+                (Some(count), _) => Some(count.to_string()),
+                (None, Some(tone)) => Some(format!("dot:{tone}")),
+                _ => None,
+            };
+            if let (true, Some(badge), Some(icon)) = (rail, badge, row["icon"].as_str()) {
+                row["icon"] = json!(format!("ide:badge:{badge}|{icon}"));
             }
         }
     };
@@ -532,6 +537,17 @@ impl HostPlugin for RegionHost {
         if let Some(count) = name.strip_prefix("ide:count:") {
             let badge = crate::sidebar::RailBadge::Count(count.parse().ok()?, crate::surface::BadgeTone::Muted);
             return Some(crate::sidebar::rail_badge_element(badge, 12., cx));
+        }
+        if let Some((badge, glyph)) = name.strip_prefix("ide:badge:").and_then(|rest| rest.split_once('|')) {
+            let inner = self.icon_element(glyph, size, color, cx).or_else(|| {
+                let path = crate::exponential_ui_host::icon_path(glyph)?;
+                Some(gpui::svg().path(path).size(gpui::px(size)).text_color(color).into_any_element())
+            })?;
+            let corner = match badge.strip_prefix("dot:") {
+                Some(tone) => crate::sidebar::rail_dot(dot_color(serde_json::from_value(json!(tone)).ok()?, cx)).into_any_element(),
+                None => crate::sidebar::rail_badge_element(crate::sidebar::RailBadge::Count(badge.parse().ok()?, crate::surface::BadgeTone::Muted), 12., cx),
+            };
+            return Some(div().relative().size(gpui::px(size)).child(inner).child(div().absolute().top(gpui::px(-6.)).right(gpui::px(-8.)).child(corner)).into_any_element());
         }
         let glyphs = self.glyphs.borrow();
         let element = match glyphs.get(name)? {
@@ -931,10 +947,10 @@ mod tests {
             ..Default::default()
         };
         let value = shaped(&input, &HashMap::new(), None, true, None);
-        assert_eq!(value["nav"][0]["meta"], "5");
-        assert_eq!(value["nav"][1]["meta"], "•");
+        assert_eq!(value["nav"][0]["icon"], "ide:badge:5|nav-needs-you");
+        assert_eq!(value["nav"][1]["icon"], "ide:badge:dot:primary|nav-threads");
         assert_eq!(value["pins"][0]["icon"], "ui-pin");
-        assert_eq!(shaped(&input, &HashMap::new(), None, false, None)["nav"][0]["meta"], Value::Null);
+        assert_eq!(shaped(&input, &HashMap::new(), None, false, None)["nav"][0]["icon"], "nav-needs-you");
     }
 
     #[test]
