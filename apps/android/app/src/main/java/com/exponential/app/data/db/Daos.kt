@@ -668,11 +668,8 @@ interface AppRecordOutboxDao {
     @Query("SELECT * FROM app_record_outbox WHERE app_id = :appId ORDER BY seq")
     fun observeByApp(appId: String): Flow<List<AppRecordOutboxEntity>>
 
-    @Query("SELECT * FROM app_record_outbox WHERE state = 'pending' ORDER BY seq LIMIT 1")
-    suspend fun oldestPending(): AppRecordOutboxEntity?
-
-    @Query("SELECT COUNT(*) FROM app_record_outbox WHERE state = 'pending'")
-    suspend fun pendingCount(): Int
+    @Query("SELECT * FROM app_record_outbox ORDER BY seq")
+    suspend fun all(): List<AppRecordOutboxEntity>
 
     @Query("SELECT COALESCE(MAX(seq), 0) FROM app_record_outbox")
     suspend fun maxSeq(): Long
