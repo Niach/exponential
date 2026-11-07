@@ -8,7 +8,7 @@
     },
     "onDemand": true,
     "functions": [
-      "ede.select"
+      "ede_select"
     ]
   },
   "root": {

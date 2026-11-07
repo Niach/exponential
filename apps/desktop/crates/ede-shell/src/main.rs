@@ -11,7 +11,7 @@
 //! documents and hosted Popover / Menu layers as `xdg_popup`s) are crates the
 //! IDE will host too. This binary is what is eDE-specific: the ede-protocol
 //! connection, the session's notification server and tray host ([`dbus`]),
-//! the services socket, the hotkeys, the `ede.*` host functions.
+//! the services socket, the hotkeys, the `ede_*` host functions.
 //!
 //! The documents come from `exponential-ui` (`$EDE_UI_DIR`, else
 //! `~/.config/exponential-desktop/ui`; the supervisor `exponential-ui supervise --
@@ -28,27 +28,27 @@
 //! (Alt+Tab with thumbnails), `/previews` (a taskbar group's windows with
 //! thumbnails), `/osd`, `/notifications`, `/tray`, `/traymenu`,
 //! `/services/<domain>`, `/outputs`, `/config`, `/user`. The host functions a
-//! document may call are the `ede.*` names its `surface.functions` lists
-//! (#EDE-8's Tier C rule, checked again here): `ede.launch {command}`,
-//! `ede.focus {window}`, `ede.close {window}`, `ede.minimize {window}`,
-//! `ede.lock`, `ede.logout`, `ede.power {action}`, `ede.select {window}`,
-//! `ede.notify_close {id}`, `ede.notify_action {id, key}`, `ede.notify_clear`,
-//! `ede.tray {service}`, `ede.tray_menu {service, id}`, `ede.open_document
-//! {name}`, `ede.close_document {name}`, `ede.service {domain, action,
-//! args}`, `ede.output {name, mode?, scale?}`, `ede.config {…}`, `ede.settings
+//! document may call are the `ede_*` names its `surface.functions` lists
+//! (#EDE-8's Tier C rule, checked again here): `ede_launch {command}`,
+//! `ede_focus {window}`, `ede_close {window}`, `ede_minimize {window}`,
+//! `ede_lock`, `ede_logout`, `ede_power {action}`, `ede_select {window}`,
+//! `ede_notify_close {id}`, `ede_notify_action {id, key}`, `ede_notify_clear`,
+//! `ede_tray {service}`, `ede_tray_menu {service, id}`, `ede_open_document
+//! {name}`, `ede_close_document {name}`, `ede_service {domain, action,
+//! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
 //! {page, key, value}` (#EDE-47: the pages `/pages` feeds), and the
-//! shell model's: `ede.rail` (toggle), `ede.pin {app}` / `ede.unpin {app}`,
-//! `ede.taskbar {app}` (Mint's click), `ede.taskbar_scroll {app, direction}`,
-//! `ede.previews {app|null}` (the hover previews), `ede.start_menu {open?,
-//! query?, category?}`, `ede.chat` (toggle), `ede.workspace {index}`,
-//! `ede.sidebar {section}` (fold a section); #EDE-56: `ede.switcher {action:
+//! shell model's: `ede_rail` (toggle), `ede_pin {app}` / `ede_unpin {app}`,
+//! `ede_taskbar {app}` (Mint's click), `ede_taskbar_scroll {app, direction}`,
+//! `ede_previews {app|null}` (the hover previews), `ede_start_menu {open?,
+//! query?, category?}`, `ede_chat` (toggle), `ede_workspace {index}`,
+//! `ede_sidebar {section}` (fold a section); #EDE-56: `ede_switcher {action:
 //! pick|new|share|connect, kind?, id?}` (the Local desktops and the connected
-//! accounts' teams, `/shell/switcher/sections`), `ede.connect {action:
+//! accounts' teams, `/shell/switcher/sections`), `ede_connect {action:
 //! start|code|open|cancel, instance?}` (Connect Exponential: `/connecting`,
 //! `/accounts`; `exponential-shell connect <url>` is the scheme handler's
 //! command, forwarding the browser's callback to the running shell);
-//! #EDE-57: `ede.share {action: start|run|cancel, name?, account?}` (Share a
-//! Local desktop as a team: `/sharing`); #EDE-58: `ede.chat {action: send,
+//! #EDE-57: `ede_share {action: start|run|cancel, name?, account?}` (Share a
+//! Local desktop as a team: `/sharing`); #EDE-58: `ede_chat {action: send,
 //! text}` (the desktop's own agent on a Local desktop: `/chatting`).
 //!
 //! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
@@ -221,7 +221,7 @@ struct Shell {
 type SharedShell = Rc<RefCell<Shell>>;
 
 /// Actions from the documents: a press on a popup's anchor opens that
-/// popup document; the `ede.*` host functions go to the compositor, the
+/// popup document; the `ede_*` host functions go to the compositor, the
 /// system and the shell model, each only from a document whose header
 /// allows it; the hosted popups of the document reach the main loop.
 struct Host {
@@ -305,7 +305,7 @@ impl HostPlugin for Host {
         tracing::info!(document = %event.surface_id, function = name, %args, "host function");
         let shell = self.shell.clone();
         match name {
-            "ede.launch" => {
+            "ede_launch" => {
                 if let Some(command) = args.get("command").and_then(Value::as_str) {
                     system::launch(command);
                 } else if let Some(app) = args.get("app").and_then(Value::as_str) {
@@ -327,7 +327,7 @@ impl HostPlugin for Host {
                     dispatch(&shell, ShellEvent::StartMenuClose, cx);
                 });
             }
-            "ede.focus" => {
+            "ede_focus" => {
                 if let Some(id) = window_arg(args) {
                     with_ede(&self.shell, |ede| ede.focus(id));
                 }
@@ -336,49 +336,49 @@ impl HostPlugin for Host {
                     cx.defer(move |cx| overlay_close(&shell, &doc, cx));
                 }
             }
-            "ede.history" => {
+            "ede_history" => {
                 match args.get("action").and_then(Value::as_str) {
                     Some("undo") => system::launch("exponential-ui undo"),
                     Some("reset") => system::launch("exponential-ui reset"),
                     other => tracing::warn!(action = ?other, "unknown history action"),
                 }
             }
-            "ede.close" => {
+            "ede_close" => {
                 if let Some(id) = window_arg(args) {
                     with_ede(&self.shell, |ede| ede.close_window(id));
                 }
             }
-            "ede.minimize" => {
+            "ede_minimize" => {
                 if let Some(id) = window_arg(args) {
                     with_ede(&self.shell, |ede| minimize(ede, id));
                 }
             }
-            "ede.lock" => {
+            "ede_lock" => {
                 with_ede(&self.shell, |ede| ede.lock());
                 cx.defer(move |cx| {
                     close(&shell, "menu", cx);
                     close(&shell, "start-menu", cx);
                 });
             }
-            "ede.logout" => {
+            "ede_logout" => {
                 with_ede(&self.shell, |ede| ede.logout());
             }
-            "ede.power" => {
+            "ede_power" => {
                 if let Some(action) = args.get("action").and_then(Value::as_str) {
                     system::power(action);
                 }
             }
-            "ede.select" => {
+            "ede_select" => {
                 if let Some(id) = window_arg(args) {
                     cx.defer(move |cx| switcher_commit(&shell, Some(id), cx));
                 }
             }
-            "ede.notify_close" => {
+            "ede_notify_close" => {
                 if let Some(id) = args.get("id").and_then(Value::as_u64) {
                     cx.defer(move |cx| notification_close(&shell, id as u32, 2, cx));
                 }
             }
-            "ede.notify_action" => {
+            "ede_notify_action" => {
                 let (id, key) = (args.get("id").and_then(Value::as_u64), args.get("key").and_then(Value::as_str).map(String::from));
                 if let (Some(id), Some(key)) = (id, key) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
@@ -387,7 +387,7 @@ impl HostPlugin for Host {
                     cx.defer(move |cx| notification_close(&shell, id as u32, 2, cx));
                 }
             }
-            "ede.notify_clear" => {
+            "ede_notify_clear" => {
                 cx.defer(move |cx| {
                     let ids: Vec<u32> = shell.borrow().notifications.list.iter().map(|n| n.id).collect();
                     for id in ids {
@@ -396,14 +396,14 @@ impl HostPlugin for Host {
                     close(&shell, "notification-center", cx);
                 });
             }
-            "ede.tray" => {
+            "ede_tray" => {
                 if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |cx| tray_press(&shell, &service, cx));
                 }
             }
-            "ede.open_document" | "ede.close_document" => {
+            "ede_open_document" | "ede_close_document" => {
                 if let Some(doc) = args.get("name").and_then(Value::as_str).map(String::from) {
-                    let open_it = name == "ede.open_document";
+                    let open_it = name == "ede_open_document";
                     cx.defer(move |cx| {
                         if open_it {
                             close(&shell, "menu", cx);
@@ -417,7 +417,7 @@ impl HostPlugin for Host {
                     });
                 }
             }
-            "ede.service" => {
+            "ede_service" => {
                 let (domain, action) = (args.get("domain").and_then(Value::as_str).map(String::from), args.get("action").and_then(Value::as_str).map(String::from));
                 if let (Some(domain), Some(action)) = (domain, action) {
                     let call_args = args.get("args").cloned().unwrap_or_else(|| json!({}));
@@ -428,7 +428,7 @@ impl HostPlugin for Host {
                     });
                 }
             }
-            "ede.output" => {
+            "ede_output" => {
                 if let Some(output) = args.get("name").and_then(Value::as_str).map(String::from) {
                     let mode = args.get("mode").and_then(Value::as_str).map(String::from);
                     let scale = args.get("scale").and_then(|s| s.as_f64().or_else(|| s.as_str().and_then(|t| t.parse().ok())));
@@ -442,7 +442,7 @@ impl HostPlugin for Host {
                     });
                 }
             }
-            "ede.config" => {
+            "ede_config" => {
                 match settings::persist_config(args) {
                     Ok(()) => {
                         with_ede(&self.shell, |ede| ede.call(ede_protocol::Request::ReloadConfig));
@@ -458,7 +458,7 @@ impl HostPlugin for Host {
                     refresh(&shell, cx);
                 });
             }
-            "ede.tray_menu" => {
+            "ede_tray_menu" => {
                 let (service, id) = (args.get("service").and_then(Value::as_str).map(String::from), args.get("id").and_then(Value::as_i64));
                 if let (Some(service), Some(id)) = (service, id) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
@@ -468,22 +468,22 @@ impl HostPlugin for Host {
                 }
             }
             // The shell model (#EDE-50).
-            "ede.rail" => cx.defer(move |cx| rail_toggle(&shell, cx)),
-            "ede.pin" | "ede.unpin" => {
+            "ede_rail" => cx.defer(move |cx| rail_toggle(&shell, cx)),
+            "ede_pin" | "ede_unpin" => {
                 if let Some(app) = args.get("app").and_then(Value::as_str).map(String::from) {
-                    let pin = name == "ede.pin";
+                    let pin = name == "ede_pin";
                     cx.defer(move |cx| {
                         dispatch(&shell, if pin { ShellEvent::TaskbarPin { app } } else { ShellEvent::TaskbarUnpin { app } }, cx);
                         pins_persist(&shell);
                     });
                 }
             }
-            "ede.taskbar" => {
+            "ede_taskbar" => {
                 if let Some(app) = args.get("app").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |cx| taskbar_press(&shell, &app, cx));
                 }
             }
-            "ede.taskbar_scroll" => {
+            "ede_taskbar_scroll" => {
                 let (app, direction) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("direction").and_then(Value::as_str).map(String::from));
                 if let (Some(app), Some(direction)) = (app, direction) {
                     let direction = if direction == "up" { uicore_model::ScrollDirection::Up } else { uicore_model::ScrollDirection::Down };
@@ -494,7 +494,7 @@ impl HostPlugin for Host {
                     }
                 }
             }
-            "ede.previews" => {
+            "ede_previews" => {
                 // A hover Popover's change: open with the app, closed = that app's previews go.
                 let app = args.get("app").and_then(Value::as_str).map(String::from);
                 let open = args.get("open").and_then(Value::as_bool).unwrap_or(app.is_some());
@@ -508,7 +508,7 @@ impl HostPlugin for Host {
                 });
             }
             // #EDE-47: the settings pages the shell feeds itself (/pages); a compositor.toml key reloads it.
-            "ede.settings" => match settings_pages::handle(args) {
+            "ede_settings" => match settings_pages::handle(args) {
                 Ok(reload) => {
                     if reload {
                         with_ede(&self.shell, |ede| ede.call(ede_protocol::Request::ReloadConfig));
@@ -519,9 +519,9 @@ impl HostPlugin for Host {
                         refresh(&shell, cx);
                     });
                 }
-                Err(e) => tracing::warn!("ede.settings: {e}"),
+                Err(e) => tracing::warn!("ede_settings: {e}"),
             },
-            "ede.switcher" => {
+            "ede_switcher" => {
                 let args = args.clone();
                 cx.defer(move |cx| match args.get("action").and_then(Value::as_str) {
                     Some("pick") => {
@@ -570,7 +570,7 @@ impl HostPlugin for Host {
                 });
             }
             // #EDE-57: Share a Local desktop as a team.
-            "ede.share" => {
+            "ede_share" => {
                 let args = args.clone();
                 cx.defer(move |cx| {
                     match args.get("action").and_then(Value::as_str) {
@@ -583,7 +583,7 @@ impl HostPlugin for Host {
                 });
             }
             // #EDE-56: Connect Exponential.
-            "ede.connect" => {
+            "ede_connect" => {
                 let args = args.clone();
                 cx.defer(move |cx| {
                     let instance = args.get("instance").and_then(Value::as_str).unwrap_or("").to_string();
@@ -605,7 +605,7 @@ impl HostPlugin for Host {
                     refresh(&shell, cx);
                 });
             }
-            "ede.taskbar_menu" => {
+            "ede_taskbar_menu" => {
                 let (app, value) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("value").and_then(Value::as_str).map(String::from));
                 if let (Some(app), Some(value)) = (app, value) {
                     cx.defer(move |cx| match value.as_str() {
@@ -627,7 +627,7 @@ impl HostPlugin for Host {
                     });
                 }
             }
-            "ede.start_menu" => {
+            "ede_start_menu" => {
                 let args = args.clone();
                 cx.defer(move |cx| {
                     if args.get("toggle").and_then(Value::as_bool) == Some(true) {
@@ -645,14 +645,14 @@ impl HostPlugin for Host {
                     }
                 });
             }
-            "ede.chat" => {
+            "ede_chat" => {
                 let args = args.clone();
                 cx.defer(move |cx| match args.get("action").and_then(Value::as_str) {
                     Some("send") => chat_send(&shell, args.get("text").and_then(Value::as_str).unwrap_or(""), cx),
                     _ => chat_toggle(&shell, cx),
                 });
             }
-            "ede.workspace" => {
+            "ede_workspace" => {
                 if let Some(index) = args.get("index").and_then(Value::as_u64) {
                     with_ede(&self.shell, |ede| ede.switch_workspace(index as usize));
                 }
@@ -660,7 +660,7 @@ impl HostPlugin for Host {
                     cx.defer(move |cx| overlay_close(&shell, "expo", cx));
                 }
             }
-            "ede.sidebar" => {
+            "ede_sidebar" => {
                 if let Some(section) = args.get("section").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |cx| dispatch(&shell, ShellEvent::SidebarToggle { section }, cx));
                 }
@@ -2101,4 +2101,29 @@ fn main() {
             .detach();
         }
     });
+}
+
+#[cfg(test)]
+mod function_names {
+    /// Every host function a factory document's header allows is one this
+    /// shell matches by that exact (flat, A2UI 1.0) name; `set` is genUI's
+    /// own. #VAPP-289 renamed the documents' calls to `ede_*` while the
+    /// headers and the shell said `ede.*`, so eDE 0.2.5 drew only the ground.
+    #[test]
+    fn the_factory_documents_name_functions_the_shell_matches() {
+        let source = include_str!("main.rs");
+        let mut checked = 0;
+        for doc in uicore_docs::DOCS {
+            let parsed: serde_json::Value = serde_json::from_str(doc.source).expect(doc.name);
+            for f in parsed["surface"]["functions"].as_array().into_iter().flatten().filter_map(serde_json::Value::as_str) {
+                if f == "set" {
+                    continue;
+                }
+                assert!(f.starts_with("ede_"), "{}: {f} is not an ede_* host function", doc.name);
+                assert!(source.contains(&format!("\"{f}\"")), "{}: the shell never matches {f}", doc.name);
+                checked += 1;
+            }
+        }
+        assert!(checked > 40, "the headers were read ({checked})");
+    }
 }

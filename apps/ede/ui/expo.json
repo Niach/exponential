@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory Expo (#EDE-49): Ctrl+Alt+Up opens it as an overlay in the middle of the screen (onDemand: the shell opens and closes it on the compositor's expo.toggle hotkey), one tile per workspace (/expo: the label, the window count, the active one outlined, each window as a live thumbnail captured over ede-protocol while it is open); a press on a tile switches to that workspace (ede.workspace) and closes the overlay, a press on a thumbnail focuses that window.",
+  "$comment": "Exponential Desktop's factory Expo (#EDE-49): Ctrl+Alt+Up opens it as an overlay in the middle of the screen (onDemand: the shell opens and closes it on the compositor's expo.toggle hotkey), one tile per workspace (/expo: the label, the window count, the active one outlined, each window as a live thumbnail captured over ede-protocol while it is open); a press on a tile switches to that workspace (ede_workspace) and closes the overlay, a press on a thumbnail focuses that window.",
   "surface": {
     "layer": "overlay",
     "size": {
@@ -8,8 +8,8 @@
     },
     "onDemand": true,
     "functions": [
-      "ede.workspace",
-      "ede.focus"
+      "ede_workspace",
+      "ede_focus"
     ]
   },
   "root": {

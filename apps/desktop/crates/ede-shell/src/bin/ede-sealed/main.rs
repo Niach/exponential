@@ -238,7 +238,7 @@ fn lock() {
                 while let Ok(act) = acts_rx.try_recv() {
                     match act {
                         Act::Input { path, value } if path == "/password" => password = value.as_str().unwrap_or_default().to_string(),
-                        Act::Call { name, args } if name == "sealed.unlock" => {
+                        Act::Call { name, args } if name == "sealed_unlock" => {
                             let typed = args.get("password").and_then(Value::as_str).map(String::from).unwrap_or_else(|| password.clone());
                             if let Some(open) = o.borrow().as_ref() {
                                 cx.update(|cx| {
@@ -363,12 +363,12 @@ fn polkit_agent() {
                         Act::Call { name, args } => {
                             if let Some((_, open, answer)) = current.as_ref() {
                                 match name.as_str() {
-                                    "sealed.authenticate" => {
+                                    "sealed_authenticate" => {
                                         let typed = args.get("password").and_then(Value::as_str).map(String::from).unwrap_or_else(|| password.clone());
                                         cx.update(|cx| set(open, "/busy", json!(true), cx));
                                         let _ = answer.send(polkit::Answer::Password(typed));
                                     }
-                                    "sealed.cancel" => {
+                                    "sealed_cancel" => {
                                         let _ = answer.send(polkit::Answer::Cancel);
                                     }
                                     _ => {}
@@ -414,7 +414,7 @@ fn consent(args: &[String]) {
             loop {
                 while let Ok(act) = acts_rx.try_recv() {
                     if let Act::Call { name, args } = act {
-                        if name == "sealed.answer" {
+                        if name == "sealed_answer" {
                             let answer = args.get("answer").and_then(Value::as_str).unwrap_or("deny").to_string();
                             println!("{answer}");
                             let code = if answer == "allow" { 0 } else { 1 };
@@ -466,7 +466,7 @@ fn share() {
                     match act {
                         Act::Input { path, value } if path == "/allow" => allow = value.as_bool().unwrap_or(false),
                         Act::Call { name, args } => match name.as_str() {
-                            "sealed.pick" => {
+                            "sealed_pick" => {
                                 let id = args["id"].as_str().unwrap_or("").to_string();
                                 if picks.contains(&id) {
                                     picks.retain(|p| p != &id);
@@ -490,7 +490,7 @@ fn share() {
                                     });
                                 }
                             }
-                            "sealed.answer" => {
+                            "sealed_answer" => {
                                 let answer = args["answer"].as_str().unwrap_or("cancel");
                                 if answer == "share" {
                                     for p in &picks {
@@ -524,5 +524,45 @@ fn main() {
         Some("consent") => consent(&args[1..]),
         Some("share") => share(),
         _ => usage(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The host functions this binary answers (A2UI 1.0's flat names).
+    const FUNCTIONS: &[&str] = &["sealed_unlock", "sealed_authenticate", "sealed_cancel", "sealed_answer", "sealed_pick"];
+
+    fn calls(node: &Value, out: &mut Vec<String>) {
+        match node {
+            Value::Object(o) => {
+                if let Some(call) = o.get("functionCall").and_then(|f| f.get("@call")).and_then(Value::as_str) {
+                    out.push(call.to_string());
+                }
+                o.values().for_each(|v| calls(v, out));
+            }
+            Value::Array(a) => a.iter().for_each(|v| calls(v, out)),
+            _ => {}
+        }
+    }
+
+    /// Every call a sealed document makes is one this binary handles, and
+    /// the source matches each by its flat name (#VAPP-289 renamed the
+    /// documents' calls; the lock screen must keep unlocking).
+    #[test]
+    fn the_sealed_documents_call_what_the_binary_answers() {
+        let source = include_str!("main.rs");
+        for (name, doc) in [("lock", LOCK), ("polkit", POLKIT), ("consent", CONSENT), ("share", SHARE)] {
+            let parsed: Value = serde_json::from_str(doc).expect(name);
+            let mut found = Vec::new();
+            calls(&parsed, &mut found);
+            let found: Vec<String> = found.into_iter().filter(|c| c.starts_with("sealed")).collect();
+            assert!(!found.is_empty(), "{name} calls the binary");
+            for call in found {
+                assert!(FUNCTIONS.contains(&call.as_str()), "{name}: {call} is not a sealed function");
+                assert!(source.contains(&format!("\"{call}\"")), "{name}: the binary never matches {call}");
+            }
+        }
     }
 }

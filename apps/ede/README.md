@@ -38,7 +38,7 @@ popup documents and hosted Popover / Menu layers (VAPP-281) as
 `--windowed`) and the `Surfaces` that own the open windows; `uicore-docs`,
 the factory documents compiled in. `exponential-shell` itself keeps what is
 eDE's: ede-protocol, the notification server and tray host, the services
-socket, the hotkeys, the `ede.*` host functions.
+socket, the hotkeys, the `ede_*` host functions.
 
 Every document with a layer
 `surface` header is a layer-shell surface (`WindowKind::LayerShell`), opened
@@ -62,17 +62,17 @@ entries of the XDG data directories, filtered as the person types),
 `/previews` (a taskbar group's windows with thumbnails while they show),
 `/osd` (a level). Host functions, each only from a document whose
 `surface.functions` lists it (#EDE-8's Tier C rule, checked by `exponential-ui` and
-again by the shell): `ede.launch {command}`, `ede.focus {window}`,
-`ede.close {window}`, `ede.minimize {window}`, `ede.lock`, `ede.logout`,
-`ede.power {action: suspend|reboot|poweroff}`, `ede.select {window}` (the
-switcher), and the model's: `ede.rail` (toggle: the sidebar re-opens at the
-rail's width), `ede.pin {app}` / `ede.unpin {app}` (kept in
-`~/.config/exponential-desktop/shell.json`), `ede.taskbar {app}` (Mint's
+again by the shell): `ede_launch {command}`, `ede_focus {window}`,
+`ede_close {window}`, `ede_minimize {window}`, `ede_lock`, `ede_logout`,
+`ede_power {action: suspend|reboot|poweroff}`, `ede_select {window}` (the
+switcher), and the model's: `ede_rail` (toggle: the sidebar re-opens at the
+rail's width), `ede_pin {app}` / `ede_unpin {app}` (kept in
+`~/.config/exponential-desktop/shell.json`), `ede_taskbar {app}` (Mint's
 click: launch, focus, minimize, or the previews of a group),
-`ede.taskbar_scroll {app, direction}`, `ede.previews {app|null}`,
-`ede.start_menu {open?, query?, category?}`, `ede.chat` (toggle),
-`ede.workspace {index}`, `ede.sidebar {section}` (fold a section),
-`ede.history {action: undo|reset}` (the shell documents' history);
+`ede_taskbar_scroll {app, direction}`, `ede_previews {app|null}`,
+`ede_start_menu {open?, query?, category?}`, `ede_chat` (toggle),
+`ede_workspace {index}`, `ede_sidebar {section}` (fold a section),
+`ede_history {action: undo|reset}` (the shell documents' history);
 `/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
 fonts are embedded); app icons come from the installed icon themes as
@@ -115,8 +115,8 @@ and a row press sends the item its `clicked` event. Nested under another
 desktop the well-known names stay with that desktop and the objects answer
 on the shell's unique bus name (`scripts/tray-demo.py --watcher :1.N`
 registers a sample item; `gdbus call --dest :1.N …Notify` a sample toast).
-Host functions: `ede.notify_close {id}`, `ede.notify_action {id, key}`,
-`ede.notify_clear`, `ede.tray {service}`, `ede.tray_menu {service, id}`.
+Host functions: `ede_notify_close {id}`, `ede_notify_action {id, key}`,
+`ede_notify_clear`, `ede_tray {service}`, `ede_tray_menu {service, id}`.
 
 ### Hotkeys (#EDE-12)
 
@@ -192,10 +192,10 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 `settings.json`, a shell document like the rest (editable, in the
 history), not an eApps package: ONE on-demand top-layer window, 1080 × 680
 centred on the output (`exclusiveZone` -1), the IDE's settings look (the
-menu's Settings rows open it with `ede.open_document`, its close button
-`ede.close_document`): a 272 px sidebar nav on the left, the page on the
+menu's Settings rows open it with `ede_open_document`, its close button
+`ede_close_document`): a 272 px sidebar nav on the left, the page on the
 right, no tile overview. The nav: **This device** (Display: every output's
-modes and scale, `ede.output` applies live and writes `[[outputs]]`; Sound:
+modes and scale, `ede_output` applies live and writes `[[outputs]]`; Sound:
 volumes, mute, the output and input devices, the playback streams; Network:
 Wi-Fi, wired, the networks in reach, VPN; Bluetooth; Power: battery,
 profile, suspend/restart/shut down; Themes: the bridge's switch and what it
@@ -216,8 +216,8 @@ none yet, #EDE-54). Pages bind `/services/<domain>` (#EDE-13), `/outputs`,
 `/config`, `/user`, `/shell`, `/date` and `/pages` (the shell's own:
 `crates/ede-shell/src/settings_pages.rs` reads the layouts, the time zone,
 the autostart entries, the mime defaults, `[windows]`); a control is two-way
-bound and calls `ede.service {domain, action, args}`, `ede.output`,
-`ede.config {theme}` or `ede.settings {page, key, value}` (the one host
+bound and calls `ede_service {domain, action, args}`, `ede_output`,
+`ede_config {theme}` or `ede_settings {page, key, value}` (the one host
 function for the shell's pages: `[keyboard]` and `[windows]` in
 `compositor.toml` + a reload, `timedatectl`, the user's autostart override
 with `Hidden`, `xdg-mime default`). A setting the machine cannot apply yet
@@ -666,7 +666,7 @@ only those, puts a person's own file back from `*.before-ede` (moved
 aside once on the first apply) and restores the previous gsettings
 (`$XDG_STATE_HOME/exponential-desktop/theme-before.json`). `exponential-theme sync` applies or
 removes as `[theme] bridge` says: exponential-theme.service runs it at login
-before the shell, the Theme page's switch runs it after `ede.config`
+before the shell, the Theme page's switch runs it after `ede_config`
 wrote the key, and exponential-session exports the environment file before the
 compositor starts so its cursor matches. `exponential-theme print` shows the
 choice and the files; `--files-only` skips the live environment and
