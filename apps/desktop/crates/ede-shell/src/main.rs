@@ -61,6 +61,7 @@
 //! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail.
 
 mod accounts;
+mod engine;
 mod assets;
 mod connect;
 mod dbus;
@@ -99,11 +100,13 @@ struct Options {
     windowed: bool,
     popup: Vec<String>,
     open: Vec<String>,
+    /// #VAPP-273: Engine apps whose window opens at start (the goldens).
+    open_app: Vec<String>,
     exit_after: Option<u64>,
 }
 
 fn parse_args() -> Options {
-    let mut o = Options { windowed: false, popup: Vec::new(), open: Vec::new(), exit_after: None };
+    let mut o = Options { windowed: false, popup: Vec::new(), open: Vec::new(), open_app: Vec::new(), exit_after: None };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -118,9 +121,10 @@ fn parse_args() -> Options {
             "--windowed" => o.windowed = true,
             "--popup" => o.popup.extend(args.next()),
             "--open" => o.open.extend(args.next()),
+            "--open-app" => o.open_app.extend(args.next()),
             "--exit-after" => o.exit_after = args.next().and_then(|v| v.parse().ok()),
             "-h" | "--help" => {
-                println!("usage: exponential-shell [--windowed] [--popup <document>] [--open <document>] [--exit-after <ms>] | connect <url>");
+                println!("usage: exponential-shell [--windowed] [--popup <document>] [--open <document>] [--open-app <app id>] [--exit-after <ms>] | connect <url>");
                 std::process::exit(0);
             }
             other => {
@@ -214,6 +218,8 @@ struct Shell {
     pending_pick: Option<String>,
     /// #EDE-58: the chat on the current Local desktop (its agent runs).
     chat_local: Option<local_runs::LocalChat>,
+    /// #VAPP-273: the apps on the Engine (their windows and widgets).
+    engine: Option<engine::SharedEngine>,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -309,7 +315,17 @@ impl HostPlugin for Host {
                 if let Some(command) = args.get("command").and_then(Value::as_str) {
                     system::launch(command);
                 } else if let Some(app) = args.get("app").and_then(Value::as_str) {
-                    if app.trim_end_matches(".desktop") == HISTORY_APP {
+                    let engine_app = self.shell.borrow().engine.as_ref().is_some_and(|e| e.borrow().has(app));
+                    if engine_app {
+                        // #VAPP-273: an app on the Engine: its window, in this process.
+                        let (s, app) = (self.shell.clone(), app.to_string());
+                        cx.defer(move |cx| {
+                            let engine = s.borrow().engine.clone();
+                            if let Some(engine) = engine {
+                                engine::open_window(&engine, &app, cx);
+                            }
+                        });
+                    } else if app.trim_end_matches(".desktop") == HISTORY_APP {
                         // The shell's own Version history (#EDE-53): a document, not a process.
                         let s = self.shell.clone();
                         cx.defer(move |cx| {
@@ -1283,7 +1299,22 @@ fn chat_local(shell: &SharedShell) -> bool {
         }
     }
     if shell.borrow().chat_local.is_none() {
-        let chat = local_runs::LocalChat::start(desktop);
+        // #VAPP-273: the desktop's own agent edits the shell through `shell_edit` (never an
+        // app) and reaches the running apps' exposed tools (`<app>__<tool>`).
+        let ui_dir = shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).dir().to_path_buf();
+        let mut providers: Vec<Arc<dyn emcp::server::ToolProvider>> = vec![Arc::new(engine::shell_edit::ShellEdit::new(ui_dir))];
+        let mut note = engine::shell_edit::ShellEdit::note();
+        let engine = shell.borrow().engine.clone();
+        if let Some(engine) = engine {
+            let apps = engine::apps_provider(&engine.borrow(), elocal::runs::local_tools(desktop.clone()));
+            if !apps.apps.is_empty() {
+                let names: Vec<String> = apps.apps.iter().map(|a| a.server.clone()).collect();
+                note.push_str(&format!(" The apps of this desktop expose their tools as <app>__<tool> (apps: {}); a records tool reads or writes the app's own records, an action tool runs one of the exponential tools via the app.", names.join(", ")));
+                providers.push(Arc::new(apps));
+            }
+        }
+        let host = elocal::runs::HostTools { provider: Arc::new(engine::exposes::Providers(providers)), note };
+        let chat = local_runs::LocalChat::start(desktop, Some(host));
         shell.borrow_mut().chat_local = Some(chat);
     }
     true
@@ -1740,8 +1771,12 @@ fn main() {
         .expect("the events thread");
     let mut installed = if demo { apps::demo() } else { apps::scan() };
     installed.extend(builtin_apps(demo));
+    // #VAPP-273: the apps on the Engine, from the apps directory (the goldens only with EDE_APPS_DIR).
+    let engine_apps = if demo && std::env::var_os("EDE_APPS_DIR").is_none() { Vec::new() } else { engine::scan(&engine::apps_dir()) };
+    installed.extend(engine_apps.iter().map(engine::launcher_entry));
     installed.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    tracing::info!(apps = installed.len(), demo, "desktop entries");
+    tracing::info!(apps = installed.len(), engine_apps = engine_apps.len(), demo, "desktop entries");
+    let launchable: Arc<Vec<apps::App>> = Arc::new(installed.clone());
     // Thumbnails from the capture thread while the switcher or the previews are open.
     let (thumbs_tx, thumbs_rx) = mpsc::channel::<(String, String)>();
     // The hosted popups of every surface (VAPP-281).
@@ -1919,6 +1954,7 @@ fn main() {
             local: None,
             pending_pick: None,
             chat_local: None,
+            engine: None,
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
@@ -1953,6 +1989,26 @@ fn main() {
         }
         if shell.borrow().surfaces.open_names().next().is_none() {
             tracing::warn!(dir = %dir.display(), "no layer document to draw (is the factory directory installed? exponential-ui --factory apps/ede/ui check)");
+        }
+        // #VAPP-273: the apps on the Engine: booted, their widgets on the ground.
+        if !engine_apps.is_empty() {
+            let connect: Arc<dyn engine::capabilities::Connect> = Arc::new(engine::capabilities::Minted::default());
+            match engine::Stores::open(engine::data_dir(), engine::capabilities::ede_capabilities(connect, launchable.clone())) {
+                Ok(stores) => {
+                    let eng = engine::boot(engine_apps, &stores, cx);
+                    eng.borrow_mut().window_max = {
+                        let s = shell.borrow();
+                        engine::window_max(output_size(&s), s.model.rail)
+                    };
+                    engine::open_widgets(&eng, cx);
+                    let open_apps = shell.borrow().options.open_app.clone();
+                    for app in open_apps {
+                        engine::open_window(&eng, &app, cx);
+                    }
+                    shell.borrow_mut().engine = Some(eng);
+                }
+                Err(e) => tracing::warn!("apps: {e}"),
+            }
         }
 
         // The main loop's inputs: file changes, window lists, hotkeys,

@@ -519,42 +519,11 @@ final class AppRecordsTests: XCTestCase {
         ])
     }
 
-    private func outboxResult(_ value: Any?) -> AppRecords.OutboxResult {
-        let object = value as? [String: Any] ?? [:]
-        if let code = object["code"] as? String { return .code(code) }
-        if object["ok"] != nil { return .ok }
-        return .transport
-    }
-
     func testOutboxConstantsMatchTheFixture() throws {
         let o = try outbox()
-        XCTAssertEqual(o["ackGraceSeconds"] as? Double, AppRecords.Outbox.ackGraceSeconds)
-        XCTAssertEqual(o["retryCodes"] as? [String], AppRecords.Outbox.retryCodes)
         XCTAssertEqual(o["copy"] as? [String: String], [
             "pendingOne": AppRecords.Outbox.Copy.pendingOne, "pending": AppRecords.Outbox.Copy.pending,
         ])
-    }
-
-    func testOutboxWritesCases() throws {
-        for item in try outboxCases("writesCases") {
-            let name = try XCTUnwrap(item["name"] as? String)
-            let call = try XCTUnwrap(AppRecords.OutboxCall(rawValue: item["call"] as? String ?? ""), name)
-            let args = try XCTUnwrap(json(item["args"]).objectValue, name)
-            let newIds = try XCTUnwrap(item["newIds"] as? [String], name)
-            let writes = AppRecords.outboxWrites(call: call, args: args, newIds: newIds)
-            XCTAssertEqual(CardJSON.array(writes.map(\.json)), json(item["writes"]), name)
-            XCTAssertEqual(AppRecords.outboxCreates(call: call, args: args), newIds.count, name)
-        }
-    }
-
-    func testOutboxRequestCases() throws {
-        for item in try outboxCases("requestCases") {
-            let name = try XCTUnwrap(item["name"] as? String)
-            let request = AppRecords.outboxRequest(try entry(item["entry"], name))
-            let expected = try XCTUnwrap(item["request"] as? [String: Any], name)
-            XCTAssertEqual(request.call.rawValue, expected["call"] as? String, name)
-            XCTAssertEqual(CardJSON.object(request.input), json(expected["input"]), name)
-        }
     }
 
     func testOutboxRowsCases() throws {
@@ -580,39 +549,6 @@ final class AppRecordsTests: XCTestCase {
         }
     }
 
-    func testOutboxOutcomeCases() throws {
-        for item in try outboxCases("outcomeCases") {
-            let name = try XCTUnwrap(item["name"] as? String)
-            let outcome = AppRecords.outboxOutcome(try entry(item["entry"], name), result: outboxResult(item["result"]))
-            XCTAssertEqual(outcome.rawValue, item["outcome"] as? String, name)
-        }
-    }
-
-    func testOutboxFlushCases() throws {
-        for item in try outboxCases("flushCases") {
-            let name = try XCTUnwrap(item["name"] as? String)
-            let results = try XCTUnwrap(item["results"] as? [String: Any], name).mapValues { outboxResult($0) }
-            let flush = AppRecords.outboxFlush(
-                try entries(item["entries"], name), results: results, now: try XCTUnwrap(item["now"] as? String, name)
-            )
-            XCTAssertEqual(flush.sent, item["sent"] as? [String], name)
-            let refused = try XCTUnwrap(item["refused"] as? [[String: String]], name)
-            XCTAssertEqual(flush.refused.map { ["writeId": $0.writeId, "verb": $0.verb] }, refused, name)
-            XCTAssertEqual(CardJSON.array(flush.after.map(\.json)), json(item["after"]), name)
-        }
-    }
-
-    func testOutboxPruneCases() throws {
-        for item in try outboxCases("pruneCases") {
-            let name = try XCTUnwrap(item["name"] as? String)
-            let rows = try XCTUnwrap(item["rows"] as? [[String: Any]], name).map { recordRow($0) }
-            let kept = AppRecords.outboxPrune(
-                try entries(item["entries"], name), rows: rows, now: try XCTUnwrap(item["now"] as? String, name)
-            )
-            XCTAssertEqual(kept.map(\.writeId), item["kept"] as? [String], name)
-        }
-    }
-
     func testOutboxPendingCases() throws {
         for item in try outboxCases("pendingCases") {
             let name = try XCTUnwrap(item["name"] as? String)
@@ -631,7 +567,6 @@ final class AppRecordsTests: XCTestCase {
                 XCTAssertEqual(AppRecords.OutboxEntry(json: e.json), e, name)
             }
         }
-        XCTAssertEqual(AppRecords.outboxNow(Date(timeIntervalSince1970: 0)), "1970-01-01T00:00:00.000Z")
     }
 
     // MARK: - Spreadsheet import (VAPP-228, fixture `csvImport`)

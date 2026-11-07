@@ -335,7 +335,8 @@ export function ComposerOptionsMenu({
           ...base,
           kind: `submenu`,
           value: binding.devices.find((device) => device.id === binding.value)?.name,
-          disabled: rowsDisabled,
+          // #FEED-204: outlives `rowsDisabled`: an ended editor root's pick
+          // is where its next send goes.
           contentClassName: SUBMENU_PICKER_CLASS,
           body: (
             <SubmenuSearchList

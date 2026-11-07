@@ -16,6 +16,14 @@ ede-protocol = { path = "../ede-protocol" }
 uicore-model = { path = "../uicore-model" }
 uicore-data = { path = "../uicore-data" }
 uicore-gpui = { path = "../uicore-gpui" }
+# #VAPP-273: apps on the Engine: the runtime, the desktop runner's core and
+# painter (one host per app, the same surfaces as an exported app) and the
+# desktop's native capabilities (files, notifications, photos, print).
+eengine = { path = "../eengine", features = ["sqlite"] }
+eengine-runner = { path = "../eengine-runner", default-features = false }
+eengine-desktop = { path = "../eengine-desktop" }
+# #VAPP-273: the host-only `shell_edit` tool on the local runs' hub (a ToolProvider).
+emcp = { path = "../emcp" }
 # #EDE-56: Local desktops (elocal), the accounts (api) and their teams (sync, no gpui).
 api = { path = "../api" }
 elocal = { path = "../elocal" }
@@ -34,6 +42,8 @@ gpui-component.workspace = true
 gpui-component-assets.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# #VAPP-273: an exposed records tool checks ids are uuids.
+uuid.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # The IDE's fonts and Lucide icons (apps/desktop/assets), embedded like crates/app/src/assets.rs does.

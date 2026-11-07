@@ -19,6 +19,7 @@ import {
   versionRow,
   type AppEditorSheet,
   type AppEditorTab,
+  editorDevice,
   rollbackBody,
   rollbackTitle,
   rollbackWarns,
@@ -52,6 +53,7 @@ import {
   toast,
   useIsMobile,
   userMessageCaption,
+  type DevicePickerDevice,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
 import { AppPreview, type AppRunAs } from "@/components/apps/app-preview"
@@ -60,6 +62,7 @@ import { AppDataTab } from "@/components/apps/app-data-tab"
 import { packageScreens, type AppAccessLevel } from "@exponential_app/eui/host"
 import type { ScreenRequest } from "@/lib/app-screens"
 import { SessionComposer } from "@/components/session-composer"
+import { requestDeviceMove } from "@/components/session-device-move"
 import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
@@ -75,7 +78,9 @@ import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection, sessionCollection } from "@/lib/collections"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
-import { resolveLaunchDeviceId } from "@/lib/launch-device"
+import { loadEditorDevice, saveEditorDevice } from "@/lib/launch-device"
+import { deviceMoveAgent, deviceMoveName, deviceMovePick, deviceMoveTargetReason } from "@/lib/session-device-move"
+import { deviceIsOnline } from "@/lib/steer-devices"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
@@ -342,13 +347,39 @@ export function AppEditor({
   const defaultShown = shownVersion(app, editing, null)
   const canWrite = isMember && access === `write`
 
-  // The device the FIRST send runs on: the member's default, else the first
-  // online one of theirs.
+  // #FEED-204 (apps.json EDITOR DEVICE): the device the composer shows and
+  // sends on: the online devices (with a root: the ones it may move to), the
+  // pick remembered per app, a live root's own device (#EXP-1738: a pick moves it).
   const devices = useSteerDevices({ enabled: isMember, currentUserId: me ?? undefined, teamId })
-  const deviceId = useMemo(
-    () => resolveLaunchDeviceId((devices.devices ?? []).filter((d) => d.online !== false)),
-    [devices.devices]
-  )
+  const candidates = useMemo(() => {
+    const all = devices.devices ?? []
+    const online = all.filter(deviceIsOnline)
+    if (!root) return online
+    const agent = deviceMoveAgent(root.cli, all.find((d) => d.deviceId === root.deviceId))
+    const session = { teamId: root.teamId, shared: root.shared, agent, userId: root.userId }
+    return online.filter((d) => d.deviceId === root.deviceId || deviceMoveTargetReason(d, session, me) === null)
+  }, [devices.devices, root, me])
+  const [pickedDevice, setPickedDevice] = useState<{ appId: string; deviceId: string } | null>(null)
+  const remembered = pickedDevice?.appId === app.id ? pickedDevice.deviceId : loadEditorDevice(app.id)
+  const device = editorDevice(root ? { status: root.status, deviceId: root.deviceId } : null, candidates, remembered)
+  const deviceId = device.deviceId
+  const deviceRows = useMemo<DevicePickerDevice[]>(() => {
+    const row = (d: (typeof candidates)[number]) => ({
+      id: d.deviceId,
+      name: deviceMoveName(d),
+      icon: d.icon ?? null,
+      kind: d.kind ?? null,
+    })
+    const rows = candidates.map(row)
+    if (!deviceId || rows.some((r) => r.id === deviceId)) return rows
+    const current = devices.devices?.find((d) => d.deviceId === deviceId)
+    return [current ? row(current) : { id: deviceId, name: deviceId }, ...rows]
+  }, [candidates, deviceId, devices.devices])
+  const pickDevice = (next: string) => {
+    saveEditorDevice(app.id, next)
+    setPickedDevice({ appId: app.id, deviceId: next })
+    if (root && root.status !== `ended` && deviceMovePick(next, root) === `move`) void requestDeviceMove(root.id, next)
+  }
 
   // Leaving the editor ends the live editor session (its whole tree).
   // VAPP-176: leaving an EMPTY draft (nothing ever sent) discards it.
@@ -556,6 +587,8 @@ export function AppEditor({
       sessionId={root?.id ?? null}
       appId={app.id}
       deviceId={deviceId ?? undefined}
+      deviceMenu={{ value: deviceId, devices: deviceRows, onChange: pickDevice }}
+      moveDevice={device.move}
       disabled={!root && !deviceId}
       placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}
       autoFocus={draft && !root}

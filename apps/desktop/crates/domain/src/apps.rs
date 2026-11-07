@@ -611,6 +611,42 @@ pub fn viewing_label(number: i64) -> String {
 }
 
 /// `Restored v{n} as v{m}` (the restore toast).
+/// #FEED-204 (fixture `editorDeviceCases`, EDITOR DEVICE): the device an app
+/// editor's composer shows and sends on (`device_id`; `None` = none online
+/// and no root to fall back on), `moves` when an ended root's next send goes
+/// to another device. A live root keeps its device: only a pick moves it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditorDeviceChoice {
+    pub device_id: Option<String>,
+    pub moves: bool,
+}
+
+/// `root` = the editor root's (status, device); `candidates` = the member's
+/// online devices as (id, is default), with a root the targets a move accepts.
+pub fn editor_device(
+    root: Option<(&str, Option<&str>)>,
+    candidates: &[(&str, bool)],
+    remembered: Option<&str>,
+) -> EditorDeviceChoice {
+    if let Some((status, device_id)) = root {
+        if status != crate::contract::SESSION_STATUS_ENDED {
+            return EditorDeviceChoice { device_id: device_id.map(str::to_string), moves: false };
+        }
+    }
+    let root_device = root.and_then(|(_, device_id)| device_id);
+    let known = |id: &&str| candidates.iter().any(|(candidate, _)| candidate == id);
+    let device_id = remembered
+        .filter(known)
+        .or(root_device.filter(known))
+        .or(candidates.iter().find(|(_, is_default)| *is_default).map(|(id, _)| *id))
+        .or(candidates.first().map(|(id, _)| *id))
+        .or(root_device);
+    EditorDeviceChoice {
+        device_id: device_id.map(str::to_string),
+        moves: root.is_some() && device_id != root_device,
+    }
+}
+
 /// #VAPP-251 (fixture `surfaceStateCases`): what an app's pane shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceState {
@@ -1606,6 +1642,31 @@ mod tests {
         assert!(app_media_allowed(id, ""));
         assert!(!app_media_allowed(&format!("{origin}{id}"), ""));
         assert!(!app_media_allowed(&format!("{id}\u{feff}"), origin));
+    }
+
+    #[test]
+    fn editor_device_replays_the_fixture() {
+        let cases = cases("editorDeviceCases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let root = case["root"].as_object().map(|root| (root["status"].as_str().unwrap(), root["deviceId"].as_str()));
+            let candidates: Vec<(&str, bool)> = case["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| (row["deviceId"].as_str().unwrap(), row["isDefault"].as_bool().unwrap()))
+                .collect();
+            let expected = &case["expected"];
+            assert_eq!(
+                editor_device(root, &candidates, case["remembered"].as_str()),
+                EditorDeviceChoice {
+                    device_id: expected["deviceId"].as_str().map(str::to_string),
+                    moves: expected["move"].as_bool().unwrap(),
+                },
+                "{}",
+                case["name"]
+            );
+        }
     }
 
     #[test]

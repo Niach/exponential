@@ -1571,6 +1571,17 @@ export async function addToStack(opts: {
   return parseStack((data ?? {}) as RawStack)
 }
 
+/** #EXP-1711: take every unmerged member out of stack `stackNumber`
+ *  (`POST /stacks/{n}/unstack`). A PR in a stack refuses a new base. */
+export async function unstack(opts: {
+  repo: string
+  stackNumber: number
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<void> {
+  await stackRequest(opts, `/${opts.stackNumber}/unstack`, `unstack stack ${opts.stackNumber}`, { method: `POST` })
+}
+
 /** The PR's `stack` field (null = in no native stack), read with the API
  *  version that carries it. */
 export async function fetchPullStack(opts: {

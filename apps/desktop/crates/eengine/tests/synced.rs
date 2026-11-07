@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex};
 use eengine::contract::OUTBOX;
 use eengine::outbox::{OutboxEntry, OutboxResult, OutboxState};
 use eengine::providers::{Clock, Failure, Pushed, RecordStore, SyncTransport};
-use eengine::synced::{OutboxLog, Submitted, SyncedListener, SyncedRecordStore};
+use eengine::outbox::OutboxCall;
+use eengine::synced::{record_call, OutboxLog, Submitted, SyncedListener, SyncedRecordStore};
 use serde_json::{json, Value};
 
 #[derive(Default)]
@@ -196,4 +197,17 @@ fn a_subscriber_hears_what_moved() {
     drop(sub);
     store.set_rows("a", Vec::new());
     assert_eq!(*heard.lock().unwrap(), vec![(1, 0), (0, 1)]);
+}
+
+#[test]
+fn a_host_call_becomes_one_entry_with_client_ids() {
+    let store = SyncedRecordStore::new(Arc::new(Log::default()), Arc::new(Scripted::default()), Arc::new(Pinned("2026-11-07T10:00:00.000Z".into())), None).unwrap();
+    assert_eq!(record_call("records_batch"), Some(OutboxCall::Batch));
+    assert_eq!(record_call("exponential_issues_update"), None);
+    let args = json!({"writes": [{"kind": "task", "data": {}}, {"kind": "task", "data": {}}, {"op": "delete", "id": "r9"}]});
+    let entry = store.entry("a", OutboxCall::Batch, &args);
+    assert_eq!((entry.app_id.as_str(), entry.at.as_str(), entry.writes.len()), ("a", "2026-11-07T10:00:00.000Z", 3));
+    assert!(entry.is_pending());
+    assert_ne!(entry.writes[0].id(), entry.writes[1].id());
+    assert_eq!(entry.answer()["ids"][2], "r9");
 }

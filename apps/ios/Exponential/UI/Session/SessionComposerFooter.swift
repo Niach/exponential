@@ -47,6 +47,8 @@ struct SessionComposerFooter: View {
         /// #EXP-1715: the Teams pick of the viewer's Assistant chat; nil =
         /// any other session or agent (no Teams row, no `scopeTeamIds`).
         var teams: ComposerTeamsBinding?
+        /// #FEED-204: an app editor's Device row; nil = every other composer.
+        var device: DeviceMenu?
 
         /// composer-menu.json `model`: a session or an agent chat whose
         /// agent switches models (always for claude and codex), never ended.
@@ -55,10 +57,21 @@ struct SessionComposerFooter: View {
         /// The "+" conditions of this composer.
         var menuConditions: ComposerMenu.Conditions {
             ComposerMenu.Conditions(
-                account: !ended && account != nil, model: canPickModel, prompts: !prompts.isEmpty,
+                device: device != nil, account: !ended && account != nil, model: canPickModel,
+                prompts: !prompts.isEmpty,
                 assistant: teams != nil, teams: (teams?.teams.count ?? 0) > 1
             )
         }
+    }
+
+    /// #FEED-204 (apps.json EDITOR DEVICE): what an app editor's "+" Device
+    /// row reads: THE device picker's rows, the value = the device's name.
+    struct DeviceMenu {
+        let devices: [DevicePickerDevice]
+        let current: String?
+        let onPick: (String) -> Void
+
+        var value: String? { devices.first { $0.id == current }?.name }
     }
 
     /// #EXP-1535: what the "+" Account page reads — THE AccountPicker rows

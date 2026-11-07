@@ -269,6 +269,32 @@ describe(`SessionComposer / menu (NEW-2)`, () => {
   })
 })
 
+// #FEED-204 (apps.json EDITOR DEVICE): an existing editor root keeps
+// `{sessionId}`; only an ended root moving elsewhere sends `{appId, deviceId}`.
+describe(`SessionComposer app editor device (#FEED-204)`, () => {
+  const sendFrom = async (moveDevice: boolean) => {
+    mocks.send.mockResolvedValue({ txid: 1, sessionId: `s1` })
+    render(<SessionComposer teamId="t1" sessionId="s1" appId="a1" deviceId="mac" moveDevice={moveDevice} placeholder="Reply…" />)
+    const field = screen.getByPlaceholderText(`Reply…`) as HTMLTextAreaElement
+    type(field, `Ship it`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    return mocks.send.mock.calls[0]![0]
+  }
+
+  it(`a root staying on its device gets a plain message`, async () => {
+    const input = await sendFrom(false)
+    expect(input).toMatchObject({ sessionId: `s1`, text: `Ship it` })
+    expect(input).not.toHaveProperty(`deviceId`)
+  })
+
+  it(`an ended root moving sends the app form with the device`, async () => {
+    const input = await sendFrom(true)
+    expect(input).toMatchObject({ appId: `a1`, deviceId: `mac`, text: `Ship it` })
+    expect(input).not.toHaveProperty(`sessionId`)
+  })
+})
+
 // #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
 // chat carries its Teams pick on every send (null = every team), seeded from
 // the conversation root; any other chat never sends one.

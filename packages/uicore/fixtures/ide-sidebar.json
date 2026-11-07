@@ -1,0 +1,840 @@
+{
+  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Agent, Needs you (while any, or on its page), Chats, Devices, Drafts (while any, or on its page). screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. An agent's dot = amber (needs you) before green (busy). gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (threads-list.json copy.title and needs-you.json copy.entry).",
+  "version": 1,
+  "copy": {
+    "home": "Agent",
+    "needs-you": "Needs you",
+    "threads": "Chats",
+    "devices": "Devices",
+    "drafts": "Drafts"
+  },
+  "base": {
+    "screen": "home",
+    "needsYou": 0,
+    "drafts": 0,
+    "threadsDot": null,
+    "owner": true,
+    "pins": [],
+    "agents": [],
+    "apps": [],
+    "boards": [],
+    "active": []
+  },
+  "cases": [
+    {
+      "name": "an empty team lists Agent, Chats and Devices and says it has no boards",
+      "input": {},
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": true,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "Needs you lists only while a row exists, with its count",
+      "input": {
+        "needsYou": 3
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": true,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "needs-you",
+            "title": "Needs you",
+            "icon": "nav-needs-you",
+            "selected": false,
+            "count": "3",
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "Needs you stays reachable on its page after the last answer",
+      "input": {
+        "screen": "needs-you"
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "needs-you",
+            "title": "Needs you",
+            "icon": "nav-needs-you",
+            "selected": true,
+            "count": "0",
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "Drafts lists while a draft is parked, with its count",
+      "input": {
+        "drafts": 2
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": true,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "drafts",
+            "title": "Drafts",
+            "icon": "nav-drafts",
+            "selected": false,
+            "count": "2",
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "Drafts stays reachable on its page when the pile is empty",
+      "input": {
+        "screen": "drafts"
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "drafts",
+            "title": "Drafts",
+            "icon": "nav-drafts",
+            "selected": true,
+            "count": "0",
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "the Chats dot is the host's",
+      "input": {
+        "threadsDot": "amber",
+        "screen": "threads"
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": true,
+            "count": null,
+            "dot": "amber"
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "a pinned issue row lights on its issue",
+      "input": {
+        "screen": "issue:i1",
+        "pins": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Login"
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Logout"
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Login",
+            "selected": true
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Logout",
+            "selected": false
+          }
+        ],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "an agent's dot says needs you before it says busy",
+      "input": {
+        "agents": [
+          {
+            "id": "a1",
+            "name": "Reviewer",
+            "icon": "ide:agent:a1",
+            "needsYou": true,
+            "busy": true
+          },
+          {
+            "id": "a2",
+            "name": "Triage",
+            "icon": "ide:agent:a2",
+            "needsYou": false,
+            "busy": true
+          },
+          {
+            "id": "a3",
+            "name": "Docs",
+            "icon": "ide:agent:a3",
+            "needsYou": false,
+            "busy": false
+          }
+        ],
+        "screen": "agent:a2"
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": [
+            {
+              "id": "a1",
+              "title": "Reviewer",
+              "icon": "ide:agent:a1",
+              "selected": false,
+              "dot": "amber",
+              "gear": true
+            },
+            {
+              "id": "a2",
+              "title": "Triage",
+              "icon": "ide:agent:a2",
+              "selected": true,
+              "dot": "green",
+              "gear": true
+            },
+            {
+              "id": "a3",
+              "title": "Docs",
+              "icon": "ide:agent:a3",
+              "selected": false,
+              "dot": null,
+              "gear": true
+            }
+          ]
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "only an owner gets the new agent button and the board gears; every member gets the app and agent gears",
+      "input": {
+        "owner": false,
+        "boards": [
+          {
+            "id": "b1",
+            "name": "Mobile app",
+            "icon": "ide:board:b1"
+          }
+        ],
+        "apps": [
+          {
+            "id": "x1",
+            "slug": "crm",
+            "name": "CRM",
+            "icon": "ide:app:x1"
+          }
+        ],
+        "agents": [
+          {
+            "id": "a1",
+            "name": "Reviewer",
+            "icon": "ide:agent:a1",
+            "needsYou": false,
+            "busy": false
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": true,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": false,
+          "rows": [
+            {
+              "id": "a1",
+              "title": "Reviewer",
+              "icon": "ide:agent:a1",
+              "selected": false,
+              "dot": null,
+              "gear": true
+            }
+          ]
+        },
+        "apps": {
+          "rows": [
+            {
+              "id": "x1",
+              "title": "CRM",
+              "icon": "ide:app:x1",
+              "selected": false,
+              "dot": null,
+              "gear": true
+            }
+          ]
+        },
+        "boards": {
+          "rows": [
+            {
+              "id": "b1",
+              "title": "Mobile app",
+              "icon": "ide:board:b1",
+              "selected": false,
+              "dot": null,
+              "gear": false
+            }
+          ],
+          "empty": false
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "an app row lights on its id and on its slug",
+      "input": {
+        "screen": "app:crm",
+        "apps": [
+          {
+            "id": "x1",
+            "slug": "crm",
+            "name": "CRM",
+            "icon": "ide:app:x1"
+          },
+          {
+            "id": "x2",
+            "slug": "hr",
+            "name": "HR",
+            "icon": "ide:app:x2"
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": [
+            {
+              "id": "x1",
+              "title": "CRM",
+              "icon": "ide:app:x1",
+              "selected": true,
+              "dot": null,
+              "gear": true
+            },
+            {
+              "id": "x2",
+              "title": "HR",
+              "icon": "ide:app:x2",
+              "selected": false,
+              "dot": null,
+              "gear": true
+            }
+          ]
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "a board row lights on its list",
+      "input": {
+        "screen": "board:b1",
+        "boards": [
+          {
+            "id": "b1",
+            "name": "Mobile app",
+            "icon": "ide:board:b1"
+          },
+          {
+            "id": "b2",
+            "name": "Web",
+            "icon": "ide:board:b2"
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [
+            {
+              "id": "b1",
+              "title": "Mobile app",
+              "icon": "ide:board:b1",
+              "selected": true,
+              "dot": null,
+              "gear": true
+            },
+            {
+              "id": "b2",
+              "title": "Web",
+              "icon": "ide:board:b2",
+              "selected": false,
+              "dot": null,
+              "gear": true
+            }
+          ],
+          "empty": false
+        },
+        "active": []
+      }
+    },
+    {
+      "name": "an active row lights on its root and on any session of its tree",
+      "input": {
+        "screen": "session:s2",
+        "active": [
+          {
+            "id": "r1",
+            "title": "Fix login",
+            "icon": "ide:run:r1",
+            "sessionIds": [
+              "r1",
+              "s2"
+            ],
+            "unread": false
+          },
+          {
+            "id": "r2",
+            "title": "Ship docs",
+            "icon": "ide:run:r2",
+            "sessionIds": [
+              "r2"
+            ],
+            "unread": true
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Agent",
+            "icon": "action-chat",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "threads",
+            "title": "Chats",
+            "icon": "nav-threads",
+            "selected": false,
+            "count": null,
+            "dot": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "dot": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": [
+          {
+            "id": "r1",
+            "title": "Fix login",
+            "icon": "ide:run:r1",
+            "selected": true,
+            "unread": false
+          },
+          {
+            "id": "r2",
+            "title": "Ship docs",
+            "icon": "ide:run:r2",
+            "selected": false,
+            "unread": true
+          }
+        ]
+      }
+    }
+  ]
+}

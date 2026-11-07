@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "ede-protocol",
  "emcp",
@@ -2778,7 +2778,11 @@ dependencies = [
  "ede-services",
  "ede-theme",
  "ede-ui",
+ "eengine",
+ "eengine-desktop",
+ "eengine-runner",
  "elocal",
+ "emcp",
  "eui-core",
  "eui-gpui",
  "flume 0.11.1",
@@ -2802,12 +2806,13 @@ dependencies = [
  "uicore-docs",
  "uicore-gpui",
  "uicore-model",
+ "uuid",
  "zbus",
 ]
 
 [[package]]
 name = "ede-theme"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "serde_json",
  "toml 0.8.23",
@@ -2815,7 +2820,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "eui-core",
  "libc",
@@ -2826,7 +2831,7 @@ dependencies = [
 
 [[package]]
 name = "eengine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "emcp",
@@ -2843,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "eengine-bundle"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "eengine",
@@ -2861,7 +2866,7 @@ dependencies = [
 
 [[package]]
 name = "eengine-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ashpd",
  "base64 0.22.1",
@@ -2887,7 +2892,7 @@ dependencies = [
 
 [[package]]
 name = "eengine-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "eengine",
  "emcp",
@@ -2900,7 +2905,7 @@ dependencies = [
 
 [[package]]
 name = "eengine-runner"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "eengine",
@@ -3148,6 +3153,7 @@ version = "0.1.0"
 dependencies = [
  "core-foundation 0.10.0",
  "core-graphics 0.24.0",
+ "ede-protocol",
  "emcp",
  "foreign-types",
  "image",
@@ -12226,6 +12232,10 @@ dependencies = [
  "sync",
  "terminal",
  "theme",
+ "uicore-data",
+ "uicore-docs",
+ "uicore-gpui",
+ "uicore-model",
  "updater",
  "url",
  "uuid",
@@ -12260,9 +12270,14 @@ dependencies = [
  "eui-core",
  "eui-gpui",
  "gpui",
+ "gpui-component",
+ "gpui_platform",
+ "image",
+ "rust-embed",
  "serde_json",
  "tracing",
  "uicore-data",
+ "uicore-docs",
 ]
 
 [[package]]

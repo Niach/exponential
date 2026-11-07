@@ -27,7 +27,10 @@ pub const NAVIGATE_FUNCTION: &str = "app_navigate";
 /// The template data key a screen's params land under (`/params/*`).
 pub const SCREEN_PARAMS_KEY: &str = "params";
 
-const SCREEN_KEYS: &[&str] = &["template", "title", "icon", "params", "nav", "exposed"];
+const SCREEN_KEYS: &[&str] = &["template", "title", "icon", "params", "nav", "exposed", "widget"];
+const WIDGET_KEYS: &[&str] = &["template", "size"];
+/// C26 (#VAPP-273): the widget size classes (`catalog/host.json` `package.screens.widgetSizes`).
+pub const WIDGET_SIZES: &[&str] = &["s", "m", "l"];
 const EXPOSED_KEYS: &[&str] = &["description", "params"];
 const EXPOSED_PARAM_KEYS: &[&str] = &["required", "description"];
 
@@ -65,7 +68,7 @@ fn sorted_keys(o: &Map<String, Value>) -> Vec<&String> {
 pub fn validate_package_screens(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
     let Some(list) = pkg.get("screens") else { return Vec::new() };
     let Some(list) = list.as_array().filter(|l| !l.is_empty()) else {
-        return vec![issue("/screens", "screens is a non-empty list of {template, title, icon?, params?, nav?, exposed?}")];
+        return vec![issue("/screens", "screens is a non-empty list of {template, title, icon?, params?, nav?, exposed?, widget?}")];
     };
     let mut issues = Vec::new();
     let in_nav = list.iter().filter(|s| !s.is_object() || s.get("nav") != Some(&Value::Bool(false))).count();
@@ -81,7 +84,7 @@ pub fn validate_package_screens(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
     for (i, s) in list.iter().enumerate() {
         let at = format!("/screens/{i}");
         let Some(s) = s.as_object() else {
-            issues.push(issue(&at, "a screen is {template, title, icon?, params?, nav?, exposed?}"));
+            issues.push(issue(&at, "a screen is {template, title, icon?, params?, nav?, exposed?, widget?}"));
             continue;
         };
         for k in sorted_keys(s) {
@@ -127,9 +130,60 @@ pub fn validate_package_screens(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
         if let Some(exposed) = s.get("exposed") {
             issues.extend(exposed_issues(exposed, &format!("{at}/exposed")));
         }
+        if let Some(widget) = s.get("widget") {
+            issues.extend(widget_issues(widget, templates, &format!("{at}/widget")));
+        }
     }
     issues.extend(navigate_issues(pkg, &seen));
     issues
+}
+
+/// C26: what is wrong with a screen's `widget`.
+fn widget_issues(widget: &Value, templates: &Map<String, Value>, at: &str) -> Vec<PackageIssue> {
+    let Some(widget) = widget.as_object() else {
+        return vec![issue(at, "widget is {template, size: s | m | l}")];
+    };
+    let mut issues = Vec::new();
+    for k in sorted_keys(widget) {
+        if !WIDGET_KEYS.contains(&k.as_str()) {
+            issues.push(issue(format!("{at}/{}", escape(k)), format!("unknown widget key {k}")));
+        }
+    }
+    match widget.get("template").and_then(Value::as_str).filter(|t| !t.is_empty()) {
+        None => issues.push(issue(format!("{at}/template"), "widget.template is a required string")),
+        Some(t) if !templates.contains_key(t) => issues.push(issue(format!("{at}/template"), format!("widget template {t} names no package template"))),
+        Some(_) => {}
+    }
+    if !widget.get("size").and_then(Value::as_str).is_some_and(|z| WIDGET_SIZES.contains(&z)) {
+        issues.push(issue(format!("{at}/size"), "widget.size is one of s, m, l"));
+    }
+    issues
+}
+
+/// A screen's widget as a host paints it (C26): the screen, the compact
+/// template, the size class and the screen's own params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackageWidget {
+    pub screen: String,
+    pub template: String,
+    pub size: String,
+    pub params: Map<String, Value>,
+}
+
+/// The widgets a (valid) package declares, in screen order.
+pub fn package_widgets(pkg: &Value) -> Vec<PackageWidget> {
+    package_screens(pkg)
+        .into_iter()
+        .filter_map(|s| {
+            let widget = s.get("widget")?.as_object()?;
+            Some(PackageWidget {
+                screen: s.get("template")?.as_str()?.to_string(),
+                template: widget.get("template")?.as_str()?.to_string(),
+                size: widget.get("size")?.as_str()?.to_string(),
+                params: s.get("params").and_then(Value::as_object).cloned().unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 /// #EXP-1674: what is wrong with a screen's `exposed`.

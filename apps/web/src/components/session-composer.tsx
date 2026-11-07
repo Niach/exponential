@@ -30,7 +30,11 @@ import {
   ComposerInlineTools,
   type ComposerInlineToolsHandle,
 } from "@/components/composer-inline-tools"
-import { ComposerOptionsMenu, type ComposerTeamsBinding } from "@/components/launch-dialog/composer-plus-menu"
+import {
+  ComposerOptionsMenu,
+  type ComposerRunnerBinding,
+  type ComposerTeamsBinding,
+} from "@/components/launch-dialog/composer-plus-menu"
 import { TeamPickChips } from "@/components/launch-dialog/team-pick"
 import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
@@ -98,7 +102,8 @@ import { cn } from "@/lib/utils"
 // #EXP-1535 Account › (THE AccountPicker rows; a pick = the usage wall's
 // session account switch, `useSessionAccountSwitch`) while the session's
 // device is online and the viewer steers it; no Device pin (a running
-// session never moves device here), no model word in the row. An agent chat with no conversation yet (`sessionId` null) sends
+// session never moves device here; #FEED-204: an app editor's composer is the
+// exception, its Device › is apps.json EDITOR DEVICE), no model word in the row. An agent chat with no conversation yet (`sessionId` null) sends
 // `sessions.send({agentId})` through the same composer. The live
 // reads (model in force, usage, commands) are the session's relay state
 // (`acquireSteerSession`), the synced row the fallback.
@@ -230,6 +235,8 @@ export function SessionComposer({
   agentId,
   appId,
   deviceId,
+  deviceMenu,
+  moveDevice = false,
   disabled = false,
   surface = `session`,
   onSent,
@@ -257,6 +264,11 @@ export function SessionComposer({
   appId?: string
   /** The device a fresh editor session runs on (an app send). */
   deviceId?: string
+  /** #FEED-204: an app editor's Device › row (apps.json EDITOR DEVICE). */
+  deviceMenu?: ComposerRunnerBinding[`device`]
+  /** #FEED-204: the ended root's next send goes to `deviceId`: it goes as
+   *  `sessions.send({appId, deviceId})`, which revives the root there. */
+  moveDevice?: boolean
   /** Nothing can be sent (an app editor with no device). */
   disabled?: boolean
   /** composer-menu.json: a thread / a session, or an agent chat. */
@@ -456,7 +468,7 @@ export function SessionComposer({
       }
       const result = await sendSessionMessage({
         teamId,
-        ...(sessionId ? { sessionId } : appId ? { appId, deviceId } : { agentId }),
+        ...(sessionId && !moveDevice ? { sessionId } : appId ? { appId, deviceId } : { agentId }),
         text: sentText.trim() || undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         ...(teamsPick ? { scopeTeamIds: teamsPick.picked === null ? null : [...teamsPick.picked] } : {}),
@@ -564,6 +576,7 @@ export function SessionComposer({
               surface={surface}
               agent={agent}
               runner={{
+                ...(deviceMenu ? { device: deviceMenu } : {}),
                 ...(row &&
                 !ended &&
                 accountSwitch.canSteer &&

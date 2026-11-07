@@ -1,4 +1,5 @@
 // swift-tools-version: 6.0
+import Foundation
 import PackageDescription
 
 #if TUIST
@@ -21,6 +22,17 @@ let packageSettings = PackageSettings(
 )
 #endif
 
+// #VAPP-272: the Engine (apps/desktop/crates/eengine-ffi) holds the apps'
+// outbox. Declared only when its gitignored xcframework exists (`bash
+// apps/desktop/crates/eengine-ffi/build-ios.sh`), like the eUI painter.
+let engineDirectory = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("../../desktop/crates/eengine-ffi")
+    .standardizedFileURL.path
+let engine: [Package.Dependency] = FileManager.default.fileExists(atPath: "\(engineDirectory)/out/ExponentialEngineFFI.xcframework")
+    ? [.package(path: "../../desktop/crates/eengine-ffi")]
+    : []
+
 let package = Package(
     name: "Exponential",
     dependencies: [
@@ -40,5 +52,5 @@ let package = Package(
         // inline surface) is declared only when its xcframework exists, and
         // Project.swift links it only then.
         .package(path: "../../../packages/exponential-ui-swift"),
-    ]
+    ] + engine
 )

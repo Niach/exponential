@@ -143,6 +143,7 @@ impl Supervisor {
     /// compositor), so a dead display never leaves a restart loop behind.
     pub fn run(&mut self, stop: &AtomicBool) -> io::Result<()> {
         // SAFETY: prctl with PR_SET_PDEATHSIG only sets this process's parent-death signal.
+        #[cfg(target_os = "linux")]
         unsafe {
             libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
         }

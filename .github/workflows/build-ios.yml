@@ -103,6 +103,15 @@ jobs:
         env:
           EXPONENTIAL_UI_APPLE_TARGETS: aarch64-apple-ios
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      # #VAPP-272: the Engine holds the apps' record outbox (Project.swift
+      # links it only when built).
+      - name: Build the Engine xcframework
+        working-directory: ${{ github.workspace }}
+        env:
+          EENGINE_APPLE_TARGETS: aarch64-apple-ios
+          # No bundled sqlite: the app's is the system's (GRDB).
+          EENGINE_FFI_FEATURES: ""
+        run: bash apps/desktop/crates/eengine-ffi/build-ios.sh
       # EXP-1435: the push-only eNet facade (device slice): the Notification
       # Service Extension opens the relay's sealed pushes with it. Without it
       # the app still builds, but every sealed push would show its placeholder.

@@ -55,7 +55,7 @@ The providers, implemented in Swift or Kotlin:
 | `WindowHost` | `present(app, screen, paramsJson, how)`: `replace`, `push`, `sheet` | required |
 | `Capability` | a native tool provider under its catalog name: `toolsJson()`, `call(tool, argumentsJson)` (MCP tools and results) | none |
 | `ConsentUi` | answers the consent sheet inline (blocks) | none: `call` answers `ask` and the host paints the sheet |
-| `SyncTransport` | replays outbox entries (`{"ok":true}` / `{"transport":true}` / `{"code":…}`) | none: writes go to the store |
+| `SyncTransport` | replays outbox entries (`{"ok":true,"answer":…}` / `{"transport":true}` / `{"code":…,"message":…,"invalid":…}`) | none: writes go to the store |
 | `CallAudit` | the broker's audit rows | none |
 | `EngineClock` | ISO time | the system clock |
 

@@ -246,6 +246,32 @@ export function runAsOptions(members: readonly { userId: string; name?: string |
   return [{ value: ``, label: fixture.copy.runAs.me }, ...others]
 }
 
+/** #FEED-204 (`editorDeviceCases`, the fixture's EDITOR DEVICE): the device
+ *  an app editor's composer shows and sends on. `candidates` = the member's
+ *  online devices (with a root: the targets a move accepts), default flagged.
+ *  A live root keeps its device here: only a pick moves it (#EXP-1738). */
+export interface EditorDeviceChoice {
+  /** The device; null = none online and no root to fall back on. */
+  deviceId: string | null
+  /** An ended root's next send goes to another device. */
+  move: boolean
+}
+
+export function editorDevice(
+  root: { status: string; deviceId: string | null } | null,
+  candidates: readonly { deviceId: string; isDefault?: boolean }[],
+  remembered: string | null
+): EditorDeviceChoice {
+  if (root && root.status !== `ended`) return { deviceId: root.deviceId, move: false }
+  const known = (id: string | null | undefined): id is string => !!id && candidates.some((row) => row.deviceId === id)
+  const deviceId = known(remembered)
+    ? remembered
+    : known(root?.deviceId)
+      ? root.deviceId
+      : (candidates.find((row) => row.isDefault === true)?.deviceId ?? candidates[0]?.deviceId ?? root?.deviceId ?? null)
+  return { deviceId, move: root !== null && deviceId !== root.deviceId }
+}
+
 /** #VAPP-220 (`automationRowCases`): one row of the Settings tab's
  *  Automations group, from tRPC `appAccess.appTools` `automations`. */
 export interface AutomationRowInput {

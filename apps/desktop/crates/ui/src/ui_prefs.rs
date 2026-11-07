@@ -63,6 +63,13 @@ struct UiPrefs {
     /// touched here (`domain::devices_list::open_device_account`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     device_accounts: BTreeMap<String, Option<String>>,
+    /// #FEED-204: the device picked in an app editor's composer, per app id,
+    /// on this client only (apps.json EDITOR DEVICE).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    editor_devices: BTreeMap<String, String>,
+    /// #EXP-1724: the sidebar is folded into its icon rail.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    rail: bool,
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -165,6 +172,22 @@ pub(crate) fn set_sidebar_width(key: &str, width: Option<f32>) {
     schedule_write();
 }
 
+/// #EXP-1724: is the sidebar folded into its icon rail?
+pub(crate) fn rail() -> bool {
+    prefs().lock().is_ok_and(|prefs| prefs.rail)
+}
+
+/// #EXP-1724: remember the rail.
+pub(crate) fn set_rail(rail: bool) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        prefs.rail = rail;
+    }
+    schedule_write();
+}
+
 /// #EXP-1660: the team's saved Skills pick, `None` = never picked.
 pub(crate) fn skill_pick(team_id: &str) -> Option<Vec<String>> {
     prefs().lock().ok()?.skill_picks.get(team_id).cloned()
@@ -180,6 +203,25 @@ pub(crate) fn set_skill_pick(team_id: &str, ids: &[String]) {
             return;
         }
         prefs.skill_picks.insert(team_id.to_string(), ids.to_vec());
+    }
+    schedule_write();
+}
+
+/// #FEED-204: the app's remembered editor device, `None` = never picked.
+pub(crate) fn editor_device(app_id: &str) -> Option<String> {
+    prefs().lock().ok()?.editor_devices.get(app_id).cloned()
+}
+
+/// #FEED-204: remember the app's editor device (debounced like the widths).
+pub(crate) fn set_editor_device(app_id: &str, device_id: &str) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        if prefs.editor_devices.get(app_id).map(String::as_str) == Some(device_id) {
+            return;
+        }
+        prefs.editor_devices.insert(app_id.to_string(), device_id.to_string());
     }
     schedule_write();
 }

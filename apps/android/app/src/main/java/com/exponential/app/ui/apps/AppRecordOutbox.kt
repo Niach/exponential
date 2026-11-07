@@ -19,12 +19,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import at.exponential.engine.ffi.EngineException
+import at.exponential.engine.ffi.OutboxLog
+import at.exponential.engine.ffi.Submitted
+import at.exponential.engine.ffi.SyncTransport
+import at.exponential.engine.ffi.SyncedListener
+import at.exponential.engine.ffi.SyncedRecordStore
 import at.exponential.ui.json.JsonValue
-import com.exponential.app.data.api.AppRecordBatchResult
-import com.exponential.app.data.api.AppRecordUpsertResult
 import com.exponential.app.data.api.AppsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.AppRecordOutboxDao
 import com.exponential.app.data.db.AppRecordOutboxEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
@@ -40,13 +45,10 @@ import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.android.EntryPointAccessors
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -57,24 +59,31 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 /**
- * VAPP-235 (O1, app-records.json `outbox`, docs/spec/apps.md §14): the
- * OFFLINE OUTBOX. Every `records.upsert` / `records.delete` / `records.batch`
- * an app host makes is ONE entry in the account's Room table
- * (`app_record_outbox`), laid over the synced rows ([AppRecords.outboxRows])
- * and replayed by ONE flusher per account: FIFO, one request at a time, the
- * entry's `writeId` as the server's dedupe key, stopping on a retry. It runs
- * on every enqueue, when the sync connection comes back (a failing account's
- * polls succeed again, or a [SyncManager] kick: foreground / network back)
- * and at launch ([start]). A refused replay rolls its entry back and raises
- * `Couldn't <verb> the record` ([refusals], toasted by [AppOutboxRefusals]);
- * a host call made with nothing pending awaits its own entry ([submit]).
+ * VAPP-235 (O1, app-records.json `outbox`, docs/spec/apps.md §14) / VAPP-272:
+ * the OFFLINE OUTBOX, on the Engine. Each account has one `SyncedRecordStore`:
+ * the queue, the flusher, the waiters and the prune live there (`outbox.json`
+ * `syncedCases`). This class fills in its providers (the account's Room
+ * table, tRPC) and says when to flush: on every enqueue, when the sync
+ * connection comes back (a failing account's polls succeed again, or a
+ * [SyncManager] kick: foreground / network back) and at launch ([start]). A
+ * refused replay nobody awaits raises `Couldn't <verb> the record`
+ * ([refusals], toasted by [AppOutboxRefusals]). The Engine's calls block on
+ * the network: they run on [Dispatchers.IO].
  */
 @Singleton
 class AppRecordOutbox @Inject constructor(
@@ -85,9 +94,8 @@ class AppRecordOutbox @Inject constructor(
     private val sync: SyncManager,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val flushLocks = ConcurrentHashMap<String, Mutex>()
-    private val enqueueLocks = ConcurrentHashMap<String, Mutex>()
-    private val awaiting = ConcurrentHashMap<String, CompletableDeferred<Sent>>()
+    /** Each account's store over the database it opened on (a new database = a new queue). */
+    private val stores = HashMap<String, Pair<ExponentialDatabase, SyncedRecordStore>>()
     private val refusalChannel = Channel<Refusal>(Channel.BUFFERED)
     @Volatile private var started = false
 
@@ -97,21 +105,13 @@ class AppRecordOutbox @Inject constructor(
     /** The refusals of replays nobody awaits, for the app's one toaster. */
     val refusals: Flow<Refusal> = refusalChannel.receiveAsFlow()
 
-    /** A host call's answer: landed (the server's answer), refused, or queued (answer from the entry). */
+    /** A host call's answer, the server's or the entry's: landed, refused, or queued. */
     sealed class Answer {
-        data class Done(val upsert: AppRecordUpsertResult? = null, val batch: AppRecordBatchResult? = null) : Answer()
+        data class Done(val answer: JsonValue?) : Answer()
         /** [invalid] = invalid input (BAD_REQUEST): a record form shows it inline. */
         data class Refused(val message: String?, val invalid: Boolean = false) : Answer()
-        data object Queued : Answer()
+        data class Queued(val answer: JsonValue?) : Answer()
     }
-
-    private class Sent(
-        val outcome: String,
-        val upsert: AppRecordUpsertResult? = null,
-        val batch: AppRecordBatchResult? = null,
-        val message: String? = null,
-        val invalid: Boolean = false,
-    )
 
     /** Flush at launch, on a sign-in, when an account's sync comes back and on every sync kick. */
     fun start() {
@@ -144,41 +144,26 @@ class AppRecordOutbox @Inject constructor(
 
     private fun signedIn(): Set<String> = auth.accounts.value.filter { it.token != null }.map { it.id }.toSet()
 
-    /** A new entry for a host call ([call] = upsert | delete | batch): client
-     *  uuids for its write id and every create. */
-    fun entry(appId: String, call: String, args: Map<String, JsonValue>): AppRecords.OutboxEntry {
-        val newIds = List(AppRecords.outboxCreates(call, args)) { UUID.randomUUID().toString() }
-        return AppRecords.OutboxEntry(
-            writeId = UUID.randomUUID().toString(),
-            appId = appId,
-            call = call,
-            writes = AppRecords.outboxWrites(call, args, newIds),
-            at = AppRecords.isoNow(),
-        )
+    private fun store(account: String): SyncedRecordStore {
+        val db = holder.database(account)
+        synchronized(stores) {
+            stores[account]?.takeIf { it.first === db }?.let { return it.second }
+            val store = SyncedRecordStore(RoomLog(db.appRecordOutboxDao()), TrpcTransport(account, db), Toasts(), null)
+            stores[account] = db to store
+            return store
+        }
     }
 
-    /** Persist [entry]; alone in the queue = await its first outcome, else answer at once. */
-    suspend fun submit(account: String, entry: AppRecords.OutboxEntry): Answer {
-        val dao = holder.database(account).appRecordOutboxDao()
-        val waiter = CompletableDeferred<Sent>()
-        val alone = enqueueLocks.getOrPut(account) { Mutex() }.withLock {
-            val alone = dao.pendingCount() == 0
-            if (alone) awaiting[entry.writeId] = waiter
-            dao.insert(rowOf(entry, seq = dao.maxSeq() + 1))
-            alone
-        }
-        if (!alone) {
-            launchFlush(account)
-            return Answer.Queued
-        }
-        flush(account)
-        awaiting.remove(entry.writeId)
-        if (!waiter.isCompleted) return Answer.Queued
-        val sent = waiter.await()
-        return when (sent.outcome) {
-            AppRecords.OutboxOutcome.DONE -> Answer.Done(sent.upsert, sent.batch)
-            AppRecords.OutboxOutcome.REFUSED -> Answer.Refused(sent.message, sent.invalid)
-            else -> Answer.Queued
+    /** Queue one host call (`records_upsert` | `records_delete` | `records_batch`):
+     *  alone in the queue it awaits its first outcome, else it answers at once. */
+    suspend fun submit(account: String, app: String, function: String, args: Map<String, JsonValue>): Answer = withContext(Dispatchers.IO) {
+        when (val answer = store(account).submitCall(app, function, JsonValue.Obj(args).json, true)) {
+            is Submitted.Done -> Answer.Done(jsonValue(answer.answerJson))
+            is Submitted.Refused -> Answer.Refused(answer.message, answer.invalid)
+            is Submitted.Queued -> {
+                launchFlush(account)
+                Answer.Queued(jsonValue(answer.answerJson))
+            }
         }
     }
 
@@ -187,90 +172,78 @@ class AppRecordOutbox @Inject constructor(
     }
 
     /** Replay [account]'s pending entries, oldest first, until one must retry. */
-    suspend fun flush(account: String) {
-        flushLocks.getOrPut(account) { Mutex() }.withLock {
-            try {
-                val dao = holder.database(account).appRecordOutboxDao()
-                while (true) {
-                    val entry = dao.oldestPending()?.let(::entryOf) ?: break
-                    val sent = send(account, entry)
-                    when (sent.outcome) {
-                        AppRecords.OutboxOutcome.DONE -> dao.ack(entry.writeId, AppRecords.isoNow())
-                        AppRecords.OutboxOutcome.DROPPED, AppRecords.OutboxOutcome.REFUSED -> dao.delete(listOf(entry.writeId))
-                    }
-                    val waiter = awaiting.remove(entry.writeId)
-                    if (sent.outcome == AppRecords.OutboxOutcome.REFUSED && waiter == null) {
-                        refusalChannel.trySend(Refusal(AppRecords.outboxVerb(entry), sent.message))
-                    }
-                    waiter?.complete(sent)
-                    if (sent.outcome == AppRecords.OutboxOutcome.RETRY) break
-                }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                // A closed (signed-out / switched) account's database: the next trigger retries.
-                Log.w("AppRecordOutbox", "flush failed: ${e.message}")
-            }
-        }
-    }
-
-    /** One entry's replay ([AppRecords.outboxRequest]) and its outcome. */
-    private suspend fun send(account: String, entry: AppRecords.OutboxEntry): Sent {
-        val request = AppRecords.outboxRequest(entry)
-        val input = request.input
-        return try {
-            // VAPP-231 (via-app.json `claim`): the synced row at send time; the server checks it.
-            val claim = viaAppClaim(entry.appId, holder.database(account).appDao().observeById(entry.appId).first()?.publishedVersion)
-            when (request.call) {
-                "upsert" -> Sent(
-                    AppRecords.OutboxOutcome.DONE,
-                    upsert = api.recordsUpsert(
-                        account,
-                        entry.appId,
-                        kind = input["kind"]?.string.orEmpty(),
-                        data = kotlinJson(input["data"]) as? JsonObject ?: JsonObject(emptyMap()),
-                        recordId = input["recordId"]?.string,
-                        newId = input["newId"]?.string,
-                        writeId = entry.writeId,
-                        viaApp = claim,
-                    ),
-                )
-                "delete" -> {
-                    api.recordsDelete(account, entry.appId, input["recordId"]?.string.orEmpty(), writeId = entry.writeId)
-                    Sent(AppRecords.OutboxOutcome.DONE)
-                }
-                else -> Sent(
-                    AppRecords.OutboxOutcome.DONE,
-                    batch = api.recordsBatch(
-                        account,
-                        entry.appId,
-                        kotlinJson(input["writes"]) as? JsonArray ?: JsonArray(emptyList()),
-                        writeId = entry.writeId,
-                        viaApp = claim,
-                    ),
-                )
-            }
+    suspend fun flush(account: String) = withContext(Dispatchers.IO) {
+        try {
+            store(account).flush()
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            Sent(
-                AppRecords.outboxOutcome(entry, resultOf(e)),
-                message = e.message,
-                invalid = e is TrpcException && (e.code == "BAD_REQUEST" || (e.code == null && e.status?.value == 400)),
-            )
+            // A closed (signed-out / switched) account's database: the next trigger retries.
+            Log.w("AppRecordOutbox", "flush failed: ${e.message}")
         }
     }
 
-    /** Delete [account]'s acked entries the synced [rows] reflect (or past the grace). */
-    fun prune(account: String, entries: List<AppRecords.OutboxEntry>, rows: List<AppRecords.Row>) {
-        val kept = AppRecords.outboxPrune(entries, rows, AppRecords.isoNow()).mapTo(HashSet()) { it.writeId }
-        val gone = entries.map { it.writeId }.filter { it !in kept }
-        if (gone.isEmpty()) return
+    /** The synced [rows] of [app] a binding read: acked entries they reflect (or past the grace) leave. */
+    fun reflect(account: String, app: String, rows: List<AppRecords.Row>) {
         scope.launch {
             try {
-                holder.database(account).appRecordOutboxDao().delete(gone)
+                store(account).setRows(app, Json.encodeToString(JsonArray.serializer(), JsonArray(rows.map(::rowJson))))
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.w("AppRecordOutbox", "prune failed: ${e.message}")
             }
+        }
+    }
+
+    /** tRPC out, as the account and the entry's app. */
+    private inner class TrpcTransport(private val account: String, private val db: ExponentialDatabase) : SyncTransport {
+        override fun push(app: String, call: String, inputJson: String): String = runBlocking {
+            val input = Json.parseToJsonElement(inputJson).jsonObject
+            fun text(key: String) = input[key]?.jsonPrimitive?.contentOrNull
+            try {
+                // VAPP-231 (via-app.json `claim`): the synced row at send time; the server checks it.
+                val claim = viaAppClaim(app, db.appDao().observeById(app).first()?.publishedVersion)
+                val writeId = text("writeId")
+                val answer = when (call) {
+                    "upsert" -> {
+                        val data = input["data"] as? JsonObject ?: JsonObject(emptyMap())
+                        val out = api.recordsUpsert(account, app, kind = text("kind").orEmpty(), data = data, recordId = text("recordId"), newId = text("newId"), writeId = writeId, viaApp = claim)
+                        buildJsonObject { put("id", out.id) }
+                    }
+                    "delete" -> {
+                        api.recordsDelete(account, app, text("recordId").orEmpty(), writeId = writeId)
+                        JsonNull
+                    }
+                    else -> {
+                        val out = api.recordsBatch(account, app, input["writes"] as? JsonArray ?: JsonArray(emptyList()), writeId = writeId, viaApp = claim)
+                        buildJsonObject {
+                            put("ids", JsonArray(out.ids.map(::JsonPrimitive)))
+                            put("eventIds", JsonArray(out.eventIds.map(::JsonPrimitive)))
+                        }
+                    }
+                }
+                buildJsonObject {
+                    put("ok", true)
+                    put("answer", answer)
+                }.toString()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                when (val result = resultOf(e)) {
+                    is AppRecords.OutboxResult.Code -> buildJsonObject {
+                        put("code", result.code)
+                        put("message", e.message)
+                        put("invalid", e is TrpcException && (e.code == "BAD_REQUEST" || (e.code == null && e.status?.value == 400)))
+                    }.toString()
+                    else -> """{"transport":true}"""
+                }
+            }
+        }
+    }
+
+    private inner class Toasts : SyncedListener {
+        override fun changed() {}
+
+        override fun refused(entryJson: String, verb: String, message: String?) {
+            refusalChannel.trySend(Refusal(verb, message))
         }
     }
 
@@ -289,18 +262,28 @@ class AppRecordOutbox @Inject constructor(
             ackedAt = row.ackedAt,
         )
 
-        fun rowOf(entry: AppRecords.OutboxEntry, seq: Long): AppRecordOutboxEntity = AppRecordOutboxEntity(
-            writeId = entry.writeId,
-            seq = seq,
-            appId = entry.appId,
-            call = entry.call,
-            writes = AppRecords.outboxWritesJson(entry.writes),
-            at = entry.at,
-            state = entry.state,
-            ackedAt = entry.ackedAt,
-        )
+        /** The Engine's spelling of a stored entry. */
+        internal fun entryJson(row: AppRecordOutboxEntity): JsonObject = buildJsonObject {
+            put("writeId", row.writeId)
+            put("appId", row.appId)
+            put("call", row.call)
+            put("writes", Json.parseToJsonElement(row.writes).jsonArray)
+            put("at", row.at)
+            put("state", row.state)
+            row.ackedAt?.let { put("ackedAt", it) }
+        }
 
-        private fun kotlinJson(v: JsonValue?) = Json.parseToJsonElement((v ?: JsonValue.Null).json)
+        private fun rowJson(row: AppRecords.Row): JsonObject = buildJsonObject {
+            put("id", row.id)
+            put("kind", row.kind)
+            put("data", Json.parseToJsonElement(JsonValue.Obj(row.data).json))
+            row.createdBy?.let { put("createdBy", it) }
+            row.authorId?.let { put("authorId", it) }
+            put("createdAt", row.createdAt)
+            put("updatedAt", row.updatedAt)
+        }
+
+        private fun jsonValue(json: String): JsonValue? = JsonValue.parse(json).takeUnless { it is JsonValue.Null }
 
         /** A failed replay as the reference's result: the server's tRPC code
          *  (from the body, else the HTTP status), else no network. */
@@ -328,6 +311,45 @@ class AppRecordOutbox @Inject constructor(
         }
     }
 }
+
+/** The account's Room table; the Engine calls in on [Dispatchers.IO]. */
+internal class RoomLog(private val dao: AppRecordOutboxDao) : OutboxLog {
+    private fun <T> failing(body: suspend () -> T): T = try {
+        runBlocking { body() }
+    } catch (e: Exception) {
+        throw EngineException.Failure("INTERNAL", e.message.orEmpty())
+    }
+
+    override fun entriesJson(): String = failing {
+        val rows = dao.all()
+        val readable = rows.mapNotNull { row -> runCatching { AppRecordOutbox.entryJson(row) }.getOrNull() }
+        // An unreadable row can never replay: it leaves.
+        if (readable.size < rows.size) dao.delete(rows.filter { runCatching { AppRecordOutbox.entryJson(it) }.isFailure }.map { it.writeId })
+        JsonArray(readable).toString()
+    }
+
+    override fun push(entryJson: String) = failing {
+        val entry = Json.parseToJsonElement(entryJson).jsonObject
+        fun text(key: String) = entry.getValue(key).jsonPrimitive.content
+        dao.insert(
+            AppRecordOutboxEntity(
+                writeId = text("writeId"),
+                seq = dao.maxSeq() + 1,
+                appId = text("appId"),
+                call = text("call"),
+                writes = entry.getValue("writes").toString(),
+                at = text("at"),
+                state = text("state"),
+                ackedAt = entry["ackedAt"]?.jsonPrimitive?.contentOrNull,
+            ),
+        )
+    }
+
+    override fun ack(writeId: String, at: String) = failing { dao.ack(writeId, at) }
+
+    override fun remove(writeIds: List<String>) = failing { dao.delete(writeIds) }
+}
+
 
 /** VAPP-235: a later replay's refusal = `Couldn't <verb> the record` with the
  *  server's message (mounted once, under the app's one toaster). */

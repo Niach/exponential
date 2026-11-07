@@ -49,7 +49,8 @@ class ToolCatalogTest {
             val native = case["native"] as Map<*, *>? ?: continue
             val tool = case["tool"] as String
             val (cap, name) = tool.split('.')
-            val result = Result(caps.getValue(cap).call(name, Json.write(native)))
+            val capability = caps[cap] ?: continue // another host's capability (#VAPP-273)
+            val result = Result(capability.call(name, Json.write(native)))
             if (tool == "photos.get") result.assertError("notFound") else result.assertValid(tool)
             replayed++
         }

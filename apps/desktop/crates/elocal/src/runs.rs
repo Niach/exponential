@@ -127,6 +127,8 @@ pub struct LocalRuns {
     desktop: Arc<LocalDesktop>,
     runner: Arc<dyn Runner>,
     cwd: PathBuf,
+    /// What the brief says about the host's tools (`HostTools::note`).
+    host_note: Option<String>,
     server: Server,
     hub: Mutex<HubState>,
     /// The hub's message ids (`m<seq>`) → the store's rows.
@@ -154,17 +156,64 @@ fn mirror_columns(session: &eagent_hub_core::HubSession) -> Map<String, Value> {
     m
 }
 
+/// Tools the HOST adds to every run's hub next to the noun subset
+/// (#VAPP-273: Exponential Desktop's shell serves `shell_edit`, its
+/// host-only `shell.edit`), with the line the brief tells the agent.
+pub struct HostTools {
+    pub provider: Arc<dyn ToolProvider>,
+    pub note: String,
+}
+
+/// The noun subset and the host's tools behind one server: a name the host
+/// lists goes to the host, every other one to the store.
+struct Merged {
+    local: Arc<LocalTools>,
+    host: Arc<dyn ToolProvider>,
+}
+
+impl Merged {
+    fn host_has(&self, name: &str) -> bool {
+        self.host.tools().unwrap_or_default().iter().any(|t| t.get("name").and_then(Value::as_str) == Some(name))
+    }
+}
+
+impl ToolProvider for Merged {
+    fn tools(&self) -> Result<Vec<Value>, String> {
+        let mut tools = self.local.tools()?;
+        tools.extend(self.host.tools()?);
+        Ok(tools)
+    }
+
+    fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value {
+        if self.host_has(name) {
+            self.host.call(caller, name, arguments)
+        } else {
+            self.local.call(caller, name, arguments)
+        }
+    }
+}
+
 impl LocalRuns {
     /// Starts the runner for `desktop`: the MCP hub, the hub state from the
     /// store's live sessions, the worker thread.
     pub fn start(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf) -> Result<Arc<Self>, String> {
-        let tools = Arc::new(LocalTools { desktop: desktop.clone() });
+        Self::start_with(desktop, runner, cwd, None)
+    }
+
+    /// [`Self::start`] with the host's tools on the same hub.
+    pub fn start_with(desktop: Arc<LocalDesktop>, runner: Arc<dyn Runner>, cwd: PathBuf, host: Option<HostTools>) -> Result<Arc<Self>, String> {
+        let local = Arc::new(LocalTools { desktop: desktop.clone() });
+        let (provider, note): (Arc<dyn ToolProvider>, Option<String>) = match host {
+            Some(host) => (Arc::new(Merged { local, host: host.provider }), Some(host.note)),
+            None => (local, None),
+        };
         let info = ServerInfo { name: "exponential".into(), version: env!("CARGO_PKG_VERSION").into(), instructions: Some("The Local desktop: its issues, comments, boards, statuses and labels; sessions_send and show.".into()) };
-        let server = Server::serve(info, tools)?;
+        let server = Server::serve(info, provider)?;
         let runs = Arc::new(Self {
             desktop,
             runner,
             cwd,
+            host_note: note,
             server,
             hub: Mutex::new(HubState::default()),
             ids: Mutex::new(HashMap::new()),
@@ -199,30 +248,36 @@ impl LocalRuns {
         self.live.lock().expect("live").contains_key(session_id)
     }
 
+    /// The worker: wakes on a store delta (a session or message changed:
+    /// reconcile) or a run's event (into the hub), never on a clock; a quiet
+    /// second sweeps the runs whose process went away.
     fn work(self: Arc<Self>, deltas: flume::Receiver<crate::store::LocalDelta>) {
+        enum Woke {
+            Delta(crate::store::LocalDelta),
+            Event(String, ActivityEvent),
+            Gone,
+        }
         loop {
-            let mut touched = false;
-            while let Ok(delta) = deltas.try_recv() {
-                if matches!(delta.table, "sessions" | "messages") {
-                    touched = true;
-                }
-            }
-            while let Ok((session_id, event)) = self.events.1.try_recv() {
-                self.on_event(&session_id, event);
-            }
-            if touched {
-                self.reconcile();
-            }
-            self.sweep_exits();
-            match deltas.recv_timeout(Duration::from_millis(500)) {
-                Ok(delta) => {
-                    if matches!(delta.table, "sessions" | "messages") {
+            let woke = flume::Selector::new()
+                .recv(&deltas, |d| d.map(Woke::Delta).unwrap_or(Woke::Gone))
+                .recv(&self.events.1, |e| e.map(|(s, ev)| Woke::Event(s, ev)).unwrap_or(Woke::Gone))
+                .wait_timeout(Duration::from_secs(1));
+            match woke {
+                Ok(Woke::Delta(delta)) => {
+                    // Coalesce what queued up behind it, then reconcile once.
+                    let mut touched = matches!(delta.table, "sessions" | "messages");
+                    while let Ok(more) = deltas.try_recv() {
+                        touched |= matches!(more.table, "sessions" | "messages");
+                    }
+                    if touched {
                         self.reconcile();
                     }
                 }
-                Err(flume::RecvTimeoutError::Disconnected) => return,
-                Err(flume::RecvTimeoutError::Timeout) => {}
+                Ok(Woke::Event(session_id, event)) => self.on_event(&session_id, event),
+                Ok(Woke::Gone) => return,
+                Err(_) => {}
             }
+            self.sweep_exits();
         }
     }
 
@@ -285,16 +340,27 @@ impl LocalRuns {
     fn mirror(&self) {
         let sessions: Vec<eagent_hub_core::HubSession> = self.hub.lock().expect("hub").sessions.values().cloned().collect();
         for session in sessions {
-            let Ok(Some(mut row)) = self.desktop.store.row("sessions", &session.id) else { continue };
             let columns = mirror_columns(&session);
-            if columns.iter().all(|(k, v)| row.get(k) == Some(v)) {
-                continue;
-            }
-            for (k, v) in columns {
-                row.insert(k, v);
-            }
-            row.insert("updated_at".into(), json!(time::now()));
-            if self.desktop.store.write("sessions", row).is_ok() {
+            let mut changed = false;
+            let _ = self.desktop.store.modify("sessions", &session.id, |row| {
+                // The person ended it in the store and the hub has not heard
+                // yet (a turn still in flight): the end sticks; `reconcile`
+                // tells the hub, which then mirrors `ended` itself.
+                if row.get("status").and_then(Value::as_str) == Some("ended") && session.status != Status::Ended {
+                    return None;
+                }
+                if columns.iter().all(|(k, v)| row.get(k) == Some(v)) {
+                    return None;
+                }
+                let mut next = row.clone();
+                for (k, v) in &columns {
+                    next.insert(k.clone(), v.clone());
+                }
+                next.insert("updated_at".into(), json!(time::now()));
+                changed = true;
+                Some(next)
+            });
+            if changed {
                 let _ = self.changes.0.send(Changed { session_id: session.id.clone() });
             }
         }
@@ -384,7 +450,12 @@ impl LocalRuns {
         let endpoint = format!("{}", self.server.url());
         let identity = self.desktop.executor.identity();
         let grant = HubGrant::new(endpoint, token).server("exponential", HubLevel::Write).acting_for(Some(self.desktop.executor.team_id().to_string()), Some(identity.user_id));
-        let brief = Brief::new(sid, text).cwd(self.cwd.clone()).system_append("You work on a Local desktop of Exponential Desktop: there is no server; the exponential tools reach this desktop's own store.");
+        let mut system = String::from("You work on a Local desktop of Exponential Desktop: there is no server; the exponential tools reach this desktop's own store.");
+        if let Some(note) = &self.host_note {
+            system.push(' ');
+            system.push_str(note);
+        }
+        let brief = Brief::new(sid, text).cwd(self.cwd.clone()).system_append(&system);
         let sink: Arc<dyn EventSink> = Arc::new(Sink { session_id: session_id.to_string(), tx: self.events.0.clone() });
         match self.runner.start(brief, grant, sink) {
             Ok(run) => {
@@ -545,6 +616,12 @@ struct LocalTools {
     desktop: Arc<LocalDesktop>,
 }
 
+/// The noun subset as a provider of its own (#VAPP-273: an app's `action`
+/// run calls one of these "via" the app).
+pub fn local_tools(desktop: Arc<LocalDesktop>) -> Arc<dyn ToolProvider> {
+    Arc::new(LocalTools { desktop })
+}
+
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({"name": name, "description": description, "inputSchema": {"type": "object", "properties": properties, "required": required}})
 }
@@ -698,14 +775,45 @@ mod tests {
         }
     }
 
-    fn wait_for(mut check: impl FnMut() -> bool) {
-        for _ in 0..100 {
+    /// Waits on the runner's change stream until `check` holds: every
+    /// store write of the runner wakes it, so a loaded machine only delays,
+    /// never fails; the bound is generous on purpose.
+    fn wait_for(changes: &flume::Receiver<Changed>, mut check: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        loop {
             if check() {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(50));
+            assert!(std::time::Instant::now() < deadline, "the condition never held within 120 s");
+            let _ = changes.recv_timeout(Duration::from_secs(5));
         }
-        panic!("the condition never held");
+    }
+
+    struct HostEdit;
+
+    impl ToolProvider for HostEdit {
+        fn tools(&self) -> Result<Vec<Value>, String> {
+            Ok(vec![tool("shell_edit", "Write a shell document.", json!({"name": {"type": "string"}}), &["name"])])
+        }
+        fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value {
+            content(json!({"tool": name, "by": caller.session_id.as_str(), "name": arguments["name"]}))
+        }
+    }
+
+    #[test]
+    fn the_hosts_tools_sit_next_to_the_nouns_on_one_hub() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let merged = Merged { local: Arc::new(LocalTools { desktop }), host: Arc::new(HostEdit) };
+        let names: Vec<String> = merged.tools().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        assert!(names.contains(&"exponential_issues".to_string()) && names.last() == Some(&"shell_edit".to_string()));
+        let caller = Caller { session_id: SessionId::new("run-1").unwrap(), label: "test".into() };
+        let out = merged.call(&caller, "shell_edit", json!({"name": "taskbar"}));
+        assert_eq!(out["structuredContent"]["tool"], json!("shell_edit"));
+        assert_eq!(out["structuredContent"]["by"], json!("run-1"));
+        let out = merged.call(&caller, "exponential_boards", json!({"op": "list"}));
+        assert!(out["structuredContent"].is_array());
     }
 
     #[test]
@@ -725,7 +833,7 @@ mod tests {
         send.text = Some("Fix the login".into());
         let out = api::sessions::send(&client, &send).unwrap();
         let session = out.session_id.clone();
-        wait_for(|| desktop.store.row("sessions", &session).unwrap().unwrap()["status"] == json!("idle"));
+        wait_for(&changes, || desktop.store.row("sessions", &session).unwrap().unwrap()["status"] == json!("idle"));
         assert_eq!(prompts.lock().unwrap().as_slice(), ["Fix the login"]);
         let grant = grants.lock().unwrap()[0].clone();
         assert!(grant.endpoint.starts_with("http://127.0.0.1:"));
@@ -737,16 +845,15 @@ mod tests {
         let row = desktop.store.row("sessions", &session).unwrap().unwrap();
         assert_eq!(row["busy"], json!(false));
         assert!(row["started_at"].is_string());
-        assert!(changes.try_recv().is_ok());
 
         // A follow-up goes to the live run as its next prompt.
         api::sessions::send(&client, &api::sessions::SendInput::message(&session, "And the logout", vec![])).unwrap();
-        wait_for(|| prompts.lock().unwrap().len() == 2);
-        wait_for(|| desktop.store.rows_where("messages", "root_id", &session).unwrap().iter().filter(|m| m["author_kind"] == json!("agent")).count() == 2);
+        wait_for(&changes, || prompts.lock().unwrap().len() == 2);
+        wait_for(&changes, || desktop.store.rows_where("messages", "root_id", &session).unwrap().iter().filter(|m| m["author_kind"] == json!("agent")).count() == 2);
 
         // Ending it in the store stops the run and the hub agrees.
         api::sessions::end(&client, &session).unwrap();
-        wait_for(|| !runs.is_running(&session));
+        wait_for(&changes, || !runs.is_running(&session));
         assert_eq!(runs.hub.lock().unwrap().sessions[&session].status, Status::Ended);
         runs.stop_all();
     }

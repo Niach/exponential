@@ -253,6 +253,8 @@ struct ThreadComposerPlusMenu: View {
     /// #EXP-1535: the Account page (the session account switch); nil = no
     /// Account row (`conditions.account` is false then).
     var account: SessionComposerFooter.AccountMenu?
+    /// #FEED-204: an app editor's Device page; nil = no Device row.
+    var device: SessionComposerFooter.DeviceMenu?
     /// The team whose issues the Issue page searches; nil = no page.
     var teamId: String?
     /// The Issue page's pick (the host inserts `#IDENT` at the caret).
@@ -315,6 +317,16 @@ struct ThreadComposerPlusMenu: View {
     @ViewBuilder
     private func pageContent(_ id: ComposerMenu.RowId) -> some View {
         switch id {
+        case .device:
+            // THE device picker's rows (`DevicePicker.items`).
+            if let device {
+                GlassPickerContent(
+                    items: DevicePicker<EmptyView>.items(device.devices),
+                    mode: .single,
+                    value: device.current.map { [$0] } ?? [],
+                    onChange: { picked in picked.first.map(device.onPick) }
+                )
+            }
         case .model:
             GlassPickerContent(
                 items: ModelPicker<EmptyView>.items(agent: agent),
@@ -375,6 +387,7 @@ struct ThreadComposerPlusMenu: View {
     /// A submenu row's current value: the picked label.
     private func value(_ id: ComposerMenu.RowId) -> String? {
         switch id {
+        case .device: device?.value
         case .model: modelValue.map(LaunchVocabulary.modelLabel)
         case .account: account?.current?.email
         case .teams: teams?.value

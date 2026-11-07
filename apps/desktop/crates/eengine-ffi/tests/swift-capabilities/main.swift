@@ -34,7 +34,9 @@ func date(_ s: String) -> Date { RFC3339.parse(s)! }
 
 let fixturePath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "packages/eengine/fixtures/capabilities.json"
 let fixture = json(try! String(contentsOfFile: fixturePath, encoding: .utf8)) as! [String: Any]
-let tools = Dictionary(uniqueKeysWithValues: (fixture["tools"] as! [[String: Any]]).map { ($0["name"] as! String, $0) })
+// #VAPP-273: a capability one host alone provides (`host: "ede"`) has no module here: its tools stay out.
+let hostOnlyCapabilities = Set((fixture["capabilities"] as! [[String: Any]]).filter { $0["host"] != nil }.map { $0["name"] as! String })
+let tools = Dictionary(uniqueKeysWithValues: (fixture["tools"] as! [[String: Any]]).filter { !hostOnlyCapabilities.contains(String(($0["name"] as! String).split(separator: "_", maxSplits: 1)[0])) }.map { ($0["name"] as! String, $0) })
 
 // A minimal checker for the keywords nativeOutputSchema uses.
 func violations(_ value: Any, _ schema: [String: Any], _ path: String = "") -> [String] {
@@ -194,11 +196,11 @@ var replayed = 0
 for c in fixture["bridgeCases"] as! [[String: Any]] {
     guard let native = c["native"] as? [String: Any], let expected = c["nativeResult"] as? [String: Any] else { continue }
     let name = c["name"] as! String, toolName = c["tool"] as! String
-    let schema = tools[toolName]!["nativeOutputSchema"] as! [String: Any]
+    guard let schema = tools[toolName]?["nativeOutputSchema"] as? [String: Any] else { continue } // another host's tool
     let wanted = expected["structuredContent"] as? [String: Any]
     if expected["isError"] == nil && (wanted == nil || !violations(wanted!, schema).isEmpty) { continue } // the bridge's own refusals
     let parts = toolName.split(separator: "_", maxSplits: 1).map(String.init)
-    let capability = all.first { $0.name() == parts[0] }!
+    guard let capability = all.first(where: { $0.name() == parts[0] }) else { continue } // another host's capability
     switch toolName {
     case "photos_pick":
         picker.answer = (wanted!["photos"] as! [[String: Any]]).map { PhotoFile(ref: photoRef($0), data: Base64.decode($0["data"] as! String)!) }

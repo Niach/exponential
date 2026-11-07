@@ -67,6 +67,7 @@ import {
   newestLivePullRequestForSession,
   recordPullRequestOpened,
   repoFromPrUrl,
+  leaveGithubStack,
   retargetChildrenOfMergedPr,
 } from "@/lib/integrations/pr-sync"
 import {
@@ -291,6 +292,10 @@ async function joinGithubStack(opts: {
   const lowerId = opts.pr.basePullRequestId
   if (!lowerId) return
   try {
+    // #EXP-1711: the train lands a stack itself: a native stack would only
+    // refuse the retarget of the PRs above a landed one.
+    const { mergeTrainOn } = await import(`@/lib/merge-train/worker`)
+    if (mergeTrainOn(opts.repoFullName)) return
     const lower = await loadPullRequest(lowerId)
     if (!lower || !isLivePrState(lower.state)) return
     const siblings = await liveChildren(db, [lower.id])
@@ -891,7 +896,13 @@ export async function retargetPullRequestTx(args: {
     (await resolveRepoDefaultBranchCached(repo.fullName))
   if (!base) return fail(`PRECONDITION_FAILED`, `Could not resolve the default branch of ${repo.fullName}`)
   try {
-    await retargetOnGithub({ repo: repo.fullName, prNumber: pr.number, base, token })
+    await retargetOnGithub({ repo: repo.fullName, prNumber: pr.number, base, token }).catch(async (err: unknown) => {
+      // #EXP-1711: GitHub refuses a stack member a new base: this retarget
+      // is an explicit ask to leave the line, so leave the stack and retry.
+      if (!(err instanceof GitHubMergeError) || err.status !== 422 || !/stack/i.test(err.message)) throw err
+      await leaveGithubStack({ repo: repo.fullName, prNumber: pr.number, token })
+      await retargetOnGithub({ repo: repo.fullName, prNumber: pr.number, base, token })
+    })
   } catch (err) {
     if (err instanceof GitHubMergeError) {
       if (err.status === 422) {

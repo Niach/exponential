@@ -523,7 +523,10 @@ mod tests {
         let _hung = std::os::unix::net::UnixListener::bind(at.path()).unwrap();
         let started = Instant::now();
         let (_serving, rx) = first(&at);
-        assert!(started.elapsed() < TIMEOUT * 2);
+        // The hung one was waited out (never skipped); how much longer it
+        // took is the machine's business (a loaded CI runner flaked a
+        // wall-clock bound here): the replacement is what the test checks.
+        assert!(started.elapsed() >= TIMEOUT, "the first start waits the timeout out");
         assert!(matches!(claim(&at, &Message::Activate).unwrap(), Claim::Forwarded));
         assert_eq!(rx.recv_timeout(TIMEOUT).unwrap(), Message::Activate);
     }

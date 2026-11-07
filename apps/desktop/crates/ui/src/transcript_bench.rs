@@ -152,7 +152,7 @@ impl Render for Transcript {
     }
 }
 
-fn percentile(sorted: &[f64], p: f64) -> f64 {
+pub(crate) fn percentile(sorted: &[f64], p: f64) -> f64 {
     sorted[((sorted.len() as f64 - 1.) * p).round() as usize]
 }
 
@@ -172,7 +172,7 @@ fn headless() -> HeadlessAppContext {
     cx
 }
 
-fn draw(window: gpui::AnyWindowHandle, cx: &mut HeadlessAppContext) -> f64 {
+pub(crate) fn draw(window: gpui::AnyWindowHandle, cx: &mut HeadlessAppContext) -> f64 {
     let started = Instant::now();
     cx.update_window(window, |_, window, cx| {
         window.refresh();

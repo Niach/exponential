@@ -146,6 +146,17 @@ pub trait HostPlugin: 'static {
     /// A server event fired (forward it to the producer).
     fn on_action(&self, _event: &ActionEvent, _cx: &mut gpui::App) {}
 
+    /// #EXP-1725: the pointer entered or left `component_id` (a pressable
+    /// node, a template instance's id). What a row reveals on hover is the
+    /// host's data.
+    fn on_hover(&self, _component_id: &str, _hovered: bool, _cx: &mut gpui::App) {}
+
+    /// #EXP-1725: the host paints the icon called `name` itself (a mark that
+    /// animates, a tint the row's data decides); `None` = [`Self::icon`].
+    fn icon_element(&self, _name: &str, _size: f32, _color: gpui::Hsla, _cx: &gpui::App) -> Option<gpui::AnyElement> {
+        None
+    }
+
     /// A host function call (`functionCall` to a non-built-in name). The
     /// default ignores it; [`crate::runtime::host_plugin`] routes it through
     /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).

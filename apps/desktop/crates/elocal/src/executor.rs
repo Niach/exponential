@@ -158,13 +158,18 @@ impl LocalExecutor {
 
     /// Patches a row's columns from `patch` and stamps it.
     fn patch_row(&self, table: &str, id: &str, what: &str, patch: Row) -> Result<Row, Refusal> {
-        let mut row = self.row_or(table, id, what)?;
-        for (k, v) in patch {
-            row.insert(k, v);
-        }
-        row.insert("updated_at".into(), json!(time::now()));
-        self.write(table, row.clone())?;
-        Ok(row)
+        let patched = self
+            .store
+            .modify(table, id, |row| {
+                let mut row = row.clone();
+                for (k, v) in patch {
+                    row.insert(k, v);
+                }
+                row.insert("updated_at".into(), json!(time::now()));
+                Some(row)
+            })
+            .map_err(internal)?;
+        patched.ok_or_else(|| not_found(what))
     }
 
     // -- dispatch ----------------------------------------------------------------

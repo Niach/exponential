@@ -38,7 +38,7 @@ use std::collections::{BTreeMap, HashMap};
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
     FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
+    SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window, WindowId,
 };
 use gpui_component::{
@@ -64,7 +64,6 @@ use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen,
     Navigation, Screen,
 };
-use crate::issue_header::parse_hex_color;
 
 /// EXP-851: which LIST a detail was opened from — the kind half of
 /// [`crate::navigation::TabOrigin`].
@@ -426,35 +425,6 @@ fn yolo_rail(yolo: bool, sc_failing: bool) -> YoloRail {
     }
 }
 
-/// FEED-3: hover-reveal group name for the rail's board rows — the
-/// gear that jumps to the board's settings page shows only under the cursor.
-/// EXP-1557: the rail's bottom fade (the search list's `FADE_HEIGHT`).
-const RAIL_FADE_H: f32 = 24.;
-
-const BOARD_ROW_GROUP: &str = "rail-board-row";
-/// EXP-1294: the agent rows' twin of [`BOARD_ROW_GROUP`].
-const AGENT_ROW_GROUP: &str = "rail-agent-row";
-/// VAPP-110: the app rows' twin of [`BOARD_ROW_GROUP`].
-const APP_ROW_GROUP: &str = "rail-app-row";
-/// EXP-863: the Pinned rows' hover group — reveals the trailing Unpin button
-/// (the board rows' gear recipe).
-const PIN_ROW_GROUP: &str = "rail-pin-row";
-/// EXP-923: the space between the Running section's rule, label and rows —
-/// the rail's own `gap_1`. EXP-1248: the rows themselves stack flush.
-const RUNNING_ROW_GAP: f32 = 0.25 * theme::FONT_SIZE_PX;
-
-/// EXP-1022: the breathing room between two of the rail's sections
-/// (nav entries / Pinned / Boards / Running / This device) — plain space, like
-/// the web sidebar's group padding; the rules are gone.
-const SECTION_GAP: f32 = 8.;
-
-/// EXP-1022: the room the rail's scroll content keeps under its last row
-/// while the What's-new card floats over the scroll area's bottom edge — the
-/// card's height plus a gap, so the last row can still scroll clear of it.
-/// The web sidebar reserves the same (`whats-new.tsx`
-/// `WHATS_NEW_CLEARANCE_CLASS`).
-const WHATS_NEW_CLEARANCE: f32 = 80.;
-
 /// EXP-282: one row of the rail — icon + label, left-aligned, glass
 /// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
 /// inner layout with no `Styled` reach into it (the settings-nav rows set the
@@ -641,13 +611,18 @@ pub struct RailView {
     shared: Entity<RailShared>,
     /// The branch as of the last render — a checkout refreshes the file tree.
     last_branch: Option<String>,
-    /// Scroll position of the rail's middle zone (tools + board icons) —
-    /// small windows with many boards must not push Settings/Account off.
-    rail_scroll: ScrollHandle,
+    /// #EXP-1725: the rows, the shared sidebar document.
+    region: Entity<crate::shell_regions::SidebarRegion>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl RailView {
+    /// The rows, for the pictures.
+    #[cfg(test)]
+    pub(crate) fn region(&self) -> Entity<crate::shell_regions::SidebarRegion> {
+        self.region.clone()
+    }
+
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let shared = rail_shared_for_window(window, cx);
@@ -697,201 +672,14 @@ impl RailView {
         if let Some(tray) = etalk_gpui::voice_tray::entity(cx) {
             subscriptions.push(cx.observe(&tray, |_, _, cx| cx.notify()));
         }
+        let region = crate::shell_regions::SidebarRegion::new(nav.clone(), window, cx);
         Self {
             nav,
             shared,
             last_branch: None,
-            rail_scroll: ScrollHandle::new(),
+            region,
             _subscriptions: subscriptions,
         }
-    }
-
-    /// EXP-791: a muted section label ("Agents", "Boards", "Pinned",
-    /// "Running").
-    fn section_label(&self, text: &'static str, cx: &App) -> gpui::Div {
-        rail_section_label(text, cx)
-    }
-
-    /// EXP-778: the Pinned section's rows — the caller's pins in the ACTIVE
-    /// team, in `sort_order`, each resolved against its sibling collection
-    /// and HIDDEN when the target is gone (a trashed board's issue, a deleted
-    /// action). An issue row leads with its mono identifier and opens the
-    /// detail scoped on its board (the Issues list's path); an action row
-    /// leads with the action's glyph and opens the composer with that action
-    /// picked (the Actions page's ▶ Run seam — EXP-1294: actions survive as
-    /// saved prompts).
-    ///
-    /// Empty when nothing is pinned — the caller hides the section.
-    fn render_pinned_rows(&mut self, cx: &mut gpui::Context<Self>) -> Vec<gpui::AnyElement> {
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return Vec::new();
-        };
-        let pins = crate::pins::pins_in_team(&team_id, cx);
-        if pins.is_empty() {
-            return Vec::new();
-        }
-        let active_screen = resolved_screen(&self.nav, cx);
-        let collections = Store::global(cx).collections().clone();
-        let muted = cx.theme().muted_foreground;
-        let mut out = Vec::with_capacity(pins.len());
-        for (index, pin) in pins.iter().enumerate() {
-            let Some((kind, target_id)) = crate::pins::pin_target(pin) else {
-                continue;
-            };
-            let row_el = match kind {
-                domain::contract::PIN_KIND_ISSUE => {
-                    let Some(issue) = collections.issues.read(cx).get(target_id).cloned() else {
-                        continue;
-                    };
-                    let screen = Screen::IssueDetail {
-                        issue_id: issue.id.clone(),
-                    };
-                    let active = active_screen.as_ref() == Some(&screen);
-                    let lead = div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .child(SharedString::from(issue.identifier.clone()))
-                        .into_any_element();
-                    let title = issue.title.clone();
-                    let issue_id = issue.id.clone();
-                    let board_id = issue.board_id.clone();
-                    self.entry(("rail-pin", index), lead, title, active, None, cx)
-                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            // EXP-851: a RAIL row opens a detail with no list
-                            // beside it — the rail stays. The board still
-                            // becomes the window's scope (files, git, `+`).
-                            crate::navigation::set_active_board(window, cx, board_id.clone());
-                            crate::navigation::navigate_from_rail(
-                                window,
-                                cx,
-                                Screen::IssueDetail {
-                                    issue_id: issue_id.clone(),
-                                },
-                            );
-                        }))
-                }
-                _ => continue,
-            };
-            // EXP-863: hover reveals Unpin on the row's right — the board
-            // rows' gear recipe, in the trailing column (EXP-1477). The
-            // click stops at the button, so the row underneath never
-            // navigates.
-            let unpin = {
-                let team_id = team_id.clone();
-                let target_id = target_id.to_string();
-                rail_trailing_hover_action(
-                    PIN_ROW_GROUP,
-                    None,
-                    Button::new(("rail-pin-unpin", index))
-                        .ghost()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(Icon::from(registry::UI_UNPIN))
-                        .tooltip("Unpin")
-                        .on_click(move |_: &ClickEvent, _window, cx| {
-                            cx.stop_propagation();
-                            crate::pins::toggle_pin(
-                                team_id.clone(),
-                                kind,
-                                target_id.clone(),
-                                cx,
-                            );
-                        }),
-                )
-            };
-            out.push(row_el.group(PIN_ROW_GROUP).child(unpin).into_any_element());
-        }
-        out
-    }
-
-    /// EXP-923 — the rail's **Active** band (EXP-1318, `threads-list.json`
-    /// `copy.rail`): the ACTIVE team's threads that need you, run, or still
-    /// ask for a merge (`railThreads`), every thread the shapes make visible,
-    /// under the boards (EXP-1075: the other teams stay the switcher's dot).
-    ///
-    /// A live run is a place, not a document: it never owns a tab, and the
-    /// section HIDES entirely while nothing runs. EXP-1294: one plain row per
-    /// thread ([`crate::session_data::live_roots_for_rail`]) — the agent's
-    /// mark (animating while it works, the amber badge while it needs you)
-    /// and the title (it names the issue already), NO caption. A row
-    /// opens the thread with no tab of its own (`navigate_from_live_rail`)
-    /// and stays lit on the thread AND on any of its sessions.
-    ///
-    /// Returns `None` with nothing running (the caller renders neither the
-    /// rule nor the label).
-    fn render_running_section(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        let team_id = active_team_id(&self.nav, cx)?;
-        let running = crate::session_data::live_roots_for_rail(&team_id, cx);
-        if running.is_empty() {
-            return None;
-        }
-        let screen = resolved_screen(&self.nav, cx);
-        // #EXP-1461: ROOT rows only (the tree's state rolled up into it); a
-        // row stays lit while any session of its tree is on screen.
-        let elements: Vec<gpui::AnyElement> = running
-            .into_iter()
-            .enumerate()
-            .map(|(index, row)| {
-                let active = match &screen {
-                    Some(Screen::Thread { session_id }) => *session_id == row.root_id,
-                    Some(Screen::Session { session_id }) => row.session_ids.contains(session_id),
-                    _ => false,
-                };
-                let state = running_row_state(row.busy, row.needs_you);
-                // The mark is the agent of the newest session working in the
-                // tree, else the root's.
-                let agent = row
-                    .session_ids
-                    .iter()
-                    .rev()
-                    .filter_map(|id| crate::session_data::session(id, cx))
-                    .find(crate::session_data::session_is_working)
-                    .or_else(|| crate::session_data::session(&row.root_id, cx))
-                    .and_then(|session| crate::run_rows::run_agent(session.cli.as_deref()));
-                let target = Screen::Thread {
-                    session_id: row.root_id.clone(),
-                };
-                let menu_root = row.root_id.clone();
-                let element = crate::run_rows::run_row(
-                    crate::run_rows::RunRowSpec {
-                        id_prefix: "rail-running",
-                        index,
-                        agent,
-                        state,
-                        identifier: None,
-                        // EXP-1318: the root session's device icon trails.
-                        trailing: crate::threads_view::thread_device_icon(
-                            row.device_id.as_deref(),
-                            &format!("rail-{}", row.root_id),
-                            cx,
-                        )
-                        .map(|icon| rail_trailing_slot().child(icon).into_any_element()),
-                        title: SharedString::from(row.title),
-                        active,
-                        on_open: Box::new(move |_, window, cx| {
-                            crate::navigation::navigate_from_live_rail(window, cx, target.clone());
-                        }),
-                        guides: Default::default(),
-                        unread: row.unread,
-                    },
-                    cx,
-                );
-                // Thread 58cb32df: a chat row's right-click = THE chat menu.
-                crate::threads_view::chat_row_menu(&menu_root, element.into_any_element(), cx)
-            })
-            .collect();
-        let rule = self.section_rule(cx);
-        Some(
-            v_flex()
-                .w_full()
-                .gap(px(RUNNING_ROW_GAP))
-                .child(rule)
-                .child(self.section_label(domain::session_tree::THREADS_LIST.copy.rail.as_str(), cx))
-                .child(v_flex().w_full().children(elements))
-                .into_any_element(),
-        )
     }
 
     /// EXP-533: the rail footer's "still catching up" spinner. It answers
@@ -930,50 +718,6 @@ impl RailView {
                 gpui_component::tooltip::Tooltip::new(SYNCING_LABEL).build(window, cx)
             });
         Some(row.into_any_element())
-    }
-
-    /// One tool-window icon: a ghost icon button, `selected` while its tool
-    /// window is active — the glyph stays white either way (EXP-635) and the
-    /// board accent rides the marker bar alone; `badge` paints an
-    /// attention dot in the given color (EXP-214: review green for open PRs,
-    /// amber for support/conflicts), `None` for no dot. EXP-723: one labelled
-    /// row, always — the icon-only variant went with the collapse.
-    ///
-    /// `tooltip` is `Some` only where the row has something the label cannot
-    /// say — Source Control's "synced 3m ago" / failure reason. Everywhere
-    /// else a tooltip would just repeat the visible label.
-    /// EXP-870: one rail entry — the labelled 28px row (EXP-1192: the rail
-    /// never folds to an icon column any more). Every nav/board/pinned entry
-    /// goes through here.
-    fn entry(
-        &self,
-        id: impl Into<gpui::ElementId>,
-        lead: gpui::AnyElement,
-        label: impl Into<SharedString>,
-        active: bool,
-        badge: Option<RailBadge>,
-        cx: &App,
-    ) -> gpui::Stateful<gpui::Div> {
-        rail_row_lead(id, lead, label, active, badge, cx)
-    }
-
-    /// A rail entry that navigates STRAIGHT to a tab-less full-page screen
-    /// instead of activating a tool window (EXP-467's Actions entry,
-    /// generalized by EXP-686 for Devices / Actions, and by
-    /// EXP-1294 for Home / Threads): the settings gear's direct-navigation shape in
-    /// the tool-icon slot. While its screen is up this entry is the ONE
-    /// highlighted row.
-    fn rail_screen_entry(
-        &self,
-        id: &'static str,
-        icon: Icon,
-        label: &'static str,
-        screen: Screen,
-        badge: Option<RailBadge>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let active = resolved_screen(&self.nav, cx).as_ref() == Some(&screen);
-        self.rail_screen_entry_active(id, icon, label, screen, badge, active, cx)
     }
 
     /// The footer's Computer button — THIS machine's tools behind one menu
@@ -1132,185 +876,6 @@ impl RailView {
         )
     }
 
-    /// [`Self::rail_screen_entry`] with the highlight decided by the CALLER.
-    #[allow(clippy::too_many_arguments)]
-    fn rail_screen_entry_active(
-        &self,
-        id: &'static str,
-        icon: Icon,
-        label: &'static str,
-        screen: Screen,
-        badge: Option<RailBadge>,
-        active: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let lead = icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element();
-        self.entry(id, lead, label, active, badge, cx)
-            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                // EXP-851: the rail is not a list — an entry never lends one.
-                crate::navigation::navigate_from_rail(window, cx, screen.clone());
-            }))
-            .into_any_element()
-    }
-
-    /// EXP-818/EXP-1294: the Home entry — the composer page, worded "Agent"
-    /// (the web sidebar's word, EXP-772) with the chat glyph. EXP-1001: no
-    /// badge — the Threads dot and the Running section are the live signal.
-    fn rail_home_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        self.rail_screen_entry(
-            "rail-agent",
-            Icon::from(registry::ACTION_CHAT),
-            "Agent",
-            Screen::Home,
-            None,
-            cx,
-        )
-    }
-
-    /// EXP-1294: the Threads entry — the team's sessions list page, a dot
-    /// while a thread needs you (amber) or one is running (green)
-    /// ([`threads_badge`]); EXP-1323: else the primary unread dot while a
-    /// thread has an agent reply the viewer has not read (`threads_unread`,
-    /// the Inbox's dot).
-    fn rail_threads_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let badge = active_team_id(&self.nav, cx).and_then(|team_id| {
-            let (needs_you, running) = crate::session_data::rail_threads_badge(&team_id, cx);
-            threads_badge(needs_you, running).map(RailBadge::Dot).or_else(|| {
-                crate::session_data::rail_threads_unread(&team_id, cx)
-                    .then(|| RailBadge::Dot(theme::tokens::PRIMARY.to_hsla()))
-            })
-        });
-        self.rail_screen_entry(
-            "rail-threads",
-            Icon::from(registry::NAV_THREADS),
-            domain::session_tree::THREADS_LIST.copy.title.as_str(),
-            Screen::Threads,
-            badge,
-            cx,
-        )
-    }
-
-    /// VAPP-110: one Apps row (the Agents row's twin): the app's glyph and
-    /// name. VAPP-242: click = THE RUN VIEW, lit while it runs and in its
-    /// editor; the hover gear (#FEED-203: every member) opens THE EDITOR on its Settings tab.
-    fn rail_app_row(
-        &self,
-        index: usize,
-        entry: &crate::apps_view::AppEntry,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let active = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::AppRun { app } | Screen::App { app }) if app == entry.id || app == entry.slug
-        );
-        let open = entry.id.clone();
-        let settings_id = entry.id.clone();
-        self.entry(
-            ("rail-app-row", index),
-            entry.rail_icon().with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
-            SharedString::from(entry.name.clone()),
-            active,
-            None,
-            cx,
-        )
-        .group(APP_ROW_GROUP)
-        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-            navigate(window, cx, Screen::AppRun { app: open.clone() })
-        }))
-        .child(rail_trailing_hover_action(
-            APP_ROW_GROUP,
-            None,
-            Button::new(("rail-app-settings", index))
-                .ghost()
-                .cursor_pointer()
-                .xsmall()
-                .icon(Icon::from(registry::NAV_SETTINGS))
-                .tooltip("App settings")
-                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                    cx.stop_propagation();
-                    crate::app_screen::open_app_tab(
-                        window,
-                        cx,
-                        settings_id.clone(),
-                        domain::apps::EditorTab::Settings,
-                        false,
-                    );
-                })),
-        ))
-        .into_any_element()
-    }
-
-    /// EXP-1294: one Agents row — the agent root's glyph tinted with its
-    /// color (the board rows' recipe), lit while its channel is up, the
-    /// Threads entry's dot while it needs you (amber) or works (green).
-    /// Click = the agent's channel; a hover gear (every member: the agent
-    /// page is theirs to edit) opens the agent's settings page.
-    fn rail_agent_row(
-        &self,
-        index: usize,
-        agent: &domain::session_tree::AgentRow,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        // NEW-6: the row is the agent DEFINITION; a click opens its page
-        // (the viewer's own conversation with it, empty before the first
-        // message, whose composer then opens it).
-        let active = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::Agent { agent_id })
-                if crate::agent_screen::resolve_agent_id(&agent_id, cx) == agent.agent_id
-        );
-        let icon = crate::icons::agent_row_icon(agent);
-        let settings_id = agent.agent_id.clone();
-        let open_id = agent.agent_id.clone();
-        self.entry(
-            ("rail-agent-row", index),
-            icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
-            SharedString::from(agent.name.clone()),
-            active,
-            None,
-            cx,
-        )
-        .group(AGENT_ROW_GROUP)
-        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-            navigate(
-                window,
-                cx,
-                Screen::Agent {
-                    agent_id: open_id.clone(),
-                },
-            )
-        }))
-        // Thread 58cb32df (chats.json `agentMenuCases`): the right-click =
-        // THE agent menu.
-        .pointer_context_menu({
-            let agent_id = agent.agent_id.clone();
-            move |menu, _, cx| crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &agent_id, cx)
-        })
-        // EXP-1477: the dot and the hover gear share the trailing column
-        // (the gear used to sit beside the dot, pushing it inwards).
-        .child(rail_trailing_hover_action(
-            AGENT_ROW_GROUP,
-            threads_badge(agent.needs_you, agent.busy)
-                .map(|tone| rail_badge_element(RailBadge::Dot(tone), 12., cx)),
-            Button::new(("rail-agent-settings", index))
-                .ghost()
-                .cursor_pointer()
-                .xsmall()
-                .icon(Icon::from(registry::NAV_SETTINGS))
-                .tooltip("Agent settings")
-                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                    cx.stop_propagation();
-                    select_settings_section(
-                        window,
-                        cx,
-                        crate::settings::SettingsSection::Agent(settings_id.clone()),
-                    );
-                    navigate(window, cx, Screen::Settings);
-                })),
-        ))
-        .into_any_element()
-    }
-
     /// The Getting-started entry (EXP-470): sits at the BOTTOM of the rail,
     /// under the What's-new card and above the account row, MUTED (EXP-723),
     /// and rendered only while the block is incomplete. EXP-1270: it opens
@@ -1427,98 +992,6 @@ impl RailView {
             }).anchor(gpui::Anchor::BottomLeft)
     }
 
-    /// One Projects board icon: the board's glyph tinted with its color,
-    /// selected while it is the active board AND the Board Issues tool is
-    /// up. Click = set the active board + activate Board Issues — a DIRECT
-    /// listener call (EXP-17: rail buttons dispatching App-global actions
-    /// from inside the window update silently no-op).
-    fn rail_board_icon(
-        &self,
-        index: usize,
-        board: &domain::rows::Board,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        // EXP-851: a board row highlights while ITS list screen is up (the
-        // dev sentinel names no board, so it falls back to the active one).
-        let active = match resolved_screen(&self.nav, cx) {
-            Some(Screen::BoardIssues { board_id }) if board_id == board.id => true,
-            Some(Screen::BoardIssues { board_id }) if board_id.is_empty() => {
-                active_board_id(&self.nav, cx).as_deref() == Some(board.id.as_str())
-            }
-            _ => false,
-        };
-        let tint = board
-            .color
-            .as_deref()
-            .and_then(parse_hex_color)
-            .unwrap_or_else(|| cx.theme().muted_foreground);
-        let icon = crate::icons::board_icon(board).text_color(tint);
-        let board_id = board.id.clone();
-        {
-            // FEED-3: hover gear → this board's settings page. Owner-gated
-            // like the settings nav's Boards group, so the selection never
-            // clamps away underneath a non-owner.
-            let owner = active_team_id(&self.nav, cx)
-                .map(|team_id| crate::settings::is_owner(cx, &team_id))
-                .unwrap_or(false);
-            let settings_board_id = board.id.clone();
-            // EXP-282: the board's own color tints the glyph whether the
-            // row is active or not — `active` only adds the row fill.
-            self.entry(
-                ("rail-board", index),
-                icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
-                SharedString::from(board.name.clone()),
-                active,
-                None,
-                cx,
-            )
-            .group(BOARD_ROW_GROUP)
-            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                crate::navigation::set_active_board(window, cx, board_id.clone());
-                navigate(
-                    window,
-                    cx,
-                    Screen::BoardIssues {
-                        board_id: board_id.clone(),
-                    },
-                );
-            }))
-            .when(owner, |row| {
-                row.child(rail_trailing_hover_action(
-                    BOARD_ROW_GROUP,
-                    None,
-                    Button::new(("rail-board-settings", index))
-                        .ghost().cursor_pointer()
-                        .xsmall()
-                        .icon(Icon::from(registry::NAV_SETTINGS))
-                        .tooltip("Board settings")
-                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            select_settings_section(
-                                window,
-                                cx,
-                                crate::settings::SettingsSection::Board(
-                                    settings_board_id.clone(),
-                                ),
-                            );
-                            navigate(window, cx, Screen::Settings);
-                        })),
-                ))
-            })
-            .into_any_element()
-        }
-    }
-
-    /// EXP-1022: what separates two sections in the rail — plain
-    /// [`SECTION_GAP`] space (the web sidebar draws no rules between its
-    /// groups either).
-    fn section_rule(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        div()
-            .w_full()
-            .h(px(SECTION_GAP))
-            .flex_shrink_0()
-            .into_any_element()
-    }
 }
 
 /// The left column's section rule — full width, like the web sidebar's. The
@@ -1550,23 +1023,10 @@ fn team_run_dot(live: Option<&crate::session_data::TeamLiveRuns>) -> Option<Hsla
     })
 }
 
-/// EXP-1294 — the rail Threads entry's dot: amber while a thread needs you
-/// (it wins — a session asking a question is the thing you must be told),
-/// green while one is queued or running, none otherwise. Pure.
-fn threads_badge(needs_you: bool, running: bool) -> Option<Hsla> {
-    if needs_you {
-        Some(theme::tokens::YELLOW.to_hsla())
-    } else if running {
-        Some(theme::tokens::GREEN.to_hsla())
-    } else {
-        None
-    }
-}
-
 /// EXP-1294 — a Running row's mark state off its tree's facts: needs you
 /// first, then working, else the quiet waiting mark (EXP-1312: the ×4
 /// `thread_row_mark_state`). Pure.
-fn running_row_state(busy: bool, needs_you: bool) -> domain::session_tree::SessionState {
+pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_tree::SessionState {
     domain::session_tree::thread_row_mark_state(needs_you, busy)
 }
 
@@ -1708,11 +1168,20 @@ pub(crate) fn render_left_column_header(
                 .menu_with_icon("Join team", registry::UI_INVITE, Box::new(JoinTeam))
         }).anchor(gpui::Anchor::TopLeft);
 
-    h_flex()
-        .w_full()
+    let rail = crate::ui_prefs::rail();
+    let mut rail_toggle = Some(Button::new("rail-toggle")
+        .ghost()
+        .web_icon_sm()
+        .flex_shrink_0()
+        .icon(if rail { registry::NAV_RAIL_EXPAND } else { registry::NAV_RAIL_COLLAPSE })
+        .tooltip(if rail { "Expand the sidebar" } else { "Collapse the sidebar" })
+        .on_click(|_: &ClickEvent, _, cx| toggle_rail(cx)));
+    let row = if rail { v_flex() } else { h_flex() };
+    row.w_full()
         .gap_1()
         .items_center()
-        .child(div().flex_1().min_w_0().child(switcher))
+        .when(rail, |row| row.children(rail_toggle.take()))
+        .when(!rail, |row| row.child(div().flex_1().min_w_0().child(switcher)))
         // #FEED-191: the Inbox, a popover anchored under its icon.
         .child(crate::inbox_popover::InboxButton::new(nav.clone()))
         .child(
@@ -1749,6 +1218,15 @@ pub(crate) fn render_left_column_header(
                     }),
             )
         })
+        .when(!rail, |row| row.children(rail_toggle.take()))
+}
+
+/// #EXP-1724: the sidebar folds into its icon rail and back: the shell
+/// reducer's `rail.toggle` (`shell.json`), remembered, every window.
+fn toggle_rail(cx: &mut App) {
+    let state = uicore_model::ShellState { rail: crate::ui_prefs::rail(), ..Default::default() };
+    crate::ui_prefs::set_rail(uicore_model::reduce(&state, &uicore_model::ShellEvent::RailToggle).rail);
+    cx.refresh_windows();
 }
 
 impl RailView {
@@ -1872,145 +1350,12 @@ impl Render for RailView {
         }
 
         let team_yolo = yolo_mode(&self.nav, cx);
-        // EXP-878: the Drafts pile — a root entry with its muted count
-        // (EXP-963) while any draft is parked (or the pile is on screen).
-        // EXP-1170: the draft open on the New issue page is not "parked" —
-        // it does not count.
-        let open_draft = match resolved_screen(&self.nav, cx) {
-            Some(Screen::IssueDraft { draft_id, .. }) => Some(draft_id),
-            _ => None,
-        };
-        let draft_count = active_team_id(&self.nav, cx)
-            .map(|id| {
-                crate::drafts::drafts_in_team(&id, cx)
-                    .iter()
-                    .filter(|draft| Some(&draft.id) != open_draft.as_ref())
-                    .count()
-            })
-            .unwrap_or(0);
-        // #FEED-191 (needs-you.json): Needs you lists only while a row exists
-        // (or its page is up: it stays reachable after the last answer).
-        let needs_you_count = active_team_id(&self.nav, cx)
-            .map(|id| crate::needs_you::rows_in_team(&id, cx).rows.len())
-            .unwrap_or(0);
+        let nav = self.nav.clone();
+        self.region.update(cx, |region, cx| region.refresh(&nav, cx));
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
         // (below), rendered until every checklist entry is done.
         let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
             .then(|| self.rail_getting_started_entry(cx));
-
-        // Projects section (EXP-253 — the top-bar board picker flattened into
-        // the rail): the ACTIVE team's boards as tinted icons + "+".
-        let active_team = active_team_id(&self.nav, cx);
-        let boards = active_team
-            .as_deref()
-            .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
-            .unwrap_or_default();
-        let mut board_icons: Vec<gpui::AnyElement> = boards
-            .iter()
-            .enumerate()
-            .map(|(index, board)| self.rail_board_icon(index, board, cx))
-            .collect();
-        // EXP-1274: a team with no boards says so under the band, the shared
-        // list empty state (web sidebar `board-switcher` parity).
-        if board_icons.is_empty() && active_team.is_some() {
-            board_icons.push(
-                crate::controls::empty_state_list(
-                    Icon::new(registry::NAV_BOARDS),
-                    crate::empty_state_copy::BOARD_SWITCHER,
-                    cx,
-                )
-                .into_any_element(),
-            );
-        }
-        // EXP-525: the section reads like the web sidebar — a "Boards" group
-        // label with a trailing `+`.
-        let boards_header: Option<gpui::AnyElement> =
-            active_team.clone().map(|team_id| {
-                self.section_label("Boards", cx)
-                    .child(
-                        Button::new("rail-new-board")
-                            .ghost().cursor_pointer()
-                            .xsmall()
-                            .icon(registry::UI_ADD)
-                            .tooltip("Create board")
-                            // Direct call (EXP-17): rail buttons must not
-                            // dispatch App-global actions.
-                            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                                crate::create_board_dialog::open(window, cx, team_id.clone());
-                            })),
-                    )
-                    .into_any_element()
-            });
-        // EXP-1294: the Agents section — the team's agent roots as tinted
-        // rows under an "Agents" label with a trailing `+` (the Boards
-        // section's twin); no rows, no empty copy — just the header.
-        let agents = active_team
-            .as_deref()
-            .map(|team_id| crate::session_data::agents_in_team(team_id, cx))
-            .unwrap_or_default();
-        let agent_rows: Vec<gpui::AnyElement> = agents
-            .iter()
-            .enumerate()
-            .map(|(index, agent)| self.rail_agent_row(index, agent, cx))
-            .collect();
-        // EXP-1319: the `+` opens the New agent PAGE in Settings (web parity),
-        // owner-only like the page.
-        let agents_header: Option<gpui::AnyElement> =
-            active_team.clone().map(|team_id| {
-                let owner = crate::settings::is_owner(cx, &team_id);
-                self.section_label(domain::session_tree::THREADS_LIST.copy.agents.as_str(), cx)
-                    .when(owner, |label| {
-                        label.child(
-                            Button::new("rail-new-agent")
-                                .ghost().cursor_pointer()
-                                .xsmall()
-                                .icon(registry::UI_ADD)
-                                .tooltip(domain::agent_settings::AGENT_SETTINGS.copy.new_agent.clone())
-                                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                                    select_settings_section(
-                                        window,
-                                        cx,
-                                        crate::settings::SettingsSection::NewAgent,
-                                    );
-                                    navigate(window, cx, Screen::Settings);
-                                })),
-                        )
-                    })
-                    .into_any_element()
-            });
-        // VAPP-110: the Apps section — the team's apps (by name) under an
-        // "Apps" label whose `+` opens the New app form
-        // (every member creates apps).
-        let app_rows: Vec<gpui::AnyElement> = active_team
-            .as_deref()
-            .map(|team_id| crate::apps_view::app_entries(team_id, cx))
-            .unwrap_or_default()
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| self.rail_app_row(index, entry, cx))
-            .collect();
-        // VAPP-242: the label is NOT clickable (there is no Apps page); the
-        // `+` opens THE NEW MENU (New app / Import…).
-        let apps_header: Option<gpui::AnyElement> = active_team.clone().map(|team_id| {
-            self.section_label(domain::apps::APPS.copy.title.as_str(), cx)
-                .child(crate::apps_view::new_menu_button(team_id))
-                .into_any_element()
-        });
-        // EXP-923: MY live threads — under the boards, hidden while nothing
-        // is running.
-        let running_section = self.render_running_section(cx);
-        // EXP-778: the Pinned section — hidden while nothing is pinned.
-        let pinned_rows = self.render_pinned_rows(cx);
-        let pinned_section: Option<gpui::AnyElement> = (!pinned_rows.is_empty()).then(|| {
-            let rule = self.section_rule(cx);
-            v_flex()
-                .w_full()
-                .gap_1()
-                .child(rule)
-                .child(self.section_label("Pinned", cx))
-                .children(pinned_rows)
-                .into_any_element()
-        });
 
         // Source Control badge (EXP-253 — the git bar is headless now, this
         // badge is its whole rail presence): attention (conflict / local
@@ -2077,36 +1422,6 @@ impl Render for RailView {
         // EXP-1105: yolo mode hides Files / Source Control unless a git
         // failure needs a person (see `yolo_rail`).
         let rail_gate = yolo_rail(team_yolo.unwrap_or(false), sc_failing);
-        // NEW-6: no Actions entry (prompts live in the composer's `/` menu
-        // and Settings → Prompts); Drafts follows while any draft is parked.
-        let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
-        let drafts_entry = (draft_count > 0 || on_drafts).then(|| {
-            self.rail_screen_entry(
-                "rail-drafts",
-                Icon::from(registry::NAV_DRAFTS),
-                "Drafts",
-                Screen::Drafts,
-                Some(RailBadge::Count(
-                    draft_count,
-                    crate::surface::BadgeTone::Muted,
-                )),
-                cx,
-            )
-        });
-        let on_needs_you = matches!(resolved_screen(&self.nav, cx), Some(Screen::NeedsYou));
-        let needs_you_entry = (needs_you_count > 0 || on_needs_you).then(|| {
-            self.rail_screen_entry(
-                "rail-needs-you",
-                Icon::from(registry::NAV_NEEDS_YOU),
-                domain::needs_you::NEEDS_YOU.copy.entry.as_str(),
-                Screen::NeedsYou,
-                Some(RailBadge::Count(
-                    needs_you_count,
-                    crate::surface::BadgeTone::Muted,
-                )),
-                cx,
-            )
-        });
         // The footer's Computer menu: Terminal (EXP-791's footer button),
         // Files and Source Control.
         let computer_entry = self.rail_computer_entry(
@@ -2118,7 +1433,10 @@ impl Render for RailView {
         );
 
         // #NEW-97: no tray host = the voice button beside the Computer one.
-        let voice_entry = self.rail_voice_entry(cx);
+        let mut voice_entry = self.rail_voice_entry(cx);
+        let mut computer_entry = Some(computer_entry);
+        let mut settings_entry = Some(settings_entry);
+        let rail = crate::ui_prefs::rail();
 
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
@@ -2129,22 +1447,6 @@ impl Render for RailView {
         // edge (rows slide behind it) — rendered up front so the scroll
         // content knows whether to keep clearance under its last row.
         let whats_new_card = self.render_whats_new_card(cx);
-        let whats_new_clearance = whats_new_card.is_some();
-        // EXP-1557: rows running on under the footer fade out instead of
-        // being cut mid-row (the search list's bottom-fade idiom), into the
-        // ground the Shell paints at the pane's bottom edge.
-        let rail_fade = (!whats_new_clearance)
-            .then(|| {
-                let pane = self.rail_scroll.bounds();
-                let max = f32::from(self.rail_scroll.max_offset().y);
-                let offset = f32::from(self.rail_scroll.offset().y);
-                let more = max > 0. && -offset < max - 1.;
-                let height = f32::from(window.viewport_size().height);
-                (more && height > 0.).then(|| {
-                    theme::background_gradient_color_at(f32::from(pane.bottom()) / height)
-                })
-            })
-            .flatten();
         // EXP-997: the column's 8px gutter belongs to the SCROLL CONTENT and
         // the footer rows, not the column — the scroll pane spans the full
         // column width. EXP-1095: the vendored thumb (6-8px, inset 4 in a
@@ -2157,8 +1459,8 @@ impl Render for RailView {
         // animates into Settings the rows are clipped instead of reflowing
         // frame by frame.
         v_flex()
-            .w(px(crate::resize_edge::panel_width(
-                crate::resize_edge::SidebarPanel::Main,
+            .w(px(crate::shell::left_column_width_for(
+                crate::shell::LeftOccupant::Rail,
                 crate::shell::window_extent(window),
             )))
             .flex_shrink_0()
@@ -2176,83 +1478,30 @@ impl Render for RailView {
             // ground the Shell ROOT paints under the whole window, with no
             // edge where it meets the content.
             .text_color(cx.theme().sidebar_foreground)
-            // Middle zone — scrollable so many boards never push the pinned
-            // Settings/Account off small windows. Rail order (EXP-1294):
-            // [Agent, Needs you?, Chats, Devices, Drafts?] / Pinned
-            // (EXP-778) / Agents + "+" / Boards + "+" / Running (EXP-923).
-            // Terminal, Files and Source Control are the footer's Computer
-            // menu.
-            .child(crate::scroll_pane::sidebar_scroll_pane(
-                "rail-scroll",
-                &self.rail_scroll,
-                v_flex()
+            // #EXP-1725: the rows are the shared sidebar document; right-click
+            // on the row under the pointer = THE agent or chat menu.
+            .child(
+                div()
+                    .id("rail-region")
                     .w_full()
-                    .px_2()
-                    .gap_1()
-                    .when(whats_new_clearance, |content| {
-                        content.pb(px(WHATS_NEW_CLEARANCE))
-                    })
-                    // EXP-791: "Agent", the web sidebar's word for the Home
-                    // page (EXP-772). EXP-1192: the first entry — the page
-                    // the window lands on.
-                    .child(self.rail_home_entry(cx))
-                    // #FEED-191: Needs you (while any), right after Agent.
-                    .children(needs_you_entry)
-                    // EXP-1294: Threads, the team's sessions list.
-                    .child(self.rail_threads_entry(cx))
-                    // EXP-686: Devices, the machine list.
-                    .child(self.rail_screen_entry(
-                        "rail-devices",
-                        Icon::from(icons::registry::NAV_DEVICES),
-                        "Devices",
-                        Screen::Devices,
-                        None,
-                        cx,
-                    ))
-                    // Drafts (while any) closes the nav entries.
-                    .children(drafts_entry)
-                    // EXP-778: Pinned sits between the nav entries and the
-                    // Agents (rail order: entries / Pinned / Agents / boards /
-                    // Running).
-                    .children(pinned_section)
-                    .child(self.section_rule(cx))
-                    .children(agents_header)
-                    .children(agent_rows)
-                    // VAPP-110: the Apps group, the Agents' twin.
-                    .child(self.section_rule(cx))
-                    .children(apps_header)
-                    .children(app_rows)
-                    .child(self.section_rule(cx))
-                    .children(boards_header)
-                    .children(board_icons)
-                    // EXP-923: Running — MY live threads.
-                    .children(running_section),
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.region.clone())
+                    .pointer_context_menu({
+                        let region = self.region.clone();
+                        move |menu, _, cx| {
+                            let region = region.read(cx);
+                            let Some(id) = region.hovered() else { return menu };
+                            if region.is_agent(&id) {
+                                crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &id, cx)
+                            } else if region.is_active(&id) {
+                                crate::chat_actions::chat_menu_items(menu, &id, false, cx)
+                            } else {
+                                menu
+                            }
+                        }
+                    }),
             )
-            // EXP-1022: the What's-new card, floating over the scroll area's
-            // bottom edge in the column's gutter; the `sidebar_scroll_pane` shell
-            // is `relative`, so the card anchors to the pane's bounds.
-            .children(whats_new_card.map(|card| {
-                div()
-                    .absolute()
-                    .bottom_0()
-                    .left_0()
-                    .right_0()
-                    .px_2()
-                    .child(card)
-            }))
-            .children(rail_fade.map(|ground| {
-                div()
-                    .absolute()
-                    .bottom_0()
-                    .left_0()
-                    .right_0()
-                    .h(px(RAIL_FADE_H))
-                    .bg(gpui::linear_gradient(
-                        180.,
-                        gpui::linear_color_stop(ground.opacity(0.), 0.),
-                        gpui::linear_color_stop(ground, 1.),
-                    ))
-            })))
             // EXP-723: the web sidebar footer's order, top to bottom — the
             // muted Getting-started re-entry point, the sync spinner, then
             // the account row with the settings gear (the What's-new card
@@ -2262,26 +1511,31 @@ impl Render for RailView {
                     .w_full()
                     .px_2()
                     .gap_1()
-                    .children(getting_started_icon)
-                    .children(self.render_sync_indicator(cx))
+                    .when(rail, |footer| footer.items_center())
+                    .when(!rail, |footer| {
+                        footer
+                            .children(whats_new_card)
+                            .children(getting_started_icon)
+                            .children(self.render_sync_indicator(cx))
+                    })
                     // EXP-340: one bottom row — the account button fills the
                     // width, the Computer menu and the gear ride its right
-                    // edge.
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .gap_1()
-                            .items_center()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(self.render_account_button(cx)),
-                            )
-                            .children(voice_entry)
-                            .child(computer_entry)
-                            .child(settings_entry),
-                    ),
+                    // edge. #EXP-1724: in the rail they stack.
+                    .when(rail, |footer| {
+                        footer.children(voice_entry.take()).children(computer_entry.take()).children(settings_entry.take())
+                    })
+                    .when(!rail, |footer| {
+                        footer.child(
+                            h_flex()
+                                .w_full()
+                                .gap_1()
+                                .items_center()
+                                .child(div().flex_1().min_w_0().child(self.render_account_button(cx)))
+                                .children(voice_entry.take())
+                                .children(computer_entry.take())
+                                .children(settings_entry.take()),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -2372,7 +1626,7 @@ impl Render for ListPanel {
 
 #[cfg(test)]
 mod tests {
-    use super::{running_row_state, threads_badge, yolo_rail, ToolWindow, YoloRail};
+    use super::{running_row_state, yolo_rail, ToolWindow, YoloRail};
     use crate::navigation::Screen;
 
     /// EXP-1105: yolo mode hides Files / Source Control, but a git failure
@@ -2403,18 +1657,6 @@ mod tests {
                 source_control: true,
             }
         );
-    }
-
-    /// EXP-1294: the Threads entry's dot — amber wins over green, nothing
-    /// when no thread needs you or runs.
-    #[test]
-    fn the_threads_dot_says_needs_you_before_running() {
-        let amber = theme::tokens::YELLOW.to_hsla();
-        let green = theme::tokens::GREEN.to_hsla();
-        assert_eq!(threads_badge(true, true), Some(amber));
-        assert_eq!(threads_badge(true, false), Some(amber));
-        assert_eq!(threads_badge(false, true), Some(green));
-        assert_eq!(threads_badge(false, false), None);
     }
 
     /// EXP-1294: a Running row's mark — needs you first, then working, else

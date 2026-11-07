@@ -79,6 +79,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPullRequestDraft: vi.fn(async () => {}),
   applyPullRequestMerged: vi.fn(async () => ({ applied: true, txid: 7 })),
   deleteMergedHeadBranch: vi.fn(async () => `deleted`),
+  leaveGithubStack: vi.fn(async () => {}),
   livePullRequestsOfRepo: vi.fn(async () => []),
   livePullRequestsOfRoot: vi.fn(async () => []),
   loadLivePullRequestByHead: vi.fn(async () => null),
@@ -149,6 +150,7 @@ import {
   resolvePullRequest,
   syncPullRequestBodies,
   unlinkPullRequestIssue,
+  retargetPullRequest,
 } from "@/lib/pull-requests"
 
 const REPO = {
@@ -285,6 +287,27 @@ describe(`openPullRequest`, () => {
     expect(stacks.ensureGithubStack).toHaveBeenCalledWith(
       expect.objectContaining({ lowerPrNumber: 5, newPrNumber: 7 })
     )
+  })
+
+  it(`#EXP-1711: with the train on the repo a PR joins no native stack`, async () => {
+    process.env.MERGE_TRAIN = `true`
+    try {
+      h.selectQueue.push([{ id: `root-1`, teamId: `team-1`, guide: null }], [{ slug: `acme` }])
+      vi.mocked(sync.livePullRequestsOfRepo).mockResolvedValueOnce([
+        pr({ id: `pr-0`, number: 5, head: `exp/EXP-0` }),
+      ] as never)
+      vi.mocked(stacks.inferBaseBranch).mockResolvedValueOnce({ base: `exp/EXP-0`, prNumber: 5 })
+      vi.mocked(sync.recordPullRequestOpened).mockResolvedValueOnce({
+        pullRequest: pr({ basePullRequestId: `pr-0`, base: `exp/EXP-0` }) as never,
+        created: true,
+        linkedIssueIds: [],
+        txid: 1,
+      })
+      await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Stacked` })
+      expect(stacks.ensureGithubStack).not.toHaveBeenCalled()
+    } finally {
+      delete process.env.MERGE_TRAIN
+    }
   })
 
   it(`refuses an explicit issue of another team before any GitHub call`, async () => {
@@ -599,6 +622,26 @@ describe(`mergePullRequest`, () => {
     vi.mocked(sync.loadPullRequest).mockResolvedValueOnce(pr({ state: `draft` }) as never)
     const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
     expect(result.error).toMatch(/draft/)
+  })
+})
+
+describe(`retargetPullRequest`, () => {
+  it(`#EXP-1711: a stack member GitHub refuses leaves the stack, then moves`, async () => {
+    h.selectQueue.push([])
+    vi.mocked(gh.retargetPullRequest).mockRejectedValueOnce(
+      new gh.GitHubMergeError(422, `Pull request is part of a stack`)
+    )
+    await expect(retargetPullRequest({ userId: `u-1`, pullRequestId: `pr-1`, base: `master` })).resolves.toEqual({ base: `master` })
+    expect(sync.leaveGithubStack).toHaveBeenCalledWith({ repo: `o/r`, prNumber: 7, token: `tok` })
+    expect(gh.retargetPullRequest).toHaveBeenCalledTimes(2)
+    expect(sync.applyPullRequestBase).toHaveBeenCalledWith({ pullRequestId: `pr-1`, base: `master` })
+  })
+
+  it(`any other refusal stays a refusal`, async () => {
+    h.selectQueue.push([])
+    vi.mocked(gh.retargetPullRequest).mockRejectedValueOnce(new gh.GitHubMergeError(422, `No such base`))
+    await expect(retargetPullRequest({ userId: `u-1`, pullRequestId: `pr-1`, base: `nope` })).rejects.toThrow(/not a valid base/)
+    expect(sync.leaveGithubStack).not.toHaveBeenCalled()
   })
 })
 

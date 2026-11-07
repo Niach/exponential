@@ -65,6 +65,16 @@ Colour tokens both sides read from `packages/design-tokens` (`glass`):
 Status counts: 32 rows, `same` 13, `close` 18, `gap` 1 → 31 of 32 rows (97 %)
 are `same` or `close`.
 
+## The IDE's move (#EXP-1722)
+
+The IDE mounts the same documents in place (`uicore_gpui::inline`), region by
+region (#EXP-1725); each step ships with a headless picture, the feature
+checklist and frame times (`crates/ui/src/shell_bench.rs`), then the gpui code
+goes. The rows of the left column are `sidebar.json`, fed from `/shell/ide`
+(`fixtures/ide-sidebar.json`); a row's glyph (a tinted board, the agent's
+animated mark, a dot, a count) is painted by the host (`HostPlugin::icon_element`,
+named `ide:<kind>:<id>`), so the document stays the catalog's.
+
 ## eDE-only regions (not counted by the gate)
 
 | eDE region | state / selector | genUI components | numbers |

@@ -1306,20 +1306,12 @@ public enum AppRecords {
 
 // MARK: - The offline outbox (VAPP-235, fixture `outbox`)
 
-/// VAPP-235 (eApps O1, docs/spec/apps.md §14): the app host queues every
-/// record write as ONE entry, lays the entries over the synced rows and
-/// replays them in order with an idempotency key (TS `outboxWrites` …
-/// `outboxPendingLabel`; desktop `domain::app_records`, Android
-/// `AppRecords.kt`; `AppRecordsTests` replays every `outbox.*Cases`). The
-/// web stays online-only.
+/// VAPP-235 (eApps O1, docs/spec/apps.md §14): VAPP-272: the queue is the
+/// Engine's (`SyncedRecordStore`). What stays here is how the entries read
+/// over the synced rows: the overlay and the pending label (`AppRecordsTests`
+/// replays `rowsCases` and `pendingCases`).
 extension AppRecords {
     public enum Outbox {
-        public static let ackGraceSeconds: Double = 30
-        public static let retryCodes = [
-            "UNAUTHORIZED", "TIMEOUT", "TOO_MANY_REQUESTS", "CLIENT_CLOSED_REQUEST",
-            "INTERNAL_SERVER_ERROR", "BAD_GATEWAY", "SERVICE_UNAVAILABLE", "GATEWAY_TIMEOUT",
-        ]
-
         public enum Copy {
             public static let pendingOne = "1 change waiting to sync"
             /// `{n} changes waiting to sync`.
@@ -1440,86 +1432,6 @@ extension AppRecords {
         case code(String)
     }
 
-    public enum OutboxOutcome: String, Equatable, Sendable {
-        case done, retry, dropped, refused
-    }
-
-    /// The replay request of an entry; the host adds the app (`id`).
-    public struct OutboxRequest: Equatable, Sendable {
-        public let call: OutboxCall
-        public let input: [String: CardJSON]
-    }
-
-    /// One flush's answer (`flushCases`).
-    public struct OutboxFlushResult: Equatable, Sendable {
-        public struct Refused: Equatable, Sendable {
-            public let writeId: String
-            /// `save` | `delete` (`outboxVerb`).
-            public let verb: String
-        }
-
-        public let sent: [String]
-        public let refused: [Refused]
-        public let after: [OutboxEntry]
-    }
-
-    /// A host call's writes (TS `outboxWrites`, `writesCases`): a create
-    /// takes the next client id.
-    public static func outboxWrites(call: OutboxCall, args: [String: CardJSON], newIds: [String]) -> [OutboxWrite] {
-        var next = 0
-        func upsert(_ w: [String: CardJSON]) -> OutboxWrite {
-            let data = w["data"]?.objectValue ?? [:]
-            var kind = ""
-            if case let .string(k)? = w["kind"] { kind = k }
-            if case let .string(id)? = w["id"] { return OutboxWrite(op: .update, id: id, kind: kind, data: data) }
-            let id = next < newIds.count ? newIds[next] : ""
-            next += 1
-            return OutboxWrite(op: .create, id: id, kind: kind, data: data)
-        }
-        func idOf(_ w: [String: CardJSON]) -> String {
-            if case let .string(id)? = w["id"] { return id }
-            return ""
-        }
-        switch call {
-        case .upsert: return [upsert(args)]
-        case .delete: return [OutboxWrite(op: .delete, id: idOf(args))]
-        case .batch:
-            guard case let .array(list)? = args["writes"] else { return [] }
-            return list.compactMap(\.objectValue).map { w in
-                if case .string("delete")? = w["op"] { return OutboxWrite(op: .delete, id: idOf(w)) }
-                return upsert(w)
-            }
-        }
-    }
-
-    /// How many client ids a host call's creates take (the host mints them
-    /// before `outboxWrites`).
-    public static func outboxCreates(call: OutboxCall, args: [String: CardJSON]) -> Int {
-        outboxWrites(call: call, args: args, newIds: []).filter { $0.op == .create }.count
-    }
-
-    /// The replay request of an entry (TS `outboxRequest`, `requestCases`).
-    public static func outboxRequest(_ entry: OutboxEntry) -> OutboxRequest {
-        let writeId = CardJSON.string(entry.writeId)
-        if entry.call == .batch {
-            let writes: [CardJSON] = entry.writes.map { w in
-                switch w.op {
-                case .delete: return .object(["op": .string("delete"), "id": .string(w.id)])
-                case .create: return .object(["op": .string("upsert"), "kind": .string(w.kind), "data": .object(w.data), "newId": .string(w.id)])
-                case .update: return .object(["op": .string("upsert"), "kind": .string(w.kind), "data": .object(w.data), "id": .string(w.id)])
-                }
-            }
-            return OutboxRequest(call: .batch, input: ["writes": .array(writes), "writeId": writeId])
-        }
-        guard let w = entry.writes.first else { return OutboxRequest(call: entry.call, input: ["writeId": writeId]) }
-        if w.op == .delete {
-            return OutboxRequest(call: .delete, input: ["recordId": .string(w.id), "writeId": writeId])
-        }
-        var input: [String: CardJSON] = ["kind": .string(w.kind), "data": .object(w.data), "writeId": writeId]
-        input[w.op == .create ? "newId" : "recordId"] = .string(w.id)
-        return OutboxRequest(call: .upsert, input: input)
-    }
-
     /// The visible rows: the synced rows with every entry laid over them,
     /// oldest first (TS `outboxRows`, `rowsCases`).
     public static func outboxRows(_ rows: [Row], entries: [OutboxEntry], me: String?) -> [Row] {
@@ -1550,7 +1462,7 @@ extension AppRecords {
     }
 
     /// VAPP-212: the ids `entries` write: the only synced rows `outboxOverlay`
-    /// and `outboxPrune` read.
+    /// and the Engine's prune read.
     public static func outboxWrittenIds(_ entries: [OutboxEntry]) -> Set<String> {
         Set(entries.flatMap { $0.writes.map(\.id) })
     }
@@ -1564,89 +1476,12 @@ extension AppRecords {
         return OutboxOverlay(upserts: upserts, deletes: written.filter { !kept.contains($0) }.sorted())
     }
 
-    /// What a replay's answer does to its entry (TS `outboxOutcome`,
-    /// `outcomeCases`).
-    public static func outboxOutcome(_ entry: OutboxEntry, result: OutboxResult) -> OutboxOutcome {
-        switch result {
-        case .ok: return .done
-        case .transport: return .retry
-        case let .code(code):
-            if Outbox.retryCodes.contains(code) { return .retry }
-            if code == "NOT_FOUND", entry.call != .batch, entry.writes.allSatisfy({ $0.op != .create }) { return .dropped }
-            return .refused
-        }
-    }
-
-    /// The failed-action toast's verb for a refused entry (`save` | `delete`).
-    public static func outboxVerb(_ entry: OutboxEntry) -> String {
-        entry.writes.allSatisfy { $0.op == .delete } ? "delete" : "save"
-    }
-
-    /// One flush (TS `outboxFlush`, `flushCases`): pending entries oldest
-    /// first, one at a time; a retry stops it; `results` = each write id's
-    /// answer (missing = no network).
-    public static func outboxFlush(_ entries: [OutboxEntry], results: [String: OutboxResult], now: String) -> OutboxFlushResult {
-        var sent: [String] = []
-        var refused: [OutboxFlushResult.Refused] = []
-        var after: [OutboxEntry] = []
-        var stopped = false
-        for entry in entries {
-            if stopped || entry.state == .acked {
-                after.append(entry)
-                continue
-            }
-            sent.append(entry.writeId)
-            switch outboxOutcome(entry, result: results[entry.writeId] ?? .transport) {
-            case .done:
-                var acked = entry
-                acked.state = .acked
-                acked.ackedAt = now
-                after.append(acked)
-            case .retry:
-                stopped = true
-                after.append(entry)
-            case .refused:
-                refused.append(.init(writeId: entry.writeId, verb: outboxVerb(entry)))
-            case .dropped:
-                break
-            }
-        }
-        return OutboxFlushResult(sent: sent, refused: refused, after: after)
-    }
-
-    /// Do the synced rows reflect an entry (TS `outboxReflected`)?
-    public static func outboxReflected(_ entry: OutboxEntry, rows: [Row]) -> Bool {
-        entry.writes.allSatisfy { w in
-            let row = rows.first { $0.id == w.id }
-            if w.op == .delete { return row == nil }
-            guard let row else { return false }
-            return w.data.allSatisfy { key, value in jsonEqual(row.data[key], value) }
-        }
-    }
-
-    /// The entries that stay (TS `outboxPrune`, `pruneCases`): pending ones,
-    /// and acked ones the rows don't reflect yet within the grace.
-    public static func outboxPrune(_ entries: [OutboxEntry], rows: [Row], now: String) -> [OutboxEntry] {
-        let nowDate = WireTimestamps.parse(now)
-        return entries.filter { e in
-            if e.state != .acked { return true }
-            if outboxReflected(e, rows: rows) { return false }
-            guard let nowDate, let acked = WireTimestamps.parse(e.ackedAt ?? e.at) else { return false }
-            return nowDate.timeIntervalSince(acked) < Outbox.ackGraceSeconds
-        }
-    }
-
     /// The header glyph's label for an app's pending entries (TS
     /// `outboxPendingLabel`, `pendingCases`); nil = no glyph.
     public static func outboxPendingLabel(_ entries: [OutboxEntry], appId: String) -> String? {
         let n = entries.filter { $0.appId == appId && $0.state == .pending }.count
         if n == 0 { return nil }
         return n == 1 ? Outbox.Copy.pendingOne : Outbox.Copy.pending.replacingOccurrences(of: "{n}", with: String(n))
-    }
-
-    /// `now` as the entries carry it (JS `toISOString`).
-    public static func outboxNow(_ date: Date = Date()) -> String {
-        isoMillis.string(from: date)
     }
 
     /// A replay failure as the outbox reads it: the server's tRPC code; an

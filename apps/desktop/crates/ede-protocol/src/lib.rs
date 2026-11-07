@@ -20,11 +20,12 @@
 //! (the sealed lock, a sandboxed agent) keeps that one.
 
 use std::{
-    collections::VecDeque,
     io::{Read, Write},
-    os::unix::net::UnixStream,
     path::{Path, PathBuf},
 };
+
+#[cfg(unix)]
+use std::{collections::VecDeque, os::unix::net::UnixStream};
 
 pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, Token, WindowId};
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,9 @@ pub mod events {
     /// A bound global shortcut went down / up (data: [`super::ShortcutEvent`], #EDE-15).
     pub const SHORTCUT_ACTIVATED: &str = "shortcut.activated";
     pub const SHORTCUT_DEACTIVATED: &str = "shortcut.deactivated";
+    /// The person pressed Esc during a [`super::Request::HoldInput`]: every
+    /// hold is over (#EDE-23). Sent to the holders only, subscribed or not.
+    pub const INPUT_ESCAPE: &str = "input.escape";
 }
 
 /// The socket and token file of the compositor serving `wayland_display`.
@@ -114,6 +118,14 @@ pub enum Request {
     },
     /// Where the pointer is (global logical coordinates): [`PointerInfo`].
     PointerPosition,
+    /// Hold the person's own keyboard and pointer out while this connection
+    /// lives (or until [`Request::ReleaseInput`]): nothing they do reaches a
+    /// window, [`Request::Input`] still does (#EDE-23, ePilot's foreground
+    /// lock). Their Esc ends every hold and arrives as
+    /// [`events::INPUT_ESCAPE`]. The session lock screen always takes their
+    /// input.
+    HoldInput,
+    ReleaseInput,
     ReloadConfig,
     Lock,
     /// End the session cleanly (the compositor exits 0; exponential-session logs out).
@@ -190,7 +202,7 @@ impl Request {
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
-            Request::Input { .. } => Some(Capability::InputPerson),
+            Request::Input { .. } | Request::HoldInput | Request::ReleaseInput => Some(Capability::InputPerson),
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
         }
     }
@@ -405,6 +417,7 @@ impl From<std::io::Error> for Error {
 
 /// A blocking client. Events that arrive while waiting for a reply queue
 /// up for [`Client::next_event`].
+#[cfg(unix)]
 pub struct Client {
     stream: UnixStream,
     next_id: u64,
@@ -413,6 +426,7 @@ pub struct Client {
     pub hello: Hello,
 }
 
+#[cfg(unix)]
 impl Client {
     /// Connects to `socket` and says hello with `token`.
     pub fn connect(socket: &Path, token: Token) -> Result<Self, Error> {
@@ -533,6 +547,22 @@ impl Client {
         self.call_as(Request::PointerPosition)
     }
 
+    /// [`Request::HoldInput`]: the hold lasts until [`Client::release_input`]
+    /// or this connection closes.
+    pub fn hold_input(&mut self) -> Result<(), Error> {
+        self.call(Request::HoldInput).map(|_| ())
+    }
+
+    pub fn release_input(&mut self) -> Result<(), Error> {
+        self.call(Request::ReleaseInput).map(|_| ())
+    }
+
+    /// The socket itself, e.g. to [`UnixStream::shutdown`] a connection
+    /// another thread blocks on in [`Client::next_event`].
+    pub fn try_clone_stream(&self) -> std::io::Result<UnixStream> {
+        self.stream.try_clone()
+    }
+
     /// A person's key: through the bindings and hotkeys (root grant only).
     pub fn input_as_person(&mut self, event: InputEvent) -> Result<(), Error> {
         self.call(Request::Input { event, bindings: true }).map(|_| ())
@@ -622,6 +652,7 @@ mod tests {
         let sym = Call { id: 2, request: Request::Input { event: InputEvent::Keysym { keysym: 0x41, pressed: true }, bindings: false } };
         assert_eq!(serde_json::to_value(&sym).unwrap(), serde_json::json!({"id": 2, "op": "input", "event": {"kind": "keysym", "keysym": 65, "pressed": true}}));
         assert_eq!(serde_json::to_value(Call { id: 3, request: Request::PointerPosition }).unwrap(), serde_json::json!({"id": 3, "op": "pointer_position"}));
+        assert_eq!(serde_json::to_value(Call { id: 4, request: Request::HoldInput }).unwrap(), serde_json::json!({"id": 4, "op": "hold_input"}));
     }
 
     #[test]
@@ -632,6 +663,8 @@ mod tests {
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
         assert_eq!(Request::ListWindows.capability(), None);
         assert_eq!(Request::PointerPosition.capability(), None);
+        assert_eq!(Request::HoldInput.capability(), Some(Capability::InputPerson));
+        assert_eq!(Request::ReleaseInput.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Input { event: InputEvent::Keysym { keysym: 0x61, pressed: true }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::MinimizeWindow { window: WindowId::new("w1").unwrap() }.capability(), Some(Capability::Ui));
         assert_eq!(Request::RestoreWindow { window: WindowId::new("w1").unwrap() }.capability(), Some(Capability::Ui));

@@ -17,12 +17,15 @@ pub const CAPABILITY_SCOPES: &[&str] = &[
     "clipboard.write",
     "files.read",
     "files.write",
+    "focus.window",
     "http.fetch",
+    "launch.app",
     "location.read",
     "notifications.post",
     "photos.read",
     "print.pdf",
     "share.send",
+    "windows.read",
 ];
 /// The scopes whose entry lists its `origins` (and only these may).
 pub const CAPABILITY_ORIGIN_SCOPES: &[&str] = &["http.fetch"];

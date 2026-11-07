@@ -1,5 +1,6 @@
 package com.exponential.app.ui.apps
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -30,12 +31,15 @@ import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.LaunchDeviceRules
+import com.exponential.app.domain.SessionDeviceMove
 import com.exponential.app.ui.components.FailedAction
+import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.steer.SessionSender
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -243,9 +247,14 @@ class AppEditorViewModel @Inject constructor(
     private val sessionsApi: SessionsApi,
     private val sender: SessionSender,
     private val accessApi: com.exponential.app.data.api.McpSettingsApi,
+    @ApplicationContext context: Context,
 ) : ViewModel() {
 
     val appId: String = savedStateHandle["appId"] ?: ""
+
+    /** #FEED-204: the device picked per app, on this device only. */
+    private val devicePicks = context.getSharedPreferences("exp.apps.editorDevice", Context.MODE_PRIVATE)
+    private val rememberedDevice = MutableStateFlow(devicePicks.getString(appId, null))
 
     /** eApps R3: my app access (`appAccess.mine`; null = write until known):
      *  the Data tab disables what the server would refuse. */
@@ -521,11 +530,67 @@ class AppEditorViewModel @Inject constructor(
         if (me == null) null else rows.firstOrNull { it.appId == appId && it.userId == me && it.parentId == null }
     }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** The device the FIRST send runs on: my default online one, else the first. */
-    val deviceId: StateFlow<String?> =
-        steerDeviceFlow(dbFlow, app.map { it?.teamId }.distinctUntilChanged(), auth.userId)
-            .map { devices -> LaunchDeviceRules.resolve(devices.orEmpty().filter { it.online }, null, null)?.deviceId }
-            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    /** #FEED-204 (apps.json EDITOR DEVICE): the composer's Device › rows and
+     *  [Apps.editorDevice]'s choice over the online devices (with a root: the
+     *  ones it may move to) and the remembered pick. */
+    data class EditorDevice(
+        val rows: List<DevicePickerDevice> = emptyList(),
+        val choice: Apps.EditorDeviceChoice = Apps.EditorDeviceChoice(null, move = false),
+        val appMove: AgentSessionViewModel.AppMove? = null,
+    )
+
+    val editorDevice: StateFlow<EditorDevice> = combine(
+        steerDeviceFlow(dbFlow, app.map { it?.teamId }.distinctUntilChanged(), auth.userId),
+        root,
+        rememberedDevice,
+        auth.userId,
+    ) { devices, session, remembered, me ->
+        val all = devices.orEmpty()
+        val candidates = all.filter { device ->
+            device.online && (
+                session == null || device.deviceId == session.deviceId || SessionDeviceMove.targetReason(
+                    device,
+                    teamId = session.teamId,
+                    shared = session.shared,
+                    cli = session.cli,
+                    starterId = session.userId,
+                    viewerId = me,
+                ) == null
+                )
+        }
+        val choice = Apps.editorDevice(
+            session?.let { Apps.EditorDeviceRoot(it.status, it.deviceId.takeIf(String::isNotEmpty)) },
+            candidates.map { Apps.EditorDeviceCandidate(it.deviceId, it.isDefault) },
+            remembered,
+        )
+        fun row(device: com.exponential.app.data.api.SteerDevice) = DevicePickerDevice(
+            id = device.deviceId,
+            name = SessionDeviceMove.name(device),
+            icon = device.icon,
+            isServer = device.isServer,
+        )
+        val rows = candidates.map(::row)
+        val shown = choice.deviceId
+        EditorDevice(
+            rows = if (shown == null || rows.any { it.id == shown }) {
+                rows
+            } else {
+                listOf(all.firstOrNull { it.deviceId == shown }?.let(::row) ?: DevicePickerDevice(shown, shown)) + rows
+            },
+            choice = choice,
+            appMove = shown?.takeIf { choice.move }?.let { AgentSessionViewModel.AppMove(appId, it) },
+        )
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorDevice())
+
+    /** The device the composer sends on. */
+    val deviceId: StateFlow<String?> = editorDevice.map { it.choice.deviceId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #FEED-204: a pick is remembered per app, never as the default. */
+    fun pickDevice(id: String) {
+        devicePicks.edit().putString(appId, id).apply()
+        rememberedDevice.value = id
+    }
 
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending

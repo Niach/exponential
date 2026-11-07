@@ -49,6 +49,7 @@ fn config() -> RunnerConfig {
 
 fn providers() -> Providers {
     Providers {
+        host_kind: "exported".into(),
         platform: "linux".into(),
         locale: "en-US".into(),
         storage: Arc::new(MemoryRecordStore::new()),

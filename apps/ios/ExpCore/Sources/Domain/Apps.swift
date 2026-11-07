@@ -426,6 +426,47 @@ public enum Apps {
     /// "Untitled app" until the editor session publishes).
     public static func isDraft(headVersion: Int) -> Bool { headVersion == 0 }
 
+    /// #FEED-204 (`editorDeviceCases`, apps.json EDITOR DEVICE): the device an
+    /// app editor's composer shows and sends on.
+    public struct EditorDeviceChoice: Equatable, Sendable {
+        /// nil = none online and no root to fall back on.
+        public let deviceId: String?
+        /// An ended root's next send goes to another device.
+        public let move: Bool
+
+        public init(deviceId: String?, move: Bool) {
+            self.deviceId = deviceId
+            self.move = move
+        }
+    }
+
+    /// `rootStatus` nil = no editor root yet. `candidates` = the member's
+    /// online devices (with a root: the targets a move accepts). A live root
+    /// keeps its device: only a pick moves it (#EXP-1738).
+    public static func editorDevice(
+        rootStatus: String?,
+        rootDeviceId: String?,
+        candidates: [(deviceId: String, isDefault: Bool)],
+        remembered: String?
+    ) -> EditorDeviceChoice {
+        if let rootStatus, rootStatus != DomainContract.sessionStatusEnded {
+            return EditorDeviceChoice(deviceId: rootDeviceId, move: false)
+        }
+        func known(_ id: String?) -> Bool {
+            guard let id else { return false }
+            return candidates.contains { $0.deviceId == id }
+        }
+        let deviceId: String?
+        if known(remembered) {
+            deviceId = remembered
+        } else if known(rootDeviceId) {
+            deviceId = rootDeviceId
+        } else {
+            deviceId = candidates.first { $0.isDefault }?.deviceId ?? candidates.first?.deviceId ?? rootDeviceId
+        }
+        return EditorDeviceChoice(deviceId: deviceId, move: rootStatus != nil && deviceId != rootDeviceId)
+    }
+
     /// The tab on screen and, on phones, the menu sheet over it.
     public struct EditorTabTarget: Equatable, Sendable {
         public let tab: String
