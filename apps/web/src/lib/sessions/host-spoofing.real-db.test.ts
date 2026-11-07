@@ -807,6 +807,7 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
     const out = { after0206: undefined as unknown, after0213: undefined as unknown, mismatch: true }
     await inRollback(async (tx) => {
       await tx.execute(sql`DELETE FROM device_first_seen WHERE device_id = ${deviceId}`)
+      await tx.execute(sql`SET LOCAL session_replication_role = replica`)
       for (const statement of migration(`0206_feed159_device_first_seen.sql`)) await tx.execute(sql.raw(statement))
       out.after0206 = await firstSeenIn(tx, deviceId)
       for (const statement of migration(`0213_feed165_device_first_seen_earliest_evidence.sql`)) await tx.execute(sql.raw(statement))
