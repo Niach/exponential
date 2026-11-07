@@ -12,8 +12,9 @@ import { emitEventInTx } from "@/lib/events"
 import type { Tx } from "@/lib/sessions/tx"
 
 // NEW-1: moving a session to another device = `sessions.send({sessionId,
-// deviceId})`: a QUEUED row simply re-targets; a LIVE one ends here and
-// continues on the target as a new session on the same branch (the device
+// deviceId})`: a QUEUED row simply re-targets; a LIVE ROOT re-queues on the
+// target in place (#EXP-1737: ONE worker per tree); a LIVE CHILD ends here
+// and continues on the target as a new session on the same branch (the device
 // pushes its branch before it goes, NEW-5). No handoff package, nothing
 // pending on the row. The refusal copy is byte-identical with every
 // client's (`session-device-move` ×4).
@@ -125,6 +126,8 @@ export async function resolveMoveTarget(
     queuedRoot:
       opts.moverId !== undefined &&
       session.status === `queued` &&
+      // #EXP-1737: a moved root re-queues having run: it never adopts.
+      session.startedAt === null &&
       session.parentId === null &&
       !(await hasSubSessions(session.id)),
     targetIsStarters: device.ownerId === session.userId,
@@ -245,7 +248,7 @@ async function carriedProfile(
 
 // ── EXP-1542 (#FEED-169): the hand-off of a moved session's branch ─────────
 // A move that leaves work behind on its SOURCE device (a live session's
-// relocation, an ended root revived on another device) is recorded as a
+// move, an ended root revived on another device) is recorded as a
 // server-emitted `session.moved` event: ids only (the events shape syncs to
 // every member, #EXP-1409). The source device reads it off its synced
 // events (THE record that it is the source: never the moved line's text),
@@ -264,7 +267,7 @@ export type HandOffOutcome = (typeof handOffOutcomeValues)[number]
 export interface SessionMoveState {
   /** The `session.moved` event's id. */
   moveId: string
-  /** The row that moved (a relocation's ended row; a revived root itself). */
+  /** The row that moved (a relocation's ended row; a moved or revived root itself). */
   sessionId: string
   continuationId: string
   fromDeviceId: string

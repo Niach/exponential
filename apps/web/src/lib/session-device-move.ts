@@ -2,7 +2,7 @@
 // options line (the launch line's Device pin, placed before Model).
 //
 // A move = ONE `sessions.send({ sessionId, deviceId })` with no text
-// (NEW-1): a queued row re-targets; a live one ENDS here and continues on
+// (NEW-1): a queued row re-targets; a live root re-queues there in place, a live child ENDS here and continues on
 // the target in a new session on the same branch (logins stay).
 //
 // The rows are THE launch composer's machines for this team (own + shared

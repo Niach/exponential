@@ -775,11 +775,14 @@ export const sessionsRouter = router({
       if (
         !session ||
         session.status === `ended` ||
-        (input.deviceId !== undefined && input.deviceId !== session.deviceId)
+        (input.deviceId !== undefined && input.deviceId !== session.deviceId) ||
+        (session.status === `queued` && session.startedAt !== null && input.deviceId === undefined)
       ) {
         // An ended row stays ended; the device's late reports are no-ops,
         // and so are a device's the session moved away from (and a deleted
-        // row's).
+        // row's). #EXP-1737: nothing runs a re-queued row until its new
+        // device claims it, so a report naming no device (a shipped engine's)
+        // is its old engine's late write.
         return noOpTx(ctx.db)
       }
       // NEW-17: the device says the run's PROCESS went away without the
