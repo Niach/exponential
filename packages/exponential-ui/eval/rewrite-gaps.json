@@ -128,6 +128,7 @@
     { "id": "pr-checks", "class": "expressible", "with": "Button pill (Spinner / Icon lead) for the Merge state + a Menu submenu of Rows (status Icon, name, duration) whose press is openUrl; merging on red confirms through Dialog" },
     { "id": "composer-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button" },
     { "id": "composer-skills-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button, multi-pick rows" },
+    { "id": "composer-teams-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button, multi-pick rows with a team mark + removable Chips in the composer" },
     { "id": "composer-dialog-menu", "class": "expressible", "with": "the same Menu with submenus inside a Dialog; that a desktop dialog's menu needs a window of its own is the host's (the gpui renderer), not the catalog's" },
     { "id": "composer-slash-menu", "class": "expressible", "with": "SearchList in a Popover" },
     { "id": "session-slash-menu", "class": "expressible", "with": "SearchList in a Popover" },
