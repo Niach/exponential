@@ -16,8 +16,10 @@ use crate::macros::expand_macros_with_templates;
 use crate::types::{FlatChildren, FlatComponent, NestedNode, Props, ReduceIssue, UiNode};
 use crate::validate::validate_props;
 
-/// The keys of a flat component that are not props (round 1 adds `visible`).
-pub const RESERVED_KEYS: &[&str] = &["id", "component", "children", "slots", "on", "style", "visible", "accessibility", "template"];
+/// The keys of a flat component that are not props: round 9 §5.3, the
+/// `ComponentCommon` envelope (`children`, `slots`, `on`, `style`,
+/// `visible`, `checks` are declared props of the core components now).
+pub const RESERVED_KEYS: &[&str] = &["id", "component", "catalogId", "accessibility", "metadata"];
 const RESERVED: &[&str] = RESERVED_KEYS;
 
 /// A `visible` value is a boolean or a dynamic value (a binding or a call).
@@ -490,7 +492,22 @@ impl Builder<'_> {
         }
         self.visiting.insert(id.to_string());
         let mut node;
-        if self.basic {
+        // Round 9 §5.5: the component's catalog = its own `catalogId`, else
+        // the surface default; a name is looked up ONLY there.
+        let own_catalog = flat.catalog_id.as_deref();
+        let catalog = own_catalog.unwrap_or(catalog_id);
+        let basic = if own_catalog.is_some() { crate::functions::is_basic_catalog(catalog) } else { self.basic };
+        let unavailable = if catalog.is_empty() {
+            Some("no catalog for this component".to_string())
+        } else if own_catalog.is_some() && !basic && !self.options.view.knows_catalog(catalog) {
+            Some(format!("catalog {catalog} is not available"))
+        } else {
+            None
+        };
+        if let Some(message) = unavailable {
+            self.issues.push(ReduceIssue { id: id.to_string(), message });
+            node = unknown(id, &flat.component, catalog);
+        } else if basic {
             let by_id = &self.by_id;
             let lookup = |id: &str| by_id.get(id).map(|f| (*f).clone());
             match map_basic_component(flat, &lookup) {
@@ -541,6 +558,7 @@ impl Builder<'_> {
         if let Some(accessibility) = flat.accessibility.as_ref().filter(|a| js_truthy(a)) {
             node.accessibility = Some(accessibility.clone());
         }
+        node.metadata = flat.metadata.clone();
         self.visiting.remove(id);
         validate_node(&node, id, self.options, true, &mut self.issues);
         Some(node)
@@ -558,7 +576,16 @@ pub fn component_issues(flat: &FlatComponent, options: &ReduceOptions, lookup: &
     let id = flat.id.as_str();
     let stub = |cid: &str| UiNode::new(cid, UNKNOWN_COMPONENT);
     let mut node;
-    if options.catalog_id == A2UI_BASIC_CATALOG_ID {
+    let catalog = flat.catalog_id.as_deref().unwrap_or(&options.catalog_id);
+    if catalog.is_empty() {
+        issues.push(ReduceIssue { id: id.to_string(), message: "no catalog for this component".into() });
+        return issues;
+    }
+    if flat.catalog_id.is_some() && !crate::functions::is_basic_catalog(catalog) && !options.view.knows_catalog(catalog) {
+        issues.push(ReduceIssue { id: id.to_string(), message: format!("catalog {catalog} is not available") });
+        return issues;
+    }
+    if crate::functions::is_basic_catalog(catalog) || (catalog == options.catalog_id && options.catalog_id == A2UI_BASIC_CATALOG_ID) {
         match map_basic_component(flat, lookup) {
             None => {
                 issues.push(ReduceIssue { id: id.to_string(), message: format!("basic component {} has no mapping", flat.component) });
@@ -628,13 +655,13 @@ fn reduce_flat(components: &[FlatComponent], options: &ReduceOptions) -> ReduceR
         by_id.insert(flat.id.as_str(), flat);
     }
     let root_id = options.root_id.clone().unwrap_or_else(|| "root".to_string());
-    if !options.view.knows_catalog(&options.catalog_id) {
+    if !options.catalog_id.is_empty() && !crate::functions::is_basic_catalog(&options.catalog_id) && !options.view.knows_catalog(&options.catalog_id) {
         issues.push(ReduceIssue { id: root_id.clone(), message: format!("unsupported catalog {}", options.catalog_id) });
     }
     let mut builder = Builder {
         by_id,
         options,
-        basic: options.catalog_id == A2UI_BASIC_CATALOG_ID,
+        basic: crate::functions::is_basic_catalog(&options.catalog_id),
         visiting: HashSet::new(),
         placed: HashSet::new(),
         twice_reported: HashSet::new(),

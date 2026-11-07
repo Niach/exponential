@@ -599,6 +599,8 @@ pub struct Surface {
     /// host's [`Surface::assign_data`]); a painter's focused field adopts a
     /// changed bound value when this moved since it last looked.
     write_epoch: u64,
+    /// Round 9 §14: the 0.9 bridge's id maps across this surface's stream.
+    upgrade_state: crate::upgrade09::Upgrade09State,
 }
 
 // SAFETY: taffy's `CompactLength` carries a `*const ()` slot for `calc()`
@@ -687,6 +689,7 @@ impl Surface {
             clock: None,
             data_version: 0,
             write_epoch: 0,
+            upgrade_state: Default::default(),
         };
         s.refresh_theme();
         s
@@ -732,7 +735,7 @@ impl Surface {
     pub fn uses_clock(&self) -> bool {
         fn relative_call(v: &Value) -> bool {
             match v {
-                Value::Object(o) => (o.get("call").and_then(Value::as_str) == Some("formatRelativeTime") && o.get("args").and_then(|a| a.get("now")).is_none()) || o.values().any(relative_call),
+                Value::Object(o) => (o.get("@call").and_then(Value::as_str) == Some("formatRelativeTime") && o.get("args").and_then(|a| a.get("now")).is_none()) || o.values().any(relative_call),
                 Value::Array(a) => a.iter().any(relative_call),
                 _ => false,
             }
@@ -1250,7 +1253,33 @@ impl Surface {
     /// Apply one A2UI server→client message (`createSurface`,
     /// `updateComponents`, `updateDataModel`, `deleteSurface`).
     pub fn apply(&mut self, message: &Value) -> Result<ApplyOutcome, String> {
-        let obj = message.as_object().ok_or("message must be an object")?;
+        self.apply_with(message, crate::catalog::ACCEPT_V09)
+    }
+
+    /// [`Self::apply`] with the 0.9 bridge on or off (round 9 §1.5: the
+    /// bare surface path checks the version like every core entry; 0.9 is
+    /// upgraded while `accept_v09`, else refused). A refused message is the
+    /// `Err` (the INVALID_MESSAGE text).
+    pub fn apply_with(&mut self, message: &Value, accept_v09: bool) -> Result<ApplyOutcome, String> {
+        let obj = message.as_object().ok_or("a message is a JSON object")?;
+        match crate::host::check_envelope(obj, accept_v09) {
+            crate::host::Envelope::V10 => {}
+            crate::host::Envelope::Refused(reason) => return Err(reason),
+            crate::host::Envelope::Upgrade => {
+                let (messages, state) = crate::upgrade09::upgrade_message09(message, &self.upgrade_state);
+                self.upgrade_state = state;
+                let mut out = ApplyOutcome { structure_changed: false, issues: Vec::new() };
+                for m in messages {
+                    if m.get("version").and_then(Value::as_str) != Some(crate::catalog::A2UI_VERSION) {
+                        return Err("upgrade09 produced no 1.0 message".into());
+                    }
+                    let o = self.apply_with(&m, false)?;
+                    out.structure_changed |= o.structure_changed;
+                    out.issues.extend(o.issues);
+                }
+                return Ok(out);
+            }
+        }
         if let Some(create) = obj.get("createSurface") {
             if let Some(cid) = create.get("catalogId").and_then(Value::as_str) {
                 self.catalog_id = cid.to_string();
@@ -1260,23 +1289,46 @@ impl Surface {
             }
             self.set_component_list(Vec::new());
             self.nested = None;
-            self.data = Value::Object(Map::new());
+            self.data = match create.get("dataModel") {
+                Some(Value::Object(d)) => Value::Object(d.clone()),
+                _ => Value::Object(Map::new()),
+            };
             self.data_version += 1;
             self.local = LocalState::default();
             self.template_cache.clear();
+            if let Some(components) = create.get("components").and_then(Value::as_array) {
+                let (list, mut issues) = self.checked_entries("createSurface", components);
+                let outcome = self.update_components(list);
+                self.ensure_reduced();
+                issues.extend(outcome.issues);
+                return Ok(ApplyOutcome { structure_changed: true, issues });
+            }
             self.reduce();
             return Ok(ApplyOutcome { structure_changed: true, issues: self.issues.clone() });
         }
         if let Some(update) = obj.get("updateComponents") {
-            let components = update.get("components").ok_or("updateComponents.components is required")?;
-            let list: Vec<FlatComponent> = serde_json::from_value(components.clone()).map_err(|e| format!("components: {e}"))?;
-            return Ok(self.update_components(list));
+            let components = update.get("components").and_then(Value::as_array).ok_or("updateComponents.components is required")?;
+            if components.is_empty() {
+                return Err("updateComponents.components needs at least one component".into());
+            }
+            // Round 9 §5.2: entry by entry; a malformed entry is dropped with
+            // its issue and the rest applies.
+            let (list, mut issues) = self.checked_entries("updateComponents", components);
+            let outcome = self.update_components(list);
+            issues.extend(outcome.issues);
+            return Ok(ApplyOutcome { structure_changed: outcome.structure_changed, issues });
         }
         self.ensure_reduced();
         if let Some(update) = obj.get("updateDataModel") {
-            let path = update.get("path").and_then(Value::as_str).unwrap_or("");
-            let value = update.get("value").cloned();
-            let issues = match self.set_data(path, value) {
+            let path = crate::host::normalize_path(update.get("path").and_then(Value::as_str));
+            let value = update.get("value").ok_or("updateDataModel.value is required (null deletes)")?;
+            let result = match value {
+                // `null` deletes; on the whole model that resets it to `{}`.
+                Value::Null if path.is_empty() => self.set_data("", Some(Value::Object(Map::new()))),
+                Value::Null => self.set_data(&path, None),
+                v => self.set_data(&path, Some(v.clone())),
+            };
+            let issues = match result {
                 Ok(()) => Vec::new(),
                 Err(message) => vec![ReduceIssue { id: path.to_string(), message }],
             };
@@ -1293,6 +1345,25 @@ impl Surface {
             return Ok(ApplyOutcome { structure_changed: true, issues: Vec::new() });
         }
         Err("unknown message: expected createSurface | updateComponents | updateDataModel | deleteSurface".into())
+    }
+
+    /// Round 9 §5.2: the entries that pass [`crate::host::check_entry`] and
+    /// deserialize, plus one issue per dropped entry (id = the path).
+    fn checked_entries(&self, kind: &str, components: &[Value]) -> (Vec<FlatComponent>, Vec<ReduceIssue>) {
+        let mut list = Vec::new();
+        let mut issues = Vec::new();
+        for (i, entry) in components.iter().enumerate() {
+            let catalog = entry.get("catalogId").and_then(Value::as_str).unwrap_or(&self.catalog_id);
+            if let Some((at, message)) = crate::host::check_entry(entry, crate::functions::is_basic_catalog(catalog)) {
+                issues.push(ReduceIssue { id: format!("/{kind}/components/{i}{at}"), message });
+                continue;
+            }
+            match serde_json::from_value::<FlatComponent>(entry.clone()) {
+                Ok(c) => list.push(c),
+                Err(e) => issues.push(ReduceIssue { id: format!("/{kind}/components/{i}"), message: format!("components[{i}]: {e}") }),
+            }
+        }
+        (list, issues)
     }
 
     /// An `updateComponents` payload. A2UI: a later update replaces

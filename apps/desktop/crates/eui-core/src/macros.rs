@@ -373,7 +373,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                 }
                 continue;
             }
-            let path = bound["path"].clone();
+            let path = bound["@path"].clone();
             let value = eval_value(&spec.value, ctx);
             let mut args = Map::new();
             args.insert("path".into(), path);
@@ -381,7 +381,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                 args.insert("value".into(), value);
             }
             let mut function = Map::new();
-            function.insert("call".into(), Value::String("set".into()));
+            function.insert("@call".into(), Value::String("set".into()));
             function.insert("args".into(), Value::Object(args));
             let on = node.on.get_or_insert_with(IndexMap::new);
             let mut action = match on.get(part_event) {

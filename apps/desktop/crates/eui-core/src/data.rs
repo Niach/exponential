@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::expr::truthy;
+use crate::expr::{coerce_boolean, truthy};
 use crate::format::Formatter;
 use crate::json;
 use crate::limits;
@@ -332,181 +332,159 @@ pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext
     let a = |k: &str| args.get(k);
     let s = |k: &str| a(k).filter(|v| !v.is_null()).map(json::to_js_string).unwrap_or_default();
     Some(match name {
-        "required" => Value::Bool(a("value").is_some_and(|v| truthy(v) && !v.as_array().is_some_and(Vec::is_empty))),
-        "regex" => Value::Bool(regex_test(&s("pattern"), &s("value"))),
+        "required" => validation(a("value").is_some_and(|v| truthy(v) && !v.as_array().is_some_and(Vec::is_empty))),
+        // Round 9 §9.3: the hand-written dialect; a refused pattern or a
+        // match past the step cap FAILS the evaluation (EXPRESSION_ERROR).
+        "regex" => match crate::regex::regex_test(a("value").unwrap_or(&Value::Null), &s("pattern")) {
+            Ok(ok) => validation(ok),
+            Err(message) => {
+                ctx.fail(&message);
+                return None;
+            }
+        },
         "length" => {
             let n = s("value").chars().count() as f64;
-            Value::Bool(a("min").is_none_or(|m| n >= json::to_number(m)) && a("max").is_none_or(|m| n <= json::to_number(m)))
+            validation(a("min").is_none_or(|m| n >= json::to_number(m)) && a("max").is_none_or(|m| n <= json::to_number(m)))
         }
         "numeric" => {
             let n = num(a("value"));
-            Value::Bool(n.is_finite() && a("min").is_none_or(|m| n >= json::to_number(m)) && a("max").is_none_or(|m| n <= json::to_number(m)))
+            validation(n.is_finite() && a("min").is_none_or(|m| n >= json::to_number(m)) && a("max").is_none_or(|m| n <= json::to_number(m)))
         }
         "email" => {
             let v = s("value");
             let ok = v.split_once('@').is_some_and(|(local, domain)| {
                 !local.is_empty() && !local.contains(char::is_whitespace) && domain.contains('.') && !domain.contains('@') && !domain.starts_with('.') && !domain.ends_with('.') && !domain.contains(char::is_whitespace)
             });
-            Value::Bool(ok)
+            validation(ok)
         }
         "formatString" => Value::String(interpolate(&s("value"), ctx)),
         "openUrl" => return a("url").filter(|v| v.is_string()).cloned(),
-        "and" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().all(truthy))),
-        "or" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().any(truthy))),
-        "not" => Value::Bool(!a("value").is_some_and(truthy)),
+        // Round 9 §6.7: DynamicBoolean args under the 1.0 coercion table.
+        "and" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().all(|x| coerce_boolean(Some(x))))),
+        "or" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().any(|x| coerce_boolean(Some(x))))),
+        "not" => Value::Bool(!coerce_boolean(a("value"))),
         _ => return None,
     })
 }
 
 
-/// A tiny regex subset for `regex` checks: literals, `.`, `*`, `+`, `?`,
-/// `^`/`$` anchors, character classes `[...]` (ranges, negation), `\d \w \s`
-/// and alternation-free groups are NOT supported (returns false). Hosts with
-/// a real engine override through their painter; the core keeps the surface
-/// deterministic without a regex dependency.
-fn regex_test(pattern: &str, value: &str) -> bool {
-    simple_regex::is_match(pattern, value)
+/// Round 9 §6.6: a validator's answer, EXACTLY `{"valid": <bool>}`.
+pub fn validation(valid: bool) -> Value {
+    let mut m = Map::new();
+    m.insert("valid".into(), Value::Bool(valid));
+    Value::Object(m)
 }
 
-mod simple_regex {
-    #[derive(Debug, Clone)]
-    enum Atom {
-        Any,
-        Char(char),
-        Class(Vec<(char, char)>, bool),
+/// Round 9 §6.6: one `CheckRule` evaluated to its ValidationResult.
+/// `true` → `{valid: true}`; `false` (or anything the coercion makes false)
+/// → `{valid: false, message?, severity: "error"}`; a ValidationResult as
+/// is, its `message` filled from the rule, `severity` defaulted; a failed
+/// evaluation → `{valid: false, message: rule.message ?? <failure>, severity}`.
+pub fn evaluate_check(rule: &Value, ctx: &ResolveContext) -> Value {
+    let message = rule.get("message").filter(|m| m.is_string()).cloned();
+    let failure = FailureScope::new();
+    let resolved = rule.get("condition").and_then(|c| failure.run(|| resolve_value(c, ctx)));
+    let failed = failure.take();
+    let fail = |message: Option<Value>| {
+        let mut m = Map::new();
+        m.insert("valid".into(), Value::Bool(false));
+        if let Some(message) = message {
+            m.insert("message".into(), message);
+        }
+        m.insert("severity".into(), Value::String("error".into()));
+        Value::Object(m)
+    };
+    if let Some(reason) = failed {
+        return fail(message.or(Some(Value::String(reason))));
     }
-    #[derive(Debug, Clone)]
-    struct Piece {
-        atom: Atom,
-        min: usize,
-        max: Option<usize>,
-    }
-
-    fn parse(pattern: &str) -> Option<(bool, bool, Vec<Piece>)> {
-        let mut chars: Vec<char> = pattern.chars().collect();
-        let anchored_start = chars.first() == Some(&'^');
-        if anchored_start {
-            chars.remove(0);
-        }
-        let anchored_end = chars.last() == Some(&'$');
-        if anchored_end {
-            chars.pop();
-        }
-        let mut pieces = Vec::new();
-        let mut i = 0;
-        while i < chars.len() {
-            let atom = match chars[i] {
-                '.' => Atom::Any,
-                '\\' => {
-                    i += 1;
-                    match chars.get(i)? {
-                        'd' => Atom::Class(vec![('0', '9')], false),
-                        'w' => Atom::Class(vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')], false),
-                        's' => Atom::Class(vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')], false),
-                        c => Atom::Char(*c),
-                    }
+    match resolved {
+        Some(Value::Object(mut o)) if o.get("valid").is_some_and(Value::is_boolean) => {
+            if !o.contains_key("message") {
+                if let Some(message) = message {
+                    o.insert("message".into(), message);
                 }
-                '[' => {
-                    i += 1;
-                    let negated = chars.get(i) == Some(&'^');
-                    if negated {
-                        i += 1;
-                    }
-                    let mut ranges = Vec::new();
-                    while i < chars.len() && chars[i] != ']' {
-                        let mut c = chars[i];
-                        if c == '\\' {
-                            i += 1;
-                            c = *chars.get(i)?;
-                        }
-                        if chars.get(i + 1) == Some(&'-') && chars.get(i + 2).is_some_and(|e| *e != ']') {
-                            ranges.push((c, chars[i + 2]));
-                            i += 3;
-                        } else {
-                            ranges.push((c, c));
-                            i += 1;
-                        }
-                    }
-                    if i >= chars.len() {
-                        return None;
-                    }
-                    Atom::Class(ranges, negated)
-                }
-                '(' | ')' | '|' => return None,
-                c => Atom::Char(c),
-            };
-            i += 1;
-            let (min, max) = match chars.get(i) {
-                Some('*') => {
-                    i += 1;
-                    (0, None)
-                }
-                Some('+') => {
-                    i += 1;
-                    (1, None)
-                }
-                Some('?') => {
-                    i += 1;
-                    (0, Some(1))
-                }
-                Some('{') => {
-                    let close = chars[i..].iter().position(|c| *c == '}')? + i;
-                    let body: String = chars[i + 1..close].iter().collect();
-                    i = close + 1;
-                    match body.split_once(',') {
-                        Some((a, b)) => (a.trim().parse().ok()?, if b.trim().is_empty() { None } else { Some(b.trim().parse().ok()?) }),
-                        None => {
-                            let n: usize = body.trim().parse().ok()?;
-                            (n, Some(n))
-                        }
-                    }
-                }
-                _ => (1, Some(1)),
-            };
-            pieces.push(Piece { atom, min, max });
-        }
-        Some((anchored_start, anchored_end, pieces))
-    }
-
-    fn matches_atom(atom: &Atom, c: char) -> bool {
-        match atom {
-            Atom::Any => c != '\n',
-            Atom::Char(x) => *x == c,
-            Atom::Class(ranges, negated) => ranges.iter().any(|(a, b)| *a <= c && c <= *b) != *negated,
-        }
-    }
-
-    fn match_here(pieces: &[Piece], text: &[char], end_anchor: bool) -> bool {
-        let Some(piece) = pieces.first() else {
-            return !end_anchor || text.is_empty();
-        };
-        let max = piece.max.unwrap_or(text.len());
-        let mut count = 0;
-        while count < max && count < text.len() && matches_atom(&piece.atom, text[count]) {
-            count += 1;
-        }
-        if count < piece.min {
-            return false;
-        }
-        let mut n = count;
-        loop {
-            if match_here(&pieces[1..], &text[n..], end_anchor) {
-                return true;
             }
-            if n == piece.min {
-                return false;
+            if !o.contains_key("severity") && o.get("valid") == Some(&Value::Bool(false)) {
+                o.insert("severity".into(), Value::String("error".into()));
             }
-            n -= 1;
+            Value::Object(o)
+        }
+        other => {
+            if coerce_boolean(other.as_ref()) {
+                validation(true)
+            } else {
+                fail(message)
+            }
         }
     }
+}
 
-    pub fn is_match(pattern: &str, value: &str) -> bool {
-        let Some((start, end, pieces)) = parse(pattern) else { return false };
-        let text: Vec<char> = value.chars().collect();
-        if start {
-            return match_here(&pieces, &text, end);
-        }
-        (0..=text.len()).any(|i| match_here(&pieces, &text[i..], end))
+/// Is a ValidationResult failing? (`valid` false.)
+pub fn check_failed(result: &Value) -> bool {
+    result.get("valid") != Some(&Value::Bool(true))
+}
+
+/// A failing result's severity (`error` when absent or unknown).
+pub fn check_severity(result: &Value) -> &str {
+    match result.get("severity").and_then(Value::as_str) {
+        Some(s @ ("warning" | "info")) => s,
+        _ => "error",
+    }
+}
+
+thread_local! {
+    static FAILURES: std::cell::RefCell<Vec<Option<String>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Round 9 §6.8: collects the FIRST failure (a refused regex, a reactive
+/// effectful call …) of the evaluations run inside it. Nested scopes each
+/// see their own; a failure outside any scope is dropped (the value is
+/// `null` either way).
+pub struct FailureScope(());
+
+impl FailureScope {
+    pub fn new() -> Self {
+        FAILURES.with(|f| f.borrow_mut().push(None));
+        FailureScope(())
+    }
+
+    /// Run `f` inside the scope.
+    pub fn run<R>(&self, f: impl FnOnce() -> R) -> R {
+        f()
+    }
+
+    /// The first failure recorded (and closes the scope).
+    pub fn take(self) -> Option<String> {
+        let out = FAILURES.with(|f| f.borrow_mut().pop().flatten());
+        std::mem::forget(self);
+        out
+    }
+}
+
+impl Default for FailureScope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for FailureScope {
+    fn drop(&mut self) {
+        FAILURES.with(|f| {
+            f.borrow_mut().pop();
+        });
+    }
+}
+
+impl ResolveContext<'_> {
+    /// Record an evaluation failure (§6.8) in the innermost [`FailureScope`].
+    pub fn fail(&self, message: &str) {
+        FAILURES.with(|f| {
+            if let Some(slot) = f.borrow_mut().last_mut() {
+                if slot.is_none() {
+                    *slot = Some(message.to_string());
+                }
+            }
+        });
     }
 }
 
@@ -516,10 +494,10 @@ mod simple_regex {
 /// table. `None` = undefined.
 pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
     if is_binding(value) {
-        return ctx.read_path(value["path"].as_str().unwrap_or("")).cloned();
+        return ctx.read_path(value["@path"].as_str().unwrap_or("")).cloned();
     }
     if is_call(value) {
-        let name = value["call"].as_str().unwrap_or("");
+        let name = value["@call"].as_str().unwrap_or("");
         let mut args = Map::new();
         if let Some(raw) = value.get("args").and_then(Value::as_object) {
             for (k, v) in raw {
@@ -547,8 +525,11 @@ pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
         Value::Object(map) => {
             let mut out = Map::new();
             for (k, v) in map {
+                // Round 9 §3.3: `@@x` → `@x`; a refused `@x` key is dropped
+                // (the entry check refuses it before it gets here).
+                let Some(key) = crate::expr::literal_key(k) else { continue };
                 if let Some(r) = resolve_value(v, ctx) {
-                    out.insert(k.clone(), r);
+                    out.insert(key.into_owned(), r);
                 }
             }
             Some(Value::Object(out))
@@ -560,7 +541,7 @@ pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
 /// Every binding path a prop tree reads (absolute), for dependency tracking.
 pub fn binding_paths(value: &Value, scope: &str, out: &mut Vec<String>) {
     if is_binding(value) {
-        out.push(absolute_path(value["path"].as_str().unwrap_or(""), scope));
+        out.push(absolute_path(value["@path"].as_str().unwrap_or(""), scope));
         return;
     }
     match value {
@@ -578,7 +559,8 @@ pub fn binding_paths(value: &Value, scope: &str, out: &mut Vec<String>) {
 pub fn is_visible(visible: Option<&Value>, ctx: &ResolveContext) -> bool {
     match visible {
         None => true,
-        Some(v) => resolve_value(v, ctx).is_some_and(|r| truthy(&r)),
+        // Round 9 §6.7: the 1.0 boolean coercion.
+        Some(v) => coerce_boolean(resolve_value(v, ctx).as_ref()),
     }
 }
 
@@ -693,7 +675,7 @@ fn bind_node(node: &UiNode, ctx: &ResolveContext, view: &CatalogView) -> Option<
 /// `index` = the row's index in `rows` as given, before any local sort.
 pub fn bind_row_slot(slot: &UiNode, rows_prop: &Value, rows: &[Value], index: usize, ctx: &ResolveContext) -> Option<UiNode> {
     if is_binding(rows_prop) {
-        let base = format!("{}/{index}", absolute_path(rows_prop["path"].as_str().unwrap_or(""), ctx.scope));
+        let base = format!("{}/{index}", absolute_path(rows_prop["@path"].as_str().unwrap_or(""), ctx.scope));
         let row_ctx = ResolveContext { scope: &base, item: None, ..*ctx };
         return bind_tree(slot, &row_ctx);
     }
@@ -755,7 +737,7 @@ pub fn run_action(action: &Value, ctx: &ResolveContext) -> ActionOutcome {
     });
     // A2UI's `functionCall`: the only action key.
     if let Some(function) = action.get("functionCall").filter(|f| f.is_object()) {
-        let name = function.get("call").and_then(Value::as_str).unwrap_or("").to_string();
+        let name = function.get("@call").and_then(Value::as_str).unwrap_or("").to_string();
         let args = match resolve_value(function.get("args").unwrap_or(&Value::Object(Map::new())), ctx) {
             Some(Value::Object(a)) => a,
             _ => Map::new(),
@@ -815,17 +797,17 @@ mod tests {
     fn functions_resolve() {
         let data = json!({"n": 3, "email": "a@b.co", "price": 1234.5});
         let ctx = ResolveContext::new(&data, "");
-        let call = |name: &str, args: Value| resolve_value(&json!({"call": name, "args": args}), &ctx);
-        assert_eq!(call("required", json!({"value": {"path": "/email"}})), Some(json!(true)));
-        assert_eq!(call("email", json!({"value": {"path": "/email"}})), Some(json!(true)));
+        let call = |name: &str, args: Value| resolve_value(&json!({"@call": name, "args": args}), &ctx);
+        assert_eq!(call("required", json!({"value": {"@path": "/email"}})), Some(json!(true)));
+        assert_eq!(call("email", json!({"value": {"@path": "/email"}})), Some(json!(true)));
         assert_eq!(call("regex", json!({"value": "ab12", "pattern": "^[a-z]+\\d{2}$"})), Some(json!(true)));
         assert_eq!(call("regex", json!({"value": "ab1", "pattern": "^[a-z]+\\d{2}$"})), Some(json!(false)));
-        assert_eq!(call("formatNumber", json!({"value": {"path": "/price"}})), Some(json!("1,234.5")));
+        assert_eq!(call("formatNumber", json!({"value": {"@path": "/price"}})), Some(json!("1,234.5")));
         assert_eq!(call("formatPercent", json!({"value": 0.256})), Some(json!("26%")));
         assert_eq!(call("formatNumber", json!({"value": 1234.5, "decimals": 2})), Some(json!("1,234.50")));
         assert_eq!(call("formatCurrency", json!({"value": 1234.5, "currency": "USD"})), Some(json!("$1,234.50")));
         assert_eq!(call("formatString", json!({"value": "n = ${/n}"})), Some(json!("n = 3")));
-        assert_eq!(call("pluralize", json!({"value": {"path": "/n"}, "one": "item", "other": "items"})), Some(json!("items")));
+        assert_eq!(call("pluralize", json!({"value": {"@path": "/n"}, "one": "item", "other": "items"})), Some(json!("items")));
         assert_eq!(call("pluralize", json!({"value": 1, "other": "items"})), Some(json!("items")));
         assert_eq!(call("pluralize", json!({"value": "x"})), None);
         assert_eq!(call("formatDate", json!({"value": "2026-10-07", "format": "d MMM yyyy"})), Some(json!("7 Oct 2026")));
@@ -838,7 +820,7 @@ mod tests {
 
     #[test]
     fn a_section_header_binds_its_section() {
-        let header: UiNode = serde_json::from_value(json!({"id": "h", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "value"}, " · ", {"path": "count"}, " · ", {"path": "/title"}]}}}})).unwrap();
+        let header: UiNode = serde_json::from_value(json!({"id": "h", "component": "Text", "props": {"text": {"@call": "concat", "args": {"values": [{"@path": "value"}, " · ", {"@path": "count"}, " · ", {"@path": "/title"}]}}}})).unwrap();
         let data = json!({"title": "Inbox"});
         let section = crate::list::ListSection { value: "Today".into(), start: 0, count: 2 };
         let bound = bind_section_header(&header, &section, 0, &ResolveContext::new(&data, "")).unwrap();
@@ -853,7 +835,7 @@ mod tests {
         let def = view.components.get("Menu").expect("Menu");
         let props = json!({"items": [
             {"label": "Rename", "value": "rename"},
-            {"kind": "submenu", "label": "Status", "items": {"path": "/statuses"}},
+            {"kind": "submenu", "label": "Status", "items": {"@path": "/statuses"}},
         ]});
         let props = props.as_object().unwrap();
         assert_eq!(crate::validate::validate_props(def, props, "props", &view), vec![]);
@@ -870,9 +852,9 @@ mod tests {
     fn template_scope_resolves_relative_paths() {
         let data = json!({"items": [{"name": "one"}, {"name": "two"}]});
         let ctx = ResolveContext::new(&data, "/items/1");
-        assert_eq!(resolve_value(&json!({"path": "name"}), &ctx), Some(json!("two")));
+        assert_eq!(resolve_value(&json!({"@path": "name"}), &ctx), Some(json!("two")));
         let mut paths = Vec::new();
-        binding_paths(&json!({"a": {"path": "name"}, "b": [{"path": "/x"}]}), "/items/1", &mut paths);
+        binding_paths(&json!({"a": {"@path": "name"}, "b": [{"@path": "/x"}]}), "/items/1", &mut paths);
         assert_eq!(paths, vec!["/items/1/name", "/x"]);
     }
 }

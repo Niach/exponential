@@ -5,7 +5,7 @@
 //! exactly: numbers, dates and error texts. No loops, no user functions, a
 //! length cap, no nested comprehensions and a step limit, so it always
 //! terminates. The functions are ONE table shared with the A2UI function
-//! form (`{"call": "mul", …}`, [`call_expression_function`]); dates run in
+//! form (`{"@call": "mul", …}`, [`call_expression_function`]); dates run in
 //! the team zone (an offset per instant, [`ExpressionEnv::offset`]).
 
 use crate::dates::{day_from_number, day_number, days_in_month, format_day, iso_week, parse_day, weekday_of};

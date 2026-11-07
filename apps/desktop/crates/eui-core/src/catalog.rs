@@ -17,8 +17,13 @@ pub const CORE_CATALOG_ID: &str = g::CATALOG_ID;
 pub const CORE_LITE_CATALOG_ID: &str = g::LITE_CATALOG_ID;
 /// The vendored A2UI basic catalog.
 pub const A2UI_BASIC_CATALOG_ID: &str = g::BASIC_CATALOG_ID;
-/// The A2UI wire `version` the vendored schemas carry.
-pub const A2UI_VERSION: &str = g::BASIC_VERSION;
+/// The A2UI wire `version` (round 9: `"1.0"`, `host.json` `a2uiVersion`).
+pub const A2UI_VERSION: &str = g::A2UI_VERSION;
+/// Round 9 §14.1: while true, every core entry upgrades 0.9 input
+/// (`upgrade09`) instead of refusing it (`host.json` `transition.acceptV09`).
+pub const ACCEPT_V09: bool = g::ACCEPT_V09;
+/// The A2UI 0.9 wire version the bridge reads.
+pub const A2UI_VERSION_09: &str = "v0.9";
 /// The placeholder component painted for anything unmapped.
 pub const UNKNOWN_COMPONENT: &str = g::UNKNOWN_COMPONENT;
 /// What a client advertises as `supportedCatalogIds`.
@@ -210,4 +215,11 @@ pub fn component_names(lite: bool) -> Vec<String> {
 /// The component definition in the core (no extensions).
 pub fn component_def(name: &str) -> Option<&'static ComponentDef> {
     CORE.components.get(name)
+}
+
+/// Round 9 §3.2: is `<component>.<prop>` a DATA position of the core
+/// catalog (`DATA_PROPS`: shape-less objects, Table `rows`)? Never
+/// interpreted: no directive check, no resolution inside.
+pub fn is_data_prop(component: &str, prop: &str) -> bool {
+    g::DATA_PROPS.iter().any(|p| p.split_once('.').is_some_and(|(c, k)| c == component && k == prop))
 }

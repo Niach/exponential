@@ -1,33 +1,8 @@
 //! Round 9 §4: UAX #31 identifiers (`^[\p{XID_Start}_][\p{XID_Continue}]*$`)
 //! over code points, and the §14.3 id `mangle`. The tables are GENERATED
-//! (`generated/xid.rs`, Unicode 17.0.0); until they land this module answers
-//! from `char`'s own Unicode data behind the two predicates below (ASCII,
-//! which every fixture id uses, is exact either way).
+//! (`generated/xid.rs`, Unicode 17.0.0).
 
-/// Is `c` in XID_Start?
-pub fn is_xid_start(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_alphabetic();
-    }
-    c.is_alphabetic()
-}
-
-/// Is `c` in XID_Continue?
-pub fn is_xid_continue(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_alphanumeric() || c == '_';
-    }
-    c.is_alphanumeric() || c == '\u{00B7}' || c == '\u{200C}' || c == '\u{200D}'
-}
-
-/// §4.1: a UAX #31 identifier (`_` may start one). The empty string is not.
-pub fn is_identifier(s: &str) -> bool {
-    let mut chars = s.chars();
-    match chars.next() {
-        Some(c) if c == '_' || is_xid_start(c) => chars.all(is_xid_continue),
-        _ => false,
-    }
-}
+pub use crate::generated::xid::{is_identifier, is_xid_continue, is_xid_start, UNICODE_VERSION};
 
 /// §14.3 `mangle(s)`: every code point outside XID_Continue becomes `_`,
 /// the empty result becomes `_`, and a first code point that is neither

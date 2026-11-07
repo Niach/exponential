@@ -261,7 +261,7 @@ impl Builder<'_, '_> {
         let sort_bound = node.props.get("sort").is_some_and(crate::expr::is_dynamic) && !self.ctx.local.sort.contains_key(&owner.id);
         // Where each row's data lives: a bound `rows` = the model's array, a
         // literal one = a row scope the builder resolves itself.
-        let rows_path = node.props.get("rows").filter(|r| crate::expr::is_binding(r)).and_then(|r| r["path"].as_str()).map(|p| crate::data::absolute_path(p, scope));
+        let rows_path = node.props.get("rows").filter(|r| crate::expr::is_binding(r)).and_then(|r| r["@path"].as_str()).map(|p| crate::data::absolute_path(p, scope));
         let mut order: Vec<usize> = (0..rows.len()).collect();
         if let (Some(s), false) = (&sort, sort_bound) {
             let key = s.get("key").map(js).unwrap_or_default();

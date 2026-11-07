@@ -82,9 +82,22 @@ pub fn supported_catalog_ids<S: AsRef<str>>(extension_ids: &[S]) -> Vec<String> 
     out
 }
 
-/// A2UI's `a2uiClientCapabilities`.
+/// Round 9 §10 `rendererCapabilities(extensionIds, {inline?})`:
+/// `{"1.0": {"supportedCatalogIds": [...], "inlineCatalogs"?: [...]}}`.
+pub fn renderer_capabilities<S: AsRef<str>>(extension_ids: &[S], inline_catalogs: Option<Vec<Value>>) -> Value {
+    let mut inner = Map::new();
+    inner.insert("supportedCatalogIds".into(), json!(supported_catalog_ids(extension_ids)));
+    if let Some(inline) = inline_catalogs {
+        inner.insert("inlineCatalogs".into(), Value::Array(inline));
+    }
+    let mut out = Map::new();
+    out.insert(A2UI_VERSION.into(), Value::Object(inner));
+    Value::Object(out)
+}
+
+/// The pre-1.0 name of [`renderer_capabilities`] (no inline catalogs).
 pub fn client_capabilities<S: AsRef<str>>(extension_ids: &[S]) -> Value {
-    json!({"v0.9": {"supportedCatalogIds": supported_catalog_ids(extension_ids)}})
+    renderer_capabilities(extension_ids, None)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -477,23 +490,23 @@ pub fn template_messages(pkg: &Value, template_id: &str, surface_id: &str, data:
         _ => raw,
     };
     let version = A2UI_VERSION;
+    // Round 9 §2: ONE createSurface {surfaceId, catalogId, components,
+    // dataModel} (dataModel only when defined), then the binds.
     let mut create = Map::new();
     create.insert("surfaceId".into(), Value::String(surface_id.into()));
     if let Some(catalog_id) = pkg.get("catalogId") {
         create.insert("catalogId".into(), catalog_id.clone());
     }
-    let mut components = Map::new();
-    components.insert("surfaceId".into(), Value::String(surface_id.into()));
     if let Some(list) = template.get("components") {
-        components.insert("components".into(), list.clone());
+        create.insert("components".into(), list.clone());
     }
-    let mut out = vec![json!({"version": version, "createSurface": create}), json!({"version": version, "updateComponents": components})];
     let merged = merge_data(template.get("data"), data);
     // VAPP-218: a screen's `${params.<key>}` in a source, from the data's params.
     let params = merged.as_ref().and_then(|m| m.get("params")).cloned();
     if let Some(merged) = merged {
-        out.push(json!({"version": version, "updateDataModel": {"surfaceId": surface_id, "path": "/", "value": merged}}));
+        create.insert("dataModel".into(), merged);
     }
+    let mut out = vec![json!({"version": version, "createSurface": create})];
     for b in template.get("bindings").and_then(Value::as_array).into_iter().flatten() {
         let mut bind = Map::new();
         bind.insert("surfaceId".into(), Value::String(surface_id.into()));

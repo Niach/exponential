@@ -232,7 +232,7 @@ impl Surface {
     fn binding_path(&self, id: &str, prop: &str) -> Option<String> {
         let node = self.source_node(id)?;
         let binding = node.props.get(prop).filter(|v| is_binding(v))?;
-        Some(absolute_path(binding["path"].as_str().unwrap_or(""), &self.scope_of(id))).filter(|p| !p.starts_with("/$row/"))
+        Some(absolute_path(binding["@path"].as_str().unwrap_or(""), &self.scope_of(id))).filter(|p| !p.starts_with("/$row/"))
     }
 
     /// If `prop` on `id` is bound, write `value` to the data model.
@@ -826,7 +826,7 @@ impl Surface {
                     item = if depth + 1 < path.len() { at.and_then(|x| x.get("items")) } else { at };
                 }
                 if let Some(binding) = item.and_then(|i| i.get("checked")).filter(|b| is_binding(b)) {
-                    let p = absolute_path(binding["path"].as_str().unwrap_or(""), &self.scope_of(owner_id));
+                    let p = absolute_path(binding["@path"].as_str().unwrap_or(""), &self.scope_of(owner_id));
                     if set_pointer(&mut self.data, &p, Some(Value::Bool(checked))).is_ok() {
                         self.data_version += 1;
                         self.needs_build = true;
@@ -1401,13 +1401,18 @@ impl Surface {
             .get("checks")
             .and_then(Value::as_array)
             .map(|checks| {
+                // Round 9 §6.6: each rule → a ValidationResult; only a failing
+                // `error` blocks (warning / info are advisory).
                 checks
                     .iter()
-                    .filter(|c| {
-                        let Some(cond) = c.get("condition") else { return false };
-                        check_fails(crate::data::resolve_value(cond, &ctx).as_ref())
+                    .filter(|c| c.get("condition").is_some())
+                    .map(|c| crate::data::evaluate_check(c, &ctx))
+                    .filter(|r| crate::data::check_failed(r) && crate::data::check_severity(r) == "error")
+                    .map(|r| {
+                        r.get("message").and_then(Value::as_str).map(|message| crate::strings::resolve_string(message, &self.strings).to_string()).unwrap_or_else(|| {
+                            self.strings.get("checkFailed").or_else(|| self.strings.get("invalidValue")).cloned().unwrap_or_else(|| "Invalid value".into())
+                        })
                     })
-                    .map(|c| c.get("message").and_then(Value::as_str).map(|message| crate::strings::resolve_string(message, &self.strings).to_string()).unwrap_or_else(|| self.strings.get("invalidValue").cloned().unwrap_or_else(|| "Invalid value".into())))
                     .collect()
             })
             .unwrap_or_default()

@@ -93,6 +93,7 @@ pub mod extension;
 pub mod fold;
 pub mod tree;
 pub mod format;
+pub mod functions;
 pub mod geometry;
 pub mod hold;
 pub mod host;

@@ -188,7 +188,7 @@ pub fn is_callable_name(name: &str) -> bool {
 }
 
 fn check_call(call: &Value, path: &str, issues: &mut Vec<PropIssue>) {
-    let name = call["call"].as_str().unwrap_or("");
+    let name = call["@call"].as_str().unwrap_or("");
     if !is_callable_name(name) {
         issue(issues, path, format!("unknown function \"{name}\"; known: the catalog functions, or a namespaced host function (app.toast)"));
     }
@@ -322,9 +322,9 @@ mod tests {
 
     #[test]
     fn dynamic_values_and_dates() {
-        assert!(is_dynamic(&json!({"path": "/x"})));
-        assert!(!is_dynamic(&json!({"path": "/x", "y": 1})));
-        assert!(is_dynamic(&json!({"call": "regex", "args": {}})));
+        assert!(is_dynamic(&json!({"@path": "/x"})));
+        assert!(!is_dynamic(&json!({"@path": "/x", "y": 1})));
+        assert!(is_dynamic(&json!({"@call": "regex", "args": {}})));
         assert!(is_iso_date("2026-10-07") && !is_iso_date("2026-1-07") && !is_iso_date("2026/10/07"));
     }
 

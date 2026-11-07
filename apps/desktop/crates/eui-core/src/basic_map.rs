@@ -136,7 +136,7 @@ pub fn map_basic_icon(name: Option<&Value>) -> String {
 }
 
 fn is_binding(value: Option<&Value>) -> Option<&str> {
-    value.and_then(|v| v.as_object()).and_then(|o| o.get("path")).and_then(Value::as_str)
+    value.and_then(|v| v.as_object()).and_then(|o| o.get("@path")).and_then(Value::as_str)
 }
 
 /// JS `String(x)` for an id-ish value.
@@ -311,7 +311,7 @@ fn text_field(out: &mut MappedComponent, flat: &FlatView) {
         };
         let mut checks = out.props.get("checks").and_then(Value::as_array).cloned().unwrap_or_default();
         checks.push(json!({
-            "condition": {"call": "regex", "args": {"value": {"path": value}, "pattern": pattern}},
+            "condition": {"@call": "regex", "args": {"value": {"@path": value}, "pattern": pattern}},
             "message": "Invalid value",
         }));
         out.props.insert("checks".into(), Value::Array(checks));
@@ -453,7 +453,7 @@ mod tests {
     fn icons_map_or_fall_back_to_the_placeholder() {
         assert_eq!(map_basic_icon(Some(&json!("add"))), "ui-add");
         assert_eq!(map_basic_icon(Some(&json!("nope"))), BASIC_MAP.placeholder_icon);
-        assert_eq!(map_basic_icon(Some(&json!({"path": "/x"}))), BASIC_MAP.placeholder_icon);
+        assert_eq!(map_basic_icon(Some(&json!({"@path": "/x"}))), BASIC_MAP.placeholder_icon);
         assert_eq!(BASIC_MAP.placeholder_icon, g::BASIC_PLACEHOLDER_ICON);
     }
 }

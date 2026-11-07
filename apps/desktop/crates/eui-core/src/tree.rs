@@ -23,7 +23,7 @@ use serde_json::{json, Map, Value};
 use crate::expr::{is_dynamic, MAX_RANGE_ITEMS};
 
 fn expr(text: String, vars: Map<String, Value>, fallback: Value) -> Value {
-    json!({"call": "expr", "args": {"expr": text, "vars": Value::Object(vars), "default": fallback}})
+    json!({"@call": "expr", "args": {"expr": text, "vars": Value::Object(vars), "default": fallback}})
 }
 
 /// `e.exists(x, x == a0) && …` over the ids (a bound `expanded` = `e`).
@@ -81,7 +81,7 @@ impl Walk<'_> {
         if !loading && off == Value::Bool(true) {
             return Value::Bool(true);
         }
-        json!({"call": "cond", "args": {"if": self.rail.clone(), "then": !loading, "else": off}})
+        json!({"@call": "cond", "args": {"if": self.rail.clone(), "then": !loading, "else": off}})
     }
 
     fn walk(&mut self, list: Option<&Value>, depth: usize, ancestors: &[String]) {
@@ -118,7 +118,7 @@ impl Walk<'_> {
                     vars.insert("i".into(), Value::String(id.clone()));
                     is_open = expr("e.exists(x, x == i)".into(), vars.clone(), Value::Bool(false));
                     row.insert("open".into(), is_open.clone());
-                    row.insert("next".into(), json!({"call": "not", "args": {"value": is_open.clone()}}));
+                    row.insert("next".into(), json!({"@call": "not", "args": {"value": is_open.clone()}}));
                     row.insert("toggled".into(), expr("e.exists(x, x == i) ? e.filter(x, x != i) : e + [i]".into(), vars, json!([id.clone()])));
                 } else {
                     let open = self.open.contains(&id);
@@ -132,7 +132,7 @@ impl Walk<'_> {
                 let icon = if !branch {
                     Value::String("ui-file".into())
                 } else if self.bound {
-                    json!({"call": "cond", "args": {"if": is_open.clone(), "then": "ui-folder-open", "else": "ui-folder"}})
+                    json!({"@call": "cond", "args": {"if": is_open.clone(), "then": "ui-folder-open", "else": "ui-folder"}})
                 } else if is_open == Value::Bool(true) {
                     Value::String("ui-folder-open".into())
                 } else {

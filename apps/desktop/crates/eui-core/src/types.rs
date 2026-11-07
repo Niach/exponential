@@ -64,6 +64,10 @@ pub struct UiNode {
     pub template: Option<Template>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipe: Option<Recipe>,
+    /// Round 9 §5.1: the entry's `ComponentCommon.metadata`, stored and
+    /// exposed, never painted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 impl UiNode {
@@ -151,6 +155,12 @@ pub struct FlatComponent {
     pub visible: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<Value>,
+    /// Round 9 §5.5: the entry's own catalog (else the surface default).
+    #[serde(default, rename = "catalogId", skip_serializing_if = "Option::is_none")]
+    pub catalog_id: Option<String>,
+    /// Round 9 §5.1: `{extensions?}`, stored, never painted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
     #[serde(flatten)]
     pub rest: Props,
 }
