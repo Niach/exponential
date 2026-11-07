@@ -641,6 +641,9 @@ jobs:
       - name: Build the eNet facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p exponential-net-ffi --release --features cli
+      - name: Build the Engine facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p eengine-ffi --release --features cli
       - name: Cache Gradle packages
         if: runner.environment == 'github-hosted'
         uses: actions/cache@v4

@@ -811,7 +811,7 @@ Added here:
 
 | Executor | Runs | When | Engine | Status |
 |---|---|---|---|---|
-| Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | web: the TS twin (`@exp/eengine`); desktop, iOS, Android: `eengine` (desktop first, then the phones' `AppHost` piece by piece) | ✅ / Engine 🆕 |
+| Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | web: its own host (it stays online-only, §14); desktop, iOS, Android: `SyncedRecordStore` on `eengine` (#VAPP-272), the rest is the host's (§13.1) | ✅ |
 | Server broker | `exposes`, upstream reads (M1), automations (A1), webhooks (A3), public links (P1) | Always (the web server process) | none: the server is a provider (records service, Postgres + RLS), never inside the Engine | ✅ for exposes and upstream reads, 🆕 for the rest |
 | Agent | Anything that needs judgement (`run.agent`) | On trigger | an `AgentProvider` (Agents) with a hub grant | ✅ A2 |
 | Device | stdio/LAN upstreams (M2) | When the device is online | capabilities and upstreams on the in-process hub | ✅ (#VAPP-239) |
@@ -820,7 +820,7 @@ Added here:
 
 ### 13.1 The Engine (✅ contract E0 #VAPP-260; ✅ crate E1 #VAPP-261; ✅ FFI + SDK products E3 #VAPP-263)
 
-The **Engine** (crate `eengine`, contract `packages/eengine`, tag `eengine-v*`) replaces the old S2 to S4 (the `eapps` crate). It is the stateful, I/O-bearing runtime around genUI. Today every host re-implements it: web TS, desktop Rust, iOS `AppHost.swift` and Android `AppHost.kt` each carry their own sources, outbox, action dispatch, consent and upstream calls. The Apps format and its pure logic (validation, query, CEL, policy, transitions, migrations, exposes) stay in genUI's host (`eui-core/src/host` + TS) and ship with genUI. There is no `eapps` crate.
+The **Engine** (crate `eengine`, contract `packages/eengine`, tag `eengine-v*`) replaces the old S2 to S4 (the `eapps` crate). It is the stateful, I/O-bearing runtime around genUI. Exponential's hosts run their record writes on it (#VAPP-272) and keep what is Exponential's own (below). The Apps format and its pure logic (validation, query, CEL, policy, transitions, migrations, exposes) stay in genUI's host (`eui-core/src/host` + TS) and ship with genUI. There is no `eapps` crate.
 
 ```
  hosts:  Exponential web · desktop · iOS · Android │ softcoded app │ eDE │ Spezl │ exported apps
@@ -879,7 +879,7 @@ Self-hosted gets everything: the broker is the same image (`ghcr.io/niach/expone
 |---|---|---|---|---|
 | Web | Records on demand per app (`subsets`) | Online (tRPC) | the TS twin over the server's records | ✅ / offline ❌ (banner) |
 | Desktop | Full shape | Outbox (O1) | `SyncedRecordStore` | ✅ |
-| iOS (GRDB), Android (Room) | Full shape | Outbox (O1) | `SyncedRecordStore` over `eengine-ffi` (later) | ✅ |
+| iOS (GRDB), Android (Room) | Full shape | Outbox (O1) | `SyncedRecordStore` over `eengine-ffi` (#VAPP-272, the overlay and the pending glyph still read the host's table) | ✅ |
 | Spezl | Local sqlite + P2P records space | Local first | `SqliteRecordStore` + a P2P `SyncTransport` | #YO-32 |
 | eDE | Local desktop: `elocal`; connected: the account's shape | Local desktop: direct; connected: outbox | `SqliteRecordStore` (= `elocal`'s app-records, #EDE-55) or `SyncedRecordStore` | 🆕 #EDE-54 |
 | Softcoded app, exported apps | Local sqlite | Direct (no outbox) | `SqliteRecordStore`, local identity | 🆕 E1 |

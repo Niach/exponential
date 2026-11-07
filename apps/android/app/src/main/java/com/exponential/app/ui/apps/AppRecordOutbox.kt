@@ -29,6 +29,7 @@ import at.exponential.ui.json.JsonValue
 import com.exponential.app.data.api.AppsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.AppRecordOutboxDao
 import com.exponential.app.data.db.AppRecordOutboxEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
@@ -147,7 +148,7 @@ class AppRecordOutbox @Inject constructor(
         val db = holder.database(account)
         synchronized(stores) {
             stores[account]?.takeIf { it.first === db }?.let { return it.second }
-            val store = SyncedRecordStore(RoomLog(db), TrpcTransport(account, db), Toasts(), null)
+            val store = SyncedRecordStore(RoomLog(db.appRecordOutboxDao()), TrpcTransport(account, db), Toasts(), null)
             stores[account] = db to store
             return store
         }
@@ -191,46 +192,6 @@ class AppRecordOutbox @Inject constructor(
                 Log.w("AppRecordOutbox", "prune failed: ${e.message}")
             }
         }
-    }
-
-    /** The account's Room table; the Engine calls in on [Dispatchers.IO]. */
-    private class RoomLog(db: ExponentialDatabase) : OutboxLog {
-        private val dao = db.appRecordOutboxDao()
-
-        private fun <T> failing(body: suspend () -> T): T = try {
-            runBlocking { body() }
-        } catch (e: Exception) {
-            throw EngineException.Failure("INTERNAL", e.message.orEmpty())
-        }
-
-        override fun entriesJson(): String = failing {
-            val rows = dao.all()
-            val readable = rows.mapNotNull { row -> runCatching { entryJson(row) }.getOrNull() }
-            // An unreadable row can never replay: it leaves.
-            if (readable.size < rows.size) dao.delete(rows.filter { runCatching { entryJson(it) }.isFailure }.map { it.writeId })
-            JsonArray(readable).toString()
-        }
-
-        override fun push(entryJson: String) = failing {
-            val entry = Json.parseToJsonElement(entryJson).jsonObject
-            fun text(key: String) = entry.getValue(key).jsonPrimitive.content
-            dao.insert(
-                AppRecordOutboxEntity(
-                    writeId = text("writeId"),
-                    seq = dao.maxSeq() + 1,
-                    appId = text("appId"),
-                    call = text("call"),
-                    writes = entry.getValue("writes").toString(),
-                    at = text("at"),
-                    state = text("state"),
-                    ackedAt = entry["ackedAt"]?.jsonPrimitive?.contentOrNull,
-                ),
-            )
-        }
-
-        override fun ack(writeId: String, at: String) = failing { dao.ack(writeId, at) }
-
-        override fun remove(writeIds: List<String>) = failing { dao.delete(writeIds) }
     }
 
     /** tRPC out, as the account and the entry's app. */
@@ -302,7 +263,7 @@ class AppRecordOutbox @Inject constructor(
         )
 
         /** The Engine's spelling of a stored entry. */
-        private fun entryJson(row: AppRecordOutboxEntity): JsonObject = buildJsonObject {
+        internal fun entryJson(row: AppRecordOutboxEntity): JsonObject = buildJsonObject {
             put("writeId", row.writeId)
             put("appId", row.appId)
             put("call", row.call)
@@ -350,6 +311,45 @@ class AppRecordOutbox @Inject constructor(
         }
     }
 }
+
+/** The account's Room table; the Engine calls in on [Dispatchers.IO]. */
+internal class RoomLog(private val dao: AppRecordOutboxDao) : OutboxLog {
+    private fun <T> failing(body: suspend () -> T): T = try {
+        runBlocking { body() }
+    } catch (e: Exception) {
+        throw EngineException.Failure("INTERNAL", e.message.orEmpty())
+    }
+
+    override fun entriesJson(): String = failing {
+        val rows = dao.all()
+        val readable = rows.mapNotNull { row -> runCatching { AppRecordOutbox.entryJson(row) }.getOrNull() }
+        // An unreadable row can never replay: it leaves.
+        if (readable.size < rows.size) dao.delete(rows.filter { runCatching { AppRecordOutbox.entryJson(it) }.isFailure }.map { it.writeId })
+        JsonArray(readable).toString()
+    }
+
+    override fun push(entryJson: String) = failing {
+        val entry = Json.parseToJsonElement(entryJson).jsonObject
+        fun text(key: String) = entry.getValue(key).jsonPrimitive.content
+        dao.insert(
+            AppRecordOutboxEntity(
+                writeId = text("writeId"),
+                seq = dao.maxSeq() + 1,
+                appId = text("appId"),
+                call = text("call"),
+                writes = entry.getValue("writes").toString(),
+                at = text("at"),
+                state = text("state"),
+                ackedAt = entry["ackedAt"]?.jsonPrimitive?.contentOrNull,
+            ),
+        )
+    }
+
+    override fun ack(writeId: String, at: String) = failing { dao.ack(writeId, at) }
+
+    override fun remove(writeIds: List<String>) = failing { dao.delete(writeIds) }
+}
+
 
 /** VAPP-235: a later replay's refusal = `Couldn't <verb> the record` with the
  *  server's message (mounted once, under the app's one toaster). */
