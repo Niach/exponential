@@ -47,6 +47,9 @@ impl Frame {
     }
 }
 
+/// The extra modes a headless output offers besides its own size.
+pub const VIRTUAL_MODES: [(i32, i32); 3] = [(1024, 768), (1600, 900), (1920, 1080)];
+
 impl Headless {
     /// Adds a virtual output of `size` to the right of the existing ones.
     pub fn add_output(&mut self, state: &mut Ede, name: &str, size: (i32, i32)) -> Output {
@@ -58,6 +61,13 @@ impl Headless {
         let _global = output.create_global::<Ede>(&state.display_handle);
         output.change_current_state(Some(mode), Some(Transform::Normal), None, None);
         output.set_preferred(mode);
+        // Like a VM's virtual GPU, a few more sizes to switch to (#EDE-65:
+        // a VirtualBox window resize is a mode change under the shell).
+        for (w, h) in VIRTUAL_MODES {
+            if (w, h) != size {
+                output.add_mode(Mode { size: (w, h).into(), refresh: 60_000 });
+            }
+        }
         state.add_output(&output);
         self.outputs.push(output.clone());
         output
