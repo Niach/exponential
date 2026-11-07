@@ -805,7 +805,16 @@ impl<'a> GpuiMeasure<'a> {
             }
         };
         self.shaped += s.calls;
-        let baseline = Some(self.line_baseline(ts));
+        // An inline paragraph's type, the Text's, sets the first baseline.
+        let inline_ts = markdown::inline_variant(leaf.props).map(|_| {
+            let mut t = ts.clone();
+            t.font_size = styles.body.size;
+            t.line_height = styles.body.line_height;
+            t.font_weight = styles.body.weight;
+            t.font_family = styles.body.family.clone();
+            t
+        });
+        let baseline = Some(self.line_baseline(inline_ts.as_ref().unwrap_or(ts)));
         (out.0, out.1.max(if blocks.is_empty() { 0.0 } else { line_height }), baseline)
     }
 

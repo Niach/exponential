@@ -15,7 +15,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
-use eui_core::theme::{Mode, ResolvedTheme};
+use eui_core::recipes::markdown_inline_recipes;
+use eui_core::theme::{Mode, RecipeQuery, ResolvedTheme};
 use gpui::{
     div, prelude::*, px, AnyElement, App, Font, FontStyle, FontWeight, Hsla, InteractiveText, SharedString, StrikethroughStyle, StyledText, TextLayout, TextRun, UnderlineStyle, Window,
 };
@@ -1363,21 +1364,44 @@ impl MdStyles {
         // #VAPP-258 step 5: the chat rhythm re-resolves the root (the node's
         // text style knows no density): its type is the body, its gap the
         // block gap. The document keeps the node's style and the `sm` gap.
-        let chat = owner_props.get("density").and_then(|v| v.as_str()) == Some("chat");
+        // Round 9 §9.1: the inline profile's paragraph IS a Text of `variant`
+        // and its heading a Heading, whatever the host's density: the
+        // recipes come from `markdown_inline_recipes`, the block gaps stay
+        // the document's.
+        let inline = inline_variant(owner_props);
+        let typed = |recipes: Vec<RecipeQuery>| {
+            let mut merged = Map::new();
+            for q in recipes {
+                merged.extend(theme.map(|t| eui_core::theme::resolve_recipe(t, &q, mode)).unwrap_or_default());
+            }
+            merged
+        };
+        let chat = inline.is_none() && owner_props.get("density").and_then(|v| v.as_str()) == Some("chat");
         let root = chat.then(|| part("root"));
         if let Some(root) = &root {
             s.body = spec(root, &s.body);
         }
-        let heading = part("heading");
+        if inline.is_some() {
+            s.body = spec(&typed(markdown_inline_recipes("paragraph", inline, None)), &s.body);
+        }
+        let mut heading_props = owner_props.clone();
+        if inline.is_some() {
+            heading_props.remove("density");
+        }
+        let heading = part_props(theme, mode, "Markdown", "heading", &heading_props, &[]);
         let heading_base = TextSpec { weight: 600, ..s.body.clone() };
         s.heading = spec(&heading, &heading_base);
+        if inline.is_some() {
+            s.heading = spec(&typed(markdown_inline_recipes("heading", None, Some(2))), &heading_base);
+        }
         // #VAPP-258: each heading level's type and margins (the `level` the
         // painter supplies; margins collapse like CSS block margins).
         s.heading_top = px_prop(&heading, "marginTop").unwrap_or_else(|| spacing(theme, "md"));
         s.heading_bottom = px_prop(&heading, "marginBottom").unwrap_or_else(|| spacing(theme, "xs"));
         for level in 1..=6u8 {
-            let p = part_with("heading", "level", serde_json::Value::from(level));
-            s.heading_levels[level as usize - 1] = Some(spec(&p, &heading_base));
+            heading_props.insert("level".into(), serde_json::Value::from(level));
+            let p = part_props(theme, mode, "Markdown", "heading", &heading_props, &[]);
+            s.heading_levels[level as usize - 1] = Some(if inline.is_some() { spec(&typed(markdown_inline_recipes("heading", None, Some(level))), &heading_base) } else { spec(&p, &heading_base) });
             s.heading_tops[level as usize - 1] = px_prop(&p, "marginTop");
             s.heading_bottoms[level as usize - 1] = px_prop(&p, "marginBottom");
         }
@@ -1462,6 +1486,18 @@ pub fn density_props(props: &Map<String, serde_json::Value>, chat: bool) -> std:
     let mut p = props.clone();
     p.insert("density".into(), serde_json::Value::from("chat"));
     std::borrow::Cow::Owned(p)
+}
+
+/// Round 9 §9.1: an inline-profile Markdown's paragraph `variant`
+/// (`None` = the document profile).
+pub fn inline_variant(props: &Map<String, serde_json::Value>) -> Option<&'static str> {
+    (props.get("profile").and_then(|v| v.as_str()) == Some("inline")).then(|| if props.get("variant").and_then(|v| v.as_str()) == Some("caption") { "caption" } else { "body" })
+}
+
+/// The text colour of an inline paragraph (its `Text/root`).
+pub fn inline_ink(theme: Option<&ResolvedTheme>, mode: Mode, variant: &str) -> Option<Hsla> {
+    let query = markdown_inline_recipes("paragraph", Some(variant), None).pop()?;
+    color_of(theme.map(|t| eui_core::style::visual(&eui_core::theme::resolve_recipe(t, &query, mode), eui_core::style::BoxKind::Leaf)).unwrap_or_default().color.as_deref())
 }
 
 /// Where one block sits (relative to the content box).

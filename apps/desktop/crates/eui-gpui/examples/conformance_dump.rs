@@ -167,6 +167,12 @@ pub struct DumpNode {
     pub lines: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lh: Option<f32>,
+    /// Round 9 §5.1: the node's live region (`polite | assertive`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<String>,
+    /// Round 9 §5.1: `accessibility.hidden` holds on the node itself.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "a11yHidden")]
+    pub a11y_hidden: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,7 +231,7 @@ pub fn dump_surface(surface: &mut Surface, text_components: &[String], painted: 
             continue;
         }
         let Some(f) = surface.last_frame(n.index) else { continue };
-        let mut node = DumpNode { id: n.id.clone(), component: n.component.clone(), part: n.part.clone(), parent: n.parent.and_then(|p| ids.get(&p).cloned()), x: round2(f.x - root.x), y: round2(f.y - root.y), w: round2(f.w), h: round2(f.h), text: None, lines: None, lh: None };
+        let mut node = DumpNode { id: n.id.clone(), component: n.component.clone(), part: n.part.clone(), parent: n.parent.and_then(|p| ids.get(&p).cloned()), x: round2(f.x - root.x), y: round2(f.y - root.y), w: round2(f.w), h: round2(f.h), text: None, lines: None, lh: None, live: n.live.clone(), a11y_hidden: eui_core::expr::coerce_boolean(n.accessibility.as_ref().and_then(|a| a.get("hidden"))).then_some(true) };
         if n.kind == NodeKind::Leaf {
             if let (Some(text), Some(ts)) = (leaf_text(n), surface.text_style(n.index)) {
                 let v = surface.visual(n.index);

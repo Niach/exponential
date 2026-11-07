@@ -755,6 +755,12 @@ impl Builder<'_, '_> {
         let control_part = if owner.component == "Switch" { "track" } else { "box" };
         let checked = bool_prop(&owner.props, "checked");
         let invalid = !self.field_errors(&owner).is_empty();
+        // Round 9 §6.6: a Checkbox's message sits in the text column, under
+        // its label (the web's `.xui-field-text`).
+        let body_message = owner.component == "Checkbox" && (invalid || self.ctx.local.errors.get(&owner.id).is_some_and(|e| e.shown.is_some()));
+        if body_message {
+            self.nodes[index as usize].base_style.insert("alignItems".into(), json!("flex-start"));
+        }
         let mut control_props = json!({"checked": checked, "disabled": bool_prop(&owner.props, "disabled")});
         if owner.component == "Switch" {
             control_props["size"] = json!(str_prop(&owner.props, "size").unwrap_or("default"));
@@ -766,6 +772,11 @@ impl Builder<'_, '_> {
         }
         let control = |b: &mut Self, parent: u32| {
             let c = b.part_in(parent, &owner, control_part, &owner.component, NodeKind::Leaf, json!({"flexShrink": 0}), control_props.clone(), "");
+            // Two lines beside it: the box stays on the first (`xxs` = the
+            // web's half-leading of the 16px box on the 20px label).
+            if body_message {
+                b.nodes[c as usize].base_style.insert("marginTop".into(), json!("$spacing.xxs"));
+            }
             if checked {
                 b.add_state(c, "checked");
             }
@@ -774,12 +785,9 @@ impl Builder<'_, '_> {
             }
             c
         };
-        // Round 9 §6.6: a Checkbox's message sits in the text column, under
-        // its label (the web's `.xui-field-text`).
-        let message_in_body = owner.component == "Checkbox" && (invalid || self.ctx.local.errors.get(&owner.id).is_some_and(|e| e.shown.is_some()));
         let text = |b: &mut Self, parent: u32| {
             let has_desc = str_prop(&owner.props, "description").is_some();
-            if has_desc || message_in_body {
+            if has_desc || body_message {
                 let col = b.part_in(parent, &owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "flexGrow": 1, "minWidth": 0}), json!({}), "");
                 if let Some(label) = str_prop(&owner.props, "label") {
                     b.text_part(col, &owner, "label", label, "body", "");
@@ -808,7 +816,7 @@ impl Builder<'_, '_> {
             control(self, index);
             text(self, index)
         };
-        if let Some(col) = body.filter(|_| message_in_body) {
+        if let Some(col) = body.filter(|_| body_message) {
             self.field_message(col, &owner);
             return;
         }

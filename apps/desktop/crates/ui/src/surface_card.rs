@@ -529,7 +529,7 @@ mod tests {
         let painted = crate::plan_card::painted_surface(&stored);
         assert_eq!(painted.root["children"][0], serde_json::json!({"id": "a_b", "component": "Text", "props": {"text": {"@path": "/t"}}}));
         assert_eq!(children_entrance(Instant::now(), &stored).unwrap().ids, vec!["a_b".to_string()]);
-        let current = CardSurface { version: Some("1.0".into()), root: serde_json::json!({"id": "a-b"}), data: None };
+        let current = CardSurface { version: Some(eui_core::catalog::A2UI_VERSION.into()), root: serde_json::json!({"id": "a-b"}), data: None };
         assert_eq!(crate::plan_card::painted_surface(&current), current);
     }
 }

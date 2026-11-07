@@ -321,7 +321,7 @@ pub fn next_focus(order: &[u32], current: Option<u32>, backwards: bool) -> Optio
 /// the Mosaic's button tiles and decorative pictures).
 pub fn authored_role(n: &PlacedNode) -> Option<Option<Role>> {
     let a = n.accessibility.as_ref()?;
-    if a.get("hidden").and_then(Value::as_bool) == Some(true) {
+    if a11y_hidden(n) {
         return Some(None);
     }
     Some(Some(match a.get("role").and_then(Value::as_str)? {
@@ -347,6 +347,21 @@ pub fn authored_role(n: &PlacedNode) -> Option<Option<Role>> {
         "treeitem" => Role::TreeItem,
         _ => return None,
     }))
+}
+
+/// Round 9 §5.1: `accessibility.hidden`, a DynamicBoolean (§6.7 coercion). It
+/// hides the node's whole subtree, as `aria-hidden` does.
+pub fn a11y_hidden(n: &PlacedNode) -> bool {
+    eui_core::expr::coerce_boolean(n.accessibility.as_ref().and_then(|a| a.get("hidden")))
+}
+
+/// The role a live region without a role of its own takes (a Toast's rule).
+fn live_role(n: &PlacedNode) -> Role {
+    if n.live.as_deref() == Some("assertive") {
+        Role::Alert
+    } else {
+        Role::Status
+    }
 }
 
 /// `accessibility.current` (`true` or a token like `location` / `page` /
@@ -464,13 +479,7 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
             }
         }
         ("Box", Some("content")) if owner == "Popover" => Role::Dialog,
-        ("Box", Some("root")) if owner == "Toast" => {
-            if n.live.as_deref() == Some("assertive") {
-                Role::Alert
-            } else {
-                Role::Status
-            }
-        }
+        ("Box", Some("root")) if owner == "Toast" => live_role(n),
         ("Box", Some("header")) if owner == "Table" => Role::Row,
         ("Text", Some("headerCell")) => Role::ColumnHeader,
         ("Box", Some("row")) if owner == "Table" => Role::Row,
@@ -478,7 +487,7 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Text", Some("caption")) => Role::Caption,
         ("Box", Some("body")) if owner == "CodeBlock" => Role::Code,
         ("Box", Some("dropzone")) => Role::Button,
-        ("Text", _) if n.live.is_some() => Role::Status,
+        ("Text", _) if n.live.is_some() => live_role(n),
         ("Text", _) => Role::Label,
         ("Markdown", _) => Role::Article,
         ("Input", Some("field")) | ("ChipInput", Some("input")) => Role::TextInput,
@@ -527,6 +536,8 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         _ if parent_component == Some("List") && n.part.as_deref() != Some("divider") => Role::ListItem,
         ("Box", _) if n.pressable => Role::Button,
         ("Extension", _) if n.kind == NodeKind::Leaf => Role::Group,
+        // Round 9 §5.1: `accessibility.live` holds on any component.
+        _ if n.live.is_some() => live_role(n),
         _ => return None,
     })
 }

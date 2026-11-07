@@ -287,6 +287,10 @@ pub struct AccessibleInfo {
     pub level: Option<usize>,
     /// A list item's place in the WHOLE list: (position, set size).
     pub position: Option<(usize, usize)>,
+    /// Round 9 §5.1: a live region (`polite | assertive`; `off` = none). gpui
+    /// exposes no AccessKit `live` setter, so the region reads through its
+    /// role (Status, Alert) and this field.
+    pub live: Option<SharedString>,
 }
 
 /// Painted window bounds by node id ([`SurfaceView::record_bounds`]).
@@ -1494,7 +1498,7 @@ impl SurfaceView {
             return self.node_a11y(n);
         }
         let (base, rest) = id.split_once('.')?;
-        let button = |label: String| AccessibleInfo { role: gpui::Role::Button, label: Some(label.into()), description: None, level: None, position: None };
+        let button = |label: String| AccessibleInfo { role: gpui::Role::Button, label: Some(label.into()), description: None, level: None, position: None, live: None };
         if let Some(n) = self.cache.index_of(base).and_then(|i| self.cache.node(i)).filter(|n| n.component == "Composer") {
             let (send, attach) = self.composer_labels(n);
             return match rest {
@@ -1508,7 +1512,7 @@ impl SurfaceView {
         let page: usize = page.parse().ok()?;
         let n = self.cache.index_of(owner).and_then(|i| self.cache.node(i))?;
         let total = n.props.get("count").and_then(serde_json::Value::as_f64).unwrap_or(0.0).max(0.0) as usize;
-        (page < total).then(|| AccessibleInfo { role: gpui::Role::Tab, label: Some(self.carousel_dot_label(page, total).into()), description: None, level: None, position: Some((page + 1, total)) })
+        (page < total).then(|| AccessibleInfo { role: gpui::Role::Tab, label: Some(self.carousel_dot_label(page, total).into()), description: None, level: None, position: Some((page + 1, total)), live: None })
     }
 
     /// What a fading layer paints (an inspection aid): its nodes in paint
