@@ -696,9 +696,20 @@ fn vblank(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Handle) {
     render_device(udev, state, node);
 }
 
+/// Whether an output renders on this loop turn: not while a flip waits for
+/// its vblank, and not while an idle refresh is pending (#EDE-65: the last
+/// render found nothing new, so its frame callbacks go out a refresh later
+/// and that timer renders next). Every gpui surface commits once per frame
+/// callback even when it draws nothing, and each commit is a loop turn: an
+/// idle desktop ran a full render attempt per commit (~240/s with the three
+/// bars and the app) instead of one per refresh.
+fn wants_render(queued: bool, idle_pending: bool) -> bool {
+    !queued && !idle_pending
+}
+
 fn render_device(udev: &Shared, state: &mut Ede, node: DrmNode) {
     let crtcs: Vec<crtc::Handle> = match udev.borrow().devices.get(&node) {
-        Some(d) => d.surfaces.iter().filter(|(_, s)| !s.queued).map(|(c, _)| *c).collect(),
+        Some(d) => d.surfaces.iter().filter(|(_, s)| wants_render(s.queued, s.idle_timer.is_some())).map(|(c, _)| *c).collect(),
         None => return,
     };
     for crtc in crtcs {
@@ -867,5 +878,19 @@ fn frame_failed(u: &mut Udev, state: &mut Ede, output: &Output, error: String) {
             state.fatal = Some(reason);
             state.loop_signal.stop();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wants_render;
+
+    /// #EDE-65: an output renders once per refresh while idle, never per
+    /// client commit, and never over a pending flip.
+    #[test]
+    fn an_idle_output_renders_once_per_refresh() {
+        assert!(wants_render(false, false), "nothing pending: render");
+        assert!(!wants_render(true, false), "a flip waits for its vblank");
+        assert!(!wants_render(false, true), "an idle refresh is pending: its timer renders");
     }
 }
