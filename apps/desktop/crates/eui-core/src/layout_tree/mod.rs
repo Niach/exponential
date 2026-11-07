@@ -833,7 +833,9 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.on = node.on.clone();
         n.source = self.sources.get(&node.id).cloned();
         n.accessibility = node.accessibility.as_ref().and_then(|a| self.resolve(a, scope));
-        n.live = str_prop(&props, "live").filter(|l| *l != "off").map(str::to_string);
+        // Round 9 §5.1: `accessibility.live` wins over `Text.live`.
+        let live = n.accessibility.as_ref().and_then(|a| a.get("live")).and_then(Value::as_str).or(str_prop(&props, "live"));
+        n.live = live.filter(|l| *l != "off").map(str::to_string);
         n.form_disabled = form_disabled;
         n.own_query = Some(RecipeQuery::new(node.component.clone(), "root", self.ctx.recipes.native_recipe_props(&node.component, &recipe_props(&props, form_disabled)), Vec::new()));
         if let Some(r) = &node.recipe {

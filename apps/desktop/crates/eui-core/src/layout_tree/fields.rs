@@ -300,12 +300,20 @@ impl Builder<'_, '_> {
         if !errors.is_empty() {
             let e = self.text_part(index, owner, "error", &errors.join("\n"), "caption", "");
             self.add_state(e, "invalid");
+            self.field_message_live(e, "alert", "assertive");
             return Some((e, true));
         }
         let advisory = self.ctx.local.errors.get(&owner.id).and_then(|e| e.shown.clone())?;
         let e = self.text_part(index, owner, "error", &advisory.message, "caption", "");
         self.add_state(e, &advisory.severity);
+        self.field_message_live(e, "status", "polite");
         Some((e, false))
+    }
+
+    /// Round 9 §6.6: an error reads as an alert, an advisory as a status.
+    fn field_message_live(&mut self, part: u32, role: &str, live: &str) {
+        self.default_a11y(part, "role", json!(role));
+        self.nodes[part as usize].live = Some(live.into());
     }
 
     /// Description and error lines under the control; `control` (the part

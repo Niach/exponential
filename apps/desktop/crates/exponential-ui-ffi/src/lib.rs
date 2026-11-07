@@ -1735,6 +1735,16 @@ impl Surface {
         })
     }
 
+    /// Round 9 §6.6 (`data::field_checks`): a field's check state now, as
+    /// `{"errors": [...], "shown": {"severity", "message"} | null}`.
+    pub fn field_checks_json(&self, id: String) -> String {
+        self.shield("field_checks_json", || r#"{"errors":[],"shown":null}"#.to_string(), || {
+            let (errors, shown) = self.core().field_checks(&id);
+            let shown = shown.map(|s| serde_json::json!({"severity": s.severity, "message": s.message}));
+            serde_json::json!({"errors": errors, "shown": shown}).to_string()
+        })
+    }
+
     /// A `hoverTimer` event fired (`{owner, delay_ms}`): close that hover
     /// overlay unless its trigger or content is hovered again.
     pub fn hover_timeout(&self, owner: String) -> Vec<FfiEvent> {
