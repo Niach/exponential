@@ -118,6 +118,29 @@ pub trait BlobStore: Send + Sync {
 pub trait SyncTransport: Send + Sync {
     /// Replay one outbox entry (`app-records.json` `outbox` `outboxRequest`).
     fn push(&self, app: &str, call: &str, input: &Value) -> crate::outbox::OutboxResult;
+    /// [`push`](Self::push) with the server's answer, for a host call that
+    /// awaits its own entry (`SyncedRecordStore`).
+    fn send(&self, app: &str, call: &str, input: &Value) -> Pushed {
+        Pushed::of(self.push(app, call, input))
+    }
+}
+
+/// One replay as a [`SyncTransport`] answers it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pushed {
+    pub result: crate::outbox::OutboxResult,
+    /// The server's answer (`Null` when the transport has none).
+    pub answer: Value,
+    /// The refusal's message, for the failed-action toast.
+    pub message: Option<String>,
+    /// Invalid input (BAD_REQUEST): a record form shows it inline.
+    pub invalid: bool,
+}
+
+impl Pushed {
+    pub fn of(result: crate::outbox::OutboxResult) -> Self {
+        Pushed { result, answer: Value::Null, message: None, invalid: false }
+    }
 }
 
 /// Who is looking (providers.json `identityKinds`).
