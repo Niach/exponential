@@ -1,7 +1,7 @@
 // VAPP-120: typed host ACTIONS, the pure reference every app host mirrors
 // (fixtures/app-actions.json is the spec; desktop `domain::app_actions`, iOS
 // `AppActions.swift`, Android `AppActions.kt` replay its cases): which
-// `exponential.<noun>.<op>` functions exist, what a name resolves to, what a
+// `exponential_<noun>_<op>` functions exist, what a name resolves to, what a
 // package declares, what an app's grants allow, and the consent card's words.
 
 import fixture from "../fixtures/app-actions.json" with { type: "json" }
@@ -19,9 +19,17 @@ const ALIASES = fixture.aliases as Record<string, string>
  *  working; never listed in `APP_ACTIONS` or a declared list. */
 export const APP_ACTION_ALIASES: Readonly<Record<string, string>> = ALIASES
 
+/** Round 9 §14: a stored name from before the flat names (a grant, a v5
+ *  package's `run.action`): `exponential.issues.update` is
+ *  `exponential_issues_update` until the flag-day migration rewrites it. */
+export function flatAction(name: string): string {
+  return name.startsWith(`exponential.`) ? name.replaceAll(`.`, `_`) : name
+}
+
 /** The name an action is judged by: an alias's new name, else the name. */
 export function canonicalAction(name: string): string {
-  return Object.prototype.hasOwnProperty.call(ALIASES, name) ? ALIASES[name]! : name
+  const flat = flatAction(name)
+  return Object.prototype.hasOwnProperty.call(ALIASES, flat) ? ALIASES[flat]! : flat
 }
 
 export interface ActionTarget {
@@ -31,7 +39,7 @@ export interface ActionTarget {
   op: string | null
 }
 
-/** `exponential.issues.update_status` → the tool and op it runs (an alias
+/** `exponential_issues_update_status` → the tool and op it runs (an alias
  *  → its new name's); null for anything that is not an offered action. */
 export function parseActionName(name: string): ActionTarget | null {
   name = canonicalAction(name)
@@ -48,7 +56,7 @@ export function functionPatternMatches(pattern: string, name: string): boolean {
  *  the aliases too: an alias declares its NEW name), in the fixture's order;
  *  anything that is not an offered action is dropped. */
 export function declaredActions(functions: readonly string[]): string[] {
-  const named = (name: string) => functions.some((pattern) => functionPatternMatches(pattern, name))
+  const named = (name: string) => functions.some((pattern) => functionPatternMatches(flatAction(pattern), name))
   const viaAlias = new Set(Object.keys(ALIASES).filter(named).map((old) => ALIASES[old]!))
   return APP_ACTIONS.filter((name) => named(name) || viaAlias.has(name))
 }
@@ -89,7 +97,7 @@ export function actionGrantable(name: string): boolean {
 
 /** A destructive CALL: a destructive action, or a grantable one whose
  *  args carry a `destructiveArgs` key (present and not false/null):
- *  `exponential.sessions.send` with `stop` = prompts.json's stop-run. */
+ *  `exponential_sessions_send` with `stop` = prompts.json's stop-run. */
 export function callDestructive(name: string, args: Record<string, unknown> | null | undefined): boolean {
   if (actionDestructive(name)) return true
   name = canonicalAction(name)

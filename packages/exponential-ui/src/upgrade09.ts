@@ -729,6 +729,7 @@ export function upgradePackageBody09(pkg: unknown): unknown {
         out[k] = upgradeActions(v, ctx)
         break
       case `exposes`:
+      case `automations`:
         out[k] = upgradeExposes(v, ctx)
         break
       case `tests`:

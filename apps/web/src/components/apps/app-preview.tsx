@@ -16,7 +16,7 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 
 // VAPP-110: the editor's PREVIEW: the package's first template rendered
 // through the app host (the same public host API a third party uses:
-// `exp:` + `records:` bindings, `harness.mcp` behind the consent card, the URL
+// `exp:` + `records:` bindings, `harness_mcp` behind the consent card, the URL
 // policy). A new package = a new host (the key), so every synced upsert
 // repaints; no package yet = the empty state in the frame. VAPP-179: the
 // template to apply comes from the editor's toolbar (`previewTemplate`), and
@@ -24,7 +24,7 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 // VAPP-218: a package's `screens` = the host's shell inside the frame
 // (apps.json `screens`): the sidebar rows on a wide frame, the phone tab
 // bar on a phone or the Phone frame; the shown screen's template opens with
-// its params (`screenData`), and `app.navigate` asks the editor for another.
+// its params (`screenData`), and `app_navigate` asks the editor for another.
 // #VAPP-251: a package the host refuses, or any throw in here, = the frame
 // with `copy.needsUpdate` alone (`AppSurfaceBoundary`).
 
@@ -80,10 +80,8 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
   const [appliedHost, setAppliedHost] = useState<typeof host | null>(null)
   useEffect(() => {
     if (templateId) {
-      host.receive({
-        version: `v0.9`,
-        applyTemplate: { surfaceId: APPS_PREVIEW.surfaceId, templateId, packageId: pkg.id, ...(screen ? { data: screenData(screen) } : {}) },
-      })
+      // Round 9 §1.4: a fresh host per key, so the id is free.
+      host.applyTemplate({ surfaceId: APPS_PREVIEW.surfaceId, templateId, packageId: pkg.id, ...(screen ? { data: screenData(screen) } : {}) })
     }
     setAppliedHost(host)
     return () => host.close()
@@ -152,7 +150,7 @@ type AppPreviewProps = {
   phone?: boolean
   /** VAPP-218: the requested screen (null = the first). */
   screen?: ScreenRequest | null
-  /** VAPP-218: a row/tab tap or `app.navigate` asks for a screen. */
+  /** VAPP-218: a row/tab tap or `app_navigate` asks for a screen. */
   onScreen?: (request: ScreenRequest) => void
   /** VAPP-242 (apps.json THE RUN VIEW): `run` = the same surface edge to
    *  edge (no frame border or radius), the run view's full screen. */

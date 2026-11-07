@@ -45,7 +45,7 @@ export {
   styleKeyType,
 } from "./style"
 export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, ConditionContext, MediaCondition, FormFactor } from "./style"
-export { validateProps, validateNode, isCallableName, isDynamic } from "./validate"
+export { validateProps, validateNode, isCallableName, isKnownFunctionName, isDynamic } from "./validate"
 export type { PropIssue } from "./validate"
 export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, present, coerceBoolean, binding, bindingPath, callName, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
 export type { ExprContext, Dynamic } from "./expr"
@@ -132,7 +132,7 @@ export type { ComponentA11y } from "./a11y"
 export type { CodeToken } from "./code"
 export { basicMap, mapBasicComponent, mapBasicIcon, BASIC_TRANSFORM_NAMES } from "./basic-map"
 export type { MappedComponent } from "./basic-map"
-export { reduceSurface, reduceNested, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
+export { reduceSurface, reduceNested, cardV10, cardProblems, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
 export type { ReduceOptions, ReduceResult } from "./reducer"
 export { defineExtension, validateExtension } from "./extension"
 // VAPP-106: NOT here, each its own entry so the root stays what a renderer

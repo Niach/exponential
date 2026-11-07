@@ -51,7 +51,7 @@ function GuestSurface({ token, page, honeypot, onDone, onError }: { token: strin
   const plugin = useMemo(() => ({ icons: exponentialUiIcons }), [])
   const [appliedHost, setAppliedHost] = useState<ExponentialHost | null>(null)
   useEffect(() => {
-    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: SURFACE, templateId: `main`, packageId: page.package.id } })
+    host.applyTemplate({ surfaceId: SURFACE, templateId: `main`, packageId: page.package.id })
     setAppliedHost(host)
     return () => host.close()
   }, [host, page.package.id])

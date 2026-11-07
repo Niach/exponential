@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, cardV10, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import { CHATS_COPY, CHATS_TEST_IDS, surfaceReply } from "@exp/domain-contract/chats"
 import { PLAN_CARD_GEOMETRY, type CardSurface } from "@exp/domain-contract/plan-card"
@@ -135,11 +135,21 @@ export function SurfaceCard({
   animate?: boolean
   className?: string
 }) {
+  // Round 9 §13: a stored card without a version is the 0.9 form.
+  const upgraded = useMemo(() => {
+    const out = cardV10(surface)
+    return `card` in out ? out.card : surface
+  }, [surface])
+  // Round 9 §13: a stored card without a version is the 0.9 form.
+  const upgraded = useMemo(() => {
+    const out = cardV10(surface)
+    return `card` in out ? out.card : surface
+  }, [surface])
   const state = useSurface({
     surfaceId: `surface-${testKey}`,
     catalogId: CORE_CATALOG_ID,
-    initial: surface.root as NestedNode,
-    data: { ...(surface.data ?? {}) },
+    initial: upgraded.root as NestedNode,
+    data: { ...((upgraded.data as Record<string, unknown> | null | undefined) ?? {}) },
   })
   const replyRef = useRef(onReply)
   replyRef.current = onReply

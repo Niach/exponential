@@ -5,17 +5,20 @@
 
 import {
   A2UI_BASIC_CATALOG_ID,
+  A2UI_VERSION,
+  ACCEPT_V09,
   CORE_CATALOG_ID,
   CORE_LITE_CATALOG_ID,
   UNKNOWN_COMPONENT,
   coreCatalog,
   sharedCatalogView,
 } from "./catalog"
-import { SURFACE_COMPONENT, escapeToken } from "./entry"
+import { SURFACE_COMPONENT, checkEntry, escapeToken } from "./entry"
+import { upgradeCard09 } from "./upgrade09"
 import { mapBasicComponent } from "./basic-map"
 import { isDynamic } from "./expr"
 import { expandMacros } from "./macros"
-import { validateNode, validateProps } from "./validate"
+import { isKnownFunctionName, validateNode, validateProps } from "./validate"
 import { LIMIT_ISSUES, MAX_COMPONENTS, MAX_DEPTH } from "./limits"
 import type {
   ChildTemplate,
@@ -594,6 +597,43 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
   const lifted = liftTemplates(root, issues)
   if (options.validate !== false) checkParents(root, lifted, parents, extensions, issues)
   return finish(root, lifted, options.expand !== false, extensions, options.catalogId, issues)
+}
+
+/** Round 9 §13: a card as 1.0: `"version": "1.0"` passes, no `version` is the
+ *  0.9 form (upgraded while the bridge is on), anything else is refused. */
+export function cardV10(card: unknown, acceptV09: boolean = ACCEPT_V09): { card: { version: string; root: NestedNode; data?: unknown } } | { error: string } {
+  if (typeof card !== `object` || card === null || Array.isArray(card)) return { error: `a card is a JSON object` }
+  const version = (card as { version?: unknown }).version
+  if (version === undefined) return acceptV09 ? { card: upgradeCard09(card) as { version: string; root: NestedNode } } : { error: `version is required: write "version": "1.0"` }
+  if (version === A2UI_VERSION) return { card: card as { version: string; root: NestedNode } }
+  return { error: `unsupported version ${typeof version === `string` ? version : JSON.stringify(version)}` }
+}
+
+/** Round 9 §13: what a card refuses beyond `reduceNested`'s issues: the entry
+ *  check on every node (§5.2) and any name no card can reach (no agent
+ *  channel, §6.5). Each `<node id>: <reason>`. */
+export function cardProblems(root: NestedNode): string[] {
+  const out: string[] = []
+  const known = (v: unknown): void => {
+    if (Array.isArray(v)) return v.forEach(known)
+    if (typeof v !== `object` || v === null) return
+    const call = (v as { "@call"?: unknown })[`@call`]
+    if (typeof call === `string` && !isKnownFunctionName(call)) out.push(`unknown function ${call}`)
+    Object.values(v).forEach(known)
+  }
+  const walk = (n: NestedNode): void => {
+    const { props, children, slots, template, ...rest } = n as NestedNode & { template?: unknown }
+    const failure = checkEntry({ ...rest, ...(props ?? {}) }, { catalogId: CORE_CATALOG_ID })
+    if (failure) out.push(`${String(n.id)}: ${failure.pointer || `/`} ${failure.message}`)
+    known(props)
+    known(n.on)
+    known(n.visible)
+    known(n.accessibility)
+    if (Array.isArray(children)) children.forEach(walk)
+    for (const child of Object.values(slots ?? {})) walk(child)
+  }
+  walk(root)
+  return out
 }
 
 /** Pre-order ids of a tree, the painters' accessibility order. */

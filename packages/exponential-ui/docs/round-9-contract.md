@@ -1425,7 +1425,7 @@ then the card gets `"version": "1.0"` as its first key.
 2. Each template is upgraded as one surface with a fresh state.
 3. `functions[]`, the `actions.*.steps[]` keys `records.upsert`/
    `records.delete` → `records_upsert`/`records_delete`, the `call`
-   values, `exposes[].run.action`, and every string in `tests[*].expect`
+   values, `exposes[].run.action`, `automations[].run.action`, and every string in `tests[*].expect`
    shaped like a dotted function name (`^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)+$`)
    all go through `rename`.
 4. `tools` keys → `mangle` with the `_2` collision rule (ids are tested

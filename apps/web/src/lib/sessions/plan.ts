@@ -3,6 +3,8 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { z } from "zod"
 import {
   CORE_CATALOG_ID,
+  cardProblems,
+  cardV10,
   reduceNested,
   type NestedNode,
   type ReduceResult,
@@ -287,9 +289,15 @@ export function validateCardSurface(surface: CardSurfaceInput | undefined): Card
   if (typeof root.id !== `string` || typeof root.component !== `string`) {
     throw bad(`surface.root must be a genUI node: {id, component, props?, children?}`)
   }
+  // Round 9 §13: the server keeps what it was given (0.9 until the flag day)
+  // and checks its 1.0 form, what every client paints.
+  const upgraded = cardV10(surface)
+  if (`error` in upgraded) throw bad(`surface: ${upgraded.error}`)
+  const problems = cardProblems(upgraded.card.root)
+  if (problems.length > 0) throw bad(`surface is not valid: ${problems.slice(0, 10).join(`; `)}${problems.length > 10 ? `; and ${problems.length - 10} more` : ``}`)
   let result: ReduceResult
   try {
-    result = reduceNested(root as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
+    result = reduceNested(upgraded.card.root, { catalogId: CORE_CATALOG_ID })
   } catch (error) {
     throw bad(`surface.root is not a valid genUI tree: ${error instanceof Error ? error.message : String(error)}`)
   }

@@ -50,8 +50,8 @@ describe(`validateAppPackage`, () => {
 
   it(`refuses a package without format version 5`, () => {
     const { formatVersion: _omit, ...rest } = pkg()
-    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(5\)/)
-    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read: write 5/)
+    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(6\)/)
+    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read; 6 is required/)
   })
 
   it(`names the host sources and the sources rule in the catalog`, () => {
@@ -94,7 +94,7 @@ describe(`validateAppPackage: format version 5`, () => {
   })
 
   it(`refuses a newer format version`, () => {
-    expect(() => validateAppPackage(neutral({ formatVersion: 6 }))).toThrow(/format version 6 is newer than this host/)
+    expect(() => validateAppPackage(neutral({ formatVersion: 7 }))).toThrow(/format version 7 is newer than this host/)
   })
 
   it(`names the neutral spelling in the catalog`, () => {
