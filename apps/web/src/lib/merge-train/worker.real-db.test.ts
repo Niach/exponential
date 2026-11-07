@@ -449,6 +449,20 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect(fake.closed.map((c) => c.number)).toEqual([511, 512])
   })
 
+  it(`a PR still on a landed PR's branch rides no batch (#EXP-1711)`, async () => {
+    const w = await world()
+    const landed = await w.pr(521)
+    await db.update(pullRequests).set({ state: `merged`, mergeState: `merged` }).where(eq(pullRequests.id, landed))
+    const [row] = await db.select({ head: pullRequests.head }).from(pullRequests).where(eq(pullRequests.id, landed))
+    const stranded = await w.pr(522, { base: row!.head })
+    const free = await w.pr(523)
+    await w.idle()
+    await pass(w.repoId)
+    expect(fake.dispatches.map((d) => d.units.map((u) => u.prs.map((p) => p.number)))).toEqual([[[523]]])
+    expect((await prRow(stranded)).mergeState).toBe(`queued`)
+    expect((await prRow(free)).mergeState).toBe(`testing`)
+  })
+
   it(`a push pulls a testing unit from its run; a repo without the pipeline lands directly`, async () => {
     const w = await world()
     const a = await w.pr(601)
