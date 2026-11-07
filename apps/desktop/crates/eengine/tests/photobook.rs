@@ -111,6 +111,8 @@ fn photobook() -> Book {
 impl Book {
     /// One host function call from the UI; an ask is answered `allow`.
     fn call(&mut self, name: &str, args: &Value) -> Result<Value, String> {
+        // Round 9 §6.3: genUI calls flat names; `<capability>_<tool>` splits at its first `_`.
+        let name = &if name.contains('.') { name.to_string() } else { name.replacen('_', ".", 1) };
         let creates = if name == "records.batch" { args["writes"].as_array().map_or(0, |w| w.iter().filter(|w| w["op"] != "delete" && !w["id"].is_string()).count()) } else { 0 };
         let ids: Vec<String> = (0..creates).map(|_| {
             self.ids += 1;
@@ -129,6 +131,7 @@ impl Book {
     /// A press of `actions.<name>`: the host's loop (eui-gpui `run_package_action`).
     fn press(&mut self, action: &str, params: Value, data: &mut Value) -> Result<(), String> {
         let pkg = eengine::package::package_of(&serde_json::from_str::<Value>(FILE).unwrap()).clone();
+        let pkg = eui_core::upgrade09::upgrade_package_body09(&pkg);
         let snapshot = data.clone();
         let mut results = Map::new();
         let plan = loop {

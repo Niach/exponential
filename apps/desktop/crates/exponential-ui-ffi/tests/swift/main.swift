@@ -430,14 +430,14 @@ let upgradeCard = upgradeCases.first { $0["kind"] as? String == "card" }!
 equal(try! upgradeCard09(cardJson: text(upgradeCard["input"]!)), upgradeCard["expected"]!, "upgrade09 card")
 check(try! templateMessagesJson(packageJson: text(hostPackages["acme.devices"]!), templateId: "nope", surfaceId: "x", dataJson: nil) == nil, "missing template")
 let fnSurface = try! Surface(surfaceId: "f", catalogId: coreCatalogId(), themeId: nil, mode: "light")
-_ = try! fnSurface.setNested(nestedJson: text(["id": "root", "component": "Box", "children": [["id": "b", "component": "Button", "props": ["label": "Go"], "on": ["press": ["functionCall": ["call": "harness.toast", "args": ["message": ["path": "/m"]]]]]]]]))
+_ = try! fnSurface.setNested(nestedJson: text(["id": "root", "component": "Box", "children": [["id": "b", "component": "Button", "props": ["label": "Go"], "on": ["press": ["functionCall": ["@call": "harness_toast", "args": ["message": ["@path": "/m"]]]]]]]]))
 try! fnSurface.setData(path: "/m", valueJson: "\"hi\"")
 _ = fnSurface.setViewport(width: 400, height: 0, maxHeight: nil)
 _ = try! fnSurface.layoutFixed(sizesJson: nil, wrap: false)
 let fnEvents = try! fnSurface.event(index: fnSurface.indexOf(id: "b")!, name: "press", payloadJson: nil)
 let fnCall = fnEvents.first { $0.kind == "functionCall" }
 check(fnCall != nil, "functionCall event \(fnEvents.map { $0.kind })")
-if let fnCall { equal(fnCall.json, ["kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": ["message": "hi"]], "functionCall json") }
+if let fnCall { equal(fnCall.json, ["kind": "functionCall", "componentId": "b", "name": "harness_toast", "args": ["message": "hi"]], "functionCall json") }
 print("host fixtures: \(checks) checks so far")
 
 // --- VAPP-131: the post-processed readers (patch-swift-binding.pl) -----------

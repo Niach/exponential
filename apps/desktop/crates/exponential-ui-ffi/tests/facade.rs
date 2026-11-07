@@ -451,7 +451,7 @@ fn a_panic_inside_a_throwing_call_is_a_typed_error() {
             panic!("the host formatter threw")
         }
     }
-    let call = json!({"call": "formatNumber", "args": {"value": 1234.5}}).to_string();
+    let call = json!({"@call": "formatNumber", "args": {"value": 1234.5}}).to_string();
     let err = std::panic::catch_unwind(|| format_call_json(call.clone(), Some(Arc::new(Boom)), None, None)).expect("the panic stays on the Rust side").unwrap_err();
     assert!(matches!(&err, UiError::Panic { reason } if reason.contains("the host formatter threw")), "{err}");
     let next = format_call_json(call, Some(Arc::new(Loud)), None, None).unwrap();
@@ -459,7 +459,7 @@ fn a_panic_inside_a_throwing_call_is_a_typed_error() {
     // A surface method: the error AND an issue of the surface, which stays usable.
     let surface = Surface::new("p".into(), core_catalog_id(), None, "light".into()).unwrap();
     surface.set_formatter(Some(Arc::new(Boom)));
-    let tree = json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": 1}}}}]}).to_string();
+    let tree = json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"@call": "formatNumber", "args": {"value": 1}}}}]}).to_string();
     surface.set_viewport(300.0, 0.0, None);
     let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| surface.set_nested(tree.clone()).and_then(|_| surface.layout_fixed(None, true)))).expect("the panic stays on the Rust side");
     assert!(matches!(&first, Err(UiError::Panic { reason }) if reason.contains("the host formatter threw")), "{first:?}");
@@ -620,7 +620,7 @@ fn the_host_policy_fixture_replays_through_the_facade() {
         eq(&renderer_capabilities_json(ids, None).unwrap(), &c["expected"]["clientCapabilities"], "clientCapabilities");
     }
     assert!(combine_decisions("allow".into(), "maybe".into()).is_err());
-    eq(&package_policy_json(Some("[\"harness.toast\"]".into())).unwrap(), &json!({"allow": ["harness.toast"], "default": "deny"}), "packagePolicy");
+    eq(&package_policy_json(Some("[\"harness.toast\"]".into())).unwrap(), &json!({"allow": ["harness_toast"], "default": "deny"}), "packagePolicy");
 }
 
 #[test]
@@ -683,7 +683,7 @@ fn a_host_function_call_crosses_the_facade_as_a_function_call_event() {
     surface
         .set_nested(
             json!({"id": "root", "component": "Box", "children": [
-                {"id": "b", "component": "Button", "props": {"label": "Go"}, "on": {"press": {"functionCall": {"call": "harness.toast", "args": {"message": {"path": "/m"}}}}}}
+                {"id": "b", "component": "Button", "props": {"label": "Go"}, "on": {"press": {"functionCall": {"@call": "harness_toast", "args": {"message": {"@path": "/m"}}}}}}
             ]})
             .to_string(),
         )
@@ -693,7 +693,7 @@ fn a_host_function_call_crosses_the_facade_as_a_function_call_event() {
     surface.layout_fixed(None, false).unwrap();
     let events = surface.event(surface.index_of("b".into()).unwrap(), "press".into(), None).unwrap();
     let call = events.iter().find(|e| e.kind == "functionCall").expect("functionCall");
-    eq(&call.json, &json!({"kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": {"message": "hi"}}), "functionCall");
+    eq(&call.json, &json!({"kind": "functionCall", "componentId": "b", "name": "harness_toast", "args": {"message": "hi"}}), "functionCall");
 }
 
 // ---------------------------------------------------------------------------
@@ -799,15 +799,15 @@ fn the_round_2_fixtures_replay_through_the_free_functions() {
 #[test]
 fn a_foreign_formatter_localizes_what_the_core_decided() {
     let call = |c: Value, now: Option<f64>| format_call_json(c.to_string(), Some(Arc::new(Loud)), now, None).unwrap().unwrap();
-    assert_eq!(call(json!({"call": "formatNumber", "args": {"value": 3, "decimals": 2}}), None), json!("#3/2").to_string());
-    assert_eq!(call(json!({"call": "formatCurrency", "args": {"value": 3, "currency": "eur"}}), None), json!("EUR3").to_string());
-    assert_eq!(call(json!({"call": "formatDate", "args": {"value": "2026-10-14", "style": "long", "time": true}}), None), json!("1791936000000|true||long|true").to_string());
-    assert_eq!(call(json!({"call": "formatRelativeTime", "args": {"value": 0}}), Some(7_200_000.0)), json!("-2 hour").to_string());
-    assert_eq!(call(json!({"call": "pluralize", "args": {"value": 2, "two": "a pair", "other": "many"}}), None), json!("a pair").to_string());
+    assert_eq!(call(json!({"@call": "formatNumber", "args": {"value": 3, "decimals": 2}}), None), json!("#3/2").to_string());
+    assert_eq!(call(json!({"@call": "formatCurrency", "args": {"value": 3, "currency": "eur"}}), None), json!("EUR3").to_string());
+    assert_eq!(call(json!({"@call": "formatDate", "args": {"value": "2026-10-14", "style": "long", "time": true}}), None), json!("1791936000000|true||long|true").to_string());
+    assert_eq!(call(json!({"@call": "formatRelativeTime", "args": {"value": 0}}), Some(7_200_000.0)), json!("-2 hour").to_string());
+    assert_eq!(call(json!({"@call": "pluralize", "args": {"value": 2, "two": "a pair", "other": "many"}}), None), json!("a pair").to_string());
     // On a surface: Table cells and bound format calls.
     let surface = Surface::new("f".into(), core_catalog_id(), None, "light".into()).unwrap();
     surface
-        .set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": 1.5}}}}]}).to_string())
+        .set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"@call": "formatNumber", "args": {"value": 1.5}}}}]}).to_string())
         .unwrap();
     surface.set_formatter(Some(Arc::new(Loud)));
     surface.set_viewport(390.0, 0.0, None);
@@ -830,14 +830,14 @@ fn a_foreign_formatter_localizes_what_the_core_decided() {
         }
     }
     let zoned = Surface::new("z".into(), core_catalog_id(), None, "light".into()).unwrap();
-    zoned.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
+    zoned.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"@call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
     zoned.set_fallback_zone(Some(Arc::new(Berlin)));
     zoned.set_viewport(390.0, 0.0, None);
     zoned.layout_fixed(None, true).unwrap();
     assert!(zoned.nodes().into_iter().find(|n| n.id == "d").unwrap().props_json.contains("2026-10-15 00:30"));
     assert!(!zoned.uses_clock(), "no relative time on screen");
     let ticking = Surface::new("c".into(), core_catalog_id(), None, "light".into()).unwrap();
-    ticking.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "r", "component": "Text", "props": {"text": {"call": "formatRelativeTime", "args": {"value": 0}}}}]}).to_string()).unwrap();
+    ticking.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "r", "component": "Text", "props": {"text": {"@call": "formatRelativeTime", "args": {"value": 0}}}}]}).to_string()).unwrap();
     ticking.set_viewport(390.0, 0.0, None);
     ticking.layout_fixed(None, true).unwrap();
     assert!(ticking.uses_clock());
@@ -851,7 +851,7 @@ fn a_foreign_formatter_localizes_what_the_core_decided() {
     surface.set_settings(settings).unwrap();
     assert_eq!(surface.settings().time_zone.as_deref(), Some("Europe/Vienna"));
     let utc = Surface::new("u".into(), core_catalog_id(), None, "light".into()).unwrap();
-    utc.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
+    utc.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"@call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
     let mut settings = utc.settings();
     settings.time_zone = Some("Asia/Tokyo".into());
     utc.set_settings(settings).unwrap();
@@ -883,7 +883,7 @@ fn row_slots_and_section_headers_bind_over_the_facade() {
             }
         }
     }
-    let header = json!({"id": "h", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "value"}, " · ", {"path": "count"}, " · ", {"path": "/title"}]}}}});
+    let header = json!({"id": "h", "component": "Text", "props": {"text": {"@call": "concat", "args": {"values": [{"@path": "value"}, " · ", {"@path": "count"}, " · ", {"@path": "/title"}]}}}});
     let got: Value = serde_json::from_str(&bind_section_header_json(header.to_string(), json!({"value": "Today", "count": 2}).to_string(), 0, json!({"title": "Inbox"}).to_string(), None, None).unwrap().unwrap()).unwrap();
     assert_eq!(got["props"]["text"], json!("Today · 2 · Inbox"));
 }
@@ -955,14 +955,14 @@ fn list_and_resizable_helpers_take_the_gap_and_the_handle_extent() {
 
 #[test]
 fn bind_helpers_format_through_the_host_formatter() {
-    let slot = json!({"id": "c", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": {"path": "n"}}}}});
+    let slot = json!({"id": "c", "component": "Text", "props": {"text": {"@call": "formatNumber", "args": {"value": {"@path": "n"}}}}});
     let rows = json!([{"n": 2.5}]);
     let got: Value = serde_json::from_str(&bind_row_slot_json(slot.to_string(), rows.to_string(), rows.to_string(), 0, "{}".into(), None, Some(Arc::new(Loud))).unwrap().unwrap()).unwrap();
     assert_eq!(got["props"]["text"], json!("#2.5/"));
     let got: Value = serde_json::from_str(&bind_row_slot_json(slot.to_string(), rows.to_string(), rows.to_string(), 0, "{}".into(), None, None).unwrap().unwrap()).unwrap();
     assert_eq!(got["props"]["text"], json!("2.5"), "None = the English fallback");
     // A section header: the formatter and `options.now`.
-    let header = json!({"id": "h", "component": "Text", "props": {"text": {"call": "formatRelativeTime", "args": {"value": 0}}}});
+    let header = json!({"id": "h", "component": "Text", "props": {"text": {"@call": "formatRelativeTime", "args": {"value": 0}}}});
     let got: Value = serde_json::from_str(&bind_section_header_json(header.to_string(), json!({"value": "a", "count": 1}).to_string(), 0, "{}".into(), Some(json!({"now": 120000}).to_string()), Some(Arc::new(Loud))).unwrap().unwrap()).unwrap();
     assert_eq!(got["props"]["text"], json!("-2 minute"));
 }
@@ -1043,7 +1043,7 @@ fn leaves_name_their_owner_and_show_numbers_as_text() {
     s.set_nested(json!({"id": "root", "component": "Box", "children": [
         {"id": "tabs", "component": "Tabs", "props": {"tabs": [{"label": "A", "value": "a"}], "value": "a"}, "children": [{"id": "pa", "component": "Text", "props": {"text": "a"}}]},
         {"id": "steps", "component": "Stepper", "props": {"steps": [{"label": "One"}, {"label": "Two"}], "current": 1}},
-        {"id": "n", "component": "Text", "props": {"text": {"path": "/n"}}}
+        {"id": "n", "component": "Text", "props": {"text": {"@path": "/n"}}}
     ]}).to_string())
     .unwrap();
     s.set_data("/n".into(), Some("412".into())).unwrap();
