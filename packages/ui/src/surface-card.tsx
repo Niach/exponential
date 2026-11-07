@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, cardV10, type NestedNode } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import { CHATS_COPY, CHATS_TEST_IDS, surfaceReply } from "@exp/domain-contract/chats"
 import { PLAN_CARD_GEOMETRY, type CardSurface } from "@exp/domain-contract/plan-card"
@@ -7,7 +7,7 @@ import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
-import { planCardHost, useCardLinks } from "./plan-card"
+import { paintedCard, planCardHost, useCardLinks } from "./plan-card"
 import { userMessageTime } from "./user-message-bubble"
 
 // Thread 58cb32df (fixtures/chats.json TRANSCRIPT + SURFACE CARD ×4; iOS
@@ -135,11 +135,7 @@ export function SurfaceCard({
   animate?: boolean
   className?: string
 }) {
-  // Round 9 §13: a stored card without a version is the 0.9 form.
-  const upgraded = useMemo(() => {
-    const out = cardV10(surface)
-    return `card` in out ? out.card : surface
-  }, [surface])
+  const upgraded = useMemo(() => paintedCard(surface), [surface])
   const state = useSurface({
     surfaceId: `surface-${testKey}`,
     catalogId: CORE_CATALOG_ID,

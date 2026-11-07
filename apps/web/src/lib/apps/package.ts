@@ -3,6 +3,8 @@ import {
   ACTION_LIMITS,
   PACKAGE_TEST_LIMITS,
   EXPOSES_LIMITS,
+  ACCEPT_V09,
+  PACKAGE_FORMAT_VERSION,
   PACKAGE_FORMAT_VERSION_09,
   bridgePackage,
   availableExtensions,
@@ -17,7 +19,7 @@ import { catalogPrompt, componentPrompt } from "@exponential_app/eui/prompt"
 import extensionJson from "@exp/ui/exponential-ui/extension.json"
 import { APP_PACKAGE_MAX_BYTES, APP_RECORD_KINDS_MAX, APP_RECORD_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS, APPS_SCREENS } from "@exp/domain-contract/apps"
 import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
-import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS, storedAction } from "@exp/domain-contract/app-actions"
 import { validateExposes, type Expose } from "@exp/emcp/exposes"
 import { UPSTREAM_BINDING, upstreamDeclareIssues } from "@exp/emcp/upstream"
 import { AUTOMATIONS_LIMITS, validateAutomations } from "@exp/emcp/automations"
@@ -57,6 +59,11 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   const bytes = packageBytes(pkg)
   if (bytes > APP_PACKAGE_MAX_BYTES) {
     return { ...none, rules: [{ path: `/`, message: `package is ${bytes} bytes; the cap is ${APP_PACKAGE_MAX_BYTES}: simplify it` }] }
+  }
+  // Round 9 §14: a stored package syncs to every client, and a released one
+  // reads format 5 alone.
+  if (ACCEPT_V09 && (pkg as { formatVersion?: unknown }).formatVersion === PACKAGE_FORMAT_VERSION) {
+    return { ...none, rules: [{ path: `/formatVersion`, message: `format ${PACKAGE_FORMAT_VERSION} is not stored yet: write formatVersion ${PACKAGE_FORMAT_VERSION_09}` }] }
   }
   // Round 9 §12: format 5 is what the server stores until the flag day; every
   // check reads its upgraded form, what every client runs.
@@ -307,7 +314,7 @@ export function appCatalogText(): string {
     ``,
     `# Host functions (on: {press: {functionCall: {call, args}}}; list the ones you use in functions)`,
     functions,
-    `- exponential.<noun>.<op>({…the op's fields}): VAPP-120: every Exponential MCP operation as a typed function, run as the viewer (${APP_ACTIONS.length} names; list what you call in functions, exactly or as exponential.<noun>.*): ${APP_ACTIONS.map((n) => n.slice(`exponential.`.length)).join(`, `)}. A call asks the person with the operation's own words unless a team owner granted that action on the app's settings page (then it runs without asking); a destructive operation (delete, merge, close, end, remove, trash) can never be granted and always asks; harness.mcp stays the raw escape hatch and always asks.`,
+    `- exponential.<noun>.<op>({…the op's fields}): VAPP-120: every Exponential MCP operation as a typed function, run as the viewer (${APP_ACTIONS.length} names; list what you call in functions, exactly or as exponential.<noun>.*): ${APP_ACTIONS.map((n) => storedAction(n).slice(`exponential.`.length)).join(`, `)}. A call asks the person with the operation's own words unless a team owner granted that action on the app's settings page (then it runs without asking); a destructive operation (delete, merge, close, end, remove, trash) can never be granted and always asks; harness.mcp stays the raw escape hatch and always asks.`,
     `- openUrl({url}), Link.href, Row.href, Button.href: a link through the URL policy; ~/x = the app's team (~/issues/<identifier>, ~/devices, ~/apps/<slug>/<screen>?k=v). href is a literal; a link per list row = on: {press: {functionCall: {call: "openUrl", args: {url: {call: "formatString", args: {value: "~/issues/\${identifier}"}}}}}}. A link at ANOTHER app opens only a screen it declares exposed, with its required params; exponential_apps get lists an app's linkableScreens. app.navigate({screen, params?}) = this app's own screens (a screen with nav: false stays out of the navigation)`,
     `- bind({path, source, params?}): a built-in: re-follows a data model path from a source with params appended as its query (the month switcher: bind {path: "/entries", source: "records:entry?by=date", params: {month: {path: "/entries/month/prev"}}}); list it in functions too`,
     ``,

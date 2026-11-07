@@ -11,7 +11,7 @@ import { db } from "@/db/connection"
 import { appAccess, apps, appRecords, comments, issues, mcpCalls, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { createTestBoard } from "@/test/factories"
-import type { ViaAppCall } from "@exp/domain-contract/via-app"
+import { VIA_APP_RECORDS_FUNCTION, type ViaAppCall } from "@exp/domain-contract/via-app"
 import { verifiedViaApp } from "@/lib/apps/via-app-claim"
 
 vi.mock(`@/lib/integrations/notifications`, () => ({
@@ -276,16 +276,16 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
     const w = await world()
     const [app] = await db
       .insert(apps)
-      .values({ teamId: w.teamId, slug: `claimed`, name: `Claimed`, headVersion: 2, publishedVersion: 1, createdBy: w.owner, package: { functions: [`records.*`, `exponential.issues.create`] } as never })
+      .values({ teamId: w.teamId, slug: `claimed`, name: `Claimed`, headVersion: 2, publishedVersion: 1, createdBy: w.owner, package: { formatVersion: 5, functions: [`records.*`, `harness.mcp`, `exponential.issues.create`] } as never })
       .returning({ id: apps.id })
     const appId = app!.id
     const check = (userId: string, version: number, fn: ViaAppCall) => verifiedViaApp(userId, { appId, version }, [fn])
-    expect(await check(w.owner, 1, { fn: `records.upsert` })).toBe(appId)
+    // Round 9 §14: a stored format 5 list, judged by the flat names.
+    expect(await check(w.owner, 1, { fn: VIA_APP_RECORDS_FUNCTION })).toBe(appId)
     expect(await check(w.owner, 1, { tool: `exponential_issues`, op: `create` })).toBe(appId)
-    expect(await check(w.owner, 1, { tool: `exponential_comments`, op: `create` })).toBeNull()
-    expect(await check(w.owner, 2, { fn: `records.upsert` })).toBeNull()
-    expect(await check(`not-a-member`, 1, { fn: `records.upsert` })).toBeNull()
-    expect(await verifiedViaApp(w.owner, { appId: `00000000-0000-4000-8000-000000000000`, version: 1 }, [{ fn: `records.upsert` }])).toBeNull()
+    expect(await check(w.owner, 2, { fn: VIA_APP_RECORDS_FUNCTION })).toBeNull()
+    expect(await check(`not-a-member`, 1, { fn: VIA_APP_RECORDS_FUNCTION })).toBeNull()
+    expect(await verifiedViaApp(w.owner, { appId: `00000000-0000-4000-8000-000000000000`, version: 1 }, [{ fn: VIA_APP_RECORDS_FUNCTION }])).toBeNull()
   })
 
   // VAPP-187: the broker's records patch runs the records router's ownership

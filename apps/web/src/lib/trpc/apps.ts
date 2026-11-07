@@ -27,7 +27,7 @@ import { APP_CSV_IMPORT, importAuthor } from "@exp/domain-contract/app-records"
 import { VIA_APP_RECORDS_FUNCTION, type ViaAppClaim } from "@exp/domain-contract/via-app"
 import { verifiedViaApp } from "@/lib/apps/via-app-claim"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
-import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions, flatAction } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions, flatAction, storedAction } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 import { readUpstreamBinding } from "@/lib/emcp/upstream-reads"
@@ -259,7 +259,8 @@ export const appUpdateInputSchema = z.object({
     .array(
       z
         .string()
-        // Round 9 §14: a client older than the flag day still sends dotted names.
+        // Round 9 §14: judged flat (a client older than the flag day sends
+        // dotted names), stored dotted (it reads no other form).
         .transform(flatAction)
         .refine((name) => APP_ACTIONS.includes(name), { message: `not an offered action` })
         // The ruling: a destructive or owner-only action (VAPP-158) can never
@@ -598,7 +599,7 @@ export const appsRouter = router({
             : undefined
         const [updated] = await tx
           .update(apps)
-          .set({ ...patch, ...(slug ? { slug } : {}), updatedAt: new Date() })
+          .set({ ...patch, ...(patch.grantedTools ? { grantedTools: patch.grantedTools.map(storedAction) } : {}), ...(slug ? { slug } : {}), updatedAt: new Date() })
           .where(eq(apps.id, id))
           .returning()
         return { txid: txId, app: updated! }

@@ -97,11 +97,18 @@ describe(`validateAppPackage: format version 5`, () => {
     expect(() => validateAppPackage(neutral({ formatVersion: 7 }))).toThrow(/format version 7 is newer than this host/)
   })
 
+  it(`stores no format 6 package until the flag day (a released client reads format 5 alone)`, () => {
+    expect(() => validateAppPackage(pkg({ formatVersion: 6 }))).toThrow(/format 6 is not stored yet: write formatVersion 5/)
+  })
+
   it(`names the neutral spelling in the catalog`, () => {
     const text = appCatalogText()
     expect(text).toContain(`records:<kind>`)
     expect(text).toContain(`records.upsert`)
     expect(text).toContain(`formatVersion: 5`)
+    // Round 9 §14: the names a format 5 package writes.
+    expect(text).toContain(`issues.update_status,`)
+    expect(text).not.toContain(`issues_update_status`)
     expect(text).not.toContain(`exp:records`)
     expect(text).not.toContain(`harness.records`)
   })

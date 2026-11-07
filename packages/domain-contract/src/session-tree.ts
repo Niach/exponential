@@ -494,7 +494,7 @@ export function cardSurface(raw: unknown): CardSurface | null {
   const surface = raw as Record<string, unknown>
   if (!surface.root || typeof surface.root !== `object`) return null
   const data = surface.data && typeof surface.data === `object` && !Array.isArray(surface.data) ? (surface.data as Record<string, unknown>) : null
-  return { root: surface.root, data }
+  return { ...(typeof surface.version === `string` ? { version: surface.version } : {}), root: surface.root, data }
 }
 
 /** EXP-1280: a plan card's `answers` (question id → labels), strings only. */

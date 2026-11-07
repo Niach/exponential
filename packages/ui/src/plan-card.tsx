@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useRef, type ReactNode } from "react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, cardV10, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface, type HostPlugin, type IconMap } from "@exponential_app/eui-react"
 import { SEMANTIC_ICONS, type IconConcept, type IconName } from "@exp/icons"
 import {
@@ -162,6 +162,13 @@ function documentMode(): `light` | `dark` {
   return document.documentElement.classList.contains(`dark`) ? `dark` : `light`
 }
 
+/** Round 9 §14: what a card paints: a stored card without a version is the
+ *  0.9 form, shown through the upgrade for good (a sealed one never migrates). */
+export function paintedCard(surface: CardSurface): CardSurface {
+  const out = cardV10(surface, true)
+  return `card` in out ? (out.card as CardSurface) : surface
+}
+
 /** The agent's inline surface in its labelled frame (`copy.surface`), the
  *  card's full content width. `dataRef` holds the live data model (the
  *  answer snapshots it); `disabled` = an answered card (read-only). */
@@ -179,11 +186,12 @@ export function PlanCardSurface({
   dataRef?: { current: Record<string, unknown> | null }
   testKey: string
 }) {
+  const painted = useMemo(() => paintedCard(surface), [surface])
   const state = useSurface({
     surfaceId: `card-${testKey}`,
     catalogId: CORE_CATALOG_ID,
-    initial: surface.root as NestedNode,
-    data: { ...(surface.data ?? {}), ...(data ?? {}) },
+    initial: painted.root as NestedNode,
+    data: { ...(painted.data ?? {}), ...(data ?? {}) },
   })
   if (dataRef) dataRef.current = state.data as Record<string, unknown>
   const links = useCardLinks()

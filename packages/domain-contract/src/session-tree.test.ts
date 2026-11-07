@@ -12,6 +12,7 @@ import {
   threadChatMode,
   threadStripMode,
   partitionThreads,
+  cardSurface,
   questionOption,
   questionOptions,
   railThreads,
@@ -202,5 +203,9 @@ describe(`questionOption (EXP-1322)`, () => {
     ])
     expect(questionOptions({})).toEqual([])
     expect(questionOptions({ options: `Yes` })).toEqual([])
+  })
+  test(`cardSurface keeps a 1.0 card's version (round 9 §13)`, () => {
+    expect(cardSurface({ version: `1.0`, root: { id: `a` } })).toEqual({ version: `1.0`, root: { id: `a` }, data: null })
+    expect(cardSurface({ root: { id: `a` } })).toEqual({ root: { id: `a` }, data: null })
   })
 })

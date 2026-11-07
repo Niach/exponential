@@ -26,6 +26,16 @@ export function flatAction(name: string): string {
   return name.startsWith(`exponential.`) ? name.replaceAll(`.`, `_`) : name
 }
 
+/** Round 9 §14: the name `apps.granted_tools` holds until the flag-day
+ *  migration, the one a released client reads: `exponential_issues_update`
+ *  is `exponential.issues.update`. Anything but an offered action comes back
+ *  as it is. */
+export function storedAction(name: string): string {
+  const target = Object.prototype.hasOwnProperty.call(TOOLS, name) ? TOOLS[name]! : null
+  if (!target) return name
+  return target.op ? `${target.tool.replace(`_`, `.`)}.${target.op}` : target.tool.replaceAll(`_`, `.`)
+}
+
 /** The name an action is judged by: an alias's new name, else the name. */
 export function canonicalAction(name: string): string {
   const flat = flatAction(name)

@@ -3,6 +3,7 @@
 // access, and every refusal (this file never throws) lands the write with no
 // `via_app_id`.
 import { and, eq, isNull } from "drizzle-orm"
+import { bridgePackage } from "@exponential_app/eui"
 import { parseViaAppHeader, VIA_APP_HEADER, viaAppAccepted, type ViaAppCall, type ViaAppClaim } from "@exp/domain-contract/via-app"
 import { db as defaultDb } from "@/db/connection"
 import { apps, teamMembers } from "@/db/schema"
@@ -35,7 +36,8 @@ export async function verifiedViaApp(
       .limit(1)
     if (!member) return null
     const access = await appAccessLevel(executor, app.id, userId)
-    const functions = (app.package as { functions?: unknown } | null)?.functions
+    // Round 9 §14: a stored format 5 package names `records.upsert`, `harness.mcp`.
+    const functions = bridgePackage(app.package as { functions?: unknown } | null)?.functions
     const accepted = calls.every((call) => viaAppAccepted({ version: claim.version, publishedVersion: app.publishedVersion, access, functions, call }))
     return accepted ? app.id : null
   } catch (error) {

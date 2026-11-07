@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { cardMediaAllowed, closedPicks, questionAnswer, stripPendingUploads, togglePick } from "./plan-card"
+import { cardMediaAllowed, closedPicks, paintedCard, questionAnswer, stripPendingUploads, togglePick } from "./plan-card"
 
 // EXP-1280: the rich card's pure helpers (mirrors desktop `plan_card.rs`).
 describe(`plan card helpers`, () => {
@@ -29,6 +29,13 @@ describe(`plan card helpers`, () => {
     expect(closedPicks(options, `A, B`, [`A`, `B`])).toEqual([`A`, `B`])
     expect(closedPicks(options, `B`, null)).toEqual([`B`])
     expect(closedPicks(options, `free`, null)).toEqual([])
+  })
+
+  it(`a stored card without a version paints through the upgrade; a 1.0 card as it is`, () => {
+    const v09 = { root: { id: `a-b`, component: `Text`, props: { text: { path: `/t` } } }, data: { t: `x` } }
+    expect(paintedCard(v09)).toEqual({ version: `1.0`, root: { id: `a_b`, component: `Text`, props: { text: { "@path": `/t` } } }, data: { t: `x` } })
+    const v10 = { version: `1.0`, root: { id: `a`, component: `Text`, props: { text: { "@path": `/t` } } } }
+    expect(paintedCard(v10)).toBe(v10)
   })
 
   it(`surface media = own attachments or https`, () => {

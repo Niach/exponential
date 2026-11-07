@@ -701,9 +701,9 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const declaring = (functions: string[]) => ({ ...RECORDS_PACKAGE, functions })
     const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: declaring([`exponential_comments_create`, `exponential_issues_*`]) })
     const updated = await caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: [`exponential_comments_create`, `exponential_issues_update_status`] })
-    expect(updated.app.grantedTools).toEqual([`exponential_comments_create`, `exponential_issues_update_status`])
-    // Round 9 §14: an older client's dotted name is stored flat.
-    expect((await caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: [`exponential.comments.create`, `exponential.issues.update_status`] })).app.grantedTools).toEqual([`exponential_comments_create`, `exponential_issues_update_status`])
+    expect(updated.app.grantedTools).toEqual([`exponential.comments.create`, `exponential.issues.update_status`])
+    // Round 9 §14: an older client's dotted name is stored dotted, the form it reads.
+    expect((await caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: [`exponential.comments.create`, `exponential.issues.update_status`] })).app.grantedTools).toEqual([`exponential.comments.create`, `exponential.issues.update_status`])
     // A pattern is not a grant; an offered but undeclared action is refused too (review of #1222).
     await expect(caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: [`exponential_issues_*`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
     await expect(caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: [`exponential_boards_delete`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
@@ -714,12 +714,12 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const mine = await caller(w.mate).create({ teamId: w.teamId, name: `Mine`, package: declaring([`exponential_comments_create`]) })
     await expect(caller(w.mate).update({ id: mine.app.id, headVersion: await seen(mine.app.id), grantedTools: [`exponential_comments_create`] })).rejects.toMatchObject({ code: `FORBIDDEN` })
     expect((await caller(w.mate).update({ id: mine.app.id, description: `still mine to edit` })).app.description).toBe(`still mine to edit`)
-    expect((await caller(w.owner).update({ id: mine.app.id, headVersion: await seen(mine.app.id), grantedTools: [`exponential_comments_create`] })).app.grantedTools).toEqual([`exponential_comments_create`])
+    expect((await caller(w.owner).update({ id: mine.app.id, headVersion: await seen(mine.app.id), grantedTools: [`exponential_comments_create`] })).app.grantedTools).toEqual([`exponential.comments.create`])
     // An owner's version that drops an action drops its grant; re-declaring it later starts ungranted.
     await ship(w.owner, { id: created.app.id, package: declaring([`exponential_comments_create`]) })
-    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential_comments_create`])
+    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
     await ship(w.owner, { id: created.app.id, package: declaring([`exponential_comments_create`, `exponential_issues_update_status`]) })
-    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential_comments_create`])
+    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
     // Release train 2026-10-25: a member's code never runs on an owner's grant: their push clears every grant.
     await ship(w.mate, { id: created.app.id, package: declaring([`exponential_comments_create`]) })
     expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([])
@@ -729,13 +729,14 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const w = await world()
     const pkg = { ...RECORDS_PACKAGE, functions: [`exponential_comments_create`, `exponential_issues_update_status`] }
     const granted = [`exponential_comments_create`, `exponential_issues_update_status`]
+    const stored = [`exponential.comments.create`, `exponential.issues.update_status`]
     const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: pkg })
     const grants = async () => (await caller(w.owner).get({ id: created.app.id })).app.grantedTools
     await caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: granted })
     await ship(w.owner, { id: created.app.id, package: pkg })
-    expect(await grants()).toEqual(granted)
+    expect(await grants()).toEqual(stored)
     await shipRestore(w.owner, created.app.id, 1)
-    expect(await grants()).toEqual(granted)
+    expect(await grants()).toEqual(stored)
     // A member's restore of the very package the owner granted still clears them.
     await shipRestore(w.mate, created.app.id, 1)
     expect(await grants()).toEqual([])
@@ -757,7 +758,7 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential_comments_create`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
     // Reloaded: the owner grants on the head they now see.
     const granted = await caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: [`exponential_comments_create`] })
-    expect(granted.app.grantedTools).toEqual([`exponential_comments_create`])
+    expect(granted.app.grantedTools).toEqual([`exponential.comments.create`])
     // A rename never needs the version.
     expect((await caller(w.owner).update({ id: created.app.id, name: `Hours 2` })).app.name).toBe(`Hours 2`)
   })
