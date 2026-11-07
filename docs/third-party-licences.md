@@ -211,19 +211,19 @@ digests in that one file.
 `packages/exponential-ui` (the `@exponential_app/eui` catalog package, private,
 unpublished until VAPP-91) carries two Apache-2.0 sources:
 
-- **A2UI** (google/A2UI, Apache-2.0, Google LLC): the v0.9 specification's
-  JSON schemas, copied byte-for-byte into
-  `packages/exponential-ui/vendor/a2ui/v0_9/` from git tag `v0.9`, commit
-  `19919ef4c8ad3185867f70386fa4669284d7714c`, with the repository `LICENSE`
-  beside them and every file's sha256 pinned by `vendor.test.ts`. They are
-  never edited: the basic catalog is MAPPED onto ours (`catalog/basic-map.json`),
-  not modified, so Apache-2.0 section 4(b) (a statement of changes) does not
-  apply; 4(a)/4(c) are met by the vendored licence and the untouched headers.
-  Round 9 (VAPP-289) adds the A2UI **1.0** schemas, basic catalog, test cases
-  and protocol document under `packages/exponential-ui/vendor/a2ui/v1_0/`
-  (a2ui-project/a2ui `main`, commit `1e9ed04b5585721ac6df8313030f9bfb42ccc6fa`),
-  pinned the same way, and **Unicode 17.0.0** `DerivedCoreProperties.txt`
-  (Unicode licence, data file, byte-for-byte) under
+- **A2UI** (a2ui-project/a2ui, formerly google/A2UI, Apache-2.0, Google LLC):
+  the A2UI **1.0** schemas, basic catalog, test cases and protocol document,
+  copied byte-for-byte into `packages/exponential-ui/vendor/a2ui/v1_0/` from
+  `main`, commit `1e9ed04b5585721ac6df8313030f9bfb42ccc6fa` (Round 9,
+  VAPP-289), with the repository `LICENSE` beside them and every file's sha256
+  pinned by `vendor.test.ts`. The v0.9 specification's JSON schemas stay in
+  `packages/exponential-ui/vendor/a2ui/v0_9/` (git tag `v0.9`, commit
+  `19919ef4c8ad3185867f70386fa4669284d7714c`) as `upgrade09`'s reference,
+  pinned the same way. They are never edited: the basic catalog is MAPPED onto
+  ours (`catalog/basic-map.json`), not modified, so Apache-2.0 section 4(b) (a
+  statement of changes) does not apply; 4(a)/4(c) are met by the vendored
+  licence and the untouched headers. Round 9 also adds **Unicode 17.0.0**
+  `DerivedCoreProperties.txt` (Unicode licence, data file, byte-for-byte) under
   `packages/exponential-ui/vendor/unicode/`, read by the identifier tables.
 - **json-render** (vercel-labs/json-render, Apache-2.0, Vercel, Inc.): the
   model-facing descriptions and the prop vocabulary of the 36 shadcn-named
