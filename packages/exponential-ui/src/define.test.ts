@@ -9,17 +9,17 @@ import { reduceSurface } from "./reducer"
 describe(`defineSurface`, () => {
   const devices = ui.Stack({ gap: `md` }, [
     ui.Section({ title: `Devices`, icon: `nav-devices` }),
-    ui.List({ divided: true }, { template: ui.Row({ title: bind(`label`), subtitle: bind(`detail`), pressable: true }, undefined, { on: { press: run(`harness.toast`, { id: bind(`id`) }) } }), path: `/devices/rows`, key: `id` }),
+    ui.List({ divided: true }, { template: ui.Row({ title: bind(`label`), subtitle: bind(`detail`), pressable: true }, undefined, { on: { press: run(`harness_toast`, { id: bind(`id`) }) } }), path: `/devices/rows`, key: `id` }),
     ui.EmptyState({ icon: `nav-devices`, title: `No devices yet`, actionLabel: `Add device` }, undefined, { visible: call(`eq`, { a: 0, b: bind(`/devices/count`) }), on: { press: event(`addDevice`) } }),
   ])
 
   test(`the flat list has root first, generated ids, a template child and the slots`, () => {
     const flat = flattenSurface(devices)
-    expect(flat.map((c) => c.id)).toEqual([`root`, `section-1`, `list-1`, `row-1`, `emptyState-1`])
-    expect(flat[0]).toEqual({ id: `root`, component: `Stack`, gap: `md`, children: [`section-1`, `list-1`, `emptyState-1`] })
-    expect(flat[2].children).toEqual({ componentId: `row-1`, path: `/devices/rows`, key: `id` })
-    expect(flat[3].on).toEqual({ press: { functionCall: { call: `harness.toast`, args: { id: { path: `id` } } } } })
-    expect(flat[4].visible).toEqual({ call: `eq`, args: { a: 0, b: { path: `/devices/count` } } })
+    expect(flat.map((c) => c.id)).toEqual([`root`, `section_1`, `list_1`, `row_1`, `emptyState_1`])
+    expect(flat[0]).toEqual({ id: `root`, component: `Stack`, gap: `md`, children: [`section_1`, `list_1`, `emptyState_1`] })
+    expect(flat[2].children).toEqual({ componentId: `row_1`, path: `/devices/rows`, key: `id` })
+    expect(flat[3].on).toEqual({ press: { functionCall: { "@call": `harness_toast`, args: { id: { "@path": `id` } } } } })
+    expect(flat[4].visible).toEqual({ "@call": `eq`, args: { a: 0, b: { "@path": `/devices/count` } } })
   })
 
   test(`a valid tree has no issues; messages are createSurface + updateComponents + the data writes`, () => {
@@ -27,7 +27,7 @@ describe(`defineSurface`, () => {
     expect(surface.issues).toEqual([])
     expect(surface.root.component).toBe(`Box`)
     expect(surface.messages.map((m) => Object.keys(m)[1])).toEqual([`createSurface`, `updateComponents`, `updateDataModel`])
-    expect(surface.messages[0]).toEqual({ version: `v0.9`, createSurface: { surfaceId: `devices`, catalogId: CORE_CATALOG_ID } })
+    expect(surface.messages[0]).toEqual({ version: `1.0`, createSurface: { surfaceId: `devices`, catalogId: CORE_CATALOG_ID } })
     expect(surface.jsonl.split(`\n`).length).toBe(3)
     // The same tree the reducer builds from the flat list an agent would send.
     expect(reduceSurface(surface.components, { catalogId: CORE_CATALOG_ID }).root).toEqual(surface.root)
@@ -40,7 +40,7 @@ describe(`defineSurface`, () => {
     expect(flattenSurface(tree)[1].style).toEqual({ opacity: 0.5 })
     const flatDialog = flattenSurface(dialog)
     expect(flatDialog[0].slots).toEqual({ footer: `ok` })
-    expect(flatDialog.map((c) => c.id)).toEqual([`root`, `text-1`, `ok`])
+    expect(flatDialog.map((c) => c.id)).toEqual([`root`, `text_1`, `ok`])
     expect(() => flattenSurface(ui.Stack({}, [ui.Text({ text: `a` }, undefined, { id: `x` }), ui.Text({ text: `b` }, undefined, { id: `x` })]))).toThrow(`duplicate id "x"`)
   })
 

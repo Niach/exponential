@@ -141,7 +141,7 @@ fn package() -> String {
         "name": "Album",
         "version": "1.0.0",
         "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-        "functions": ["records.*", "app.navigate", "photos.pick"],
+        "functions": ["records.*", "app_navigate", "photos_pick"],
         "sources": ["records:*"],
         "records": {"note": {"title": "Note", "schema": {"type": "object", "properties": {"text": {"type": "string"}}}, "policy": {"update": "author", "delete": "owners"}}},
         "capabilities": [{"id": "photos.read", "why": "Pick the photos for an album."}],
@@ -200,16 +200,16 @@ fn an_app_runs_over_a_host_store() {
     assert_eq!(nav.last(), "albums");
     assert_eq!(nav.0.lock().unwrap()[0].2, Presentation::Replace);
 
-    assert_eq!(value(app.call("records.upsert".into(), json!({"kind": "note", "data": {"text": "hi"}}).to_string(), vec!["n1".into()]).unwrap()), json!({"id": "n1"}));
+    assert_eq!(value(app.call("records_upsert".into(), json!({"kind": "note", "data": {"text": "hi"}}).to_string(), vec!["n1".into()]).unwrap()), json!({"id": "n1"}));
     assert_eq!(store.rows.lock().unwrap()[0]["authorId"], json!("d-1"), "local identity = me");
     let count: Value = serde_json::from_str(&app.records_value("records:note".into()).unwrap()).unwrap();
     assert_eq!(count["count"], json!(1));
     assert_eq!(app.records_value("screen:albums".into()), None, "not a records source");
 
-    assert_eq!(value(app.call("app.navigate".into(), json!({"screen": "page"}).to_string(), vec![]).unwrap()), Value::Null);
+    assert_eq!(value(app.call("app_navigate".into(), json!({"screen": "page"}).to_string(), vec![]).unwrap()), Value::Null);
     assert_eq!(nav.last(), "page");
     assert!(matches!(app.event("{\"type\":\"nope\"}".into()), Err(EngineError::Invalid { .. })));
-    assert!(matches!(app.call("records.upsert".into(), "{".into(), vec![]), Err(EngineError::Invalid { .. })));
+    assert!(matches!(app.call("records_upsert".into(), "{".into(), vec![]), Err(EngineError::Invalid { .. })));
 }
 
 #[test]
@@ -220,14 +220,14 @@ fn the_consent_round_trip_crosses_the_facade() {
     p.audit = Some(audit.clone());
     let app = Engine::new(host(None), local(), p).unwrap().load(package()).unwrap();
     app.event(r#"{"type":"launch"}"#.into()).unwrap();
-    let (verdict, sheet) = match app.call("photos.pick".into(), "{}".into(), vec![]).unwrap() {
+    let (verdict, sheet) = match app.call("photos_pick".into(), "{}".into(), vec![]).unwrap() {
         CallResult::Ask { verdict_json, sheet } => (verdict_json, sheet),
         other => panic!("{other:?}"),
     };
     assert_eq!(sheet.scope, "photos.read");
     let components: Value = serde_json::from_str(&sheet.components_json).unwrap();
     assert_eq!(components[0]["title"], json!("Allow Album to access your photos?"));
-    let picked = value(app.answer_consent("photos.pick".into(), "{}".into(), verdict, ConsentAnswer::Allow).unwrap());
+    let picked = value(app.answer_consent("photos_pick".into(), "{}".into(), verdict, ConsentAnswer::Allow).unwrap());
     assert_eq!(picked, json!({"photos": []}), "VAPP-271: app UI reads the structuredContent");
     assert_eq!(app.grants_json(), r#"{"photos.read":"granted"}"#);
     assert!(vault.read("eengine/grants/acme.album".into()).unwrap().contains("granted"));
@@ -236,11 +236,11 @@ fn the_consent_round_trip_crosses_the_facade() {
     app.set_grant("photos.read".into(), Some(GrantValue::Denied)).unwrap();
     let sheet: Value = serde_json::from_str(&app.permissions_sheet_json()).unwrap();
     assert_eq!(sheet[1]["checked"], json!(false));
-    match app.call("camera.capture".into(), "{}".into(), vec![]).unwrap() {
+    match app.call("camera_capture".into(), "{}".into(), vec![]).unwrap() {
         CallResult::Refused { message, .. } => assert_eq!(message, "notDeclared"),
         other => panic!("{other:?}"),
     }
-    assert!(matches!(app.set_grant("camera.capture".into(), Some(GrantValue::Granted)), Err(EngineError::Failure { .. })));
+    assert!(matches!(app.set_grant("camera_capture".into(), Some(GrantValue::Granted)), Err(EngineError::Failure { .. })));
 }
 
 struct AlwaysAllow;
@@ -258,7 +258,7 @@ fn an_inline_consent_ui_answers_the_sheet() {
     p.consent = Some(Arc::new(AlwaysAllow));
     let app = Engine::new(host(None), local(), p).unwrap().load(package()).unwrap();
     app.event(r#"{"type":"launch"}"#.into()).unwrap();
-    assert_eq!(value(app.call("photos.pick".into(), "{}".into(), vec![]).unwrap()), json!({"photos": []}), "VAPP-271: app UI reads the structuredContent");
+    assert_eq!(value(app.call("photos_pick".into(), "{}".into(), vec![]).unwrap()), json!({"photos": []}), "VAPP-271: app UI reads the structuredContent");
     assert_eq!(app.grants_json(), "{}", "once stores nothing");
 }
 
@@ -270,7 +270,7 @@ fn a_synced_host_queues_writes() {
     let app = Engine::new(host(None), EngineIdentity::Member { user_id: "u1".into(), role: Some("member".into()), access: None }, p).unwrap().load(package()).unwrap();
     assert!(app.queues());
     app.event(r#"{"type":"launch"}"#.into()).unwrap();
-    app.call("records.upsert".into(), json!({"kind": "note", "data": {"text": "hi"}}).to_string(), vec!["n1".into()]).unwrap();
+    app.call("records_upsert".into(), json!({"kind": "note", "data": {"text": "hi"}}).to_string(), vec!["n1".into()]).unwrap();
     assert_eq!(*sync.0.lock().unwrap(), vec!["upsert".to_string()]);
     assert_eq!(app.pending(), 0, "acked");
     let count: Value = serde_json::from_str(&app.records_value("records:note".into()).unwrap()).unwrap();
@@ -310,7 +310,7 @@ fn the_default_store_is_sqlite_under_the_data_dir() {
         let app = Engine::new(host(Some(dir_text.clone())), local(), providers(Arc::new(Keychain::default()), Arc::new(Nav::default()))).unwrap().load(package()).unwrap();
         app.event(r#"{"type":"launch"}"#.into()).unwrap();
         if round == 0 {
-            app.call("records.upsert".into(), json!({"kind": "note", "data": {"text": "kept"}}).to_string(), vec!["n1".into()]).unwrap();
+            app.call("records_upsert".into(), json!({"kind": "note", "data": {"text": "kept"}}).to_string(), vec!["n1".into()]).unwrap();
         }
         let count: Value = serde_json::from_str(&app.records_value("records:note".into()).unwrap()).unwrap();
         assert_eq!(count["count"], json!(1), "round {round}: the record survives a new Engine");

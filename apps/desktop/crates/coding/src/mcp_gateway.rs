@@ -1438,8 +1438,20 @@ pub fn validate_card_surface(surface: Option<&Value>) -> Result<Value, String> {
     if !root.get("id").is_some_and(Value::is_string) || !root.get("component").is_some_and(Value::is_string) {
         return Err("surface.root must be a genUI node: {id, component, props?, children?}".into());
     }
+    // Round 9 §14: until the flag day a card is stored as authored, in the 0.9
+    // form a released client reads (the server's input refuses `version` too),
+    // and checked as its 1.0 form, what every client paints.
+    if eui_core::catalog::ACCEPT_V09 && surface.get("version").is_some() {
+        return Err("surface: version is not accepted yet: send {root, data}".into());
+    }
+    let upgraded = eui_core::reducer::card_v10(surface, eui_core::catalog::ACCEPT_V09).map_err(|e| format!("surface: {e}"))?;
+    let problems = eui_core::reducer::card_problems(&upgraded["root"]);
+    if !problems.is_empty() {
+        let more = if problems.len() > 10 { format!("; and {} more", problems.len() - 10) } else { String::new() };
+        return Err(format!("surface is not valid: {}{more}", problems[..problems.len().min(10)].join("; ")));
+    }
     let nested: eui_core::NestedNode =
-        serde_json::from_value(root.clone()).map_err(|e| format!("surface.root is not a valid genUI tree: {e}"))?;
+        serde_json::from_value(upgraded["root"].clone()).map_err(|e| format!("surface.root is not a valid genUI tree: {e}"))?;
     let result = eui_core::reducer::reduce_nested(&nested, &eui_core::reducer::ReduceOptions::new(eui_core::CORE_CATALOG_ID));
     let count = count_nodes(&result.root) + result.templates.iter().flat_map(|t| t.values()).map(count_nodes).sum::<usize>();
     if count > PLAN_CARD_SURFACE_MAX_COMPONENTS {
@@ -1450,7 +1462,11 @@ pub fn validate_card_surface(surface: Option<&Value>) -> Result<Value, String> {
         let more = if result.issues.len() > 10 { format!("; and {} more", result.issues.len() - 10) } else { String::new() };
         return Err(format!("surface is not valid in the genUI core catalog: {}{more}", listed.join("; ")));
     }
-    Ok(json!({ "root": root, "data": surface.get("data").cloned().unwrap_or(Value::Null) }))
+    let stored = json!({ "root": root, "data": surface.get("data").cloned().unwrap_or(Value::Null) });
+    Ok(match surface.get("version") {
+        Some(version) => json!({ "version": version, "root": stored["root"], "data": stored["data"] }),
+        None => stored,
+    })
 }
 
 fn option_json(options: &[OptionInput]) -> Vec<Value> {
@@ -1655,6 +1671,22 @@ pub fn build_show_card(input: &ShowInput) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Round 9 §14: an agent's 0.9 card validates through the upgrade and is
+    /// stored as authored; a `version` waits for the flag day.
+    #[test]
+    fn a_0_9_card_is_stored_as_authored() {
+        let root = json!({"id": "s-1", "component": "Stack", "visible": {"path": "/on"}, "children": [
+            {"id": "t-1", "component": "Text", "props": {"text": {"path": "/title"}}},
+            {"id": "b-1", "component": "Button", "props": {"label": "Ship"}, "on": {"press": {"event": {"name": "reply", "context": {"text": {"call": "formatString", "args": {"value": "${/title}"}}}}}}}
+        ]});
+        let card = json!({"root": root, "data": {"title": "x", "on": true}});
+        assert_eq!(validate_card_surface(Some(&card)).unwrap(), card);
+        let versioned = json!({"version": "1.0", "root": {"id": "a", "component": "Text", "props": {"text": "x"}}});
+        assert!(validate_card_surface(Some(&versioned)).unwrap_err().contains("version"));
+        let refused = json!({"root": {"id": "a", "component": "Text", "props": {"text": {"call": "no_such_fn", "args": {}}}}});
+        assert!(validate_card_surface(Some(&refused)).unwrap_err().contains("unknown function"));
+    }
     use crate::sealing::test_support::{install_fake, serial};
     use crate::sealing::Keyring;
 

@@ -13,18 +13,18 @@ const layout: NestedNode = {
   style: { padding: 16, backgroundColor: `$color.surface` },
   children: [
     { id: `title`, component: `Heading`, props: { text: `Release notes`, level: 2 } },
-    { id: `lede`, component: `Text`, props: { text: { path: `/lede` }, lines: 2 }, style: { color: `$color.mutedForeground` } },
+    { id: `lede`, component: `Text`, props: { text: { "@path": `/lede` }, lines: 2 }, style: { color: `$color.mutedForeground` } },
     {
       id: `row`,
       component: `Stack`,
       props: { direction: `horizontal`, gap: `sm`, align: `center` },
       children: [
         { id: `star`, component: `Icon`, props: { name: `star`, label: `Starred` } },
-        { id: `count`, component: `Text`, props: { text: { path: `/count` }, live: `polite` } },
-        { id: `box`, component: `Box`, style: { width: { path: `/w` }, height: 12, borderRadius: 4 } },
+        { id: `count`, component: `Text`, props: { text: { "@path": `/count` }, live: `polite` } },
+        { id: `box`, component: `Box`, style: { width: { "@path": `/w` }, height: 12, borderRadius: 4 } },
       ],
     },
-    { id: `card`, component: `Card`, props: { title: `Card`, description: { path: `/lede` } }, children: [{ id: `badge`, component: `Badge`, props: { text: `New`, icon: `star` } }] },
+    { id: `card`, component: `Card`, props: { title: `Card`, description: { "@path": `/lede` } }, children: [{ id: `badge`, component: `Badge`, props: { text: `New`, icon: `star` } }] },
     { id: `press`, component: `Box`, props: { pressable: true }, accessibility: { label: `Open` }, children: [{ id: `press-t`, component: `Text`, props: { text: `Open`, align: `center` } }] },
   ],
 }
@@ -48,9 +48,9 @@ describe(`DOM parity with React`, () => {
             props: { divided: true, gap: `sm`, sectionBy: `day` },
             template: { component: `item`, path: `/items`, key: `id` },
             children: [],
-            slots: { section: { id: `head`, component: `Text`, props: { text: { path: `value` } } } },
+            slots: { section: { id: `head`, component: `Text`, props: { text: { "@path": `value` } } } },
           },
-          { id: `item`, component: `Text`, props: { text: { path: `t` } } },
+          { id: `item`, component: `Text`, props: { text: { "@path": `t` } } },
           { id: `flat`, component: `List`, props: { gap: `md` }, children: [{ id: `f1`, component: `Text`, props: { text: `one` } }, { id: `f2`, component: `Text`, props: { text: `two` } }] },
         ],
       } as unknown as NestedNode,
@@ -85,7 +85,7 @@ describe(`DOM parity with React`, () => {
         component: `Stack`,
         children: [
           { id: `like`, component: `Motion`, props: { lottie, stateMachine: machine, label: `Like` }, on: { press: { event: { name: `liked` } }, state: { event: { name: `state` } } } },
-          { id: `bar`, component: `Motion`, props: { lottie, stateMachine: machine, inputs: { path: `/sm` }, label: `Level` }, on: { hover: { event: { name: `h` } } } },
+          { id: `bar`, component: `Motion`, props: { lottie, stateMachine: machine, inputs: { "@path": `/sm` }, label: `Level` }, on: { hover: { event: { name: `h` } } } },
           { id: `deco`, component: `Motion`, props: { lottie, style: { width: 24 } } },
         ],
       } as unknown as NestedNode,

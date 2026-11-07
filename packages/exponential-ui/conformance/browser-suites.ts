@@ -21,8 +21,13 @@ import {
   SseDecoder,
   UNKNOWN_COMPONENT,
   builtinTheme,
+  actionMessage,
+  cardV10,
   checkGeometry,
-  clientCapabilities,
+  errorMessage,
+  isIdentifier,
+  mangle,
+  rendererCapabilities,
   combineDecisions,
   decideFunction,
   decideUrl,
@@ -316,11 +321,38 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         }
         return out
       }
+      // Round 9 §15: the A2UI 1.0 wire.
+      const w = fixture(`a2ui10-messages.json`)
+      for (const c of w.ids) record(`a2ui10`, `id ${c.id}`, () => isIdentifier(c.id) === c.expected.identifier && mangle(c.id) === c.expected.mangle)
+      for (const flow of w.flows as { name: string; extensionIds?: string[]; inlineCatalogs?: string[]; packages?: string[]; steps: { message: unknown; trusted?: boolean; acceptV09?: boolean; expected: unknown }[] }[])
+        record(`a2ui10`, `flow: ${flow.name}`, () => {
+          const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
+          for (const id of flow.inlineCatalogs ?? []) router.registerInlineCatalog(id)
+          for (const id of flow.packages ?? []) router.installPackage(w.packages[id])
+          for (const [i, s] of flow.steps.entries()) if (canon(router.route(s.message, { trusted: s.trusted, ...(s.acceptV09 === false ? { acceptV09: false } : {}) })) !== canon(s.expected)) return `step ${i}`
+          return true
+        })
+      for (const c of w.mint as { name: string; steps: { create?: string; delete?: string; mint?: string; expected: unknown }[] }[])
+        record(`a2ui10`, `mint: ${c.name}`, () => {
+          const router = new HostRouter()
+          for (const [i, s] of c.steps.entries()) {
+            const got = s.mint !== undefined ? router.mintSurfaceId(s.mint) : router.route({ version: `1.0`, ...(s.create !== undefined ? { createSurface: { surfaceId: s.create, catalogId: CORE_CATALOG_ID } } : { deleteSurface: { surfaceId: s.delete } }) }).map((op) => op.op)
+            if (canon(got) !== canon(s.expected)) return `step ${i}`
+          }
+          return true
+        })
+      for (const c of w.errors) record(`a2ui10`, `error: ${c.name}`, () => canon(errorMessage(c.code, c.target, c.message, c.path)) === canon(c.expected))
+      for (const c of w.actions) record(`a2ui10`, `action: ${c.name}`, () => canon(actionMessage(c.input)) === canon(c.expected))
+      for (const c of w.cards)
+        record(`a2ui10`, `card: ${c.name}`, () => {
+          const out = cardV10(c.input, c.acceptV09 ?? true)
+          return `error` in out ? out.error === c.expected.error : canon(out.card) === canon(c.expected.card)
+        })
       const t = fixture(`host-transport.json`)
       for (const c of t.jsonl) record(`host-transport`, `jsonl: ${c.name}`, () => canon(feed(new JsonlDecoder(), c.chunks)) === canon(c.expected))
       for (const c of t.sse) record(`host-transport`, `sse: ${c.name}`, () => canon(feed(new SseDecoder(), c.chunks)) === canon(c.expected))
       for (const c of t.mcp) record(`host-transport`, `mcp: ${c.name}`, () => canon(messagesFromMcpResult(c.result)) === canon(c.expected))
-      for (const c of t.mcpAction) record(`host-transport`, `mcpAction: ${c.name}`, () => canon(mcpActionCall(c.message, c.tool)) === canon(c.expected))
+      for (const c of t.mcpAction) record(`host-transport`, `mcpAction: ${c.name}`, () => canon(mcpActionCall(c.message, c.tool, c.metadata)) === canon(c.expected))
       const p = fixture(`host-policy.json`)
       for (const c of p.functions) record(`host-policy`, `function: ${c.name}`, () => decideFunction(c.policy, c.fn, c.registered) === c.expected)
       for (const c of p.combine) record(`host-policy`, `combine: ${c.a}+${c.b}`, () => combineDecisions(c.a, c.b) === c.expected)
@@ -329,7 +361,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       for (const c of p.sources) record(`host-policy`, `source: ${c.uri}`, () => canon(parseSource(c.uri)) === canon(c.expected))
       for (const c of p.sourceParams) record(`host-policy`, `sourceParams: ${c.expected}`, () => sourceWithParams(c.source, c.params) === c.expected)
       for (const c of p.negotiation)
-        record(`host-policy`, `negotiation: ${c.extensionIds.length}`, () => canon(supportedCatalogIds(c.extensionIds)) === canon(c.expected.supportedCatalogIds) && canon(clientCapabilities(c.extensionIds)) === canon(c.expected.clientCapabilities))
+        record(`host-policy`, `negotiation: ${c.extensionIds.length}`, () => canon(supportedCatalogIds(c.extensionIds)) === canon(c.expected.supportedCatalogIds) && canon(rendererCapabilities(c.extensionIds)) === canon(c.expected.rendererCapabilities))
       const r = fixture(`host-router.json`)
       const packages = r.packages as Record<string, AppPackage>
       for (const v of r.validation) record(`host-router`, `validation: ${v.package}`, () => canon(validatePackage(packages[v.package])) === canon(v.expected))
@@ -341,7 +373,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         record(`host-router`, `flow: ${flow.name}`, () => {
           const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
           for (const id of flow.packages ?? []) if (canon(router.installPackage(packages[id]!)) !== canon(flow.installIssues![id])) return `install ${id}`
-          for (const [i, s] of flow.steps.entries()) if (canon(router.route(s.message)) !== canon(s.expected)) return `step ${i}`
+          for (const [i, s] of flow.steps.entries()) if (canon(router.route(s.message, { trusted: (s as { trusted?: boolean }).trusted })) !== canon(s.expected)) return `step ${i}`
           return true
         })
     })
@@ -369,8 +401,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       const press = (node: UiNode, data: unknown) => {
         let out = data as DataModel
         let call: { call: string; args: Record<string, unknown> } | undefined
-        const fn = node.on?.press as { functionCall?: { call: string } } | undefined
-        const name = fn?.functionCall?.call
+        const fn = node.on?.press as { functionCall?: { "@call": string } } | undefined
+        const name = fn?.functionCall?.[`@call`]
         const functions = Object.fromEntries(Object.entries(CLIENT_FUNCTIONS).map(([k, f]) => [k, (args: Record<string, unknown>, c: ResolveContext) => {
           if (k === name) call = { call: k, args }
           return f(args, { ...c, openUrl: () => {} })
@@ -400,7 +432,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
               for (const r of t.rows)
                 for (const [name, slot] of Object.entries(r.slots)) {
                   const literal = `${LITERAL_ROWS_ROOT}/${t.id}/${r.index}`
-                  const got = isBinding(rowsProp) ? bindTree(table.slots![name], rctx(d.data, `${absolutePath(rowsProp.path)}/${r.index}`)) : bindTree(table.slots![name], rctx(setPointer(d.data as DataModel, literal, rows[r.index]), literal))
+                  const got = isBinding(rowsProp) ? bindTree(table.slots![name], rctx(d.data, `${absolutePath(rowsProp[`@path`])}/${r.index}`)) : bindTree(table.slots![name], rctx(setPointer(d.data as DataModel, literal, rows[r.index]), literal))
                   if (canon(got) !== canon(slot)) return `row ${r.index}`
                 }
             }
@@ -614,7 +646,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       }
       // Sections: a sectioned List painted flat, its rows read back.
       for (const c of vl.sections as { name: string; items: Record<string, unknown>[]; sectionBy: string; expected: unknown }[]) {
-        await mount({ id: `L`, component: `List`, props: { sectionBy: c.sectionBy }, template: { component: `L-row`, path: `/items`, key: `id` }, children: [{ id: `L-row`, component: `Text`, props: { text: { path: `id` } } }] }, { data: { items: c.items } })
+        await mount({ id: `L`, component: `List`, props: { sectionBy: c.sectionBy }, template: { component: `L-row`, path: `/items`, key: `id` }, children: [{ id: `L-row`, component: `Text`, props: { text: { "@path": `id` } } }] }, { data: { items: c.items } })
         const got = await page.evaluate((ids) => {
           const rows: ({ header: number } | { item: number })[] = []
           const sections: { value: string; start: number; count: number }[] = []
@@ -637,7 +669,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       }
       for (const c of vl.sectionedScrollTo as { name: string; index: number; viewport: number; scroll: number; align: `start`; stickyHeaders: boolean; items: Record<string, unknown>[]; sectionBy: string; headerExtent: number; itemExtent: number; expected: number }[]) {
         await mount(
-          { id: `L`, component: `List`, props: { sectionBy: c.sectionBy, stickyHeaders: c.stickyHeaders }, style: { height: c.viewport }, template: { component: `L-row`, path: `/items`, key: `id` }, slots: { section: { id: `L-head`, component: `Text`, props: { text: { path: `value` } }, style: { height: c.headerExtent } } }, children: [{ id: `L-row`, component: `Text`, props: { text: { path: `id` } }, style: { height: c.itemExtent } }] },
+          { id: `L`, component: `List`, props: { sectionBy: c.sectionBy, stickyHeaders: c.stickyHeaders }, style: { height: c.viewport }, template: { component: `L-row`, path: `/items`, key: `id` }, slots: { section: { id: `L-head`, component: `Text`, props: { text: { "@path": `value` } }, style: { height: c.headerExtent } } }, children: [{ id: `L-row`, component: `Text`, props: { text: { "@path": `id` } }, style: { height: c.itemExtent } }] },
           { data: { items: c.items }, width: 300 }
         )
         const got = await page.evaluate(

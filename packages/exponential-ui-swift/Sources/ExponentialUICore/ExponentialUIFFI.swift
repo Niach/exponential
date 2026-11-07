@@ -817,6 +817,403 @@ public func FfiConverterTypeCanvasPlayer_lower(_ value: CanvasPlayer) -> UInt64 
 
 
 
+/**
+ * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
+ * Both return `{"messages": […], "issues": [{at, message}]}`.
+ * Round 9 §6.5–§6.8, §18.3: the host's routed calls (`eui_core::host::CallHub`):
+ * the ONE entry a Swift or Compose host has for the agent channel, reactive
+ * caching and pending, timeouts and the capped, once-per-lifetime errors.
+ */
+public protocol HostCallsProtocol: AnyObject, Sendable {
+    
+    /**
+     * A surface resolves its reactive calls here.
+     */
+    func attachSurface(surfaceId: String, surface: Surface) 
+    
+    /**
+     * The answer to an `ask` effect.
+     */
+    func consent(ticket: UInt64, allowed: Bool) 
+    
+    /**
+     * §1.3: the metadata to send beside `message_json`, or `None`.
+     */
+    func dataModelMetadataJson(messageJson: String, dataJson: String) throws  -> String?
+    
+    /**
+     * The calls past their deadline: `[SettledCall]` JSON.
+     */
+    func expireJson()  -> String
+    
+    /**
+     * After a layout: the surface's issues and failures go to the outbox.
+     */
+    func flushSurface(surfaceId: String, surface: Surface) 
+    
+    /**
+     * §6.5: does the surface have an agent? No agent = a press of an
+     * unregistered name is UNKNOWN_FUNCTION without going through the hub.
+     */
+    func hasAgent(surfaceId: String)  -> Bool
+    
+    func localFailed(surfaceId: String, message: String) 
+    
+    /**
+     * When to call [`Self::expire_json`] next (epoch ms).
+     */
+    func nextDeadlineMs()  -> Double?
+    
+    /**
+     * Every `routeJson` answer goes through here AFTER the host performed
+     * it. Answers the action calls that settled: `[SettledCall]` JSON.
+     */
+    func observeJson(opsJson: String, router: HostRouter) throws  -> String
+    
+    /**
+     * An action's function call: `PressRoute` JSON. On `ask` press again
+     * with the consent's answer.
+     */
+    func pressJson(surfaceId: String, name: String, catalogId: String?, argsJson: String, consent: Bool?) throws  -> String
+    
+    /**
+     * The host's function policy (`FunctionPolicy` JSON; `None` = allow).
+     */
+    func setPolicyJson(policyJson: String?) throws 
+    
+    func setRegistered(names: [String]) 
+    
+    /**
+     * The answer to a `runLocal` effect: its value JSON, or its error.
+     */
+    func settleLocal(ticket: UInt64, valueJson: String?, error: String?) throws 
+    
+    /**
+     * The surfaces to bind again (`Surface.rebind`).
+     */
+    func takeDirty()  -> [String]
+    
+    /**
+     * `[CallEffect]` JSON: what the host must run for reactive calls.
+     */
+    func takeEffectsJson()  -> String
+    
+    /**
+     * What must leave on the transport, in order (JSON array).
+     */
+    func takeOutboxJson()  -> String
+    
+}
+/**
+ * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
+ * Both return `{"messages": […], "issues": [{at, message}]}`.
+ * Round 9 §6.5–§6.8, §18.3: the host's routed calls (`eui_core::host::CallHub`):
+ * the ONE entry a Swift or Compose host has for the agent channel, reactive
+ * caching and pending, timeouts and the capped, once-per-lifetime errors.
+ */
+open class HostCalls: HostCallsProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_hostcalls(self.handle, $0) }
+    }
+    /**
+     * `agent` = the transport's far end reads renderer → agent messages.
+     */
+public convenience init(agent: Bool) {
+    let handle =
+        try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_constructor_hostcalls_new(
+        FfiConverterBool.lower(agent),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_hostcalls(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * A surface resolves its reactive calls here.
+     */
+open func attachSurface(surfaceId: String, surface: Surface)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_attach_surface(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surfaceId),
+        FfiConverterTypeSurface_lower(surface),$0
+    )
+}
+}
+    
+    /**
+     * The answer to an `ask` effect.
+     */
+open func consent(ticket: UInt64, allowed: Bool)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_consent(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(ticket),
+        FfiConverterBool.lower(allowed),$0
+    )
+}
+}
+    
+    /**
+     * §1.3: the metadata to send beside `message_json`, or `None`.
+     */
+open func dataModelMetadataJson(messageJson: String, dataJson: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_data_model_metadata_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(messageJson),
+        FfiConverterString.lower(dataJson),$0
+    )
+})
+}
+    
+    /**
+     * The calls past their deadline: `[SettledCall]` JSON.
+     */
+open func expireJson() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_expire_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * After a layout: the surface's issues and failures go to the outbox.
+     */
+open func flushSurface(surfaceId: String, surface: Surface)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_flush_surface(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surfaceId),
+        FfiConverterTypeSurface_lower(surface),$0
+    )
+}
+}
+    
+    /**
+     * §6.5: does the surface have an agent? No agent = a press of an
+     * unregistered name is UNKNOWN_FUNCTION without going through the hub.
+     */
+open func hasAgent(surfaceId: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surfaceId),$0
+    )
+})
+}
+    
+open func localFailed(surfaceId: String, message: String)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_local_failed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surfaceId),
+        FfiConverterString.lower(message),$0
+    )
+}
+}
+    
+    /**
+     * When to call [`Self::expire_json`] next (epoch ms).
+     */
+open func nextDeadlineMs() -> Double?  {
+    return try!  FfiConverterOptionDouble.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_next_deadline_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Every `routeJson` answer goes through here AFTER the host performed
+     * it. Answers the action calls that settled: `[SettledCall]` JSON.
+     */
+open func observeJson(opsJson: String, router: HostRouter)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_observe_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(opsJson),
+        FfiConverterTypeHostRouter_lower(router),$0
+    )
+})
+}
+    
+    /**
+     * An action's function call: `PressRoute` JSON. On `ask` press again
+     * with the consent's answer.
+     */
+open func pressJson(surfaceId: String, name: String, catalogId: String?, argsJson: String, consent: Bool?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_press_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surfaceId),
+        FfiConverterString.lower(name),
+        FfiConverterOptionString.lower(catalogId),
+        FfiConverterString.lower(argsJson),
+        FfiConverterOptionBool.lower(consent),$0
+    )
+})
+}
+    
+    /**
+     * The host's function policy (`FunctionPolicy` JSON; `None` = allow).
+     */
+open func setPolicyJson(policyJson: String?)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_set_policy_json(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionString.lower(policyJson),$0
+    )
+}
+}
+    
+open func setRegistered(names: [String])  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_set_registered(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(names),$0
+    )
+}
+}
+    
+    /**
+     * The answer to a `runLocal` effect: its value JSON, or its error.
+     */
+open func settleLocal(ticket: UInt64, valueJson: String?, error: String?)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_settle_local(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(ticket),
+        FfiConverterOptionString.lower(valueJson),
+        FfiConverterOptionString.lower(error),$0
+    )
+}
+}
+    
+    /**
+     * The surfaces to bind again (`Surface.rebind`).
+     */
+open func takeDirty() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_take_dirty(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * `[CallEffect]` JSON: what the host must run for reactive calls.
+     */
+open func takeEffectsJson() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_take_effects_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * What must leave on the transport, in order (JSON array).
+     */
+open func takeOutboxJson() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostcalls_take_outbox_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostCalls: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = HostCalls
+
+    public static func lift(_ handle: UInt64) throws -> HostCalls {
+        return HostCalls(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: HostCalls) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostCalls {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: HostCalls, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostCalls_lift(_ handle: UInt64) throws -> HostCalls {
+    return try FfiConverterTypeHostCalls.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostCalls_lower(_ value: HostCalls) -> UInt64 {
+    return FfiConverterTypeHostCalls.lower(value)
+}
+
+
+
+
+
+
 public protocol HostFormatter: AnyObject, Sendable {
     
     /**
@@ -1350,10 +1747,21 @@ public func FfiConverterTypeHostFormatter_lower(_ value: HostFormatter) -> UInt6
 public protocol HostRouterProtocol: AnyObject, Sendable {
     
     /**
+     * Round 9 §5.5: the supported ids, then the inline catalogs.
+     */
+    func availableCatalogIds()  -> [String]
+    
+    /**
      * Install a declarative package (JSON); returns its issues as a JSON
      * array `[{path, message}]` (installed only when empty).
      */
     func installPackage(packageJson: String) throws  -> String
+    
+    /**
+     * Round 9 §1.4: a fresh id for a re-opened surface (`<base>#<n>`).
+     * Mint, `applyTemplate` onto it, then `deleteSurface` the old one.
+     */
+    func mintSurfaceId(base: String)  -> String
     
     /**
      * The package whose template created the surface (its function policy).
@@ -1363,11 +1771,21 @@ public protocol HostRouterProtocol: AnyObject, Sendable {
     func registerExtension(id: String) 
     
     /**
-     * One server message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send, …}]`). Never
-     * fails: unparseable text is an INVALID_MESSAGE `send` op.
+     * Round 9 §10: an inline catalog id joins the available set.
      */
-    func route(messageJson: String)  -> String
+    func registerInlineCatalog(id: String) 
+    
+    func routeJson(messageJson: String, trusted: Bool)  -> String
+    
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
+     */
+    func routeWithBridgeJson(messageJson: String, trusted: Bool, acceptV09: Bool)  -> String
     
     func supportedCatalogIds()  -> [String]
     
@@ -1445,6 +1863,17 @@ public convenience init(extensionIds: [String]) {
 
     
     /**
+     * Round 9 §5.5: the supported ids, then the inline catalogs.
+     */
+open func availableCatalogIds() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_available_catalog_ids(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Install a declarative package (JSON); returns its issues as a JSON
      * array `[{path, message}]` (installed only when empty).
      */
@@ -1453,6 +1882,19 @@ open func installPackage(packageJson: String)throws  -> String  {
     uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(packageJson),$0
+    )
+})
+}
+    
+    /**
+     * Round 9 §1.4: a fresh id for a re-opened surface (`<base>#<n>`).
+     * Mint, `applyTemplate` onto it, then `deleteSurface` the old one.
+     */
+open func mintSurfaceId(base: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(base),$0
     )
 })
 }
@@ -1478,15 +1920,41 @@ open func registerExtension(id: String)  {try! rustCall() {
 }
     
     /**
-     * One server message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send, …}]`). Never
-     * fails: unparseable text is an INVALID_MESSAGE `send` op.
+     * Round 9 §10: an inline catalog id joins the available set.
      */
-open func route(messageJson: String) -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_method_hostrouter_route(
+open func registerInlineCatalog(id: String)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(messageJson),$0
+        FfiConverterString.lower(id),$0
+    )
+}
+}
+    
+open func routeJson(messageJson: String, trusted: Bool) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(messageJson),
+        FfiConverterBool.lower(trusted),$0
+    )
+})
+}
+    
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
+     */
+open func routeWithBridgeJson(messageJson: String, trusted: Bool, acceptV09: Bool) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(messageJson),
+        FfiConverterBool.lower(trusted),
+        FfiConverterBool.lower(acceptV09),$0
     )
 })
 }
@@ -1775,10 +2243,6 @@ public func FfiConverterTypeHostZone_lower(_ value: HostZone) -> UInt64 {
 
 
 
-/**
- * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
- * Both return `{"messages": […], "issues": [{at, message}]}`.
- */
 public protocol JsonlDecoderProtocol: AnyObject, Sendable {
     
     func end()  -> String
@@ -1786,10 +2250,6 @@ public protocol JsonlDecoderProtocol: AnyObject, Sendable {
     func push(chunk: String)  -> String
     
 }
-/**
- * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
- * Both return `{"messages": […], "issues": [{at, message}]}`.
- */
 open class JsonlDecoder: JsonlDecoderProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
 
@@ -2957,6 +3417,14 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func mode()  -> String
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     * After a layout: anything for `HostCalls.flushSurface`?
+     */
+    func needsFlush()  -> Bool
+    
     func nodeCount()  -> UInt32
     
     /**
@@ -2976,6 +3444,11 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      * slot. A slot past the end is left out (like [`Self::nodes_at`]).
      */
     func paintAt(indices: [UInt32])  -> [FfiPaint]
+    
+    /**
+     * Round 9 §6.5: a routed value settled; the next layout binds again.
+     */
+    func rebind() 
     
     /**
      * Register an extension catalog (its JSON definition), validated.
@@ -3145,6 +3618,8 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      * tooltip, a live region announcing).
      */
     func takeEvents()  -> [FfiEvent]
+    
+    func takeFailuresJson()  -> String
     
     func textStyle(index: UInt32)  -> FfiTextStyle?
     
@@ -3491,6 +3966,20 @@ open func mode() -> String  {
 })
 }
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     * After a layout: anything for `HostCalls.flushSurface`?
+     */
+open func needsFlush() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func nodeCount() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_node_count(
@@ -3535,6 +4024,16 @@ open func paintAt(indices: [UInt32]) -> [FfiPaint]  {
         FfiConverterSequenceUInt32.lower(indices),$0
     )
 })
+}
+    
+    /**
+     * Round 9 §6.5: a routed value settled; the next layout binds again.
+     */
+open func rebind()  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_rebind(
+            self.uniffiCloneHandle(),$0
+    )
+}
 }
     
     /**
@@ -3956,6 +4455,14 @@ open func submitForm(id: String) -> [FfiEvent]  {
 open func takeEvents() -> [FfiEvent]  {
     return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_take_events(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func takeFailuresJson() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -7669,7 +8176,26 @@ fileprivate struct FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer {
     }
 }
 /**
- * A client action message (A2UI v0.9 `action`) JSON.
+ * The wire version every message carries (`A2UI_VERSION`, §1.1).
+ */
+public func a2uiVersion() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_a2ui_version($0
+    )
+})
+}
+/**
+ * `ACCEPT_V09` (§14.1): every core entry upgrades 0.9 input while true.
+ */
+public func acceptV09() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_accept_v09($0
+    )
+})
+}
+/**
+ * A renderer `action` message (A2UI 1.0) JSON. `payload_json` travels as
+ * `metadata.extensions.at_exponential_payload`, merged over `context` (§1.3).
  */
 public func actionMessageJson(surfaceId: String, componentId: String, name: String, contextJson: String, payloadJson: String?, timestamp: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
@@ -7680,6 +8206,22 @@ public func actionMessageJson(surfaceId: String, componentId: String, name: Stri
         FfiConverterString.lower(contextJson),
         FfiConverterOptionString.lower(payloadJson),
         FfiConverterString.lower(timestamp),$0
+    )
+})
+}
+/**
+ * [`action_message_json`] with the Action's resolved `event.userMessage`.
+ */
+public func actionMessageWithUserMessageJson(surfaceId: String, componentId: String, name: String, contextJson: String, payloadJson: String?, timestamp: String, userMessage: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(
+        FfiConverterString.lower(surfaceId),
+        FfiConverterString.lower(componentId),
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(contextJson),
+        FfiConverterOptionString.lower(payloadJson),
+        FfiConverterString.lower(timestamp),
+        FfiConverterOptionString.lower(userMessage),$0
     )
 })
 }
@@ -7805,6 +8347,32 @@ public func builtinThemeJson(id: String) -> String?  {
 })
 }
 /**
+ * A `callAgentFunction` message (§1.3) JSON; `args_json` = the resolved args object.
+ */
+public func callAgentFunctionMessageJson(surfaceId: String, functionCallId: String, name: String, catalogId: String, argsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(
+        FfiConverterString.lower(surfaceId),
+        FfiConverterString.lower(functionCallId),
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(catalogId),
+        FfiConverterString.lower(argsJson),$0
+    )
+})
+}
+/**
+ * Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
+ * 1.0, `cardProblems`, its reduce over the core catalog).
+ */
+public func cardV10Json(cardJson: String, acceptV09: Bool)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_card_v10_json(
+        FfiConverterString.lower(cardJson),
+        FfiConverterBool.lower(acceptV09),$0
+    )
+})
+}
+/**
  * `{min, max}` of a chart (`series_json` = the Chart's `series`).
  */
 public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max: Double?)throws  -> String  {
@@ -7827,16 +8395,6 @@ public func checkExpressionJson(expr: String, typesJson: String)throws  -> Strin
     uniffi_exponential_ui_ffi_fn_func_check_expression_json(
         FfiConverterString.lower(expr),
         FfiConverterString.lower(typesJson),$0
-    )
-})
-}
-/**
- * A2UI `a2uiClientCapabilities` JSON.
- */
-public func clientCapabilitiesJson(extensionIds: [String]) -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(
-        FfiConverterSequenceString.lower(extensionIds),$0
     )
 })
 }
@@ -7958,7 +8516,7 @@ public func displayStringJson(valueJson: String)throws  -> String  {
 })
 }
 /**
- * A client error message (A2UI v0.9 `error`) JSON.
+ * A renderer `error` message (A2UI 1.0) about a surface, JSON.
  */
 public func errorMessageJson(code: String, surfaceId: String, message: String, path: String?) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
@@ -8051,11 +8609,34 @@ public func functionEffect(name: String) -> String  {
 })
 }
 /**
+ * A renderer `error` message about a routed call (`functionCallId`, §1.3), JSON.
+ */
+public func functionErrorMessageJson(code: String, functionCallId: String, message: String, path: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_function_error_message_json(
+        FfiConverterString.lower(code),
+        FfiConverterString.lower(functionCallId),
+        FfiConverterString.lower(message),
+        FfiConverterOptionString.lower(path),$0
+    )
+})
+}
+/**
  * `catalog/host.json` without its comments.
  */
 public func hostContractJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_host_contract_json($0
+    )
+})
+}
+/**
+ * Round 9 §4.1: UAX #31 over the generated tables.
+ */
+public func isIdentifier(id: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_is_identifier(
+        FfiConverterString.lower(id),$0
     )
 })
 }
@@ -8113,14 +8694,25 @@ public func loadThemeJson(themeJson: String, parentsJson: String?)throws  -> Str
 })
 }
 /**
+ * Round 9 §14.3: an id as an identifier.
+ */
+public func mangleId(id: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_mangle_id(
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+/**
  * A client message as the MCP `tools/call` that carries it back (`tool`
  * defaults to `a2ui_event`).
  */
-public func mcpActionCallJson(messageJson: String, tool: String?)throws  -> String  {
+public func mcpActionCallJson(messageJson: String, tool: String?, metadataJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
     uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(
         FfiConverterString.lower(messageJson),
-        FfiConverterOptionString.lower(tool),$0
+        FfiConverterOptionString.lower(tool),
+        FfiConverterOptionString.lower(metadataJson),$0
     )
 })
 }
@@ -8364,6 +8956,41 @@ public func relativeTimeUnitJson(deltaMs: Double) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(
         FfiConverterDouble.lower(deltaMs),$0
+    )
+})
+}
+/**
+ * Round 9 §10: `{"1.0": {supportedCatalogIds, inlineCatalogs?}}` JSON.
+ * `inline_catalogs_json` = a JSON array of 1.0 catalog definitions.
+ */
+public func rendererCapabilitiesJson(extensionIds: [String], inlineCatalogsJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(
+        FfiConverterSequenceString.lower(extensionIds),
+        FfiConverterOptionString.lower(inlineCatalogsJson),$0
+    )
+})
+}
+/**
+ * A `rendererFunctionResponse` with an error (§1.3) JSON.
+ */
+public func rendererFunctionErrorJson(functionCallId: String, code: String, message: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(
+        FfiConverterString.lower(functionCallId),
+        FfiConverterString.lower(code),
+        FfiConverterString.lower(message),$0
+    )
+})
+}
+/**
+ * A `rendererFunctionResponse` with a value (§1.3) JSON (`None` = `value: null`).
+ */
+public func rendererFunctionValueJson(functionCallId: String, valueJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(
+        FfiConverterString.lower(functionCallId),
+        FfiConverterOptionString.lower(valueJson),$0
     )
 })
 }
@@ -8632,6 +9259,28 @@ public func transitionsFromJson(kindJson: String, recordJson: String?, viewerJso
 })
 }
 /**
+ * Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
+ * documented on `eui_core::upgrade09::upgrade09_json`.
+ */
+public func upgrade09Json(requestJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_upgrade09_json(
+        FfiConverterString.lower(requestJson),$0
+    )
+})
+}
+/**
+ * A stored 0.9 `exponential_show` card (nested `{root, data}`) → 1.0
+ * (§18: to DISPLAY a card that has no `version: "1.0"`).
+ */
+public func upgradeCard09(cardJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_upgrade_card09(
+        FfiConverterString.lower(cardJson),$0
+    )
+})
+}
+/**
  * A package's issues `[{path, message}]` JSON (`catalog_ids` default: the
  * three built-in catalogs).
  */
@@ -8805,7 +9454,16 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 2647) {
+    if (uniffi_exponential_ui_ffi_checksum_func_a2ui_version() != 6318) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_accept_v09() != 4937) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 29932) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json() != 53812) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_animation_frame_json() != 34139) {
@@ -8835,13 +9493,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json() != 60746) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json() != 55829) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_card_v10_json() != 42496) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_check_expression_json() != 35251) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json() != 21405) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_code_text() != 23100) {
@@ -8877,7 +9538,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_display_string_json() != 16203) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 45756) {
+    if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 13121) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json() != 50260) {
@@ -8898,7 +9559,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_function_effect() != 49184) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_function_error_message_json() != 30559) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_host_contract_json() != 18735) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_is_identifier() != 36117) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_json_diff() != 38474) {
@@ -8913,7 +9580,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 5104) {
+    if (uniffi_exponential_ui_ffi_checksum_func_mangle_id() != 15380) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 50369) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_media_image_header() != 16289) {
@@ -8973,6 +9643,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json() != 52328) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json() != 8055) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json() != 50596) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_renderer_function_value_json() != 36396) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_resizable_json() != 39983) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9030,6 +9709,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_transitions_from_json() != 49075) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_upgrade09_json() != 32506) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_upgrade_card09() != 22075) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 13412) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9069,6 +9754,54 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine() != 23083) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface() != 44372) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_consent() != 32576) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_data_model_metadata_json() != 22883) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_expire_json() != 31520) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface() != 14236) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent() != 53060) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed() != 9166) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_next_deadline_ms() != 9101) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_observe_json() != 48633) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_press_json() != 52259) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_policy_json() != 9684) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_registered() != 11375) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_settle_local() != 47886) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_dirty() != 13950) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_effects_json() != 13066) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_outbox_json() != 57808) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9093,7 +9826,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes() != 58182) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_available_catalog_ids() != 7641) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package() != 53902) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_mint_surface_id() != 35666) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of() != 10640) {
@@ -9102,7 +9841,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension() != 46286) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route() != 34070) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog() != 54377) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json() != 19619) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json() != 51307) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids() != 37235) {
@@ -9201,6 +9946,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_mode() != 14752) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush() != 28279) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_node_count() != 13599) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9211,6 +9959,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_paint_at() != 18421) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_rebind() != 64287) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 9834) {
@@ -9324,6 +10075,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_take_events() != 5811) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_take_failures_json() != 45416) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_text_style() != 3961) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9433,6 +10187,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick() != 12132) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new() != 24711) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new() != 1496) {

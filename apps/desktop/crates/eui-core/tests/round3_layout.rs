@@ -87,7 +87,7 @@ fn a_submenu_bound_to_a_source_lists_its_rows() {
     let mut s = surface(root(json!([
         {"id": "m", "component": "Menu", "props": {"label": "Issue", "items": [
             {"label": "Rename", "value": "rename"},
-            {"kind": "submenu", "label": "Status", "items": {"path": "/statuses"}}]},
+            {"kind": "submenu", "label": "Status", "items": {"@path": "/statuses"}}]},
          "on": {"select": {"event": {"name": "pick"}}}}
     ])));
     s.set_data("", Some(json!({"statuses": [{"label": "Backlog", "value": "backlog"}, {"label": "Done", "value": "done"}]}))).unwrap();

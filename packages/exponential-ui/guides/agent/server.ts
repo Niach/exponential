@@ -1,9 +1,9 @@
 // An MCP server (JSON-RPC over HTTP, Node 24: `node server.ts`) whose one
 // tool lets a model show UI. The tool's description IS the catalog prompt;
 // every answer is validated before it reaches a client, and a valid surface
-// goes back as A2UI over MCP: an `application/json+a2ui` resource.
+// goes back as A2UI over MCP: an `application/a2ui+json` resource.
 import { createServer } from "node:http"
-import { CORE_CATALOG_ID, ICON_NAMES, reduceSurface } from "@exponential_app/eui"
+import { A2UI_VERSION, CORE_CATALOG_ID, ICON_NAMES, reduceSurface } from "@exponential_app/eui"
 import { catalogPrompt } from "@exponential_app/eui/prompt"
 import { coreSchema } from "@exponential_app/eui/schema"
 import type { FlatComponent } from "@exponential_app/eui"
@@ -19,11 +19,11 @@ function showUi(components: FlatComponent[]) {
   const { issues } = reduceSurface(components, { catalogId: CORE_CATALOG_ID })
   if (issues.length) return { isError: true, content: [{ type: `text`, text: issues.map((i) => `${i.id}: ${i.message}`).join(`\n`) }] } // the model retries
   const messages = [
-    { version: `v0.9`, createSurface: { surfaceId: `main`, catalogId: CORE_CATALOG_ID } },
-    { version: `v0.9`, updateComponents: { surfaceId: `main`, components } },
+    { version: A2UI_VERSION, createSurface: { surfaceId: `main`, catalogId: CORE_CATALOG_ID } },
+    { version: A2UI_VERSION, updateComponents: { surfaceId: `main`, components } },
   ]
   const text = messages.map((m) => JSON.stringify(m)).join(`\n`) // JSONL
-  return { content: [{ type: `resource`, resource: { uri: `a2ui://surface/main`, mimeType: `application/json+a2ui`, text } }] }
+  return { content: [{ type: `resource`, resource: { uri: `a2ui://surface/main`, mimeType: `application/a2ui+json`, text } }] }
 }
 
 function handle(method: string, params: any): unknown {

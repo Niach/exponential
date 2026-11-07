@@ -18,13 +18,13 @@
 //   surface.jsonl         // what an agent would send
 
 import { COMPONENT_NAMES, type ComponentName, type ComponentProps } from "./catalog.generated"
-import { CORE_CATALOG_ID } from "./catalog"
+import { A2UI_VERSION, CORE_CATALOG_ID } from "./catalog"
 import { reduceSurface } from "./reducer"
 import type { Action, AuthoredAccessibility, DataBinding, ExtensionDef, FlatComponent, FunctionCall, ReduceIssue, UiNode, Visible } from "./types"
 
 /** A node of the typed tree: `component` picks the props type. */
 export interface SurfaceNode<C extends ComponentName = ComponentName> {
-  /** Explicit id; `defineSurface` assigns `root` to the top node and `<component>-<n>` to the rest. */
+  /** Explicit id; `defineSurface` assigns `root` to the top node and `<component>_<n>` to the rest. */
   id?: string
   component: C
   props: ComponentProps[C]
@@ -64,13 +64,13 @@ export interface DefinedSurface {
   jsonl: string
 }
 
-/** A data binding: `{ path }`. A pointer relative to the item inside a template. */
-export const bind = (path: string): DataBinding => ({ path })
-/** A client function call: `{ call, args }`. */
-export const call = (name: string, args?: Record<string, unknown>): FunctionCall => ({ call: name, ...(args ? { args } : {}) })
+/** A data binding: `{ "@path": path }`. A pointer relative to the item inside a template. */
+export const bind = (path: string): DataBinding => ({ "@path": path })
+/** A renderer function call: `{ "@call": name, args }`. */
+export const call = (name: string, args?: Record<string, unknown>): FunctionCall => ({ "@call": name, ...(args ? { args } : {}) })
 /** An action that sends an event to the agent / server. */
 export const event = (name: string, context?: Record<string, unknown>): Action => ({ event: { name, ...(context ? { context } : {}) } })
-/** An action that runs a client function (`set`, `openUrl`, `app.toast`…). */
+/** An action that runs a client function (`set`, `openUrl`, `app_toast`…). */
 export const run = (name: string, args?: Record<string, unknown>): Action => ({ functionCall: call(name, args) })
 
 type Extra<C extends ComponentName> = Omit<SurfaceNode<C>, `component` | `props` | `children`>
@@ -111,7 +111,7 @@ export function flattenSurface(tree: SurfaceNode, rootId = `root`): FlatComponen
     do {
       const next = (counters.get(base) ?? 0) + 1
       counters.set(base, next)
-      id = `${base}-${next}`
+      id = `${base}_${next}`
     } while (taken.has(id))
     taken.add(id)
     return id
@@ -144,9 +144,9 @@ export function defineSurface(tree: SurfaceNode, options: DefineOptions = {}): D
   const components = flattenSurface(tree)
   const { root, issues } = reduceSurface(components, { catalogId, extensions: options.extensions })
   const messages: Record<string, unknown>[] = [
-    { version: `v0.9`, createSurface: { surfaceId, catalogId } },
-    { version: `v0.9`, updateComponents: { surfaceId, components } },
-    ...Object.entries(options.data ?? {}).map(([path, value]) => ({ version: `v0.9`, updateDataModel: { surfaceId, path, value } })),
+    { version: A2UI_VERSION, createSurface: { surfaceId, catalogId } },
+    { version: A2UI_VERSION, updateComponents: { surfaceId, components } },
+    ...Object.entries(options.data ?? {}).map(([path, value]) => ({ version: A2UI_VERSION, updateDataModel: { surfaceId, path, value } })),
   ]
   return { surfaceId, catalogId, components, issues, root, messages, jsonl: messages.map((m) => JSON.stringify(m)).join(`\n`) }
 }

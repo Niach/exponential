@@ -334,7 +334,7 @@ fn sidebar_rail_squares_icons_badges_and_tooltips() {
     assert_eq!(s.nodes().iter().find(|n| n.id == "inbox.tip.label").map(|n| n.props["text"].clone()), Some(json!("Inbox")), "the tooltip is the title");
 
     // Bound: data decides between the rail and the plain Rows.
-    let mut s = themed(shell(json!({"path": "/collapsed"})), "neutral", Mode::Dark);
+    let mut s = themed(shell(json!({"@path": "/collapsed"})), "neutral", Mode::Dark);
     s.set_viewport(600.0, 400.0, None);
     s.set_data("/collapsed", Some(json!(true))).unwrap();
     let out = s.layout(&mut fixed());

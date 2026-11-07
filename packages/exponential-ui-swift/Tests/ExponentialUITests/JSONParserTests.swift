@@ -40,6 +40,8 @@ final class JSONParserTests: XCTestCase {
         case let (.number(x), .number(y)): return x == y || abs(x - y) <= 4 * max(abs(x), abs(y)).ulp
         case let (.array(x), .array(y)): return x.count == y.count && zip(x, y).allSatisfy { same($0, $1) }
         case let (.object(x), .object(y)): return x.count == y.count && x.allSatisfy { k, v in y[k].map { same(v, $0) } ?? false }
+        // Foundation drops a U+FEFF inside a string (regex.json); the byte parser keeps it.
+        case let (.string(x), .string(y)): return x.replacingOccurrences(of: "\u{FEFF}", with: "") == y
         default: return a == b
         }
     }

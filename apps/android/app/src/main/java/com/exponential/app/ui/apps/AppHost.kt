@@ -65,6 +65,7 @@ import at.exponential.ui.host.RecordsStore
 import at.exponential.ui.host.Screens
 import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.ffi.HostZone
+import at.exponential.ui.host.A2UI_VERSION
 import at.exponential.ui.host.TimeZoneOffset
 import at.exponential.ui.host.UrlPolicy
 import at.exponential.ui.json.JsonValue
@@ -147,7 +148,7 @@ import kotlinx.coroutines.withContext
  * Everything goes through the SDK's PUBLIC Compose host API
  * ([ExponentialHost] + [at.exponential.ui.host.HostSurface]), like a third
  * party's host would:
- *  - functions: `harness.toast` (the app's toast stack), `harness.mcp` (a
+ *  - functions: `harness_toast` (the app's toast stack), `harness_mcp` (a
  *    `tools/call` on the instance's own `/api/mcp` as the signed-in account); a
  *    link goes through the URL policy (`~/` = the app's team) and THE opener;
  *  - bindings: the `exp:` scheme over Room (`exp:devices`, re-derived on the
@@ -175,10 +176,10 @@ import kotlinx.coroutines.withContext
  *  - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
  *    with Compose painters for its `IconDisc` and `LiveDot` natives (Exponential
  *    ships no built-in apps: only the team's packages are installed);
- *  - VAPP-120 typed actions: every `exponential.<noun>.<op>` of
+ *  - VAPP-120 typed actions: every `exponential_<noun>_<op>` of
  *    [AppActions] is the same `tools/call` as the viewer (`{op, …args}`; no
- *    op for the verb tool `exponential.sessions.send`);
- *  - policy: `harness.mcp` and `exponential.*` ASK first (the consent card,
+ *    op for the verb tool `exponential_sessions_send`);
+ *  - policy: `harness_mcp` and `exponential_*` ASK first (the consent card,
  *    [AppConsentCard]); a typed action the hosting app's synced
  *    `granted_tools` names runs without the card;
  *    urls and media resolve against the instance (attachments with the
@@ -235,7 +236,7 @@ class AppConsentGate {
 }
 
 /** VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
- *  the tool it names, its arguments as compact JSON (a `harness.mcp` call's
+ *  the tool it names, its arguments as compact JSON (a `harness_mcp` call's
  *  MCP `arguments`, else the function's own args; an empty object = none)
  *  and whether it sounds destructive. The web `consentWords` and desktop
  *  `consent_words` derive the same three. */
@@ -260,7 +261,7 @@ data class AppConsentWords(
             AppActions.actionConsent(call.name, call.args)?.let { typed ->
                 return AppConsentWords(tool = typed.tool, args = typed.args, destructive = typed.destructive, title = typed.title)
             }
-            val mcp = call.name == "harness.mcp"
+            val mcp = call.name == "harness_mcp"
             val tool = if (mcp) call.args["tool"]?.string.orEmpty() else call.name
             val raw: JsonValue? = if (mcp) call.args["arguments"] else JsonValue.Obj(call.args)
             val json = (raw as? JsonValue.Obj)?.orderedJson
@@ -272,6 +273,28 @@ data class AppConsentWords(
             )
         }
     }
+}
+
+/**
+ * Round 9 §1.4: a package screen onto a fresh surface: a minted id under
+ * [base], the template on it (`data` = a screen's `{params}`), and only then
+ * the [current] surface goes, so it paints until the new one exists. Surface
+ * ids are unique for the host's lifetime, so the old id can never come back.
+ * The new id; the caller paints it.
+ */
+internal fun ExponentialHost.reopenSurface(current: String?, base: String, packageId: String, templateId: String, data: JsonValue? = null): String {
+    val surfaceId = mintSurfaceId(base)
+    val apply = buildMap {
+        put("surfaceId", JsonValue.Str(surfaceId))
+        put("templateId", JsonValue.Str(templateId))
+        put("packageId", JsonValue.Str(packageId))
+        if (data != null) put("data", data)
+    }
+    receive(JsonValue.Obj(mapOf("version" to JsonValue.Str(A2UI_VERSION), "applyTemplate" to JsonValue.Obj(apply))), trusted = true)
+    if (current != null) {
+        receive(JsonValue.Obj(mapOf("version" to JsonValue.Str(A2UI_VERSION), "deleteSurface" to JsonValue.Obj(mapOf("surfaceId" to JsonValue.Str(current))))))
+    }
+    return surfaceId
 }
 
 /** The consent card: what a surface wants to run (the tool AND its
@@ -560,7 +583,7 @@ fun rememberAppHost(
     upstreams: AppUpstreamAnswers? = null,
     /** eApps R8 (apps.json `migrationCases`): a draft preview's published `version`; the hosting app's rows read through the package's migrations (copies, nothing written). */
     migrateFrom: String? = null,
-    /** VAPP-218: `app.navigate` opens a screen (the preview's shell); null = no shell, refused. Kept stable by the caller. */
+    /** VAPP-218: `app_navigate` opens a screen (the preview's shell); null = no shell, refused. Kept stable by the caller. */
     navigate: ((NavigateTarget) -> Boolean)? = null,
 ): ExponentialHost {
     val context = LocalContext.current
@@ -953,11 +976,11 @@ fun rememberAppHost(
             }
         }
         val functions = actions + mapOf(
-            "records.upsert" to recordsUpsert,
-            "records.delete" to recordsDelete,
-            "records.batch" to recordsBatch,
-            "harness.toast" to toast,
-            "harness.mcp" to mcp,
+            "records_upsert" to recordsUpsert,
+            "records_delete" to recordsDelete,
+            "records_batch" to recordsBatch,
+            "harness_toast" to toast,
+            "harness_mcp" to mcp,
         )
 
         built = ExponentialHost(
@@ -972,7 +995,7 @@ fun rememberAppHost(
                 ),
                 packages = packages,
                 policy = HostPolicy(
-                    functions = FunctionPolicy(ask = listOf("harness.mcp", "exponential.*")),
+                    functions = FunctionPolicy(ask = listOf("harness_mcp", "exponential_*")),
                     // A granted typed action runs without the card; anything else asks.
                     onFunctionCall = { call ->
                         val granted = AppActions.parseActionName(call.name) != null &&

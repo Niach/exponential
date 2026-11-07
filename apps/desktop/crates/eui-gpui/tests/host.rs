@@ -17,6 +17,7 @@ use eui_gpui::view::SurfaceView;
 use gpui::{div, prelude::*, App, Entity, Task, TestAppContext, Window};
 use serde_json::{json, Value};
 
+const VERSION: &str = eui_core::catalog::A2UI_VERSION;
 const CORE: &str = "https://ui.exponential.at/catalogs/core/v1";
 
 fn fixture(name: &str) -> Value {
@@ -29,11 +30,11 @@ fn init(cx: &mut TestAppContext) {
 }
 
 fn create(sid: &str) -> Value {
-    json!({"version": "v0.9", "createSurface": {"surfaceId": sid, "catalogId": CORE}})
+    json!({"version": VERSION, "createSurface": {"surfaceId": sid, "catalogId": CORE}})
 }
 
 fn components(sid: &str, list: Value) -> Value {
-    json!({"version": "v0.9", "updateComponents": {"surfaceId": sid, "components": list}})
+    json!({"version": VERSION, "updateComponents": {"surfaceId": sid, "components": list}})
 }
 
 fn host_with(cx: &mut TestAppContext, options: HostOptions) -> Entity<ExponentialHost> {
@@ -54,7 +55,7 @@ fn router_ops_reach_surfaces_through_the_memory_transport(cx: &mut TestAppContex
     init(cx);
     let t = MemoryTransport::new();
     // Queued before the host connects.
-    t.feed([create("s1"), components("s1", json!([{"id": "root", "component": "Stack", "children": ["a", "b"]}, {"id": "a", "component": "Text", "text": "A"}, {"id": "b", "component": "Text", "text": {"path": "/b"}}]))]);
+    t.feed([create("s1"), components("s1", json!([{"id": "root", "component": "Stack", "children": ["a", "b"]}, {"id": "a", "component": "Text", "text": "A"}, {"id": "b", "component": "Text", "text": {"@path": "/b"}}]))]);
     let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
     assert!(host.read_with(cx, |h, _| h.has_transport()));
     host.update(cx, |h, cx| h.connect(cx));
@@ -62,7 +63,7 @@ fn router_ops_reach_surfaces_through_the_memory_transport(cx: &mut TestAppContex
     assert_eq!(host.read_with(cx, |h, _| h.status()), TransportStatus::Open);
     assert_eq!(host.read_with(cx, |h, _| h.surface_ids()), vec!["s1".to_string()]);
 
-    t.feed([json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/b", "value": "B"}})]);
+    t.feed([json!({"version": VERSION, "updateDataModel": {"surfaceId": "s1", "path": "/b", "value": "B"}})]);
     cx.run_until_parked();
     assert_eq!(data(&host, "s1", cx), json!({"b": "B"}));
 
@@ -74,19 +75,19 @@ fn router_ops_reach_surfaces_through_the_memory_transport(cx: &mut TestAppContex
     assert!(ids.contains(&"root".to_string()) && ids.contains(&"a".to_string()) && ids.contains(&"b".to_string()), "{ids:?}");
 
     // No value = remove the path; path "/" = the whole model.
-    t.feed([json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/b"}})]);
+    t.feed([json!({"version": VERSION, "updateDataModel": {"surfaceId": "s1", "path": "/b", "value": null}})]);
     cx.run_until_parked();
     assert_eq!(data(&host, "s1", cx), json!({}));
-    t.feed([json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/", "value": {"x": 1}}})]);
+    t.feed([json!({"version": VERSION, "updateDataModel": {"surfaceId": "s1", "path": "/", "value": {"x": 1}}})]);
     cx.run_until_parked();
     assert_eq!(data(&host, "s1", cx), json!({"x": 1}));
 
     // Errors go back on the transport.
-    t.feed([components("nope", json!([]))]);
+    t.feed([components("nope", json!([{"id": "root", "component": "Text", "text": "x"}]))]);
     cx.run_until_parked();
     assert_eq!(sent_errors(&t), vec![("SURFACE_NOT_FOUND".to_string(), "no surface nope; send createSurface first".to_string())]);
 
-    t.feed([json!({"version": "v0.9", "deleteSurface": {"surfaceId": "s1"}})]);
+    t.feed([json!({"version": VERSION, "deleteSurface": {"surfaceId": "s1"}})]);
     cx.run_until_parked();
     assert!(host.read_with(cx, |h, _| h.surface("s1")).is_none());
 
@@ -103,7 +104,7 @@ fn unsupported_catalogs_are_recorded_and_reported(cx: &mut TestAppContext) {
     let t = MemoryTransport::new();
     let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
     host.update(cx, |h, cx| h.connect(cx));
-    t.feed([json!({"version": "v0.9", "createSurface": {"surfaceId": "x", "catalogId": "https://example.com/catalogs/other/v1"}})]);
+    t.feed([json!({"version": VERSION, "createSurface": {"surfaceId": "x", "catalogId": "https://example.com/catalogs/other/v1"}})]);
     cx.run_until_parked();
     assert_eq!(host.read_with(cx, |h, _| h.unsupported_catalog().map(str::to_string)), Some("https://example.com/catalogs/other/v1".to_string()));
     assert_eq!(sent_errors(&t)[0].0, "UNSUPPORTED_CATALOG");
@@ -139,7 +140,11 @@ fn sources_bind_emit_and_cancel(cx: &mut TestAppContext) {
     let t = MemoryTransport::new();
     let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), sources: HashMap::from([("EXP".to_string(), resolver)]), ..Default::default() });
     host.update(cx, |h, cx| h.connect(cx));
-    t.feed([create("s"), json!({"version": "v0.9", "bindDataModel": {"surfaceId": "s", "path": "/devices", "source": "exp:devices?board=b1"}})]);
+    t.feed([create("s")]);
+    cx.run_until_parked();
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "bindDataModel": {"surfaceId": "s", "path": "/devices", "source": "exp:devices?board=b1"}}), cx);
+    });
     cx.run_until_parked();
     assert_eq!(*probe.params.lock().unwrap(), vec!["exp:devices {\"board\": \"b1\"}".to_string()]);
     assert_eq!(data(&host, "s", cx), json!({"devices": ["first"]}));
@@ -155,20 +160,23 @@ fn sources_bind_emit_and_cancel(cx: &mut TestAppContext) {
     assert_eq!(data(&host, "s", cx), json!({"devices": ["second"]}));
 
     // An unknown scheme is a VALIDATION_FAILED error naming the path.
-    t.feed([json!({"version": "v0.9", "bindDataModel": {"surfaceId": "s", "path": "/x", "source": "nope:thing"}})]);
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "bindDataModel": {"surfaceId": "s", "path": "/x", "source": "nope:thing"}}), cx);
+    });
     cx.run_until_parked();
     let err = t.sent().into_iter().find_map(|m| m.get("error").cloned()).unwrap();
     assert_eq!(err, json!({"code": "VALIDATION_FAILED", "surfaceId": "s", "message": "no resolver for the source scheme nope", "path": "/x"}));
 
     // Deleting the surface cancels; a late emit is dropped.
-    t.feed([json!({"version": "v0.9", "deleteSurface": {"surfaceId": "s"}})]);
+    t.feed([json!({"version": VERSION, "deleteSurface": {"surfaceId": "s"}})]);
     cx.run_until_parked();
     assert_eq!(probe.cancels.load(Ordering::SeqCst), 1);
-    t.feed([create("s")]);
+    // Ids are unique for the renderer's lifetime: a new surface, a new id.
+    t.feed([create("s2")]);
     cx.run_until_parked();
     (probe.emit.lock().unwrap().clone().unwrap())(json!(["late"]));
     cx.run_until_parked();
-    assert_eq!(data(&host, "s", cx), json!({}));
+    assert_eq!(data(&host, "s2", cx), json!({}));
 }
 
 fn outcome(task: Task<FunctionOutcome>, cx: &mut TestAppContext) -> FunctionOutcome {
@@ -192,17 +200,17 @@ fn the_function_gate_consent_and_package_narrowing(cx: &mut TestAppContext) {
     let a = asked.clone();
     let consent = Rc::new(move |c: &FunctionCallEvent, _: &mut App| {
         a.borrow_mut().push(c.name.clone());
-        Task::ready(c.name == "harness.confirm")
+        Task::ready(c.name == "harness_confirm")
     });
     let double = sync_function(|args, _call, _cx| Ok(json!(args["n"].as_i64().unwrap() * 2)));
     let fail = sync_function(|_, _, _| Err("boom".to_string()));
     let mut functions = HashMap::new();
-    for name in ["harness.toast", "harness.confirm", "harness.refuse", "admin.wipe"] {
+    for name in ["harness_toast", "harness_confirm", "harness_refuse", "admin.wipe"] {
         functions.insert(name.to_string(), double.clone());
     }
-    functions.insert("harness.fail".to_string(), fail);
+    functions.insert("harness_fail".to_string(), fail);
     let policy = HostPolicy {
-        functions: Some(FunctionPolicy { allow: Some(vec!["harness.toast".into(), "harness.fail".into()]), ask: Some(vec!["harness.*".into()]), deny: Some(vec!["admin.*".into()]), default: None }),
+        functions: Some(FunctionPolicy { allow: Some(vec!["harness_toast".into(), "harness_fail".into()]), ask: Some(vec!["harness_*".into()]), deny: Some(vec!["admin.*".into()]), default: None }),
         on_function_call: Some(consent),
         ..Default::default()
     };
@@ -215,11 +223,11 @@ fn the_function_gate_consent_and_package_narrowing(cx: &mut TestAppContext) {
         let task = host.update(cx, |h, cx| h.call_function(call(sid, name), cx));
         outcome(task, cx)
     };
-    assert_eq!(run("harness.toast", "plain", cx), FunctionOutcome { decision: FunctionDecision::Allow, result: Some(json!(4)), error: None });
-    assert_eq!(run("harness.fail", "plain", cx).error.as_deref(), Some("boom"));
-    assert_eq!(run("harness.confirm", "plain", cx).result, Some(json!(4)));
-    assert_eq!(run("harness.refuse", "plain", cx).decision, FunctionDecision::Deny);
-    assert_eq!(*asked.borrow(), vec!["harness.confirm".to_string(), "harness.refuse".to_string()]);
+    assert_eq!(run("harness_toast", "plain", cx), FunctionOutcome { decision: FunctionDecision::Allow, result: Some(json!(4)), error: None });
+    assert_eq!(run("harness_fail", "plain", cx).error.as_deref(), Some("boom"));
+    assert_eq!(run("harness_confirm", "plain", cx).result, Some(json!(4)));
+    assert_eq!(run("harness_refuse", "plain", cx).decision, FunctionDecision::Deny);
+    assert_eq!(*asked.borrow(), vec!["harness_confirm".to_string(), "harness_refuse".to_string()]);
     assert_eq!(run("admin.wipe", "plain", cx).decision, FunctionDecision::Deny);
     assert_eq!(run("missing.fn", "plain", cx).decision, FunctionDecision::NotFound);
     // A built-in other than openUrl is allowed and does nothing.
@@ -227,20 +235,22 @@ fn the_function_gate_consent_and_package_narrowing(cx: &mut TestAppContext) {
     assert_eq!(
         sent_errors(&t),
         vec![
-            ("FUNCTION_DENIED".to_string(), "harness.refuse was not allowed".to_string()),
-            ("FUNCTION_DENIED".to_string(), "admin.wipe was not allowed".to_string()),
-            ("FUNCTION_NOT_FOUND".to_string(), "no function missing.fn".to_string()),
+            ("INVALID_FUNCTION_CALL".to_string(), "harness_refuse was not allowed".to_string()),
+            ("INVALID_FUNCTION_CALL".to_string(), "admin.wipe was not allowed".to_string()),
+            ("UNKNOWN_FUNCTION".to_string(), "no function missing.fn".to_string()),
         ]
     );
 
     // A template's surface carries its package: `functions` narrows the gate.
-    t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "pkg", "templateId": "list"}})]);
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "pkg", "templateId": "list"}}), cx);
+    });
     cx.run_until_parked();
     assert_eq!(host.read_with(cx, |h, _| h.package_id_of("pkg").map(str::to_string)), Some("acme.devices".to_string()));
     assert_eq!(data(&host, "pkg", cx)["title"], json!("Devices"));
-    assert_eq!(host.read_with(cx, |h, _| h.decide("pkg", "harness.toast")), FunctionDecision::Allow);
-    assert_eq!(host.read_with(cx, |h, _| h.decide("pkg", "harness.confirm")), FunctionDecision::Deny);
-    assert_eq!(host.read_with(cx, |h, _| h.decide("plain", "harness.confirm")), FunctionDecision::Ask);
+    assert_eq!(host.read_with(cx, |h, _| h.decide("pkg", "harness_toast")), FunctionDecision::Allow);
+    assert_eq!(host.read_with(cx, |h, _| h.decide("pkg", "harness_confirm")), FunctionDecision::Deny);
+    assert_eq!(host.read_with(cx, |h, _| h.decide("plain", "harness_confirm")), FunctionDecision::Ask);
     // The template's `exp:` binding had no resolver.
     assert!(sent_errors(&t).iter().any(|(c, m)| c == "VALIDATION_FAILED" && m.contains("exp")));
 }
@@ -340,7 +350,7 @@ fn painter_presses_become_client_messages_and_function_calls(cx: &mut TestAppCon
         c.borrow_mut().push(json!({"args": args, "component": call.component_id}));
         Ok(Value::Null)
     });
-    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), functions: HashMap::from([("harness.toast".to_string(), toast)]), ..Default::default() });
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), functions: HashMap::from([("harness_toast".to_string(), toast)]), ..Default::default() });
     host.update(cx, |h, cx| h.connect(cx));
     t.feed([
         create("s"),
@@ -348,11 +358,11 @@ fn painter_presses_become_client_messages_and_function_calls(cx: &mut TestAppCon
             "s",
             json!([
                 {"id": "root", "component": "Stack", "direction": "horizontal", "children": ["save", "toast"]},
-                {"id": "save", "component": "Button", "label": "Save", "on": {"press": {"event": {"name": "save", "context": {"title": {"path": "/title"}}}}}},
-                {"id": "toast", "component": "Button", "label": "Toast", "on": {"press": {"functionCall": {"call": "harness.toast", "args": {"text": {"path": "/title"}}}}}}
+                {"id": "save", "component": "Button", "label": "Save", "on": {"press": {"event": {"name": "save", "context": {"title": {"@path": "/title"}}}}}},
+                {"id": "toast", "component": "Button", "label": "Toast", "on": {"press": {"functionCall": {"@call": "harness_toast", "args": {"text": {"@path": "/title"}}}}}}
             ]),
         ),
-        json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s", "value": {"title": "Hello"}}}),
+        json!({"version": VERSION, "updateDataModel": {"surfaceId": "s", "value": {"title": "Hello"}}}),
     ]);
     cx.run_until_parked();
     let view = host.read_with(cx, |h, _| h.surface("s")).unwrap();
@@ -387,7 +397,7 @@ fn create_surface_theme_applies_a_builtin_or_a_theme_json_and_an_unusable_one_is
     let path = format!("{}/../../../../packages/exponential-ui/themes/neutral.theme.json", env!("CARGO_MANIFEST_DIR"));
     let mut acme: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     acme["id"] = json!("acme");
-    let with_theme = |sid: &str, theme: Value| json!({"version": "v0.9", "createSurface": {"surfaceId": sid, "catalogId": CORE, "theme": theme}});
+    let with_theme = |sid: &str, theme: Value| json!({"version": VERSION, "createSurface": {"surfaceId": sid, "catalogId": CORE, "metadata": {"extensions": {"at_exponential_theme": theme}}}});
     t.feed([with_theme("a", json!("neutral")), with_theme("b", acme), create("c"), with_theme("d", json!("nope")), with_theme("e", json!({"id": "broken"}))]);
     cx.run_until_parked();
     let theme_id = |sid: &str, cx: &mut TestAppContext| host.read_with(cx, |h, _| h.surface_theme(sid).map(|t| t.id.clone()));
@@ -398,11 +408,11 @@ fn create_surface_theme_applies_a_builtin_or_a_theme_json_and_an_unusable_one_is
         assert!(host.read_with(cx, |h, _| h.surface(sid).is_some()), "the surface {sid} is still created");
     }
     let sent: Vec<(String, String, String)> = t.sent().iter().filter_map(|m| m.get("error")).map(|e| (e["code"].as_str().unwrap().into(), e["surfaceId"].as_str().unwrap().into(), e["path"].as_str().unwrap_or("").into())).collect();
-    assert_eq!(sent, vec![("VALIDATION_FAILED".into(), "d".into(), "/createSurface/theme".into()), ("VALIDATION_FAILED".into(), "e".into(), "/createSurface/theme".into())]);
+    assert_eq!(sent, vec![("VALIDATION_FAILED".into(), "d".into(), "/createSurface/metadata/extensions/at_exponential_theme".into()), ("VALIDATION_FAILED".into(), "e".into(), "/createSurface/metadata/extensions/at_exponential_theme".into())]);
     let issues = host.read_with(cx, |h, _| h.issues().to_vec());
     assert_eq!(issues.len(), 2);
     assert!(issues[0].message.contains("unknown built-in theme \"nope\""), "{:?}", issues[0]);
-    assert_eq!(issues[1].path.as_deref(), Some("/createSurface/theme"));
+    assert_eq!(issues[1].path.as_deref(), Some("/createSurface/metadata/extensions/at_exponential_theme"));
 }
 
 #[gpui::test]
@@ -413,7 +423,7 @@ fn host_issues_record_sent_errors_and_package_problems_without_a_transport(cx: &
     let host = host_with(cx, HostOptions { on_issue: Some(Rc::new(move |i: &HostIssue| s.borrow_mut().push(i.clone()))), ..Default::default() });
     assert!(!host.read_with(cx, |h, _| h.has_transport()));
     host.update(cx, |h, cx| {
-        h.receive(&json!({"version": "v0.9", "applyTemplate": {"surfaceId": "x", "templateId": "missing"}}), cx);
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "x", "templateId": "missing"}}), cx);
     });
     let issues = host.read_with(cx, |h, _| h.issues().to_vec());
     assert_eq!(issues.len(), 1);
@@ -423,7 +433,7 @@ fn host_issues_record_sent_errors_and_package_problems_without_a_transport(cx: &
     // FUNCTION_DENIED lands there too.
     let task = host.update(cx, |h, cx| h.call_function(call("x", "admin.wipe"), cx));
     let _ = outcome(task, cx);
-    assert!(host.read_with(cx, |h, _| h.issues().iter().any(|i| i.code == "FUNCTION_NOT_FOUND" || i.code == "FUNCTION_DENIED")));
+    assert!(host.read_with(cx, |h, _| h.issues().iter().any(|i| i.code == "UNKNOWN_FUNCTION" || i.code == "INVALID_FUNCTION_CALL")));
 
     // A package that fails validation: PACKAGE_INVALID, not installed.
     let bad = json!({"id": "acme.bad", "templates": "nope"});
@@ -499,8 +509,8 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
         HostOptions {
             transport: Some(Box::new(t.clone())),
             packages: vec![pkg.clone()],
-            functions: HashMap::from([("records.batch".to_string(), batch), ("harness.toast".to_string(), toast)]),
-            policy: HostPolicy { functions: Some(FunctionPolicy { ask: Some(vec!["harness.toast".into()]), ..Default::default() }), on_function_call: Some(Rc::new(move |_: &FunctionCallEvent, _: &mut App| Task::ready(*cc.borrow()))), ..Default::default() },
+            functions: HashMap::from([("records_batch".to_string(), batch), ("harness_toast".to_string(), toast)]),
+            policy: HostPolicy { functions: Some(FunctionPolicy { ask: Some(vec!["harness_toast".into()]), ..Default::default() }), on_function_call: Some(Rc::new(move |_: &FunctionCallEvent, _: &mut App| Task::ready(*cc.borrow()))), ..Default::default() },
             me: Some("u1".into()),
             now: Some(Rc::new(|| 1_793_611_800_000.0)),
             zone: Some(Arc::new(|_| 60)),
@@ -509,7 +519,9 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
         },
     );
     host.update(cx, |h, cx| h.connect(cx));
-    t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": "acme.hours", "templateId": "month"}})]);
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": "acme.hours", "templateId": "month"}}), cx);
+    });
     cx.run_until_parked();
     let press = |name: &str, args: Value, cx: &mut TestAppContext| {
         let call = FunctionCallEvent { surface_id: "s".into(), component_id: "log".into(), name: name.into(), args };
@@ -525,7 +537,7 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
     let before = *batches.borrow();
     view.update(cx, |v, cx| {
         let plugin = v.host_plugin();
-        plugin.on_function_call(&FunctionCallEvent { surface_id: "s".into(), component_id: "log".into(), name: "actions.log".into(), args: json!({"date": "2026-11-05", "hours": 1}) }, cx);
+        plugin.on_function_call(&FunctionCallEvent { surface_id: "s".into(), component_id: "log".into(), name: "actions_log".into(), args: json!({"date": "2026-11-05", "hours": 1}) }, cx);
     });
     cx.run_until_parked();
     assert_eq!(*batches.borrow(), before + 1, "the pressed action committed its batch");
@@ -533,7 +545,7 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
     toasts.borrow_mut().clear();
 
     // The plan lands: one batch, the sets, then the calls.
-    let out = press("actions.log", json!({"date": "2026-11-03", "hours": 2}), cx);
+    let out = press("actions_log", json!({"date": "2026-11-03", "hours": 2}), cx);
     assert_eq!(out.error, None);
     assert_eq!(out.result, Some(json!({"ids": ["n1"]})));
     assert!(rows.borrow().iter().any(|r| r["data"] == json!({"date": "2026-11-03", "hours": 2})));
@@ -542,26 +554,26 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
 
     // A false require lands nothing and is the failure's message.
     let before = rows.borrow().clone();
-    let out = press("actions.log", json!({"date": "2026-11-03", "hours": 0}), cx);
+    let out = press("actions_log", json!({"date": "2026-11-03", "hours": 0}), cx);
     assert_eq!(out.error.as_deref(), Some("Log more than 0 hours"));
     assert_eq!(*rows.borrow(), before);
 
     // A refused write lands nothing: the batch is one unit.
-    let out = press("actions.swap", json!({"a": "e1", "b": "missing"}), cx);
+    let out = press("actions_swap", json!({"a": "e1", "b": "missing"}), cx);
     assert_eq!(out.error.as_deref(), Some("write 1: record missing not found"));
     assert_eq!(*rows.borrow(), before);
 
     // A host call the person refuses lands nothing (asked before the commit).
     *consent.borrow_mut() = false;
     let commits = *batches.borrow();
-    let out = press("actions.log", json!({"date": "2026-11-04", "hours": 1}), cx);
-    assert_eq!(out.error.as_deref(), Some("harness.toast was not allowed"));
+    let out = press("actions_log", json!({"date": "2026-11-04", "hours": 1}), cx);
+    assert_eq!(out.error.as_deref(), Some("harness_toast was not allowed"));
     assert_eq!(*batches.borrow(), commits);
     assert_eq!(*rows.borrow(), before);
 
-    assert_eq!(*failed.borrow(), vec!["Log more than 0 hours".to_string(), "write 1: record missing not found".to_string(), "harness.toast was not allowed".to_string()]);
+    assert_eq!(*failed.borrow(), vec!["Log more than 0 hours".to_string(), "write 1: record missing not found".to_string(), "harness_toast was not allowed".to_string()]);
     let codes: Vec<String> = sent_errors(&t).into_iter().map(|(c, _)| c).collect();
-    assert_eq!(codes.iter().filter(|c| *c == "ACTION_FAILED").count(), 3);
+    assert_eq!(codes.iter().filter(|c| *c == "EXECUTION_ERROR").count(), 3);
 }
 
 /// VAPP-271: `fixtures/actions.json` `results.host`: a call's answer
@@ -607,10 +619,10 @@ fn a_result_call_runs_before_the_commit_and_feeds_the_later_steps(cx: &mut TestA
                 transport: Some(Box::new(t.clone())),
                 packages: vec![pkg.clone()],
                 functions: HashMap::from([
-                    ("records.batch".to_string(), batch),
-                    ("photos.pick".to_string(), fake("photos.pick")),
-                    ("print.pdf".to_string(), fake("print.pdf")),
-                    ("harness.toast".to_string(), fake("harness.toast")),
+                    ("records_batch".to_string(), batch),
+                    ("photos_pick".to_string(), fake("photos_pick")),
+                    ("print_pdf".to_string(), fake("print_pdf")),
+                    ("harness_toast".to_string(), fake("harness_toast")),
                 ]),
                 policy: HostPolicy { functions: Some(FunctionPolicy { deny: Some(deny), ..Default::default() }), ..Default::default() },
                 me: Some("u1".into()),
@@ -620,9 +632,11 @@ fn a_result_call_runs_before_the_commit_and_feeds_the_later_steps(cx: &mut TestA
             },
         );
         host.update(cx, |h, cx| h.connect(cx));
-        t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}})]);
+        host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}}), cx);
+    });
         cx.run_until_parked();
-        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "add".into(), name: format!("actions.{}", c["action"].as_str().unwrap()), args: json!({}) };
+        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "add".into(), name: format!("actions_{}", c["action"].as_str().unwrap()), args: json!({}) };
         let task = host.update(cx, |h, cx| h.call_function(call, cx));
         let out = outcome(task, cx);
         assert_eq!(out.error.as_deref(), c["error"].as_str(), "{name}: error");
@@ -663,9 +677,11 @@ fn an_action_step_runs_bind_and_open_url(cx: &mut TestAppContext) {
             },
         );
         host.update(cx, |h, cx| h.connect(cx));
-        t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}})]);
+        host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}}), cx);
+    });
         cx.run_until_parked();
-        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: format!("actions.{}", c["action"].as_str().unwrap()), args: c["args"].clone() };
+        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: format!("actions_{}", c["action"].as_str().unwrap()), args: c["args"].clone() };
         let task = host.update(cx, |h, cx| h.call_function(call, cx));
         let out = outcome(task, cx);
         assert_eq!(out.error.as_deref(), c["error"].as_str(), "{name}: error");
@@ -705,10 +721,12 @@ fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
     let issues = host.read_with(cx, |h, _| format!("{:?}", h.issues()));
     assert_eq!(issues, "[]", "the screens package installs");
     host.update(cx, |h, cx| h.connect(cx));
-    t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg_id, "templateId": "pipeline"}})]);
+    host.update(cx, |h, cx| {
+        h.receive_trusted(&json!({"version": VERSION, "applyTemplate": {"surfaceId": "s", "packageId": pkg_id, "templateId": "pipeline"}}), cx);
+    });
     cx.run_until_parked();
     let call = |args: Value, cx: &mut TestAppContext| {
-        let task = host.update(cx, |h, cx| h.call_function(FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: "app.navigate".into(), args }, cx));
+        let task = host.update(cx, |h, cx| h.call_function(FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: "app_navigate".into(), args }, cx));
         outcome(task, cx)
     };
 
@@ -724,7 +742,7 @@ fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
     let out = call(json!({"screen": "nope"}), cx);
     assert_eq!(out.decision, FunctionDecision::Deny);
     assert_eq!(seen.borrow().len(), before);
-    assert!(sent_errors(&t).contains(&("FUNCTION_DENIED".into(), "navigate: nope is not a screen".into())));
+    assert!(sent_errors(&t).contains(&("INVALID_FUNCTION_CALL".into(), "navigate: nope is not a screen".into())));
 
     // The shell declining is a refusal too.
     let out = call(json!({"screen": "deals"}), cx);
@@ -734,4 +752,130 @@ fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
     host.update(cx, |h, _| h.set_navigate(None));
     let out = call(json!({"screen": "companies"}), cx);
     assert_eq!(out.error.as_deref(), Some("navigate: this host has no screens"));
+}
+
+/// Round 9 §6.5: a function the host lacks goes to an agent's surface:
+/// reactive reads share one call and rebind, a press waits for its answer.
+#[gpui::test]
+fn the_agent_answers_what_the_host_lacks(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), agent: true, ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([create("s")]);
+    cx.run_until_parked();
+    let task = host.update(cx, |h, cx| h.call_function(FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: "lookup".into(), args: json!({"q": "a"}) }, cx));
+    cx.run_until_parked();
+    let sent = t.sent();
+    assert_eq!(sent[0]["callAgentFunction"]["functionCallId"], "s:1");
+    t.feed([json!({"version": VERSION, "agentFunctionResponse": {"functionCallId": "s:1", "value": 7}})]);
+    cx.run_until_parked();
+    let out = outcome(task, cx);
+    assert_eq!((out.decision, out.result), (FunctionDecision::Allow, Some(json!(7))));
+}
+
+/// Round 9 §6.8: an action with both: a failing function means no event.
+#[gpui::test]
+fn a_failed_function_stops_its_event(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let fail = sync_function(|_, _, _| Err("boom".to_string()));
+    let ok = sync_function(|_, _, _| Ok(Value::Null));
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), functions: HashMap::from([("harness_fail".to_string(), fail), ("harness_ok".to_string(), ok)]), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([
+        create("s"),
+        components(
+            "s",
+            json!([
+                {"id": "root", "component": "Stack", "direction": "horizontal", "children": ["bad", "good"]},
+                {"id": "bad", "component": "Button", "label": "Bad", "on": {"press": {"functionCall": {"@call": "harness_fail"}, "event": {"name": "never"}}}},
+                {"id": "good", "component": "Button", "label": "Good", "on": {"press": {"functionCall": {"@call": "harness_ok"}, "event": {"name": "fired"}}}}
+            ]),
+        ),
+    ]);
+    cx.run_until_parked();
+    let view = host.read_with(cx, |h, _| h.surface("s")).unwrap();
+    let v2 = view.clone();
+    let (_, vcx) = cx.add_window_view(move |_, _| Holder(Some(v2)));
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx.run_until_parked();
+    for id in ["bad", "good"] {
+        vcx.update(|window, cx| {
+            view.update(cx, |v, cx| {
+                let i = v.index_of(id).unwrap();
+                v.press(i, window, cx);
+            })
+        });
+        vcx.run_until_parked();
+    }
+    let names: Vec<Value> = t.sent().iter().filter_map(|m| m["action"].get("name").cloned()).collect();
+    assert_eq!(names, vec![json!("fired")]);
+}
+
+/// Round 9 §6.5: a binding on a function the host lacks: pending `null`, the
+/// layout sends one call, the answer binds again.
+#[gpui::test]
+fn a_reactive_call_goes_to_the_agent_and_its_answer_rebinds(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), agent: true, ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([create("s"), components("s", json!([{"id": "root", "component": "Text", "text": {"@call": "lookup", "args": {"q": "a"}}}]))]);
+    cx.run_until_parked();
+    let view = host.read_with(cx, |h, _| h.surface("s")).unwrap();
+    let v2 = view.clone();
+    let (_, vcx) = cx.add_window_view(move |_, _| Holder(Some(v2)));
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx.run_until_parked();
+    assert_eq!(t.sent().iter().filter(|m| m.get("callAgentFunction").is_some()).count(), 1);
+    t.feed([json!({"version": VERSION, "agentFunctionResponse": {"functionCallId": "s:1", "value": "seven"}})]);
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx.run_until_parked();
+    let text = view.update(vcx, |v, _| v.surface_mut().nodes().iter().find(|n| n.id == "root").and_then(|n| n.props.get("text").cloned()));
+    assert_eq!(text, Some(json!("seven")));
+    assert_eq!(t.sent().iter().filter(|m| m.get("callAgentFunction").is_some()).count(), 1, "the answer stays");
+}
+
+/// Round 9 §1.3: an action on a `sendDataModel` surface goes out wrapped
+/// with the data; the MCP carrier opens the wrap; other surfaces stay bare.
+#[gpui::test]
+fn a_send_data_model_action_carries_the_data(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    let button = json!([{"id": "root", "component": "Button", "label": "Go", "on": {"press": {"event": {"name": "go"}}}}]);
+    t.feed([
+        json!({"version": VERSION, "createSurface": {"surfaceId": "s", "catalogId": CORE, "sendDataModel": true, "dataModel": {"a": 1}}}),
+        components("s", button.clone()),
+        create("plain"),
+        components("plain", button),
+    ]);
+    cx.run_until_parked();
+    for sid in ["s", "plain"] {
+        let view = host.read_with(cx, |h, _| h.surface(sid)).unwrap();
+        let v2 = view.clone();
+        let (_, vcx) = cx.add_window_view(move |_, _| Holder(Some(v2)));
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            view.update(cx, |v, cx| {
+                let i = v.index_of("root").unwrap();
+                v.press(i, window, cx);
+            })
+        });
+        vcx.run_until_parked();
+    }
+    let sent = t.sent();
+    let wrapped = sent.iter().find(|m| m.get("metadata").is_some()).expect("the wrap");
+    assert_eq!(wrapped["message"]["action"]["surfaceId"], "s");
+    assert_eq!(wrapped["metadata"], json!({"a2uiRendererDataModel": {"version": VERSION, "surfaces": {"s": {"a": 1}}}}));
+    assert!(sent.iter().any(|m| m["action"]["surfaceId"] == "plain"), "{sent:?}");
+    let call = eui_gpui::transport::mcp_call_of(wrapped, None);
+    assert_eq!(call["params"]["arguments"]["metadata"], wrapped["metadata"]);
+    assert_eq!(call["params"]["arguments"]["message"], wrapped["message"]);
+    let bare = eui_gpui::transport::mcp_call_of(&json!({"version": VERSION, "action": {}}), None);
+    assert!(bare["params"]["arguments"].get("metadata").is_none());
 }

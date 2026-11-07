@@ -1,19 +1,19 @@
 // FEED-128: `createSurface` — the TS reducer as a Solid store (React's
-// `useSurface`). Feed it A2UI v0.9 server messages (`createSurface`,
+// `useSurface`). Feed it A2UI 1.0 agent messages, 0.9 through the core's bridge (`createSurface`,
 // `updateComponents`, `updateDataModel`, `deleteSurface`) or a nested
 // authoring tree, read back the normalized root, the issues and the data
 // model (live getters), and hand the result to
 // `<ExponentialSurface surface={…}>`.
 
 import { batch, createMemo, createSignal } from "solid-js"
-import { CORE_CATALOG_ID, reduceNested, reduceSurface } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, newSurfaceBridge, reduceNested, reduceSurface, surfaceUpdates } from "@exponential_app/eui"
 import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential_app/eui"
 import { setPointer } from "@exponential_app/eui/web"
 import type { DataModel } from "@exponential_app/eui/web"
 
 export interface A2uiMessage {
   version?: string
-  createSurface?: { surfaceId: string; catalogId: string; theme?: unknown; sendDataModel?: boolean }
+  createSurface?: { surfaceId: string; catalogId?: string; components?: FlatComponent[]; dataModel?: Record<string, unknown>; sendDataModel?: boolean; metadata?: { extensions?: Record<string, unknown> } }
   updateComponents?: { surfaceId: string; components: FlatComponent[] }
   updateDataModel?: { surfaceId: string; path?: string; value?: unknown }
   deleteSurface?: { surfaceId: string }
@@ -79,28 +79,28 @@ export function createSurface(options: CreateSurfaceOptions = {}): SurfaceState 
   const [data, setDataModel] = createSignal<DataModel>(initialData)
   const [writeEpoch, setWriteEpoch] = createSignal(0)
 
+  const bridge = newSurfaceBridge(options.catalogId ?? CORE_CATALOG_ID)
   const apply = (message: A2uiMessage) => {
-    if (message.createSurface) {
-      if (message.createSurface.surfaceId !== surfaceId) return
-      const catalogId = message.createSurface.catalogId
-      setInner((cur) => ({ ...cur, catalogId, components: [], nested: null, deleted: false }))
-    } else if (message.updateComponents) {
-      if (message.updateComponents.surfaceId !== surfaceId) return
-      const update = message.updateComponents.components
-      // A later update replaces components by id and keeps the rest.
-      setInner((cur) => {
-        const byId = new Map(cur.components.map((c) => [c.id, c]))
-        for (const c of update) byId.set(c.id, c)
-        return { ...cur, components: [...byId.values()], nested: null, deleted: false }
-      })
-    } else if (message.updateDataModel) {
-      if (message.updateDataModel.surfaceId !== surfaceId) return
-      const { path, value } = message.updateDataModel
-      setDataModel((cur) => setPointer(cur, path ?? ``, value))
-    } else if (message.deleteSurface) {
-      if (message.deleteSurface.surfaceId !== surfaceId) return
-      setInner((cur) => ({ ...cur, components: [], nested: null, deleted: true }))
-    }
+    // Round 9 §1.5: the core parses the message (version, bridge, entries).
+    const { updates } = surfaceUpdates(message, bridge, { extensions: extensions as ExtensionDef[] })
+    batch(() => {
+      for (const update of updates) {
+        if (update.surfaceId !== surfaceId) continue
+        if (update.kind === `create`) {
+          const { catalogId, components, dataModel } = update
+          setInner((cur) => ({ ...cur, catalogId: catalogId ?? cur.catalogId, components, nested: null, deleted: false }))
+          if (dataModel) setDataModel(dataModel)
+        } else if (update.kind === `components`) {
+          // A later update replaces components by id and keeps the rest.
+          setInner((cur) => {
+            const byId = new Map(cur.components.map((c) => [c.id, c]))
+            for (const c of update.components) byId.set(c.id, c)
+            return { ...cur, components: [...byId.values()], nested: null, deleted: false }
+          })
+        } else if (update.kind === `data`) setDataModel((cur) => setPointer(cur, update.path, update.value))
+        else setInner((cur) => ({ ...cur, components: [], nested: null, deleted: true }))
+      }
+    })
   }
 
   const reduced = createMemo((): { root: UiNode | null; issues: ReduceIssue[]; templates?: Record<string, UiNode> } => {

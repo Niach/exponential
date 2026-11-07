@@ -18,7 +18,7 @@ pub use super::query::{
 
 /// The write functions (no consent card: the app's own rows); VAPP-194:
 /// `records.batch {writes}` = a package action's writes as ONE unit.
-pub const RECORDS_FUNCTIONS: &[&str] = &["records.upsert", "records.delete", super::actions::RECORDS_BATCH_FUNCTION];
+pub const RECORDS_FUNCTIONS: &[&str] = &["records_upsert", "records_delete", super::actions::RECORDS_BATCH_FUNCTION];
 
 /// VAPP-212: a change to a store's rows, or an overlay on one query (see
 /// [`MemoryRecordStore::value`]). `deletes` apply first, so a row in both

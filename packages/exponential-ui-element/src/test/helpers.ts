@@ -32,8 +32,8 @@ export const cardTree: NestedNode = {
   component: `Card`,
   props: { title: `Settings` },
   children: [
-    { id: `text`, component: `Text`, props: { text: { path: `/name` } } },
-    { id: `save`, component: `Button`, props: { label: `Save` }, on: { press: { event: { name: `save`, context: { name: { path: `/name` } } } } } },
-    { id: `notify`, component: `Switch`, props: { label: `Notify`, checked: { path: `/notify` } } },
+    { id: `text`, component: `Text`, props: { text: { "@path": `/name` } } },
+    { id: `save`, component: `Button`, props: { label: `Save` }, on: { press: { event: { name: `save`, context: { name: { "@path": `/name` } } } } } },
+    { id: `notify`, component: `Switch`, props: { label: `Notify`, checked: { "@path": `/notify` } } },
   ],
 }

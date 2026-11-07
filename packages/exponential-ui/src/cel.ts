@@ -33,11 +33,11 @@ export const EXPRESSION_LIMITS = { maxLength: 1000, maxDepth: 32, maxSteps: 10_0
 export type FunctionEffect = `pure` | `write` | `host`
 
 /** The functions that write (records, the surface data model). */
-export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records.upsert`, `records.delete`, `records.batch`]
+export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records_upsert`, `records_delete`, `records_batch`]
 /** The built-in host functions; every name under a host prefix is one too. */
-export const HOST_FUNCTIONS: readonly string[] = [`openUrl`, `bind`, `app.navigate`]
+export const HOST_FUNCTIONS: readonly string[] = [`openUrl`, `bind`, `app_navigate`, `app_toast`]
 // VAPP-271: every Engine capability (catalog/host.json `package.capabilities.scopes`' names) is a host function too.
-export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`, `camera.`, `clipboard.`, `files.`, `http.`, `location.`, `notifications.`, `photos.`, `print.`, `share.`]
+export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions_`, `harness_`, `exponential_`, `tools_`, `upstream_`, `camera_`, `clipboard_`, `files_`, `http_`, `location_`, `notifications_`, `photos_`, `print_`, `share_`, `app_`]
 
 /** The effect of a function by name: the signature table's (every
  *  expression function, every bind-time function) is `pure`. */

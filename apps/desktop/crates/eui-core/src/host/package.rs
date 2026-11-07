@@ -20,7 +20,9 @@ use crate::types::ExtensionDef;
 /// (catalog/host.json `package.formatVersion`; docs/package-format.md). A
 /// package names it, and it is exactly this one: no older format is read
 /// (eApps keeps no backwards compatibility).
-pub const PACKAGE_FORMAT_VERSION: u32 = 5;
+pub const PACKAGE_FORMAT_VERSION: u32 = 6;
+/// Round 9 §12: the format `upgrade09` reads while `ACCEPT_V09` holds.
+pub const PACKAGE_FORMAT_VERSION_09: u32 = 5;
 /// `package.extensions.versionPattern`.
 pub const EXTENSION_VERSION_PATTERN: &str = "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$";
 
@@ -82,9 +84,22 @@ pub fn supported_catalog_ids<S: AsRef<str>>(extension_ids: &[S]) -> Vec<String> 
     out
 }
 
-/// A2UI's `a2uiClientCapabilities`.
+/// Round 9 §10 `rendererCapabilities(extensionIds, {inline?})`:
+/// `{"1.0": {"supportedCatalogIds": [...], "inlineCatalogs"?: [...]}}`.
+pub fn renderer_capabilities<S: AsRef<str>>(extension_ids: &[S], inline_catalogs: Option<Vec<Value>>) -> Value {
+    let mut inner = Map::new();
+    inner.insert("supportedCatalogIds".into(), json!(supported_catalog_ids(extension_ids)));
+    if let Some(inline) = inline_catalogs {
+        inner.insert("inlineCatalogs".into(), Value::Array(inline));
+    }
+    let mut out = Map::new();
+    out.insert(A2UI_VERSION.into(), Value::Object(inner));
+    Value::Object(out)
+}
+
+/// The pre-1.0 name of [`renderer_capabilities`] (no inline catalogs).
 pub fn client_capabilities<S: AsRef<str>>(extension_ids: &[S]) -> Value {
-    json!({"v0.9": {"supportedCatalogIds": supported_catalog_ids(extension_ids)}})
+    renderer_capabilities(extension_ids, None)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,7 +159,7 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
             issues.push(issue("/formatVersion", format!("format version {} is newer than this host ({PACKAGE_FORMAT_VERSION})", crate::json::number_to_string(v))))
         }
         Some(Some(v)) if v < f64::from(PACKAGE_FORMAT_VERSION) => {
-            issues.push(issue("/formatVersion", format!("format version {} is no longer read: write {PACKAGE_FORMAT_VERSION}", crate::json::number_to_string(v))))
+            issues.push(issue("/formatVersion", format!("format version {} is no longer read; {PACKAGE_FORMAT_VERSION} is required", crate::json::number_to_string(v))))
         }
         Some(Some(_)) => {}
     }
@@ -173,7 +188,14 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                     None => issues.push(issue(format!("{at}/components"), "components is a non-empty array")),
                     Some(components) => {
                         let mut ids: HashSet<&str> = HashSet::new();
+                        let catalog_id = p.get("catalogId").and_then(Value::as_str);
+                        let view = crate::catalog::CatalogView::core();
                         for (i, c) in components.iter().enumerate() {
+                            // Round 9 §12: the §5.2 entry check is an install issue.
+                            if let Some((below, message)) = super::router::check_entry(c, catalog_id, &view) {
+                                issues.push(issue(format!("{at}/components/{i}{below}"), message));
+                                continue;
+                            }
                             let id = c.as_object().filter(|o| o.get("component").is_some_and(Value::is_string)).and_then(|o| o.get("id")).and_then(Value::as_str);
                             match id {
                                 None => issues.push(issue(format!("{at}/components/{i}"), "a component needs an id and a component")),
@@ -187,6 +209,9 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                             issues.push(issue(format!("{at}/components"), "no component has the id root"));
                         }
                     }
+                }
+                if template.get("data").is_some_and(|d| !d.is_object()) {
+                    issues.push(issue(format!("{at}/data"), "data is an object"));
                 }
                 if let Some(bindings) = template.get("bindings") {
                     match bindings.as_array() {
@@ -477,23 +502,23 @@ pub fn template_messages(pkg: &Value, template_id: &str, surface_id: &str, data:
         _ => raw,
     };
     let version = A2UI_VERSION;
+    // Round 9 §2: ONE createSurface {surfaceId, catalogId, components,
+    // dataModel} (dataModel only when defined), then the binds.
     let mut create = Map::new();
     create.insert("surfaceId".into(), Value::String(surface_id.into()));
     if let Some(catalog_id) = pkg.get("catalogId") {
         create.insert("catalogId".into(), catalog_id.clone());
     }
-    let mut components = Map::new();
-    components.insert("surfaceId".into(), Value::String(surface_id.into()));
     if let Some(list) = template.get("components") {
-        components.insert("components".into(), list.clone());
+        create.insert("components".into(), list.clone());
     }
-    let mut out = vec![json!({"version": version, "createSurface": create}), json!({"version": version, "updateComponents": components})];
     let merged = merge_data(template.get("data"), data);
     // VAPP-218: a screen's `${params.<key>}` in a source, from the data's params.
     let params = merged.as_ref().and_then(|m| m.get("params")).cloned();
     if let Some(merged) = merged {
-        out.push(json!({"version": version, "updateDataModel": {"surfaceId": surface_id, "path": "/", "value": merged}}));
+        create.insert("dataModel".into(), merged);
     }
+    let mut out = vec![json!({"version": version, "createSurface": create})];
     for b in template.get("bindings").and_then(Value::as_array).into_iter().flatten() {
         let mut bind = Map::new();
         bind.insert("surfaceId".into(), Value::String(surface_id.into()));

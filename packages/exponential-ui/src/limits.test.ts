@@ -35,6 +35,12 @@ describe(`limits (catalog/limits.json)`, () => {
     expect([MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_TEMPLATE_ITEMS, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS]).toEqual([20000, 48, 4194304, 10000, 1024, 64])
     // EXP-1602: eui-motion's Limits::default() (tests/validate.rs checks the Rust side).
     expect(limitsJson.motion).toMatchObject({ maxBytes: 2097152, maxShapes: 5000, maxVertices: 100000, maxSeconds: 120, maxFps: 60, maxPlayingPerSurface: 8 })
+    // VAPP-289 (round 9 §9.3, §6.5): the regex dialect caps and the agent function timeout.
+    expect(limitsJson.regex).toMatchObject({ maxPatternCodePoints: 256, maxValueCodePoints: 4096, maxSteps: 1000000 })
+    expect(LIMITS.agentFunctionTimeoutMs).toBe(30000)
+    expect(limitsJson.issues).toMatchObject({ regexPatternLength: `regex: pattern longer than ${limitsJson.regex.maxPatternCodePoints} code points`, regexSyntax: `regex: {reason} at {offset}`, regexRule: `regex: rule {rule}`, regexTooExpensive: `regex: too expensive` })
+    // LIMITS stays numbers only (the generator emits it into every target).
+    expect(Object.values(LIMITS).every((v) => typeof v === `number`)).toBe(true)
   })
 
   test(`an id listed twice renders once (21 components naming the next twice)`, () => {
@@ -125,7 +131,7 @@ describe(`limits (catalog/limits.json)`, () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
     expect(Object.keys(proto)).toEqual([`__proto__`])
     // `set` reports the refusal and writes nothing.
-    const out = runAction({ functionCall: { call: `set`, args: { path: `/a/9`, value: 1 } } }, data)
+    const out = runAction({ functionCall: { "@call": `set`, args: { path: `/a/9`, value: 1 } } }, data)
     expect(out).toEqual({ data, error: POINTER_ISSUES.pastEnd(`9`, 3) })
   })
 
@@ -135,13 +141,13 @@ describe(`limits (catalog/limits.json)`, () => {
     expect(store.setData(`/a/7`, 1)).toBe(POINTER_ISSUES.pastEnd(`7`, 0))
     expect(store.data).toEqual({ a: [] })
     const router = new HostRouter()
-    router.route({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
-    const big = { version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Text`, text: `x`.repeat(MAX_MESSAGE_BYTES) }] } }
-    expect(router.route(big)).toEqual([{ op: `send`, message: { version: `v0.9`, error: { code: `INVALID_MESSAGE`, surfaceId: `s`, message: LIMIT_ISSUES.messageBytes } } }])
+    router.route({ version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    const big = { version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Text`, text: `x`.repeat(MAX_MESSAGE_BYTES) }] } }
+    expect(router.route(big)).toEqual([{ op: `send`, message: { version: `1.0`, error: { code: `INVALID_MESSAGE`, surfaceId: `s`, message: LIMIT_ISSUES.messageBytes } } }])
     // Multi-byte text counts in UTF-8 bytes.
-    const wide = { version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Text`, text: `é`.repeat(MAX_MESSAGE_BYTES / 2) }] } }
+    const wide = { version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Text`, text: `é`.repeat(MAX_MESSAGE_BYTES / 2) }] } }
     expect(router.route(wide)[0]!.op).toBe(`send`)
-    expect(router.route({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Text`, text: `ok` }] } })[0]!.op).toBe(`components`)
+    expect(router.route({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Text`, text: `ok` }] } })[0]!.op).toBe(`components`)
   })
 
   test(`2,000 streamed updateComponents cost linear`, () => {

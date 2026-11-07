@@ -18,12 +18,12 @@ test(`signatures verify like the TS reference`, async () => {
 })
 
 const pkg = () => ({
-  formatVersion: 5,
+  formatVersion: 6,
   id: `acme.album`,
   name: `Album`,
   version: `1.0.0`,
   catalogId: `https://ui.exponential.at/catalogs/core/v1`,
-  functions: [`records.*`, `app.navigate`, `photos.pick`],
+  functions: [`records_*`, `app_navigate`, `photos_pick`],
   sources: [`records:*`],
   records: { note: { title: `Note`, schema: { type: `object`, properties: { text: { type: `string` } } }, policy: { update: `author`, delete: `owners` } } },
   capabilities: [{ id: `photos.read`, why: `Pick the photos for an album.` }],
@@ -80,17 +80,17 @@ describe(`AppInstance`, () => {
     expect(effects).toContainEqual({ effect: `flush` })
     expect(opened.at(-1)![0]).toBe(`albums`)
 
-    expect(await app.call(`records.upsert`, { kind: `note`, data: { text: `hi` } }, [`n1`])).toEqual({ value: { id: `n1` } })
+    expect(await app.call(`records_upsert`, { kind: `note`, data: { text: `hi` } }, [`n1`])).toEqual({ value: { id: `n1` } })
     const rows = await store.rows(`acme.album`)
     expect(rows.length).toBe(1)
     expect(rows[0]!.authorId).toBe(`d-1`) // local identity = me
     expect((await app.recordsValue(`records:note`))!.count).toBe(1)
     // Local identity collapses `owners` to me.
-    expect(await app.call(`records.delete`, { id: `n1` })).toEqual({ value: null })
+    expect(await app.call(`records_delete`, { id: `n1` })).toEqual({ value: null })
     expect(await store.rows(`acme.album`)).toEqual([])
 
-    // app.navigate opens a declared screen; terminate persists it; a relaunch restores it.
-    expect(await app.call(`app.navigate`, { screen: `page` })).toEqual({ value: null })
+    // app_navigate opens a declared screen; terminate persists it; a relaunch restores it.
+    expect(await app.call(`app_navigate`, { screen: `page` })).toEqual({ value: null })
     await app.event({ type: `terminate` })
     expect(await vault.read(screenKey(`acme.album`))).toContain(`page`)
     const again = await AppInstance.load(config, pkg())
@@ -102,25 +102,25 @@ describe(`AppInstance`, () => {
     const { config, vault, native, audit } = setup()
     const app = await AppInstance.load(config, pkg())
     await app.event({ type: `launch` })
-    const asked = await app.call(`photos.pick`, {})
+    const asked = await app.call(`photos_pick`, {})
     if (!(`ask` in asked)) throw new Error(JSON.stringify(asked))
     expect(asked.sheet.components[0]!.title).toBe(`Allow Album to access your photos?`)
-    const answered = await app.answerConsent(`photos.pick`, {}, asked.ask, `allow`)
+    const answered = await app.answerConsent(`photos_pick`, {}, asked.ask, `allow`)
     expect(answered).toEqual({ value: { photos: [] } }) // VAPP-271: the structuredContent
     expect(native.calls).toEqual([[`pick`, { limit: 1 }]]) // the bridge fills the default
     await app.broker.persisted
     expect(await vault.read(`eengine/grants/acme.album`)).toContain(`"photos.read":"granted"`)
-    expect(`value` in (await app.call(`photos.pick`, {}))).toBe(true) // granted: no second sheet
-    const bad = await app.call(`photos.pick`, { limit: 0 })
+    expect(`value` in (await app.call(`photos_pick`, {}))).toBe(true) // granted: no second sheet
+    const bad = await app.call(`photos_pick`, { limit: 0 })
     expect(bad).toEqual({ refused: { code: `failed`, message: `invalidParams: /limit minimum` } }) // an isError result is a refusal
     // Only the ConsentUi after a gesture changes a grant.
     expect(app.setGrant(`agent`, true, `photos.read`, null)).toBe(`onlyConsentUi`)
     expect(app.setGrant(`consentUi`, false, `photos.read`, null)).toBe(`noGesture`)
     expect(app.setGrant(`consentUi`, true, `photos.read`, null)).toBeNull()
-    expect(`ask` in (await app.call(`photos.pick`, {}))).toBe(true) // revoked: asks again
+    expect(`ask` in (await app.call(`photos_pick`, {}))).toBe(true) // revoked: asks again
     expect(app.setGrant(`consentUi`, true, `photos.read`, `denied`)).toBeNull()
     expect(app.permissionsSheet()[1]!.checked).toBe(false)
-    expect(await app.call(`camera.capture`, {})).toEqual({ refused: { code: `FORBIDDEN`, message: `notDeclared` } })
+    expect(await app.call(`camera_capture`, {})).toEqual({ refused: { code: `FORBIDDEN`, message: `notDeclared` } })
     expect(audit.map((r) => r.status)).toContain(`denied`)
   })
 
@@ -139,7 +139,7 @@ describe(`AppInstance`, () => {
     const { config } = setup({ sync: { push: async (_app, call) => (pushed.push(call), { ok: true }) } })
     const app = await AppInstance.load(config, pkg())
     await app.event({ type: `launch` })
-    await app.call(`records.upsert`, { kind: `note`, data: { text: `hi` } }, [`n1`])
+    await app.call(`records_upsert`, { kind: `note`, data: { text: `hi` } }, [`n1`])
     expect(pushed).toEqual([`upsert`])
     // Acked, not yet reflected by the store: it keeps overlaying.
     expect((await app.recordsValue(`records:note`))!.count).toBe(1)
@@ -164,8 +164,8 @@ describe(`AppInstance`, () => {
     const { config } = setup()
     const app = await AppInstance.load(config, pkg())
     await app.event({ type: `launch` })
-    expect(await app.call(`records.delete`, { id: `nope` })).toEqual({ refused: { code: `NOT_FOUND`, message: `no record nope` } })
-    expect(await app.call(`app.navigate`, { screen: `nope` })).toEqual({ refused: { code: `BAD_REQUEST`, message: `navigate: nope is not a screen` } })
+    expect(await app.call(`records_delete`, { id: `nope` })).toEqual({ refused: { code: `NOT_FOUND`, message: `no record nope` } })
+    expect(await app.call(`app_navigate`, { screen: `nope` })).toEqual({ refused: { code: `BAD_REQUEST`, message: `navigate: nope is not a screen` } })
     expect(await app.recordsValue(`weather:now`)).toBeUndefined()
   })
 
@@ -174,17 +174,17 @@ describe(`AppInstance`, () => {
     const app = await AppInstance.load(config, pkg())
     let changes = 0
     const stop = app.subscribe(() => changes++)
-    await app.call(`records.upsert`, { kind: `note`, data: {} }, [`n1`])
+    await app.call(`records_upsert`, { kind: `note`, data: {} }, [`n1`])
     stop()
-    await app.call(`records.upsert`, { kind: `note`, data: {} }, [`n2`])
+    await app.call(`records_upsert`, { kind: `note`, data: {} }, [`n2`])
     expect(changes).toBe(1)
   })
 })
 
 test(`createsOf counts the client ids a call takes`, () => {
-  expect(createsOf(`records.upsert`, { kind: `note`, data: {} })).toBe(1)
-  expect(createsOf(`records.upsert`, { id: `n1`, data: {} })).toBe(0)
-  expect(createsOf(`records.batch`, { writes: [{ op: `upsert`, kind: `a` }, { op: `delete`, id: `x` }, { op: `upsert`, id: `y` }] })).toBe(1)
+  expect(createsOf(`records_upsert`, { kind: `note`, data: {} })).toBe(1)
+  expect(createsOf(`records_upsert`, { id: `n1`, data: {} })).toBe(0)
+  expect(createsOf(`records_batch`, { writes: [{ op: `upsert`, kind: `a` }, { op: `delete`, id: `x` }, { op: `upsert`, id: `y` }] })).toBe(1)
 })
 
 describe(`the local stores`, () => {

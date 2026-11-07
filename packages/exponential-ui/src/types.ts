@@ -16,6 +16,10 @@ export type PropType =
   | `object`
   | `date`
   | `url`
+  /** Round 9 §5.3: a component id reference (Label.for, Popover.anchor, Menu.anchor); a string. */
+  | `componentId`
+  /** Round 9 §6.6: a binding or a call ONLY, never a literal (a check's `condition`). */
+  | `dynamic`
 
 export interface PropSchema {
   type: PropType
@@ -46,6 +50,10 @@ export interface PropSchema {
    *  bindings), never written by an author: the model-facing prompt leaves
    *  it out. */
   host?: boolean
+  /** Round 9 §11: `deprecated` = the 1.0 schema marks the prop `deprecated: true`
+   *  with `x-deprecated-reason` (`deprecatedReason`, else the description). */
+  status?: `deprecated`
+  deprecatedReason?: string
 }
 
 export interface DefSchema {
@@ -74,6 +82,9 @@ export interface ComponentDef {
   hidden?: boolean
   /** `planned` = in the catalog, painters land later. */
   status?: string
+  /** Round 9 §5.6: the component types it may sit in (`Surface` = as the
+   *  surface root); the 1.0 `allowedParents`. Absent = anywhere. */
+  parents?: readonly string[]
   /** Model-facing. VAPP-106: ABSENT at runtime on the runtime catalog (`coreCatalog`) until
    *  `describeCatalog()` attaches it; typed present because its readers (the prompt, the schema
    *  emitter, the docs, an extension's validation) always see it attached. */
@@ -89,6 +100,9 @@ export interface CatalogSource {
   liteId: string
   name: string
   version: string
+  /** Round 9 §11: the catalog rules (Markdown), the 1.0 catalog file's
+   *  `instructions`; model-facing, so it lives on the descriptions side. */
+  instructions?: string
   unknownComponent: string
   enums: Record<string, readonly string[]>
   defs: Record<string, DefSchema>
@@ -103,6 +117,7 @@ export interface CatalogSource {
 export interface FunctionSignature {
   /** Argument name → its type (`number`, `string`, `boolean`, `array`, `object`, `any`). */
   args: Record<string, string>
+  /** `string number boolean array object any void`, or (round 9) `validationResult`. */
   returns: string
 }
 
@@ -203,29 +218,29 @@ export interface ExtensionDef {
    *  is checked against (caret); unset = satisfies any. */
   version?: string
   extends: string
+  /** Round 9 §11: the extension's own rules (Markdown) for its 1.0 catalog file. */
+  instructions?: string
   enums?: Record<string, readonly string[]>
   defs?: Record<string, DefSchema>
   components: Record<string, ComponentDef>
   macros?: Record<string, MacroDef>
 }
 
-/** An A2UI v0.9 data binding or function call, passed through untouched. */
-export interface DataBinding {
-  path: string
-}
-export interface FunctionCall {
-  call: string
-  args?: Record<string, unknown>
-  returnType?: string
-}
-/** An A2UI v0.9 Action: a server event or a client function. Round 1: the
- *  expander may emit BOTH (a routed event plus a `set` write); a renderer
- *  evaluates the function args and the event context first, then runs the
- *  function, then dispatches the event. */
+/** VAPP-289 (round 9 §3): an A2UI 1.0 data binding and function call. */
+export type { DataBinding, FunctionCall } from "./expr"
+import type { DataBinding, FunctionCall } from "./expr"
+/** An A2UI 1.0 Action (our core `on` form, §5.3 `EuiAction`): a server event,
+ *  a renderer function, or BOTH (round 1: evaluate the function args and the
+ *  event context first, then run the function, then dispatch the event). */
 export interface Action {
-  event?: { name: string; context?: Record<string, unknown> }
-  /** A2UI v0.9's client function action (round 4: the ONLY key). */
+  event?: { name: string; context?: Record<string, unknown>; userMessage?: unknown }
+  /** The call itself (`{"@call", args?, catalogId?}`). */
   functionCall?: FunctionCall
+}
+
+/** VAPP-289 (round 9 §5.1): `metadata` of a component, a surface, an action. */
+export interface Metadata {
+  extensions?: Record<string, unknown>
 }
 
 /** A data-driven child list: one `component` per item at `path`; `key` = a
@@ -255,6 +270,10 @@ export type Visible = boolean | DataBinding | FunctionCall
 export interface AuthoredAccessibility {
   label?: unknown
   description?: unknown
+  /** Round 9 §5.1: `off` (default) | `polite` | `assertive`. */
+  live?: unknown
+  /** Round 9 §5.1: a DynamicBoolean; true = out of the accessibility tree (still painted). */
+  hidden?: unknown
 }
 
 /** Round 1 (docs/round-1-contract.md §6): the accessibility a NORMALIZED node
@@ -293,6 +312,10 @@ export interface NodeAccessibility extends AuthoredAccessibility {
 export interface FlatComponent {
   id: string
   component: string
+  /** Round 9 §5.5: overrides the surface's default catalog. */
+  catalogId?: string
+  /** Round 9 §5.1: stored and exposed, never painted. */
+  metadata?: Metadata
   children?: string[] | WireChildTemplate
   slots?: Record<string, string>
   on?: Record<string, Action>
@@ -318,6 +341,8 @@ export interface UiNode {
   children: UiNode[]
   slots?: Record<string, UiNode>
   template?: ChildTemplate
+  /** Round 9 §5.1: the authored component's `metadata` (never painted). */
+  metadata?: Metadata
   /** `authored` (VAPP-163, expansion roots only): the top-level style keys
    *  written ON the macro node, sorted; they win over the part recipe. */
   recipe?: { macro: string; part: string; props: Record<string, unknown>; authored?: string[] }
@@ -328,6 +353,9 @@ export interface UiNode {
 export interface NestedNode {
   id: string
   component: string
+  /** Round 9 §13: only the core id. */
+  catalogId?: string
+  metadata?: Metadata
   props?: Record<string, unknown>
   style?: Record<string, unknown>
   visible?: Visible
@@ -341,6 +369,11 @@ export interface NestedNode {
 export interface ReduceIssue {
   id: string
   message: string
+  /** Round 9 §5.2: the error code the runtime SENDS (VALIDATION_FAILED,
+   *  UNALLOWED_CHILD, UNALLOWED_PARENT, UNSUPPORTED_CATALOG). */
+  code?: string
+  /** `/components/<authored id>` + `/<prop pointer>`. */
+  path?: string
 }
 
 /** Round 1 (docs/round-1-contract.md §4–6): what a host sets per surface.

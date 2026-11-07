@@ -79,7 +79,7 @@ fn a_control_nested_in_a_template_row_writes_its_binding_and_fires() {
     let mut s = flat(json!([
         {"id": "root", "component": "Box", "children": {"componentId": "row", "path": "/items", "key": "id"}},
         {"id": "row", "component": "Box", "children": ["row-done"]},
-        {"id": "row-done", "component": "Switch", "label": "Done", "name": "done", "checked": {"path": "done"}, "on": {"change": {"event": {"name": "toggled", "context": {"id": {"path": "id"}}}}}}
+        {"id": "row-done", "component": "Switch", "label": "Done", "name": "done", "checked": {"@path": "done"}, "on": {"change": {"event": {"name": "toggled", "context": {"id": {"@path": "id"}}}}}}
     ]));
     s.set_data("/items", Some(json!([{"id": "a", "done": false}, {"id": "b", "done": true}]))).unwrap();
     s.set_viewport(400.0, 0.0, None);
@@ -98,7 +98,7 @@ fn a_table_slot_button_fires_with_its_literal_row_as_scope() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
         {"id": "t", "component": "Table", "props": {"columns": [{"key": "name", "label": "Name"}, {"key": "actions", "label": "", "type": "slot", "slot": "actions"}],
             "rows": [{"id": "r1", "name": "Ada"}, {"id": "r2", "name": "Grace"}]},
-         "slots": {"actions": {"id": "edit", "component": "Button", "props": {"label": "Edit"}, "on": {"press": {"event": {"name": "edit", "context": {"id": {"path": "id"}, "name": {"path": "name"}}}}}}}}
+         "slots": {"actions": {"id": "edit", "component": "Button", "props": {"label": "Edit"}, "on": {"press": {"event": {"name": "edit", "context": {"id": {"@path": "id"}, "name": {"@path": "name"}}}}}}}}
     ]}));
     s.set_viewport(500.0, 0.0, None);
     let mut m = fixed();
@@ -112,7 +112,7 @@ fn a_form_inside_a_template_row_collects_its_own_instance_fields() {
     let mut s = flat(json!([
         {"id": "root", "component": "Box", "children": {"componentId": "card", "path": "/items", "key": "id"}},
         {"id": "card", "component": "Form", "name": "card", "on": {"submit": {"event": {"name": "save"}}}, "children": ["card-title", "card-go"]},
-        {"id": "card-title", "component": "Input", "label": "Title", "name": "title", "value": {"path": "title"}},
+        {"id": "card-title", "component": "Input", "label": "Title", "name": "title", "value": {"@path": "title"}},
         {"id": "card-go", "component": "Button", "label": "Save", "submit": true}
     ]));
     s.set_data("/items", Some(json!([{"id": "a", "title": "One"}, {"id": "b", "title": "Two"}]))).unwrap();
@@ -323,9 +323,9 @@ fn without_a_core_close_delay_the_content_still_holds_a_hover_card_open() {
 #[test]
 fn a_disabled_control_ignores_activation_from_any_host_path() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
-        {"id": "c", "component": "Checkbox", "props": {"label": "C", "name": "c", "disabled": true, "checked": {"path": "/c"}}, "on": {"change": {"event": {"name": "changed"}}}},
-        {"id": "n", "component": "NumberField", "props": {"label": "N", "name": "n", "disabled": true, "value": {"path": "/n"}}},
-        {"id": "sel", "component": "Select", "props": {"label": "S", "name": "s", "disabled": true, "value": {"path": "/s"}, "options": [{"label": "A", "value": "a"}]}},
+        {"id": "c", "component": "Checkbox", "props": {"label": "C", "name": "c", "disabled": true, "checked": {"@path": "/c"}}, "on": {"change": {"event": {"name": "changed"}}}},
+        {"id": "n", "component": "NumberField", "props": {"label": "N", "name": "n", "disabled": true, "value": {"@path": "/n"}}},
+        {"id": "sel", "component": "Select", "props": {"label": "S", "name": "s", "disabled": true, "value": {"@path": "/s"}, "options": [{"label": "A", "value": "a"}]}},
         {"id": "b", "component": "Button", "props": {"label": "Go", "loading": true}, "on": {"press": {"event": {"name": "go"}}}}
     ]}));
     s.set_data("/n", Some(json!(1))).unwrap();
@@ -350,7 +350,7 @@ fn a_disabled_control_ignores_activation_from_any_host_path() {
 fn template_keys_never_collide() {
     let mut s = flat(json!([
         {"id": "root", "component": "Box", "children": {"componentId": "row", "path": "/items", "key": "id"}},
-        {"id": "row", "component": "Text", "text": {"path": "name"}}
+        {"id": "row", "component": "Text", "text": {"@path": "name"}}
     ]));
     // A keyed item, an unkeyed one, a duplicate key and an index-like key.
     s.set_data("/items", Some(json!([{"id": "1", "name": "one"}, {"name": "x"}, {"id": "1", "name": "dup"}, {"id": "#1", "name": "hash"}]))).unwrap();
@@ -497,7 +497,7 @@ fn a_partial_update_keeps_an_untouched_unbound_controls_local_value() {
 #[test]
 fn an_a2ui_function_call_on_a_two_way_macro_is_reported_not_silently_dropped() {
     let tree: NestedNode = serde_json::from_value(json!({"id": "c", "component": "Collapsible",
-        "props": {"title": "More", "open": {"path": "/o"}}, "on": {"change": {"functionCall": {"call": "harness.track"}}}})).unwrap();
+        "props": {"title": "More", "open": {"@path": "/o"}}, "on": {"change": {"functionCall": {"@call": "harness_track"}}}})).unwrap();
     let mut s = Surface::new("t", SurfaceOptions::default());
     let outcome = s.set_nested(tree);
     assert_eq!(outcome.issues.len(), 1, "{:?}", outcome.issues);

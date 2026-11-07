@@ -16,7 +16,7 @@
 import { TOKEN_GROUPS, sharedCatalogView } from "./catalog"
 import { applyTreeGuides } from "./tree-guides"
 import type { CatalogView } from "./catalog"
-import { evalConditionValue, evalValue, isBinding, isDynamic, truthy, type ExprContext } from "./expr"
+import { evalConditionValue, evalValue, isBinding, isDynamic, present, type ExprContext } from "./expr"
 import type { Action, ExtensionDef, MacroChild, MacroDef, MacroTemplate, ReduceIssue, UiNode, Visible } from "./types"
 
 const MAX_DEPTH = 16
@@ -135,7 +135,7 @@ function eventName(name: string, ctx: ExprContext): string {
 
 function andOf(conditions: unknown[], op: `and` | `or`): Visible {
   if (conditions.length === 1) return conditions[0] as Visible
-  return { call: op, args: { values: conditions } }
+  return { "@call": op, args: { values: conditions } }
 }
 
 /** The part's `$if`/`$any`: `false` = leave it out, `true` = emit it, a
@@ -263,11 +263,11 @@ function buildNode(
         const route = tpl.$on?.[key]
         const macroEvent = route === undefined ? partEvent : eventName(typeof route === `string` ? route : route.event, ctx)
         const message = `on.${macroEvent}: a function action replaces the two-way set of props.${spec.prop}; write it in that function's handler or use an event`
-        if (!exp.issues?.some((i) => i.id === exp.source.id && i.message === message)) exp.issues?.push({ id: exp.source.id, message })
+        if (!exp.issues?.some((i) => i.id === exp.source.id && i.message === message)) exp.issues?.push({ id: exp.source.id, message, code: `VALIDATION_FAILED`, path: `/components/${exp.source.id.replace(/~/g, `~0`).replace(/\//g, `~1`)}/on/${macroEvent.replace(/~/g, `~0`).replace(/\//g, `~1`)}` })
         continue
       }
       const value = evalValue(spec.value, ctx)
-      on[partEvent] = { ...(on[partEvent] ?? {}), functionCall: { call: `set`, args: value === undefined ? { path: bound.path } : { path: bound.path, value } } }
+      on[partEvent] = { ...(on[partEvent] ?? {}), functionCall: { "@call": `set`, args: value === undefined ? { path: bound[`@path`] } : { path: bound[`@path`], value } } }
     }
   }
   if (tpl.$a11y) {
@@ -334,7 +334,7 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
   if ((node.on?.press || baseProps.href) && baseProps.pressable === undefined && view.components[macro]?.props.pressable) baseProps.pressable = true
   const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues, built: [] }
   // #VAPP-284: `{childCount}` = the author's children (an alternative root's test).
-  const ctx: ExprContext = { id: node.id, props: baseProps, vars: { childCount: node.children.length } }
+  const ctx: ExprContext = { id: node.id, props: baseProps, vars: { childCount: node.children.length }, types: view.components[macro]?.props }
   const alternative = def.alternatives?.find((a) => evalConditionValue(a.$if, ctx) === true)
   const [root] = alternative ? [buildNode(alternative.root, exp, ctx, node.id, undefined)] : expandTemplate(def.root, exp, ctx, node.id)
   root.style = mergeStyle(root.style, node.style)
@@ -379,7 +379,7 @@ function passDown(node: UiNode, macro: string, component: string, props: Record<
 /** The macro's `$pass` entries applied to its author slots (before they expand). */
 function applyPasses(node: UiNode, def: MacroDef): UiNode {
   if (!def.$pass || !node.slots) return node
-  const ctx: ExprContext = { id: node.id, props: propsAt(node.props, null), vars: {} }
+  const ctx: ExprContext = { id: node.id, props: propsAt(node.props, null), vars: {}, types: undefined }
   let slots = node.slots
   for (const pass of def.$pass) {
     const target = slots[pass.slot]
@@ -425,6 +425,6 @@ export function expandMacros(
 }
 
 /** True for a value the expander would keep (see expr.ts). */
-export const keeps = truthy
+export const keeps = present
 export { isDynamic }
 export type { MacroChild }

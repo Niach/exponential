@@ -119,7 +119,7 @@ fn the_state_fixture_replays_through_the_view(cx: &mut TestAppContext) {
     let lottie = f["lottie"].clone();
     for c in f["cases"].as_array().unwrap() {
         let id = c["id"].as_str().unwrap();
-        let motion = json!({"id": "m", "component": "Motion", "props": {"lottie": lottie, "stateMachine": c["machine"], "inputs": {"path": "/sm"}, "size": [40, 40]}, "on": on_all()});
+        let motion = json!({"id": "m", "component": "Motion", "props": {"lottie": lottie, "stateMachine": c["machine"], "inputs": {"@path": "/sm"}, "size": [40, 40]}, "on": on_all()});
         let mut data = c["initial"]["inputs"].clone();
         let (view, log, vcx) = surface(cx, motion, data.clone());
         let check = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext, want: &Value, at: &str| {
@@ -270,14 +270,14 @@ fn the_styleguide_level_bar_follows_its_bound_input(cx: &mut TestAppContext) {
     let view = pane.read_with(cx, |p, _| p.view.clone());
     draw(cx);
     let at = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.motion_state(id)).unwrap();
-    assert_eq!(at(&view, cx, "sg-motion-level"), "low");
-    assert_eq!(at(&view, cx, "sg-motion-like"), "off");
+    assert_eq!(at(&view, cx, "sg_motion_level"), "low");
+    assert_eq!(at(&view, cx, "sg_motion_like"), "off");
     for (level, want) in [(60, "high"), (100, "done"), (20, "low")] {
         view.update(cx, |v, cx| v.set_data("/meter/level", Some(json!(level)), cx).unwrap());
         draw(cx);
-        assert_eq!(at(&view, cx, "sg-motion-level"), want, "level {level}");
+        assert_eq!(at(&view, cx, "sg_motion_level"), want, "level {level}");
     }
-    view.update(cx, |v, cx| v.motion_interact("sg-motion-like", &Interaction::Click { layer: None }, cx));
+    view.update(cx, |v, cx| v.motion_interact("sg_motion_like", &Interaction::Click { layer: None }, cx));
     draw(cx);
-    assert_eq!(at(&view, cx, "sg-motion-like"), "on");
+    assert_eq!(at(&view, cx, "sg_motion_like"), "on");
 }

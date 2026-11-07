@@ -4,6 +4,7 @@
 //! genUI message, pause or resume the sources, settle a function call).
 //! The gpui half (`main.rs`) only turns window events into these calls.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use eengine::broker::{GrantValue, Verdict};
@@ -24,7 +25,7 @@ pub const PERMISSIONS: &str = "permissions";
 pub const TOAST: &str = "toast";
 pub const SURFACES: [&str; 4] = [APP, CONSENT, PERMISSIONS, TOAST];
 
-const VERSION: &str = "v0.9";
+const VERSION: &str = eui_core::catalog::A2UI_VERSION;
 
 /// What the painter does.
 #[derive(Clone, Debug, PartialEq)]
@@ -41,14 +42,59 @@ pub enum Paint {
 
 /// A surface made of `components` (+ its data), replacing any earlier one.
 pub fn surface_messages(surface_id: &str, components: &[Value], data: Option<&Value>) -> Vec<Value> {
+    let catalog = json!(eui_core::catalog::CORE_CATALOG_ID);
     let mut out = vec![
-        json!({"version": VERSION, "createSurface": {"surfaceId": surface_id, "catalogId": eui_core::catalog::CORE_CATALOG_ID}}),
+        json!({"version": VERSION, "createSurface": {"surfaceId": surface_id, "catalogId": catalog}}),
         json!({"version": VERSION, "updateComponents": {"surfaceId": surface_id, "components": components}}),
     ];
     if let Some(data) = data {
         out.push(json!({"version": VERSION, "updateDataModel": {"surfaceId": surface_id, "path": "/", "value": data}}));
     }
     out
+}
+
+/// Round 9 §1.4: surface ids are unique for the router's lifetime, so a
+/// runner surface painted again gets a minted id; `SURFACES` stay the names
+/// the runner speaks. [`Self::rewrite`] maps a message onto the live id.
+#[derive(Default)]
+pub struct LiveSurfaces {
+    live: HashMap<String, String>,
+    created: HashSet<String>,
+}
+
+impl LiveSurfaces {
+    /// The live id behind a runner surface.
+    pub fn live<'a>(&'a self, surface: &'a str) -> &'a str {
+        self.live.get(surface).map_or(surface, String::as_str)
+    }
+
+    /// `message` on the live id; a surface opened again = a minted id, and
+    /// the second message (delete the old one) runs right after it.
+    pub fn rewrite(&mut self, message: &Value, mint: impl FnOnce(&str) -> String) -> (Value, Option<Value>) {
+        let Some((kind, id)) = surface_of(message) else { return (message.clone(), None) };
+        let (target, replaced) = match kind.as_str() {
+            "createSurface" | "applyTemplate" => {
+                if self.created.insert(id.clone()) {
+                    self.live.insert(id.clone(), id.clone());
+                    (id, None)
+                } else {
+                    let minted = mint(&id);
+                    let old = self.live.insert(id, minted.clone());
+                    (minted, old)
+                }
+            }
+            "deleteSurface" => (self.live.remove(&id).unwrap_or(id), None),
+            _ => (self.live(&id).to_string(), None),
+        };
+        let mut out = message.clone();
+        out[kind.as_str()]["surfaceId"] = Value::String(target);
+        (out, replaced.map(|old| delete_message(&old)))
+    }
+}
+
+fn surface_of(message: &Value) -> Option<(String, String)> {
+    let (kind, body) = message.as_object()?.iter().find(|(k, _)| *k != "version")?;
+    Some((kind.clone(), body.get("surfaceId")?.as_str()?.to_string()))
 }
 
 pub fn delete_message(surface_id: &str) -> Value {
@@ -261,7 +307,7 @@ impl Runner {
     pub fn runner_event(&mut self, event: RunnerEvent) -> (Vec<Paint>, Option<(PendingAsk, ConsentAnswer)>) {
         match event {
             RunnerEvent::Navigate { screen } => {
-                let result = self.instance.call("app.navigate", &json!({"screen": screen}), &[]);
+                let result = self.instance.call("app_navigate", &json!({"screen": screen}), &[]);
                 let mut out = self.opened();
                 if let CallResult::Refused(f) = result {
                     out.extend(toast_paints(&f.message));
@@ -288,10 +334,10 @@ impl Runner {
         }
     }
 
-    /// Where an app's function call goes: `records.*` and `app.navigate`
+    /// Where an app's function call goes: `records_*` and `app_navigate`
     /// here (fresh uuids for the creates), a capability to the broker.
     pub fn dispatch(&mut self, name: &str, args: &Value) -> Dispatch {
-        if name.starts_with("records.") || name == "app.navigate" {
+        if name.starts_with("records_") || name == "app_navigate" {
             Dispatch::Done(self.instance.call(name, args, &new_ids(name, args)))
         } else {
             Dispatch::Broker(self.instance.broker().clone())
@@ -339,8 +385,8 @@ fn form_name(form: FormFactor) -> &'static str {
 /// One uuid per write a call may create (the Engine takes them in order).
 pub fn new_ids(name: &str, args: &Value) -> Vec<String> {
     let count = match name {
-        "records.upsert" => usize::from(args.get("id").is_none()),
-        "records.batch" => args.get("writes").and_then(Value::as_array).map_or(0, |w| w.iter().filter(|w| w.get("id").is_none()).count()),
+        "records_upsert" => usize::from(args.get("id").is_none()),
+        "records_batch" => args.get("writes").and_then(Value::as_array).map_or(0, |w| w.iter().filter(|w| w.get("id").is_none()).count()),
         _ => 0,
     };
     (0..count).map(|_| uuid::Uuid::new_v4().to_string()).collect()
@@ -349,11 +395,11 @@ pub fn new_ids(name: &str, args: &Value) -> Vec<String> {
 /// The function names the painter registers for a package: the records
 /// calls and every app-facing tool of each declared capability.
 pub fn function_names(pkg: &Value) -> Vec<String> {
-    let mut names: Vec<String> = ["records.upsert", "records.delete", "records.batch"].map(String::from).to_vec();
+    let mut names: Vec<String> = ["records_upsert", "records_delete", "records_batch"].map(String::from).to_vec();
     for entry in eengine::ManifestEntry::of_package(pkg) {
         if let Some((cap, scope)) = eengine::broker::scope_def(&entry.id) {
             for tool in &scope.tools {
-                let name = format!("{}.{tool}", cap.name);
+                let name = format!("{}_{tool}", cap.name);
                 if !names.contains(&name) {
                     names.push(name);
                 }

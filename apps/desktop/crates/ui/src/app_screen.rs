@@ -9,8 +9,8 @@
 //! beside the TAB pane:
 //! - PREVIEW: the IDE's Exponential UI host ([`crate::exponential_ui_host::IdeHost`])
 //!   installs the head package and applies its first template
-//!   (`applyTemplate`, surface `app`) in a 12px frame, repainting on every
-//!   synced upsert; a previewed older version sits under the `Viewing v{n}`
+//!   (`applyTemplate`, a surface minted under `app`) in a 12px frame, repainting
+//!   on every synced upsert; a previewed older version sits under the `Viewing v{n}`
 //!   banner with Restore and Current. VAPP-179 (`preview.$comment`): a
 //!   toolbar row above both = the Desktop | Phone segmented control (the
 //!   frame's width: the pane's, or `preview.phoneWidth` px centred) and,
@@ -58,9 +58,10 @@
 //! shell, FULL SCREEN: no header, no toolbar, no frame border or radius;
 //! never published = the page-size `copy.runEmpty` with the app glyph. A
 //! sidebar row and an `appScreen` link ([`open_app_screen`]) land here;
-//! `app.navigate` keeps the screen in memory. Leaving it ends nothing.
+//! `app_navigate` keeps the screen in memory. Leaving it ends nothing.
 
 use eui_core::theme::Mode;
+use eui_gpui::runtime::ExponentialHost;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, App, AppContext as _, Entity, FontWeight, InteractiveElement as _,
@@ -238,12 +239,12 @@ pub(crate) fn app_tab_title(app: &str, cx: &App) -> SharedString {
 /// The `applyTemplate` message the preview sends (the web's, byte for
 /// byte): VAPP-179 the `picked` template while the package has it, else the
 /// first of the sorted ids (`previewTemplate`, `templateCases`).
-pub(crate) fn apply_template_message(pkg: &Value, picked: Option<&str>) -> Option<Value> {
+pub(crate) fn apply_template_message(pkg: &Value, picked: Option<&str>, surface_id: &str) -> Option<Value> {
     let template = preview_template(Some(pkg), picked)?;
     Some(json!({
-        "version": "v0.9",
+        "version": eui_core::catalog::A2UI_VERSION,
         "applyTemplate": {
-            "surfaceId": APPS.preview.surface_id,
+            "surfaceId": surface_id,
             "templateId": template,
             "packageId": pkg.get("id").cloned().unwrap_or(Value::Null),
         }
@@ -252,15 +253,36 @@ pub(crate) fn apply_template_message(pkg: &Value, picked: Option<&str>) -> Optio
 
 /// VAPP-218: the `applyTemplate` of a resolved screen: its template with
 /// the data `{params}` (eUI `screenData`).
-pub(crate) fn apply_screen_message(pkg: &Value, screen: &ResolvedScreen) -> Value {
+pub(crate) fn apply_screen_message(pkg: &Value, screen: &ResolvedScreen, surface_id: &str) -> Value {
     json!({
-        "version": "v0.9",
+        "version": eui_core::catalog::A2UI_VERSION,
         "applyTemplate": {
-            "surfaceId": APPS.preview.surface_id,
+            "surfaceId": surface_id,
             "templateId": screen.screen,
             "packageId": pkg.get("id").cloned().unwrap_or(Value::Null),
             "data": screen_data(screen),
         }
+    })
+}
+
+/// Round 9 §1.4: the shown screen (else the `picked` template) onto a fresh
+/// surface: a minted id, the template on it, and only then the `old` surface
+/// goes, so it paints until the new one exists. Surface ids are unique for the
+/// router's lifetime, so the old id can never come back. The new id.
+fn open_surface(host: &Entity<ExponentialHost>, pkg: &Value, screen: Option<&ResolvedScreen>, picked: Option<&str>, old: Option<&str>, cx: &mut App) -> String {
+    host.update(cx, |host, cx| {
+        let surface_id = host.mint_surface_id(&APPS.preview.surface_id);
+        let message = match screen {
+            Some(screen) => Some(apply_screen_message(pkg, screen, &surface_id)),
+            None => apply_template_message(pkg, picked, &surface_id),
+        };
+        if let Some(message) = message {
+            host.receive_trusted(&message, cx);
+        }
+        if let Some(old) = old {
+            host.receive(&json!({"version": eui_core::catalog::A2UI_VERSION, "deleteSurface": {"surfaceId": old}}), cx);
+        }
+        surface_id
     })
 }
 
@@ -275,6 +297,11 @@ fn screen_icon(name: Option<&str>) -> crate::icons::ExpIcon {
 /// new version replaces it on) and the host itself.
 struct Preview {
     key: String,
+    /// The shown template (+ the screen's params): a new one re-opens the
+    /// surface on the same host.
+    template: String,
+    /// The painted surface: minted per open (round 9 §1.4).
+    surface_id: String,
     ide: IdeHost,
     _observe: Subscription,
 }
@@ -705,7 +732,15 @@ impl AppScreenView {
             run_as,
             pkg.as_ref().map(Value::to_string).unwrap_or_default()
         );
-        if self.preview.as_ref().map(|p| p.key.as_str()) == Some(key.as_str()) {
+        if let Some(preview) = self.preview.as_mut().filter(|p| p.key == key) {
+            if preview.template != template {
+                if let Some(pkg) = &pkg {
+                    let opened = open_surface(&preview.ide.host, pkg, resolved.as_ref(), self.picked_template.as_deref(), Some(&preview.surface_id), cx);
+                    preview.surface_id = opened;
+                    preview.template = template;
+                    cx.notify();
+                }
+            }
             return;
         }
         if let Some(old) = self.preview.take() {
@@ -726,8 +761,8 @@ impl AppScreenView {
             migrate_from: migrate_from.clone().filter(|_| pkg.get("migrations").is_some_and(|m| m.as_array().is_some_and(|l| !l.is_empty()))).map(|from| (from, serde_json::json!({ "migrations": pkg["migrations"].clone() }))),
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
-        // VAPP-218: `app.navigate` replaces the request; deferred, since
-        // the new screen replaces the host that is running the call.
+        // VAPP-218: `app_navigate` replaces the request; deferred, since
+        // the new screen re-opens the surface that is running the call.
         let view = cx.entity().downgrade();
         let navigate: eui_gpui::runtime::NavigateHook = Rc::new(move |target: &eui_gpui::runtime::HostNavigate, cx: &mut App| {
             let Some(view) = view.upgrade() else { return false };
@@ -736,17 +771,9 @@ impl AppScreenView {
             true
         });
         ide.host.update(cx, |host, _| host.set_navigate(Some(navigate)));
-        let message = match &resolved {
-            Some(screen) => Some(apply_screen_message(&pkg, screen)),
-            None => apply_template_message(&pkg, self.picked_template.as_deref()),
-        };
-        if let Some(message) = message {
-            ide.host.update(cx, |host, cx| {
-                host.receive(&message, cx);
-            });
-        }
+        let surface_id = open_surface(&ide.host, &pkg, resolved.as_ref(), self.picked_template.as_deref(), None, cx);
         let observe = cx.observe(&ide.host, |_, _, cx| cx.notify());
-        self.preview = Some(Preview { key, ide, _observe: observe });
+        self.preview = Some(Preview { key, template, surface_id, ide, _observe: observe });
     }
 
     /// `sessions.end` on the member's live editor root (the tree);
@@ -1218,7 +1245,6 @@ impl AppScreenView {
     /// app glyph.
     fn render_surface(&self, framed: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let surface_id = &APPS.preview.surface_id;
         let host = self.preview.as_ref().map(|preview| preview.ide.host.read(cx));
         // The catalog-update banner (the web's `HostBanner`); a local host
         // has no transport, so no offline state.
@@ -1282,7 +1308,7 @@ impl AppScreenView {
                     .into_any_element(),
             )
         };
-        let surface = host.and_then(|host| host.surface(surface_id));
+        let surface = self.preview.as_ref().and_then(|preview| preview.ide.host.read(cx).surface(&preview.surface_id));
         // EXP-1557 (web parity): `No version yet` is CENTRED in the frame,
         // so it fills the frame itself (a scroll pane's content has no
         // height to centre in).
@@ -1629,11 +1655,11 @@ mod tests {
     #[test]
     fn the_preview_applies_the_first_template_of_the_package() {
         let pkg: Value = serde_json::from_str(crate::exponential_ui_host::DEVICES_PACKAGE_JSON).unwrap();
-        let message = apply_template_message(&pkg, None).expect("the Devices package has a template");
-        assert_eq!(message["applyTemplate"]["surfaceId"], "app");
+        let message = apply_template_message(&pkg, None, "app#1").expect("the Devices package has a template");
+        assert_eq!(message["applyTemplate"]["surfaceId"], "app#1");
         assert_eq!(message["applyTemplate"]["templateId"], "devices");
         assert_eq!(message["applyTemplate"]["packageId"], "exponential.devices");
-        assert!(apply_template_message(&json!({"id": "x", "templates": {}}), None).is_none());
+        assert!(apply_template_message(&json!({"id": "x", "templates": {}}), None, "app#1").is_none());
     }
 
     /// VAPP-179: the picked template while the package has it, else the
@@ -1641,7 +1667,7 @@ mod tests {
     #[test]
     fn the_preview_applies_the_picked_template() {
         let pkg = json!({"id": "x", "templates": {"week": {}, "dashboard": {}, "month": {}}});
-        let id = |picked| apply_template_message(&pkg, picked).unwrap()["applyTemplate"]["templateId"].clone();
+        let id = |picked| apply_template_message(&pkg, picked, "app#1").unwrap()["applyTemplate"]["templateId"].clone();
         assert_eq!(id(None), "dashboard");
         assert_eq!(id(Some("week")), "week");
         assert_eq!(id(Some("missing")), "dashboard");
@@ -1656,7 +1682,7 @@ mod tests {
         let pkg = file.get("package").cloned().unwrap_or(file);
         let params = json!({"q": "acme"});
         let screen = resolve_screen(&pkg, Some("companies"), Some(&params)).unwrap();
-        let message = apply_screen_message(&pkg, &screen);
+        let message = apply_screen_message(&pkg, &screen, "app#1");
         assert_eq!(message["applyTemplate"]["templateId"], "companies");
         assert_eq!(message["applyTemplate"]["data"], json!({"params": {"q": "acme"}}));
         assert_eq!(resolve_screen(&pkg, Some("gone"), None).unwrap().screen, "pipeline");
@@ -1700,13 +1726,39 @@ mod tests {
         let ide = cx.update(|cx| IdeHost::with_packages(Mode::Dark, std::slice::from_ref(&pkg), None, None, cx));
         let host = ide.host.clone();
         let issues = host.update(cx, |host, cx| {
-            let ops = host.receive(&apply_template_message(&pkg, None).unwrap(), cx);
+            let ops = host.receive_trusted(&apply_template_message(&pkg, None, "app#1").unwrap(), cx);
             (ops.len(), format!("{:?}", host.issues()))
         });
         cx.run_until_parked();
-        let surface = host.read_with(cx, |host, _| host.surface(&APPS.preview.surface_id));
+        let surface = host.read_with(cx, |host, _| host.surface("app#1"));
         assert!(surface.is_some(), "no surface; ops/issues: {issues:?}");
         drop((surface, host));
+        cx.update(|_| drop(ide));
+        cx.run_until_parked();
+    }
+
+    /// Round 9 §1.4: every re-open mints, and the old surface goes only once
+    /// the new one exists, so navigating twice paints the second screen.
+    #[gpui::test]
+    fn navigating_twice_paints_the_second_screen(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_component::init);
+        let pkg: Value = serde_json::from_str(include_str!("app_screen.test-package.json")).unwrap();
+        let ide = cx.update(|cx| IdeHost::with_packages(Mode::Dark, std::slice::from_ref(&pkg), None, None, cx));
+        let host = ide.host.clone();
+        let first = cx.update(|cx| open_surface(&host, &pkg, None, None, None, cx));
+        cx.run_until_parked();
+        assert!(host.read_with(cx, |host, _| host.surface(&first)).is_some());
+        let second = cx.update(|cx| open_surface(&host, &pkg, None, None, Some(&first), cx));
+        cx.run_until_parked();
+        let third = cx.update(|cx| open_surface(&host, &pkg, None, None, Some(&second), cx));
+        cx.run_until_parked();
+        assert_ne!(first, second);
+        assert_ne!(second, third);
+        host.read_with(cx, |host, _| {
+            assert!(host.surface(&first).is_none());
+            assert!(host.surface(&second).is_none());
+            assert!(host.surface(&third).is_some(), "the second navigation paints");
+        });
         cx.update(|_| drop(ide));
         cx.run_until_parked();
     }

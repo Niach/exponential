@@ -57,9 +57,9 @@ export function scopeDef(id: string): { capability: CapabilityDef; scope: Capabi
 const NAME_PART = /^[a-z][a-z0-9-]*$/
 
 /** A call's name → `{capability, tool}`: `<capability>__<tool>` from an agent,
- *  `<capability>.<tool>` from app UI; null for any other form or a reserved name. */
+ *  `<capability>_<tool>` from app UI (round 9 §6.3: split at the first `_`); null for any other form or a reserved name. */
 export function parseCapabilityCall(from: CallFrom, name: string): { capability: string; tool: string } | null {
-  const sep = from === `agent` ? `__` : `.`
+  const sep = from === `agent` ? `__` : `_`
   const at = name.indexOf(sep)
   if (at < 0) return null
   const capability = name.slice(0, at)
@@ -157,7 +157,7 @@ export interface BrokerAuditRow {
  *  `outcome` = the call's outcome when it ran (`verdict: call`), else ignored. */
 export function brokerAuditRow(input: { appId: string; client: string | null; call: BrokerCall; verdict: BrokerVerdict; outcome: HubOutcome | null }): BrokerAuditRow {
   const { appId, client, call, verdict } = input
-  const tool = verdict.capability && verdict.tool ? `${verdict.capability}__${verdict.tool}` : call.from === `ui` ? call.name.replace(`.`, `__`) : call.name
+  const tool = verdict.capability && verdict.tool ? `${verdict.capability}__${verdict.tool}` : call.from === `ui` ? call.name.replace(`_`, `__`) : call.name
   const base = { appId, clientId: call.from === `ui` ? `ui` : (client ?? ``), tool, argsHash: argsHash(call.arguments ?? {}) }
   if (verdict.verdict === `call`) {
     const { status, error } = hubOutcomeStatus(input.outcome ?? `ok`)

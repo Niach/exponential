@@ -186,10 +186,10 @@ fun main(args: Array<String>) {
     check(bestLayout < 2.0) { "bench: warm pass $bestLayout ms" }
 
     val s = Surface("s", coreCatalogId(), null, "dark")
-    s.apply(Json.write(mapOf("version" to "v0.9", "updateComponents" to mapOf("surfaceId" to "s", "components" to listOf(
+    s.apply(Json.write(mapOf("version" to a2uiVersion(), "updateComponents" to mapOf("surfaceId" to "s", "components" to listOf(
         mapOf("id" to "root", "component" to "Box", "style" to mapOf("display" to "flex", "flexDirection" to "column"), "children" to listOf("dlg", "t")),
-        mapOf("id" to "t", "component" to "Text", "text" to mapOf("path" to "/title")),
-        mapOf("id" to "dlg", "component" to "Dialog", "title" to "Hi", "open" to mapOf("path" to "/open"), "slots" to mapOf("trigger" to "b"), "children" to listOf("body")),
+        mapOf("id" to "t", "component" to "Text", "text" to mapOf("@path" to "/title")),
+        mapOf("id" to "dlg", "component" to "Dialog", "title" to "Hi", "open" to mapOf("@path" to "/open"), "slots" to mapOf("trigger" to "b"), "children" to listOf("body")),
         mapOf("id" to "b", "component" to "Button", "label" to "Open", "on" to mapOf("press" to mapOf("event" to mapOf("name" to "opened")))),
         mapOf("id" to "body", "component" to "Text", "text" to "Body"),
     )))))
@@ -272,7 +272,7 @@ fun main(args: Array<String>) {
     for (c in list(transport["jsonl"]).map(::obj)) { val d = JsonlDecoder(); equal(Json.write(decodeFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "jsonl ${c["name"]}") }
     for (c in list(transport["sse"]).map(::obj)) { val d = SseDecoder(); equal(Json.write(decodeFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "sse ${c["name"]}") }
     for (c in list(transport["mcp"]).map(::obj)) equal(messagesFromMcpResultJson(Json.write(c["result"])), c["expected"], "mcp ${c["name"]}")
-    for (c in list(transport["mcpAction"]).map(::obj)) equal(mcpActionCallJson(Json.write(c["message"]), c["tool"] as String?), c["expected"], "mcpAction ${c["name"]}")
+    for (c in list(transport["mcpAction"]).map(::obj)) equal(mcpActionCallJson(Json.write(c["message"]), c["tool"] as String?, (c["metadata"])?.let { Json.write(it) }), c["expected"], "mcpAction ${c["name"]}")
     val policy = load("host-policy.json")
     for (c in list(policy["functions"]).map(::obj)) {
         val got = decideFunction(if (c.containsKey("policy")) Json.write(c["policy"]) else null, c["fn"] as String, c["registered"] as Boolean)
@@ -286,7 +286,7 @@ fun main(args: Array<String>) {
         val ids = list(c["extensionIds"]).map { it as String }
         val expected = obj(c["expected"])
         check(supportedCatalogIdsFor(ids) == list(expected["supportedCatalogIds"])) { "negotiation $ids" }
-        equal(clientCapabilitiesJson(ids), expected["clientCapabilities"], "capabilities $ids")
+        equal(rendererCapabilitiesJson(ids, null), expected["rendererCapabilities"], "capabilities $ids")
     }
     val routerFixture = load("host-router.json")
     val hostPackages = obj(routerFixture["packages"])
@@ -295,24 +295,32 @@ fun main(args: Array<String>) {
         val name = flow["name"] as String
         val router = HostRouter((flow["extensionIds"] as List<String>?) ?: emptyList())
         for (id in (flow["packages"] as List<String>?) ?: emptyList()) equal(router.installPackage(Json.write(hostPackages[id])), obj(flow["installIssues"])[id], "$name: install $id")
-        for ((i, step) in list(flow["steps"]).map(::obj).withIndex()) equal(router.route(Json.write(step["message"])), step["expected"], "$name: step $i")
+        for ((i, step) in list(flow["steps"]).map(::obj).withIndex()) equal(router.routeJson(Json.write(step["message"]), step["trusted"] == true), step["expected"], "$name: step $i")
     }
     val hostRouter = HostRouter(emptyList())
     hostRouter.installPackage(Json.write(hostPackages["acme.devices"]))
-    hostRouter.route(Json.write(mapOf("version" to "v0.9", "applyTemplate" to mapOf("surfaceId" to "d", "templateId" to "list"))))
+    hostRouter.routeJson(Json.write(mapOf("version" to a2uiVersion(), "applyTemplate" to mapOf("surfaceId" to "d", "templateId" to "list"))), true)
     check(hostRouter.surfaceIds() == listOf("d") && hostRouter.packageIdOf("d") == "acme.devices") { "router state" }
-    equal(errorMessageJson("FUNCTION_DENIED", "s", "m", null), mapOf("version" to "v0.9", "error" to mapOf("code" to "FUNCTION_DENIED", "surfaceId" to "s", "message" to "m")), "errorMessage")
-    equal(actionMessageJson("s", "b", "go", "{}", null, "t"), mapOf("version" to "v0.9", "action" to mapOf("name" to "go", "surfaceId" to "s", "sourceComponentId" to "b", "timestamp" to "t", "context" to emptyMap<String, Any>())), "actionMessage")
+    equal(errorMessageJson("INVALID_FUNCTION_CALL", "s", "m", null), mapOf("version" to "1.0", "error" to mapOf("code" to "INVALID_FUNCTION_CALL", "surfaceId" to "s", "message" to "m")), "errorMessage")
+    equal(actionMessageJson("s", "b", "go", "{}", null, "t"), mapOf("version" to "1.0", "action" to mapOf("name" to "go", "surfaceId" to "s", "sourceComponentId" to "b", "timestamp" to "t", "context" to emptyMap<String, Any>())), "actionMessage")
+    // Round 9 (§15): the upgrade09 smoke cases, the id mint.
+    check(a2uiVersion() == "1.0") { "a2uiVersion" }
+    check(hostRouter.mintSurfaceId("d") == "d#1") { "mintSurfaceId" }
+    val upgradeCases = list(obj(load("upgrade09.json"))["cases"]).map(::obj)
+    val upgradeClient = upgradeCases.first { it["kind"] == "client" }
+    equal(upgrade09Json(Json.write(mapOf("kind" to "client", "input" to upgradeClient["input"]))), upgradeClient["expected"], "upgrade09 client")
+    val upgradeCard = upgradeCases.first { it["kind"] == "card" }
+    equal(upgradeCard09(Json.write(upgradeCard["input"])), upgradeCard["expected"], "upgrade09 card")
     check(templateMessagesJson(Json.write(hostPackages["acme.devices"]), "nope", "x", null) == null) { "missing template" }
     val fnSurface = Surface("f", coreCatalogId(), null, "light")
-    fnSurface.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "b", "component" to "Button", "props" to mapOf("label" to "Go"), "on" to mapOf("press" to mapOf("functionCall" to mapOf("call" to "harness.toast", "args" to mapOf("message" to mapOf("path" to "/m"))))))))))
+    fnSurface.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "b", "component" to "Button", "props" to mapOf("label" to "Go"), "on" to mapOf("press" to mapOf("functionCall" to mapOf("@call" to "harness_toast", "args" to mapOf("message" to mapOf("@path" to "/m"))))))))))
     fnSurface.setData("/m", "\"hi\"")
     fnSurface.setViewport(400f, 0f, null)
     fnSurface.layoutFixed(null, false)
     val fnEvents = fnSurface.event(fnSurface.indexOf("b")!!, "press", null)
     val fnCall = fnEvents.firstOrNull { it.kind == "functionCall" }
     check(fnCall != null) { "functionCall event ${fnEvents.map { it.kind }}" }
-    if (fnCall != null) equal(fnCall.json, mapOf("kind" to "functionCall", "componentId" to "b", "name" to "harness.toast", "args" to mapOf("message" to "hi")), "functionCall json")
+    if (fnCall != null) equal(fnCall.json, mapOf("kind" to "functionCall", "componentId" to "b", "name" to "harness_toast", "args" to mapOf("message" to "hi")), "functionCall json")
     println("host fixtures: $checks checks so far")
 
     // Round 2 (docs/round-2-contract.md): format calls through the English
@@ -352,8 +360,8 @@ fun main(args: Array<String>) {
         override fun plural(value: Double) = "other"
         override fun bytes(value: Double, unit: String) = "$value~$unit"
     }
-    check(formatCallJson(Json.write(mapOf("call" to "formatRelativeTime", "args" to mapOf("value" to 0.0))), Loud(), 7_200_000.0) == "\"-2 hour\"") { "kotlin formatter: relative" }
-    check(formatCallJson(Json.write(mapOf("call" to "formatDate", "args" to mapOf("value" to "2026-10-14"))), Loud(), null) == "\"dtrue\"") { "kotlin formatter: date" }
+    check(formatCallJson(Json.write(mapOf("@call" to "formatRelativeTime", "args" to mapOf("value" to 0.0))), Loud(), 7_200_000.0) == "\"-2 hour\"") { "kotlin formatter: relative" }
+    check(formatCallJson(Json.write(mapOf("@call" to "formatDate", "args" to mapOf("value" to "2026-10-14"))), Loud(), null) == "\"dtrue\"") { "kotlin formatter: date" }
     val up = Surface("u", coreCatalogId(), null, "light")
     up.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "f", "component" to "FileUpload", "props" to mapOf("files" to listOf(mapOf("name" to "a.png", "size" to 48213.0))))))))
     up.setFormatter(Loud())
@@ -361,10 +369,10 @@ fun main(args: Array<String>) {
     up.layoutFixed(null, true)
     val meta = up.nodes().firstOrNull { it.id == "f.fileMeta.0" }
     check(meta != null && obj(Json.parse(meta.propsJson))["text"] == "47.1~kilobyte") { "kotlin formatter: bytes ${meta?.propsJson}" }
-    val header = mapOf("id" to "h", "component" to "Text", "props" to mapOf("text" to mapOf("call" to "concat", "args" to mapOf("values" to listOf(mapOf("path" to "value"), " · ", mapOf("path" to "count"))))))
+    val header = mapOf("id" to "h", "component" to "Text", "props" to mapOf("text" to mapOf("@call" to "concat", "args" to mapOf("values" to listOf(mapOf("@path" to "value"), " · ", mapOf("@path" to "count"))))))
     val bound = obj(Json.parse(bindSectionHeaderJson(Json.write(header), Json.write(mapOf("value" to "Today", "count" to 2.0)), 0u, "{}", null)!!))
     check(obj(bound["props"])["text"] == "Today · 2") { "section header ${bound["props"]}" }
-    val rowSlot = bindRowSlotJson(Json.write(mapOf("id" to "c", "component" to "Text", "props" to mapOf("text" to mapOf("path" to "name")))), "[]", Json.write(listOf(mapOf("name" to "Ada"))), 0u, "{}", null)
+    val rowSlot = bindRowSlotJson(Json.write(mapOf("id" to "c", "component" to "Text", "props" to mapOf("text" to mapOf("@path" to "name")))), "[]", Json.write(listOf(mapOf("name" to "Ada"))), 0u, "{}", null)
     check(rowSlot != null && obj(obj(Json.parse(rowSlot))["props"])["text"] == "Ada") { "row slot $rowSlot" }
     val lst = Surface("l", coreCatalogId(), null, "light")
     lst.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "l", "component" to "List", "style" to mapOf("height" to 400.0), "children" to List(1000) { mapOf("id" to "r$it", "component" to "Box", "style" to mapOf("height" to 40.0, "flexShrink" to 0.0)) })))))
@@ -392,7 +400,7 @@ fun main(args: Array<String>) {
         mapOf("id" to "cap", "component" to "Text", "props" to mapOf("text" to "Overline", "variant" to "caption")),
         mapOf("id" to "steps", "component" to "Stepper", "props" to mapOf("steps" to listOf(mapOf("label" to "One"), mapOf("label" to "Two")), "current" to 1.0)),
         mapOf("id" to "pill", "component" to "Chip", "props" to mapOf("label" to "All", "pressable" to true)),
-        mapOf("id" to "n", "component" to "Text", "props" to mapOf("text" to mapOf("path" to "/n"))),
+        mapOf("id" to "n", "component" to "Text", "props" to mapOf("text" to mapOf("@path" to "/n"))),
         mapOf("id" to "hov", "component" to "Box", "style" to mapOf("width" to 10.0, "height" to 10.0, ":hover" to mapOf("opacity" to 0.5)))))))
     asks.setData("/n", "412")
     asks.setViewport(390f, 0f, null)

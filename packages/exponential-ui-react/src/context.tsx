@@ -132,5 +132,5 @@ export const InstanceContext = createContext<string>(``)
 
 /** The resolve context of one render (bindings + calls + `$string`). */
 export function resolveContextOf(ctx: SurfaceContextValue, scope: string): ResolveContext {
-  return { data: ctx.data, scope, functions: ctx.functions, openUrl: ctx.openUrl, locale: ctx.locale, strings: ctx.strings, formatter: ctx.formatter, now: ctx.now }
+  return { data: ctx.data, scope, functions: ctx.functions, openUrl: ctx.openUrl, locale: ctx.locale, strings: ctx.strings, formatter: ctx.formatter, now: ctx.now, catalogId: ctx.host.surfaceCatalogId?.(ctx.surfaceId), route: ctx.host.routeCall && ((call) => ctx.host.routeCall!(ctx.surfaceId, call)), onFailure: ctx.host.reportFailure && ((failure) => ctx.host.reportFailure!(ctx.surfaceId, failure)) }
 }

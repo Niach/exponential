@@ -2,9 +2,9 @@
 //! a normalized surface node, the nested authoring form, the A2UI wire form
 //! and an extension catalog. Mirrors `packages/exponential-ui/src/types.ts`.
 //!
-//! Objects are `serde_json::Map` (sorted keys); where ORDER is part of the
-//! contract (slots, catalog definitions, macro templates) an `IndexMap` keeps
-//! the source order.
+//! Objects are `serde_json::Map` (insertion order); an `IndexMap` keeps the
+//! source order of the typed tables (slots, catalog definitions, macro
+//! templates).
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -64,6 +64,10 @@ pub struct UiNode {
     pub template: Option<Template>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipe: Option<Recipe>,
+    /// Round 9 §5.1: the entry's `ComponentCommon.metadata`, stored and
+    /// exposed, never painted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 impl UiNode {
@@ -107,6 +111,11 @@ pub struct NestedNode {
     pub slots: Option<IndexMap<String, NestedNode>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template: Option<Template>,
+    /// Round 9 §5.5, §13: the node's own catalog.
+    #[serde(default, rename = "catalogId", skip_serializing_if = "Option::is_none")]
+    pub catalog_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 /// A2UI `children`: ids, or a template `{componentId, path, key?}`.
@@ -151,15 +160,40 @@ pub struct FlatComponent {
     pub visible: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<Value>,
+    /// Round 9 §5.5: the entry's own catalog (else the surface default).
+    #[serde(default, rename = "catalogId", skip_serializing_if = "Option::is_none")]
+    pub catalog_id: Option<String>,
+    /// Round 9 §5.1: `{extensions?}`, stored, never painted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
     #[serde(flatten)]
     pub rest: Props,
 }
 
-/// One reducer complaint, by node id.
+/// One reducer complaint, by node id. Round 9 §5.2: with the error code the
+/// runtime SENDS and the path (`/components/<authored id>` + the prop pointer).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReduceIssue {
     pub id: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub code: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+}
+
+impl ReduceIssue {
+    /// A VALIDATION_FAILED issue at `/components/<id>`.
+    pub fn new(id: impl Into<String>, message: impl Into<String>) -> ReduceIssue {
+        ReduceIssue::at(id, message, "", "VALIDATION_FAILED")
+    }
+
+    /// An issue with its code, at `/components/<id>` + `pointer`.
+    pub fn at(id: impl Into<String>, message: impl Into<String>, pointer: &str, code: &str) -> ReduceIssue {
+        let id = id.into();
+        let path = format!("/components/{}{pointer}", id.replace('~', "~0").replace('/', "~1"));
+        ReduceIssue { id, message: message.into(), code: code.to_string(), path }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +257,9 @@ pub struct ComponentDef {
     pub children: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slots: Option<Vec<String>>,
+    /// Round 9 §5.6: `allowedParents` (absent = any).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parents: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hidden: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

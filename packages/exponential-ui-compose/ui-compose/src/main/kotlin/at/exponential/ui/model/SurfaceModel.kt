@@ -742,6 +742,12 @@ class SurfaceModel(
         invalidate(false)
     }
 
+    /** Round 9 §6.5: a routed value settled (`HostCalls.takeDirty`): bind again. */
+    internal fun rebind() {
+        surface.rebind()
+        fullInvalidate()
+    }
+
     /** Settings moved (density, contrast, font scale, the effective theme): every node and visual is re-read. */
     private fun fullInvalidate() {
         paintFull = true
@@ -891,6 +897,7 @@ class SurfaceModel(
         reportUnknowns()
         echoFields()
         syncToasts()
+        host.afterLayout(id)
     }
 
     /**

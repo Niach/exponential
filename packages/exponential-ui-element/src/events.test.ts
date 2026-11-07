@@ -105,7 +105,7 @@ describe(`events`, () => {
     const d = deferred()
     const seen: SurfaceInputDetail[] = []
     const el = mount((e) => {
-      fixture({ id: `i`, component: `Input`, props: { label: `T`, name: `t`, value: { path: `/t` } } } as unknown as NestedNode, { t: `` })(e)
+      fixture({ id: `i`, component: `Input`, props: { label: `T`, name: `t`, value: { "@path": `/t` } } } as unknown as NestedNode, { t: `` })(e)
       e.plugin = { onInput: plugin }
     })
     el.addEventListener(`xui-input`, (e) => {
@@ -134,7 +134,7 @@ describe(`events`, () => {
   })
 
   it(`xui-function-call: the first respond wins and keeps the source pending; without one the plugin's result`, async () => {
-    const node = { id: `b`, component: `Button`, props: { label: `Look up` }, on: { press: { functionCall: { call: `lookup`, args: { q: 1 } } } } } as unknown as NestedNode
+    const node = { id: `b`, component: `Button`, props: { label: `Look up` }, on: { press: { functionCall: { "@call": `lookup`, args: { q: 1 } } } } } as unknown as NestedNode
     const plugin = vi.fn(() => `from-plugin`)
     const d = deferred()
     const el = mount((e) => {
@@ -160,6 +160,27 @@ describe(`events`, () => {
     button.click()
     expect(plugin).toHaveBeenCalledTimes(2)
     expect(button.hasAttribute(`aria-busy`)).toBe(false)
+  })
+
+  it(`an action with both: the event waits for the function, a failed function stops it (round 9 §6.8)`, async () => {
+    const node = { id: `b`, component: `Button`, props: { label: `Go` }, on: { press: { functionCall: { "@call": `lookup` }, event: { name: `done` } } } } as NestedNode
+    let outcome: unknown = { decision: `deny` }
+    const el = mount((e) => {
+      fixture(node)(e)
+      e.plugin = { onFunctionCall: async () => outcome }
+    })
+    const seen: string[] = []
+    const listener = (e: Event) => void seen.push((e as CustomEvent<SurfaceActionDetail>).detail.name)
+    document.body.addEventListener(`xui-action`, listener)
+    const button = el.querySelector(`button`) as HTMLButtonElement
+    button.click()
+    await tick()
+    expect(seen).toEqual([])
+    outcome = { decision: `allow` }
+    button.click()
+    await tick()
+    document.body.removeEventListener(`xui-action`, listener)
+    expect(seen).toEqual([`done`])
   })
 
   it(`xui-open-url: cancelable; the default = window.open(url, _blank, noopener,noreferrer), else plugin.openUrl`, () => {

@@ -70,7 +70,7 @@ class DockCardTest {
         Fixtures.json("specimens.json")["specimens"]!!.array!!.first { it["id"]?.string == "exponential-ui-dock-card" }["node"]!!.json
 
     private val closed = """{"id":"root","component":"Box","children":[{"id":"dc","component":"DockCard",
-        "props":{"label":"Plan ready","title":"Fold the composer","icon":"coding-plan","tone":"primary","open":{"path":"/ui/dockOpen"}},
+        "props":{"label":"Plan ready","title":"Fold the composer","icon":"coding-plan","tone":"primary","open":{"@path":"/ui/dockOpen"}},
         "children":[{"id":"dc-body","component":"Text","props":{"text":"The plan body"}}],
         "slots":{"footer":{"id":"dc-yes","component":"Button","props":{"label":"Approve"}}}}]}"""
 

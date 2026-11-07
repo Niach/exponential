@@ -95,10 +95,8 @@ pub fn validate_package_components<S: AsRef<str>>(pkg: &Map<String, Value>, cata
         return issues;
     }
     let Some(templates) = pkg.get("templates").and_then(Value::as_object) else { return issues };
-    let declared_unknown = pkg
-        .get("extensions")
-        .and_then(Value::as_array)
-        .is_some_and(|list| list.iter().filter_map(|e| e.get("id").and_then(Value::as_str)).any(|id| !id.is_empty() && !view.knows_catalog(id)));
+    let declared: Vec<&str> = pkg.get("extensions").and_then(Value::as_array).into_iter().flatten().filter_map(|e| e.get("id").and_then(Value::as_str)).collect();
+    let declared_unknown = declared.iter().any(|id| !id.is_empty() && !view.knows_catalog(id));
     let open = !view.knows_catalog(catalog_id) || declared_unknown;
     let reduce_as = if view.knows_catalog(catalog_id) { catalog_id } else { CORE_CATALOG_ID };
     for (id, template) in super::package::sorted_entries(templates) {
@@ -146,8 +144,17 @@ pub fn validate_package_components<S: AsRef<str>>(pkg: &Map<String, Value>, cata
                 issues.push(PackageIssue { path, message });
             }
         };
-        let options = ReduceOptions::new(reduce_as).with_view(view.clone());
+        // Round 9 §5.5: a catalog the host only knows by id is available (its
+        // component names stay open), `extensions` report a missing one themselves.
+        let mut options = ReduceOptions::new(reduce_as).with_view(view.clone());
+        options.available = Some(catalog_ids.iter().map(|c| c.as_ref().to_string()).chain(view.extension_ids.iter().cloned()).collect());
         for found in reduce_surface(&flat, &options).issues {
+            if found.code == "UNSUPPORTED_CATALOG" {
+                let named = found.message.strip_prefix("catalog ").and_then(|m| m.split_whitespace().next()).unwrap_or(&found.message);
+                if view.knows_catalog(named) || declared.contains(&named) {
+                    continue;
+                }
+            }
             if open && found.message.starts_with("unknown component ") {
                 continue;
             }

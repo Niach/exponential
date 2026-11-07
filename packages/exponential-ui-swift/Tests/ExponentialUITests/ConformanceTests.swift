@@ -463,7 +463,7 @@ final class ConformanceTests: XCTestCase {
             out.append(run("mcp: \(c["name"]?.string ?? "")") { same(try messagesFromMcpResultJson(resultJson: c["result"]!.json), c["expected"]!) })
         }
         for c in f["mcpAction"]?.array ?? [] {
-            out.append(run("mcpAction: \(c["name"]?.string ?? "")") { same(try mcpActionCallJson(messageJson: c["message"]!.json, tool: c["tool"]?.string), c["expected"]!) })
+            out.append(run("mcpAction: \(c["name"]?.string ?? "")") { same(try mcpActionCallJson(messageJson: c["message"]!.json, tool: c["tool"]?.string, metadataJson: c["metadata"]?.json), c["expected"]!) })
         }
         return out
     }
@@ -508,7 +508,7 @@ final class ConformanceTests: XCTestCase {
             let ids = (c["extensionIds"]?.array ?? []).compactMap(\.string)
             out.append(run("negotiation: \(ids.count) extension ids") {
                 if let d = same(JSONValue.array(supportedCatalogIdsFor(extensionIds: ids).map { .string($0) }).json, c["expected"]!["supportedCatalogIds"]!) { return d }
-                return same(clientCapabilitiesJson(extensionIds: ids), c["expected"]!["clientCapabilities"]!)
+                return same(try! rendererCapabilitiesJson(extensionIds: ids, inlineCatalogsJson: nil), c["expected"]!["rendererCapabilities"]!)
             })
         }
         return out
@@ -556,9 +556,79 @@ final class ConformanceTests: XCTestCase {
                     if let d = same(try router.installPackage(packageJson: packages[id]!.json), flow["installIssues"]![id]!) { return "install \(id): \(d)" }
                 }
                 for (i, step) in (flow["steps"]?.array ?? []).enumerated() {
-                    if let d = same(router.route(messageJson: step["message"]!.json), step["expected"]!) { return "step \(i): \(d)" }
+                    if let d = same(router.routeJson(messageJson: step["message"]!.json, trusted: step["trusted"]?.bool ?? false), step["expected"]!) { return "step \(i): \(d)" }
                 }
                 return nil
+            })
+        }
+        return out
+    }
+
+    /// Round 9 §15: the A2UI 1.0 wire.
+    func a2ui10Suite() throws -> [Case] {
+        let f = try Fixtures.json("a2ui10-messages.json")
+        let packages = f["packages"]!
+        func names(_ v: JSONValue?) -> [String] { (v?.array ?? []).compactMap(\.string) }
+        var out: [Case] = []
+        for c in f["ids"]?.array ?? [] {
+            let id = c["id"]!.string!
+            out.append(run("id \(id)") {
+                same(JSONValue.object(["identifier": .bool(isIdentifier(id: id)), "mangle": .string(mangleId(id: id))]).json, c["expected"]!)
+            })
+        }
+        for flow in f["flows"]?.array ?? [] {
+            out.append(run("flow: \(flow["name"]?.string ?? "")") {
+                let router = HostRouter(extensionIds: names(flow["extensionIds"]))
+                for id in names(flow["inlineCatalogs"]) { router.registerInlineCatalog(id: id) }
+                for id in names(flow["packages"]) { _ = try router.installPackage(packageJson: packages[id]!.json) }
+                for (i, step) in (flow["steps"]?.array ?? []).enumerated() {
+                    let got = router.routeWithBridgeJson(messageJson: step["message"]!.json, trusted: step["trusted"]?.bool ?? false, acceptV09: step["acceptV09"]?.bool ?? true)
+                    if let d = same(got, step["expected"]!) { return "step \(i): \(d)" }
+                }
+                return nil
+            })
+        }
+        for c in f["mint"]?.array ?? [] {
+            out.append(run("mint: \(c["name"]?.string ?? "")") {
+                let router = HostRouter(extensionIds: [])
+                func ops(_ kind: String, _ body: JSONValue) -> String {
+                    let routed = JSONValue.parse(router.routeJson(messageJson: JSONValue.object(["version": .string("1.0"), kind: body]).json, trusted: false))
+                    return JSONValue.array((routed.array ?? []).map { $0["op"] ?? .null }).json
+                }
+                for (i, step) in (c["steps"]?.array ?? []).enumerated() {
+                    let got: String
+                    if let id = step["create"] {
+                        got = ops("createSurface", .object(["surfaceId": id, "catalogId": .string("https://ui.exponential.at/catalogs/core/v1")]))
+                    } else if let id = step["delete"] {
+                        got = ops("deleteSurface", .object(["surfaceId": id]))
+                    } else {
+                        got = JSONValue.string(router.mintSurfaceId(base: step["mint"]!.string!)).json
+                    }
+                    if let d = same(got, step["expected"]!) { return "step \(i): \(d)" }
+                }
+                return nil
+            })
+        }
+        for c in f["errors"]?.array ?? [] {
+            out.append(run("error: \(c["name"]?.string ?? "")") {
+                let got: String
+                if let call = c["target"]?["functionCallId"]?.string {
+                    got = functionErrorMessageJson(code: c["code"]!.string!, functionCallId: call, message: c["message"]!.string!, path: c["path"]?.string)
+                } else {
+                    got = errorMessageJson(code: c["code"]!.string!, surfaceId: c["target"]!["surfaceId"]!.string!, message: c["message"]!.string!, path: c["path"]?.string)
+                }
+                return same(got, c["expected"]!)
+            })
+        }
+        for c in f["actions"]?.array ?? [] {
+            let i = c["input"]!
+            out.append(run("action: \(c["name"]?.string ?? "")") {
+                same(try actionMessageWithUserMessageJson(surfaceId: i["surfaceId"]!.string!, componentId: i["sourceComponentId"]!.string!, name: i["name"]!.string!, contextJson: i["context"]!.json, payloadJson: i["payload"]?.json, timestamp: i["timestamp"]!.string!, userMessage: i["userMessage"]?.string), c["expected"]!)
+            })
+        }
+        for c in f["cards"]?.array ?? [] {
+            out.append(run("card: \(c["name"]?.string ?? "")") {
+                same(try cardV10Json(cardJson: c["input"]!.json, acceptV09: c["acceptV09"]?.bool ?? true), c["expected"]!)
             })
         }
         return out
@@ -581,6 +651,7 @@ final class ConformanceTests: XCTestCase {
         case "host-transport": try transportSuite()
         case "host-policy": try policySuite()
         case "host-router": try routerSuite()
+        case "a2ui10": try a2ui10Suite()
         // Manifest v2 (round 2): `Round2Suites`.
         case "bind": try Round2Suites.bind()
         case "style-conditions": try Round2Suites.styleConditions()

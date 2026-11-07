@@ -35,13 +35,13 @@ pub const ACTION_LIMIT_MAX_STEPS: usize = 100_000;
 /// VAPP-271: a `call` step's `result` name (`results.<name>`).
 pub const ACTION_RESULT_PATTERN: &str = "^[a-z][A-Za-z0-9_]{0,31}$";
 /// The step forms, by their one key.
-pub const ACTION_STEP_KINDS: &[&str] = &["require", "records.upsert", "records.delete", "set", "call"];
+pub const ACTION_STEP_KINDS: &[&str] = &["require", "records_upsert", "records_delete", "set", "call"];
 /// An action's name (`actions.<name>`).
 pub const ACTION_NAME_PATTERN: &str = "^[a-z][A-Za-z0-9_]{0,31}$";
 /// The function-call prefix that runs a package action.
-pub const ACTION_CALL_PREFIX: &str = "actions.";
+pub const ACTION_CALL_PREFIX: &str = "actions_";
 /// The host function a host commits an action's record writes through.
-pub const RECORDS_BATCH_FUNCTION: &str = "records.batch";
+pub const RECORDS_BATCH_FUNCTION: &str = "records_batch";
 
 /// The snapshot an action runs against.
 #[derive(Default, Clone, Copy)]
@@ -299,8 +299,8 @@ fn validate_step(step: &Value, at: &str, types: &Map<String, Value>, records: &M
                 issues.push(issue(format!("{at}/message"), "message is the text shown when the requirement fails"));
             }
         }
-        "records.upsert" => {
-            let Some(body) = body.as_object() else { return vec![issue(&here, "records.upsert is {kind, data, id?}")] };
+        "records_upsert" => {
+            let Some(body) = body.as_object() else { return vec![issue(&here, "records_upsert is {kind, data, id?}")] };
             let kind_name = body.get("kind").and_then(Value::as_str).unwrap_or("");
             let def = records.get(kind_name).and_then(Value::as_object);
             if def.is_none() {
@@ -355,8 +355,8 @@ fn validate_step(step: &Value, at: &str, types: &Map<String, Value>, records: &M
                 }
             }
         }
-        "records.delete" => {
-            let Some(id) = body.as_object().and_then(|b| b.get("id")) else { return vec![issue(&here, "records.delete is {id}")] };
+        "records_delete" => {
+            let Some(id) = body.as_object().and_then(|b| b.get("id")) else { return vec![issue(&here, "records_delete is {id}")] };
             let id_at = format!("{here}/id");
             if let Some(t) = slot(id, &id_at, types, &mut issues) {
                 if !fits(&ty("string"), &t) {
@@ -377,7 +377,7 @@ fn validate_step(step: &Value, at: &str, types: &Map<String, Value>, records: &M
             let Some(name) = body.as_str().filter(|n| !n.is_empty()) else { return vec![issue(&here, "call names a host function")] };
             let effect = function_effect(name);
             if effect == FunctionEffect::Write {
-                issues.push(issue(&here, format!("{}: use a records.upsert, records.delete or set step", effect_words(name, effect))));
+                issues.push(issue(&here, format!("{}: use a records_upsert, records_delete or set step", effect_words(name, effect))));
             } else if effect == FunctionEffect::Pure {
                 issues.push(issue(&here, format!("{name} is pure: compute it in an expression")));
             } else if action_call_name(name).is_some() {
@@ -411,10 +411,10 @@ fn pure(value: &Value, at: &str, issues: &mut Vec<PackageIssue>) {
             }
         }
         Value::Object(obj) => {
-            if let Some(call) = obj.get("call").and_then(Value::as_str) {
+            if let Some(call) = obj.get("@call").and_then(Value::as_str) {
                 let effect = function_effect(call);
                 if effect != FunctionEffect::Pure {
-                    issues.push(issue(format!("{at}/call"), format!("{}: a binding is pure, name an action in on.press", effect_words(call, effect))));
+                    issues.push(issue(format!("{at}/@call"), format!("{}: a binding is pure, name an action in on.press", effect_words(call, effect))));
                 }
             }
             for (k, v) in obj {
@@ -454,10 +454,10 @@ pub fn validate_package_effects(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                             pure(hv, &format!("{hat}/{}", escape(hk)), &mut issues);
                             continue;
                         };
-                        let call = fc.get("call").and_then(Value::as_str).unwrap_or("");
+                        let call = fc.get("@call").and_then(Value::as_str).unwrap_or("");
                         if let Some(action) = action_call_name(call) {
                             if !actions.contains_key(action) {
-                                issues.push(issue(format!("{hat}/functionCall/call"), format!("action {action} names no package action")));
+                                issues.push(issue(format!("{hat}/functionCall/@call"), format!("action {action} names no package action")));
                             }
                             // VAPP-204: a press's args are the action's params.
                             if let Some(def) = actions.get(action).and_then(Value::as_object) {
@@ -469,7 +469,7 @@ pub fn validate_package_effects(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                             bind_source_issues(pkg, fc.get("args"), &format!("{hat}/functionCall/args"), &mut issues);
                         }
                         for (fk, fv) in fc {
-                            if fk != "call" {
+                            if fk != "@call" {
                                 pure(fv, &format!("{hat}/functionCall/{}", escape(fk)), &mut issues);
                             }
                         }
@@ -649,9 +649,9 @@ pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) 
                     });
                 }
             }
-            "records.upsert" => {
+            "records_upsert" => {
                 let Some((body, data_exprs)) = body.as_object().and_then(|b| b.get("data").and_then(Value::as_object).map(|d| (b, d))) else {
-                    return Err(format!("{where}: records.upsert is {{kind, data, id?}}"));
+                    return Err(format!("{where}: records_upsert is {{kind, data, id?}}"));
                 };
                 let kind_name = body.get("kind").and_then(Value::as_str).unwrap_or("");
                 let Some(schema) = records.get(kind_name).and_then(Value::as_object).and_then(|d| d.get("schema")).filter(|s| s.is_object()) else {
@@ -703,8 +703,8 @@ pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) 
                     Some(id) => json!({"op": "upsert", "kind": kind_name, "data": data, "id": id}),
                 });
             }
-            "records.delete" => {
-                let Some(body) = body.as_object() else { return Err(format!("{where}: records.delete is {{id}}")) };
+            "records_delete" => {
+                let Some(body) = body.as_object() else { return Err(format!("{where}: records_delete is {{id}}")) };
                 // A missing id evaluates like JS `undefined` (not a string).
                 let v = match body.get("id") {
                     Some(expr) => value(expr)?,

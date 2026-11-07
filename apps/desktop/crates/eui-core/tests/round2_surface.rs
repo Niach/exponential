@@ -46,7 +46,7 @@ fn nested_templates_accumulate_instance_suffixes_and_render_only_per_item() {
         "children": [
             {"id": "boards", "component": "List", "template": {"component": "board", "path": "/boards", "key": "id"}},
             {"id": "board", "component": "Box", "children": [{"id": "issues", "component": "List", "template": {"component": "issue", "path": "issues", "key": "id"}}]},
-            {"id": "issue", "component": "Text", "props": {"text": {"path": "t"}}}
+            {"id": "issue", "component": "Text", "props": {"text": {"@path": "t"}}}
         ]
     }));
     s.set_data("", Some(json!({"boards": [{"id": "ops", "issues": [{"id": "1", "t": "Ship"}, {"id": "2", "t": "Test"}]}, {"id": "web", "issues": [{"id": "1", "t": "Fix"}]}]}))).unwrap();
@@ -65,9 +65,9 @@ fn layout_props_resolve_along_the_schema_and_numbers_show_as_display_strings() {
     let mut s = surface(json!({
         "id": "root", "component": "Box",
         "children": [
-            {"id": "count", "component": "Text", "props": {"text": {"path": "/n"}}},
-            {"id": "flag", "component": "Text", "props": {"text": {"path": "/ok"}}},
-            {"id": "t", "component": "Table", "props": {"columns": [{"key": "name", "label": "Name"}], "rows": [{"id": "a", "name": {"path": "/n"}}]}}
+            {"id": "count", "component": "Text", "props": {"text": {"@path": "/n"}}},
+            {"id": "flag", "component": "Text", "props": {"text": {"@path": "/ok"}}},
+            {"id": "t", "component": "Table", "props": {"columns": [{"key": "name", "label": "Name"}], "rows": [{"id": "a", "name": {"@path": "/n"}}]}}
         ]
     }));
     s.set_data("", Some(json!({"n": 412, "ok": true}))).unwrap();
@@ -76,7 +76,7 @@ fn layout_props_resolve_along_the_schema_and_numbers_show_as_display_strings() {
     assert_eq!(prop(&mut s, "count", "text"), json!("412"));
     assert_eq!(prop(&mut s, "flag", "text"), json!("true"));
     // A literal Table row holding `{path}` is DATA (bind-time.json literal-rows).
-    assert_eq!(prop(&mut s, "t", "rows"), json!([{"id": "a", "name": {"path": "/n"}}]));
+    assert_eq!(prop(&mut s, "t", "rows"), json!([{"id": "a", "name": {"@path": "/n"}}]));
 }
 
 struct German;
@@ -109,8 +109,8 @@ fn a_host_formatter_formats_cells_numbers_and_the_bind_functions() {
     let mut s = surface(json!({
         "id": "root", "component": "Box",
         "children": [
-            {"id": "f", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": 2.5, "decimals": 1}}}},
-            {"id": "rel", "component": "Text", "props": {"text": {"call": "formatRelativeTime", "args": {"value": 0}}}},
+            {"id": "f", "component": "Text", "props": {"text": {"@call": "formatNumber", "args": {"value": 2.5, "decimals": 1}}}},
+            {"id": "rel", "component": "Text", "props": {"text": {"@call": "formatRelativeTime", "args": {"value": 0}}}},
             {"id": "t", "component": "Table", "props": {"columns": [{"key": "p", "label": "P", "type": "percent"}, {"key": "c", "label": "C", "type": "currency", "currency": "EUR"}], "rows": [{"id": "a", "p": 0.5, "c": 3}]}}
         ]
     }));
@@ -128,7 +128,7 @@ fn a_host_formatter_formats_cells_numbers_and_the_bind_functions() {
 fn resizable_panels_share_the_axis_minus_the_handles_and_follow_drags_and_keys() {
     let mut s = surface(json!({
         "id": "root", "component": "Box", "style": {"width": 401},
-        "children": [{"id": "split", "component": "Resizable", "props": {"sizes": {"path": "/ui/split"}, "panels": [{"min": 20}, {"min": 30}], "handle": true}, "style": {"height": 200},
+        "children": [{"id": "split", "component": "Resizable", "props": {"sizes": {"@path": "/ui/split"}, "panels": [{"min": 20}, {"min": 30}], "handle": true}, "style": {"height": 200},
             "children": [{"id": "a", "component": "Box"}, {"id": "b", "component": "Box"}]}]
     }));
     s.set_data("", Some(json!({"ui": {"split": [30, 70]}}))).unwrap();
@@ -166,7 +166,7 @@ fn resizable_panels_share_the_axis_minus_the_handles_and_follow_drags_and_keys()
 fn resizable_commits_nothing_when_the_sizes_do_not_change() {
     let mut s = surface(json!({
         "id": "root", "component": "Box", "style": {"width": 401},
-        "children": [{"id": "split", "component": "Resizable", "props": {"sizes": {"path": "/ui/split"}, "panels": [{"min": 30}, {}], "handle": true}, "on": {"change": {"event": {"name": "resized"}}}, "style": {"height": 200},
+        "children": [{"id": "split", "component": "Resizable", "props": {"sizes": {"@path": "/ui/split"}, "panels": [{"min": 30}, {}], "handle": true}, "on": {"change": {"event": {"name": "resized"}}}, "style": {"height": 200},
             "children": [{"id": "a", "component": "Box"}, {"id": "b", "component": "Box"}]}]
     }));
     s.set_data("", Some(json!({"ui": {"split": [30, 70]}}))).unwrap();
@@ -240,7 +240,7 @@ fn sections_get_headers_and_the_sticky_one_pins() {
     let mut s = surface(json!({"id": "root", "component": "Box",
         "children": [
             {"id": "l", "component": "List", "props": {"sectionBy": "day", "stickyHeaders": true}, "style": {"height": 400}, "template": {"component": "row", "path": "/items", "key": "id"},
-             "slots": {"section": {"id": "hdr", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "value"}, " (", {"path": "count"}, ")"]}}}}}},
+             "slots": {"section": {"id": "hdr", "component": "Text", "props": {"text": {"@call": "concat", "args": {"values": [{"@path": "value"}, " (", {"@path": "count"}, ")"]}}}}}},
             {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}}
         ]}));
     s.set_data("", Some(json!({"items": items}))).unwrap();
@@ -423,7 +423,7 @@ fn position_sticky_pins_against_a_host_scrolled_auto_height_surface() {
 
 #[test]
 fn a_number_field_parses_text_in_the_host_formatters_separators() {
-    let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "NumberField", "props": {"label": "N", "name": "n", "value": {"path": "/v"}, "step": 0.01}}]}));
+    let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "NumberField", "props": {"label": "N", "name": "n", "value": {"@path": "/v"}, "step": 0.01}}]}));
     s.set_formatter(Arc::new(German));
     s.set_data("/v", Some(json!(1))).unwrap();
     s.set_viewport(400.0, 0.0, None);
@@ -444,13 +444,13 @@ fn a_number_field_parses_text_in_the_host_formatters_separators() {
 #[test]
 fn uses_clock_flags_relative_times_without_now() {
     let tree = |props: Value| surface(json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Text", "props": props}]}));
-    let mut s = tree(json!({"text": {"call": "formatRelativeTime", "args": {"value": 0}}}));
+    let mut s = tree(json!({"text": {"@call": "formatRelativeTime", "args": {"value": 0}}}));
     s.set_viewport(400.0, 0.0, None);
     s.layout(&mut fixed());
     assert!(s.uses_clock());
     s.set_clock(Some(0.0));
     assert!(!s.uses_clock(), "a pinned clock never moves");
-    let s = tree(json!({"text": {"call": "formatRelativeTime", "args": {"value": 0, "now": 60000}}}));
+    let s = tree(json!({"text": {"@call": "formatRelativeTime", "args": {"value": 0, "now": 60000}}}));
     assert!(!s.uses_clock(), "an explicit now");
     let mut table = surface(json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Table", "props": {"columns": [{"key": "at", "label": "When", "type": "relativeTime"}], "rows": [{"id": "a", "at": 0}]}}]}));
     table.set_viewport(400.0, 0.0, None);

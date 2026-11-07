@@ -2270,7 +2270,7 @@
       "id": "calendar-month",
       "title": "Calendar · month",
       "node": {
-        "id": "cal-month",
+        "id": "cal_month",
         "component": "Calendar",
         "props": {
           "source": "/leave",
@@ -2282,7 +2282,7 @@
       "id": "calendar-week",
       "title": "Calendar · week",
       "node": {
-        "id": "cal-week",
+        "id": "cal_week",
         "component": "Calendar",
         "props": {
           "source": "/week",

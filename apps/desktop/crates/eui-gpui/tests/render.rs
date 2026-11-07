@@ -24,6 +24,8 @@ use gpui::{div, prelude::*, px, AnyElement, App, Entity, TestAppContext, VisualT
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+const VERSION: &str = eui_core::catalog::A2UI_VERSION;
+
 fn fixture(name: &str) -> Value {
     let path = format!("{}/../../../../packages/exponential-ui/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
@@ -208,7 +210,7 @@ fn every_basic_catalog_case_paints(cx: &mut TestAppContext) {
     let cases: Vec<BasicCase> = serde_json::from_value(fixture("catalog-basic-map.json")["cases"].clone()).unwrap();
     for c in cases {
         view.update(cx, |v, cx| {
-            v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
+            v.apply(&json!({"version": VERSION, "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
         });
         draw(cx);
         assert!(nodes(&view, cx) > 0, "{}", c.name);
@@ -228,7 +230,7 @@ fn every_extension_case_paints_with_a_registered_painter(cx: &mut TestAppContext
         let (view, vcx) = open(cx, options);
         view.update(vcx, |v, cx| {
             v.register_painter("TrendLine", Box::new(TrendLine));
-            v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
+            v.apply(&json!({"version": VERSION, "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
         });
         draw(vcx);
         draw(vcx);
@@ -349,7 +351,7 @@ fn presses_reach_the_host_and_overlays_open_and_close(cx: &mut TestAppContext) {
     // A Button press fires its action.
     cx.update(|window, cx| {
         view.update(cx, |v, cx| {
-            let i = v.index_of("hdr-scan").expect("hdr-scan");
+            let i = v.index_of("hdr_scan").expect("hdr_scan");
             v.press(i, window, cx);
         })
     });
@@ -357,7 +359,7 @@ fn presses_reach_the_host_and_overlays_open_and_close(cx: &mut TestAppContext) {
     {
         let log = log.0.borrow();
         let scan = log.actions.iter().find(|a| a.name == "scan").expect("scan action");
-        assert_eq!(scan.component_id, "hdr-scan");
+        assert_eq!(scan.component_id, "hdr_scan");
         assert_eq!(scan.surface_id, "surface");
         assert_eq!(scan.event, "press");
     }
@@ -365,7 +367,7 @@ fn presses_reach_the_host_and_overlays_open_and_close(cx: &mut TestAppContext) {
     // The dialog trigger opens a layer; Escape closes it.
     cx.update(|window, cx| {
         view.update(cx, |v, cx| {
-            let i = v.index_of("dialog-trigger").expect("dialog-trigger");
+            let i = v.index_of("dialog_trigger").expect("dialog_trigger");
             v.press(i, window, cx);
         })
     });
@@ -379,13 +381,13 @@ fn presses_reach_the_host_and_overlays_open_and_close(cx: &mut TestAppContext) {
     draw(cx);
     assert!(!dialog_open(&view, cx), "Escape closed it");
     draw(cx);
-    let (focused, trigger) = view.read_with(cx, |v, _| (v.focused(), v.index_of("dialog-trigger")));
+    let (focused, trigger) = view.read_with(cx, |v, _| (v.focused(), v.index_of("dialog_trigger")));
     assert_eq!(focused, trigger, "focus went back to the trigger");
 
     // A tab press changes the selection (the panels swap).
     let hidden = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.surface().layout_node(v.surface().index_of(id).unwrap()).unwrap().hidden);
-    assert!(!hidden(&view, cx, "tab-issue"));
-    assert!(hidden(&view, cx, "tab-run"));
+    assert!(!hidden(&view, cx, "tab_issue"));
+    assert!(hidden(&view, cx, "tab_run"));
     cx.update(|window, cx| {
         view.update(cx, |v, cx| {
             let i = v.index_of("tabs.tab.1").expect("second tab");
@@ -393,13 +395,13 @@ fn presses_reach_the_host_and_overlays_open_and_close(cx: &mut TestAppContext) {
         })
     });
     draw(cx);
-    assert!(hidden(&view, cx, "tab-issue"));
-    assert!(!hidden(&view, cx, "tab-run"));
+    assert!(hidden(&view, cx, "tab_issue"));
+    assert!(!hidden(&view, cx, "tab_run"));
 
     // An unbound checkbox flips at once (painter mirror) and reports it.
     cx.update(|window, cx| {
         view.update(cx, |v, cx| {
-            let i = v.index_of("form-agree").expect("checkbox");
+            let i = v.index_of("form_agree").expect("checkbox");
             v.press(i, window, cx);
         })
     });
@@ -522,7 +524,7 @@ fn typing_debounces_one_change_per_burst_writes_through_and_echoes_apply_when_id
         v.set_data("/draft/title", Some(json!("Hello")), cx).unwrap();
         v.layout_now(window, cx);
     });
-    let field = "echo-field.field";
+    let field = "echo_field.field";
     with_view(cx, &|v, _, cx| assert_eq!(v.field_text(field, cx).as_deref(), Some("Hello")));
     for ch in [" ", "w", "o", "r", "l", "d"] {
         with_view(cx, &|v, window, cx| assert!(v.type_into(field, ch, window, cx)));
@@ -539,7 +541,7 @@ fn typing_debounces_one_change_per_burst_writes_through_and_echoes_apply_when_id
         assert_eq!(e.kind, eui_gpui::host::InputKind::Change);
         assert_eq!(e.value, json!("Hello world"));
         assert_eq!(e.revision, 6);
-        assert_eq!(e.component_id, "echo-field");
+        assert_eq!(e.component_id, "echo_field");
         assert_eq!(e.path.as_deref(), Some("/draft/title"));
     }
     with_view(cx, &|v, _, _| assert_eq!(v.surface().get_data("/draft/title"), Some(&json!("Hello world")), "the bound value wrote through"));
@@ -575,9 +577,9 @@ fn field_write_cases_keep_the_echo_rule_and_adopt_programmatic_writes(cx: &mut T
         };
         let mut save = json!({"id": "save", "component": "Button", "props": {"label": "Save"}});
         if let Some(path) = c.get("pressPath") {
-            save["on"] = json!({"press": {"functionCall": {"call": "set", "args": {"path": path, "value": c["pressValue"]}}}});
+            save["on"] = json!({"press": {"functionCall": {"@call": "set", "args": {"path": path, "value": c["pressValue"]}}}});
         }
-        let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "children": [{"id": "draft", "component": "Input", "props": {"label": "Draft", "name": "draft", "value": {"path": "/draft"}}}, save]})).unwrap();
+        let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "children": [{"id": "draft", "component": "Input", "props": {"label": "Draft", "name": "draft", "value": {"@path": "/draft"}}}, save]})).unwrap();
         let seed = c["seed"].clone();
         with_view(cx, &|v, window, cx| {
             v.set_nested(tree.clone(), cx);
@@ -634,7 +636,7 @@ fn a_panicking_painter_paints_nothing_and_reaches_the_host(cx: &mut TestAppConte
     let components = c.components.clone();
     view.update(vcx, |v, cx| {
         v.register_painter("TrendLine", Box::new(Broken(calls.clone())));
-        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": components}}), cx).unwrap();
+        v.apply(&json!({"version": VERSION, "updateComponents": {"surfaceId": "surface", "components": components}}), cx).unwrap();
     });
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
@@ -653,7 +655,7 @@ fn a_panicking_painter_paints_nothing_and_reaches_the_host(cx: &mut TestAppConte
     let mut changed = serde_json::to_value(&c.components).unwrap();
     changed[0]["values"] = json!([1, 2]);
     view.update(vcx, |v, cx| {
-        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": changed}}), cx).unwrap();
+        v.apply(&json!({"version": VERSION, "updateComponents": {"surfaceId": "surface", "components": changed}}), cx).unwrap();
     });
     for _ in 0..3 {
         draw(vcx);
@@ -674,8 +676,8 @@ fn a_display_none_subtree_is_no_tab_stop(cx: &mut TestAppContext) {
     load_kitchen(&view, cx);
     draw(cx);
     let (back, new_issue, order, hidden) = view.read_with(cx, |v, _| {
-        let back = v.index_of("macros-split.detail.backBar.back").expect("the SplitView back button");
-        let new_issue = v.index_of("macros-new").expect("the Toolbar's trailing button");
+        let back = v.index_of("macros_split.detail.backBar.back").expect("the SplitView back button");
+        let new_issue = v.index_of("macros_new").expect("the Toolbar's trailing button");
         (back, new_issue, v.focus_order(), v.surface().layout_node(back).unwrap().hidden)
     });
     assert!(!hidden, "the back button is laid out (zero size), not hidden");

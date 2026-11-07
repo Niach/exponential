@@ -167,9 +167,9 @@ final class ActionsTests: XCTestCase {
                             return ["ids": ids]
                         }
                     },
-                    "photos.pick": fake("photos.pick"),
-                    "print.pdf": fake("print.pdf"),
-                    "harness.toast": fake("harness.toast"),
+                    "photos_pick": fake("photos_pick"),
+                    "print_pdf": fake("print_pdf"),
+                    "harness_toast": fake("harness_toast"),
                 ],
                 packages: [pkg.json],
                 policy: HostPolicy(functions: FunctionPolicy(deny: (c["deny"]?.array ?? []).compactMap(\.string))),
@@ -180,8 +180,8 @@ final class ActionsTests: XCTestCase {
             host.receive(JSONValue.object([
                 "version": .string("v0.9"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("main")]),
-            ]))
-            let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "add", name: "actions.\(c["action"]?.string ?? "")", args: [:]))
+            ]), trusted: true)
+            let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "add", name: "actions_\(c["action"]?.string ?? "")", args: [:]))
             XCTAssertEqual(out.error, c["error"]?.string, name)
             same(.array(called), c["called"] ?? .array([]), "results host called: \(name)")
             same(.array(rows.map { $0["data"] ?? .null }), c["created"] ?? .array([]), "results host created: \(name)")
@@ -239,13 +239,13 @@ final class ActionsTests: XCTestCase {
                             return ["ids": ids]
                         }
                     },
-                    "harness.toast": { args, _ in
+                    "harness_toast": { args, _ in
                         box?.toasts.append(args["message"]?.displayText ?? "")
                         return nil
                     },
                 ],
                 packages: [pkg.json],
-                policy: HostPolicy(functions: FunctionPolicy(ask: ["harness.toast"]), onFunctionCall: { _ in box?.consent ?? false }),
+                policy: HostPolicy(functions: FunctionPolicy(ask: ["harness_toast"]), onFunctionCall: { _ in box?.consent ?? false }),
                 me: me,
                 now: { Date(timeIntervalSince1970: ExpressionsTests.instant(f["env"]?["now"]?.string ?? "") / 1000) },
                 zone: FixedZone(Int32(f["env"]?["offset"]?.number ?? 0)),
@@ -256,7 +256,7 @@ final class ActionsTests: XCTestCase {
             host.receive(JSONValue.object([
                 "version": .string("v0.9"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("month")]),
-            ]))
+            ]), trusted: true)
         }
 
         var formHours: JSONValue? { host.surface("s")?.data["form"]?["hours"] }
@@ -270,7 +270,7 @@ final class ActionsTests: XCTestCase {
         let s = Surface(try Fixtures.json("actions.json"))
         XCTAssertNotNil(s.host.surface("s"))
         let epoch = try XCTUnwrap(s.host.surface("s")).surface.writeEpoch()
-        let out = await s.call("actions.log", ["date": .string("2026-11-03"), "hours": .number(2)])
+        let out = await s.call("actions_log", ["date": .string("2026-11-03"), "hours": .number(2)])
         XCTAssertNil(out.error)
         XCTAssertEqual(s.batches, 1)
         // #VAPP-288: the plan's sets are programmatic writes (assignData).
@@ -283,7 +283,7 @@ final class ActionsTests: XCTestCase {
     func testAFalseRequireLandsNothingAndIsTheFailuresMessage() async throws {
         let s = Surface(try Fixtures.json("actions.json"))
         let before = s.rows
-        let out = await s.call("actions.log", ["date": .string("2026-11-03"), "hours": .number(0)])
+        let out = await s.call("actions_log", ["date": .string("2026-11-03"), "hours": .number(0)])
         XCTAssertEqual(out.error, "Log more than 0 hours")
         XCTAssertEqual(s.failed, ["Log more than 0 hours"])
         XCTAssertEqual(s.rows, before)
@@ -293,7 +293,7 @@ final class ActionsTests: XCTestCase {
     func testARefusedWriteLandsNothingTheBatchIsOneUnit() async throws {
         let s = Surface(try Fixtures.json("actions.json"))
         let before = s.rows
-        let out = await s.call("actions.swap", ["a": .string("e1"), "b": .string("missing")])
+        let out = await s.call("actions_swap", ["a": .string("e1"), "b": .string("missing")])
         XCTAssertEqual(out.error, "write 1: record missing not found")
         XCTAssertEqual(s.rows, before)
     }
@@ -302,8 +302,8 @@ final class ActionsTests: XCTestCase {
         let s = Surface(try Fixtures.json("actions.json"))
         s.consent = false
         let before = s.rows
-        let out = await s.call("actions.log", ["date": .string("2026-11-03"), "hours": .number(2)])
-        XCTAssertEqual(out.error, "harness.toast was not allowed")
+        let out = await s.call("actions_log", ["date": .string("2026-11-03"), "hours": .number(2)])
+        XCTAssertEqual(out.error, "harness_toast was not allowed")
         XCTAssertEqual(s.rows, before)
         XCTAssertEqual(s.batches, 0)
         XCTAssertEqual(s.formHours, .number(7.5))
@@ -329,9 +329,9 @@ final class ActionsTests: XCTestCase {
             host.receive(JSONValue.object([
                 "version": .string("v0.9"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("main")]),
-            ]))
+            ]), trusted: true)
             let args = c["args"]?.object ?? [:]
-            let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "b", name: "actions.\(c["action"]?.string ?? "")", args: args))
+            let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "b", name: "actions_\(c["action"]?.string ?? "")", args: args))
             XCTAssertEqual(out.error, c["error"]?.string, name)
             XCTAssertEqual(opened, (c["opened"]?.array ?? []).compactMap(\.string), name)
             XCTAssertEqual(bound?["day"], c["bound"]?["day"]?.string, name)

@@ -1,0 +1,4166 @@
+{
+  "$comment": "VAPP-289 (docs/round-9-contract.md §15, the spec of this file is §1, §2, §4, §5.2, §6.9, §7, §10, §13): the A2UI 1.0 wire, replayed by the TS reference (src/a2ui10.test.ts) and the Rust core; Swift and Kotlin through the FFI (suite `a2ui10`). Inputs hand-written; every `expected` filled by `bun run --filter @exponential_app/eui generate` from src/. `ids`: {id, expected: {identifier: isIdentifier(id), mangle: mangle(id)}}. `packages`: installed by name. `flows`: ONE router per flow, created with extensionIds and registering inlineCatalogs, `packages` installed (`installIssues`), then each step {message, trusted?, acceptV09?} goes through route(message, options) and `expected` = the ops, byte for byte; trusted defaults to false, acceptV09 to the generated ACCEPT_V09, bridged steps thread the router's Upgrade09State. `mint`: one router per case, steps {create: id} | {delete: id} (expected = the op names) | {mint: base} (expected = the id). `errors`: errorMessage(code, target, message, path?) key order included. `actions`: actionMessage(input) with the painted id, payload → metadata.extensions.at_exponential_payload. `calls`: callAgentFunctionMessage. `responses`: rendererFunctionResponse(id, result). `capabilities`: rendererCapabilities(extensionIds, {inline?}). `cards`: cardV10(input, acceptV09 default true): {error} or {card, problems: cardProblems(root), issues + root: reduceNested(root) at the core catalog}.",
+  "ids": [
+    {
+      "id": "a",
+      "expected": {
+        "identifier": true,
+        "mangle": "a"
+      }
+    },
+    {
+      "id": "_",
+      "expected": {
+        "identifier": true,
+        "mangle": "_"
+      }
+    },
+    {
+      "id": "_1",
+      "expected": {
+        "identifier": true,
+        "mangle": "_1"
+      }
+    },
+    {
+      "id": "A1",
+      "expected": {
+        "identifier": true,
+        "mangle": "A1"
+      }
+    },
+    {
+      "id": "user_card",
+      "expected": {
+        "identifier": true,
+        "mangle": "user_card"
+      }
+    },
+    {
+      "id": "ñandú",
+      "expected": {
+        "identifier": true,
+        "mangle": "ñandú"
+      }
+    },
+    {
+      "id": "日本語",
+      "expected": {
+        "identifier": true,
+        "mangle": "日本語"
+      }
+    },
+    {
+      "id": "Ａ",
+      "expected": {
+        "identifier": true,
+        "mangle": "Ａ"
+      }
+    },
+    {
+      "id": "x·y",
+      "expected": {
+        "identifier": true,
+        "mangle": "x·y"
+      }
+    },
+    {
+      "id": "a̐",
+      "expected": {
+        "identifier": true,
+        "mangle": "a̐"
+      }
+    },
+    {
+      "id": "",
+      "expected": {
+        "identifier": false,
+        "mangle": "_"
+      }
+    },
+    {
+      "id": "1st",
+      "expected": {
+        "identifier": false,
+        "mangle": "_1st"
+      }
+    },
+    {
+      "id": "a-b",
+      "expected": {
+        "identifier": false,
+        "mangle": "a_b"
+      }
+    },
+    {
+      "id": "a.b",
+      "expected": {
+        "identifier": false,
+        "mangle": "a_b"
+      }
+    },
+    {
+      "id": "a b",
+      "expected": {
+        "identifier": false,
+        "mangle": "a_b"
+      }
+    },
+    {
+      "id": "user-card",
+      "expected": {
+        "identifier": false,
+        "mangle": "user_card"
+      }
+    },
+    {
+      "id": "😀",
+      "expected": {
+        "identifier": false,
+        "mangle": "_"
+      }
+    },
+    {
+      "id": "·a",
+      "expected": {
+        "identifier": false,
+        "mangle": "_·a"
+      }
+    },
+    {
+      "id": "a‍",
+      "expected": {
+        "identifier": true,
+        "mangle": "a‍"
+      }
+    },
+    {
+      "id": "__",
+      "expected": {
+        "identifier": true,
+        "mangle": "__"
+      }
+    },
+    {
+      "id": "ℼ",
+      "expected": {
+        "identifier": true,
+        "mangle": "ℼ"
+      }
+    },
+    {
+      "id": "℘",
+      "expected": {
+        "identifier": true,
+        "mangle": "℘"
+      }
+    }
+  ],
+  "packages": {
+    "acme.t": {
+      "formatVersion": 6,
+      "id": "acme.t",
+      "name": "T",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "sources": [
+        "exp:devices"
+      ],
+      "templates": {
+        "main": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": {
+                "@path": "/hello"
+              }
+            }
+          ],
+          "data": {
+            "hello": "Hi"
+          },
+          "bindings": [
+            {
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        }
+      }
+    },
+    "acme.old": {
+      "formatVersion": 5,
+      "id": "acme.old",
+      "name": "Old",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "functions": [
+        "harness.toast"
+      ],
+      "templates": {
+        "main": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Button",
+              "label": {
+                "path": "/l"
+              },
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "harness.toast",
+                    "args": {
+                      "message": "x"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "flows": [
+    {
+      "name": "§1.1 the check order",
+      "steps": [
+        {
+          "message": "not an object",
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "a message is a JSON object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": [
+            1
+          ],
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "a message is a JSON object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "createSurface": {
+              "surfaceId": "a",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "acceptV09": false,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "version is required"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "a",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "acceptV09": false,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "unsupported version v0.9"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "2.0",
+            "deleteSurface": {
+              "surfaceId": "a"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "unsupported version 2.0"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": 1,
+            "deleteSurface": {
+              "surfaceId": "a"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "unsupported version 1"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0"
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "a"
+            },
+            "deleteSurface": {
+              "surfaceId": "a"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "nope": {}
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "a",
+              "templateId": "main"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "applyTemplate is host-internal"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "a",
+              "path": "/x",
+              "source": "exp:devices"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "bindDataModel is host-internal"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": 3
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "createSurface is an object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "a",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "theme": "neutral"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "createSurface.theme is not allowed"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "a",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ],
+              "extra": 1
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "a",
+                  "message": "updateComponents.extra is not allowed"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "createSurface: catalogs, the rules, components + dataModel + metadata in order",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": ""
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "createSurface.surfaceId is required"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": 7
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "b",
+                  "message": "createSurface.catalogId is a string"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "UNSUPPORTED_CATALOG",
+                  "surfaceId": "b",
+                  "message": "catalog https://a2ui.org/specification/v0_9/basic_catalog.json is not supported"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": "https://x.example/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "UNSUPPORTED_CATALOG",
+                  "surfaceId": "b",
+                  "message": "catalog https://x.example/v1 is not supported"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "components": []
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "b",
+                  "message": "createSurface.components needs at least one component"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "dataModel": [
+                1
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "b",
+                  "message": "createSurface.dataModel is an object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "dataModel": null
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "b",
+                  "message": "createSurface.dataModel is an object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "sendDataModel": "yes"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "b",
+                  "message": "createSurface.sendDataModel is a boolean"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "metadata": {
+                "nope": 1
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "b",
+                  "message": "createSurface.metadata.nope is not allowed",
+                  "path": "/createSurface/metadata/nope"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "b",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "metadata": {
+                "extensions": {
+                  "a-b": 1
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "b",
+                  "message": "createSurface.extension \"a-b\" is not an identifier (UAX #31)",
+                  "path": "/createSurface/metadata/extensions/a-b"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "ok",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ],
+              "dataModel": {
+                "a": 1
+              },
+              "sendDataModel": true,
+              "metadata": {
+                "extensions": {
+                  "at_exponential_theme": "neutral",
+                  "acme_x": {
+                    "y": 1
+                  }
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "ok",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "sendDataModel": true,
+              "metadata": {
+                "extensions": {
+                  "at_exponential_theme": "neutral",
+                  "acme_x": {
+                    "y": 1
+                  }
+                }
+              },
+              "theme": "neutral"
+            },
+            {
+              "op": "data",
+              "surfaceId": "ok",
+              "path": "",
+              "value": {
+                "a": 1
+              }
+            },
+            {
+              "op": "components",
+              "surfaceId": "ok",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "nocat"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "nocat"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "nocat",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "nocat",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "basic",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "basic",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+            },
+            {
+              "op": "components",
+              "surfaceId": "basic",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "§1.4 a seen id is INTEGRITY_ERROR, even after deleteSurface",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INTEGRITY_ERROR",
+                  "surfaceId": "s",
+                  "message": "surface s was already created; surface ids are unique for the renderer's lifetime"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "deleteSurface": {
+              "surfaceId": "s"
+            }
+          },
+          "expected": [
+            {
+              "op": "delete",
+              "surfaceId": "s"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INTEGRITY_ERROR",
+                  "surfaceId": "s",
+                  "message": "surface s was already created; surface ids are unique for the renderer's lifetime"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "deleteSurface": {
+              "surfaceId": "s"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "s",
+                  "message": "no surface s; send createSurface first"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "updateComponents and updateDataModel",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "gone",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "gone",
+                  "message": "no surface gone; send createSurface first"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "gone",
+              "components": []
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "gone",
+                  "message": "updateComponents.components needs at least one component"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateDataModel": {
+              "surfaceId": "gone",
+              "value": 1
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "gone",
+                  "message": "no surface gone; send createSurface first"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateDataModel": {
+              "surfaceId": "s",
+              "path": "/a"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "updateDataModel.value is required (null deletes)"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateDataModel": {
+              "surfaceId": "s",
+              "path": 3,
+              "value": 1
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "updateDataModel.path is a string"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateDataModel": {
+              "surfaceId": "s",
+              "path": "/a",
+              "value": 1
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "s",
+              "path": "/a",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateDataModel": {
+              "surfaceId": "s",
+              "path": "/",
+              "value": {
+                "b": 2
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "s",
+              "path": "",
+              "value": {
+                "b": 2
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateDataModel": {
+              "surfaceId": "s",
+              "value": null
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "s",
+              "path": ""
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateDataModel": {
+              "surfaceId": "s",
+              "path": "/a",
+              "value": null
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "s",
+              "path": "/a"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "deleteSurface": {
+              "surfaceId": "gone"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "gone",
+                  "message": "no surface gone; send createSurface first"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "§5.2 the entry check: one INVALID_MESSAGE per entry, the rest applies",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                "x",
+                {
+                  "component": "Text"
+                },
+                {
+                  "id": 7,
+                  "component": "Text"
+                },
+                {
+                  "id": "a-b",
+                  "component": "Text"
+                },
+                {
+                  "id": "ok1",
+                  "component": "Text",
+                  "text": "kept"
+                },
+                {
+                  "id": "a"
+                },
+                {
+                  "id": "a",
+                  "component": 7
+                },
+                {
+                  "id": "a",
+                  "component": "a-b"
+                },
+                {
+                  "id": "a",
+                  "component": "Surface"
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "catalogId": 3
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "a component is a JSON object",
+                  "path": "/updateComponents/components/0"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "id is required",
+                  "path": "/updateComponents/components/1/id"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "id is a string",
+                  "path": "/updateComponents/components/2/id"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "id \"a-b\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/3/id"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "component is required",
+                  "path": "/updateComponents/components/5/component"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "component is a string",
+                  "path": "/updateComponents/components/6/component"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "component \"a-b\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/7/component"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "Surface is reserved",
+                  "path": "/updateComponents/components/8/component"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "catalogId is a string",
+                  "path": "/updateComponents/components/9/catalogId"
+                }
+              }
+            },
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "ok1",
+                  "component": "Text",
+                  "text": "kept"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "metadata": 3
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "metadata": {
+                    "x": 1
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "metadata": {
+                    "extensions": 3
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "metadata": {
+                    "extensions": {
+                      "a.b": 1
+                    }
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "a-b": 1
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "metadata is an object",
+                  "path": "/updateComponents/components/0/metadata"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "metadata.x is not allowed",
+                  "path": "/updateComponents/components/1/metadata/x"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "metadata.extensions is an object",
+                  "path": "/updateComponents/components/2/metadata/extensions"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "extension \"a.b\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/3/metadata/extensions/a.b"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "prop \"a-b\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/4/a-b"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "a",
+                  "component": "Stack",
+                  "children": [
+                    "x-y"
+                  ]
+                },
+                {
+                  "id": "a",
+                  "component": "List",
+                  "children": {
+                    "componentId": "x-y",
+                    "path": "/r"
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Card",
+                  "slots": {
+                    "footer": "x y"
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Label",
+                  "for": "x-y"
+                },
+                {
+                  "id": "a",
+                  "component": "Stack",
+                  "children": [
+                    7
+                  ]
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "id \"x-y\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/0/children/0"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "id \"x-y\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/1/children/componentId"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "id \"x y\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/2/slots/footer"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "id \"x-y\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/3/for"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "a component id is a string",
+                  "path": "/updateComponents/components/4/children/0"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@path": 3
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/x",
+                    "y": 1
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@call": 3
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@call": "a.b"
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@call": "len",
+                    "returnType": "number"
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@call": "len",
+                    "args": 3
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@call": "len",
+                    "catalogId": 3
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@call": "len",
+                    "args": {
+                      "a-b": 1
+                    }
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@type": "x"
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": {
+                    "@": "x"
+                  }
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "@path is a string",
+                  "path": "/updateComponents/components/0/text/@path"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "a binding has only @path (not y)",
+                  "path": "/updateComponents/components/1/text/y"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "@call is a string",
+                  "path": "/updateComponents/components/2/text/@call"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "function \"a.b\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/3/text/@call"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "a call has only @call, args and catalogId (not returnType)",
+                  "path": "/updateComponents/components/4/text/returnType"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "args is an object",
+                  "path": "/updateComponents/components/5/text/args"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "catalogId is a string",
+                  "path": "/updateComponents/components/6/text/catalogId"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "arg \"a-b\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/7/text/args/a-b"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "@type is not a directive (write @@ for a literal @)",
+                  "path": "/updateComponents/components/8/text/@type"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "@ is not a directive (write @@ for a literal @)",
+                  "path": "/updateComponents/components/9/text/@"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "lit",
+                  "component": "Text",
+                  "text": {
+                    "path": "/plain",
+                    "call": "plain"
+                  }
+                },
+                {
+                  "id": "esc",
+                  "component": "Text",
+                  "text": {
+                    "@@type": "x",
+                    "@@@y": 1
+                  }
+                },
+                {
+                  "id": "idx",
+                  "component": "Text",
+                  "text": {
+                    "@call": "@index"
+                  }
+                },
+                {
+                  "id": "style",
+                  "component": "Text",
+                  "text": "x",
+                  "style": {
+                    "@media (min-width: 600px)": {
+                      "padding": 1
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "lit",
+                  "component": "Text",
+                  "text": {
+                    "path": "/plain",
+                    "call": "plain"
+                  }
+                },
+                {
+                  "id": "esc",
+                  "component": "Text",
+                  "text": {
+                    "@@type": "x",
+                    "@@@y": 1
+                  }
+                },
+                {
+                  "id": "idx",
+                  "component": "Text",
+                  "text": {
+                    "@call": "@index"
+                  }
+                },
+                {
+                  "id": "style",
+                  "component": "Text",
+                  "text": "x",
+                  "style": {
+                    "@media (min-width: 600px)": {
+                      "padding": 1
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "a",
+                  "component": "Button",
+                  "label": "x",
+                  "on": {
+                    "press": {
+                      "functionCall": {
+                        "call": "plain"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Button",
+                  "label": "x",
+                  "on": {
+                    "press": {
+                      "event": {
+                        "name": "e",
+                        "context": {
+                          "v": {
+                            "@bad": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": "x",
+                  "accessibility": {
+                    "label": {
+                      "@path": 3
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "functionCall is a call ({\"@call\": …})",
+                  "path": "/updateComponents/components/0/on/press/functionCall"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "@bad is not a directive (write @@ for a literal @)",
+                  "path": "/updateComponents/components/1/on/press/event/context/v/@bad"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "@path is a string",
+                  "path": "/updateComponents/components/2/accessibility/label/@path"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "rows",
+                  "component": "Table",
+                  "columns": [
+                    {
+                      "key": "a",
+                      "label": "A"
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "@path": 3,
+                      "@bad": {
+                        "@call": 1
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "rows",
+                  "component": "Table",
+                  "columns": [
+                    {
+                      "key": "a",
+                      "label": "A"
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "@path": 3,
+                      "@bad": {
+                        "@call": 1
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mixed catalogs: an entry's own catalogId, basic child ids",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "b"
+                  ]
+                },
+                {
+                  "id": "b",
+                  "component": "Text",
+                  "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+                  "text": "Hi"
+                },
+                {
+                  "id": "nope",
+                  "component": "Text",
+                  "catalogId": "https://x.example/v1",
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "b"
+                  ]
+                },
+                {
+                  "id": "b",
+                  "component": "Text",
+                  "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+                  "text": "Hi"
+                },
+                {
+                  "id": "nope",
+                  "component": "Text",
+                  "catalogId": "https://x.example/v1",
+                  "text": "x"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "t",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "t",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "t",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Button",
+                  "child": "a-b",
+                  "action": {
+                    "event": {
+                      "name": "e"
+                    }
+                  }
+                },
+                {
+                  "id": "m",
+                  "component": "Modal",
+                  "trigger": "t-1",
+                  "content": "c"
+                },
+                {
+                  "id": "tabs",
+                  "component": "Tabs",
+                  "tabs": [
+                    {
+                      "title": "A",
+                      "child": "x y"
+                    }
+                  ]
+                },
+                {
+                  "id": "bad",
+                  "component": "Button",
+                  "child": "c",
+                  "action": {
+                    "functionCall": {
+                      "call": "x"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "t",
+                  "message": "id \"a-b\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/0/child"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "t",
+                  "message": "id \"t-1\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/1/trigger"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "t",
+                  "message": "id \"x y\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/2/tabs/0/child"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "t",
+                  "message": "functionCall is a call ({\"@call\": …})",
+                  "path": "/updateComponents/components/3/action/functionCall"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "§2 host-internal kinds: trusted",
+      "packages": [
+        "acme.t"
+      ],
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "p",
+              "templateId": "nope"
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "TEMPLATE_NOT_FOUND",
+                  "surfaceId": "p",
+                  "message": "no installed package has the template nope"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "p",
+              "templateId": 7
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "p",
+                  "message": "applyTemplate.templateId is required"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "p",
+              "templateId": "main",
+              "data": [
+                1
+              ]
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "p",
+                  "message": "applyTemplate.data is an object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "p",
+              "templateId": "main",
+              "packageId": "acme.t",
+              "data": {
+                "x": 1
+              }
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "p",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "data",
+              "surfaceId": "p",
+              "path": "",
+              "value": {
+                "hello": "Hi",
+                "x": 1
+              }
+            },
+            {
+              "op": "components",
+              "surfaceId": "p",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/hello"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "p",
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "p",
+              "templateId": "main"
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INTEGRITY_ERROR",
+                  "surfaceId": "p",
+                  "message": "surface p was already created; surface ids are unique for the renderer's lifetime"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "gone",
+              "path": "/x",
+              "source": "exp:devices"
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "gone",
+                  "message": "no surface gone; send createSurface first"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "p",
+              "path": "/x"
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "p",
+                  "message": "bindDataModel needs a path and a scheme:name source"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "p",
+              "path": "/x",
+              "source": "exp:issues"
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "SOURCE_DENIED",
+                  "surfaceId": "p",
+                  "message": "source exp:issues is not in package acme.t's sources",
+                  "path": "/x"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "bindDataModel": {
+              "surfaceId": "p",
+              "path": "/x",
+              "source": "exp:devices"
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "p",
+              "path": "/x",
+              "source": "exp:devices"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "applyTemplate": {
+              "surfaceId": "q",
+              "templateId": "main"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "q",
+                  "message": "applyTemplate is host-internal"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "installIssues": {
+        "acme.t": []
+      }
+    },
+    {
+      "name": "§1.1 check 3: the 0.9 bridge",
+      "packages": [
+        "acme.old"
+      ],
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "o",
+              "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json",
+              "theme": "neutral"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "o",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+              "metadata": {
+                "extensions": {
+                  "at_exponential_theme": "neutral"
+                }
+              },
+              "theme": "neutral"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "o",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Column",
+                  "children": [
+                    "my-text"
+                  ]
+                },
+                {
+                  "id": "my-text",
+                  "component": "Text",
+                  "text": {
+                    "path": "/t"
+                  },
+                  "variant": "h2"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "o",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Column",
+                  "children": [
+                    "my_text"
+                  ]
+                },
+                {
+                  "id": "my_text",
+                  "component": "Text",
+                  "text": {
+                    "@call": "concat",
+                    "args": {
+                      "values": [
+                        "## ",
+                        {
+                          "@path": "/t"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "updateDataModel": {
+              "surfaceId": "o",
+              "path": "/t"
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "o",
+              "path": "/t"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "o",
+              "components": [
+                {
+                  "id": "my-text",
+                  "component": "Text",
+                  "text": "again"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "o",
+              "components": [
+                {
+                  "id": "my_text",
+                  "component": "Text",
+                  "text": "again"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "deleteSurface": {
+              "surfaceId": "o"
+            }
+          },
+          "expected": [
+            {
+              "op": "delete",
+              "surfaceId": "o"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "q",
+              "templateId": "main"
+            }
+          },
+          "trusted": true,
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "q",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "q",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Button",
+                  "label": {
+                    "@path": "/l"
+                  },
+                  "on": {
+                    "press": {
+                      "functionCall": {
+                        "@call": "harness_toast",
+                        "args": {
+                          "message": "x"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "q",
+              "path": "/x",
+              "source": "acme:y"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "q",
+                  "message": "bindDataModel is host-internal"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "installIssues": {
+        "acme.old": []
+      }
+    },
+    {
+      "name": "§6.9 callRendererFunction",
+      "extensionIds": [],
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "dataModel": {
+                "a": 1
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "data",
+              "surfaceId": "s",
+              "path": "",
+              "value": {
+                "a": 1
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "callRendererFunction.functionCallId is required"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c1",
+              "callFunction": 3
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "functionCallId": "c1",
+                  "message": "callRendererFunction.callFunction is a function call"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c1",
+              "callFunction": {
+                "@call": "add"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "functionCallId": "c1",
+                  "message": "callRendererFunction.callFunction needs a string @call and catalogId"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c1",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": 3
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "functionCallId": "c1",
+                  "message": "callRendererFunction.callFunction.args is an object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c1",
+              "surfaceId": 3,
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "functionCallId": "c1",
+                  "message": "callRendererFunction.surfaceId is a string"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c2",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://x.example/v1"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c2",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "catalog https://x.example/v1 is not available"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c3",
+              "surfaceId": "gone",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c3",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "no surface gone"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c4",
+              "callFunction": {
+                "@call": "@index",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c4",
+                  "error": {
+                    "code": "EXECUTION_ERROR",
+                    "message": "@index outside a template"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c5",
+              "callFunction": {
+                "@call": "nope",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c5",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "unknown function nope"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c6",
+              "callFunction": {
+                "@call": "set",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "path": "/a",
+                  "value": 2
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c6",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "set cannot be called by the agent"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c7",
+              "callFunction": {
+                "@call": "openUrl",
+                "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+                "args": {
+                  "url": "https://x.y"
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c7",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "openUrl cannot be called by the agent"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c8",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "z": 1
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c8",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "args: z is not an argument"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c9",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "a": "x"
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c9",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "args: a is not a number"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c10",
+              "surfaceId": "s",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "a": 1,
+                  "b": 2
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "call",
+              "functionCallId": "c10",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "name": "add",
+              "args": {
+                "a": 1,
+                "b": 2
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "functionCallId": "c11",
+              "callFunction": {
+                "@call": "len",
+                "catalogId": "https://ui.exponential.at/catalogs/core-lite/v1"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "call",
+              "functionCallId": "c11",
+              "catalogId": "https://ui.exponential.at/catalogs/core-lite/v1",
+              "name": "len",
+              "args": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "agentFunctionResponse",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "agentFunctionResponse": {
+              "value": 1
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "agentFunctionResponse.functionCallId is required"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "agentFunctionResponse": {
+              "functionCallId": "f1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "functionCallId": "f1",
+                  "message": "agentFunctionResponse needs exactly one of value and error"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "agentFunctionResponse": {
+              "functionCallId": "f1",
+              "value": 1,
+              "error": {
+                "code": "X",
+                "message": "y"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "functionCallId": "f1",
+                  "message": "agentFunctionResponse needs exactly one of value and error"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "agentFunctionResponse": {
+              "functionCallId": "f1",
+              "error": {
+                "code": "X"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "functionCallId": "f1",
+                  "message": "agentFunctionResponse.error is {code, message}"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "agentFunctionResponse": {
+              "functionCallId": "f1",
+              "error": {
+                "code": "X",
+                "message": "y",
+                "z": 1
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "functionCallId": "f1",
+                  "message": "agentFunctionResponse.error is {code, message}"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "agentFunctionResponse": {
+              "functionCallId": "f1",
+              "value": null
+            }
+          },
+          "expected": [
+            {
+              "op": "respond",
+              "functionCallId": "f1",
+              "value": null
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "agentFunctionResponse": {
+              "functionCallId": "f2",
+              "error": {
+                "code": "UNKNOWN_FUNCTION",
+                "message": "no"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "respond",
+              "functionCallId": "f2",
+              "error": {
+                "code": "UNKNOWN_FUNCTION",
+                "message": "no"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "inline catalogs join the available set",
+      "inlineCatalogs": [
+        "https://acme.example/inline/v1"
+      ],
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "i",
+              "catalogId": "https://acme.example/inline/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "i",
+              "catalogId": "https://acme.example/inline/v1"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "mint": [
+    {
+      "name": "the counter skips seen and live ids and never adds to seen",
+      "steps": [
+        {
+          "mint": "s",
+          "expected": "s#1"
+        },
+        {
+          "create": "s#2",
+          "expected": [
+            "create"
+          ]
+        },
+        {
+          "mint": "s",
+          "expected": "s#3"
+        },
+        {
+          "mint": "s",
+          "expected": "s#4"
+        },
+        {
+          "create": "s#4",
+          "expected": [
+            "create"
+          ]
+        },
+        {
+          "delete": "s#4",
+          "expected": [
+            "delete"
+          ]
+        },
+        {
+          "create": "s#5",
+          "expected": [
+            "create"
+          ]
+        },
+        {
+          "mint": "t",
+          "expected": "t#5"
+        },
+        {
+          "create": "s#5",
+          "expected": [
+            "send"
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "name": "generic on a surface",
+      "code": "SURFACE_NOT_FOUND",
+      "target": {
+        "surfaceId": "s"
+      },
+      "message": "m",
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "SURFACE_NOT_FOUND",
+          "surfaceId": "s",
+          "message": "m"
+        }
+      }
+    },
+    {
+      "name": "generic with a path",
+      "code": "SOURCE_DENIED",
+      "target": {
+        "surfaceId": "s"
+      },
+      "message": "m",
+      "path": "/x",
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "SOURCE_DENIED",
+          "surfaceId": "s",
+          "message": "m",
+          "path": "/x"
+        }
+      }
+    },
+    {
+      "name": "a function call target",
+      "code": "EXPRESSION_ERROR",
+      "target": {
+        "functionCallId": "s:1"
+      },
+      "message": "m",
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "EXPRESSION_ERROR",
+          "functionCallId": "s:1",
+          "message": "m"
+        }
+      }
+    },
+    {
+      "name": "validation always has a path",
+      "code": "VALIDATION_FAILED",
+      "target": {
+        "surfaceId": "s"
+      },
+      "message": "m",
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "VALIDATION_FAILED",
+          "surfaceId": "s",
+          "message": "m",
+          "path": "/"
+        }
+      }
+    },
+    {
+      "name": "unallowed child",
+      "code": "UNALLOWED_CHILD",
+      "target": {
+        "surfaceId": "s"
+      },
+      "message": "m",
+      "path": "/components/a/children",
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "UNALLOWED_CHILD",
+          "surfaceId": "s",
+          "message": "m",
+          "path": "/components/a/children"
+        }
+      }
+    },
+    {
+      "name": "unattributable",
+      "code": "INVALID_MESSAGE",
+      "target": {
+        "surfaceId": ""
+      },
+      "message": "m",
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "INVALID_MESSAGE",
+          "surfaceId": "",
+          "message": "m"
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "name": "a plain press",
+      "input": {
+        "name": "save",
+        "surfaceId": "s",
+        "sourceComponentId": "btn",
+        "timestamp": "2026-11-07T10:00:00.000Z",
+        "context": {
+          "id": "a"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "action": {
+          "name": "save",
+          "surfaceId": "s",
+          "sourceComponentId": "btn",
+          "timestamp": "2026-11-07T10:00:00.000Z",
+          "context": {
+            "id": "a"
+          }
+        }
+      }
+    },
+    {
+      "name": "null context",
+      "input": {
+        "name": "save",
+        "surfaceId": "s",
+        "sourceComponentId": "btn",
+        "timestamp": "2026-11-07T10:00:00.000Z",
+        "context": null
+      },
+      "expected": {
+        "version": "1.0",
+        "action": {
+          "name": "save",
+          "surfaceId": "s",
+          "sourceComponentId": "btn",
+          "timestamp": "2026-11-07T10:00:00.000Z",
+          "context": {}
+        }
+      }
+    },
+    {
+      "name": "payload, userMessage, a painted instance id",
+      "input": {
+        "name": "pick",
+        "surfaceId": "s1",
+        "sourceComponentId": "row_btn.a1",
+        "timestamp": "2026-11-07T10:00:00.000Z",
+        "context": {
+          "id": "a1",
+          "value": "b"
+        },
+        "payload": {
+          "value": "b"
+        },
+        "userMessage": "Picked b"
+      },
+      "expected": {
+        "version": "1.0",
+        "action": {
+          "name": "pick",
+          "surfaceId": "s1",
+          "sourceComponentId": "row_btn",
+          "timestamp": "2026-11-07T10:00:00.000Z",
+          "context": {
+            "id": "a1",
+            "value": "b"
+          },
+          "userMessage": "Picked b",
+          "metadata": {
+            "extensions": {
+              "at_exponential_payload": {
+                "value": "b"
+              },
+              "at_exponential_instance": "row_btn.a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "an empty payload is omitted",
+      "input": {
+        "name": "x",
+        "surfaceId": "s",
+        "sourceComponentId": "b",
+        "timestamp": "2026-11-07T10:00:00.000Z",
+        "context": {},
+        "payload": {}
+      },
+      "expected": {
+        "version": "1.0",
+        "action": {
+          "name": "x",
+          "surfaceId": "s",
+          "sourceComponentId": "b",
+          "timestamp": "2026-11-07T10:00:00.000Z",
+          "context": {}
+        }
+      }
+    }
+  ],
+  "calls": [
+    {
+      "title": "resolved args, resolved catalog",
+      "surfaceId": "s",
+      "functionCallId": "s:1",
+      "name": "lookup",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "args": {
+        "q": "a"
+      },
+      "expected": {
+        "version": "1.0",
+        "callAgentFunction": {
+          "surfaceId": "s",
+          "functionCallId": "s:1",
+          "callFunction": {
+            "@call": "lookup",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+            "args": {
+              "q": "a"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "responses": [
+    {
+      "name": "a value",
+      "functionCallId": "f",
+      "result": {
+        "value": 3
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "value": 3
+        }
+      }
+    },
+    {
+      "name": "nothing answers null",
+      "functionCallId": "f",
+      "result": {},
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "value": null
+        }
+      }
+    },
+    {
+      "name": "an error",
+      "functionCallId": "f",
+      "result": {
+        "error": {
+          "code": "EXECUTION_ERROR",
+          "message": "m"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "error": {
+            "code": "EXECUTION_ERROR",
+            "message": "m"
+          }
+        }
+      }
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "built-ins",
+      "extensionIds": [],
+      "expected": {
+        "1.0": {
+          "supportedCatalogIds": [
+            "https://ui.exponential.at/catalogs/core/v1",
+            "https://ui.exponential.at/catalogs/core-lite/v1",
+            "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+          ]
+        }
+      }
+    },
+    {
+      "name": "an extension, inline",
+      "extensionIds": [
+        "https://acme.example/c/v1"
+      ],
+      "inline": [
+        {
+          "catalogId": "https://acme.example/c/v1"
+        }
+      ],
+      "expected": {
+        "1.0": {
+          "supportedCatalogIds": [
+            "https://ui.exponential.at/catalogs/core/v1",
+            "https://ui.exponential.at/catalogs/core-lite/v1",
+            "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "https://acme.example/c/v1"
+          ],
+          "inlineCatalogs": [
+            {
+              "catalogId": "https://acme.example/c/v1"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "cards": [
+    {
+      "name": "a 1.0 card",
+      "input": {
+        "version": "1.0",
+        "root": {
+          "id": "s",
+          "component": "Stack",
+          "children": [
+            {
+              "id": "r",
+              "component": "Row",
+              "props": {
+                "title": {
+                  "@path": "/title"
+                }
+              }
+            },
+            {
+              "id": "b",
+              "component": "Button",
+              "props": {
+                "label": "Ship"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "reply",
+                    "context": {
+                      "text": "Ship"
+                    },
+                    "userMessage": "Ship it"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "data": {
+          "title": "Tests green"
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "s",
+            "component": "Stack",
+            "children": [
+              {
+                "id": "r",
+                "component": "Row",
+                "props": {
+                  "title": {
+                    "@path": "/title"
+                  }
+                }
+              },
+              {
+                "id": "b",
+                "component": "Button",
+                "props": {
+                  "label": "Ship"
+                },
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "reply",
+                      "context": {
+                        "text": "Ship"
+                      },
+                      "userMessage": "Ship it"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "data": {
+            "title": "Tests green"
+          }
+        },
+        "problems": [],
+        "issues": [],
+        "root": {
+          "id": "s",
+          "component": "Box",
+          "props": {},
+          "children": [
+            {
+              "id": "r",
+              "component": "Box",
+              "props": {
+                "pressable": false
+              },
+              "children": [
+                {
+                  "id": "r.body",
+                  "component": "Box",
+                  "props": {},
+                  "children": [
+                    {
+                      "id": "r.body.title",
+                      "component": "Text",
+                      "props": {
+                        "text": {
+                          "@path": "/title"
+                        },
+                        "variant": "body",
+                        "lines": 1
+                      },
+                      "children": [],
+                      "recipe": {
+                        "macro": "Row",
+                        "part": "title",
+                        "props": {
+                          "selected": false,
+                          "density": "default",
+                          "surface": "flat",
+                          "depth": 0
+                        }
+                      }
+                    }
+                  ],
+                  "style": {
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "gap": "$spacing.xxs",
+                    "flexGrow": 1,
+                    "minWidth": 0,
+                    "paddingVertical": "$spacing.xs"
+                  },
+                  "recipe": {
+                    "macro": "Row",
+                    "part": "body",
+                    "props": {
+                      "selected": false,
+                      "density": "default",
+                      "surface": "flat",
+                      "depth": 0
+                    }
+                  }
+                }
+              ],
+              "style": {
+                "display": "flex",
+                "flexDirection": "row",
+                "alignItems": "center",
+                "gap": "$spacing.sm",
+                "minHeight": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "borderRadius": "$radius.md"
+              },
+              "recipe": {
+                "macro": "Row",
+                "part": "root",
+                "props": {
+                  "selected": false,
+                  "density": "default",
+                  "surface": "flat",
+                  "depth": 0
+                }
+              },
+              "accessibility": {
+                "role": "none"
+              }
+            },
+            {
+              "id": "b",
+              "component": "Button",
+              "props": {
+                "label": "Ship"
+              },
+              "children": [],
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "reply",
+                    "context": {
+                      "text": "Ship"
+                    },
+                    "userMessage": "Ship it"
+                  }
+                }
+              }
+            }
+          ],
+          "style": {
+            "display": "flex",
+            "flexDirection": "column",
+            "flexWrap": "nowrap",
+            "gap": "$spacing.md",
+            "alignItems": "stretch",
+            "justifyContent": "start"
+          },
+          "recipe": {
+            "macro": "Stack",
+            "part": "root",
+            "props": {}
+          }
+        }
+      }
+    },
+    {
+      "name": "no version: the 0.9 form, bridged",
+      "input": {
+        "root": {
+          "id": "my-card",
+          "component": "Stack",
+          "children": [
+            {
+              "id": "t",
+              "component": "Text",
+              "props": {
+                "text": {
+                  "path": "/title"
+                }
+              },
+              "visible": {
+                "path": "/show"
+              }
+            }
+          ]
+        },
+        "data": {
+          "title": "x"
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "my_card",
+            "component": "Stack",
+            "children": [
+              {
+                "id": "t",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "/title"
+                  }
+                },
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "/show"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                }
+              }
+            ]
+          },
+          "data": {
+            "title": "x"
+          }
+        },
+        "problems": [],
+        "issues": [],
+        "root": {
+          "id": "my_card",
+          "component": "Box",
+          "props": {},
+          "children": [
+            {
+              "id": "t",
+              "component": "Text",
+              "props": {
+                "text": {
+                  "@path": "/title"
+                }
+              },
+              "children": [],
+              "visible": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/show"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              }
+            }
+          ],
+          "style": {
+            "display": "flex",
+            "flexDirection": "column",
+            "flexWrap": "nowrap",
+            "gap": "$spacing.md",
+            "alignItems": "stretch",
+            "justifyContent": "start"
+          },
+          "recipe": {
+            "macro": "Stack",
+            "part": "root",
+            "props": {}
+          }
+        }
+      }
+    },
+    {
+      "name": "no version, the bridge off",
+      "acceptV09": false,
+      "input": {
+        "root": {
+          "id": "s",
+          "component": "Text",
+          "props": {
+            "text": "x"
+          }
+        }
+      },
+      "expected": {
+        "error": "version is required: write \"version\": \"1.0\""
+      }
+    },
+    {
+      "name": "another version",
+      "input": {
+        "version": "2.0",
+        "root": {
+          "id": "s",
+          "component": "Text",
+          "props": {
+            "text": "x"
+          }
+        }
+      },
+      "expected": {
+        "error": "unsupported version 2.0"
+      }
+    },
+    {
+      "name": "a card has no agent: an unknown function is a problem",
+      "input": {
+        "version": "1.0",
+        "root": {
+          "id": "s",
+          "component": "Text",
+          "props": {
+            "text": {
+              "@call": "lookup"
+            }
+          }
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "s",
+            "component": "Text",
+            "props": {
+              "text": {
+                "@call": "lookup"
+              }
+            }
+          }
+        },
+        "problems": [
+          "unknown function lookup"
+        ],
+        "issues": [],
+        "root": {
+          "id": "s",
+          "component": "Text",
+          "props": {
+            "text": {
+              "@call": "lookup"
+            }
+          },
+          "children": []
+        }
+      }
+    },
+    {
+      "name": "a dashed id is a problem",
+      "input": {
+        "version": "1.0",
+        "root": {
+          "id": "a-b",
+          "component": "Text",
+          "props": {
+            "text": "x"
+          }
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "a-b",
+            "component": "Text",
+            "props": {
+              "text": "x"
+            }
+          }
+        },
+        "problems": [
+          "a-b: /id id \"a-b\" is not an identifier (UAX #31)"
+        ],
+        "issues": [],
+        "root": {
+          "id": "a-b",
+          "component": "Text",
+          "props": {
+            "text": "x"
+          },
+          "children": []
+        }
+      }
+    },
+    {
+      "name": "not an object",
+      "input": 3,
+      "expected": {
+        "error": "a card is a JSON object"
+      }
+    }
+  ]
+}

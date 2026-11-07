@@ -269,6 +269,9 @@ public struct FunctionOutcome {
         self.result = result
         self.error = error
     }
+
+    /// Round 9 §6.8: a failed call stops its action: no event.
+    public var failed: Bool { error != nil || decision == .deny || decision == .notFound }
 }
 
 enum PolicyJSON {

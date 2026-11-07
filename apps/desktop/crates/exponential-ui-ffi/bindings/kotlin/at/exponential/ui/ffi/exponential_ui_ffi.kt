@@ -755,7 +755,13 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "exponential_ui_ffi"))
         uniffiCheckContractApiVersion(this)
     }
-    external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
+    external fun uniffi_exponential_ui_ffi_checksum_func_a2ui_version(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_accept_v09(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_animation_frame_json(
 ): Short
@@ -775,11 +781,13 @@ external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_card_v10_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_check_expression_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_code_text(
 ): Short
@@ -817,7 +825,11 @@ external fun uniffi_exponential_ui_ffi_checksum_func_format_string(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_function_effect(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_function_error_message_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_host_contract_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_is_identifier(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_json_diff(
 ): Short
@@ -826,6 +838,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_json_equal(
 external fun uniffi_exponential_ui_ffi_checksum_func_list_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_load_theme_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_mangle_id(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json(
 ): Short
@@ -867,6 +881,12 @@ external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_value_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_resizable_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json(
@@ -905,6 +925,10 @@ external fun uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_upgrade09_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_upgrade_card09(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_package_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_json(
@@ -931,6 +955,38 @@ external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_consent(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_data_model_metadata_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_expire_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_next_deadline_ms(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_observe_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_press_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_policy_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_registered(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_settle_local(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_dirty(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_effects_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_outbox_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
@@ -947,13 +1003,21 @@ external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_available_catalog_ids(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_mint_surface_id(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension(
 ): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route(
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids(
 ): Short
@@ -1019,6 +1083,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_mode(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_node_count(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes(
@@ -1026,6 +1092,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes(
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_paint_at(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_rebind(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_register_extension(
 ): Short
@@ -1101,6 +1169,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_submit_form(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_events(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_failures_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_text_style(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_theme(
@@ -1175,6 +1245,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_status(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new(
@@ -1218,7 +1290,45 @@ internal object UniffiLib {
         uniffiCallbackInterfaceMeasurer.register(this)
         
     }
-    external fun uniffi_exponential_ui_ffi_fn_clone_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_exponential_ui_ffi_fn_clone_hostcalls(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_exponential_ui_ffi_fn_free_hostcalls(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_constructor_hostcalls_new(`agent`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_attach_surface(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`surface`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_consent(`ptr`: Long,`ticket`: Long,`allowed`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_data_model_metadata_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_expire_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_flush_surface(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`surface`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_local_failed(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_next_deadline_ms(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_observe_json(`ptr`: Long,`opsJson`: RustBuffer.ByValue,`router`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_press_json(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`consent`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_set_policy_json(`ptr`: Long,`policyJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_set_registered(`ptr`: Long,`names`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_settle_local(`ptr`: Long,`ticket`: Long,`valueJson`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_dirty(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_effects_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_outbox_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_clone_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 external fun uniffi_exponential_ui_ffi_fn_free_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -1246,13 +1356,21 @@ external fun uniffi_exponential_ui_ffi_fn_free_hostrouter(`handle`: Long,uniffi_
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_constructor_hostrouter_new(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_available_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(`ptr`: Long,`packageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(`ptr`: Long,`base`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_package_id_of(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_extension(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route(`ptr`: Long,`messageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1358,6 +1476,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_mark_dirty(`ptr`: Long,
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_mode(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_node_count(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
 external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1366,6 +1486,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(`ptr`: Long,`i
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_paint_at(`ptr`: Long,`indices`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_rebind(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_register_extension(`ptr`: Long,`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll(`ptr`: Long,`listId`: RustBuffer.ByValue,`offset`: Float,uniffi_out_err: UniffiRustCallStatus, 
@@ -1439,6 +1561,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_structure_version(`ptr`
 external fun uniffi_exponential_ui_ffi_fn_method_surface_submit_form(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_take_events(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_text_style(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1534,7 +1658,13 @@ external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_status(`ptr`: L
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(`ptr`: Long,`elapsedMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_a2ui_version(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_accept_v09(uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,`userMessage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_animation_frame_json(`name`: RustBuffer.ByValue,`timingJson`: RustBuffer.ByValue,`elapsedMs`: Double,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1554,11 +1684,13 @@ external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(uniffi_out_err:
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(`surfaceId`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_card_v10_json(`cardJson`: RustBuffer.ByValue,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_check_expression_json(`expr`: RustBuffer.ByValue,`typesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_code_text(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1596,8 +1728,12 @@ external fun uniffi_exponential_ui_ffi_fn_func_format_string(`template`: RustBuf
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_function_effect(`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_function_error_message_json(`code`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_host_contract_json(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_is_identifier(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_func_json_diff(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_json_equal(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1606,7 +1742,9 @@ external fun uniffi_exponential_ui_ffi_fn_func_list_json(`requestJson`: RustBuff
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_load_theme_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(`messageJson`: RustBuffer.ByValue,`tool`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_exponential_ui_ffi_fn_func_mangle_id(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(`messageJson`: RustBuffer.ByValue,`tool`: RustBuffer.ByValue,`metadataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_media_image_header(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1646,6 +1784,12 @@ external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(`componentsJs
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(`deltaMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(`extensionIds`: RustBuffer.ByValue,`inlineCatalogsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(`functionCallId`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(`functionCallId`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_resizable_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(`styleJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1683,6 +1827,10 @@ external fun uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(`code`: RustBu
 external fun uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(`kindJson`: RustBuffer.ByValue,`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_transitions_from_json(`kindJson`: RustBuffer.ByValue,`recordJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_upgrade09_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_upgrade_card09(`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_validate_package_json(`packageJson`: RustBuffer.ByValue,`catalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2719,6 +2867,594 @@ public object FfiConverterTypeCanvasPlayer: FfiConverter<CanvasPlayer, Long> {
 //
 
 
+/**
+ * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
+ * Both return `{"messages": […], "issues": [{at, message}]}`.
+ * Round 9 §6.5–§6.8, §18.3: the host's routed calls (`eui_core::host::CallHub`):
+ * the ONE entry a Swift or Compose host has for the agent channel, reactive
+ * caching and pending, timeouts and the capped, once-per-lifetime errors.
+ */
+public interface HostCallsInterface {
+    
+    /**
+     * A surface resolves its reactive calls here.
+     */
+    fun `attachSurface`(`surfaceId`: kotlin.String, `surface`: Surface)
+    
+    /**
+     * The answer to an `ask` effect.
+     */
+    fun `consent`(`ticket`: kotlin.ULong, `allowed`: kotlin.Boolean)
+    
+    /**
+     * §1.3: the metadata to send beside `message_json`, or `None`.
+     */
+    fun `dataModelMetadataJson`(`messageJson`: kotlin.String, `dataJson`: kotlin.String): kotlin.String?
+    
+    /**
+     * The calls past their deadline: `[SettledCall]` JSON.
+     */
+    fun `expireJson`(): kotlin.String
+    
+    /**
+     * After a layout: the surface's issues and failures go to the outbox.
+     */
+    fun `flushSurface`(`surfaceId`: kotlin.String, `surface`: Surface)
+    
+    /**
+     * §6.5: does the surface have an agent? No agent = a press of an
+     * unregistered name is UNKNOWN_FUNCTION without going through the hub.
+     */
+    fun `hasAgent`(`surfaceId`: kotlin.String): kotlin.Boolean
+    
+    fun `localFailed`(`surfaceId`: kotlin.String, `message`: kotlin.String)
+    
+    /**
+     * When to call [`Self::expire_json`] next (epoch ms).
+     */
+    fun `nextDeadlineMs`(): kotlin.Double?
+    
+    /**
+     * Every `routeJson` answer goes through here AFTER the host performed
+     * it. Answers the action calls that settled: `[SettledCall]` JSON.
+     */
+    fun `observeJson`(`opsJson`: kotlin.String, `router`: HostRouter): kotlin.String
+    
+    /**
+     * An action's function call: `PressRoute` JSON. On `ask` press again
+     * with the consent's answer.
+     */
+    fun `pressJson`(`surfaceId`: kotlin.String, `name`: kotlin.String, `catalogId`: kotlin.String?, `argsJson`: kotlin.String, `consent`: kotlin.Boolean?): kotlin.String
+    
+    /**
+     * The host's function policy (`FunctionPolicy` JSON; `None` = allow).
+     */
+    fun `setPolicyJson`(`policyJson`: kotlin.String?)
+    
+    fun `setRegistered`(`names`: List<kotlin.String>)
+    
+    /**
+     * The answer to a `runLocal` effect: its value JSON, or its error.
+     */
+    fun `settleLocal`(`ticket`: kotlin.ULong, `valueJson`: kotlin.String?, `error`: kotlin.String?)
+    
+    /**
+     * The surfaces to bind again (`Surface.rebind`).
+     */
+    fun `takeDirty`(): List<kotlin.String>
+    
+    /**
+     * `[CallEffect]` JSON: what the host must run for reactive calls.
+     */
+    fun `takeEffectsJson`(): kotlin.String
+    
+    /**
+     * What must leave on the transport, in order (JSON array).
+     */
+    fun `takeOutboxJson`(): kotlin.String
+    
+    companion object
+}
+
+/**
+ * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
+ * Both return `{"messages": […], "issues": [{at, message}]}`.
+ * Round 9 §6.5–§6.8, §18.3: the host's routed calls (`eui_core::host::CallHub`):
+ * the ONE entry a Swift or Compose host has for the agent channel, reactive
+ * caching and pending, timeouts and the capped, once-per-lifetime errors.
+ */
+open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+    /**
+     * `agent` = the transport's far end reads renderer → agent messages.
+     */
+    constructor(`agent`: kotlin.Boolean) :
+        this(UniffiWithHandle, 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_hostcalls_new(
+    
+        FfiConverterBoolean.lower(`agent`),_status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_exponential_ui_ffi_fn_free_hostcalls(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_exponential_ui_ffi_fn_clone_hostcalls(handle, status)
+        }
+    }
+
+    
+    /**
+     * A surface resolves its reactive calls here.
+     */override fun `attachSurface`(`surfaceId`: kotlin.String, `surface`: Surface)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_attach_surface(
+        it,
+        FfiConverterString.lower(`surfaceId`),FfiConverterTypeSurface.lower(`surface`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * The answer to an `ask` effect.
+     */override fun `consent`(`ticket`: kotlin.ULong, `allowed`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_consent(
+        it,
+        FfiConverterULong.lower(`ticket`),FfiConverterBoolean.lower(`allowed`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * §1.3: the metadata to send beside `message_json`, or `None`.
+     */
+    @Throws(UiException::class)override fun `dataModelMetadataJson`(`messageJson`: kotlin.String, `dataJson`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_data_model_metadata_json(
+        it,
+        FfiConverterString.lower(`messageJson`),FfiConverterString.lower(`dataJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The calls past their deadline: `[SettledCall]` JSON.
+     */override fun `expireJson`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_expire_json(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * After a layout: the surface's issues and failures go to the outbox.
+     */override fun `flushSurface`(`surfaceId`: kotlin.String, `surface`: Surface)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_flush_surface(
+        it,
+        FfiConverterString.lower(`surfaceId`),FfiConverterTypeSurface.lower(`surface`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * §6.5: does the surface have an agent? No agent = a press of an
+     * unregistered name is UNKNOWN_FUNCTION without going through the hub.
+     */override fun `hasAgent`(`surfaceId`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(
+        it,
+        FfiConverterString.lower(`surfaceId`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `localFailed`(`surfaceId`: kotlin.String, `message`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_local_failed(
+        it,
+        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`message`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * When to call [`Self::expire_json`] next (epoch ms).
+     */override fun `nextDeadlineMs`(): kotlin.Double? {
+            return FfiConverterOptionalDouble.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_next_deadline_ms(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every `routeJson` answer goes through here AFTER the host performed
+     * it. Answers the action calls that settled: `[SettledCall]` JSON.
+     */
+    @Throws(UiException::class)override fun `observeJson`(`opsJson`: kotlin.String, `router`: HostRouter): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_observe_json(
+        it,
+        FfiConverterString.lower(`opsJson`),FfiConverterTypeHostRouter.lower(`router`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * An action's function call: `PressRoute` JSON. On `ask` press again
+     * with the consent's answer.
+     */
+    @Throws(UiException::class)override fun `pressJson`(`surfaceId`: kotlin.String, `name`: kotlin.String, `catalogId`: kotlin.String?, `argsJson`: kotlin.String, `consent`: kotlin.Boolean?): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_press_json(
+        it,
+        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`name`),FfiConverterOptionalString.lower(`catalogId`),FfiConverterString.lower(`argsJson`),FfiConverterOptionalBoolean.lower(`consent`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The host's function policy (`FunctionPolicy` JSON; `None` = allow).
+     */
+    @Throws(UiException::class)override fun `setPolicyJson`(`policyJson`: kotlin.String?)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_set_policy_json(
+        it,
+        FfiConverterOptionalString.lower(`policyJson`),_status)
+}
+    }
+    
+    
+
+    override fun `setRegistered`(`names`: List<kotlin.String>)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_set_registered(
+        it,
+        FfiConverterSequenceString.lower(`names`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * The answer to a `runLocal` effect: its value JSON, or its error.
+     */
+    @Throws(UiException::class)override fun `settleLocal`(`ticket`: kotlin.ULong, `valueJson`: kotlin.String?, `error`: kotlin.String?)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_settle_local(
+        it,
+        FfiConverterULong.lower(`ticket`),FfiConverterOptionalString.lower(`valueJson`),FfiConverterOptionalString.lower(`error`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * The surfaces to bind again (`Surface.rebind`).
+     */override fun `takeDirty`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_take_dirty(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `[CallEffect]` JSON: what the host must run for reactive calls.
+     */override fun `takeEffectsJson`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_take_effects_json(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * What must leave on the transport, in order (JSON array).
+     */override fun `takeOutboxJson`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_take_outbox_json(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHostCalls: FfiConverter<HostCalls, Long> {
+    override fun lower(value: HostCalls): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): HostCalls {
+        return HostCalls(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): HostCalls {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: HostCalls) = 8UL
+
+    override fun write(value: HostCalls, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
 public interface HostFormatter {
     
     /**
@@ -3300,10 +4036,21 @@ public object FfiConverterTypeHostFormatter: FfiConverter<HostFormatter, Long> {
 public interface HostRouterInterface {
     
     /**
+     * Round 9 §5.5: the supported ids, then the inline catalogs.
+     */
+    fun `availableCatalogIds`(): List<kotlin.String>
+    
+    /**
      * Install a declarative package (JSON); returns its issues as a JSON
      * array `[{path, message}]` (installed only when empty).
      */
     fun `installPackage`(`packageJson`: kotlin.String): kotlin.String
+    
+    /**
+     * Round 9 §1.4: a fresh id for a re-opened surface (`<base>#<n>`).
+     * Mint, `applyTemplate` onto it, then `deleteSurface` the old one.
+     */
+    fun `mintSurfaceId`(`base`: kotlin.String): kotlin.String
     
     /**
      * The package whose template created the surface (its function policy).
@@ -3313,11 +4060,21 @@ public interface HostRouterInterface {
     fun `registerExtension`(`id`: kotlin.String)
     
     /**
-     * One server message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send, …}]`). Never
-     * fails: unparseable text is an INVALID_MESSAGE `send` op.
+     * Round 9 §10: an inline catalog id joins the available set.
      */
-    fun `route`(`messageJson`: kotlin.String): kotlin.String
+    fun `registerInlineCatalog`(`id`: kotlin.String)
+    
+    fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String
+    
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
+     */
+    fun `routeWithBridgeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean, `acceptV09`: kotlin.Boolean): kotlin.String
     
     fun `supportedCatalogIds`(): List<kotlin.String>
     
@@ -3441,6 +4198,22 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
 
     
     /**
+     * Round 9 §5.5: the supported ids, then the inline catalogs.
+     */override fun `availableCatalogIds`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_available_catalog_ids(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Install a declarative package (JSON); returns its issues as a JSON
      * array `[{path, message}]` (installed only when empty).
      */
@@ -3451,6 +4224,23 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(
         it,
         FfiConverterString.lower(`packageJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round 9 §1.4: a fresh id for a re-opened surface (`<base>#<n>`).
+     * Mint, `applyTemplate` onto it, then `deleteSurface` the old one.
+     */override fun `mintSurfaceId`(`base`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(
+        it,
+        FfiConverterString.lower(`base`),_status)
 }
     }
     )
@@ -3487,16 +4277,47 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
 
     
     /**
-     * One server message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send, …}]`). Never
-     * fails: unparseable text is an INVALID_MESSAGE `send` op.
-     */override fun `route`(`messageJson`: kotlin.String): kotlin.String {
+     * Round 9 §10: an inline catalog id joins the available set.
+     */override fun `registerInlineCatalog`(`id`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(
+        it,
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    
+    
+
+    override fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route(
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(
         it,
-        FfiConverterString.lower(`messageJson`),_status)
+        FfiConverterString.lower(`messageJson`),FfiConverterBoolean.lower(`trusted`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
+     */override fun `routeWithBridgeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean, `acceptV09`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(
+        it,
+        FfiConverterString.lower(`messageJson`),FfiConverterBoolean.lower(`trusted`),FfiConverterBoolean.lower(`acceptV09`),_status)
 }
     }
     )
@@ -4000,10 +4821,6 @@ public object FfiConverterTypeHostZone: FfiConverter<HostZone, Long> {
 //
 
 
-/**
- * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
- * Both return `{"messages": […], "issues": [{at, message}]}`.
- */
 public interface JsonlDecoderInterface {
     
     fun `end`(): kotlin.String
@@ -4013,10 +4830,6 @@ public interface JsonlDecoderInterface {
     companion object
 }
 
-/**
- * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
- * Both return `{"messages": […], "issues": [{at, message}]}`.
- */
 open class JsonlDecoder: Disposable, AutoCloseable, JsonlDecoderInterface
 {
 
@@ -5888,6 +6701,14 @@ public interface SurfaceInterface {
      */
     fun `mode`(): kotlin.String
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     * After a layout: anything for `HostCalls.flushSurface`?
+     */
+    fun `needsFlush`(): kotlin.Boolean
+    
     fun `nodeCount`(): kotlin.UInt
     
     /**
@@ -5907,6 +6728,11 @@ public interface SurfaceInterface {
      * slot. A slot past the end is left out (like [`Self::nodes_at`]).
      */
     fun `paintAt`(`indices`: List<kotlin.UInt>): List<FfiPaint>
+    
+    /**
+     * Round 9 §6.5: a routed value settled; the next layout binds again.
+     */
+    fun `rebind`()
     
     /**
      * Register an extension catalog (its JSON definition), validated.
@@ -6076,6 +6902,8 @@ public interface SurfaceInterface {
      * tooltip, a live region announcing).
      */
     fun `takeEvents`(): List<FfiEvent>
+    
+    fun `takeFailuresJson`(): kotlin.String
     
     fun `textStyle`(`index`: kotlin.UInt): FfiTextStyle?
     
@@ -6533,6 +7361,25 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     
 
+    
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     * After a layout: anything for `HostCalls.flushSurface`?
+     */override fun `needsFlush`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
     override fun `nodeCount`(): kotlin.UInt {
             return FfiConverterUInt.lift(
     callWithHandle {
@@ -6595,6 +7442,21 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Round 9 §6.5: a routed value settled; the next layout binds again.
+     */override fun `rebind`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_rebind(
+        it,
+        _status)
+}
+    }
+    
     
 
     
@@ -7158,6 +8020,19 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_take_events(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `takeFailuresJson`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(
         it,
         _status)
 }
@@ -10936,7 +11811,34 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     }
 }
         /**
-         * A client action message (A2UI v0.9 `action`) JSON.
+         * The wire version every message carries (`A2UI_VERSION`, §1.1).
+         */ fun `a2uiVersion`(): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_a2ui_version(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * `ACCEPT_V09` (§14.1): every core entry upgrades 0.9 input while true.
+         */ fun `acceptV09`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_accept_v09(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * A renderer `action` message (A2UI 1.0) JSON. `payload_json` travels as
+         * `metadata.extensions.at_exponential_payload`, merged over `context` (§1.3).
          */
     @Throws(UiException::class) fun `actionMessageJson`(`surfaceId`: kotlin.String, `componentId`: kotlin.String, `name`: kotlin.String, `contextJson`: kotlin.String, `payloadJson`: kotlin.String?, `timestamp`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
@@ -10944,6 +11846,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_action_message_json(
     
         FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`componentId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`contextJson`),FfiConverterOptionalString.lower(`payloadJson`),FfiConverterString.lower(`timestamp`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * [`action_message_json`] with the Action's resolved `event.userMessage`.
+         */
+    @Throws(UiException::class) fun `actionMessageWithUserMessageJson`(`surfaceId`: kotlin.String, `componentId`: kotlin.String, `name`: kotlin.String, `contextJson`: kotlin.String, `payloadJson`: kotlin.String?, `timestamp`: kotlin.String, `userMessage`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(
+    
+        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`componentId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`contextJson`),FfiConverterOptionalString.lower(`payloadJson`),FfiConverterString.lower(`timestamp`),FfiConverterOptionalString.lower(`userMessage`),_status)
 }
     )
     }
@@ -11083,6 +11999,35 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * A `callAgentFunction` message (§1.3) JSON; `args_json` = the resolved args object.
+         */
+    @Throws(UiException::class) fun `callAgentFunctionMessageJson`(`surfaceId`: kotlin.String, `functionCallId`: kotlin.String, `name`: kotlin.String, `catalogId`: kotlin.String, `argsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(
+    
+        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`catalogId`),FfiConverterString.lower(`argsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
+         * 1.0, `cardProblems`, its reduce over the core catalog).
+         */
+    @Throws(UiException::class) fun `cardV10Json`(`cardJson`: kotlin.String, `acceptV09`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_card_v10_json(
+    
+        FfiConverterString.lower(`cardJson`),FfiConverterBoolean.lower(`acceptV09`),_status)
+}
+    )
+    }
+    
+
+        /**
          * `{min, max}` of a chart (`series_json` = the Chart's `series`).
          */
     @Throws(UiException::class) fun `chartExtentJson`(`kind`: kotlin.String, `seriesJson`: kotlin.String, `min`: kotlin.Double?, `max`: kotlin.Double?): kotlin.String {
@@ -11107,19 +12052,6 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_check_expression_json(
     
         FfiConverterString.lower(`expr`),FfiConverterString.lower(`typesJson`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * A2UI `a2uiClientCapabilities` JSON.
-         */ fun `clientCapabilitiesJson`(`extensionIds`: List<kotlin.String>): kotlin.String {
-            return FfiConverterString.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(
-    
-        FfiConverterSequenceString.lower(`extensionIds`),_status)
 }
     )
     }
@@ -11275,7 +12207,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
-         * A client error message (A2UI v0.9 `error`) JSON.
+         * A renderer `error` message (A2UI 1.0) about a surface, JSON.
          */ fun `errorMessageJson`(`code`: kotlin.String, `surfaceId`: kotlin.String, `message`: kotlin.String, `path`: kotlin.String?): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
@@ -11381,6 +12313,19 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * A renderer `error` message about a routed call (`functionCallId`, §1.3), JSON.
+         */ fun `functionErrorMessageJson`(`code`: kotlin.String, `functionCallId`: kotlin.String, `message`: kotlin.String, `path`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_function_error_message_json(
+    
+        FfiConverterString.lower(`code`),FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`message`),FfiConverterOptionalString.lower(`path`),_status)
+}
+    )
+    }
+    
+
+        /**
          * `catalog/host.json` without its comments.
          */ fun `hostContractJson`(): kotlin.String {
             return FfiConverterString.lift(
@@ -11388,6 +12333,19 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_host_contract_json(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 9 §4.1: UAX #31 over the generated tables.
+         */ fun `isIdentifier`(`id`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_is_identifier(
+    
+        FfiConverterString.lower(`id`),_status)
 }
     )
     }
@@ -11458,15 +12416,28 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * Round 9 §14.3: an id as an identifier.
+         */ fun `mangleId`(`id`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_mangle_id(
+    
+        FfiConverterString.lower(`id`),_status)
+}
+    )
+    }
+    
+
+        /**
          * A client message as the MCP `tools/call` that carries it back (`tool`
          * defaults to `a2ui_event`).
          */
-    @Throws(UiException::class) fun `mcpActionCallJson`(`messageJson`: kotlin.String, `tool`: kotlin.String?): kotlin.String {
+    @Throws(UiException::class) fun `mcpActionCallJson`(`messageJson`: kotlin.String, `tool`: kotlin.String?, `metadataJson`: kotlin.String?): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(
     
-        FfiConverterString.lower(`messageJson`),FfiConverterOptionalString.lower(`tool`),_status)
+        FfiConverterString.lower(`messageJson`),FfiConverterOptionalString.lower(`tool`),FfiConverterOptionalString.lower(`metadataJson`),_status)
 }
     )
     }
@@ -11747,6 +12718,48 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(
     
         FfiConverterDouble.lower(`deltaMs`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 9 §10: `{"1.0": {supportedCatalogIds, inlineCatalogs?}}` JSON.
+         * `inline_catalogs_json` = a JSON array of 1.0 catalog definitions.
+         */
+    @Throws(UiException::class) fun `rendererCapabilitiesJson`(`extensionIds`: List<kotlin.String>, `inlineCatalogsJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(
+    
+        FfiConverterSequenceString.lower(`extensionIds`),FfiConverterOptionalString.lower(`inlineCatalogsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A `rendererFunctionResponse` with an error (§1.3) JSON.
+         */ fun `rendererFunctionErrorJson`(`functionCallId`: kotlin.String, `code`: kotlin.String, `message`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(
+    
+        FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`code`),FfiConverterString.lower(`message`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A `rendererFunctionResponse` with a value (§1.3) JSON (`None` = `value: null`).
+         */
+    @Throws(UiException::class) fun `rendererFunctionValueJson`(`functionCallId`: kotlin.String, `valueJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(
+    
+        FfiConverterString.lower(`functionCallId`),FfiConverterOptionalString.lower(`valueJson`),_status)
 }
     )
     }
@@ -12045,6 +13058,36 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_transitions_from_json(
     
         FfiConverterString.lower(`kindJson`),FfiConverterOptionalString.lower(`recordJson`),FfiConverterOptionalString.lower(`viewerJson`),FfiConverterOptionalString.lower(`rowJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
+         * documented on `eui_core::upgrade09::upgrade09_json`.
+         */
+    @Throws(UiException::class) fun `upgrade09Json`(`requestJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade09_json(
+    
+        FfiConverterString.lower(`requestJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A stored 0.9 `exponential_show` card (nested `{root, data}`) → 1.0
+         * (§18: to DISPLAY a card that has no `version: "1.0"`).
+         */
+    @Throws(UiException::class) fun `upgradeCard09`(`cardJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade_card09(
+    
+        FfiConverterString.lower(`cardJson`),_status)
 }
     )
     }

@@ -47,39 +47,39 @@ describe(`template values`, () => {
 })
 
 describe(`round 1: bound inputs emit calls`, () => {
-  const bound: ExprContext = { id: `n1`, props: { page: { path: `/page` }, open: { path: `/ui/open` }, value: { call: `len`, args: { value: { path: `/items` } } }, total: 5, label: `Hi` }, vars: {} }
+  const bound: ExprContext = { id: `n1`, props: { page: { "@path": `/page` }, open: { "@path": `/ui/open` }, value: { "@call": `len`, args: { value: { "@path": `/items` } } }, total: 5, label: `Hi` }, vars: {} }
 
   test(`a whole-string member passes a binding through untouched (fallback dropped)`, () => {
-    expect(evalValue(`{props.page}`, bound)).toEqual({ path: `/page` })
-    expect(evalValue(`{props.page|1}`, bound)).toEqual({ path: `/page` })
-    expect(evalValue({ open: `{props.open|false}` }, bound)).toEqual({ open: { path: `/ui/open` } })
-    expect(evalValue(`{props.value}`, bound)).toEqual({ call: `len`, args: { value: { path: `/items` } } })
+    expect(evalValue(`{props.page}`, bound)).toEqual({ "@path": `/page` })
+    expect(evalValue(`{props.page|1}`, bound)).toEqual({ "@path": `/page` })
+    expect(evalValue({ open: `{props.open|false}` }, bound)).toEqual({ open: { "@path": `/ui/open` } })
+    expect(evalValue(`{props.value}`, bound)).toEqual({ "@call": `len`, args: { value: { "@path": `/items` } } })
   })
 
   test(`as an operand the fallback stays: fallback{value, default}`, () => {
-    expect(evalValue({ $eq: [`{props.page|1}`, 1] }, bound)).toEqual({ call: `eq`, args: { a: { call: `fallback`, args: { value: { path: `/page` }, default: 1 } }, b: 1 } })
-    expect(evalValue({ $add: [`{props.page}`, -1] }, bound)).toEqual({ call: `add`, args: { a: { path: `/page` }, b: -1 } })
-    expect(evalValue({ $sub: [`{props.total}`, `{props.page}`] }, bound)).toEqual({ call: `sub`, args: { a: 5, b: { path: `/page` } } })
-    expect(evalValue({ $lt: [0, `{props.page}`] }, bound)).toEqual({ call: `lt`, args: { a: 0, b: { path: `/page` } } })
-    expect(evalValue({ $percent: [`{props.page}`, `{props.total}`] }, bound)).toEqual({ call: `percent`, args: { value: { path: `/page` }, max: 5 } })
+    expect(evalValue({ $eq: [`{props.page|1}`, 1] }, bound)).toEqual({ "@call": `eq`, args: { a: { "@call": `fallback`, args: { value: { "@path": `/page` }, default: 1 } }, b: 1 } })
+    expect(evalValue({ $add: [`{props.page}`, -1] }, bound)).toEqual({ "@call": `add`, args: { a: { "@path": `/page` }, b: -1 } })
+    expect(evalValue({ $sub: [`{props.total}`, `{props.page}`] }, bound)).toEqual({ "@call": `sub`, args: { a: 5, b: { "@path": `/page` } } })
+    expect(evalValue({ $lt: [0, `{props.page}`] }, bound)).toEqual({ "@call": `lt`, args: { a: 0, b: { "@path": `/page` } } })
+    expect(evalValue({ $percent: [`{props.page}`, `{props.total}`] }, bound)).toEqual({ "@call": `percent`, args: { value: { "@path": `/page` }, max: 5 } })
   })
 
   test(`interpolation, negation, $text, $map, $cond, $coalesce, len`, () => {
-    expect(evalValue(`{props.page|1} / {props.total}`, bound)).toEqual({ call: `concat`, args: { values: [{ call: `fallback`, args: { value: { path: `/page` }, default: 1 } }, ` / `, 5] } })
-    expect(evalValue(`{!props.open}`, bound)).toEqual({ call: `not`, args: { value: { path: `/ui/open` } } })
-    expect(evalValue({ $text: `props.page` }, bound)).toEqual({ call: `text`, args: { value: { path: `/page` } } })
-    expect(evalValue({ $map: { from: `props.page`, cases: { "1": `first` }, default: `other` } }, bound)).toEqual({ call: `map`, args: { value: { path: `/page` }, cases: { "1": `first` }, default: `other` } })
-    expect(evalValue({ $cond: [`props.open`, `a`, `b`] }, bound)).toEqual({ call: `cond`, args: { if: { path: `/ui/open` }, then: `a`, else: `b` } })
-    expect(evalValue({ $coalesce: [`{props.missing}`, `{props.page}`, `x`] }, bound)).toEqual({ call: `coalesce`, args: { values: [{ path: `/page` }, `x`] } })
+    expect(evalValue(`{props.page|1} / {props.total}`, bound)).toEqual({ "@call": `concat`, args: { values: [{ "@call": `fallback`, args: { value: { "@path": `/page` }, default: 1 } }, ` / `, 5] } })
+    expect(evalValue(`{!props.open}`, bound)).toEqual({ "@call": `not`, args: { value: { "@call": `cond`, args: { if: { "@path": `/ui/open` }, then: true, else: false } } } })
+    expect(evalValue({ $text: `props.page` }, bound)).toEqual({ "@call": `text`, args: { value: { "@path": `/page` } } })
+    expect(evalValue({ $map: { from: `props.page`, cases: { "1": `first` }, default: `other` } }, bound)).toEqual({ "@call": `map`, args: { value: { "@path": `/page` }, cases: { "1": `first` }, default: `other` } })
+    expect(evalValue({ $cond: [`props.open`, `a`, `b`] }, bound)).toEqual({ "@call": `cond`, args: { if: { "@path": `/ui/open` }, then: `a`, else: `b` } })
+    expect(evalValue({ $coalesce: [`{props.missing}`, `{props.page}`, `x`] }, bound)).toEqual({ "@call": `coalesce`, args: { values: [{ "@path": `/page` }, `x`] } })
     expect(evalValue({ $coalesce: [`{props.label}`, `{props.page}`] }, bound)).toBe(`Hi`)
-    expect(evalValue(`{len(props.page)}`, bound)).toEqual({ call: `len`, args: { value: { path: `/page` } } })
+    expect(evalValue(`{len(props.page)}`, bound)).toEqual({ "@call": `len`, args: { value: { "@path": `/page` } } })
     expect(evalValue(`{range(props.page)}`, bound)).toBeUndefined()
   })
 
   test(`conditions: decided when literal, the dynamic value when bound`, () => {
-    expect(evalConditionValue(`props.open`, bound)).toEqual({ path: `/ui/open` })
+    expect(evalConditionValue(`props.open`, bound)).toEqual({ "@call": `cond`, args: { if: { "@path": `/ui/open` }, then: true, else: false } })
     expect(evalConditionValue(`props.label`, bound)).toBe(true)
-    expect(evalConditionValue({ $eq: [`{props.page}`, 2] }, bound)).toEqual({ call: `eq`, args: { a: { path: `/page` }, b: 2 } })
+    expect(evalConditionValue({ $eq: [`{props.page}`, 2] }, bound)).toEqual({ "@call": `eq`, args: { a: { "@path": `/page` }, b: 2 } })
     expect(evalCondition(`props.open`, bound)).toBe(true)
   })
 

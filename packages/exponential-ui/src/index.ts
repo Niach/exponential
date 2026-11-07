@@ -5,6 +5,7 @@ export {
   CORE_LITE_CATALOG_ID,
   A2UI_BASIC_CATALOG_ID,
   A2UI_VERSION,
+  ACCEPT_V09,
   SUPPORTED_CATALOG_IDS,
   UNKNOWN_COMPONENT,
   TOKEN_GROUPS,
@@ -21,6 +22,8 @@ export {
 } from "./catalog"
 export type { CatalogView } from "./catalog"
 export * from "./catalog.generated"
+export { newSurfaceBridge, surfaceUpdates } from "./surface-updates"
+export type { SurfaceBridge, SurfaceRefusal, SurfaceUpdate, SurfaceUpdatesOptions } from "./surface-updates"
 export {
   STYLE_KEYS,
   STYLE_LAYOUT_KEYS,
@@ -42,9 +45,9 @@ export {
   styleKeyType,
 } from "./style"
 export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, ConditionContext, MediaCondition, FormFactor } from "./style"
-export { validateProps, validateNode, isCallableName, isDynamic } from "./validate"
+export { validateProps, validateNode, isCallableName, isKnownFunctionName, isDynamic } from "./validate"
 export type { PropIssue } from "./validate"
-export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
+export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, present, coerceBoolean, binding, bindingPath, callName, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
 export type { ExprContext, Dynamic } from "./expr"
 export { DATE_BUCKETS, dateBucket, parseDay, parseMonth, parseYear, formatDay, isoWeek, isoWeeksInYear, dayOfYear, daysInMonth, weekdayOf, isLeapYear, dayNumber, dayFromNumber } from "./dates"
 export { EXPRESSION_LIMITS, EXPRESSION_FUNCTIONS, EXPRESSION_CALL_NAMES, EXPRESSION_BIND_FUNCTIONS, DATE_UNITS, CALENDAR_UNITS, DURATION_FORMATS, parseExpression, evaluateExpression, checkExpression, callExpressionFunction, parseTimestamp, formatTimestamp, typeName as expressionTypeName, typeDisplay } from "./cel"
@@ -53,7 +56,11 @@ export type { CalendarDay, DateBucket } from "./dates"
 
 export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } from "./macros"
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.
-export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES } from "./dynamic"
+export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES, EFFECT_FUNCTIONS, USER_ACTIVATION_FUNCTIONS, RENDERER_ONLY_FUNCTIONS, VALIDATOR_FUNCTIONS, FunctionFailure, catalogFunctionNames, checkResult, evaluateCall, evaluateCheck, isHostFunctionName, resolveWithFailure, shownResult } from "./dynamic"
+export { allowedCallers, checkArgs, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "./functions"
+export type { AllowedCallers } from "./functions"
+export { A2UI_VERSION_09, ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
+export type { EntryContext, EntryFailure, Envelope } from "./entry"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"
 export type { Formatter, NumberOptions, DateOptions, DateStyle, PluralCategory, RelativeUnit, ZoneOffset } from "./format"
@@ -103,7 +110,7 @@ export { readOnlyTree, readOnlyTemplates, readOnlyDisables, readOnlyDisabledIds,
 export type { TreeGuide } from "./tree-guides"
 export { ANIMATIONS, ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, animatesOpacity, animationTiming, animationFrame, cubicBezier, keyframesCss, animationCss, paintedOpacity } from "./animation"
 export type { AnimationDef, AnimationFrame, AnimationTiming, Keyframe } from "./animation"
-export type { DataScope, ResolveOptions, ActionOutcome, FunctionTable, PointerWrite } from "./dynamic"
+export type { DataScope, ResolveOptions, ActionOutcome, Failure, FunctionTable, PointerWrite, RouteAnswer, RoutedCall, ValidationResult } from "./dynamic"
 export { DEFAULT_STRINGS, STRING_IDS, parseStringRef, isStringRef, stringTable, formatString, resolveString } from "./strings"
 export { DEFAULT_LOCALE, parseLocale, localeRegion, weekStart, textDirection, RTL_MIRRORED_ICONS, mirrorsInRtl } from "./locale"
 export type { LocaleParts } from "./locale"
@@ -125,7 +132,7 @@ export type { ComponentA11y } from "./a11y"
 export type { CodeToken } from "./code"
 export { basicMap, mapBasicComponent, mapBasicIcon, BASIC_TRANSFORM_NAMES } from "./basic-map"
 export type { MappedComponent } from "./basic-map"
-export { reduceSurface, reduceNested, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
+export { reduceSurface, reduceNested, cardV10, cardProblems, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
 export type { ReduceOptions, ReduceResult } from "./reducer"
 export { defineExtension, validateExtension } from "./extension"
 // VAPP-106: NOT here, each its own entry so the root stays what a renderer
@@ -185,3 +192,5 @@ export type { TreeRow, TreeRowKind, TreeKeyRow, TreeKeyResult } from "./tree"
 // Round 8: the Canvas node's pure core and the Checkbox press rule.
 export * from "./canvas"
 export * from "./checkbox"
+export * from "./upgrade09"
+export { isIdentifier, mangle } from "./ids"

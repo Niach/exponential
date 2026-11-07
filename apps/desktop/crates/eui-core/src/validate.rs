@@ -58,6 +58,19 @@ fn check_value(schema: &PropSchema, value: &Value, path: &str, view: &CatalogVie
 
 fn check_scalar(schema: &PropSchema, value: &Value, path: &str, view: &CatalogView, issues: &mut Vec<PropIssue>) {
     match schema.type_.as_str() {
+        // Round 9 §5.3: a component id reference; the router's entry check
+        // refuses a non-identifier, the reducer a missing id.
+        "componentId" => {
+            if !value.is_string() {
+                issue(issues, path, "expected a string".to_string());
+            }
+        }
+        // Round 9 §6.6: a binding or a call, never a literal (a check's condition).
+        "dynamic" => {
+            if !crate::expr::is_dynamic(value) {
+                issue(issues, path, "expected a binding or a function call".to_string());
+            }
+        }
         "string" | "markdown" | "url" => match value.as_str() {
             None => issue(issues, path, "expected a string"),
             Some(s) => {
@@ -172,25 +185,25 @@ pub fn validate_props(def: &ComponentDef, props: &Props, path: &str, view: &Cata
     issues
 }
 
-/// A function name a surface may call: a catalog function, or a HOST
-/// function, which is always namespaced (`app.toast`, `harness.toast`).
+/// A catalog or HOST function name (an exact host name or a reserved host
+/// prefix), or `@index`: what a card or a package may call statically.
+pub fn is_known_function_name(name: &str) -> bool {
+    crate::generated::catalog::FUNCTION_NAMES.contains(&name)
+        || name == crate::functions::INDEX_FUNCTION
+        || matches!(name, "openUrl" | "bind")
+        || crate::functions::is_host_function_name(name)
+}
+
+/// Round 9 §6.5: a name a SURFACE may call: any known name, or any other
+/// identifier (an agent function, routed when the surface has an agent).
 pub fn is_callable_name(name: &str) -> bool {
-    if crate::generated::catalog::FUNCTION_NAMES.contains(&name) {
-        return true;
-    }
-    // `^[A-Za-z_][\w-]*(\.[A-Za-z_][\w-]*)+$` (src/validate.ts).
-    let segments: Vec<&str> = name.split('.').collect();
-    segments.len() >= 2
-        && segments.iter().all(|s| {
-            let mut chars = s.chars();
-            chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        })
+    is_known_function_name(name) || crate::ident::is_identifier(name)
 }
 
 fn check_call(call: &Value, path: &str, issues: &mut Vec<PropIssue>) {
-    let name = call["call"].as_str().unwrap_or("");
+    let name = call["@call"].as_str().unwrap_or("");
     if !is_callable_name(name) {
-        issue(issues, path, format!("unknown function \"{name}\"; known: the catalog functions, or a namespaced host function (app.toast)"));
+        issue(issues, path, format!("unknown function \"{name}\"; known: the catalog functions, a host function (app_toast), or an agent function (an identifier)"));
     }
 }
 
@@ -322,9 +335,9 @@ mod tests {
 
     #[test]
     fn dynamic_values_and_dates() {
-        assert!(is_dynamic(&json!({"path": "/x"})));
-        assert!(!is_dynamic(&json!({"path": "/x", "y": 1})));
-        assert!(is_dynamic(&json!({"call": "regex", "args": {}})));
+        assert!(is_dynamic(&json!({"@path": "/x"})));
+        assert!(!is_dynamic(&json!({"@path": "/x", "y": 1})));
+        assert!(is_dynamic(&json!({"@call": "regex", "args": {}})));
         assert!(is_iso_date("2026-10-07") && !is_iso_date("2026-1-07") && !is_iso_date("2026/10/07"));
     }
 

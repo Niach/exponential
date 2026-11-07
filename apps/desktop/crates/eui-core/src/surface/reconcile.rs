@@ -76,7 +76,18 @@ impl Surface {
         let out = {
             let template = |id: &str| -> Option<UiNode> { templates.get(id).cloned().flatten() };
             let gap = |name: &str| -> f32 { gaps.get(name).copied().unwrap_or(0.0) };
+            let failures = self.failures.clone();
+            let on_failure = move |failure: &crate::data::Failure, id: &str| {
+                let authored = id.split('.').next().unwrap_or(id);
+                let path = format!("/components/{}", authored.replace('~', "~0").replace('/', "~1"));
+                if let Ok(mut list) = failures.lock() {
+                    list.push(crate::data::Failure { path: Some(path), ..failure.clone() });
+                }
+            };
             let mut ctx = BuildContext {
+                on_failure: &on_failure,
+                catalog_id: &self.catalog_id,
+                route: self.call_route.as_deref().map(|r| r as &dyn Fn(crate::data::RoutedCall) -> crate::data::RouteAnswer),
                 view: &self.view,
                 recipes: &self.recipes,
                 data: &self.data,

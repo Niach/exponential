@@ -112,8 +112,8 @@ fn layout_second_pass_at_the_same_width_costs_no_upcall_and_viewport_changes_res
     assert_eq!(narrow.upcalls, 0, "a width change re-uses the intrinsics");
     assert!(narrow.surface_height > first.surface_height);
     // Pressed → only the visual changes, geometry stays.
-    let scan = surface.index_of("hdr-scan").unwrap();
-    assert!(surface.set_pressed(&["hdr-scan".to_string()]));
+    let scan = surface.index_of("hdr_scan").unwrap();
+    assert!(surface.set_pressed(&["hdr_scan".to_string()]));
     let pressed = surface.layout(&mut measure);
     assert_eq!(pressed.frames, narrow.frames);
     assert_eq!(pressed.visual_changes, vec![scan]);
@@ -200,7 +200,7 @@ fn overlay_open_is_local_state_and_writes_through_a_binding() {
     let tree: NestedNode = serde_json::from_value(json!({
         "id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"},
         "children": [
-            {"id": "dlg", "component": "Dialog", "props": {"title": "Delete?", "open": {"path": "/ui/open"}},
+            {"id": "dlg", "component": "Dialog", "props": {"title": "Delete?", "open": {"@path": "/ui/open"}},
              "slots": {"trigger": {"id": "t", "component": "Button", "props": {"label": "Delete"}}},
              "children": [{"id": "msg", "component": "Text", "props": {"text": "Sure?"}}]}
         ]
@@ -224,7 +224,7 @@ fn overlay_open_is_local_state_and_writes_through_a_binding() {
     assert_eq!(title.owner_component.as_deref(), Some("Dialog"));
     assert_eq!(surface.get_data("/ui/open"), Some(&json!(true)));
     // A producer closing it through the data model wins.
-    surface.apply(&json!({"version": "v0.9", "updateDataModel": {"surfaceId": "dialog", "path": "/ui/open", "value": false}})).unwrap();
+    surface.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "dialog", "path": "/ui/open", "value": false}})).unwrap();
     surface.set_open("dlg", false);
     assert!(surface.layout(&mut measure).layers.is_empty());
 }
@@ -402,17 +402,17 @@ fn vapp163_an_authors_style_on_a_macro_node_wins_over_its_part_recipe_in_the_pai
 #[test]
 fn a2ui_messages_drive_the_surface_including_templates_and_basic_components() {
     let mut surface = Surface::new("s1", SurfaceOptions { catalog_id: eui_core::catalog::A2UI_BASIC_CATALOG_ID.into(), ..SurfaceOptions::default() });
-    surface.apply(&json!({"version": "v0.9", "createSurface": {"surfaceId": "s1", "catalogId": eui_core::catalog::A2UI_BASIC_CATALOG_ID}})).unwrap();
-    let outcome = surface.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s1", "components": [
+    surface.apply(&json!({"version": "1.0", "createSurface": {"surfaceId": "s1", "catalogId": eui_core::catalog::A2UI_BASIC_CATALOG_ID}})).unwrap();
+    let outcome = surface.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s1", "components": [
         {"id": "root", "component": "Column", "children": ["title", "items", "btn"]},
-        {"id": "title", "component": "Text", "text": {"path": "/title"}, "variant": "h2"},
+        {"id": "title", "component": "Text", "text": {"@path": "/title"}},
         {"id": "items", "component": "List", "children": {"componentId": "row", "path": "/rows"}},
-        {"id": "row", "component": "Text", "text": {"path": "name"}},
-        {"id": "btn", "component": "Button", "child": "btn-label", "action": {"event": {"name": "go", "context": {"n": {"path": "/count"}}}}},
-        {"id": "btn-label", "component": "Text", "text": "Go"}
+        {"id": "row", "component": "Text", "text": {"@path": "name"}},
+        {"id": "btn", "component": "Button", "child": "btn_label", "action": {"event": {"name": "go", "context": {"n": {"@path": "/count"}}}}},
+        {"id": "btn_label", "component": "Text", "text": "Go"}
     ]}})).unwrap();
     assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
-    surface.apply(&json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "value": {"title": "Hello", "count": 2, "rows": [{"name": "one"}, {"name": "two"}, {"name": "three"}]}}})).unwrap();
+    surface.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "s1", "value": {"title": "Hello", "count": 2, "rows": [{"name": "one"}, {"name": "two"}, {"name": "three"}]}}})).unwrap();
     surface.set_viewport(400.0, 0.0, None);
     let mut measure = FixedMeasure::default();
     let out = surface.layout(&mut measure);
@@ -427,15 +427,15 @@ fn a2ui_messages_drive_the_surface_including_templates_and_basic_components() {
     assert!(events.iter().any(|e| matches!(e, OutEvent::Action { name, context, .. } if name == "go" && context["n"] == json!(2))));
     // A data change re-resolves bindings without rebuilding the taffy tree.
     let v1 = out.structure_version;
-    surface.apply(&json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/title", "value": "Changed"}})).unwrap();
+    surface.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "s1", "path": "/title", "value": "Changed"}})).unwrap();
     let out2 = surface.layout(&mut measure);
     assert_eq!(out2.structure_version, v1);
     assert_eq!(surface.nodes().iter().find(|n| n.id == "title").unwrap().props["text"], json!("Changed"));
     // Adding a row changes the structure.
-    surface.apply(&json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/rows/-", "value": {"name": "four"}}})).unwrap();
+    surface.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "s1", "path": "/rows/-", "value": {"name": "four"}}})).unwrap();
     let out3 = surface.layout(&mut measure);
     assert_eq!(out3.structure_version, v1 + 1);
-    surface.apply(&json!({"version": "v0.9", "deleteSurface": {"surfaceId": "s1"}})).unwrap();
+    surface.apply(&json!({"version": "1.0", "deleteSurface": {"surfaceId": "s1"}})).unwrap();
     assert_eq!(surface.layout(&mut measure).frames.len(), 0);
 }
 
@@ -466,7 +466,7 @@ fn kitchen_sink_lays_out_with_the_default_theme_in_three_upcalls_or_fewer() {
     let mut surface = Surface::new("ks", SurfaceOptions::default());
     let outcome = surface.set_nested(tree);
     assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
-    surface.apply(&json!({"version": "v0.9", "updateDataModel": {"surfaceId": "ks", "value": {"posts": [{"title": "One"}, {"title": "Two"}], "ui": {"confirmOpen": false}}}})).unwrap();
+    surface.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "ks", "value": {"posts": [{"title": "One"}, {"title": "Two"}], "ui": {"confirmOpen": false}}}})).unwrap();
     for width in [390.0f32, 900.0] {
         surface.set_viewport(width, 0.0, None);
         let mut measure = FixedMeasure { sizes: HashMap::new(), wrap: true };
@@ -550,7 +550,7 @@ fn an_anchor_by_id_is_the_overlays_trigger_and_dismiss_closes_it() {
                 {"id": "clock", "component": "Button", "props": {"label": "12:00"}}
              ]},
             {"id": "startMenu", "component": "Menu", "props": {"anchor": "start", "side": "top", "align": "start", "items": [{"label": "Files", "value": "files"}]}},
-            {"id": "calendar", "component": "Popover", "props": {"anchor": "clock", "side": "top", "align": "end", "open": {"path": "/ui/calendar"}},
+            {"id": "calendar", "component": "Popover", "props": {"anchor": "clock", "side": "top", "align": "end", "open": {"@path": "/ui/calendar"}},
              "children": [{"id": "month", "component": "Text", "props": {"text": "November"}}]}
         ]
     }))

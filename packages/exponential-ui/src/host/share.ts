@@ -95,7 +95,7 @@ function templateIssues(pkg: Record<string, unknown>, s: Record<string, unknown>
     }
     if (extensions.includes(c.component)) say(`uses the extension component ${String(c.component)}: a guest's page has no extensions`)
     for (const handler of isObject(c.on) ? Object.values(c.on) : []) {
-      const call = isObject(handler) && isObject(handler.functionCall) ? handler.functionCall.call : undefined
+      const call = isObject(handler) && isObject(handler.functionCall) ? handler.functionCall[`@call`] : undefined
       if (typeof call === `string` && !GUEST_CALLS.includes(call)) say(`calls ${call}: a guest's page only reads`)
     }
     const exp = expSource(c)

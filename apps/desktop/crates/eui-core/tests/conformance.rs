@@ -320,7 +320,7 @@ fn replay_suite() -> Vec<Case> {
                 let outcome = surface.set_nested(sink.clone());
                 ensure(outcome.issues.is_empty(), || format!("issues {:?}", outcome.issues))?;
                 surface
-                    .apply(&json!({"version": "v0.9", "updateDataModel": {"surfaceId": "ks", "value": {"posts": [{"title": "One"}, {"title": "Two"}], "ui": {"confirmOpen": false}}}}))
+                    .apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "ks", "value": {"posts": [{"title": "One"}, {"title": "Two"}], "ui": {"confirmOpen": false}}}}))
                     .map_err(|e| e.to_string())?;
                 for width in [390.0, 900.0] {
                     paint(&mut surface, width)?;
@@ -350,6 +350,7 @@ fn suite(id: &str) -> Vec<Case> {
         "replay" => replay_suite(),
         "host-transport" => support::transport_cases(),
         "host-policy" => support::policy_cases(),
+        "a2ui10" => support::a2ui10_cases(),
         "host-router" => support::router_cases(),
         "bind" => support::round2::bind_cases(),
         "style-conditions" => support::round2::style_condition_cases(),

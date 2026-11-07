@@ -15,15 +15,15 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const V = `v0.9`
+const V = `1.0`
 const create = (surfaceId = `main`) => ({ version: V, createSurface: { surfaceId, catalogId: CORE_CATALOG_ID } })
 const components = (list: FlatComponent[], surfaceId = `main`) => ({ version: V, updateComponents: { surfaceId, components: list } })
 const SCREEN = [
   create(),
   components([
     { id: `root`, component: `Box`, children: [`t`, `b`] },
-    { id: `t`, component: `Text`, text: { path: `/greeting` } },
-    { id: `b`, component: `Button`, label: `Save`, on: { press: { event: { name: `save`, context: { who: { path: `/greeting` } } } } } },
+    { id: `t`, component: `Text`, text: { "@path": `/greeting` } },
+    { id: `b`, component: `Button`, label: `Save`, on: { press: { event: { name: `save`, context: { who: { "@path": `/greeting` } } } } } },
   ] as FlatComponent[]),
   { version: V, updateDataModel: { surfaceId: `main`, path: `/greeting`, value: `Hello` } },
 ]
@@ -75,7 +75,7 @@ describe(`host property`, () => {
     expect(sentByHost).toHaveLength(1)
     expect(actions).toHaveLength(1)
     // apply() goes to the host too.
-    el.apply({ updateDataModel: { surfaceId: `main`, path: `/greeting`, value: `Applied` } })
+    el.apply({ version: `1.0`, updateDataModel: { surfaceId: `main`, path: `/greeting`, value: `Applied` } })
     expect(el.querySelector(`[data-xui-id="t"]`)!.textContent).toBe(`Applied`)
     transport.feed({ version: V, deleteSurface: { surfaceId: `main` } })
     expect(surfaceOf(el)).toBeNull()

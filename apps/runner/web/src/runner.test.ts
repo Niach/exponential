@@ -35,9 +35,9 @@ const setup = (bundle: Record<string, string | null> = {}, opts: Partial<RunnerO
   return { runner, picked, vault, records, timers }
 }
 
-const components = (runner: Runner, surface: string) => runner.host.surface(surface)?.components.map((c) => ({ ...c })) ?? null
+const components = (runner: Runner, surface: string) => runner.host.surface(runner.surfaceId(surface))?.components.map((c) => ({ ...c })) ?? null
 const ids = (runner: Runner, surface: string) => (components(runner, surface) ?? []).map((c) => c.id)
-const action = (runner: Runner, surfaceId: string, name: string, context: Record<string, unknown> = {}) => runner.host.action({ surfaceId, componentId: `x`, name, context })
+const action = (runner: Runner, surface: string, name: string, context: Record<string, unknown> = {}) => runner.host.action({ surfaceId: runner.surfaceId(surface), componentId: `x`, name, context })
 const tick = () => new Promise((r) => setTimeout(r, 0))
 
 describe(`the bundle`, () => {
@@ -75,12 +75,12 @@ describe(`the shell`, () => {
   test(`a launch opens the first screen in the wide shell; crossing md re-installs compact`, async () => {
     const { runner } = setup()
     await runner.start()
-    expect(ids(runner, `app`)).toContain(`runner-nav`)
-    expect(ids(runner, `app`)).toContain(`runner-permissions`)
-    expect(components(runner, `app`)!.find((c) => c.id === `runner-screen-0`)!.selected).toBe(true)
+    expect(ids(runner, `app`)).toContain(`runner_nav`)
+    expect(ids(runner, `app`)).toContain(`runner_permissions`)
+    expect(components(runner, `app`)!.find((c) => c.id === `runner_screen_0`)!.selected).toBe(true)
     runner.setFormFactor(`compact`)
-    expect(ids(runner, `app`)).toContain(`runner-tabs`)
-    expect(runner.host.surface(`app`)!.data).toMatchObject({ runner: { screen: `albums` }, params: {} })
+    expect(ids(runner, `app`)).toContain(`runner_tabs`)
+    expect(runner.host.surface(runner.surfaceId(`app`))!.data).toMatchObject({ runner: { screen: `albums` }, params: {} })
   })
 
   test(`runner.navigate opens the screen; an unknown one toasts`, async () => {
@@ -89,7 +89,7 @@ describe(`the shell`, () => {
     action(runner, `app`, `runner.navigate`, { screen: `about` })
     await tick()
     expect(runner.instance!.state.screen).toBe(`about`)
-    expect(components(runner, `app`)!.find((c) => c.id === `runner-screen-1`)!.selected).toBe(true)
+    expect(components(runner, `app`)!.find((c) => c.id === `runner_screen_1`)!.selected).toBe(true)
     action(runner, `app`, `runner.navigate`, { screen: `nope` })
     await tick()
     expect(components(runner, `toast`)).toEqual(runnerToast(`navigate: nope is not a screen`) as never)
@@ -108,7 +108,7 @@ describe(`the shell`, () => {
     runner.toast(`Nope`)
     expect(components(runner, `toast`)).toEqual(runnerToast(`Nope`) as never)
     timers.at(-1)!()
-    expect(runner.host.surface(`toast`)).toBeUndefined()
+    expect(runner.host.surface(runner.surfaceId(`toast`))).toBeUndefined()
   })
 })
 
@@ -116,32 +116,32 @@ describe(`calls`, () => {
   test(`records writes go to the instance and the bound source re-resolves`, async () => {
     const { runner, records } = setup()
     await runner.start()
-    const outcome = await runner.host.callFunction({ surfaceId: `app`, componentId: `create`, name: `records.upsert`, args: { kind: `album`, data: { title: `Vienna`, photos: 0 } } })
+    const outcome = await runner.host.callFunction({ surfaceId: runner.surfaceId(`app`), componentId: `create`, name: `records_upsert`, args: { kind: `album`, data: { title: `Vienna`, photos: 0 } } })
     expect(outcome.error).toBeUndefined()
     const rows = await records.rows(`acme.album`)
     expect(rows.map((r) => r.data.title)).toEqual([`Vienna`])
     await tick()
-    expect((runner.host.surface(`app`)!.data as { albums: { count: number } }).albums.count).toBe(1)
+    expect((runner.host.surface(runner.surfaceId(`app`))!.data as { albums: { count: number } }).albums.count).toBe(1)
   })
 
   test(`a capability asks on the consent surface, the answer runs it`, async () => {
     const { runner, picked } = setup()
     await runner.start()
-    const call = runner.host.callFunction({ surfaceId: `app`, componentId: `pick`, name: `photos.pick`, args: { limit: 5 } })
+    const call = runner.host.callFunction({ surfaceId: runner.surfaceId(`app`), componentId: `pick`, name: `photos_pick`, args: { limit: 5 } })
     await tick()
     expect(components(runner, `consent`)![0]!.title).toBe(`Allow Album to access your photos?`)
     action(runner, `consent`, `consent.answer`, { answer: `allow` })
     const outcome = await call
     expect(outcome.error).toBeUndefined()
     expect(picked).toEqual([[`pick`, { limit: 5 }]])
-    expect(runner.host.surface(`consent`)).toBeUndefined()
+    expect(runner.host.surface(runner.surfaceId(`consent`))).toBeUndefined()
     expect(runner.instance!.grants()).toEqual({ "photos.read": `granted` })
   })
 
   test(`a denied answer refuses the call with the toast`, async () => {
     const { runner, picked } = setup()
     await runner.start()
-    const call = runner.host.callFunction({ surfaceId: `app`, componentId: `pick`, name: `photos.pick`, args: {} })
+    const call = runner.host.callFunction({ surfaceId: runner.surfaceId(`app`), componentId: `pick`, name: `photos_pick`, args: {} })
     await tick()
     action(runner, `consent`, `consent.answer`, { answer: `deny` })
     expect((await call).error).toBe(`consentDenied`)
@@ -190,7 +190,7 @@ describe(`one tab per origin`, () => {
     await started
     expect(runner.failure).toBeNull()
     expect(opened).toBe(1)
-    expect(ids(runner, `app`)).toContain(`runner-nav`)
+    expect(ids(runner, `app`)).toContain(`runner_nav`)
   })
 })
 

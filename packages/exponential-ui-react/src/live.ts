@@ -39,12 +39,13 @@ const PURE = new Set(Object.keys(CLIENT_FUNCTIONS).filter((name) => name !== `fo
 /** Collects the binding pointers of a value; true = it may read anything. */
 function collect(value: unknown, scope: string, paths: string[], functions: SurfaceContextValue[`functions`]): boolean {
   if (isBinding(value)) {
-    paths.push(absolutePath(value.path, scope))
+    paths.push(absolutePath(value[`@path`], scope))
     return false
   }
   if (isCall(value)) {
-    const fn = functions[value.call] ?? CLIENT_FUNCTIONS[value.call]
-    if (!PURE.has(value.call) || fn !== CLIENT_FUNCTIONS[value.call]) return true
+    const name = value[`@call`]
+    const fn = functions[name] ?? CLIENT_FUNCTIONS[name]
+    if (!PURE.has(name) || fn !== CLIENT_FUNCTIONS[name]) return true
     return collect(value.args, scope, paths, functions)
   }
   if (Array.isArray(value)) {

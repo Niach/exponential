@@ -111,6 +111,9 @@ interface HostPlugin {
      */
     fun icon(name: String, size: Float): (@Composable () -> Unit)? = null
 
+    /** Round 9 §5.2, §6.8: a layout ran; the host sends what it left. */
+    fun afterLayout(surfaceId: String) {}
+
     /** Every A2UI action. */
     fun onAction(event: SurfaceActionEvent) {}
 
@@ -122,6 +125,15 @@ interface HostPlugin {
      * Default: nothing ([ExponentialHost] routes it through its policy).
      */
     fun onFunctionCall(event: SurfaceFunctionCallEvent) {}
+
+    /**
+     * Round 9 §6.8: an action with both: the function first, [then] (its
+     * event) only when the function did not fail.
+     */
+    fun onFunctionCallThen(event: SurfaceFunctionCallEvent, then: () -> Unit) {
+        onFunctionCall(event)
+        then()
+    }
 
     /**
      * The URL policy every href passes (`openUrl`, Link, markdown links,

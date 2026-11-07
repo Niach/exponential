@@ -64,9 +64,9 @@ fn the_reducer_checks_extension_calls_against_the_view() {
     let ext = define_extension(serde_json::from_value(file["extension"].clone()).unwrap()).expect("the example extension");
     let view = eui_core::catalog::CatalogView::with(&[ext]);
     let catalog = file["extension"]["id"].as_str().unwrap();
-    let node = serde_json::from_value(json!({"id": "t", "component": "TrendLine", "props": {"values": [1, {"call": "nope", "args": {}}]}})).unwrap();
+    let node = serde_json::from_value(json!({"id": "t", "component": "TrendLine", "props": {"values": [1, {"@call": "no.pe", "args": {}}]}})).unwrap();
     let issues = reduce_nested(&node, &ReduceOptions::new(catalog).with_view(view)).issues;
-    assert!(issues.iter().any(|i| i.id == "t" && i.message.starts_with("props.values[1]") && i.message.contains("unknown function \"nope\"")), "{issues:?}");
+    assert!(issues.iter().any(|i| i.id == "t" && i.message.starts_with("props.values[1]") && i.message.contains("unknown function \"no.pe\"")), "{issues:?}");
 }
 
 /// One wire naming: every OutEvent is camelCase, kinds AND fields
@@ -77,7 +77,7 @@ fn out_events_are_camel_case_on_the_wire() {
     use eui_core::surface::OutEvent;
     let wire = |e: OutEvent| serde_json::to_value(e).unwrap();
     assert_eq!(
-        wire(OutEvent::Action { name: "save".into(), component_id: "b".into(), event: "press".into(), context: json!({}), payload: None }),
+        wire(OutEvent::Action { name: "save".into(), component_id: "b".into(), event: "press".into(), context: json!({}), payload: None, user_message: None }),
         json!({"kind": "action", "name": "save", "componentId": "b", "event": "press", "context": {}})
     );
     assert_eq!(
@@ -85,7 +85,7 @@ fn out_events_are_camel_case_on_the_wire() {
         json!({"kind": "input", "componentId": "q", "name": "q", "path": "/q", "value": "a", "commit": false})
     );
     assert_eq!(wire(OutEvent::PickFiles { component_id: "up".into(), accept: None, multiple: true }), json!({"kind": "pickFiles", "componentId": "up", "multiple": true}));
-    assert_eq!(wire(OutEvent::FunctionCall { component_id: "b".into(), name: "app.toast".into(), args: json!({}) }), json!({"kind": "functionCall", "componentId": "b", "name": "app.toast", "args": {}}));
+    assert_eq!(wire(OutEvent::FunctionCall { component_id: "b".into(), name: "app_toast".into(), args: json!({}) }), json!({"kind": "functionCall", "componentId": "b", "name": "app_toast", "args": {}}));
     assert_eq!(wire(OutEvent::HoverTimer { owner: "hc".into(), delay_ms: 150 }), json!({"kind": "hoverTimer", "owner": "hc", "delayMs": 150}));
     // And back.
     let back: OutEvent = serde_json::from_value(json!({"kind": "pickFiles", "componentId": "up", "multiple": false})).unwrap();

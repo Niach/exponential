@@ -64,7 +64,9 @@ impl AppInstance {
         if let Verification::Invalid { issues } = &verification {
             return Err(LoadError::Signature(issues.clone()));
         }
-        let pkg = package_of(file).clone();
+        // Round 9 §12: a format 5 file runs as its upgrade while the bridge is on.
+        let raw = package_of(file);
+        let pkg = if eui_core::catalog::ACCEPT_V09 { eui_core::upgrade09::upgrade_package_body09(raw) } else { raw.clone() };
         let issues = validate(&pkg);
         if !issues.is_empty() {
             return Err(LoadError::Invalid(issues));
@@ -210,10 +212,10 @@ impl AppInstance {
     /// (`<capability>.<tool>`, through the broker).
     pub fn call(&mut self, name: &str, args: &Value, new_ids: &[String]) -> CallResult {
         match name {
-            "records.upsert" => self.write(OutboxCall::Upsert, args, new_ids),
-            "records.delete" => self.write(OutboxCall::Delete, args, new_ids),
-            "records.batch" => self.write(OutboxCall::Batch, args, new_ids),
-            "app.navigate" => match eui_core::host::navigate_target(&self.pkg, args) {
+            "records_upsert" => self.write(OutboxCall::Upsert, args, new_ids),
+            "records_delete" => self.write(OutboxCall::Delete, args, new_ids),
+            "records_batch" => self.write(OutboxCall::Batch, args, new_ids),
+            "app_navigate" => match eui_core::host::navigate_target(&self.pkg, args) {
                 Ok(target) => {
                     self.config.window.open(&self.app_id, &target.screen, &target.params, Presentation::Replace);
                     self.state.screen = Some(target.screen.clone());

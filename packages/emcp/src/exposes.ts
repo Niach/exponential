@@ -126,7 +126,7 @@ const READ_RECORD_OPS: readonly string[] = fixture.readRecordOps
 const RECORD_OPS: readonly string[] = fixture.recordOps
 const READ_OP_WORDS: readonly string[] = fixture.readOpWords
 
-/** An `exponential.<noun>.<op>` action is a read when the last word of its
+/** An `exponential_<noun>_<op>` action is a read when the last word of its
  *  op is a read word (`list`, `get`, …); a verb tool is a write. */
 export function actionAccess(name: string): ToolAccess {
   const target = parseActionName(name)

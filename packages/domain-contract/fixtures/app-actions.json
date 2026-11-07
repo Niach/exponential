@@ -1,6 +1,6 @@
 {
-  "$comment": "VAPP-120 typed host ACTIONS ×4: every Exponential MCP operation is a host function an app may call, `exponential.<noun>.<op>` (the apps noun's ops included; the `exponential_sessions_send` verb tool = `exponential.sessions.send`; `session_self` and `guide_write` are not offered: they need an agent's session), run by the client's app host as a tools/call on the instance's MCP as the viewer (the `harness.mcp` transport, arguments = {op, …args}; no `op` for the verb tool). A package lists what it calls in `functions` (an exact name or a `prefix*` pattern: `exponential.issues.*`); the SDK denies anything else. GRANTS (the 2026-10-24 ruling, a conservative default): only a team OWNER (`grantRole`; `canGrantActions(role)`) sets or changes an app's grants, the app's creator gets no grant power from creating it; a DESTRUCTIVE operation (`destructiveWords`: a word of the tool name or op is delete, merge, close, end, remove, trash; `actionDestructive`, `actionGrantable` = not destructive) can NEVER be granted: the server refuses it, every host ignores a stored grant for it (`grantAllows` is false), and it always shows the consent card with the operation's words, for every viewer; the settings row of a destructive action shows `copy.tools.always` in place of the switch, a non-owner sees the switches disabled. `grantableCases` and `canGrantCases` replay ×4 beside `grantCases` (which carry: an owner's grant skips the card for a non-destructive op, a destructive op ignores a grant). A DESTRUCTIVE CALL (`destructiveArgs`: the operations prompts.json flags destructive that ride on an argument of a grantable action: `exponential.sessions.send` with `stop` set = the `stop-run` prompt) ignores a grant the same way and shows the destructive card (`callDestructive(name, args)`; `grantAllows(granted, name, args)` takes the call's args, an arg present and not false/null counts); the action itself stays grantable for its other calls. `apps.granted_tools` (synced on the apps shape, a list of exact function names) = what the app may run as the viewer WITHOUT asking: the app's SETTINGS page (web + desktop; phones have no app settings) shows a `copy.tools` group under the records line with one row per declared function (`declaredActions`: patterns expand against `functions`), the display row's title (contract `expToolDisplay`, `<noun>_<op>`) + the function name muted + a Switch (an owner; others see it disabled; a destructive action shows `copy.tools.always` instead), `copy.tools.none` when the package declares none, `copy.tools.hint` under the title. The server (`apps.update`, an owner only) accepts a grant only for a non-destructive action the HEAD package declares, and every new version (upsert, restore) drops the grants it no longer declares: a grant is a choice about the current package, never inherited by a later version that re-declares the action; a version written by anyone but a team OWNER (a member's upsert or restore) clears ALL the grants, so a non-owner's code never runs on an owner's grant without the consent card, while an owner's own new version keeps the grants it still declares. A typed call's `op` is the NAME's: an `op` key in the args never changes the operation (×4). CONSENT: a declared, ungranted call shows the consent card worded for the operation (`actionConsent`: title `Allow this surface to <title, lower-cased><subject>?` where subject = the arg named by the row's `subjectKey` when it is a string; the destructive variant when a word of the tool name or op is delete, merge, close, end, remove, trash; the arguments block = the args without `op`), Allow runs it ONCE; a granted call runs without a card; `harness.mcp` keeps the generic copy and always asks. The TS reference `app-actions.ts` is replayed by desktop `domain::app_actions`, iOS `AppActions.swift`, Android `AppActions.kt` (`parseCases`, `grantCases`, `declaredCases`, `consentCases`); `functions` is the ×4 list (the web gates it against its noun table). VAPP-158 OWNER ACTIONS (`ownerActions`, `actionOwnerOnly`): the non-destructive operations the server runs for a team OWNER only (adding a member, minting or revoking an invite, adding an MCP server, creating or editing a prompt, changing the team's settings) are never grantable either: `actionGrantable` is false, the server refuses the grant, every host ignores a stored one (`grantAllows` false) and the call always shows the consent card (the plain card, not the destructive variant: `callDestructive` is unchanged), so an app never runs an owner's operation card-free for anyone, owners included; the settings row shows `copy.tools.always` like a destructive one. `ownerOnlyCases` replay ×4. EXP-1657 ALIASES (`aliases`, old name → new name): the retired `exponential_team_config` tool split into its nouns (labels, statuses, prompts, agents, mcp_servers, repositories; `mcp_servers_add` = `mcp_servers.create`, `mcp_servers_remove` = `mcp_servers.delete`, `repositories_add` = `repositories.create`), so `exponential.team_config.<x>_<y>` became `exponential.<noun>.<op>`. An already-published package keeps working: every host registers each alias as a function too (`actionAliases`), an alias PARSES to its new name's target, and everything else follows the NEW name (`canonicalAction`): destructive, owner-only, grantable, the display title and the consent card; a grant matches when the grant and the call name the same canonical action (a grant stored under an old name counts for the new one and vice versa); `declaredActions` expands a package's names and patterns over the aliases too and returns their NEW names. Aliases are never listed in `functions`, `tools` or a declared list. Alias cases sit in `parseCases`, `grantCases`, `grantableCases`, `ownerOnlyCases`, `declaredCases` and `consentCases` (`$why` names them).",
-  "prefix": "exponential.",
+  "$comment": "VAPP-120 typed host ACTIONS ×4: every Exponential MCP operation is a host function an app may call, `exponential.<noun>.<op>` (the apps noun's ops included; the `exponential_sessions_send` verb tool = `exponential_sessions_send`; `session_self` and `guide_write` are not offered: they need an agent's session), run by the client's app host as a tools/call on the instance's MCP as the viewer (the `harness_mcp` transport, arguments = {op, …args}; no `op` for the verb tool). A package lists what it calls in `functions` (an exact name or a `prefix*` pattern: `exponential_issues_*`); the SDK denies anything else. GRANTS (the 2026-10-24 ruling, a conservative default): only a team OWNER (`grantRole`; `canGrantActions(role)`) sets or changes an app's grants, the app's creator gets no grant power from creating it; a DESTRUCTIVE operation (`destructiveWords`: a word of the tool name or op is delete, merge, close, end, remove, trash; `actionDestructive`, `actionGrantable` = not destructive) can NEVER be granted: the server refuses it, every host ignores a stored grant for it (`grantAllows` is false), and it always shows the consent card with the operation's words, for every viewer; the settings row of a destructive action shows `copy.tools.always` in place of the switch, a non-owner sees the switches disabled. `grantableCases` and `canGrantCases` replay ×4 beside `grantCases` (which carry: an owner's grant skips the card for a non-destructive op, a destructive op ignores a grant). A DESTRUCTIVE CALL (`destructiveArgs`: the operations prompts.json flags destructive that ride on an argument of a grantable action: `exponential_sessions_send` with `stop` set = the `stop-run` prompt) ignores a grant the same way and shows the destructive card (`callDestructive(name, args)`; `grantAllows(granted, name, args)` takes the call's args, an arg present and not false/null counts); the action itself stays grantable for its other calls. `apps.granted_tools` (synced on the apps shape, a list of exact function names) = what the app may run as the viewer WITHOUT asking: the app's SETTINGS page (web + desktop; phones have no app settings) shows a `copy.tools` group under the records line with one row per declared function (`declaredActions`: patterns expand against `functions`), the display row's title (contract `expToolDisplay`, `<noun>_<op>`) + the function name muted + a Switch (an owner; others see it disabled; a destructive action shows `copy.tools.always` instead), `copy.tools.none` when the package declares none, `copy.tools.hint` under the title. The server (`apps.update`, an owner only) accepts a grant only for a non-destructive action the HEAD package declares, and every new version (upsert, restore) drops the grants it no longer declares: a grant is a choice about the current package, never inherited by a later version that re-declares the action; a version written by anyone but a team OWNER (a member's upsert or restore) clears ALL the grants, so a non-owner's code never runs on an owner's grant without the consent card, while an owner's own new version keeps the grants it still declares. A typed call's `op` is the NAME's: an `op` key in the args never changes the operation (×4). CONSENT: a declared, ungranted call shows the consent card worded for the operation (`actionConsent`: title `Allow this surface to <title, lower-cased><subject>?` where subject = the arg named by the row's `subjectKey` when it is a string; the destructive variant when a word of the tool name or op is delete, merge, close, end, remove, trash; the arguments block = the args without `op`), Allow runs it ONCE; a granted call runs without a card; `harness_mcp` keeps the generic copy and always asks. The TS reference `app-actions.ts` is replayed by desktop `domain::app_actions`, iOS `AppActions.swift`, Android `AppActions.kt` (`parseCases`, `grantCases`, `declaredCases`, `consentCases`); `functions` is the ×4 list (the web gates it against its noun table). VAPP-158 OWNER ACTIONS (`ownerActions`, `actionOwnerOnly`): the non-destructive operations the server runs for a team OWNER only (adding a member, minting or revoking an invite, adding an MCP server, creating or editing a prompt, changing the team's settings) are never grantable either: `actionGrantable` is false, the server refuses the grant, every host ignores a stored one (`grantAllows` false) and the call always shows the consent card (the plain card, not the destructive variant: `callDestructive` is unchanged), so an app never runs an owner's operation card-free for anyone, owners included; the settings row shows `copy.tools.always` like a destructive one. `ownerOnlyCases` replay ×4. EXP-1657 ALIASES (`aliases`, old name → new name): the retired `exponential_team_config` tool split into its nouns (labels, statuses, prompts, agents, mcp_servers, repositories; `mcp_servers_add` = `mcp_servers.create`, `mcp_servers_remove` = `mcp_servers.delete`, `repositories_add` = `repositories.create`), so `exponential.team_config.<x>_<y>` became `exponential.<noun>.<op>`. An already-published package keeps working: every host registers each alias as a function too (`actionAliases`), an alias PARSES to its new name's target, and everything else follows the NEW name (`canonicalAction`): destructive, owner-only, grantable, the display title and the consent card; a grant matches when the grant and the call name the same canonical action (a grant stored under an old name counts for the new one and vice versa); `declaredActions` expands a package's names and patterns over the aliases too and returns their NEW names. Aliases are never listed in `functions`, `tools` or a declared list. Alias cases sit in `parseCases`, `grantCases`, `grantableCases`, `ownerOnlyCases`, `declaredCases` and `consentCases` (`$why` names them).",
+  "prefix": "exponential_",
   "excluded": [
     "session_self",
     "guide_write"
@@ -15,474 +15,474 @@
     "trash"
   ],
   "destructiveArgs": {
-    "exponential.sessions.send": [
+    "exponential_sessions_send": [
       "stop"
     ]
   },
   "ownerActions": [
-    "exponential.mcp_servers.create",
-    "exponential.people.add",
-    "exponential.people.invites_create",
-    "exponential.people.invites_revoke",
-    "exponential.prompts.create",
-    "exponential.prompts.update",
-    "exponential.teams.update"
+    "exponential_mcp_servers_create",
+    "exponential_people_add",
+    "exponential_people_invites_create",
+    "exponential_people_invites_revoke",
+    "exponential_prompts_create",
+    "exponential_prompts_update",
+    "exponential_teams_update"
   ],
   "functions": [
-    "exponential.agents.get",
-    "exponential.agents.list",
-    "exponential.apps.catalog",
-    "exponential.apps.delete",
-    "exponential.apps.get",
-    "exponential.apps.handoff",
-    "exponential.apps.list",
-    "exponential.apps.records_delete",
-    "exponential.apps.records_list",
-    "exponential.apps.records_upsert",
-    "exponential.apps.upsert",
-    "exponential.attachments.delete",
-    "exponential.attachments.get",
-    "exponential.attachments.list",
-    "exponential.attachments.upload",
-    "exponential.boards.create",
-    "exponential.boards.delete",
-    "exponential.boards.get",
-    "exponential.boards.list",
-    "exponential.boards.set_repository",
-    "exponential.boards.update",
-    "exponential.comments.create",
-    "exponential.comments.delete",
-    "exponential.comments.list",
-    "exponential.comments.update",
-    "exponential.devices.account_login",
-    "exponential.devices.list",
-    "exponential.events.emit",
-    "exponential.events.list",
-    "exponential.issues.activity",
-    "exponential.issues.create",
-    "exponential.issues.delete",
-    "exponential.issues.get",
-    "exponential.issues.labels_add",
-    "exponential.issues.labels_remove",
-    "exponential.issues.list",
-    "exponential.issues.relations_add",
-    "exponential.issues.relations_remove",
-    "exponential.issues.show",
-    "exponential.issues.subscribe",
-    "exponential.issues.unsubscribe",
-    "exponential.issues.update",
-    "exponential.issues.update_status",
-    "exponential.labels.create",
-    "exponential.labels.delete",
-    "exponential.labels.get",
-    "exponential.labels.list",
-    "exponential.labels.update",
-    "exponential.mcp_servers.create",
-    "exponential.mcp_servers.delete",
-    "exponential.mcp_servers.list",
-    "exponential.notifications.list",
-    "exponential.notifications.mark_read",
-    "exponential.people.add",
-    "exponential.people.invites_create",
-    "exponential.people.invites_list",
-    "exponential.people.invites_revoke",
-    "exponential.people.list",
-    "exponential.pr.close",
-    "exponential.pr.files",
-    "exponential.pr.merge",
-    "exponential.pr.open",
-    "exponential.pr.retarget",
-    "exponential.pr.unlink",
-    "exponential.pr.update",
-    "exponential.prompts.create",
-    "exponential.prompts.delete",
-    "exponential.prompts.get",
-    "exponential.prompts.list",
-    "exponential.prompts.update",
-    "exponential.repositories.create",
-    "exponential.repositories.list",
-    "exponential.sessions.end",
-    "exponential.sessions.get",
-    "exponential.sessions.link",
-    "exponential.sessions.list",
-    "exponential.sessions.send",
-    "exponential.sessions.unlink",
-    "exponential.statuses.create",
-    "exponential.statuses.delete",
-    "exponential.statuses.list",
-    "exponential.statuses.update",
-    "exponential.teams.create",
-    "exponential.teams.get",
-    "exponential.teams.list",
-    "exponential.teams.update"
+    "exponential_agents_get",
+    "exponential_agents_list",
+    "exponential_apps_catalog",
+    "exponential_apps_delete",
+    "exponential_apps_get",
+    "exponential_apps_handoff",
+    "exponential_apps_list",
+    "exponential_apps_records_delete",
+    "exponential_apps_records_list",
+    "exponential_apps_records_upsert",
+    "exponential_apps_upsert",
+    "exponential_attachments_delete",
+    "exponential_attachments_get",
+    "exponential_attachments_list",
+    "exponential_attachments_upload",
+    "exponential_boards_create",
+    "exponential_boards_delete",
+    "exponential_boards_get",
+    "exponential_boards_list",
+    "exponential_boards_set_repository",
+    "exponential_boards_update",
+    "exponential_comments_create",
+    "exponential_comments_delete",
+    "exponential_comments_list",
+    "exponential_comments_update",
+    "exponential_devices_account_login",
+    "exponential_devices_list",
+    "exponential_events_emit",
+    "exponential_events_list",
+    "exponential_issues_activity",
+    "exponential_issues_create",
+    "exponential_issues_delete",
+    "exponential_issues_get",
+    "exponential_issues_labels_add",
+    "exponential_issues_labels_remove",
+    "exponential_issues_list",
+    "exponential_issues_relations_add",
+    "exponential_issues_relations_remove",
+    "exponential_issues_show",
+    "exponential_issues_subscribe",
+    "exponential_issues_unsubscribe",
+    "exponential_issues_update",
+    "exponential_issues_update_status",
+    "exponential_labels_create",
+    "exponential_labels_delete",
+    "exponential_labels_get",
+    "exponential_labels_list",
+    "exponential_labels_update",
+    "exponential_mcp_servers_create",
+    "exponential_mcp_servers_delete",
+    "exponential_mcp_servers_list",
+    "exponential_notifications_list",
+    "exponential_notifications_mark_read",
+    "exponential_people_add",
+    "exponential_people_invites_create",
+    "exponential_people_invites_list",
+    "exponential_people_invites_revoke",
+    "exponential_people_list",
+    "exponential_pr_close",
+    "exponential_pr_files",
+    "exponential_pr_merge",
+    "exponential_pr_open",
+    "exponential_pr_retarget",
+    "exponential_pr_unlink",
+    "exponential_pr_update",
+    "exponential_prompts_create",
+    "exponential_prompts_delete",
+    "exponential_prompts_get",
+    "exponential_prompts_list",
+    "exponential_prompts_update",
+    "exponential_repositories_create",
+    "exponential_repositories_list",
+    "exponential_sessions_end",
+    "exponential_sessions_get",
+    "exponential_sessions_link",
+    "exponential_sessions_list",
+    "exponential_sessions_send",
+    "exponential_sessions_unlink",
+    "exponential_statuses_create",
+    "exponential_statuses_delete",
+    "exponential_statuses_list",
+    "exponential_statuses_update",
+    "exponential_teams_create",
+    "exponential_teams_get",
+    "exponential_teams_list",
+    "exponential_teams_update"
   ],
   "tools": {
-    "exponential.issues.list": {
+    "exponential_issues_list": {
       "tool": "exponential_issues",
       "op": "list"
     },
-    "exponential.issues.get": {
+    "exponential_issues_get": {
       "tool": "exponential_issues",
       "op": "get"
     },
-    "exponential.issues.show": {
+    "exponential_issues_show": {
       "tool": "exponential_issues",
       "op": "show"
     },
-    "exponential.issues.create": {
+    "exponential_issues_create": {
       "tool": "exponential_issues",
       "op": "create"
     },
-    "exponential.issues.update": {
+    "exponential_issues_update": {
       "tool": "exponential_issues",
       "op": "update"
     },
-    "exponential.issues.delete": {
+    "exponential_issues_delete": {
       "tool": "exponential_issues",
       "op": "delete"
     },
-    "exponential.issues.activity": {
+    "exponential_issues_activity": {
       "tool": "exponential_issues",
       "op": "activity"
     },
-    "exponential.issues.update_status": {
+    "exponential_issues_update_status": {
       "tool": "exponential_issues",
       "op": "update_status"
     },
-    "exponential.issues.subscribe": {
+    "exponential_issues_subscribe": {
       "tool": "exponential_issues",
       "op": "subscribe"
     },
-    "exponential.issues.unsubscribe": {
+    "exponential_issues_unsubscribe": {
       "tool": "exponential_issues",
       "op": "unsubscribe"
     },
-    "exponential.issues.labels_add": {
+    "exponential_issues_labels_add": {
       "tool": "exponential_issues",
       "op": "labels_add"
     },
-    "exponential.issues.labels_remove": {
+    "exponential_issues_labels_remove": {
       "tool": "exponential_issues",
       "op": "labels_remove"
     },
-    "exponential.issues.relations_add": {
+    "exponential_issues_relations_add": {
       "tool": "exponential_issues",
       "op": "relations_add"
     },
-    "exponential.issues.relations_remove": {
+    "exponential_issues_relations_remove": {
       "tool": "exponential_issues",
       "op": "relations_remove"
     },
-    "exponential.comments.list": {
+    "exponential_comments_list": {
       "tool": "exponential_comments",
       "op": "list"
     },
-    "exponential.comments.create": {
+    "exponential_comments_create": {
       "tool": "exponential_comments",
       "op": "create"
     },
-    "exponential.comments.update": {
+    "exponential_comments_update": {
       "tool": "exponential_comments",
       "op": "update"
     },
-    "exponential.comments.delete": {
+    "exponential_comments_delete": {
       "tool": "exponential_comments",
       "op": "delete"
     },
-    "exponential.attachments.list": {
+    "exponential_attachments_list": {
       "tool": "exponential_attachments",
       "op": "list"
     },
-    "exponential.attachments.get": {
+    "exponential_attachments_get": {
       "tool": "exponential_attachments",
       "op": "get"
     },
-    "exponential.attachments.upload": {
+    "exponential_attachments_upload": {
       "tool": "exponential_attachments",
       "op": "upload"
     },
-    "exponential.attachments.delete": {
+    "exponential_attachments_delete": {
       "tool": "exponential_attachments",
       "op": "delete"
     },
-    "exponential.boards.list": {
+    "exponential_boards_list": {
       "tool": "exponential_boards",
       "op": "list"
     },
-    "exponential.boards.get": {
+    "exponential_boards_get": {
       "tool": "exponential_boards",
       "op": "get"
     },
-    "exponential.boards.create": {
+    "exponential_boards_create": {
       "tool": "exponential_boards",
       "op": "create"
     },
-    "exponential.boards.update": {
+    "exponential_boards_update": {
       "tool": "exponential_boards",
       "op": "update"
     },
-    "exponential.boards.delete": {
+    "exponential_boards_delete": {
       "tool": "exponential_boards",
       "op": "delete"
     },
-    "exponential.boards.set_repository": {
+    "exponential_boards_set_repository": {
       "tool": "exponential_boards",
       "op": "set_repository"
     },
-    "exponential.teams.list": {
+    "exponential_teams_list": {
       "tool": "exponential_teams",
       "op": "list"
     },
-    "exponential.teams.get": {
+    "exponential_teams_get": {
       "tool": "exponential_teams",
       "op": "get"
     },
-    "exponential.teams.create": {
+    "exponential_teams_create": {
       "tool": "exponential_teams",
       "op": "create"
     },
-    "exponential.teams.update": {
+    "exponential_teams_update": {
       "tool": "exponential_teams",
       "op": "update"
     },
-    "exponential.people.list": {
+    "exponential_people_list": {
       "tool": "exponential_people",
       "op": "list"
     },
-    "exponential.people.add": {
+    "exponential_people_add": {
       "tool": "exponential_people",
       "op": "add"
     },
-    "exponential.people.invites_list": {
+    "exponential_people_invites_list": {
       "tool": "exponential_people",
       "op": "invites_list"
     },
-    "exponential.people.invites_create": {
+    "exponential_people_invites_create": {
       "tool": "exponential_people",
       "op": "invites_create"
     },
-    "exponential.people.invites_revoke": {
+    "exponential_people_invites_revoke": {
       "tool": "exponential_people",
       "op": "invites_revoke"
     },
-    "exponential.labels.list": {
+    "exponential_labels_list": {
       "tool": "exponential_labels",
       "op": "list"
     },
-    "exponential.labels.get": {
+    "exponential_labels_get": {
       "tool": "exponential_labels",
       "op": "get"
     },
-    "exponential.labels.create": {
+    "exponential_labels_create": {
       "tool": "exponential_labels",
       "op": "create"
     },
-    "exponential.labels.update": {
+    "exponential_labels_update": {
       "tool": "exponential_labels",
       "op": "update"
     },
-    "exponential.labels.delete": {
+    "exponential_labels_delete": {
       "tool": "exponential_labels",
       "op": "delete"
     },
-    "exponential.statuses.list": {
+    "exponential_statuses_list": {
       "tool": "exponential_statuses",
       "op": "list"
     },
-    "exponential.statuses.create": {
+    "exponential_statuses_create": {
       "tool": "exponential_statuses",
       "op": "create"
     },
-    "exponential.statuses.update": {
+    "exponential_statuses_update": {
       "tool": "exponential_statuses",
       "op": "update"
     },
-    "exponential.statuses.delete": {
+    "exponential_statuses_delete": {
       "tool": "exponential_statuses",
       "op": "delete"
     },
-    "exponential.prompts.list": {
+    "exponential_prompts_list": {
       "tool": "exponential_prompts",
       "op": "list"
     },
-    "exponential.prompts.get": {
+    "exponential_prompts_get": {
       "tool": "exponential_prompts",
       "op": "get"
     },
-    "exponential.prompts.create": {
+    "exponential_prompts_create": {
       "tool": "exponential_prompts",
       "op": "create"
     },
-    "exponential.prompts.update": {
+    "exponential_prompts_update": {
       "tool": "exponential_prompts",
       "op": "update"
     },
-    "exponential.prompts.delete": {
+    "exponential_prompts_delete": {
       "tool": "exponential_prompts",
       "op": "delete"
     },
-    "exponential.agents.list": {
+    "exponential_agents_list": {
       "tool": "exponential_agents",
       "op": "list"
     },
-    "exponential.agents.get": {
+    "exponential_agents_get": {
       "tool": "exponential_agents",
       "op": "get"
     },
-    "exponential.mcp_servers.list": {
+    "exponential_mcp_servers_list": {
       "tool": "exponential_mcp_servers",
       "op": "list"
     },
-    "exponential.mcp_servers.create": {
+    "exponential_mcp_servers_create": {
       "tool": "exponential_mcp_servers",
       "op": "create"
     },
-    "exponential.mcp_servers.delete": {
+    "exponential_mcp_servers_delete": {
       "tool": "exponential_mcp_servers",
       "op": "delete"
     },
-    "exponential.repositories.list": {
+    "exponential_repositories_list": {
       "tool": "exponential_repositories",
       "op": "list"
     },
-    "exponential.repositories.create": {
+    "exponential_repositories_create": {
       "tool": "exponential_repositories",
       "op": "create"
     },
-    "exponential.apps.list": {
+    "exponential_apps_list": {
       "tool": "exponential_apps",
       "op": "list"
     },
-    "exponential.apps.get": {
+    "exponential_apps_get": {
       "tool": "exponential_apps",
       "op": "get"
     },
-    "exponential.apps.upsert": {
+    "exponential_apps_upsert": {
       "tool": "exponential_apps",
       "op": "upsert"
     },
-    "exponential.apps.delete": {
+    "exponential_apps_delete": {
       "tool": "exponential_apps",
       "op": "delete"
     },
-    "exponential.apps.catalog": {
+    "exponential_apps_catalog": {
       "tool": "exponential_apps",
       "op": "catalog"
     },
-    "exponential.apps.handoff": {
+    "exponential_apps_handoff": {
       "tool": "exponential_apps",
       "op": "handoff"
     },
-    "exponential.apps.records_list": {
+    "exponential_apps_records_list": {
       "tool": "exponential_apps",
       "op": "records_list"
     },
-    "exponential.apps.records_upsert": {
+    "exponential_apps_records_upsert": {
       "tool": "exponential_apps",
       "op": "records_upsert"
     },
-    "exponential.apps.records_delete": {
+    "exponential_apps_records_delete": {
       "tool": "exponential_apps",
       "op": "records_delete"
     },
-    "exponential.sessions.send": {
+    "exponential_sessions_send": {
       "tool": "exponential_sessions_send",
       "op": null
     },
-    "exponential.sessions.get": {
+    "exponential_sessions_get": {
       "tool": "exponential_sessions",
       "op": "get"
     },
-    "exponential.sessions.list": {
+    "exponential_sessions_list": {
       "tool": "exponential_sessions",
       "op": "list"
     },
-    "exponential.sessions.link": {
+    "exponential_sessions_link": {
       "tool": "exponential_sessions",
       "op": "link"
     },
-    "exponential.sessions.unlink": {
+    "exponential_sessions_unlink": {
       "tool": "exponential_sessions",
       "op": "unlink"
     },
-    "exponential.sessions.end": {
+    "exponential_sessions_end": {
       "tool": "exponential_sessions",
       "op": "end"
     },
-    "exponential.pr.open": {
+    "exponential_pr_open": {
       "tool": "exponential_pr",
       "op": "open"
     },
-    "exponential.pr.merge": {
+    "exponential_pr_merge": {
       "tool": "exponential_pr",
       "op": "merge"
     },
-    "exponential.pr.close": {
+    "exponential_pr_close": {
       "tool": "exponential_pr",
       "op": "close"
     },
-    "exponential.pr.retarget": {
+    "exponential_pr_retarget": {
       "tool": "exponential_pr",
       "op": "retarget"
     },
-    "exponential.pr.update": {
+    "exponential_pr_update": {
       "tool": "exponential_pr",
       "op": "update"
     },
-    "exponential.pr.unlink": {
+    "exponential_pr_unlink": {
       "tool": "exponential_pr",
       "op": "unlink"
     },
-    "exponential.pr.files": {
+    "exponential_pr_files": {
       "tool": "exponential_pr",
       "op": "files"
     },
-    "exponential.devices.list": {
+    "exponential_devices_list": {
       "tool": "exponential_devices",
       "op": "list"
     },
-    "exponential.devices.account_login": {
+    "exponential_devices_account_login": {
       "tool": "exponential_devices",
       "op": "account_login"
     },
-    "exponential.events.emit": {
+    "exponential_events_emit": {
       "tool": "exponential_events",
       "op": "emit"
     },
-    "exponential.events.list": {
+    "exponential_events_list": {
       "tool": "exponential_events",
       "op": "list"
     },
-    "exponential.notifications.list": {
+    "exponential_notifications_list": {
       "tool": "exponential_notifications",
       "op": "list"
     },
-    "exponential.notifications.mark_read": {
+    "exponential_notifications_mark_read": {
       "tool": "exponential_notifications",
       "op": "mark_read"
     }
   },
   "aliases": {
-    "exponential.team_config.agents_list": "exponential.agents.list",
-    "exponential.team_config.labels_create": "exponential.labels.create",
-    "exponential.team_config.labels_delete": "exponential.labels.delete",
-    "exponential.team_config.labels_get": "exponential.labels.get",
-    "exponential.team_config.labels_list": "exponential.labels.list",
-    "exponential.team_config.labels_update": "exponential.labels.update",
-    "exponential.team_config.mcp_servers_add": "exponential.mcp_servers.create",
-    "exponential.team_config.mcp_servers_list": "exponential.mcp_servers.list",
-    "exponential.team_config.mcp_servers_remove": "exponential.mcp_servers.delete",
-    "exponential.team_config.prompts_create": "exponential.prompts.create",
-    "exponential.team_config.prompts_delete": "exponential.prompts.delete",
-    "exponential.team_config.prompts_get": "exponential.prompts.get",
-    "exponential.team_config.prompts_list": "exponential.prompts.list",
-    "exponential.team_config.prompts_update": "exponential.prompts.update",
-    "exponential.team_config.repositories_add": "exponential.repositories.create",
-    "exponential.team_config.repositories_list": "exponential.repositories.list",
-    "exponential.team_config.statuses_create": "exponential.statuses.create",
-    "exponential.team_config.statuses_delete": "exponential.statuses.delete",
-    "exponential.team_config.statuses_list": "exponential.statuses.list",
-    "exponential.team_config.statuses_update": "exponential.statuses.update"
+    "exponential_team_config_agents_list": "exponential_agents_list",
+    "exponential_team_config_labels_create": "exponential_labels_create",
+    "exponential_team_config_labels_delete": "exponential_labels_delete",
+    "exponential_team_config_labels_get": "exponential_labels_get",
+    "exponential_team_config_labels_list": "exponential_labels_list",
+    "exponential_team_config_labels_update": "exponential_labels_update",
+    "exponential_team_config_mcp_servers_add": "exponential_mcp_servers_create",
+    "exponential_team_config_mcp_servers_list": "exponential_mcp_servers_list",
+    "exponential_team_config_mcp_servers_remove": "exponential_mcp_servers_delete",
+    "exponential_team_config_prompts_create": "exponential_prompts_create",
+    "exponential_team_config_prompts_delete": "exponential_prompts_delete",
+    "exponential_team_config_prompts_get": "exponential_prompts_get",
+    "exponential_team_config_prompts_list": "exponential_prompts_list",
+    "exponential_team_config_prompts_update": "exponential_prompts_update",
+    "exponential_team_config_repositories_add": "exponential_repositories_create",
+    "exponential_team_config_repositories_list": "exponential_repositories_list",
+    "exponential_team_config_statuses_create": "exponential_statuses_create",
+    "exponential_team_config_statuses_delete": "exponential_statuses_delete",
+    "exponential_team_config_statuses_list": "exponential_statuses_list",
+    "exponential_team_config_statuses_update": "exponential_statuses_update"
   },
   "copy": {
     "title": "Tools",
@@ -493,42 +493,42 @@
   },
   "parseCases": [
     {
-      "name": "exponential.issues.update_status",
+      "name": "exponential_issues_update_status",
       "expected": {
         "tool": "exponential_issues",
         "op": "update_status"
       }
     },
     {
-      "name": "exponential.sessions.send",
+      "name": "exponential_sessions_send",
       "expected": {
         "tool": "exponential_sessions_send",
         "op": null
       }
     },
     {
-      "name": "exponential.apps.records_upsert",
+      "name": "exponential_apps_records_upsert",
       "expected": {
         "tool": "exponential_apps",
         "op": "records_upsert"
       }
     },
     {
-      "name": "exponential.labels.create",
+      "name": "exponential_labels_create",
       "expected": {
         "tool": "exponential_labels",
         "op": "create"
       }
     },
     {
-      "name": "exponential.agents.get",
+      "name": "exponential_agents_get",
       "expected": {
         "tool": "exponential_agents",
         "op": "get"
       }
     },
     {
-      "name": "exponential.team_config.labels_create",
+      "name": "exponential_team_config_labels_create",
       "expected": {
         "tool": "exponential_labels",
         "op": "create"
@@ -536,7 +536,7 @@
       "$why": "an alias (a name from before EXP-1657) parses to its new name's target"
     },
     {
-      "name": "exponential.team_config.mcp_servers_add",
+      "name": "exponential_team_config_mcp_servers_add",
       "expected": {
         "tool": "exponential_mcp_servers",
         "op": "create"
@@ -544,15 +544,15 @@
       "$why": "an alias (a name from before EXP-1657) parses to its new name's target"
     },
     {
-      "name": "exponential.session_self.ask",
+      "name": "exponential_session_self_ask",
       "expected": null
     },
     {
-      "name": "exponential.issues.nope",
+      "name": "exponential_issues_nope",
       "expected": null
     },
     {
-      "name": "harness.toast",
+      "name": "harness_toast",
       "expected": null
     },
     {
@@ -565,58 +565,66 @@
       "granted": [
         "exponential.issues.update"
       ],
-      "name": "exponential.issues.update",
+      "name": "exponential_issues_update",
+      "expected": true,
+      "$why": "round 9 §14: a grant stored dotted counts until the flag-day migration rewrites it"
+    },
+    {
+      "granted": [
+        "exponential_issues_update"
+      ],
+      "name": "exponential_issues_update",
       "expected": true
     },
     {
       "granted": [
-        "exponential.issues.update"
+        "exponential_issues_update"
       ],
-      "name": "exponential.issues.delete",
+      "name": "exponential_issues_delete",
       "expected": false
     },
     {
       "granted": [],
-      "name": "exponential.issues.update",
+      "name": "exponential_issues_update",
       "expected": false
     },
     {
       "granted": [
-        "exponential.issues.*"
+        "exponential_issues_*"
       ],
-      "name": "exponential.issues.update",
+      "name": "exponential_issues_update",
       "expected": false
     },
     {
       "granted": [
-        "exponential.comments.create",
-        "exponential.sessions.send"
+        "exponential_comments_create",
+        "exponential_sessions_send"
       ],
-      "name": "exponential.sessions.send",
+      "name": "exponential_sessions_send",
       "expected": true
     },
     {
       "granted": [
-        "exponential.issues.delete"
+        "exponential_issues_delete"
       ],
-      "name": "exponential.issues.delete",
+      "name": "exponential_issues_delete",
       "expected": false,
       "$why": "a destructive op ignores a grant"
     },
     {
       "granted": [
-        "exponential.pr.merge",
-        "exponential.comments.create"
+        "exponential_pr_merge",
+        "exponential_comments_create"
       ],
-      "name": "exponential.pr.merge",
+      "name": "exponential_pr_merge",
       "expected": false,
       "$why": "a destructive op ignores a grant"
     },
     {
       "granted": [
-        "exponential.sessions.send"
+        "exponential_sessions_send"
       ],
-      "name": "exponential.sessions.send",
+      "name": "exponential_sessions_send",
       "args": {
         "sessionId": "s1",
         "stop": true
@@ -626,9 +634,9 @@
     },
     {
       "granted": [
-        "exponential.sessions.send"
+        "exponential_sessions_send"
       ],
-      "name": "exponential.sessions.send",
+      "name": "exponential_sessions_send",
       "args": {
         "sessionId": "s1",
         "stop": false,
@@ -638,9 +646,9 @@
     },
     {
       "granted": [
-        "exponential.people.invites_revoke"
+        "exponential_people_invites_revoke"
       ],
-      "name": "exponential.people.invites_revoke",
+      "name": "exponential_people_invites_revoke",
       "args": {
         "id": "inv1"
       },
@@ -649,9 +657,9 @@
     },
     {
       "granted": [
-        "exponential.mcp_servers.create"
+        "exponential_mcp_servers_create"
       ],
-      "name": "exponential.mcp_servers.create",
+      "name": "exponential_mcp_servers_create",
       "args": {
         "url": "https://mcp.example.com"
       },
@@ -660,9 +668,9 @@
     },
     {
       "granted": [
-        "exponential.teams.update"
+        "exponential_teams_update"
       ],
-      "name": "exponential.teams.update",
+      "name": "exponential_teams_update",
       "args": {
         "name": "X"
       },
@@ -671,9 +679,9 @@
     },
     {
       "granted": [
-        "exponential.labels.create"
+        "exponential_labels_create"
       ],
-      "name": "exponential.team_config.labels_create",
+      "name": "exponential_team_config_labels_create",
       "args": {
         "name": "bug"
       },
@@ -682,9 +690,9 @@
     },
     {
       "granted": [
-        "exponential.team_config.labels_create"
+        "exponential_team_config_labels_create"
       ],
-      "name": "exponential.labels.create",
+      "name": "exponential_labels_create",
       "args": {
         "name": "bug"
       },
@@ -693,10 +701,10 @@
     },
     {
       "granted": [
-        "exponential.mcp_servers.create",
-        "exponential.team_config.mcp_servers_add"
+        "exponential_mcp_servers_create",
+        "exponential_team_config_mcp_servers_add"
       ],
-      "name": "exponential.team_config.mcp_servers_add",
+      "name": "exponential_team_config_mcp_servers_add",
       "args": {
         "url": "https://mcp.example.com"
       },
@@ -705,9 +713,9 @@
     },
     {
       "granted": [
-        "exponential.team_config.labels_delete"
+        "exponential_team_config_labels_delete"
       ],
-      "name": "exponential.team_config.labels_delete",
+      "name": "exponential_team_config_labels_delete",
       "args": {
         "id": "l1"
       },
@@ -717,67 +725,67 @@
   ],
   "grantableCases": [
     {
-      "name": "exponential.apps.handoff",
+      "name": "exponential_apps_handoff",
       "expected": true
     },
     {
-      "name": "exponential.issues.update",
+      "name": "exponential_issues_update",
       "expected": true
     },
     {
-      "name": "exponential.issues.update_status",
+      "name": "exponential_issues_update_status",
       "expected": true
     },
     {
-      "name": "exponential.comments.create",
+      "name": "exponential_comments_create",
       "expected": true
     },
     {
-      "name": "exponential.issues.delete",
+      "name": "exponential_issues_delete",
       "expected": false
     },
     {
-      "name": "exponential.pr.merge",
+      "name": "exponential_pr_merge",
       "expected": false
     },
     {
-      "name": "exponential.pr.close",
+      "name": "exponential_pr_close",
       "expected": false
     },
     {
-      "name": "exponential.sessions.end",
+      "name": "exponential_sessions_end",
       "expected": false
     },
     {
-      "name": "exponential.issues.labels_remove",
+      "name": "exponential_issues_labels_remove",
       "expected": false
     },
     {
-      "name": "harness.mcp",
+      "name": "harness_mcp",
       "expected": false
     },
     {
-      "name": "exponential.people.invites_revoke",
+      "name": "exponential_people_invites_revoke",
       "expected": false,
       "$why": "an owner-only operation is never grantable"
     },
     {
-      "name": "exponential.mcp_servers.create",
+      "name": "exponential_mcp_servers_create",
       "expected": false,
       "$why": "an owner-only operation is never grantable"
     },
     {
-      "name": "exponential.teams.update",
+      "name": "exponential_teams_update",
       "expected": false,
       "$why": "an owner-only operation is never grantable"
     },
     {
-      "name": "exponential.team_config.labels_list",
+      "name": "exponential_team_config_labels_list",
       "expected": true,
       "$why": "an alias (a name from before EXP-1657) follows its new name"
     },
     {
-      "name": "exponential.team_config.mcp_servers_remove",
+      "name": "exponential_team_config_mcp_servers_remove",
       "expected": false,
       "$why": "an alias (a name from before EXP-1657) follows its new name (delete)"
     }
@@ -804,179 +812,190 @@
     {
       "functions": [
         "exponential.comments.create",
-        "harness.toast",
-        "exponential.issues.update_status"
+        "exponential.boards.get"
       ],
       "expected": [
-        "exponential.comments.create",
-        "exponential.issues.update_status"
+        "exponential_boards_get",
+        "exponential_comments_create"
+      ],
+      "$why": "round 9 §14: a stored dotted function list"
+    },
+    {
+      "functions": [
+        "exponential_comments_create",
+        "harness_toast",
+        "exponential_issues_update_status"
+      ],
+      "expected": [
+        "exponential_comments_create",
+        "exponential_issues_update_status"
       ]
     },
     {
       "functions": [
-        "exponential.boards.*",
-        "exponential.sessions.send"
+        "exponential_boards_*",
+        "exponential_sessions_send"
       ],
       "expected": [
-        "exponential.boards.create",
-        "exponential.boards.delete",
-        "exponential.boards.get",
-        "exponential.boards.list",
-        "exponential.boards.set_repository",
-        "exponential.boards.update",
-        "exponential.sessions.send"
+        "exponential_boards_create",
+        "exponential_boards_delete",
+        "exponential_boards_get",
+        "exponential_boards_list",
+        "exponential_boards_set_repository",
+        "exponential_boards_update",
+        "exponential_sessions_send"
       ]
     },
     {
       "functions": [
-        "exponential.*"
+        "exponential_*"
       ],
       "expected": [
-        "exponential.agents.get",
-        "exponential.agents.list",
-        "exponential.apps.catalog",
-        "exponential.apps.delete",
-        "exponential.apps.get",
-        "exponential.apps.handoff",
-        "exponential.apps.list",
-        "exponential.apps.records_delete",
-        "exponential.apps.records_list",
-        "exponential.apps.records_upsert",
-        "exponential.apps.upsert",
-        "exponential.attachments.delete",
-        "exponential.attachments.get",
-        "exponential.attachments.list",
-        "exponential.attachments.upload",
-        "exponential.boards.create",
-        "exponential.boards.delete",
-        "exponential.boards.get",
-        "exponential.boards.list",
-        "exponential.boards.set_repository",
-        "exponential.boards.update",
-        "exponential.comments.create",
-        "exponential.comments.delete",
-        "exponential.comments.list",
-        "exponential.comments.update",
-        "exponential.devices.account_login",
-        "exponential.devices.list",
-        "exponential.events.emit",
-        "exponential.events.list",
-        "exponential.issues.activity",
-        "exponential.issues.create",
-        "exponential.issues.delete",
-        "exponential.issues.get",
-        "exponential.issues.labels_add",
-        "exponential.issues.labels_remove",
-        "exponential.issues.list",
-        "exponential.issues.relations_add",
-        "exponential.issues.relations_remove",
-        "exponential.issues.show",
-        "exponential.issues.subscribe",
-        "exponential.issues.unsubscribe",
-        "exponential.issues.update",
-        "exponential.issues.update_status",
-        "exponential.labels.create",
-        "exponential.labels.delete",
-        "exponential.labels.get",
-        "exponential.labels.list",
-        "exponential.labels.update",
-        "exponential.mcp_servers.create",
-        "exponential.mcp_servers.delete",
-        "exponential.mcp_servers.list",
-        "exponential.notifications.list",
-        "exponential.notifications.mark_read",
-        "exponential.people.add",
-        "exponential.people.invites_create",
-        "exponential.people.invites_list",
-        "exponential.people.invites_revoke",
-        "exponential.people.list",
-        "exponential.pr.close",
-        "exponential.pr.files",
-        "exponential.pr.merge",
-        "exponential.pr.open",
-        "exponential.pr.retarget",
-        "exponential.pr.unlink",
-        "exponential.pr.update",
-        "exponential.prompts.create",
-        "exponential.prompts.delete",
-        "exponential.prompts.get",
-        "exponential.prompts.list",
-        "exponential.prompts.update",
-        "exponential.repositories.create",
-        "exponential.repositories.list",
-        "exponential.sessions.end",
-        "exponential.sessions.get",
-        "exponential.sessions.link",
-        "exponential.sessions.list",
-        "exponential.sessions.send",
-        "exponential.sessions.unlink",
-        "exponential.statuses.create",
-        "exponential.statuses.delete",
-        "exponential.statuses.list",
-        "exponential.statuses.update",
-        "exponential.teams.create",
-        "exponential.teams.get",
-        "exponential.teams.list",
-        "exponential.teams.update"
+        "exponential_agents_get",
+        "exponential_agents_list",
+        "exponential_apps_catalog",
+        "exponential_apps_delete",
+        "exponential_apps_get",
+        "exponential_apps_handoff",
+        "exponential_apps_list",
+        "exponential_apps_records_delete",
+        "exponential_apps_records_list",
+        "exponential_apps_records_upsert",
+        "exponential_apps_upsert",
+        "exponential_attachments_delete",
+        "exponential_attachments_get",
+        "exponential_attachments_list",
+        "exponential_attachments_upload",
+        "exponential_boards_create",
+        "exponential_boards_delete",
+        "exponential_boards_get",
+        "exponential_boards_list",
+        "exponential_boards_set_repository",
+        "exponential_boards_update",
+        "exponential_comments_create",
+        "exponential_comments_delete",
+        "exponential_comments_list",
+        "exponential_comments_update",
+        "exponential_devices_account_login",
+        "exponential_devices_list",
+        "exponential_events_emit",
+        "exponential_events_list",
+        "exponential_issues_activity",
+        "exponential_issues_create",
+        "exponential_issues_delete",
+        "exponential_issues_get",
+        "exponential_issues_labels_add",
+        "exponential_issues_labels_remove",
+        "exponential_issues_list",
+        "exponential_issues_relations_add",
+        "exponential_issues_relations_remove",
+        "exponential_issues_show",
+        "exponential_issues_subscribe",
+        "exponential_issues_unsubscribe",
+        "exponential_issues_update",
+        "exponential_issues_update_status",
+        "exponential_labels_create",
+        "exponential_labels_delete",
+        "exponential_labels_get",
+        "exponential_labels_list",
+        "exponential_labels_update",
+        "exponential_mcp_servers_create",
+        "exponential_mcp_servers_delete",
+        "exponential_mcp_servers_list",
+        "exponential_notifications_list",
+        "exponential_notifications_mark_read",
+        "exponential_people_add",
+        "exponential_people_invites_create",
+        "exponential_people_invites_list",
+        "exponential_people_invites_revoke",
+        "exponential_people_list",
+        "exponential_pr_close",
+        "exponential_pr_files",
+        "exponential_pr_merge",
+        "exponential_pr_open",
+        "exponential_pr_retarget",
+        "exponential_pr_unlink",
+        "exponential_pr_update",
+        "exponential_prompts_create",
+        "exponential_prompts_delete",
+        "exponential_prompts_get",
+        "exponential_prompts_list",
+        "exponential_prompts_update",
+        "exponential_repositories_create",
+        "exponential_repositories_list",
+        "exponential_sessions_end",
+        "exponential_sessions_get",
+        "exponential_sessions_link",
+        "exponential_sessions_list",
+        "exponential_sessions_send",
+        "exponential_sessions_unlink",
+        "exponential_statuses_create",
+        "exponential_statuses_delete",
+        "exponential_statuses_list",
+        "exponential_statuses_update",
+        "exponential_teams_create",
+        "exponential_teams_get",
+        "exponential_teams_list",
+        "exponential_teams_update"
       ]
     },
     {
       "functions": [
-        "harness.*",
+        "harness_*",
         "bind"
       ],
       "expected": []
     },
     {
       "functions": [
-        "exponential.session_self.ask",
-        "exponential.issues.nope"
+        "exponential_session_self_ask",
+        "exponential_issues_nope"
       ],
       "expected": []
     },
     {
       "functions": [
-        "exponential.team_config.labels_create",
-        "exponential.issues.get"
+        "exponential_team_config_labels_create",
+        "exponential_issues_get"
       ],
       "expected": [
-        "exponential.issues.get",
-        "exponential.labels.create"
+        "exponential_issues_get",
+        "exponential_labels_create"
       ],
       "$why": "an alias declares its new name; aliases are never listed"
     },
     {
       "functions": [
-        "exponential.team_config.*"
+        "exponential_team_config_*"
       ],
       "expected": [
-        "exponential.agents.list",
-        "exponential.labels.create",
-        "exponential.labels.delete",
-        "exponential.labels.get",
-        "exponential.labels.list",
-        "exponential.labels.update",
-        "exponential.mcp_servers.create",
-        "exponential.mcp_servers.delete",
-        "exponential.mcp_servers.list",
-        "exponential.prompts.create",
-        "exponential.prompts.delete",
-        "exponential.prompts.get",
-        "exponential.prompts.list",
-        "exponential.prompts.update",
-        "exponential.repositories.create",
-        "exponential.repositories.list",
-        "exponential.statuses.create",
-        "exponential.statuses.delete",
-        "exponential.statuses.list",
-        "exponential.statuses.update"
+        "exponential_agents_list",
+        "exponential_labels_create",
+        "exponential_labels_delete",
+        "exponential_labels_get",
+        "exponential_labels_list",
+        "exponential_labels_update",
+        "exponential_mcp_servers_create",
+        "exponential_mcp_servers_delete",
+        "exponential_mcp_servers_list",
+        "exponential_prompts_create",
+        "exponential_prompts_delete",
+        "exponential_prompts_get",
+        "exponential_prompts_list",
+        "exponential_prompts_update",
+        "exponential_repositories_create",
+        "exponential_repositories_list",
+        "exponential_statuses_create",
+        "exponential_statuses_delete",
+        "exponential_statuses_list",
+        "exponential_statuses_update"
       ],
       "$why": "a pattern over the aliases declares their new names"
     }
   ],
   "consentCases": [
     {
-      "name": "exponential.apps.handoff",
+      "name": "exponential_apps_handoff",
       "args": {
         "slug": "hours",
         "tool": "ask_triage",
@@ -992,7 +1011,7 @@
       }
     },
     {
-      "name": "exponential.sessions.send",
+      "name": "exponential_sessions_send",
       "args": {
         "sessionId": "s1",
         "stop": true
@@ -1005,7 +1024,7 @@
       }
     },
     {
-      "name": "exponential.issues.update_status",
+      "name": "exponential_issues_update_status",
       "args": {
         "id": "APP-5",
         "status": "done"
@@ -1018,7 +1037,7 @@
       }
     },
     {
-      "name": "exponential.comments.create",
+      "name": "exponential_comments_create",
       "args": {
         "issueId": "APP-5",
         "body": "Logged 3 h"
@@ -1031,7 +1050,7 @@
       }
     },
     {
-      "name": "exponential.issues.delete",
+      "name": "exponential_issues_delete",
       "args": {
         "id": "APP-5"
       },
@@ -1043,7 +1062,7 @@
       }
     },
     {
-      "name": "exponential.sessions.send",
+      "name": "exponential_sessions_send",
       "args": {
         "text": "Profile the launch path",
         "issueIds": [
@@ -1058,7 +1077,7 @@
       }
     },
     {
-      "name": "exponential.boards.list",
+      "name": "exponential_boards_list",
       "args": {},
       "expected": {
         "tool": "exponential_boards",
@@ -1068,7 +1087,7 @@
       }
     },
     {
-      "name": "exponential.team_config.labels_create",
+      "name": "exponential_team_config_labels_create",
       "args": {
         "teamId": "t1",
         "name": "bug"
@@ -1081,7 +1100,7 @@
       }
     },
     {
-      "name": "harness.mcp",
+      "name": "harness_mcp",
       "args": {
         "tool": "exponential_issues",
         "arguments": {
@@ -1094,52 +1113,52 @@
   ],
   "ownerOnlyCases": [
     {
-      "name": "exponential.people.add",
+      "name": "exponential_people_add",
       "expected": true
     },
     {
-      "name": "exponential.people.invites_create",
+      "name": "exponential_people_invites_create",
       "expected": true
     },
     {
-      "name": "exponential.people.invites_revoke",
+      "name": "exponential_people_invites_revoke",
       "expected": true
     },
     {
-      "name": "exponential.mcp_servers.create",
+      "name": "exponential_mcp_servers_create",
       "expected": true
     },
     {
-      "name": "exponential.prompts.create",
+      "name": "exponential_prompts_create",
       "expected": true
     },
     {
-      "name": "exponential.prompts.update",
+      "name": "exponential_prompts_update",
       "expected": true
     },
     {
-      "name": "exponential.teams.update",
+      "name": "exponential_teams_update",
       "expected": true
     },
     {
-      "name": "exponential.people.invites_list",
+      "name": "exponential_people_invites_list",
       "expected": false
     },
     {
-      "name": "exponential.issues.update",
+      "name": "exponential_issues_update",
       "expected": false
     },
     {
-      "name": "exponential.mcp_servers.delete",
+      "name": "exponential_mcp_servers_delete",
       "expected": false,
       "$why": "destructive, not owner-only (it is never grantable through the destructive rule)"
     },
     {
-      "name": "exponential.nope.nope",
+      "name": "exponential_nope_nope",
       "expected": false
     },
     {
-      "name": "exponential.team_config.prompts_create",
+      "name": "exponential_team_config_prompts_create",
       "expected": true,
       "$why": "an alias (a name from before EXP-1657) follows its new name"
     }

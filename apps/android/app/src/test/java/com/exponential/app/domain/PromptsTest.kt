@@ -153,7 +153,7 @@ class PromptsTest {
     fun destructiveTool() {
         assertTrue(Prompts.destructiveTool("exponential_issues", "delete"))
         assertTrue(Prompts.destructiveTool("exponential_pr", "merge"))
-        assertTrue(Prompts.destructiveTool("harness.trash"))
+        assertTrue(Prompts.destructiveTool("harness_trash"))
         assertEquals(false, Prompts.destructiveTool("exponential_issues", "get"))
         assertEquals(false, Prompts.destructiveTool("exponential_sessions_send", "endless"))
         assertEquals(

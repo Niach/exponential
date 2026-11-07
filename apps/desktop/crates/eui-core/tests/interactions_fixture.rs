@@ -50,7 +50,7 @@ fn number_field_cases_step_round_and_show_like_the_reference() {
         let mut props = c["props"].as_object().cloned().unwrap();
         props.insert("label".into(), json!("N"));
         props.insert("name".into(), json!("n"));
-        props.insert("value".into(), json!({"path": "/v"}));
+        props.insert("value".into(), json!({"@path": "/v"}));
         let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "NumberField", "props": props, "on": {"change": {"event": {"name": "change"}}}}]}));
         if !c["value"].is_null() {
             s.set_data("/v", Some(c["value"].clone())).unwrap();
@@ -89,7 +89,7 @@ fn check_cases_fail_and_pass_like_the_reference() {
         let name = c["name"].as_str().unwrap();
         let mut s = surface_with_issues(json!({"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"submit": {"event": {"name": "submit"}}, "invalid": {"event": {"name": "invalid"}}},
             "children": [
-                {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"path": "/agreed"}, "checks": c["checks"]}},
+                {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"@path": "/agreed"}, "checks": c["checks"]}},
                 {"id": "go", "component": "Button", "props": {"label": "Send", "submit": true}}
             ]}));
         s.set_data("", Some(c["data"].clone())).unwrap();
@@ -143,7 +143,7 @@ fn row_press_cases_read_the_pressed_row() {
     let f = fixture();
     for c in f["rowPress"].as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
-        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Table", "props": {"columns": [{"key": "name", "label": "Name"}], "rows": {"path": "/rows"}}, "on": {"rowPress": {"functionCall": {"call": "set", "args": {"path": "/picked", "value": {"path": c["value"]}}}}}}]}));
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Table", "props": {"columns": [{"key": "name", "label": "Name"}], "rows": {"@path": "/rows"}}, "on": {"rowPress": {"functionCall": {"@call": "set", "args": {"path": "/picked", "value": {"@path": c["value"]}}}}}}]}));
         s.set_data("/rows", Some(c["rows"].clone())).unwrap();
         let mut m = fixed();
         s.layout(&mut m);
@@ -170,7 +170,7 @@ fn choice_tiles_cases_pick_and_toggle_like_the_reference() {
                 o
             })
             .collect();
-        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "c", "component": "ChoiceTiles", "props": {"name": "c", "type": c["type"], "options": options, "value": {"path": "/v"}}, "on": {"change": {"event": {"name": "change"}}}}]}));
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "c", "component": "ChoiceTiles", "props": {"name": "c", "type": c["type"], "options": options, "value": {"@path": "/v"}}, "on": {"change": {"event": {"name": "change"}}}}]}));
         if !c["value"].is_null() {
             s.set_data("/v", Some(c["value"].clone())).unwrap();
         }
@@ -206,7 +206,7 @@ fn select_cases_take_an_empty_option_value_like_the_reference() {
     for c in f["select"].as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
         let options = json!([{"label": "Any", "value": ""}, {"label": "Open", "value": "open"}, {"label": "Done", "value": "done"}]);
-        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "s", "component": "Select", "props": {"label": "Status", "name": "s", "options": options, "value": {"path": "/v"}}, "on": {"change": {"event": {"name": "change"}}}}]}));
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "s", "component": "Select", "props": {"label": "Status", "name": "s", "options": options, "value": {"@path": "/v"}}, "on": {"change": {"event": {"name": "change"}}}}]}));
         if !c["value"].is_null() {
             s.set_data("/v", Some(c["value"].clone())).unwrap();
         }
@@ -398,9 +398,9 @@ fn field_write_cases_move_the_write_epoch_only_on_a_programmatic_write() {
         let name = c["name"].as_str().unwrap();
         let mut save = json!({"id": "save", "component": "Button", "props": {"label": "Save"}});
         if let Some(path) = c.get("pressPath") {
-            save["on"] = json!({"press": {"functionCall": {"call": "set", "args": {"path": path, "value": c["pressValue"]}}}});
+            save["on"] = json!({"press": {"functionCall": {"@call": "set", "args": {"path": path, "value": c["pressValue"]}}}});
         }
-        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "draft", "component": "Input", "props": {"label": "Draft", "name": "draft", "value": {"path": "/draft"}}}, save]}));
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "draft", "component": "Input", "props": {"label": "Draft", "name": "draft", "value": {"@path": "/draft"}}}, save]}));
         s.set_data("/draft", Some(c["seed"].clone())).unwrap();
         let mut m = fixed();
         s.layout(&mut m);

@@ -70,7 +70,26 @@ pub trait Transport: 'static {
     fn start(&mut self, sink: TransportSink);
     /// One client message (A2UI `action` / `error`) to the server.
     fn send(&mut self, message: &Value);
+    /// Round 9 §1.3: a message with the `sendDataModel` metadata beside it:
+    /// `{"message", "metadata"}` on the wire (the MCP carrier unwraps it).
+    fn send_with_metadata(&mut self, message: &Value, metadata: &Value) {
+        self.send(&with_metadata(message, metadata));
+    }
     fn close(&mut self);
+}
+
+/// §1.3: the WebSocket / JSONL wrap of a message with metadata.
+pub fn with_metadata(message: &Value, metadata: &Value) -> Value {
+    serde_json::json!({"message": message, "metadata": metadata})
+}
+
+/// The MCP `tools/call` of what [`Transport::send_with_metadata`] sent: the
+/// wrap is opened, the metadata rides beside the message (§10).
+pub fn mcp_call_of(sent: &Value, tool: Option<&str>) -> Value {
+    match (sent.get("message"), sent.get("metadata")) {
+        (Some(inner), Some(metadata)) => eui_core::host::mcp_action_call_with(inner, tool, Some(metadata)),
+        _ => eui_core::host::mcp_action_call(sent, tool),
+    }
 }
 
 #[derive(Default)]
@@ -150,7 +169,7 @@ mod net {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use eui_core::host::{decode_jsonl, mcp_action_call, messages_from_mcp_result, Decoded, JsonlDecoder, SseDecoder};
+    use eui_core::host::{decode_jsonl, messages_from_mcp_result, Decoded, JsonlDecoder, SseDecoder};
     use serde_json::{json, Value};
 
     use super::{Transport, TransportSink, TransportStatus};
@@ -775,7 +794,7 @@ mod net {
                         Err(e) => sink.status(TransportStatus::Error, Some(e)),
                     }
                     while let Ok(McpCommand::Send(message)) = rx.recv() {
-                        let call = mcp_action_call(&message, options.action_tool.as_deref());
+                        let call = super::mcp_call_of(&message, options.action_tool.as_deref());
                         // A failed or timed-out call drops that message and
                         // reports why (the TS `McpTransport.send` rejects).
                         match rpc.call(call["method"].as_str().unwrap_or("tools/call"), call["params"].clone()) {
@@ -854,7 +873,7 @@ mod net {
             }
         }
 
-        const LINE: &str = "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"s1\",\"catalogId\":\"c\"}}\n";
+        const LINE: &str = "{\"version\":\"1.0\",\"createSurface\":{\"surfaceId\":\"s1\",\"catalogId\":\"c\"}}\n";
 
         #[test]
         fn a_clean_end_of_stream_closes_the_transport_without_reconnecting() {

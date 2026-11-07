@@ -26,6 +26,8 @@ final class RunnerModel: RunnerPainter {
 
     @ObservationIgnored let session: RunnerSession
     let host: ExponentialHost
+    /// The painted id of each `RunnerSurface`: minted per open (round 9 §1.4).
+    private(set) var surfaces: [String: String] = [:]
     @ObservationIgnored private var packageId: String?
     @ObservationIgnored private var sources: [UUID: (uri: String, emit: @MainActor (JSONValue?) -> Void)] = [:]
 
@@ -62,10 +64,10 @@ final class RunnerModel: RunnerPainter {
                 // VAPP-271: `app-file:<fileId>` images are the app's own files.
                 appFile: { [session] fileId in await session.appFile(fileId) }
             ),
-            // app.navigate from a component: the Engine opens it (WindowHost.present → open).
+            // app_navigate from a component: the Engine opens it (WindowHost.present → open).
             navigate: { target in
                 let json = RunnerJSON.text(["screen": target.screen, "params": target.params])
-                Task { _ = await session.call(name: "app.navigate", argsJson: json) }
+                Task { _ = await session.call(name: "app_navigate", argsJson: json) }
                 return true
             }
         ))
@@ -95,7 +97,7 @@ final class RunnerModel: RunnerPainter {
 
     /// The window's width: `wide` from genUI's `md` breakpoint up.
     func width(_ width: CGFloat) {
-        let breakpoint = host.surface(RunnerSurface.app)?.breakpoint
+        let breakpoint = surfaces[RunnerSurface.app].flatMap { host.surface($0) }?.breakpoint
         let wide = breakpoint.map { ["md", "lg", "xl"].contains($0) } ?? (width >= 768)
         session.setFormFactor(wide ? .wide : .compact)
     }
@@ -111,27 +113,45 @@ final class RunnerModel: RunnerPainter {
 
     nonisolated func open(screen: String, paramsJson: String) {
         MainActor.assumeIsolated {
-            var apply: [String: Any] = ["surfaceId": RunnerSurface.app, "templateId": screen, "data": ["params": RunnerJSON.value(paramsJson) ?? [:]]]
-            if let packageId { apply["packageId"] = packageId }
-            host.receive(RunnerJSON.text(["version": ExponentialHost.a2uiVersion, "applyTemplate": apply]))
+            replace(RunnerSurface.app) { surfaceId in
+                var apply: [String: Any] = ["surfaceId": surfaceId, "templateId": screen, "data": ["params": RunnerJSON.value(paramsJson) ?? [:]]]
+                if let packageId { apply["packageId"] = packageId }
+                host.receive(RunnerJSON.text(["version": ExponentialHost.a2uiVersion, "applyTemplate": apply]), trusted: true)
+            }
         }
     }
 
     nonisolated func paint(surface: String, componentsJson: String, dataJson: String?) {
         MainActor.assumeIsolated {
             let v = ExponentialHost.a2uiVersion
-            host.receive(RunnerJSON.text(["version": v, "createSurface": ["surfaceId": surface, "catalogId": SurfaceOptions().catalogId]]))
-            host.receive(RunnerJSON.text(["version": v, "updateComponents": ["surfaceId": surface, "components": RunnerJSON.value(componentsJson) ?? []]]))
-            if let dataJson, let data = RunnerJSON.value(dataJson) {
-                host.receive(RunnerJSON.text(["version": v, "updateDataModel": ["surfaceId": surface, "path": "/", "value": data]]))
+            replace(surface) { surfaceId in
+                host.receive(RunnerJSON.text(["version": v, "createSurface": ["surfaceId": surfaceId, "catalogId": SurfaceOptions().catalogId]]))
+                host.receive(RunnerJSON.text(["version": v, "updateComponents": ["surfaceId": surfaceId, "components": RunnerJSON.value(componentsJson) ?? []]]))
+                if let dataJson, let data = RunnerJSON.value(dataJson) {
+                    host.receive(RunnerJSON.text(["version": v, "updateDataModel": ["surfaceId": surfaceId, "path": "/", "value": data]]))
+                }
             }
         }
     }
 
     nonisolated func close(surface: String) {
         MainActor.assumeIsolated {
-            host.receive(RunnerJSON.text(["version": ExponentialHost.a2uiVersion, "deleteSurface": ["surfaceId": surface]]))
+            if let surfaceId = surfaces.removeValue(forKey: surface) { delete(surfaceId) }
         }
+    }
+
+    /// Round 9 §1.4: a fresh id, the new surface on it, then the old one
+    /// goes, so it paints until the new one exists.
+    private func replace(_ name: String, create: (String) -> Void) {
+        let old = surfaces[name]
+        let surfaceId = host.mintSurfaceId(name)
+        create(surfaceId)
+        surfaces[name] = surfaceId
+        if let old { delete(old) }
+    }
+
+    private func delete(_ surfaceId: String) {
+        host.receive(RunnerJSON.text(["version": ExponentialHost.a2uiVersion, "deleteSurface": ["surfaceId": surfaceId]]))
     }
 
     nonisolated func recordsChanged() {

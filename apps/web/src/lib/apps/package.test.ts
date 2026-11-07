@@ -50,8 +50,8 @@ describe(`validateAppPackage`, () => {
 
   it(`refuses a package without format version 5`, () => {
     const { formatVersion: _omit, ...rest } = pkg()
-    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(5\)/)
-    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read: write 5/)
+    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(6\)/)
+    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read; 6 is required/)
   })
 
   it(`names the host sources and the sources rule in the catalog`, () => {
@@ -94,7 +94,11 @@ describe(`validateAppPackage: format version 5`, () => {
   })
 
   it(`refuses a newer format version`, () => {
-    expect(() => validateAppPackage(neutral({ formatVersion: 6 }))).toThrow(/format version 6 is newer than this host/)
+    expect(() => validateAppPackage(neutral({ formatVersion: 7 }))).toThrow(/format version 7 is newer than this host/)
+  })
+
+  it(`stores no format 6 package until the flag day (a released client reads format 5 alone)`, () => {
+    expect(() => validateAppPackage(pkg({ formatVersion: 6 }))).toThrow(/format 6 is not stored yet: write formatVersion 5/)
   })
 
   it(`names the neutral spelling in the catalog`, () => {
@@ -102,6 +106,9 @@ describe(`validateAppPackage: format version 5`, () => {
     expect(text).toContain(`records:<kind>`)
     expect(text).toContain(`records.upsert`)
     expect(text).toContain(`formatVersion: 5`)
+    // Round 9 §14: the names a format 5 package writes.
+    expect(text).toContain(`issues.update_status,`)
+    expect(text).not.toContain(`issues_update_status`)
     expect(text).not.toContain(`exp:records`)
     expect(text).not.toContain(`harness.records`)
   })

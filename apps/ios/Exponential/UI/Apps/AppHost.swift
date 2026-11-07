@@ -18,11 +18,11 @@ import ExponentialUI
 //     fixture's derivation); VAPP-122 the format's `records:<kind>?…` over
 //     the app's own rows (`AppRecords`; VAPP-189: the SDK's `RecordsQuery`,
 //     eUI's one evaluator);
-//   - functions: `harness.toast`,
-//     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer),
-//     `records.upsert` / `.delete` (tRPC `apps.records.*`, no consent card:
+//   - functions: `harness_toast`,
+//     `harness_mcp` (a tools/call on the instance's /api/mcp as the viewer),
+//     `records_upsert` / `.delete` (tRPC `apps.records.*`, no consent card:
 //     the app's own rows; a refusal = the failed-action toast;
-//     VAPP-194 `records.batch` = a package action's writes as ONE
+//     VAPP-194 `records_batch` = a package action's writes as ONE
 //     `apps.records.batch`, its failure = `onActionFailed`'s toast);
 //   - #VAPP-230 upstream reads: `upstream:<server>/<tool>?…` through the
 //     server broker (`apps.upstreamRead`, re-read every 60 s while bound;
@@ -32,10 +32,10 @@ import ExponentialUI
 //   - extensions: the app extension (`packages/ui/exponential-ui/extension.json`,
 //     bundled) with the `IconDisc` + `LiveDot` painters (Exponential ships
 //     no built-in apps: only the team's packages install);
-//   - VAPP-120 typed actions: every `exponential.<noun>.<op>` of
-//     `AppActions.all` = a `harness.mcp`-style tools/call with `{op, …args}`
-//     (no op for the verb tool `exponential.sessions.send`);
-//   - policy: `harness.mcp` and `exponential.*` ask first (THE consent card,
+//   - VAPP-120 typed actions: every `exponential_<noun>_<op>` of
+//     `AppActions.all` = a `harness_mcp`-style tools/call with `{op, …args}`
+//     (no op for the verb tool `exponential_sessions_send`);
+//   - policy: `harness_mcp` and `exponential_*` ask first (THE consent card,
 //     the `exponential-ui-consent` prompt; a typed action worded for its
 //     operation by `AppActions.actionConsent`), except a typed action the
 //     hosting app's synced row grants (`apps.granted_tools`): no card; urls through the URL policy (an
@@ -47,7 +47,7 @@ import ExponentialUI
 //     written into the FileUpload's bound list (`AppHostUploads`).
 
 /// VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
-/// the tool it names, its arguments as compact JSON (a `harness.mcp` call's
+/// the tool it names, its arguments as compact JSON (a `harness_mcp` call's
 /// MCP `arguments`, else the function's own args; an empty object = none)
 /// and whether it sounds destructive. The web `consentWords` and desktop
 /// `consent_words` derive the same three.
@@ -140,7 +140,7 @@ enum AppRecordOutboxAttempt: Sendable {
 
 /// VAPP-235 (eApps O1, app-records.json `outbox`, docs/spec/apps.md §14):
 /// the OFFLINE OUTBOX of the app hosts' record writes. Every
-/// `records.upsert` / `.delete` / `.batch` call becomes ONE entry in the
+/// `records_upsert` / `.delete` / `.batch` call becomes ONE entry in the
 /// account's local `app_record_outbox` table (it survives a restart and a
 /// resync); one flusher per account replays the pending entries FIFO, ONE
 /// request at a time, each with its `writeId` (the server's idempotency
@@ -413,7 +413,7 @@ final class ExpAppHost {
         if let typed = AppActions.actionConsent(name, args: args.compactMapValues { CardJSON(any: $0.any) }) {
             return AppConsentWords(tool: typed.tool, args: typed.args, destructive: typed.destructive, title: typed.title)
         }
-        let mcp = name == "harness.mcp"
+        let mcp = name == "harness_mcp"
         let tool = mcp ? (args["tool"]?.displayText ?? "") : name
         let raw: [String: JSONValue]? = mcp ? args["arguments"]?.object : args
         let json = raw.map { JSONValue.object($0).json }
@@ -497,7 +497,7 @@ final class ExpAppHost {
         let actions = Self.actionFunctions(accountId: accountId, base: base, httpClient: deps.httpClient, appId: appId, pool: pool)
         // VAPP-122: the app's own rows (no consent card); a refusal (the
         // kind's schema, the caps, the plan quota) = the failed-action toast,
-        // and the call fails (`records.upsert` / `.delete`).
+        // and the call fails (`records_upsert` / `.delete`).
         // VAPP-235 (app-records.json `outbox`): every call is ONE outbox
         // entry (client ids for the write and every create), persisted
         // first; the only pending entry awaits its first replay (done = the
@@ -593,7 +593,7 @@ final class ExpAppHost {
         }
         host = ExponentialHost(HostOptions(
             functions: actions.merging([
-                "harness.toast": { args, _ in
+                "harness_toast": { args, _ in
                     let text = args["message"]?.displayText ?? ""
                     if args["tone"]?.string == "error" {
                         Toaster.shared.error(text)
@@ -602,7 +602,7 @@ final class ExpAppHost {
                     }
                     return nil
                 },
-                "harness.mcp": { args, _ in
+                "harness_mcp": { args, _ in
                     try await AppHostMcp.call(
                         tool: args["tool"]?.displayText ?? "",
                         arguments: args["arguments"]?.object ?? [:],
@@ -612,9 +612,9 @@ final class ExpAppHost {
                         viaApp: await AppHostMcp.hostClaim(appId: appId, pool: pool)
                     )
                 },
-                "records.upsert": recordsUpsert,
-                "records.delete": recordsDelete,
-                "records.batch": recordsBatch,
+                "records_upsert": recordsUpsert,
+                "records_delete": recordsDelete,
+                "records_batch": recordsBatch,
             ]) { _, own in own },
             sources: [
                 "exp": { source, emit in
@@ -646,11 +646,11 @@ final class ExpAppHost {
             extensions: extensions,
             packages: installed,
             policy: HostPolicy(
-                functions: FunctionPolicy(ask: ["harness.mcp", "exponential.*"]),
+                functions: FunctionPolicy(ask: ["harness_mcp", "exponential_*"]),
                 onFunctionCall: { [consent] call in
                     // VAPP-120: the app's grant, read off its live synced row
                     // at call time: a granted typed action runs without the
-                    // card (`harness.mcp` always asks).
+                    // card (`harness_mcp` always asks).
                     if AppActions.parseActionName(call.name) != nil,
                        AppActions.grantAllows(grants ? AppHostStore.grantedTools(appId: scope.appId, pool: pool) : [], call.name,
                                               args: call.args.compactMapValues { CardJSON(any: $0.any) }) {
@@ -704,7 +704,7 @@ final class ExpAppHost {
                     description: failure.message
                 )
             },
-            // VAPP-218: `app.navigate` opens one of the package's screens
+            // VAPP-218: `app_navigate` opens one of the package's screens
             // (the preview's screens shell; nil = refused).
             navigate: navigate,
             liftsLayers: true
@@ -753,9 +753,10 @@ final class ExpAppHost {
         }
     }
 
-    /// Paint `templateId` of `packageId` into `surfaceId` (`applyTemplate`);
-    /// VAPP-218: `data` = a screen's `{params}` (`Screens.Resolved.data`).
-    func apply(surfaceId: String, packageId: String, templateId: String, data: JSONValue? = nil) {
+    /// Paint `templateId` of `packageId` into a fresh `surfaceId`
+    /// (`applyTemplate`); VAPP-218: `data` = a screen's `{params}`
+    /// (`Screens.Resolved.data`).
+    private func apply(surfaceId: String, packageId: String, templateId: String, data: JSONValue? = nil) {
         var apply: [String: JSONValue] = [
             "surfaceId": .string(surfaceId),
             "templateId": .string(templateId),
@@ -763,10 +764,27 @@ final class ExpAppHost {
         ]
         if let data { apply["data"] = data }
         let message: JSONValue = .object([
-            "version": .string("v0.9"),
+            "version": .string(ExponentialHost.a2uiVersion),
             "applyTemplate": .object(apply),
         ])
-        host.receive(message)
+        host.receive(message, trusted: true)
+    }
+
+    /// Round 9 §1.4: a screen onto a fresh surface: a minted id under `base`,
+    /// the template on it, and only then the `current` surface goes, so it
+    /// paints until the new one exists. Surface ids are unique for the host's
+    /// lifetime, so the old id can never come back. The new id; the caller
+    /// paints it.
+    func reopen(current: String?, base: String, packageId: String, templateId: String, data: JSONValue? = nil) -> String {
+        let surfaceId = host.mintSurfaceId(base)
+        apply(surfaceId: surfaceId, packageId: packageId, templateId: templateId, data: data)
+        if let current {
+            host.receive(JSONValue.object([
+                "version": .string(ExponentialHost.a2uiVersion),
+                "deleteSurface": .object(["surfaceId": .string(current)]),
+            ]))
+        }
+        return surfaceId
     }
 
     func close() {
@@ -808,7 +826,7 @@ private final class AppHostPlugin: HostPlugin {
     }
 }
 
-/// VAPP-245: where a record form's write answers (`records.upsert`'s
+/// VAPP-245: where a record form's write answers (`records_upsert`'s
 /// `form {error, close}`).
 @MainActor
 private final class AppHostRecordForms {
@@ -1356,7 +1374,7 @@ enum AppHostStore {
     }
 }
 
-/// `harness.mcp`: a JSON-RPC `tools/call` on the instance's own MCP endpoint
+/// `harness_mcp`: a JSON-RPC `tools/call` on the instance's own MCP endpoint
 /// as the signed-in viewer (the consent card has already said yes); the
 /// answer's `result`, read from a JSON or an SSE body (the web's `callMcp`).
 enum AppHostMcp {

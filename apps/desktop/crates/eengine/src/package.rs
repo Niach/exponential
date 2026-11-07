@@ -125,7 +125,9 @@ pub fn package_of(file: &Value) -> &Value {
 
 /// A package's issues against the core catalogs (genUI's `validatePackage`).
 pub fn validate(pkg: &Value) -> Vec<Issue> {
-    eui_core::host::validate_package(pkg, &eui_core::host::supported_catalog_ids::<&str>(&[])).into_iter().map(Issue::from).collect()
+    // Round 9 §14.1: format 5 is read through the bridge until the flag day.
+    let upgraded = eui_core::catalog::ACCEPT_V09.then(|| eui_core::upgrade09::upgrade_package_body09(pkg));
+    eui_core::host::validate_package(upgraded.as_ref().unwrap_or(pkg), &eui_core::host::supported_catalog_ids::<&str>(&[])).into_iter().map(Issue::from).collect()
 }
 
 /// The signer of a verified file (its author key), what grants are kept for.

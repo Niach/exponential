@@ -46,9 +46,9 @@ describe(`package format (VAPP-161)`, () => {
 
   test(`a package names the current format version; no older one is read`, () => {
     for (const id of [`acme.devices`, `acme.scoped`, `acme.hours`]) expect(validatePackage((router.packages as Record<string, unknown>)[id])).toEqual([])
-    expect(validatePackage((router.packages as Record<string, unknown>)[`acme.v1`])).toEqual([{ path: `/formatVersion`, message: `format version 1 is no longer read: write 5` }])
+    expect(validatePackage((router.packages as Record<string, unknown>)[`acme.v1`])).toEqual([{ path: `/formatVersion`, message: `format version 1 is no longer read; 6 is required` }])
     const { formatVersion: _, ...unversioned } = (router.packages as Record<string, Record<string, unknown>>)[`acme.hours`]!
-    expect(validatePackage(unversioned)).toEqual([{ path: `/formatVersion`, message: `formatVersion is required (5)` }])
+    expect(validatePackage(unversioned)).toEqual([{ path: `/formatVersion`, message: `formatVersion is required (6)` }])
   })
 
   test.each(fixture.consent)(`toolConsent $packageId`, (c) => {
@@ -65,7 +65,7 @@ describe(`package format (VAPP-161)`, () => {
     expect(toolCall(c.name)).toEqual(c.expected as never)
   })
   test.each(fixture.extensions)(`extensions: $name`, (c) => {
-    const pkg = { formatVersion: 5, id: `x`, name: `X`, version: `1.0.0`, catalogId: supportedCatalogIds()[0]!, templates: { t: { components: [{ id: `root`, component: `Text`, text: `Hi` }] } }, extensions: c.extensions }
+    const pkg = { formatVersion: 6, id: `x`, name: `X`, version: `1.0.0`, catalogId: supportedCatalogIds()[0]!, templates: { t: { components: [{ id: `root`, component: `Text`, text: `Hi` }] } }, extensions: c.extensions }
     expect(validatePackage(pkg, supportedCatalogIds(c.extensionIds), (c as { available?: AvailableExtension[] }).available)).toEqual(c.expected as never)
   })
   test.each(fixture.canonical)(`canonicalJson %#`, (c) => {
@@ -102,15 +102,15 @@ describe(`records on a host (VAPP-161)`, () => {
     const seen: unknown[] = []
     const cancel = records.sources[RECORDS_SCHEME]!(parseSource(`records:entry?sort=date&order=asc`)!, (v) => seen.push(v))
     expect(seen.at(-1)).toEqual({ rows: [], count: 0 })
-    const { id } = (await records.functions[`records.upsert`]!({ kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })) as { id: string }
-    await records.functions[`records.upsert`]!({ kind: `entry`, data: { date: `2026-10-04` } })
+    const { id } = (await records.functions[`records_upsert`]!({ kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })) as { id: string }
+    await records.functions[`records_upsert`]!({ kind: `entry`, data: { date: `2026-10-04` } })
     expect((seen.at(-1) as { rows: { date: string; author: string }[] }).rows.map((r) => r.date)).toEqual([`2026-10-04`, `2026-10-05`])
-    await records.functions[`records.upsert`]!({ id, data: { hours: 4 } })
+    await records.functions[`records_upsert`]!({ id, data: { hours: 4 } })
     expect((seen.at(-1) as { rows: { id: string; hours?: number; author: string }[] }).rows.find((r) => r.id === id)).toMatchObject({ hours: 4, date: `2026-10-05`, author: `Ada` })
-    await expect(records.functions[`records.upsert`]!({ kind: `entry`, data: { hours: 1 } })).rejects.toThrow(`/date required`)
-    await expect(records.functions[`records.upsert`]!({ id, data: { date: `soon` } })).rejects.toThrow(`/date`)
-    await expect(records.functions[`records.upsert`]!({ kind: `nope`, data: {} })).rejects.toThrow(`no kind nope`)
-    await records.functions[`records.delete`]!({ id })
+    await expect(records.functions[`records_upsert`]!({ kind: `entry`, data: { hours: 1 } })).rejects.toThrow(`/date required`)
+    await expect(records.functions[`records_upsert`]!({ id, data: { date: `soon` } })).rejects.toThrow(`/date`)
+    await expect(records.functions[`records_upsert`]!({ kind: `nope`, data: {} })).rejects.toThrow(`no kind nope`)
+    await records.functions[`records_delete`]!({ id })
     expect((seen.at(-1) as { count: number }).count).toBe(1)
     const undeclared: unknown[] = []
     records.sources[RECORDS_SCHEME]!(parseSource(`records:other`)!, (v) => undeclared.push(v))
@@ -130,6 +130,6 @@ describe(`records on a host (VAPP-161)`, () => {
     expect(new ExponentialHost({ extensions: [{ ...ext, version: `1.3.0`, components: { Gantt: { description: ``, props: { rows: { type: `array`, bindable: true } } } as never } }] }).installPackage(charts)).toEqual([
       { path: `/extensions/0/version`, message: `extension ${ext.id} 1.3.0 does not satisfy ^1.4.0` },
     ])
-    expect(new ExponentialHost().installPackage(charts)[0]!.message).toContain(`is not available on this host`)
+    expect(new ExponentialHost().installPackage(charts).map((i) => i.message).join(`; `)).toContain(`is not available on this host`)
   })
 })

@@ -59,9 +59,10 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
         return AppActions.declaredActions(functions.compactMap { $0 as? String })
     }
 
-    /// FEED-159: a stored grant that is no longer grantable reads as none.
+    /// FEED-159: a stored grant that is no longer grantable reads as none;
+    /// round 9 §14: one stored dotted reads under its flat name.
     var grantableGranted: [String] {
-        grantedTools.filter { AppActions.actionGrantable($0) }
+        grantedTools.filter { AppActions.actionGrantable($0) }.map(AppActions.flatAction)
     }
 
     /// The pill = `listPill` (eApps V1: the PUBLISHED version `v{n}`, or the

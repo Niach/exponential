@@ -31,10 +31,10 @@
       "id": "bench-row",
       "component": "Row",
       "title": {
-        "path": "title"
+        "@path": "title"
       },
       "meta": {
-        "path": "meta"
+        "@path": "meta"
       },
       "pressable": true
     }

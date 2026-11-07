@@ -20,7 +20,16 @@ public protocol Transport: AnyObject {
     func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void)
     /// One client message (JSON text).
     func send(_ message: String) async throws
+    /// Round 9 §1.3: a message with the `sendDataModel` metadata beside it.
+    func send(_ message: String, metadata: String) async throws
     func close()
+}
+
+public extension Transport {
+    /// `{"message", "metadata"}` on the wire (the MCP carrier sends it beside).
+    func send(_ message: String, metadata: String) async throws {
+        try await send(#"{"message":\#(message),"metadata":\#(metadata)}"#)
+    }
 }
 
 /// The `messages` of a decoder's `{messages, issues}` output as JSON texts.
@@ -331,7 +340,15 @@ public final class MCPTransport: Transport {
     }
 
     public func send(_ message: String) async throws {
-        let call = JSONValue.parse(try mcpActionCallJson(messageJson: message, tool: actionTool))
+        try await call(message, metadata: nil)
+    }
+
+    public func send(_ message: String, metadata: String) async throws {
+        try await call(message, metadata: metadata)
+    }
+
+    private func call(_ message: String, metadata: String?) async throws {
+        let call = JSONValue.parse(try mcpActionCallJson(messageJson: message, tool: actionTool, metadataJson: metadata))
         let result = try await rpc(call["method"]?.string ?? "tools/call", call["params"] ?? .object([:]))
         if let receive {
             decodedMessages(try messagesFromMcpResultJson(resultJson: result.json)).forEach(receive)

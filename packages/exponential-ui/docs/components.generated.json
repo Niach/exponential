@@ -966,9 +966,7 @@
       "children": "none",
       "slots": [],
       "events": [],
-      "basic": [
-        "Text"
-      ],
+      "basic": [],
       "props": [
         {
           "name": "text",
@@ -1106,7 +1104,9 @@
       "children": "none",
       "slots": [],
       "events": [],
-      "basic": [],
+      "basic": [
+        "Text"
+      ],
       "props": [
         {
           "name": "text",
@@ -1115,6 +1115,24 @@
           "bindable": true,
           "responsive": false,
           "description": "The GFM source."
+        },
+        {
+          "name": "profile",
+          "type": "document | inline",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "document",
+          "description": "`inline` = a run of text (no outer block gap, paragraphs in the Text type of `variant`), `document` = full prose."
+        },
+        {
+          "name": "variant",
+          "type": "body | caption",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "body",
+          "description": "The paragraph type of the inline profile."
         },
         {
           "name": "lines",
@@ -1317,7 +1335,7 @@
         },
         {
           "name": "for",
-          "type": "string",
+          "type": "componentId",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -3223,7 +3241,7 @@
         },
         {
           "name": "anchor",
-          "type": "string",
+          "type": "componentId",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -3357,7 +3375,7 @@
         },
         {
           "name": "anchor",
-          "type": "string",
+          "type": "componentId",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -8124,15 +8142,15 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/title"
+              "@path": "/recordForm/deal/title"
             },
             "checks": [
               {
                 "condition": {
-                  "call": "required",
+                  "@call": "required",
                   "args": {
                     "value": {
-                      "path": "/recordForm/deal/title"
+                      "@path": "/recordForm/deal/title"
                     }
                   }
                 },
@@ -8147,7 +8165,7 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/amount"
+              "@path": "/recordForm/deal/amount"
             },
             "min": 0
           },
@@ -8158,7 +8176,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/stage"
+              "@path": "/recordForm/deal/stage"
             },
             "options": [
               {
@@ -8178,7 +8196,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/close"
+              "@path": "/recordForm/deal/close"
             }
           }
         ]
@@ -8416,15 +8434,15 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/title"
+              "@path": "/recordForm/deal/title"
             },
             "checks": [
               {
                 "condition": {
-                  "call": "required",
+                  "@call": "required",
                   "args": {
                     "value": {
-                      "path": "/recordForm/deal/title"
+                      "@path": "/recordForm/deal/title"
                     }
                   }
                 },
@@ -8439,7 +8457,7 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/amount"
+              "@path": "/recordForm/deal/amount"
             },
             "min": 0
           },
@@ -8450,7 +8468,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/stage"
+              "@path": "/recordForm/deal/stage"
             },
             "options": [
               {
@@ -8470,7 +8488,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/close"
+              "@path": "/recordForm/deal/close"
             }
           }
         ],

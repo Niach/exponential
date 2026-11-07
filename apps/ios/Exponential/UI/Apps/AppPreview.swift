@@ -20,7 +20,7 @@ import ExponentialUI
 /// `ui-icon-placeholder`, and its title), the shown one selected. The shown
 /// screen = eUI `Screens.resolve` of `screen` (the requested one, else the
 /// first); a tab tap requests that screen with its own params, the
-/// package's `app.navigate` the call's screen + params (in memory). A new
+/// package's `app_navigate` the call's screen + params (in memory). A new
 /// screen = a fresh surface opening its template with `{params}`.
 ///
 /// #VAPP-251 (apps.json A PACKAGE THAT NO LONGER VALIDATES): a package the
@@ -49,7 +49,7 @@ struct AppPreview: View {
     /// through the package's migrations, copies only); nil = as stored.
     var migrateFrom: String? = nil
     /// VAPP-218: the requested screen (the editor's state; a tab tap and
-    /// `app.navigate` write it), nil = the first.
+    /// `app_navigate` write it), nil = the first.
     var screen: Binding<Apps.ScreenRequest?> = .constant(nil)
     /// VAPP-242: false = THE RUN VIEW: the surface fills the content area
     /// edge to edge (no frame radius, ground or hairline; `preview.padding`
@@ -70,7 +70,8 @@ struct AppPreview: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: framed ? Apps.Preview.radius : 0)
         let screens = AppPreviewScreens(packageJSON: packageJSON, request: screen.wrappedValue)
-        let surfaceKey = "\(grants):\(readOnly):\(migrateFrom ?? ""):\(screens.shownKey):\(packageJSON ?? "")"
+        let hostKey = "\(grants):\(readOnly):\(migrateFrom ?? ""):\(packageJSON ?? "")"
+        let surfaceKey = "\(screens.shownKey):\(hostKey)"
         VStack(spacing: 0) {
             if refusedKey == surfaceKey {
                 EmptyState(title: Apps.Copy.needsUpdate, icon: glyph, size: .page)
@@ -81,12 +82,12 @@ struct AppPreview: View {
                     if let packageJSON {
                         AppPackageSurface(
                             packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly,
-                            migrateFrom: migrateFrom, shown: screens.shown,
+                            migrateFrom: migrateFrom, shown: screens.shown, shownKey: screens.shownKey,
                             viewportHeight: max(0, visibleHeight - Apps.Preview.padding * 2),
                             onNavigate: { request in screen.wrappedValue = request },
                             onRefused: { refusedKey = surfaceKey }
                         )
-                        .id(surfaceKey)
+                        .id(hostKey)
                     } else {
                         EmptyState(title: emptyTitle, icon: emptyIcon, size: .page)
                             .frame(maxWidth: .infinity, minHeight: 192)
@@ -169,7 +170,7 @@ private struct AppPreviewScreens {
         #endif
     }
 
-    /// The surface's identity part: a new screen (or params) = a fresh surface.
+    /// The screen's identity: a new screen (or params) = a fresh surface.
     var shownKey: String {
         guard let shown else { return "" }
         let params = shown.params.keys.sorted().map { "\($0)=\(shown.params[$0] ?? "")" }.joined(separator: "&")
@@ -234,8 +235,9 @@ private struct LiftedLayersCover: ViewModifier {
 #endif
 
 /// The live surface of one package: its own host, the first template (or
-/// VAPP-218 the shown screen's, with its `{params}`) applied once, closed
-/// when it leaves. Without the painter linked: nothing (the frame stays).
+/// VAPP-218 the shown screen's, with its `{params}`) on a minted id, a new
+/// screen on a new id on the same host (round 9 §1.4), closed when it leaves.
+/// Without the painter linked: nothing (the frame stays).
 private struct AppPackageSurface: View {
     let packageJSON: String
     let appId: String?
@@ -245,9 +247,11 @@ private struct AppPackageSurface: View {
     let migrateFrom: String?
     /// VAPP-218: the shown screen (nil = no screens).
     let shown: Apps.ScreenRequest?
+    /// The shown screen's identity: a new one re-opens the surface.
+    let shownKey: String
     /// The height the surface's overlay layers size against.
     let viewportHeight: CGFloat
-    /// VAPP-218: the package's `app.navigate` (the request it names).
+    /// VAPP-218: the package's `app_navigate` (the request it names).
     let onNavigate: (Apps.ScreenRequest) -> Void
     /// #VAPP-251: the host holds no surface after the apply.
     let onRefused: () -> Void
@@ -258,6 +262,10 @@ private struct AppPackageSurface: View {
     @Environment(\.pushRoute) private var pushRoute
     @State private var appHost: ExpAppHost?
     @State private var consent = AppConsentGate()
+    /// The painted surface: minted per open, so it is state.
+    @State private var surfaceId: String?
+
+    private var model: SurfaceModel? { surfaceId.flatMap { appHost?.host.surfaces[$0] } }
 
     var body: some View {
         Group {
@@ -266,17 +274,22 @@ private struct AppPackageSurface: View {
                     ForEach(appHost.upstreams.banners) { banner in
                         upstreamBanner(banner)
                     }
-                    HostSurface(host: appHost.host, surfaceId: Apps.Preview.surfaceId)
+                    if let surfaceId {
+                        HostSurface(host: appHost.host, surfaceId: surfaceId)
+                    }
                 }
-                .onChange(of: appHost.host.surfaces[Apps.Preview.surfaceId] != nil, initial: true) { _, _ in syncViewport() }
+                .onChange(of: surfaceId, initial: true) { _, _ in syncViewport() }
                 .onChange(of: viewportHeight) { _, _ in syncViewport() }
             } else {
                 Color.clear.frame(height: 1)
             }
         }
         .modifier(AppConsentCard(gate: consent))
-        .modifier(LiftedLayersCover(model: appHost?.host.surfaces[Apps.Preview.surfaceId], consent: consent))
+        .modifier(LiftedLayersCover(model: model, consent: consent))
         .onAppear(perform: build)
+        .onChange(of: shownKey) { _, _ in
+            if let appHost { open(appHost) }
+        }
         .onDisappear {
             appHost?.close()
             appHost = nil
@@ -284,7 +297,7 @@ private struct AppPackageSurface: View {
     }
 
     private func syncViewport() {
-        guard let model = appHost?.host.surfaces[Apps.Preview.surfaceId] else { return }
+        guard let model else { return }
         model.setViewport(width: model.width, height: viewportHeight, maxHeight: model.maxHeight)
     }
 
@@ -320,7 +333,6 @@ private struct AppPackageSurface: View {
 
     private func build() {
         guard appHost == nil else { return }
-        let packageId = JSONValue.parse(packageJSON)["id"]?.string ?? ""
         let host = ExpAppHost(
             packages: [packageJSON],
             appId: appId,
@@ -337,18 +349,27 @@ private struct AppPackageSurface: View {
                 return true
             }
         )
+        appHost = host
+        surfaceId = nil
+        open(host)
+    }
+
+    /// Round 9 §1.4: the shown screen onto a minted id, repainted under it,
+    /// then the old surface goes.
+    private func open(_ host: ExpAppHost) {
+        let packageId = JSONValue.parse(packageJSON)["id"]?.string ?? ""
+        let base = Apps.Preview.surfaceId
         if let shown {
             // `Screens.Resolved.data`: the template opens with `{params}`.
             let params: [String: JSONValue] = shown.params.mapValues { .string($0) }
-            host.apply(
-                surfaceId: Apps.Preview.surfaceId, packageId: packageId, templateId: shown.screen,
+            surfaceId = host.reopen(
+                current: surfaceId, base: base, packageId: packageId, templateId: shown.screen,
                 data: .object(["params": .object(params)])
             )
         } else if let templateId = Apps.previewTemplate(packageJSON: packageJSON) {
-            host.apply(surfaceId: Apps.Preview.surfaceId, packageId: packageId, templateId: templateId)
+            surfaceId = host.reopen(current: surfaceId, base: base, packageId: packageId, templateId: templateId)
         }
-        appHost = host
-        if Apps.surfaceState(hasPackage: true, applied: true, hasSurface: host.host.surface(Apps.Preview.surfaceId) != nil) == .needsUpdate {
+        if Apps.surfaceState(hasPackage: true, applied: true, hasSurface: surfaceId.flatMap { host.host.surface($0) } != nil) == .needsUpdate {
             // The validator's words stay in the log, never on screen.
             let issues = host.host.installPackage(packageJSON).map(\.json).joined(separator: "; ")
             Logger(subsystem: "at.exponential", category: "apps").error("app \(appId ?? "?", privacy: .public) paints nothing: \(issues, privacy: .public)")

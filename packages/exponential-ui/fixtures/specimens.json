@@ -2387,6 +2387,60 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-markdown-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-markdown-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · body",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-markdown",
+                "component": "Markdown",
+                "props": {
+                  "text": "**Bold** and a list:\n\n- one\n- two",
+                  "variant": "body"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-markdown-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-markdown-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · caption",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-markdown",
+                "component": "Markdown",
+                "props": {
+                  "text": "**Bold** and a list:\n\n- one\n- two",
+                  "variant": "caption"
+                }
+              }
+            ]
           }
         ]
       }
@@ -13197,7 +13251,7 @@
         },
         "children": [
           {
-            "id": "sg-canvas",
+            "id": "sg_canvas",
             "component": "Stack",
             "props": {
               "direction": "horizontal",
@@ -13207,7 +13261,7 @@
             },
             "children": [
               {
-                "id": "sg-canvas-bars-case",
+                "id": "sg_canvas_bars_case",
                 "component": "Stack",
                 "props": {
                   "direction": "vertical",
@@ -13215,7 +13269,7 @@
                 },
                 "children": [
                   {
-                    "id": "sg-canvas-bars-caption",
+                    "id": "sg_canvas_bars_caption",
                     "component": "Text",
                     "props": {
                       "text": "Bar chart",
@@ -13223,7 +13277,7 @@
                     }
                   },
                   {
-                    "id": "sg-canvas-bars",
+                    "id": "sg_canvas_bars",
                     "component": "Canvas",
                     "props": {
                       "label": "Visits by day",
@@ -13531,7 +13585,7 @@
                 ]
               },
               {
-                "id": "sg-canvas-line-case",
+                "id": "sg_canvas_line_case",
                 "component": "Stack",
                 "props": {
                   "direction": "vertical",
@@ -13539,7 +13593,7 @@
                 },
                 "children": [
                   {
-                    "id": "sg-canvas-line-caption",
+                    "id": "sg_canvas_line_caption",
                     "component": "Text",
                     "props": {
                       "text": "Line plot",
@@ -13547,7 +13601,7 @@
                     }
                   },
                   {
-                    "id": "sg-canvas-line",
+                    "id": "sg_canvas_line",
                     "component": "Canvas",
                     "props": {
                       "label": "Sign-ups this week",
@@ -13816,7 +13870,7 @@
                 ]
               },
               {
-                "id": "sg-canvas-pointer-case",
+                "id": "sg_canvas_pointer_case",
                 "component": "Stack",
                 "props": {
                   "direction": "vertical",
@@ -13824,7 +13878,7 @@
                 },
                 "children": [
                   {
-                    "id": "sg-canvas-pointer-caption",
+                    "id": "sg_canvas_pointer_caption",
                     "component": "Text",
                     "props": {
                       "text": "Pointer",
@@ -13832,7 +13886,7 @@
                     }
                   },
                   {
-                    "id": "sg-canvas-pointer",
+                    "id": "sg_canvas_pointer",
                     "component": "Canvas",
                     "props": {
                       "label": "Pointer pad",
@@ -13929,7 +13983,7 @@
                     }
                   },
                   {
-                    "id": "sg-canvas-pointer-readout",
+                    "id": "sg_canvas_pointer_readout",
                     "component": "Text",
                     "props": {
                       "text": "Last press: none",
@@ -14076,15 +14130,15 @@
                       "required": true,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       },
                       "checks": [
                         {
                           "condition": {
-                            "call": "required",
+                            "@call": "required",
                             "args": {
                               "value": {
-                                "path": "/recordForm/deal/title"
+                                "@path": "/recordForm/deal/title"
                               }
                             }
                           },
@@ -14099,7 +14153,7 @@
                       "required": true,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/amount"
+                        "@path": "/recordForm/deal/amount"
                       },
                       "min": 0
                     },
@@ -14110,7 +14164,7 @@
                       "required": false,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/stage"
+                        "@path": "/recordForm/deal/stage"
                       },
                       "options": [
                         {
@@ -14130,7 +14184,7 @@
                       "required": false,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/close"
+                        "@path": "/recordForm/deal/close"
                       }
                     }
                   ]
@@ -14226,15 +14280,15 @@
                       "required": true,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       },
                       "checks": [
                         {
                           "condition": {
-                            "call": "required",
+                            "@call": "required",
                             "args": {
                               "value": {
-                                "path": "/recordForm/deal/title"
+                                "@path": "/recordForm/deal/title"
                               }
                             }
                           },
@@ -14249,7 +14303,7 @@
                       "required": true,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/amount"
+                        "@path": "/recordForm/deal/amount"
                       },
                       "min": 0
                     },
@@ -14260,7 +14314,7 @@
                       "required": false,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/stage"
+                        "@path": "/recordForm/deal/stage"
                       },
                       "options": [
                         {
@@ -14280,7 +14334,7 @@
                       "required": false,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/close"
+                        "@path": "/recordForm/deal/close"
                       }
                     }
                   ],
@@ -14361,15 +14415,15 @@
                       "required": true,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/title"
+                        "@path": "/recordForm/deal/title"
                       },
                       "checks": [
                         {
                           "condition": {
-                            "call": "required",
+                            "@call": "required",
                             "args": {
                               "value": {
-                                "path": "/recordForm/deal/title"
+                                "@path": "/recordForm/deal/title"
                               }
                             }
                           },
@@ -14384,7 +14438,7 @@
                       "required": true,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/amount"
+                        "@path": "/recordForm/deal/amount"
                       },
                       "min": 0
                     },
@@ -14395,7 +14449,7 @@
                       "required": false,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/stage"
+                        "@path": "/recordForm/deal/stage"
                       },
                       "options": [
                         {
@@ -14415,7 +14469,7 @@
                       "required": false,
                       "wide": false,
                       "value": {
-                        "path": "/recordForm/deal/close"
+                        "@path": "/recordForm/deal/close"
                       }
                     }
                   ],
@@ -14446,7 +14500,7 @@
         },
         "children": [
           {
-            "id": "demo-card",
+            "id": "demo_card",
             "component": "Card",
             "props": {
               "title": "Release 0.18.84",
@@ -14454,7 +14508,7 @@
             },
             "children": [
               {
-                "id": "demo-status",
+                "id": "demo_status",
                 "component": "Stack",
                 "props": {
                   "direction": "horizontal",
@@ -14463,7 +14517,7 @@
                 },
                 "children": [
                   {
-                    "id": "demo-badge",
+                    "id": "demo_badge",
                     "component": "Badge",
                     "props": {
                       "text": "Healthy",
@@ -14472,7 +14526,7 @@
                     }
                   },
                   {
-                    "id": "demo-badge-2",
+                    "id": "demo_badge_2",
                     "component": "Badge",
                     "props": {
                       "text": "0 incidents",
@@ -14482,7 +14536,7 @@
                 ]
               },
               {
-                "id": "demo-row-errors",
+                "id": "demo_row_errors",
                 "component": "Row",
                 "props": {
                   "title": "Error rate",
@@ -14490,7 +14544,7 @@
                 }
               },
               {
-                "id": "demo-row-p95",
+                "id": "demo_row_p95",
                 "component": "Row",
                 "props": {
                   "title": "p95 latency",
@@ -14498,7 +14552,7 @@
                 }
               },
               {
-                "id": "demo-rollout",
+                "id": "demo_rollout",
                 "component": "Progress",
                 "props": {
                   "value": 80,
@@ -14508,7 +14562,7 @@
                 }
               },
               {
-                "id": "demo-chart",
+                "id": "demo_chart",
                 "component": "Chart",
                 "props": {
                   "kind": "line",
@@ -14540,7 +14594,7 @@
                 }
               },
               {
-                "id": "demo-actions",
+                "id": "demo_actions",
                 "component": "Stack",
                 "props": {
                   "direction": "horizontal",
@@ -14549,7 +14603,7 @@
                 },
                 "children": [
                   {
-                    "id": "demo-rollback",
+                    "id": "demo_rollback",
                     "component": "Button",
                     "props": {
                       "label": "Roll back",
@@ -14557,7 +14611,7 @@
                     }
                   },
                   {
-                    "id": "demo-promote",
+                    "id": "demo_promote",
                     "component": "Button",
                     "props": {
                       "label": "Promote to 100 %",

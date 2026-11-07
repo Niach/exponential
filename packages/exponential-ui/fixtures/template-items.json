@@ -515,7 +515,7 @@
             "component": "Row",
             "props": {
               "title": {
-                "path": "title"
+                "@path": "title"
               }
             }
           },
@@ -536,7 +536,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "v"
+                    "@path": "v"
                   }
                 }
               }
@@ -598,7 +598,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "title"
+                        "@path": "title"
                       },
                       "variant": "body",
                       "lines": 1
@@ -664,7 +664,7 @@
             "component": "Text",
             "props": {
               "text": {
-                "path": "v"
+                "@path": "v"
               }
             },
             "children": []
@@ -706,7 +706,7 @@
           "id": "label",
           "component": "Text",
           "text": {
-            "path": "name"
+            "@path": "name"
           }
         },
         {
@@ -721,7 +721,7 @@
           "id": "tag",
           "component": "Badge",
           "text": {
-            "path": ""
+            "@path": ""
           }
         },
         {
@@ -765,7 +765,9 @@
         "issues": [
           {
             "id": "nowhere",
-            "message": "template: no component with this id"
+            "message": "template: no component with this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/nowhere"
           }
         ],
         "templates": {
@@ -779,7 +781,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "name"
+                    "@path": "name"
                   }
                 },
                 "children": []
@@ -806,7 +808,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": ""
+                    "@path": ""
                   },
                   "variant": "caption",
                   "lines": 1
@@ -880,7 +882,9 @@
         "issues": [
           {
             "id": "l",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/l"
           }
         ]
       }
@@ -940,7 +944,9 @@
         "issues": [
           {
             "id": "col",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/col"
           }
         ]
       }
@@ -983,7 +989,9 @@
         "issues": [
           {
             "id": "root",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/root"
           }
         ]
       }
@@ -1049,7 +1057,7 @@
           "id": "row",
           "component": "Text",
           "text": {
-            "path": "t"
+            "@path": "t"
           }
         }
       ],
@@ -1085,11 +1093,15 @@
         "issues": [
           {
             "id": "t1",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/t1"
           },
           {
             "id": "t2",
-            "message": "template: cycle through this id"
+            "message": "template: cycle through this id",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/t2"
           }
         ],
         "templates": {
@@ -1098,7 +1110,7 @@
             "component": "Text",
             "props": {
               "text": {
-                "path": "t"
+                "@path": "t"
               }
             },
             "children": []
@@ -1159,7 +1171,9 @@
         "issues": [
           {
             "id": "shared",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/shared"
           }
         ]
       }
@@ -1366,51 +1380,75 @@
         "issues": [
           {
             "id": "n12",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n12"
           },
           {
             "id": "n11",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n11"
           },
           {
             "id": "n10",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n10"
           },
           {
             "id": "n9",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n9"
           },
           {
             "id": "n8",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n8"
           },
           {
             "id": "n7",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n7"
           },
           {
             "id": "n6",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n6"
           },
           {
             "id": "n5",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n5"
           },
           {
             "id": "n4",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n4"
           },
           {
             "id": "n3",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n3"
           },
           {
             "id": "n2",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n2"
           },
           {
             "id": "n1",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n1"
           }
         ]
       }
@@ -1477,7 +1515,9 @@
         "issues": [
           {
             "id": "label",
-            "message": "id used twice; only its first place renders"
+            "message": "id used twice; only its first place renders",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/label"
           }
         ],
         "templates": {
@@ -2206,7 +2246,9 @@
         "issues": [
           {
             "id": "n48",
-            "message": "nesting deeper than 48 levels"
+            "message": "nesting deeper than 48 levels",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/n48"
           }
         ]
       }
@@ -2325,7 +2367,7 @@
                       "component": "Text",
                       "props": {
                         "text": {
-                          "path": "/leave/month/agenda/label"
+                          "@path": "/leave/month/agenda/label"
                         },
                         "variant": "label",
                         "lines": 1
@@ -2351,10 +2393,10 @@
                       "component": "Text",
                       "props": {
                         "text": {
-                          "call": "text",
+                          "@call": "text",
                           "args": {
                             "value": {
-                              "path": "/leave/month/agenda/count"
+                              "@path": "/leave/month/agenda/count"
                             }
                           }
                         },
@@ -2362,7 +2404,14 @@
                       },
                       "children": [],
                       "visible": {
-                        "path": "/leave/month/agenda/count"
+                        "@call": "cond",
+                        "args": {
+                          "if": {
+                            "@path": "/leave/month/agenda/count"
+                          },
+                          "then": true,
+                          "else": false
+                        }
                       },
                       "recipe": {
                         "macro": "Section",
@@ -2406,7 +2455,14 @@
                     "borderRadius": "$radius.md"
                   },
                   "visible": {
-                    "path": "/leave/month/agenda/label"
+                    "@call": "cond",
+                    "args": {
+                      "if": {
+                        "@path": "/leave/month/agenda/label"
+                      },
+                      "then": true,
+                      "else": false
+                    }
                   },
                   "recipe": {
                     "macro": "Section",
@@ -2504,7 +2560,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "weekday"
+                    "@path": "weekday"
                   },
                   "variant": "caption"
                 },
@@ -2527,7 +2583,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "initial"
+                    "@path": "initial"
                   },
                   "variant": "caption"
                 },
@@ -2579,7 +2635,7 @@
               "props": {
                 "view": "month",
                 "weekend": {
-                  "path": "weekend"
+                  "@path": "weekend"
                 }
               }
             }
@@ -2600,7 +2656,7 @@
               "props": {
                 "view": "month",
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 }
               }
             }
@@ -2622,7 +2678,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "day"
+                        "@path": "day"
                       },
                       "variant": "caption"
                     },
@@ -2633,10 +2689,10 @@
                       "props": {
                         "view": "month",
                         "inMonth": {
-                          "path": "inMonth"
+                          "@path": "inMonth"
                         },
                         "today": {
-                          "path": "today"
+                          "@path": "today"
                         }
                       }
                     }
@@ -2660,10 +2716,10 @@
                   "props": {
                     "view": "month",
                     "inMonth": {
-                      "path": "inMonth"
+                      "@path": "inMonth"
                     },
                     "today": {
-                      "path": "today"
+                      "@path": "today"
                     }
                   }
                 }
@@ -2683,7 +2739,7 @@
                         "component": "Text",
                         "props": {
                           "text": {
-                            "path": "day"
+                            "@path": "day"
                           },
                           "variant": "caption"
                         },
@@ -2694,10 +2750,10 @@
                           "props": {
                             "view": "month",
                             "inMonth": {
-                              "path": "inMonth"
+                              "@path": "inMonth"
                             },
                             "today": {
-                              "path": "today"
+                              "@path": "today"
                             }
                           }
                         }
@@ -2718,10 +2774,10 @@
                       "props": {
                         "view": "month",
                         "inMonth": {
-                          "path": "inMonth"
+                          "@path": "inMonth"
                         },
                         "today": {
-                          "path": "today"
+                          "@path": "today"
                         }
                       }
                     }
@@ -2768,7 +2824,7 @@
                   "props": {
                     "view": "month",
                     "selected": {
-                      "path": "selected"
+                      "@path": "selected"
                     }
                   }
                 }
@@ -2804,10 +2860,10 @@
             "accessibility": {
               "role": "button",
               "label": {
-                "path": "date"
+                "@path": "date"
               },
               "selected": {
-                "path": "selected"
+                "@path": "selected"
               }
             }
           },
@@ -2823,17 +2879,17 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "row/label"
+                    "@path": "row/label"
                   },
                   "variant": "caption",
                   "lines": 1
                 },
                 "children": [],
                 "visible": {
-                  "call": "eq",
+                  "@call": "eq",
                   "args": {
                     "a": {
-                      "path": "more"
+                      "@path": "more"
                     },
                     "b": 0
                   }
@@ -2851,12 +2907,12 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.calendarMore",
                       "params": {
                         "count": {
-                          "path": "more"
+                          "@path": "more"
                         }
                       }
                     }
@@ -2866,11 +2922,11 @@
                 },
                 "children": [],
                 "visible": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "path": "more"
+                      "@path": "more"
                     }
                   }
                 },
@@ -2892,28 +2948,28 @@
               "paddingHorizontal": "$spacing.xs",
               "borderRadius": "$radius.sm",
               "gridColumn": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "path": "col"
+                      "@path": "col"
                     },
                     " / span ",
                     {
-                      "path": "span"
+                      "@path": "span"
                     }
                   ]
                 }
               },
               "gridRow": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "call": "add",
+                      "@call": "add",
                       "args": {
                         "a": {
-                          "path": "lane"
+                          "@path": "lane"
                         },
                         "b": 1
                       }
@@ -2923,20 +2979,20 @@
                 }
               },
               "marginLeft": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "path": "contL"
+                    "@path": "contL"
                   },
                   "then": 0,
                   "else": "$spacing.xxs"
                 }
               },
               "marginRight": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "path": "contR"
+                    "@path": "contR"
                   },
                   "then": 0,
                   "else": "$spacing.xxs"
@@ -2949,22 +3005,22 @@
               "props": {
                 "view": "month",
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 },
                 "marker": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "path": "more"
+                      "@path": "more"
                     }
                   }
                 },
                 "contL": {
-                  "path": "contL"
+                  "@path": "contL"
                 },
                 "contR": {
-                  "path": "contR"
+                  "@path": "contR"
                 }
               }
             },
@@ -3100,7 +3156,7 @@
                   "props": {
                     "view": "month",
                     "tone": {
-                      "path": "tone"
+                      "@path": "tone"
                     }
                   }
                 }
@@ -3115,7 +3171,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "row/label"
+                        "@path": "row/label"
                       },
                       "variant": "body",
                       "lines": 1
@@ -3137,7 +3193,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "row/detail"
+                        "@path": "row/detail"
                       },
                       "variant": "muted",
                       "lines": 1,
@@ -3145,7 +3201,14 @@
                     },
                     "children": [],
                     "visible": {
-                      "path": "row/detail"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "row/detail"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     },
                     "recipe": {
                       "macro": "Row",
@@ -3183,14 +3246,21 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "row/status"
+                    "@path": "row/status"
                   },
                   "variant": "muted",
                   "lines": 1
                 },
                 "children": [],
                 "visible": {
-                  "path": "row/status"
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "row/status"
+                    },
+                    "then": true,
+                    "else": false
+                  }
                 },
                 "recipe": {
                   "macro": "Row",
@@ -3439,7 +3509,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "weekday"
+                    "@path": "weekday"
                   },
                   "variant": "caption"
                 },
@@ -3462,7 +3532,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "initial"
+                    "@path": "initial"
                   },
                   "variant": "caption"
                 },
@@ -3514,7 +3584,7 @@
               "props": {
                 "view": "week",
                 "weekend": {
-                  "path": "weekend"
+                  "@path": "weekend"
                 }
               }
             }
@@ -3535,7 +3605,7 @@
               "props": {
                 "view": "week",
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 }
               }
             }
@@ -3557,7 +3627,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "day"
+                        "@path": "day"
                       },
                       "variant": "caption"
                     },
@@ -3568,10 +3638,10 @@
                       "props": {
                         "view": "week",
                         "inMonth": {
-                          "path": "inMonth"
+                          "@path": "inMonth"
                         },
                         "today": {
-                          "path": "today"
+                          "@path": "today"
                         }
                       }
                     }
@@ -3595,10 +3665,10 @@
                   "props": {
                     "view": "week",
                     "inMonth": {
-                      "path": "inMonth"
+                      "@path": "inMonth"
                     },
                     "today": {
-                      "path": "today"
+                      "@path": "today"
                     }
                   }
                 }
@@ -3618,7 +3688,7 @@
                         "component": "Text",
                         "props": {
                           "text": {
-                            "path": "day"
+                            "@path": "day"
                           },
                           "variant": "caption"
                         },
@@ -3629,10 +3699,10 @@
                           "props": {
                             "view": "week",
                             "inMonth": {
-                              "path": "inMonth"
+                              "@path": "inMonth"
                             },
                             "today": {
-                              "path": "today"
+                              "@path": "today"
                             }
                           }
                         }
@@ -3653,10 +3723,10 @@
                       "props": {
                         "view": "week",
                         "inMonth": {
-                          "path": "inMonth"
+                          "@path": "inMonth"
                         },
                         "today": {
-                          "path": "today"
+                          "@path": "today"
                         }
                       }
                     }
@@ -3703,7 +3773,7 @@
                   "props": {
                     "view": "week",
                     "selected": {
-                      "path": "selected"
+                      "@path": "selected"
                     }
                   }
                 }
@@ -3732,10 +3802,10 @@
             "accessibility": {
               "role": "button",
               "label": {
-                "path": "date"
+                "@path": "date"
               },
               "selected": {
-                "path": "selected"
+                "@path": "selected"
               }
             }
           },
@@ -3751,17 +3821,17 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "row/title"
+                    "@path": "row/title"
                   },
                   "variant": "caption",
                   "lines": 1
                 },
                 "children": [],
                 "visible": {
-                  "call": "eq",
+                  "@call": "eq",
                   "args": {
                     "a": {
-                      "path": "more"
+                      "@path": "more"
                     },
                     "b": 0
                   }
@@ -3779,12 +3849,12 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "call": "fill",
+                    "@call": "fill",
                     "args": {
                       "template": "$string.calendarMore",
                       "params": {
                         "count": {
-                          "path": "more"
+                          "@path": "more"
                         }
                       }
                     }
@@ -3794,11 +3864,11 @@
                 },
                 "children": [],
                 "visible": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "path": "more"
+                      "@path": "more"
                     }
                   }
                 },
@@ -3820,28 +3890,28 @@
               "paddingHorizontal": "$spacing.xs",
               "borderRadius": "$radius.sm",
               "gridColumn": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "path": "col"
+                      "@path": "col"
                     },
                     " / span ",
                     {
-                      "path": "span"
+                      "@path": "span"
                     }
                   ]
                 }
               },
               "gridRow": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "call": "add",
+                      "@call": "add",
                       "args": {
                         "a": {
-                          "path": "lane"
+                          "@path": "lane"
                         },
                         "b": 1
                       }
@@ -3851,20 +3921,20 @@
                 }
               },
               "marginLeft": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "path": "contL"
+                    "@path": "contL"
                   },
                   "then": 0,
                   "else": "$spacing.xxs"
                 }
               },
               "marginRight": {
-                "call": "cond",
+                "@call": "cond",
                 "args": {
                   "if": {
-                    "path": "contR"
+                    "@path": "contR"
                   },
                   "then": 0,
                   "else": "$spacing.xxs"
@@ -3877,22 +3947,22 @@
               "props": {
                 "view": "week",
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 },
                 "marker": {
-                  "call": "lt",
+                  "@call": "lt",
                   "args": {
                     "a": 0,
                     "b": {
-                      "path": "more"
+                      "@path": "more"
                     }
                   }
                 },
                 "contL": {
-                  "path": "contL"
+                  "@path": "contL"
                 },
                 "contR": {
-                  "path": "contR"
+                  "@path": "contR"
                 }
               }
             }
@@ -3907,7 +3977,7 @@
         "component": "Meter",
         "props": {
           "segments": {
-            "path": "/disk"
+            "@path": "/disk"
           },
           "max": 100,
           "label": "Disk"
@@ -4006,10 +4076,10 @@
             "style": {
               "height": "100%",
               "width": {
-                "call": "percent",
+                "@call": "percent",
                 "args": {
                   "value": {
-                    "path": "value"
+                    "@path": "value"
                   },
                   "max": 100
                 }
@@ -4020,11 +4090,11 @@
               "part": "segment",
               "props": {
                 "tone": {
-                  "call": "coalesce",
+                  "@call": "coalesce",
                   "args": {
                     "values": [
                       {
-                        "path": "tone"
+                        "@path": "tone"
                       },
                       "neutral"
                     ]
@@ -4115,15 +4185,15 @@
                   "style": {
                     "display": "grid",
                     "gridTemplateColumns": {
-                      "call": "concat",
+                      "@call": "concat",
                       "args": {
                         "values": [
                           "repeat(",
                           {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           },
@@ -4151,18 +4221,18 @@
                 "flexDirection": "row",
                 "@media (form-factor: phone)": {
                   "minWidth": {
-                    "call": "add",
+                    "@call": "add",
                     "args": {
                       "a": 96,
                       "b": {
-                        "call": "mul",
+                        "@call": "mul",
                         "args": {
                           "a": 72,
                           "b": {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           }
@@ -4214,15 +4284,15 @@
                   "style": {
                     "display": "grid",
                     "gridTemplateColumns": {
-                      "call": "concat",
+                      "@call": "concat",
                       "args": {
                         "values": [
                           "repeat(",
                           {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           },
@@ -4251,18 +4321,18 @@
                 "borderTopWidth": "$border.hairline",
                 "@media (form-factor: phone)": {
                   "minWidth": {
-                    "call": "add",
+                    "@call": "add",
                     "args": {
                       "a": 96,
                       "b": {
-                        "call": "mul",
+                        "@call": "mul",
                         "args": {
                           "a": 72,
                           "b": {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           }
@@ -4288,18 +4358,18 @@
                 "flexDirection": "column",
                 "@media (form-factor: phone)": {
                   "minWidth": {
-                    "call": "add",
+                    "@call": "add",
                     "args": {
                       "a": 96,
                       "b": {
-                        "call": "mul",
+                        "@call": "mul",
                         "args": {
                           "a": 72,
                           "b": {
-                            "call": "len",
+                            "@call": "len",
                             "args": {
                               "value": {
-                                "path": "/road/timeline/columns"
+                                "@path": "/road/timeline/columns"
                               }
                             }
                           }
@@ -4356,7 +4426,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "label"
+                    "@path": "label"
                   },
                   "variant": "label",
                   "lines": 1
@@ -4371,15 +4441,15 @@
             ],
             "style": {
               "gridColumn": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "path": "col"
+                      "@path": "col"
                     },
                     " / span ",
                     {
-                      "path": "span"
+                      "@path": "span"
                     }
                   ]
                 }
@@ -4405,7 +4475,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "label"
+                    "@path": "label"
                   },
                   "variant": "caption",
                   "lines": 1
@@ -4416,7 +4486,7 @@
                   "part": "columnLabel",
                   "props": {
                     "today": {
-                      "path": "today"
+                      "@path": "today"
                     }
                   }
                 }
@@ -4433,7 +4503,7 @@
               "part": "column",
               "props": {
                 "today": {
-                  "path": "today"
+                  "@path": "today"
                 }
               }
             }
@@ -4465,7 +4535,7 @@
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "row/title"
+                    "@path": "row/title"
                   },
                   "variant": "caption",
                   "lines": 1
@@ -4488,28 +4558,28 @@
               "borderRadius": "$radius.sm",
               "marginHorizontal": "$spacing.xxs",
               "gridColumn": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "path": "col"
+                      "@path": "col"
                     },
                     " / span ",
                     {
-                      "path": "span"
+                      "@path": "span"
                     }
                   ]
                 }
               },
               "gridRow": {
-                "call": "concat",
+                "@call": "concat",
                 "args": {
                   "values": [
                     {
-                      "call": "add",
+                      "@call": "add",
                       "args": {
                         "a": {
-                          "path": "lane"
+                          "@path": "lane"
                         },
                         "b": 1
                       }
@@ -4524,13 +4594,13 @@
               "part": "bar",
               "props": {
                 "tone": {
-                  "path": "tone"
+                  "@path": "tone"
                 },
                 "contL": {
-                  "path": "contL"
+                  "@path": "contL"
                 },
                 "contR": {
-                  "path": "contR"
+                  "@path": "contR"
                 }
               }
             },
@@ -4557,7 +4627,7 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "path": "key"
+                        "@path": "key"
                       },
                       "variant": "body",
                       "lines": 1
@@ -4574,10 +4644,10 @@
                     "component": "Text",
                     "props": {
                       "text": {
-                        "call": "text",
+                        "@call": "text",
                         "args": {
                           "value": {
-                            "path": "count"
+                            "@path": "count"
                           }
                         }
                       },
@@ -4629,15 +4699,15 @@
                     "style": {
                       "display": "grid",
                       "gridTemplateColumns": {
-                        "call": "concat",
+                        "@call": "concat",
                         "args": {
                           "values": [
                             "repeat(",
                             {
-                              "call": "len",
+                              "@call": "len",
                               "args": {
                                 "value": {
-                                  "path": "/road/timeline/columns"
+                                  "@path": "/road/timeline/columns"
                                 }
                               }
                             },
@@ -4668,15 +4738,15 @@
                     "style": {
                       "display": "grid",
                       "gridTemplateColumns": {
-                        "call": "concat",
+                        "@call": "concat",
                         "args": {
                           "values": [
                             "repeat(",
                             {
-                              "call": "len",
+                              "@call": "len",
                               "args": {
                                 "value": {
-                                  "path": "/road/timeline/columns"
+                                  "@path": "/road/timeline/columns"
                                 }
                               }
                             },
@@ -4713,11 +4783,11 @@
                       "bottom": 0,
                       "width": "$control.hairline",
                       "left": {
-                        "call": "concat",
+                        "@call": "concat",
                         "args": {
                           "values": [
                             {
-                              "path": "/road/timeline/now/percent"
+                              "@path": "/road/timeline/now/percent"
                             },
                             "%"
                           ]
@@ -4725,7 +4795,14 @@
                       }
                     },
                     "visible": {
-                      "path": "/road/timeline/now"
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/road/timeline/now"
+                        },
+                        "then": true,
+                        "else": false
+                      }
                     },
                     "recipe": {
                       "macro": "Timeline",

@@ -21,7 +21,7 @@ const catalog = defineExtension({
   },
 } as never)
 
-const reduce = (node: NestedNode) => reduceNested(node, { catalogId: CORE_CATALOG_ID, extensions: [catalog] })
+const reduce = (node: NestedNode) => reduceNested(node, { catalogId: catalog.id, extensions: [catalog] })
 
 describe(`defineElementExtension`, () => {
   it(`paints a vanilla element with the root attributes, re-paints on a data change, emit fires xui-action`, () => {
@@ -40,7 +40,7 @@ describe(`defineElementExtension`, () => {
         },
       },
     })
-    const { root } = reduce({ id: `g`, component: `Gauge` as never, props: { value: { path: `/v` } }, on: { press: { event: { name: `gauge` } } } })
+    const { root } = reduce({ id: `g`, component: `Gauge` as never, props: { value: { "@path": `/v` } }, on: { press: { event: { name: `gauge` } } } })
     const el = mount((e) => {
       e.extensions = [ext]
       e.root = root
@@ -88,11 +88,11 @@ describe(`defineElementExtension`, () => {
     const { root } = reduce({
       id: `p`,
       component: `Panel` as never,
-      props: { title: { path: `/title` } },
+      props: { title: { "@path": `/title` } },
       slots: { header: { id: `hd`, component: `Text`, props: { text: `Header` } } },
       children: [
         { id: `c1`, component: `Text`, props: { text: `one` } },
-        { id: `c2`, component: `Text`, props: { text: { path: `/two` } } },
+        { id: `c2`, component: `Text`, props: { text: { "@path": `/two` } } },
       ],
     } as unknown as NestedNode)
     const el = mount((e) => {

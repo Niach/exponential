@@ -158,7 +158,7 @@ function defsBlock(defs: Record<string, { description: string; properties: Recor
   )
 }
 
-const SHORT_TYPES: Readonly<Record<string, string>> = { string: `str`, number: `num`, boolean: `bool`, object: `obj` }
+const SHORT_TYPES: Readonly<Record<string, string>> = { string: `str`, number: `num`, boolean: `bool`, object: `obj`, validationResult: `bool` }
 
 /** Every catalog function as `name(arg:type,…)→returns` (round 4: the
  *  model sees the argument names, not just the function names). VAPP-191:

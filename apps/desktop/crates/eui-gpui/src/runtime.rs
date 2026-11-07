@@ -17,10 +17,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use eui_core::host::{
-    action_message, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
-    action_call_name, navigate_target, run_action, ActionContext, ActionRun, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
+    action_message_with, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
+    action_call_name, navigate_target, run_action, ActionContext, ActionRun, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, RouteOptions, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
     FUNCTION_NOT_FOUND, NAVIGATE_FUNCTION, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
+use eui_core::host::{CallEffect, CallHub, PressRoute, SettledCall, SharedCalls};
 use eui_core::measure::TextStyle;
 use eui_core::surface::PlacedNode;
 use eui_core::theme::{try_load_theme, Mode, ResolvedTheme, ThemeOptions};
@@ -177,6 +178,10 @@ pub struct HostPolicy {
 /// How an [`ExponentialHost`] is created.
 pub struct HostOptions {
     pub transport: Option<Box<dyn Transport>>,
+    /// Round 9 §6.5: the transport's far end reads renderer → agent messages
+    /// (the MCP carrier, WebSocket, SSE + POST): a surface an agent created
+    /// routes the functions the host lacks to it.
+    pub agent: bool,
     pub functions: HashMap<String, HostFunction>,
     pub sources: HashMap<String, SourceResolver>,
     /// Extension catalogs (`eui_core::extension::parse_extension`).
@@ -244,6 +249,7 @@ impl HostOptions {
 impl Default for HostOptions {
     fn default() -> Self {
         HostOptions {
+            agent: false,
             transport: None,
             functions: HashMap::new(),
             sources: HashMap::new(),
@@ -289,6 +295,30 @@ enum Inbound {
     Source { surface_id: String, alive: Arc<AtomicBool>, path: String, value: Value },
 }
 
+/// One press waiting for its action call's answer.
+#[derive(Default)]
+struct AgentWait {
+    answer: Option<SettledCall>,
+    waker: Option<std::task::Waker>,
+}
+
+struct AgentAnswer(Rc<RefCell<AgentWait>>);
+
+impl std::future::Future for AgentAnswer {
+    type Output = SettledCall;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<SettledCall> {
+        let mut wait = self.0.borrow_mut();
+        match wait.answer.take() {
+            Some(answer) => std::task::Poll::Ready(answer),
+            None => {
+                wait.waker = Some(cx.waker().clone());
+                std::task::Poll::Pending
+            }
+        }
+    }
+}
+
 struct SurfaceEntry {
     id: String,
     view: Entity<SurfaceView>,
@@ -304,6 +334,10 @@ struct SurfaceEntry {
 /// ExponentialHost::new(options, cx))`, `connect`, then paint
 /// `host.read(cx).surface(id)` (a [`SurfaceView`]) wherever you like.
 pub struct ExponentialHost {
+    /// Round 9 §6.5: the routed calls (shared with the surfaces).
+    calls: SharedCalls,
+    /// The press waiting for each action call to the agent.
+    agent_waiters: HashMap<String, Rc<RefCell<AgentWait>>>,
     router: HostRouter,
     surfaces: Vec<SurfaceEntry>,
     /// Per surface, one entry per bound path (VAPP-122: a re-bind of a
@@ -353,6 +387,12 @@ impl ExponentialHost {
     /// [`Self::issues`]), never a panic; [`HostOptions::validate_packages`]
     /// turns it into a [`PackageError`] before the host exists.
     pub fn new(options: HostOptions, cx: &mut Context<Self>) -> Self {
+        let calls = CallHub::shared(options.agent);
+        {
+            let mut hub = calls.lock().unwrap_or_else(|e| e.into_inner());
+            hub.set_registered(&options.functions.keys().collect::<Vec<_>>());
+            hub.set_policy(options.policy.functions.clone());
+        }
         let (tx, rx) = flume::unbounded::<Inbound>();
         let pump = cx.spawn(async move |this, cx| {
             while let Ok(event) = rx.recv_async().await {
@@ -391,6 +431,8 @@ impl ExponentialHost {
             on_action_failed: options.on_action_failed,
             navigate: options.navigate,
             issues: Vec::new(),
+            calls,
+            agent_waiters: HashMap::new(),
             status: TransportStatus::Closed,
             status_detail: None,
             unsupported_catalog: None,
@@ -493,6 +535,14 @@ impl ExponentialHost {
 
     pub fn register_function(&mut self, name: impl Into<String>, f: HostFunction) {
         self.functions.insert(name.into(), f);
+        self.sync_calls();
+    }
+
+    fn sync_calls(&mut self) {
+        let names: Vec<&String> = self.functions.keys().collect();
+        let mut hub = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+        hub.set_registered(&names);
+        hub.set_policy(self.policy.functions.clone());
     }
 
     pub fn register_source(&mut self, scheme: &str, resolver: SourceResolver) {
@@ -632,16 +682,190 @@ impl ExponentialHost {
         }
     }
 
-    /// One server message (a transport delivers here; tests and local hosts
-    /// may call it directly). Returns the ops performed.
+    /// One agent message, UNTRUSTED (a transport delivers here; round 9 §2:
+    /// `applyTemplate` / `bindDataModel` answer INVALID_MESSAGE). Returns the
+    /// ops performed.
     pub fn receive(&mut self, message: &Value, cx: &mut Context<Self>) -> Vec<Value> {
+        self.route(message, RouteOptions::default(), cx)
+    }
+
+    /// One message from HOST code (round 9 §2): the host-internal kinds pass.
+    pub fn receive_trusted(&mut self, message: &Value, cx: &mut Context<Self>) -> Vec<Value> {
+        self.route(message, RouteOptions::trusted(), cx)
+    }
+
+    /// Round 9 §1.4: a fresh id for a re-opened surface.
+    pub fn mint_surface_id(&mut self, base: &str) -> String {
+        self.router.mint_surface_id(base)
+    }
+
+    fn route(&mut self, message: &Value, options: RouteOptions, cx: &mut Context<Self>) -> Vec<Value> {
         // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
         let params = eui_core::host::host_params(self.now.as_ref().map(|f| f()), self.zone.as_deref());
-        let ops = self.router.route(&eui_core::host::with_host_params(message, &params));
+        let ops = self.router.route(&eui_core::host::with_host_params(message, &params), options);
         for op in &ops {
             self.perform(op, cx);
         }
+        let settled = self.hub().observe(&ops, &self.router);
+        self.answer_presses(settled);
+        self.flush_calls(cx);
         ops
+    }
+
+    fn hub(&self) -> std::sync::MutexGuard<'_, CallHub> {
+        self.calls.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn answer_presses(&mut self, settled: Vec<SettledCall>) {
+        for call in settled {
+            if let Some(wait) = self.agent_waiters.remove(&call.function_call_id) {
+                let mut wait = wait.borrow_mut();
+                wait.answer = Some(call);
+                if let Some(waker) = wait.waker.take() {
+                    waker.wake();
+                }
+            }
+        }
+    }
+
+    /// Round 9 §6.5: what the hub queued: messages out, reactive effects
+    /// run, surfaces whose routed value settled bound again.
+    fn flush_calls(&mut self, cx: &mut Context<Self>) {
+        loop {
+            let (outbox, effects, dirty) = {
+                let mut hub = self.hub();
+                (hub.take_outbox(), hub.take_effects(), hub.take_dirty())
+            };
+            if outbox.is_empty() && effects.is_empty() && dirty.is_empty() {
+                return;
+            }
+            for message in outbox {
+                self.send_in(message, cx);
+            }
+            for effect in effects {
+                self.run_effect(effect, cx);
+            }
+            for sid in dirty {
+                if let Some(view) = self.entry(&sid).map(|e| e.view.clone()) {
+                    view.update(cx, |v, cx| v.rebind(cx));
+                }
+            }
+        }
+    }
+
+    fn run_effect(&mut self, effect: CallEffect, cx: &mut Context<Self>) {
+        match effect {
+            CallEffect::Ask { ticket, surface_id, name, args, .. } => {
+                let info = FunctionCallInfo { surface_id, component_id: String::new(), name, args: Value::Object(args) };
+                let consent = self.policy.on_function_call.clone().map(|hook| hook(&info, cx));
+                cx.spawn(async move |this, cx| {
+                    let allowed = match consent {
+                        Some(task) => task.await,
+                        None => false,
+                    };
+                    let _ = this.update(cx, |host, cx| {
+                        host.hub().consent(ticket, allowed);
+                        host.flush_calls(cx);
+                    });
+                })
+                .detach();
+            }
+            CallEffect::RunLocal { ticket, surface_id, name, args, .. } => {
+                let info = FunctionCallInfo { surface_id, component_id: String::new(), name, args: Value::Object(args) };
+                let task = self.functions.get(&info.name).cloned().map(|f| f(info.args.clone(), &info, cx));
+                cx.spawn(async move |this, cx| {
+                    let answer = match task {
+                        Some(task) => task.await,
+                        None => Ok(Value::Null),
+                    };
+                    let _ = this.update(cx, |host, cx| {
+                        host.hub().settle_local(ticket, answer);
+                        host.flush_calls(cx);
+                    });
+                })
+                .detach();
+            }
+        }
+    }
+
+    /// Round 9 §5.2, §6.8: a layout left issues or failures on the surface.
+    pub fn flush_surface(&mut self, surface_id: &str, cx: &mut Context<Self>) {
+        if let Some(view) = self.entry(surface_id).map(|e| e.view.clone()) {
+            let calls = self.calls.clone();
+            view.update(cx, |v, _| v.flush_calls(&mut calls.lock().unwrap_or_else(|e| e.into_inner())));
+        }
+        self.flush_calls(cx);
+    }
+
+    /// [`Self::send`] with the §1.3 metadata of a `sendDataModel` surface.
+    /// Outside any surface view's update (it reads the view).
+    pub fn send_in(&mut self, message: Value, cx: &mut Context<Self>) {
+        let hub = self.calls.clone();
+        let metadata = {
+            let surfaces = &self.surfaces;
+            let data = |sid: &str| surfaces.iter().find(|s| s.id == sid).map(|s| s.view.read(cx).surface().data().clone());
+            hub.lock().unwrap_or_else(|e| e.into_inner()).data_model_metadata(&message, &data)
+        };
+        match metadata {
+            Some(metadata) => {
+                if let Some(t) = self.transport.as_mut() {
+                    t.send_with_metadata(&message, &metadata);
+                }
+                let transport = self.transport.take();
+                self.send(message);
+                self.transport = transport;
+            }
+            None => self.send(message),
+        }
+    }
+
+    /// An action call to the agent: the policy, the consent, one new
+    /// `callAgentFunction`, its answer or the timeout (§6.5: never shared).
+    fn call_agent(&mut self, call: FunctionCallInfo, cx: &mut Context<Self>) -> Task<FunctionOutcome> {
+        let args = call.args.as_object().cloned().unwrap_or_default();
+        let route = self.hub().press(&call.surface_id, &call.name, None, &args, None);
+        let consent = (route == PressRoute::Ask).then(|| self.policy.on_function_call.clone().map(|hook| hook(&call, cx)));
+        self.flush_calls(cx);
+        cx.spawn(async move |this, cx| {
+            let route = match consent {
+                None => route,
+                Some(task) => {
+                    let allowed = match task {
+                        Some(task) => task.await,
+                        None => false,
+                    };
+                    this.update(cx, |host, _| host.hub().press(&call.surface_id, &call.name, None, &args, Some(allowed))).unwrap_or(PressRoute::Deny)
+                }
+            };
+            let id = match route {
+                PressRoute::Agent { function_call_id } => function_call_id,
+                PressRoute::Deny | PressRoute::Ask => {
+                    let _ = this.update(cx, |host, cx| host.flush_calls(cx));
+                    return FunctionOutcome::of(FunctionDecision::Deny);
+                }
+                PressRoute::NotFound => {
+                    let _ = this.update(cx, |host, cx| host.flush_calls(cx));
+                    return FunctionOutcome::of(FunctionDecision::NotFound);
+                }
+                PressRoute::Local => return run_function(this, call, cx).await,
+            };
+            let wait = Rc::new(RefCell::new(AgentWait::default()));
+            let _ = this.update(cx, |host, cx| {
+                host.agent_waiters.insert(id, wait.clone());
+                host.flush_calls(cx);
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(std::time::Duration::from_millis(eui_core::limits::AGENT_FUNCTION_TIMEOUT_MS + 50)).await;
+                    let _ = this.update(cx, |host, cx| {
+                        let settled = host.hub().expire();
+                        host.answer_presses(settled);
+                        host.flush_calls(cx);
+                    });
+                })
+                .detach();
+            });
+            let answer = AgentAnswer(wait).await;
+            FunctionOutcome { decision: FunctionDecision::Allow, result: answer.value, error: answer.error }
+        })
     }
 
     /// A client message to the server. An `error` message is also
@@ -673,7 +897,7 @@ impl ExponentialHost {
                 let surface_theme = match op.get("theme").filter(|t| !t.is_null()).map(resolve_surface_theme) {
                     Some(Ok(theme)) => Some(theme),
                     Some(Err(issues)) => {
-                        let msg = error_message(VALIDATION_FAILED, &sid, &format!("createSurface.theme is unusable: {}", issues.join("; ")), Some("/createSurface/theme"));
+                        let msg = error_message(VALIDATION_FAILED, &sid, &format!("createSurface.metadata.extensions.at_exponential_theme is unusable: {}", issues.join("; ")), Some("/createSurface/metadata/extensions/at_exponential_theme"));
                         self.send(msg);
                         None
                     }
@@ -717,6 +941,8 @@ impl ExponentialHost {
                     }
                     v
                 });
+                let route = eui_core::host::route_handle(&self.calls, &sid);
+                view.update(cx, |v, _| v.set_call_route(route));
                 let package_id = self.router.package_id_of(&sid);
                 self.surfaces.push(SurfaceEntry { id: sid, view, catalog_id, package_id, send_data_model: op["sendDataModel"] == Value::Bool(true), theme: surface_theme });
                 cx.notify();
@@ -811,10 +1037,14 @@ impl ExponentialHost {
     /// A component's server event as the A2UI client action message, sent.
     /// `timestamp` `None` = now (ISO 8601, UTC).
     pub fn action(&mut self, event: &ActionEvent, timestamp: Option<&str>) -> Value {
-        let ts = timestamp.map(str::to_string).unwrap_or_else(now_iso);
-        let message = action_message(&event.surface_id, &event.component_id, &event.name, event.context.clone(), event.payload.clone(), &ts);
+        let message = self.action_message(event, timestamp);
         self.send(message.clone());
         message
+    }
+
+    fn action_message(&self, event: &ActionEvent, timestamp: Option<&str>) -> Value {
+        let ts = timestamp.map(str::to_string).unwrap_or_else(now_iso);
+        action_message_with(&event.surface_id, &event.component_id, &event.name, event.context.clone(), event.payload.clone(), &ts, event.user_message.as_deref())
     }
 
     /// The policy decision for a call, before any consent hook: the host's
@@ -849,6 +1079,10 @@ impl ExponentialHost {
         }
         if let Some(action) = action_call_name(&call.name).map(str::to_string) {
             return self.run_package_action(call, action, cx);
+        }
+        // Round 9 §6.5: allowed, nothing local: the surface's agent.
+        if !self.functions.contains_key(&call.name) && !eui_core::host::is_builtin_function(&call.name) && self.hub().has_agent(&call.surface_id) {
+            return self.call_agent(call, cx);
         }
         let gate = self.gate(&call, cx);
         cx.spawn(async move |this, cx| {
@@ -1058,7 +1292,7 @@ impl ExponentialHost {
             "version": eui_core::catalog::A2UI_VERSION,
             "bindDataModel": {"surfaceId": surface_id, "path": path, "source": source_with_params(source, params)},
         });
-        self.receive(&message, cx).iter().any(|op| op["op"].as_str() == Some("bind"))
+        self.receive_trusted(&message, cx).iter().any(|op| op["op"].as_str() == Some("bind"))
     }
 
     /// `openUrl` / `Link` through the URL policy (relative urls against the
@@ -1170,11 +1404,29 @@ impl HostPlugin for HostAdapter {
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
         if let Some(host) = self.host.upgrade() {
-            host.update(cx, |h, _| {
-                h.action(event, None);
-            });
+            // §1.3: a `sendDataModel` message reads the view, which is being
+            // updated while a press arrives: it leaves right after.
+            if host.read(cx).sends_data_model(&event.surface_id) {
+                let event = event.clone();
+                cx.defer(move |cx| {
+                    host.update(cx, |h, cx| {
+                        let message = h.action_message(&event, None);
+                        h.send_in(message, cx);
+                    })
+                });
+            } else {
+                host.update(cx, |h, _| {
+                    h.action(event, None);
+                });
+            }
         }
         self.base.on_action(event, cx)
+    }
+
+    fn after_layout(&self, surface_id: &str, cx: &mut App) {
+        if let Some(host) = self.host.upgrade() {
+            host.update(cx, |h, cx| h.flush_surface(surface_id, cx));
+        }
     }
 
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
@@ -1186,6 +1438,22 @@ impl HostPlugin for HostAdapter {
             let event = event.clone();
             cx.defer(move |cx| host.update(cx, |h, cx| h.call_function(event, cx)).detach());
         }
+        self.base.on_function_call(event, cx)
+    }
+
+    fn on_function_call_then(&self, event: &FunctionCallEvent, then: Box<dyn FnOnce(&mut App)>, cx: &mut App) {
+        let Some(host) = self.host.upgrade() else { return then(cx) };
+        let call = event.clone();
+        cx.defer(move |cx| {
+            let task = host.update(cx, |h, cx| h.call_function(call, cx));
+            cx.spawn(async move |cx| {
+                let outcome = task.await;
+                if outcome.error.is_none() && !matches!(outcome.decision, FunctionDecision::Deny | FunctionDecision::NotFound) {
+                    let _ = cx.update(then);
+                }
+            })
+            .detach();
+        });
         self.base.on_function_call(event, cx)
     }
 

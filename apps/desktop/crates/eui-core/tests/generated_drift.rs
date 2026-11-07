@@ -16,6 +16,7 @@ fn the_generated_copies_match_the_package() {
     same(&format!("{PKG}/catalog.generated.rs"), &format!("{CRATE}/catalog.rs"));
     same(&format!("{PKG}/catalog.themes.generated.rs"), &format!("{CRATE}/themes.rs"));
     same(&format!("{PKG}/catalog.descriptions.generated.rs"), &format!("{CRATE}/descriptions.rs"));
+    same(&format!("{PKG}/xid.rs"), &format!("{CRATE}/xid.rs"));
 }
 
 /// VAPP-106: the embedded catalog is the RUNTIME one: no description or

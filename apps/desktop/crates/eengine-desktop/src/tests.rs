@@ -270,7 +270,7 @@ fn every_capability_lists_exactly_its_native_tools() {
     let notifications = NotificationsCapability::build(Arc::new(FakeNotifier::default()), Arc::new(|_| {}), false);
     assert_eq!(names(&notifications), ["cancel", "post"]);
     for t in PhotosCapability::new(None, None).tools() {
-        let catalog = tool(&format!("photos.{}", t["name"].as_str().unwrap()));
+        let catalog = tool(&format!("photos_{}", t["name"].as_str().unwrap()));
         assert_eq!(t["inputSchema"], catalog["inputSchema"]);
         assert_eq!(t["description"], catalog["description"]);
     }
@@ -293,7 +293,7 @@ fn the_checker_accepts_the_fixtures_native_results_and_refuses_bad_ones() {
             assert_eq!(check(content, schema, "").is_err(), expected_bad, "{}", case["name"]);
         }
     }
-    let schema = &tool("photos.list")["nativeOutputSchema"];
+    let schema = &tool("photos_list")["nativeOutputSchema"];
     assert!(check(&json!({"photos": [], "cursor": null, "extra": 1}), schema, "").is_err());
     assert!(check(&json!({"photos": [{"id": "a", "name": "a", "mimeType": "image/png", "takenAt": "yesterday"}], "cursor": null}), schema, "").is_err());
 }
@@ -304,7 +304,7 @@ fn the_checker_accepts_the_fixtures_native_results_and_refuses_bad_ones() {
 fn list_pages_the_folder_newest_first_without_bytes() {
     let dir = library();
     let photos = PhotosCapability::new(Some(dir.path().to_path_buf()), None);
-    let first = structured("photos.list", &photos.call("list", &json!({"limit": 3})).unwrap());
+    let first = structured("photos_list", &photos.call("list", &json!({"limit": 3})).unwrap());
     let ids: Vec<&str> = first["photos"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["Trips/beach.PNG", "Trips/2026/sunset.heic", "cat.webp"]);
     assert_eq!(first["photos"][0]["mimeType"], "image/png");
@@ -313,7 +313,7 @@ fn list_pages_the_folder_newest_first_without_bytes() {
     assert_eq!(first["photos"][0]["takenAt"], "2027-01-15T07:58:20Z");
     assert!(first["photos"][0].get("data").is_none());
     let cursor = first["cursor"].as_str().unwrap();
-    let second = structured("photos.list", &photos.call("list", &json!({"limit": 3, "cursor": cursor})).unwrap());
+    let second = structured("photos_list", &photos.call("list", &json!({"limit": 3, "cursor": cursor})).unwrap());
     assert_eq!(second["photos"].as_array().unwrap().len(), 1);
     assert_eq!(second["photos"][0]["id"], "old.jpg");
     assert_eq!(second["cursor"], Value::Null);
@@ -323,11 +323,11 @@ fn list_pages_the_folder_newest_first_without_bytes() {
 fn list_defaults_to_fifty_and_an_absent_folder_is_empty() {
     let dir = library();
     let photos = PhotosCapability::new(Some(dir.path().to_path_buf()), None);
-    let all = structured("photos.list", &photos.call("list", &json!({})).unwrap());
+    let all = structured("photos_list", &photos.call("list", &json!({})).unwrap());
     assert_eq!(all["photos"].as_array().unwrap().len(), 4);
     assert_eq!(all["cursor"], Value::Null);
     let none = PhotosCapability::new(Some(dir.path().join("missing")), None);
-    assert_eq!(structured("photos.list", &none.call("list", &json!({})).unwrap()), json!({"photos": [], "cursor": null}));
+    assert_eq!(structured("photos_list", &none.call("list", &json!({})).unwrap()), json!({"photos": [], "cursor": null}));
 }
 
 #[test]
@@ -342,7 +342,7 @@ fn a_bad_cursor_fails() {
 fn get_answers_the_bytes_and_refuses_anything_outside_the_folder() {
     let dir = library();
     let photos = PhotosCapability::new(Some(dir.path().to_path_buf()), None);
-    let photo = structured("photos.get", &photos.call("get", &json!({"id": "Trips/beach.PNG"})).unwrap());
+    let photo = structured("photos_get", &photos.call("get", &json!({"id": "Trips/beach.PNG"})).unwrap());
     assert_eq!(photo["photo"]["data"], b64(b"\x89PNG\r\n\x1a\nbeach"));
     assert_eq!(photo["photo"]["id"], "Trips/beach.PNG");
     std::fs::write(dir.path().parent().unwrap().join("outside.jpg"), b"x").ok();
@@ -360,7 +360,7 @@ fn a_symlink_out_of_the_folder_is_not_found() {
     std::os::unix::fs::symlink(outside.path().join("secret.jpg"), dir.path().join("link.jpg")).unwrap();
     let photos = PhotosCapability::new(Some(dir.path().to_path_buf()), None);
     assert_eq!(is_error(&photos.call("get", &json!({"id": "link.jpg"})).unwrap()), "notFound");
-    let listed = structured("photos.list", &photos.call("list", &json!({})).unwrap());
+    let listed = structured("photos_list", &photos.call("list", &json!({})).unwrap());
     assert!(!listed["photos"].as_array().unwrap().iter().any(|p| p["id"] == "link.jpg"));
 }
 
@@ -380,7 +380,7 @@ fn pick_filters_to_images_caps_at_limit_and_ids_resolve() {
     touch(&elsewhere, b"\xFF\xD8\xFFhi", 10);
     let dialogs = FakeDialogs::opening(Some(vec![dir.path().join("cat.webp"), elsewhere.clone(), dir.path().join("old.jpg")]));
     let photos = PhotosCapability::new(Some(dir.path().to_path_buf()), Some(dialogs.clone()));
-    let picked = structured("photos.pick", &photos.call("pick", &json!({"limit": 2})).unwrap());
+    let picked = structured("photos_pick", &photos.call("pick", &json!({"limit": 2})).unwrap());
     let list = picked["photos"].as_array().unwrap();
     assert_eq!(list.len(), 2);
     assert_eq!(list[0]["id"], "cat.webp");
@@ -392,17 +392,17 @@ fn pick_filters_to_images_caps_at_limit_and_ids_resolve() {
     assert_eq!(request.filter.extensions, ["gif", "heic", "jpeg", "jpg", "png", "webp"]);
     assert!(request.filter.mime_types.contains(&"image/heic".to_string()));
     // The picked id reads back through get (this process).
-    let again = structured("photos.get", &photos.call("get", &json!({"id": "picked:1"})).unwrap());
+    let again = structured("photos_get", &photos.call("get", &json!({"id": "picked:1"})).unwrap());
     assert_eq!(again["photo"]["name"], "IMG_0001.jpg");
     // limit 1 (the default) = a single-selection picker.
-    structured("photos.pick", &photos.call("pick", &json!({})).unwrap());
+    structured("photos_pick", &photos.call("pick", &json!({})).unwrap());
     assert!(!dialogs.opened.lock().unwrap()[1].multiple);
 }
 
 #[test]
 fn a_cancelled_or_missing_picker() {
     let photos = PhotosCapability::new(None, Some(FakeDialogs::opening(None)));
-    assert_eq!(structured("photos.pick", &photos.call("pick", &json!({})).unwrap()), json!({"photos": []}));
+    assert_eq!(structured("photos_pick", &photos.call("pick", &json!({})).unwrap()), json!({"photos": []}));
     let none = PhotosCapability::new(None, None);
     assert_eq!(is_error(&none.call("pick", &json!({})).unwrap()), "unavailable");
 }
@@ -418,7 +418,7 @@ fn open_reads_the_picked_files_with_their_types() {
     let paths = vec![dir.path().join("a.csv"), dir.path().join("scan"), dir.path().join("blob")];
     let dialogs = FakeDialogs::opening(Some(paths));
     let files = FilesCapability::new(dialogs.clone());
-    let opened = structured("files.open", &files.call("open", &json!({"accept": ["image/*", ".CSV"], "multiple": true})).unwrap());
+    let opened = structured("files_open", &files.call("open", &json!({"accept": ["image/*", ".CSV"], "multiple": true})).unwrap());
     assert_eq!(
         opened,
         json!({"files": [
@@ -431,7 +431,7 @@ fn open_reads_the_picked_files_with_their_types() {
     assert_eq!(filter.mime_types, ["image/*"]);
     assert!(filter.extensions.contains(&"csv".to_string()) && filter.extensions.contains(&"png".to_string()) && filter.extensions.contains(&"svg".to_string()));
     // Not multiple: one file at most.
-    let single = structured("files.open", &files.call("open", &json!({})).unwrap());
+    let single = structured("files_open", &files.call("open", &json!({})).unwrap());
     assert_eq!(single["files"].as_array().unwrap().len(), 1);
     assert!(dialogs.opened.lock().unwrap()[1].filter.is_any());
 }
@@ -448,7 +448,7 @@ fn an_unmappable_type_offers_every_file_on_extension_platforms() {
 #[test]
 fn a_cancelled_open_is_an_empty_list() {
     let files = FilesCapability::new(FakeDialogs::opening(None));
-    assert_eq!(structured("files.open", &files.call("open", &json!({"multiple": true})).unwrap()), json!({"files": []}));
+    assert_eq!(structured("files_open", &files.call("open", &json!({"multiple": true})).unwrap()), json!({"files": []}));
 }
 
 #[test]
@@ -458,12 +458,12 @@ fn save_writes_where_the_person_picked() {
     let dialogs = Arc::new(FakeDialogs::default());
     *dialogs.save_answer.lock().unwrap() = Some(Some(target.clone()));
     let files = FilesCapability::new(dialogs.clone());
-    let saved = structured("files.save", &files.call("save", &json!({"name": "notes.txt", "mimeType": "text/plain", "data": "aGVsbG8="})).unwrap());
+    let saved = structured("files_save", &files.call("save", &json!({"name": "notes.txt", "mimeType": "text/plain", "data": "aGVsbG8="})).unwrap());
     assert_eq!(saved, json!({"saved": true}));
     assert_eq!(std::fs::read(&target).unwrap(), b"hello");
     assert_eq!(dialogs.saved.lock().unwrap()[0], SaveRequest { name: "notes.txt".into(), mime_type: "text/plain".into() });
     *dialogs.save_answer.lock().unwrap() = Some(None);
-    let cancelled = structured("files.save", &files.call("save", &json!({"name": "x", "mimeType": "text/plain", "data": ""})).unwrap());
+    let cancelled = structured("files_save", &files.call("save", &json!({"name": "x", "mimeType": "text/plain", "data": ""})).unwrap());
     assert_eq!(cancelled, json!({"saved": false}));
     assert_eq!(is_error(&files.call("save", &json!({"name": "x", "mimeType": "text/plain", "data": "!!"})).unwrap()), "failed: bad base64 data");
 }
@@ -475,7 +475,7 @@ fn share_hands_the_sheet_the_decoded_file() {
     let sheet = Arc::new(FakeShare { answer: false, items: Mutex::default() });
     let share = ShareCapability::new(sheet.clone());
     let args = json!({"title": "Album", "text": "Look", "url": "https://exponential.at", "file": {"name": "a.pdf", "mimeType": "application/pdf", "data": "JVBERi0xLjQK"}});
-    assert_eq!(structured("share.send", &share.call("send", &args).unwrap()), json!({"shared": false}));
+    assert_eq!(structured("share_send", &share.call("send", &args).unwrap()), json!({"shared": false}));
     let item = sheet.items.lock().unwrap()[0].clone();
     assert_eq!(item.title.as_deref(), Some("Album"));
     assert_eq!(item.url.as_deref(), Some("https://exponential.at"));
@@ -488,7 +488,7 @@ fn print_takes_pdf_png_jpeg_and_answers_the_dialog() {
     let printer = Arc::new(FakePrinter { answer: Ok(false), jobs: Mutex::default() });
     let print = PrintCapability::new(printer.clone());
     let pdf = json!({"name": "document.pdf", "mimeType": "application/pdf", "data": "JVBERi0xLjQK"});
-    assert_eq!(structured("print.print", &print.call("print", &pdf).unwrap()), json!({"printed": false}));
+    assert_eq!(structured("print_print", &print.call("print", &pdf).unwrap()), json!({"printed": false}));
     assert_eq!(printer.jobs.lock().unwrap()[0].mime_type, "application/pdf");
     let text = json!({"name": "a.txt", "mimeType": "text/plain", "data": "aGk="});
     assert_eq!(is_error(&print.call("print", &text).unwrap()), "failed: not a PDF, PNG or JPEG");
@@ -518,12 +518,12 @@ fn post(id: &str, title: &str, at: Option<&str>, tap: Option<Value>) -> Value {
 fn a_tap_hands_the_stored_tap_back_verbatim() {
     let (capability, notifier, taps) = center();
     let answer = capability.call("post", &post("acme.album/n-1", "Album ready", None, Some(tap("page")))).unwrap();
-    assert_eq!(structured("notifications.post", &answer), json!({}));
+    assert_eq!(structured("notifications_post", &answer), json!({}));
     assert_eq!(notifier.shown.lock().unwrap()[0].0, Shown { id: "acme.album/n-1".into(), title: "Album ready".into(), body: None });
     notifier.event(0, true);
     assert_eq!(*taps.lock().unwrap(), [tap("page")]);
     // Tapped = gone: nothing left to cancel.
-    let cancelled = structured("notifications.cancel", &capability.call("cancel", &json!({"id": "acme.album/n-1"})).unwrap());
+    let cancelled = structured("notifications_cancel", &capability.call("cancel", &json!({"id": "acme.album/n-1"})).unwrap());
     assert_eq!(cancelled, json!({"cancelled": false}));
 }
 
@@ -573,7 +573,7 @@ fn cancel_withdraws_pending_and_shown_ones() {
     let now = Utc.with_ymd_and_hms(2026, 11, 6, 12, 0, 0).unwrap();
     capability.post_at(&post("a/soon", "Soon", Some("2026-11-06T12:05:00Z"), None), now).unwrap();
     capability.post_at(&post("a/now", "Now", None, None), now).unwrap();
-    let cancel = |id: &str| structured("notifications.cancel", &capability.call("cancel", &json!({"id": id})).unwrap())["cancelled"].clone();
+    let cancel = |id: &str| structured("notifications_cancel", &capability.call("cancel", &json!({"id": id})).unwrap())["cancelled"].clone();
     assert_eq!(cancel("a/soon"), true);
     assert_eq!(cancel("a/now"), true);
     assert_eq!(*notifier.closed.lock().unwrap(), [ShownHandle(100)]);
@@ -588,7 +588,7 @@ fn a_platform_failure_is_failed_and_leaves_nothing_behind() {
     let (capability, notifier, _) = center();
     *notifier.fail.lock().unwrap() = true;
     assert_eq!(is_error(&capability.call("post", &post("a/1", "x", None, None)).unwrap()), "failed: no notification server");
-    let cancelled = structured("notifications.cancel", &capability.call("cancel", &json!({"id": "a/1"})).unwrap());
+    let cancelled = structured("notifications_cancel", &capability.call("cancel", &json!({"id": "a/1"})).unwrap());
     assert_eq!(cancelled, json!({"cancelled": false}));
     assert_eq!(is_error(&capability.call("post", &post("a/2", "x", Some("tomorrow"), None)).unwrap()), "failed: bad at");
 }

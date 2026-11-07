@@ -44,9 +44,9 @@ final class FakePhotos: Capability, @unchecked Sendable {
 }
 
 let samplePackage: [String: Any] = [
-    "formatVersion": 5, "id": "acme.album", "name": "Album", "version": "1.0.0",
+    "formatVersion": 6, "id": "acme.album", "name": "Album", "version": "1.0.0",
     "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-    "functions": ["records.*", "app.navigate", "photos.pick"], "sources": ["records:*"],
+    "functions": ["records_*", "app_navigate", "photos_pick"], "sources": ["records:*"],
     "records": ["note": ["title": "Note", "schema": ["type": "object", "properties": ["text": ["type": "string"]]]]],
     "capabilities": [["id": "photos.read", "why": "Pick the photos for an album."]],
     "screens": [["template": "albums", "title": "Albums", "icon": "image"], ["template": "pages", "title": "Pages"],
@@ -152,7 +152,7 @@ final class RunnerKitTests: XCTestCase {
         var names: [String] = []
         for cap in fixture("capabilities.json")["capabilities"] as! [[String: Any]] {
             for scope in cap["scopes"] as! [[String: Any]] where scope["hostOnly"] as? Bool != true {
-                names += (scope["tools"] as! [String]).map { "\(cap["name"]!).\($0)" }
+                names += (scope["tools"] as! [String]).map { "\(cap["name"]!)_\($0)" }
             }
         }
         XCTAssertEqual(Set(RunnerFunctions.capabilities), Set(names))
@@ -193,7 +193,7 @@ final class RunnerKitTests: XCTestCase {
         XCTAssertNil(s.failure)
         let installed = painter.last("install")!.1
         XCTAssertEqual(templateRoot(installed, "albums"), "Stack", "compact = the Tabs shell")
-        XCTAssertTrue(installed.contains("runner-tabs") && !installed.contains(#""component":"Sidebar""#))
+        XCTAssertTrue(installed.contains("runner_tabs") && !installed.contains(#""component":"Sidebar""#))
         XCTAssertTrue(installed.contains("runner.permissions"), "an ask scope = the Permissions entry")
         XCTAssertEqual(painter.opened, ["albums"], "launch opens the first navigation screen")
         // Wider than md: re-install the Sidebar shell and re-apply the open screen.
@@ -201,7 +201,7 @@ final class RunnerKitTests: XCTestCase {
         s.settle()
         let wide = painter.last("install")!.1
         XCTAssertTrue(wide.contains(#""component":"Sidebar""#), "wide = the Sidebar shell")
-        XCTAssertTrue(wide.contains("runner-scroll") && !wide.contains("runner-tabs"))
+        XCTAssertTrue(wide.contains("runner_scroll") && !wide.contains("runner_tabs"))
         XCTAssertEqual(painter.opened, ["albums", "albums"])
         // A package without screens gets one: the plain launch opens it.
         var bare = samplePackage
@@ -218,7 +218,7 @@ final class RunnerKitTests: XCTestCase {
         let painter = Recorder()
         let s = running(painter)
         // records.* through the instance; a write repaints the bound sources.
-        let created = await s.call(name: "records.upsert", argsJson: #"{"kind":"note","data":{"text":"hi"}}"#)
+        let created = await s.call(name: "records_upsert", argsJson: #"{"kind":"note","data":{"text":"hi"}}"#)
         guard case let .value(json) = created else { return XCTFail("upsert refused: \(created)") }
         XCTAssertNotNil(RunnerJSON.object(json)?["id"] as? String)
         XCTAssertNotNil(painter.last("records"))
@@ -230,11 +230,11 @@ final class RunnerKitTests: XCTestCase {
         XCTAssertEqual(painter.opened.last, "pages")
         XCTAssertFalse(s.handleEvent(name: "acme.refresh", context: [:]), "app events are not the runner's")
         // An undeclared capability: refused, the toast paints.
-        let refused = await s.call(name: "camera.capture", argsJson: "{}")
+        let refused = await s.call(name: "camera_capture", argsJson: "{}")
         guard case .refused = refused else { return XCTFail("camera.capture ran") }
         XCTAssertEqual(components(painter.last("paint:toast")?.1).first?["component"] as? String, "Toast")
         // An ask scope: the consent sheet paints, the answer runs the call.
-        async let picked = s.call(name: "photos.pick", argsJson: "{}")
+        async let picked = s.call(name: "photos_pick", argsJson: "{}")
         while painter.last("paint:consent") == nil { try? await Task.sleep(nanoseconds: 5_000_000) }
         XCTAssertEqual(components(painter.last("paint:consent")?.1).first?["component"] as? String, "Drawer")
         s.handleEvent(name: "consent.answer", context: ["answer": "allow"])
@@ -257,7 +257,7 @@ final class RunnerKitTests: XCTestCase {
         XCTAssertEqual(RunnerJSON.object(s.instance!.grantsJson())?["photos.read"] as? String, "granted")
         // A dismissed sheet refuses the call.
         try! s.instance!.setGrant(scope: "photos.read", value: nil)
-        async let dismissed = s.call(name: "photos.pick", argsJson: "{}")
+        async let dismissed = s.call(name: "photos_pick", argsJson: "{}")
         while painter.log.filter({ $0.0 == "paint:consent" }).count < 2 { try? await Task.sleep(nanoseconds: 5_000_000) }
         s.handleEvent(name: "consent.answer", context: ["answer": "dismiss"])
         guard case .refused = await dismissed else { return XCTFail("a dismissed sheet ran the call") }
@@ -297,7 +297,7 @@ final class RunnerKitTests: XCTestCase {
             let s = session(.success(RunnerBundle(config: sampleConfig, packageJson: RunnerJSON.text(samplePackage))), Recorder(), vault: vault, dataRoot: root)
             s.start()
             s.settle()
-            if round == 0 { _ = await s.call(name: "records.upsert", argsJson: #"{"kind":"note","data":{}}"#) }
+            if round == 0 { _ = await s.call(name: "records_upsert", argsJson: #"{"kind":"note","data":{}}"#) }
             let value = await withCheckedContinuation { c in s.recordsValue(source: "records:note") { c.resume(returning: $0) } }
             XCTAssertEqual((RunnerJSON.object(value ?? "{}")?["count"] as? NSNumber)?.intValue, 1, "round \(round)")
         }

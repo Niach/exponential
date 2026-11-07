@@ -60,13 +60,13 @@ describe(`Sidebar rail (#VAPP-277)`, () => {
 
   test(`a rail Row drops its leading and trailing slots (bound: visible = not collapsed, and-ed with the slot's own)`, () => {
     const slotted = (collapsed: unknown) =>
-      reduce(shell({ rail: true, collapsed }, { id: `nav`, component: `Stack`, children: [row(`a`, {}, { leading: { id: `lead`, component: `Icon`, props: { name: `nav-issues` } }, trailing: { id: `trail`, component: `Badge`, props: { text: `New` }, visible: { path: `/show` } } })] }))
+      reduce(shell({ rail: true, collapsed }, { id: `nav`, component: `Stack`, children: [row(`a`, {}, { leading: { id: `lead`, component: `Icon`, props: { name: `nav-issues` } }, trailing: { id: `trail`, component: `Badge`, props: { text: `New` }, visible: { "@path": `/show` } } })] }))
     const rail = slotted(true)
     expect(find(rail, `lead`)).toBeUndefined()
     expect(find(rail, `trail`)).toBeUndefined()
-    const bound = slotted({ path: `/c` })
-    expect(find(bound, `lead`)?.visible).toEqual({ call: `not`, args: { value: { path: `/c` } } })
-    expect(find(bound, `trail`)?.visible).toEqual({ call: `and`, args: { values: [{ path: `/show` }, { call: `not`, args: { value: { path: `/c` } } }] } })
+    const bound = slotted({ "@path": `/c` })
+    expect(find(bound, `lead`)?.visible).toEqual({ "@call": `not`, args: { value: { "@call": `cond`, args: { if: { "@path": `/c` }, then: true, else: false } } } })
+    expect(find(bound, `trail`)?.visible).toEqual({ "@call": `and`, args: { values: [{ "@path": `/show` }, { "@call": `not`, args: { value: { "@call": `cond`, args: { if: { "@path": `/c` }, then: true, else: false } } } }] } })
   })
 
   test(`a Section on the rail: no header, a rule instead, its rows shown even when closed, undivided`, () => {

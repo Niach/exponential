@@ -6,6 +6,7 @@
 import { FUNCTION_NAMES, ICON_NAMES } from "./catalog.generated"
 import { isKnownToken, parseTokenRef, sharedCatalogView } from "./catalog"
 import { isCall, isDynamic } from "./expr"
+import { isIdentifier } from "./ids"
 import { isDataSchema } from "./dynamic"
 import { BREAKPOINTS, isResponsiveValue } from "./macros"
 import { isStringRef, parseStringRef } from "./strings"
@@ -39,6 +40,15 @@ function checkScalar(
       if (typeof value !== `string`) issues.push({ path, message: `expected a string` })
       else if (parseStringRef(value) !== null && !isStringRef(value))
         issues.push({ path, message: `unknown built-in string ${value} (catalog/strings.json)` })
+      return
+    case `componentId`:
+      // Round 9 §5.3: a component id reference; the router's entry check
+      // refuses a non-identifier, the reducer a missing id.
+      if (typeof value !== `string`) issues.push({ path, message: `expected a string` })
+      return
+    case `dynamic`:
+      // Round 9 §6.6: a binding or a call, never a literal (a check's condition).
+      if (!isDynamic(value)) issues.push({ path, message: `expected a binding or a function call` })
       return
     case `date`:
       if (typeof value !== `string` || (value !== `` && !ISO_DATE.test(value)))
@@ -138,15 +148,25 @@ function checkProps(
   }
 }
 
-/** A function name a surface may call: a catalog function, or a HOST
- *  function, which is always namespaced (`app.toast`, `harness.toast`). */
-export function isCallableName(name: string): boolean {
-  return FUNCTIONS.has(name) || /^[A-Za-z_][\w-]*(\.[A-Za-z_][\w-]*)+$/.test(name)
+/** Round 9 §6.3: the reserved host function prefixes and exact host names. */
+export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions_`, `harness_`, `exponential_`, `tools_`, `upstream_`, `camera_`, `clipboard_`, `files_`, `http_`, `location_`, `notifications_`, `photos_`, `print_`, `share_`, `app_`]
+export const HOST_FUNCTION_NAMES: readonly string[] = [`openUrl`, `bind`, `app_navigate`, `app_toast`]
+
+/** A catalog or HOST function name (an exact host name or a reserved host
+ *  prefix), or `@index`: what a card or a package may call statically. */
+export function isKnownFunctionName(name: string): boolean {
+  return FUNCTIONS.has(name) || name === `@index` || HOST_FUNCTION_NAMES.includes(name) || HOST_FUNCTION_PREFIXES.some((p) => name.startsWith(p) && name.length > p.length)
 }
 
-function checkCall(value: { call: string }, path: string, issues: PropIssue[]): void {
-  if (!isCallableName(value.call))
-    issues.push({ path, message: `unknown function "${value.call}"; known: the catalog functions, or a namespaced host function (app.toast)` })
+/** Round 9 §6.5: a name a SURFACE may call: any known name, or any other
+ *  identifier (an agent function, routed when the surface has an agent). */
+export function isCallableName(name: string): boolean {
+  return isKnownFunctionName(name) || isIdentifier(name)
+}
+
+function checkCall(value: { "@call": string }, path: string, issues: PropIssue[]): void {
+  if (!isCallableName(value[`@call`]))
+    issues.push({ path, message: `unknown function "${value[`@call`]}"; known: the catalog functions, a host function (app_toast), or an agent function (an identifier)` })
 }
 
 /** Every `{call}` at any depth of an EXPRESSION (`visible`, a call's args,
@@ -166,7 +186,7 @@ function checkCallsDeep(value: unknown, path: string, issues: PropIssue[]): void
  *  pass resolves it (`resolveProp`): a `{call}` AT a position is a call
  *  (its args are expressions); a DATA position (Table `rows`: shape-less
  *  objects) is the author's literal data, never descended (a row
- *  `{call: "+1 555 0100"}` is a row); arrays and shaped objects walk per
+ *  `{"@call": "+1 555 0100"}` is a row); arrays and shaped objects walk per
  *  item / property; a `style` prop resolves at any depth; anything else is
  *  a literal. */
 function checkPropCalls(value: unknown, schema: PropSchema | undefined, path: string, view: CatalogView, issues: PropIssue[]): void {

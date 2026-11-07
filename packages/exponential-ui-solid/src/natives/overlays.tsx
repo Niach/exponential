@@ -753,7 +753,7 @@ function MenuCheckbox(props: EntryProps): JSX.Element {
   const row = createSelectable(disabled, (e) => {
     const next = !untrack(checked)
     const raw = props.raw?.checked
-    if (isBinding(raw)) ctx.setData(absolutePath(raw.path, props.root.scope()), next)
+    if (isBinding(raw)) ctx.setData(absolutePath(raw[`@path`], props.root.scope()), next)
     void props.root.emit(`select`, { value: props.item.value ?? props.item.label, checked: next })
     e.preventDefault()
   }, props.root.close)

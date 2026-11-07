@@ -23,7 +23,7 @@ describe(`Resizable DOM parity with React`, () => {
   it(`three panels with limits, horizontal`, async () => expectDomParity({ tree: three({}) }))
   it(`three panels, vertical, no grip`, async () => expectDomParity({ tree: three({ direction: `vertical`, handle: false }) }))
   it(`sizes that need normalising`, async () => expectDomParity({ tree: three({ sizes: [1, 1] }) }))
-  it(`a bound sizes`, async () => expectDomParity({ tree: three({ sizes: { path: `/s` } }), data: { s: [50, 25, 25] } }))
+  it(`a bound sizes`, async () => expectDomParity({ tree: three({ sizes: { "@path": `/s` } }), data: { s: [50, 25, 25] } }))
   for (const s of [`hover`, `focus`, `pressed`, `checked`, `open`, `disabled`, `invalid`]) it(`forced state ${s}`, async () => expectDomParity({ tree: three({}), states: [s] }))
   it(`dark + rtl in the exponential theme`, async () => expectDomParity({ tree: three({}), theme: `exponential`, mode: `dark`, direction: `rtl` }))
 })

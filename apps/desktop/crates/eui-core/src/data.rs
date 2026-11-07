@@ -9,13 +9,18 @@
 //! [`run_action`] (evaluate, then `set`, then the event);
 //! `fixtures/bind-time.json` locks both. The function table
 //! = the core functions (`expr::core_function`) + the basic catalog's
-//! `and`/`or`/`not`/`required` with the core truthiness (0 is TRUE) + the
-//! basic validators and formatters.
+//! `and`/`or`/`not` under the 1.0 coercion + the validators and formatters.
+//!
+//! Round 9 §6.5: [`evaluate_call`] is the ONE routing of a call: `@index`,
+//! the resolved catalog, the args, a catalog function, else the host's
+//! [`ResolveContext::route`]. §6.8: a failure resolves to `null` and goes to
+//! the innermost [`FailureScope`].
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::expr::truthy;
+use crate::catalog::CORE_CATALOG_ID;
+use crate::expr::{coerce_boolean, present_opt};
 use crate::format::Formatter;
 use crate::json;
 use crate::limits;
@@ -210,11 +215,103 @@ pub struct ResolveContext<'a> {
     /// The clock (epoch ms) `formatRelativeTime` reads without a `now`
     /// argument; `None` = the wall clock.
     pub now: Option<f64>,
+    /// Round 9 §6.2: the innermost template item's index (a Table row's);
+    /// `None` = read it from `scope`'s last token.
+    pub index: Option<usize>,
+    /// Round 9 §5.5: the surface's default catalog (a call's own `catalogId`
+    /// wins); `None` = the core.
+    pub catalog_id: Option<&'a str>,
+    /// Round 9 §5.5: the router's available catalog ids (`None` = no check).
+    pub available: Option<&'a [String]>,
+    /// Round 9 §6.4: `Reactive` (bindings, visible, accessibility, checks)
+    /// or `Action` (a press: effects may run).
+    pub position: Position,
+    /// Round 9 §6.5: the host's routing of a name that is no local catalog
+    /// function (policy, registered host functions, the agent channel).
+    pub route: Option<&'a dyn Fn(RoutedCall) -> RouteAnswer>,
+    /// Round 9 §6.8: a failed evaluation (the host sends it).
+    pub on_error: Option<&'a dyn Fn(&Failure)>,
 }
+
+/// Round 9 §6.4: where a call is evaluated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Position {
+    #[default]
+    Reactive,
+    Action,
+}
+
+/// Round 9 §6.8: why an evaluation failed, as the error the renderer sends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Failure {
+    pub code: String,
+    pub message: String,
+    /// A routed call's id (the error then names it instead of the surface).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function_call_id: Option<String>,
+    /// `/components/<authored id>`, once a surface placed it (§6.8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+impl Failure {
+    pub fn new(code: &str, message: impl Into<String>) -> Failure {
+        Failure { code: code.to_string(), message: message.into(), function_call_id: None, path: None }
+    }
+}
+
+/// Round 9 §6.5: a call the host routes (a host, host-prefixed or unknown name).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoutedCall {
+    pub name: String,
+    pub catalog_id: String,
+    pub args: Map<String, Value>,
+    pub position: Position,
+}
+
+/// The host's answer: a value (a local run, a settled agent answer, the
+/// pending placeholder) or a failure.
+pub type RouteAnswer = Result<Value, Failure>;
+
+const EXPRESSION_ERROR: &str = "EXPRESSION_ERROR";
+const UNKNOWN_FUNCTION: &str = "UNKNOWN_FUNCTION";
 
 impl<'a> ResolveContext<'a> {
     pub fn new(data: &'a Value, scope: &'a str) -> ResolveContext<'a> {
-        ResolveContext { data, scope, strings: None, overlay: None, item: None, view: None, formatter: None, now: None }
+        ResolveContext { data, scope, strings: None, overlay: None, item: None, view: None, formatter: None, now: None, index: None, catalog_id: None, available: None, position: Position::Reactive, route: None, on_error: None }
+    }
+
+    /// The surface's default catalog and the router's available set (§5.5).
+    pub fn with_catalog(self, catalog_id: &'a str, available: Option<&'a [String]>) -> ResolveContext<'a> {
+        ResolveContext { catalog_id: Some(catalog_id), available, ..self }
+    }
+
+    /// An explicit item index (a Table row, §6.2).
+    pub fn with_index(self, index: usize) -> ResolveContext<'a> {
+        ResolveContext { index: Some(index), ..self }
+    }
+
+    pub fn with_position(self, position: Position) -> ResolveContext<'a> {
+        ResolveContext { position, ..self }
+    }
+
+    pub fn with_route(self, route: &'a dyn Fn(RoutedCall) -> RouteAnswer) -> ResolveContext<'a> {
+        ResolveContext { route: Some(route), ..self }
+    }
+
+    pub fn with_on_error(self, on_error: &'a dyn Fn(&Failure)) -> ResolveContext<'a> {
+        ResolveContext { on_error: Some(on_error), ..self }
+    }
+
+    /// `@index`: the explicit index, else the trailing index of the item
+    /// scope (`/rows/3` = 3); `None` = outside any item.
+    pub fn item_index(&self) -> Option<usize> {
+        self.index.or_else(|| {
+            let last = self.scope.rsplit('/').next()?;
+            (!last.is_empty() && last.bytes().all(|b| b.is_ascii_digit())).then(|| last.parse().ok()).flatten()
+        })
     }
 
     /// Format through the surface's formatter (see [`ResolveContext::formatter`]).
@@ -281,6 +378,30 @@ fn num(v: Option<&Value>) -> f64 {
     v.map(json::to_number).unwrap_or(f64::NAN)
 }
 
+/// `textOf`: a value as text (null → `""`, an object or array as JSON).
+fn text_of(v: Option<&Value>) -> String {
+    match v {
+        None | Some(Value::Null) => String::new(),
+        Some(v @ (Value::Object(_) | Value::Array(_))) => serde_json::to_string(v).unwrap_or_default(),
+        Some(v) => json::to_js_string(v),
+    }
+}
+
+/// §6.2: `${@index()}` / `${@index(offset: <number literal>)}`: `Some(offset)`.
+fn index_expr(expr: &str) -> Option<f64> {
+    let inner = expr.strip_prefix("@index")?.trim_start().strip_prefix('(')?.strip_suffix(')')?.trim();
+    if inner.is_empty() {
+        return Some(0.0);
+    }
+    let digits = inner.strip_prefix("offset")?.trim_start().strip_prefix(':')?.trim_start();
+    let body = digits.strip_prefix('-').unwrap_or(digits);
+    let (whole, fraction) = body.split_once('.').map_or((body, None), |(w, f)| (w, Some(f)));
+    let number = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    (number(whole) && fraction.is_none_or(number)).then(|| digits.parse().ok()).flatten()
+}
+
+/// The basic `formatString`: `${<pointer>}` (absolute, or relative to the
+/// scope) and the `@index` form (§6.2).
 fn interpolate(text: &str, ctx: &ResolveContext) -> String {
     let mut out = String::new();
     let mut rest = text;
@@ -290,9 +411,12 @@ fn interpolate(text: &str, ctx: &ResolveContext) -> String {
         match after.find('}') {
             Some(end) => {
                 let expr = after[..end].trim();
-                let v = ctx.read(&absolute_path(expr, ctx.scope));
-                if let Some(v) = v.filter(|v| !v.is_null()) {
-                    out.push_str(&json::to_js_string(v));
+                if let Some(offset) = index_expr(expr) {
+                    if let Some(index) = ctx.item_index() {
+                        out.push_str(&json::number_to_string(index as f64 + offset));
+                    }
+                } else if let Some(v) = ctx.read_path(expr) {
+                    out.push_str(&crate::format::display_string(v));
                 }
                 rest = &after[end + 1..];
             }
@@ -306,12 +430,29 @@ fn interpolate(text: &str, ctx: &ResolveContext) -> String {
     out
 }
 
+/// ECMAScript `\\s`.
+fn is_js_space(c: char) -> bool {
+    matches!(c, '\u{9}'..='\u{d}' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
+/// `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`
+fn is_email(v: &str) -> bool {
+    if v.chars().any(is_js_space) {
+        return false;
+    }
+    let Some((local, domain)) = v.split_once('@') else { return false };
+    if local.is_empty() || domain.contains('@') {
+        return false;
+    }
+    let chars: Vec<char> = domain.chars().collect();
+    chars.len() >= 3 && chars[1..chars.len() - 1].contains(&'.')
+}
+
 /// The function table: the six format functions through the context's
 /// formatter (round 2), the core functions, then the client functions of
 /// the basic catalog (`and`/`or`/`not`/`required` with the core
-/// truthiness, `src/dynamic.ts LOGIC_FUNCTIONS`). `openUrl` returns the url
-/// as a string the surface turns into an event for the host. `None` =
-/// unknown function or an undefined result.
+/// truthiness, `src/dynamic.ts LOGIC_FUNCTIONS`). `None` = unknown function
+/// or an undefined result.
 pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext) -> Option<Value> {
     if let Some(result) = crate::format::call_format_function(name, args, ctx.formatter(), ctx.now.unwrap_or_else(crate::format::now_ms)) {
         return result;
@@ -330,225 +471,303 @@ pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext
         return result;
     }
     let a = |k: &str| args.get(k);
-    let s = |k: &str| a(k).filter(|v| !v.is_null()).map(json::to_js_string).unwrap_or_default();
+    let bound = |k: &str| a(k).filter(|v| !v.is_null());
+    let within = |n: f64| bound("min").is_none_or(|m| n >= json::to_number(m)) && bound("max").is_none_or(|m| n <= json::to_number(m));
     Some(match name {
-        "required" => Value::Bool(a("value").is_some_and(|v| truthy(v) && !v.as_array().is_some_and(Vec::is_empty))),
-        "regex" => Value::Bool(regex_test(&s("pattern"), &s("value"))),
-        "length" => {
-            let n = s("value").chars().count() as f64;
-            Value::Bool(a("min").is_none_or(|m| n >= json::to_number(m)) && a("max").is_none_or(|m| n <= json::to_number(m)))
-        }
+        "required" => validation(present_opt(a("value")) && !a("value").and_then(Value::as_array).is_some_and(Vec::is_empty)),
+        // Round 9 §9.3: the hand-written dialect; a refused pattern or a
+        // match past the step cap FAILS the evaluation (EXPRESSION_ERROR).
+        "regex" => match crate::regex::regex_step_count(a("value").unwrap_or(&Value::Null), a("pattern").unwrap_or(&Value::Null)) {
+            Ok((ok, _)) => validation(ok),
+            Err(message) => {
+                if a("default").is_some() {
+                    return None;
+                }
+                ctx.fail(Failure::new(EXPRESSION_ERROR, message));
+                Value::Null
+            }
+        },
+        "length" => validation(within(text_of(a("value")).chars().count() as f64)),
         "numeric" => {
-            let n = num(a("value"));
-            Value::Bool(n.is_finite() && a("min").is_none_or(|m| n >= json::to_number(m)) && a("max").is_none_or(|m| n <= json::to_number(m)))
+            let blank = a("value").and_then(Value::as_str).is_some_and(|v| v.trim_matches(is_js_space).is_empty());
+            let n = if blank { f64::NAN } else { num(a("value")) };
+            validation(n.is_finite() && within(n))
         }
-        "email" => {
-            let v = s("value");
-            let ok = v.split_once('@').is_some_and(|(local, domain)| {
-                !local.is_empty() && !local.contains(char::is_whitespace) && domain.contains('.') && !domain.contains('@') && !domain.starts_with('.') && !domain.ends_with('.') && !domain.contains(char::is_whitespace)
-            });
-            Value::Bool(ok)
-        }
-        "formatString" => Value::String(interpolate(&s("value"), ctx)),
-        "openUrl" => return a("url").filter(|v| v.is_string()).cloned(),
-        "and" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().all(truthy))),
-        "or" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().any(truthy))),
-        "not" => Value::Bool(!a("value").is_some_and(truthy)),
+        "email" => validation(is_email(&text_of(a("value")))),
+        "formatString" => Value::String(interpolate(&text_of(a("value")), ctx)),
+        // Round 9 §6.7: DynamicBoolean args under the 1.0 coercion table.
+        "and" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().all(|x| coerce_boolean(Some(x))))),
+        "or" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().any(|x| coerce_boolean(Some(x))))),
+        "not" => Value::Bool(!coerce_boolean(a("value"))),
         _ => return None,
     })
 }
 
 
-/// A tiny regex subset for `regex` checks: literals, `.`, `*`, `+`, `?`,
-/// `^`/`$` anchors, character classes `[...]` (ranges, negation), `\d \w \s`
-/// and alternation-free groups are NOT supported (returns false). Hosts with
-/// a real engine override through their painter; the core keeps the surface
-/// deterministic without a regex dependency.
-fn regex_test(pattern: &str, value: &str) -> bool {
-    simple_regex::is_match(pattern, value)
+/// Round 9 §6.6: a validator's answer, EXACTLY `{"valid": <bool>}`.
+pub fn validation(valid: bool) -> Value {
+    let mut m = Map::new();
+    m.insert("valid".into(), Value::Bool(valid));
+    Value::Object(m)
 }
 
-mod simple_regex {
-    #[derive(Debug, Clone)]
-    enum Atom {
-        Any,
-        Char(char),
-        Class(Vec<(char, char)>, bool),
+/// Round 9 §6.6: one `CheckRule` evaluated to its ValidationResult.
+/// `true` → `{valid: true}`; `false` (or anything the coercion makes false)
+/// → `{valid: false, message?, severity: "error"}`; a ValidationResult as
+/// is, its `message` filled from the rule, `severity` defaulted; a failed
+/// evaluation → `{valid: false, message: rule.message ?? <failure>, severity}`.
+pub fn evaluate_check(rule: &Value, ctx: &ResolveContext) -> Value {
+    let (value, failure) = match rule.get("condition") {
+        Some(c) => resolve_with_failure(c, ctx),
+        None => (None, None),
+    };
+    if let (Some(failure), Some(report)) = (&failure, ctx.on_error) {
+        report(failure);
     }
-    #[derive(Debug, Clone)]
-    struct Piece {
-        atom: Atom,
-        min: usize,
-        max: Option<usize>,
+    check_result(value.as_ref(), rule.get("message"), failure.as_ref())
+}
+
+/// Round 9 §6.6: a check's RESOLVED condition → its ValidationResult
+/// (`failure` = the condition failed, §6.8).
+pub fn check_result(condition: Option<&Value>, message: Option<&Value>, failure: Option<&Failure>) -> Value {
+    let message = message.filter(|m| m.is_string()).cloned();
+    let fail = |message: Option<Value>| {
+        let mut m = Map::new();
+        m.insert("valid".into(), Value::Bool(false));
+        if let Some(message) = message {
+            m.insert("message".into(), message);
+        }
+        m.insert("severity".into(), Value::String("error".into()));
+        Value::Object(m)
+    };
+    if let Some(failure) = failure {
+        return fail(message.or_else(|| Some(Value::String(failure.message.clone()))));
+    }
+    if let Some(Value::Object(o)) = condition {
+        if let Some(valid) = o.get("valid").and_then(Value::as_bool) {
+            if valid {
+                return Value::Object(o.clone());
+            }
+            let mut out = o.clone();
+            if !matches!(out.get("message"), Some(m) if !m.is_null()) {
+                if let Some(message) = message {
+                    out.insert("message".into(), message);
+                }
+            }
+            if !out.contains_key("severity") {
+                out.insert("severity".into(), Value::String("error".into()));
+            }
+            return Value::Object(out);
+        }
+    }
+    if coerce_boolean(condition) {
+        validation(true)
+    } else {
+        fail(message)
+    }
+}
+
+/// Round 9 §6.6: the ONE result a field shows: the first failing `error`,
+/// else the first `warning`, else the first `info`.
+pub fn shown_result(results: &[Value]) -> Option<&Value> {
+    ["error", "warning", "info"].iter().find_map(|severity| results.iter().find(|r| check_failed(r) && check_severity(r) == *severity))
+}
+
+/// Is a ValidationResult failing? (`valid` false.)
+pub fn check_failed(result: &Value) -> bool {
+    result.get("valid") != Some(&Value::Bool(true))
+}
+
+/// A failing result's severity (`error` when absent or unknown).
+pub fn check_severity(result: &Value) -> &str {
+    match result.get("severity").and_then(Value::as_str) {
+        Some(s @ ("warning" | "info")) => s,
+        _ => "error",
+    }
+}
+
+thread_local! {
+    static FAILURES: std::cell::RefCell<Vec<Option<Failure>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Round 9 §6.8: collects the FIRST failure of the evaluations run inside
+/// it. Nested scopes each see their own.
+pub struct FailureScope(());
+
+impl FailureScope {
+    pub fn new() -> Self {
+        FAILURES.with(|f| f.borrow_mut().push(None));
+        FailureScope(())
     }
 
-    fn parse(pattern: &str) -> Option<(bool, bool, Vec<Piece>)> {
-        let mut chars: Vec<char> = pattern.chars().collect();
-        let anchored_start = chars.first() == Some(&'^');
-        if anchored_start {
-            chars.remove(0);
-        }
-        let anchored_end = chars.last() == Some(&'$');
-        if anchored_end {
-            chars.pop();
-        }
-        let mut pieces = Vec::new();
-        let mut i = 0;
-        while i < chars.len() {
-            let atom = match chars[i] {
-                '.' => Atom::Any,
-                '\\' => {
-                    i += 1;
-                    match chars.get(i)? {
-                        'd' => Atom::Class(vec![('0', '9')], false),
-                        'w' => Atom::Class(vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')], false),
-                        's' => Atom::Class(vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')], false),
-                        c => Atom::Char(*c),
-                    }
-                }
-                '[' => {
-                    i += 1;
-                    let negated = chars.get(i) == Some(&'^');
-                    if negated {
-                        i += 1;
-                    }
-                    let mut ranges = Vec::new();
-                    while i < chars.len() && chars[i] != ']' {
-                        let mut c = chars[i];
-                        if c == '\\' {
-                            i += 1;
-                            c = *chars.get(i)?;
-                        }
-                        if chars.get(i + 1) == Some(&'-') && chars.get(i + 2).is_some_and(|e| *e != ']') {
-                            ranges.push((c, chars[i + 2]));
-                            i += 3;
-                        } else {
-                            ranges.push((c, c));
-                            i += 1;
-                        }
-                    }
-                    if i >= chars.len() {
-                        return None;
-                    }
-                    Atom::Class(ranges, negated)
-                }
-                '(' | ')' | '|' => return None,
-                c => Atom::Char(c),
-            };
-            i += 1;
-            let (min, max) = match chars.get(i) {
-                Some('*') => {
-                    i += 1;
-                    (0, None)
-                }
-                Some('+') => {
-                    i += 1;
-                    (1, None)
-                }
-                Some('?') => {
-                    i += 1;
-                    (0, Some(1))
-                }
-                Some('{') => {
-                    let close = chars[i..].iter().position(|c| *c == '}')? + i;
-                    let body: String = chars[i + 1..close].iter().collect();
-                    i = close + 1;
-                    match body.split_once(',') {
-                        Some((a, b)) => (a.trim().parse().ok()?, if b.trim().is_empty() { None } else { Some(b.trim().parse().ok()?) }),
-                        None => {
-                            let n: usize = body.trim().parse().ok()?;
-                            (n, Some(n))
-                        }
-                    }
-                }
-                _ => (1, Some(1)),
-            };
-            pieces.push(Piece { atom, min, max });
-        }
-        Some((anchored_start, anchored_end, pieces))
+    /// Run `f` inside the scope.
+    pub fn run<R>(&self, f: impl FnOnce() -> R) -> R {
+        f()
     }
 
-    fn matches_atom(atom: &Atom, c: char) -> bool {
-        match atom {
-            Atom::Any => c != '\n',
-            Atom::Char(x) => *x == c,
-            Atom::Class(ranges, negated) => ranges.iter().any(|(a, b)| *a <= c && c <= *b) != *negated,
-        }
+    /// The first failure recorded (and closes the scope).
+    pub fn take(self) -> Option<Failure> {
+        let out = FAILURES.with(|f| f.borrow_mut().pop().flatten());
+        std::mem::forget(self);
+        out
+    }
+}
+
+impl Default for FailureScope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for FailureScope {
+    fn drop(&mut self) {
+        FAILURES.with(|f| {
+            f.borrow_mut().pop();
+        });
+    }
+}
+
+impl ResolveContext<'_> {
+    /// Record an evaluation failure (§6.8) in the innermost [`FailureScope`]
+    /// (the first one wins).
+    pub fn fail(&self, failure: Failure) {
+        FAILURES.with(|f| {
+            if let Some(slot) = f.borrow_mut().last_mut() {
+                slot.get_or_insert(failure);
+            }
+        });
     }
 
-    fn match_here(pieces: &[Piece], text: &[char], end_anchor: bool) -> bool {
-        let Some(piece) = pieces.first() else {
-            return !end_anchor || text.is_empty();
+    fn failed(&self) -> bool {
+        FAILURES.with(|f| f.borrow().last().is_some_and(Option::is_some))
+    }
+}
+
+/// `fail`: a call with a `default` shows it instead of failing (VAPP-195).
+fn failed_call(failure: Failure, args: Option<&Map<String, Value>>, ctx: &ResolveContext) -> Option<Value> {
+    if let Some(default) = args.and_then(|a| a.get("default")) {
+        return Some(default.clone());
+    }
+    ctx.fail(failure);
+    Some(Value::Null)
+}
+
+/// Round 9 §6.5: one call evaluated: `@index`, a catalog function of the
+/// resolved catalog, else the host's route. A failure is `null` plus the
+/// [`FailureScope`]'s failure. `None` = undefined.
+fn evaluate_call_in(call: &Value, ctx: &ResolveContext) -> Option<Value> {
+    let name = call["@call"].as_str().unwrap_or("");
+    let reactive = ctx.position == Position::Reactive;
+    let raw_args = call.get("args").and_then(Value::as_object);
+    // 1. `@index`: the innermost template item's index + offset.
+    if name == crate::functions::INDEX_FUNCTION {
+        let offset = raw_args.and_then(|a| a.get("offset")).map_or(Some(json::number(0.0)), |o| resolve_in(o, ctx));
+        let Some(index) = ctx.item_index() else {
+            return failed_call(Failure::new(EXPRESSION_ERROR, "@index outside a template"), None, ctx);
         };
-        let max = piece.max.unwrap_or(text.len());
-        let mut count = 0;
-        while count < max && count < text.len() && matches_atom(&piece.atom, text[count]) {
-            count += 1;
-        }
-        if count < piece.min {
-            return false;
-        }
-        let mut n = count;
-        loop {
-            if match_here(&pieces[1..], &text[n..], end_anchor) {
-                return true;
-            }
-            if n == piece.min {
-                return false;
-            }
-            n -= 1;
+        let offset = offset.as_ref().map_or(0.0, json::to_number);
+        return Some(json::number(index as f64 + if offset.is_nan() { 0.0 } else { offset }));
+    }
+    // 2. The call's catalog: its own, else the surface default.
+    let own = call.get("catalogId").and_then(Value::as_str);
+    let catalog = own.or(ctx.catalog_id).filter(|c| !c.is_empty()).unwrap_or(CORE_CATALOG_ID);
+    if ctx.available.is_some_and(|ids| !ids.iter().any(|id| id == catalog)) {
+        return failed_call(Failure::new(EXPRESSION_ERROR, format!("catalog {catalog} is not available")), None, ctx);
+    }
+    // 3. The args, at any depth; a failing arg fails the call.
+    let before = ctx.failed();
+    let mut args = Map::new();
+    for (k, v) in raw_args.into_iter().flatten() {
+        if let Some(r) = resolve_in(v, ctx) {
+            args.insert(k.clone(), r);
         }
     }
+    if !before && ctx.failed() {
+        return Some(Value::Null);
+    }
+    // A var bound to nothing (a row's missing optional field) reads null in
+    // the expression, never an unknown name (spec §4.2, expressions.json).
+    if name == "expr" {
+        if let (Some(raw), Some(Value::Object(vars))) = (raw_args.and_then(|a| a.get("vars")).and_then(Value::as_object), args.get_mut("vars")) {
+            for k in raw.keys() {
+                vars.entry(k.clone()).or_insert(Value::Null);
+            }
+        }
+    }
+    let effect = crate::functions::is_effect_function(name);
+    // 4. A catalog function of the resolved catalog.
+    // §5.5: a reduced tree is core vocabulary: the map and the macros emit core
+    // functions, so a call without its own catalog on a basic surface reads
+    // the core's table; `catalog` stays basic on the wire (routed calls).
+    let table = if own.is_none() && crate::functions::is_basic_catalog(catalog) { CORE_CATALOG_ID } else { catalog };
+    if crate::functions::declared_function(table, name).is_some() {
+        if reactive && effect {
+            return failed_call(Failure::new(EXPRESSION_ERROR, format!("{name} cannot run in a binding")), None, ctx);
+        }
+        if !effect {
+            return call_function(name, &args, ctx).or_else(|| args.get("default").cloned());
+        }
+        // `set`, `bind`, `openUrl` in an action: the host runs them.
+    }
+    // 5. Any other name: a host function, a host-prefixed name, an agent function.
+    if reactive && (crate::functions::is_host_function_name(name) || effect) {
+        return failed_call(Failure::new(EXPRESSION_ERROR, format!("{name} cannot run in a binding")), None, ctx);
+    }
+    if let Some(route) = ctx.route {
+        return match route(RoutedCall { name: name.to_string(), catalog_id: catalog.to_string(), args: args.clone(), position: ctx.position }) {
+            Ok(value) => Some(value),
+            Err(failure) => failed_call(failure, Some(&args), ctx),
+        };
+    }
+    failed_call(Failure::new(UNKNOWN_FUNCTION, format!("no function {name}")), Some(&args), ctx)
+}
 
-    pub fn is_match(pattern: &str, value: &str) -> bool {
-        let Some((start, end, pieces)) = parse(pattern) else { return false };
-        let text: Vec<char> = value.chars().collect();
-        if start {
-            return match_here(&pieces, &text, end);
-        }
-        (0..=text.len()).any(|i| match_here(&pieces, &text[i..], end))
-    }
+/// Round 9 §6.5: one call evaluated, with its failure.
+pub fn evaluate_call(call: &Value, ctx: &ResolveContext) -> (Option<Value>, Option<Failure>) {
+    let scope = FailureScope::new();
+    let value = scope.run(|| evaluate_call_in(call, ctx));
+    (value, scope.take())
+}
+
+/// [`resolve_value`] that also answers the first failure (§6.8).
+pub fn resolve_with_failure(value: &Value, ctx: &ResolveContext) -> (Option<Value>, Option<Failure>) {
+    let scope = FailureScope::new();
+    let out = scope.run(|| resolve_in(value, ctx));
+    (out, scope.take())
 }
 
 /// A prop or style value with its bindings and calls resolved at ANY depth
 /// (`resolveDynamic`). Plain objects recurse (a check's `condition`, a menu
-/// item's label); `$string.<id>` strings resolve through the context's
-/// table. `None` = undefined.
+/// item's label; round 9 §3.2: a literal object's `@@` keys lose one `@`);
+/// `$string.<id>` strings resolve through the context's table. A failing
+/// call resolves to `null` and its failure goes to [`ResolveContext::on_error`].
+/// `None` = undefined.
 pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
+    let (out, failure) = resolve_with_failure(value, ctx);
+    if let (Some(failure), Some(report)) = (failure, ctx.on_error) {
+        report(&failure);
+    }
+    out
+}
+
+fn resolve_in(value: &Value, ctx: &ResolveContext) -> Option<Value> {
     if is_binding(value) {
-        return ctx.read_path(value["path"].as_str().unwrap_or("")).cloned();
+        return ctx.read_path(value["@path"].as_str().unwrap_or("")).cloned();
     }
     if is_call(value) {
-        let name = value["call"].as_str().unwrap_or("");
-        let mut args = Map::new();
-        if let Some(raw) = value.get("args").and_then(Value::as_object) {
-            for (k, v) in raw {
-                if let Some(r) = resolve_value(v, ctx) {
-                    args.insert(k.clone(), r);
-                }
-            }
-        }
-        // A var bound to nothing (a row's missing optional field) reads null
-        // in the expression, never an unknown name (spec §4.2, expressions.json).
-        if name == "expr" {
-            if let (Some(raw), Some(Value::Object(vars))) = (value.get("args").and_then(|a| a.get("vars")).and_then(Value::as_object), args.get_mut("vars")) {
-                for k in raw.keys() {
-                    vars.entry(k.clone()).or_insert(Value::Null);
-                }
-            }
-        }
-        // VAPP-195: a binding never throws: a failing (or unknown) function
-        // shows the call's `default` (absent = no value).
-        return call_function(name, &args, ctx).or_else(|| args.get("default").cloned());
+        return evaluate_call_in(value, ctx);
     }
     match value {
         Value::String(s) if ctx.strings.is_some() => Some(Value::String(resolve_string(s, ctx.strings.expect("strings")).to_string())),
-        Value::Array(items) => Some(Value::Array(items.iter().map(|i| resolve_value(i, ctx).unwrap_or(Value::Null)).collect())),
+        Value::Array(items) => Some(Value::Array(items.iter().map(|i| resolve_in(i, ctx).unwrap_or(Value::Null)).collect())),
         Value::Object(map) => {
             let mut out = Map::new();
             for (k, v) in map {
-                if let Some(r) = resolve_value(v, ctx) {
-                    out.insert(k.clone(), r);
+                // Round 9 §3.3: `@@x` → `@x`. A single `@` key stays: the
+                // entry check refused it in a dynamic position, and a style
+                // holds `@media …` conditions.
+                if let Some(r) = resolve_in(v, ctx) {
+                    out.insert(k.strip_prefix('@').filter(|t| t.starts_with('@')).unwrap_or(k).to_string(), r);
                 }
             }
             Some(Value::Object(out))
@@ -560,7 +779,7 @@ pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
 /// Every binding path a prop tree reads (absolute), for dependency tracking.
 pub fn binding_paths(value: &Value, scope: &str, out: &mut Vec<String>) {
     if is_binding(value) {
-        out.push(absolute_path(value["path"].as_str().unwrap_or(""), scope));
+        out.push(absolute_path(value["@path"].as_str().unwrap_or(""), scope));
         return;
     }
     match value {
@@ -578,7 +797,8 @@ pub fn binding_paths(value: &Value, scope: &str, out: &mut Vec<String>) {
 pub fn is_visible(visible: Option<&Value>, ctx: &ResolveContext) -> bool {
     match visible {
         None => true,
-        Some(v) => resolve_value(v, ctx).is_some_and(|r| truthy(&r)),
+        // Round 9 §6.7: the 1.0 boolean coercion.
+        Some(v) => coerce_boolean(resolve_value(v, ctx).as_ref()),
     }
 }
 
@@ -693,12 +913,12 @@ fn bind_node(node: &UiNode, ctx: &ResolveContext, view: &CatalogView) -> Option<
 /// `index` = the row's index in `rows` as given, before any local sort.
 pub fn bind_row_slot(slot: &UiNode, rows_prop: &Value, rows: &[Value], index: usize, ctx: &ResolveContext) -> Option<UiNode> {
     if is_binding(rows_prop) {
-        let base = format!("{}/{index}", absolute_path(rows_prop["path"].as_str().unwrap_or(""), ctx.scope));
-        let row_ctx = ResolveContext { scope: &base, item: None, ..*ctx };
+        let base = format!("{}/{index}", absolute_path(rows_prop["@path"].as_str().unwrap_or(""), ctx.scope));
+        let row_ctx = ResolveContext { scope: &base, item: None, index: Some(index), ..*ctx };
         return bind_tree(slot, &row_ctx);
     }
     let null = Value::Null;
-    let row_ctx = ResolveContext { item: Some(rows.get(index).unwrap_or(&null)), ..*ctx };
+    let row_ctx = ResolveContext { item: Some(rows.get(index).unwrap_or(&null)), index: Some(index), ..*ctx };
     bind_tree(slot, &row_ctx)
 }
 
@@ -717,6 +937,9 @@ pub struct ActionEvent {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<Value>,
+    /// Round 9 §1.3: when `event.userMessage` resolved to a string.
+    #[serde(default, rename = "userMessage", skip_serializing_if = "Option::is_none")]
+    pub user_message: Option<String>,
 }
 
 /// A function other than `set` the host must run (`openUrl`…), args resolved.
@@ -724,6 +947,9 @@ pub struct ActionEvent {
 pub struct ActionCall {
     pub call: String,
     pub args: Map<String, Value>,
+    /// Round 9 §5.5: the call's own catalog.
+    #[serde(default, rename = "catalogId", skip_serializing_if = "Option::is_none")]
+    pub catalog_id: Option<String>,
 }
 
 /// What a press does (`src/dynamic.ts ActionOutcome`).
@@ -742,24 +968,40 @@ pub struct ActionOutcome {
     /// VAPP-103: the `set` was refused ([`set_pointer`]'s reason).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Round 9 §6.8: resolving failed: the action stopped (no write, no event).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<Failure>,
 }
 
 /// What a press does: resolve the function args and the event context
 /// against the data AS IT IS, then apply `set` (relative paths against the
 /// scope, missing objects created), then hand back the event.
 pub fn run_action(action: &Value, ctx: &ResolveContext) -> ActionOutcome {
-    let mut out = ActionOutcome { data: ctx.data.clone(), event: None, call: None, written: None, error: None };
-    let event = action.get("event").filter(|e| e.is_object()).map(|e| ActionEvent {
-        name: e.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-        context: e.get("context").filter(|c| !c.is_null()).map(|c| resolve_value(c, ctx).unwrap_or(Value::Null)),
+    let mut out = ActionOutcome { data: ctx.data.clone(), event: None, call: None, written: None, error: None, failure: None };
+    let opts = ResolveContext { position: Position::Action, on_error: None, ..*ctx };
+    let scope = FailureScope::new();
+    let (event, function) = scope.run(|| {
+        let event = action.get("event").filter(|e| e.is_object()).map(|e| ActionEvent {
+            name: e.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+            context: e.get("context").filter(|c| !c.is_null()).map(|c| resolve_in(c, &opts).unwrap_or(Value::Null)),
+            user_message: e.get("userMessage").and_then(|m| resolve_in(m, &opts)).and_then(|m| m.as_str().map(str::to_string)),
+        });
+        // A2UI's `functionCall`.
+        let function = action.get("functionCall").filter(|f| f.is_object()).map(|function| {
+            let args = match resolve_in(function.get("args").unwrap_or(&Value::Object(Map::new())), &opts) {
+                Some(Value::Object(a)) => a,
+                _ => Map::new(),
+            };
+            (function, args)
+        });
+        (event, function)
     });
-    // A2UI's `functionCall`: the only action key.
-    if let Some(function) = action.get("functionCall").filter(|f| f.is_object()) {
-        let name = function.get("call").and_then(Value::as_str).unwrap_or("").to_string();
-        let args = match resolve_value(function.get("args").unwrap_or(&Value::Object(Map::new())), ctx) {
-            Some(Value::Object(a)) => a,
-            _ => Map::new(),
-        };
+    if let Some(failure) = scope.take() {
+        out.failure = Some(failure);
+        return out;
+    }
+    if let Some((function, args)) = function {
+        let name = function.get("@call").and_then(Value::as_str).unwrap_or("").to_string();
         match (name.as_str(), args.get("path").and_then(Value::as_str)) {
             // A relative path under a literal-item scope names no data: no write.
             ("set", Some(path)) if !path.starts_with('/') && ctx.item.is_some() => {}
@@ -778,7 +1020,7 @@ pub fn run_action(action: &Value, ctx: &ResolveContext) -> ActionOutcome {
                     Err(e) => out.error = Some(e),
                 }
             }
-            _ => out.call = Some(ActionCall { call: name, args }),
+            _ => out.call = Some(ActionCall { call: name, args, catalog_id: function.get("catalogId").and_then(Value::as_str).map(str::to_string) }),
         }
     }
     out.event = event;
@@ -815,30 +1057,33 @@ mod tests {
     fn functions_resolve() {
         let data = json!({"n": 3, "email": "a@b.co", "price": 1234.5});
         let ctx = ResolveContext::new(&data, "");
-        let call = |name: &str, args: Value| resolve_value(&json!({"call": name, "args": args}), &ctx);
-        assert_eq!(call("required", json!({"value": {"path": "/email"}})), Some(json!(true)));
-        assert_eq!(call("email", json!({"value": {"path": "/email"}})), Some(json!(true)));
-        assert_eq!(call("regex", json!({"value": "ab12", "pattern": "^[a-z]+\\d{2}$"})), Some(json!(true)));
-        assert_eq!(call("regex", json!({"value": "ab1", "pattern": "^[a-z]+\\d{2}$"})), Some(json!(false)));
-        assert_eq!(call("formatNumber", json!({"value": {"path": "/price"}})), Some(json!("1,234.5")));
+        let call = |name: &str, args: Value| resolve_value(&json!({"@call": name, "args": args}), &ctx);
+        assert_eq!(call("required", json!({"value": {"@path": "/email"}})), Some(json!({"valid": true})));
+        assert_eq!(call("email", json!({"value": {"@path": "/email"}})), Some(json!({"valid": true})));
+        assert_eq!(call("regex", json!({"value": "ab12", "pattern": "^[a-z]+\\d{2}$"})), Some(json!({"valid": true})));
+        assert_eq!(call("regex", json!({"value": "ab1", "pattern": "^[a-z]+\\d{2}$"})), Some(json!({"valid": false})));
+        assert_eq!(call("formatNumber", json!({"value": {"@path": "/price"}})), Some(json!("1,234.5")));
         assert_eq!(call("formatPercent", json!({"value": 0.256})), Some(json!("26%")));
         assert_eq!(call("formatNumber", json!({"value": 1234.5, "decimals": 2})), Some(json!("1,234.50")));
         assert_eq!(call("formatCurrency", json!({"value": 1234.5, "currency": "USD"})), Some(json!("$1,234.50")));
         assert_eq!(call("formatString", json!({"value": "n = ${/n}"})), Some(json!("n = 3")));
-        assert_eq!(call("pluralize", json!({"value": {"path": "/n"}, "one": "item", "other": "items"})), Some(json!("items")));
+        assert_eq!(call("pluralize", json!({"value": {"@path": "/n"}, "one": "item", "other": "items"})), Some(json!("items")));
         assert_eq!(call("pluralize", json!({"value": 1, "other": "items"})), Some(json!("items")));
         assert_eq!(call("pluralize", json!({"value": "x"})), None);
         assert_eq!(call("formatDate", json!({"value": "2026-10-07", "format": "d MMM yyyy"})), Some(json!("7 Oct 2026")));
         assert_eq!(call("formatDate", json!({"value": "2026-10-07", "format": "EEE"})), Some(json!("Wed")));
         assert_eq!(call("and", json!({"values": [true, 1]})), Some(json!(true)));
         assert_eq!(call("not", json!({"value": ""})), Some(json!(true)));
-        assert_eq!(call("length", json!({"value": "abc", "min": 2, "max": 3})), Some(json!(true)));
-        assert_eq!(call("numeric", json!({"value": "12", "min": 10})), Some(json!(true)));
+        assert_eq!(call("length", json!({"value": "abc", "min": 2, "max": 3})), Some(json!({"valid": true})));
+        assert_eq!(call("numeric", json!({"value": "12", "min": 10})), Some(json!({"valid": true})));
+        assert_eq!(call("numeric", json!({"value": " "})), Some(json!({"valid": false})));
+        assert_eq!(call("email", json!({"value": "a@..b"})), Some(json!({"valid": true})));
+        assert_eq!(call("email", json!({"value": "a@b."})), Some(json!({"valid": false})));
     }
 
     #[test]
     fn a_section_header_binds_its_section() {
-        let header: UiNode = serde_json::from_value(json!({"id": "h", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "value"}, " · ", {"path": "count"}, " · ", {"path": "/title"}]}}}})).unwrap();
+        let header: UiNode = serde_json::from_value(json!({"id": "h", "component": "Text", "props": {"text": {"@call": "concat", "args": {"values": [{"@path": "value"}, " · ", {"@path": "count"}, " · ", {"@path": "/title"}]}}}})).unwrap();
         let data = json!({"title": "Inbox"});
         let section = crate::list::ListSection { value: "Today".into(), start: 0, count: 2 };
         let bound = bind_section_header(&header, &section, 0, &ResolveContext::new(&data, "")).unwrap();
@@ -853,7 +1098,7 @@ mod tests {
         let def = view.components.get("Menu").expect("Menu");
         let props = json!({"items": [
             {"label": "Rename", "value": "rename"},
-            {"kind": "submenu", "label": "Status", "items": {"path": "/statuses"}},
+            {"kind": "submenu", "label": "Status", "items": {"@path": "/statuses"}},
         ]});
         let props = props.as_object().unwrap();
         assert_eq!(crate::validate::validate_props(def, props, "props", &view), vec![]);
@@ -870,9 +1115,9 @@ mod tests {
     fn template_scope_resolves_relative_paths() {
         let data = json!({"items": [{"name": "one"}, {"name": "two"}]});
         let ctx = ResolveContext::new(&data, "/items/1");
-        assert_eq!(resolve_value(&json!({"path": "name"}), &ctx), Some(json!("two")));
+        assert_eq!(resolve_value(&json!({"@path": "name"}), &ctx), Some(json!("two")));
         let mut paths = Vec::new();
-        binding_paths(&json!({"a": {"path": "name"}, "b": [{"path": "/x"}]}), "/items/1", &mut paths);
+        binding_paths(&json!({"a": {"@path": "name"}, "b": [{"@path": "/x"}]}), "/items/1", &mut paths);
         assert_eq!(paths, vec!["/items/1/name", "/x"]);
     }
 }

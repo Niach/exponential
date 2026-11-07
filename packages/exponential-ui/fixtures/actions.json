@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records.upsert/delete/batch, records.upsert/delete) write; openUrl, bind, app.navigate (VAPP-218: always allowed, the package need not list it; host/screens.ts) and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records.upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records.delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields; one not in its `required` is T?, VAPP-195), data (dyn?) and me (string?: null when unknown); a value that may be missing fits only a field that may be; any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema, in words because the failure is the toast (VAPP-207): `<field> must be <reason>; …`, `<field> is required`, `<field> is not in the schema`, an enum `<field> must be one of a, b`. Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records.batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit). VAPP-204: a press's `actions.<name>` args are the action's params at install: a key that is not a param (`<k> is not a param of action <name>`, unless the params allow additional properties), a required param left out (`<f> is required by action <name>`, at the args) and a literal scalar of another type (`<k> is <T>, got <U>`); a dynamic arg is checked when it runs. A press of `bind` with a literal `source` is checked like a template binding (a URI, in `sources`, a declared kind, a package query). VAPP-205: `hostCalls` runs on every host: a `call` step reaches the SAME dispatcher as a press, so `bind` re-binds (`bound` = the params the source resolver saw) and `openUrl` opens through the URL policy (`opened`). A built-in that refuses after the commit is the outcome's `error` (`<name> was not allowed`), never a silent allow. VAPP-206: CREATE OR PATCH, and absent stays absent. An action's params may name a reserved record key (`id`): they are no record. `records.upsert`'s id may be `string?` (then the step may create, so its data names every required field): at run time null or \"\" = a create, a non-empty string = a patch, anything else `id is a string, got <T>`. Writing a field: an expression evaluating to null writes nothing (a param left out neither stores null nor clears the row's value); \"\" in a field the kind does not require (an unpicked Select, an emptied Input) writes nothing on a create and null on a patch (it clears); a literal JSON null (not an expression) writes nothing on a create and null on a patch. An optional param given as \"\" passes the params check as absent (its value stays readable as \"\"). `batch`: a create drops its null fields; a patch keeps them. VAPP-271: A CALL'S ANSWER (`results`): a `call` step may name its answer, `result: <name>` (host.json `package.actions.resultPattern`, at most once per action). Only a call step has one (`result names a call's answer: only a call step has one`); a bad name = `a result name is a letter, then letters, digits and underscores`; a second step naming it = `result <name> is already named by step <j>`. A step reads the answers of the steps BEFORE it as the var `results` (an object of those names, each dyn; a name no earlier step gives = `unknown field <name>`). A list of dyn items fits any list field at install (the kind's schema checks the items when it runs). runAction with `results` (`{<name>: answer}` so far): a result step whose name is answered binds it and adds no call to the plan; the first one that is not answers `{pending: {step, name, args, result}}` (the plan so far is dropped). THE HOST (`results.host`) runs a pending call when the plan reaches it, BEFORE the commit (the policy and consent first: a refusal is `<name> was not allowed`; a failure is the function's error; either discards the action, nothing lands, ACTION_FAILED), adds its answer to `results` and runs the action again over the SAME snapshot (the press's data, me, now); then the plan as always: the gates of its calls, the ONE batch, the sets, the calls. Every Engine capability name (`camera. clipboard. files. http. location. notifications. photos. print. share.`, the names of host.json `package.capabilities.scopes`) is a HOST function, so a template binding may not call one and an action step may (when the package lists it in `functions`). A package test's action gives the answers as `results`; a test that leaves one unanswered = `{error: \"step <i>: <call> has no result in the test\"}` (package-tests.json).",
+  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records_upsert/delete/batch, records_upsert/delete) write; openUrl, bind, app_navigate (VAPP-218: always allowed, the package need not list it; host/screens.ts) and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records_upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records_delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields; one not in its `required` is T?, VAPP-195), data (dyn?) and me (string?: null when unknown); a value that may be missing fits only a field that may be; any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema, in words because the failure is the toast (VAPP-207): `<field> must be <reason>; …`, `<field> is required`, `<field> is not in the schema`, an enum `<field> must be one of a, b`. Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records_batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit). VAPP-204: a press's `actions.<name>` args are the action's params at install: a key that is not a param (`<k> is not a param of action <name>`, unless the params allow additional properties), a required param left out (`<f> is required by action <name>`, at the args) and a literal scalar of another type (`<k> is <T>, got <U>`); a dynamic arg is checked when it runs. A press of `bind` with a literal `source` is checked like a template binding (a URI, in `sources`, a declared kind, a package query). VAPP-205: `hostCalls` runs on every host: a `call` step reaches the SAME dispatcher as a press, so `bind` re-binds (`bound` = the params the source resolver saw) and `openUrl` opens through the URL policy (`opened`). A built-in that refuses after the commit is the outcome's `error` (`<name> was not allowed`), never a silent allow. VAPP-206: CREATE OR PATCH, and absent stays absent. An action's params may name a reserved record key (`id`): they are no record. `records_upsert`'s id may be `string?` (then the step may create, so its data names every required field): at run time null or \"\" = a create, a non-empty string = a patch, anything else `id is a string, got <T>`. Writing a field: an expression evaluating to null writes nothing (a param left out neither stores null nor clears the row's value); \"\" in a field the kind does not require (an unpicked Select, an emptied Input) writes nothing on a create and null on a patch (it clears); a literal JSON null (not an expression) writes nothing on a create and null on a patch. An optional param given as \"\" passes the params check as absent (its value stays readable as \"\"). `batch`: a create drops its null fields; a patch keeps them. VAPP-271: A CALL'S ANSWER (`results`): a `call` step may name its answer, `result: <name>` (host.json `package.actions.resultPattern`, at most once per action). Only a call step has one (`result names a call's answer: only a call step has one`); a bad name = `a result name is a letter, then letters, digits and underscores`; a second step naming it = `result <name> is already named by step <j>`. A step reads the answers of the steps BEFORE it as the var `results` (an object of those names, each dyn; a name no earlier step gives = `unknown field <name>`). A list of dyn items fits any list field at install (the kind's schema checks the items when it runs). runAction with `results` (`{<name>: answer}` so far): a result step whose name is answered binds it and adds no call to the plan; the first one that is not answers `{pending: {step, name, args, result}}` (the plan so far is dropped). THE HOST (`results.host`) runs a pending call when the plan reaches it, BEFORE the commit (the policy and consent first: a refusal is `<name> was not allowed`; a failure is the function's error; either discards the action, nothing lands, ACTION_FAILED), adds its answer to `results` and runs the action again over the SAME snapshot (the press's data, me, now); then the plan as always: the gates of its calls, the ONE batch, the sets, the calls. Every Engine capability name (`camera. clipboard. files. http. location. notifications. photos. print. share.`, the names of host.json `package.capabilities.scopes`) is a HOST function, so a template binding may not call one and an action step may (when the package lists it in `functions`). A package test's action gives the answers as `results`; a test that leaves one unanswered = `{error: \"step <i>: <call> has no result in the test\"}` (package-tests.json).",
   "limits": {
     "actions": 32,
     "steps": 64,
@@ -31,39 +31,39 @@
       "effect": "write"
     },
     {
-      "name": "records.upsert",
+      "name": "records_upsert",
       "effect": "write"
     },
     {
-      "name": "records.delete",
+      "name": "records_delete",
       "effect": "write"
     },
     {
-      "name": "records.batch",
+      "name": "records_batch",
       "effect": "write"
     },
     {
-      "name": "records.upsert",
+      "name": "records_upsert",
       "effect": "write"
     },
     {
-      "name": "harness.toast",
+      "name": "harness_toast",
       "effect": "host"
     },
     {
-      "name": "harness.mcp",
+      "name": "harness_mcp",
       "effect": "host"
     },
     {
-      "name": "exponential.issues.create",
+      "name": "exponential_issues_create",
       "effect": "host"
     },
     {
-      "name": "actions.log",
+      "name": "actions_log",
       "effect": "host"
     },
     {
-      "name": "tools.github.search",
+      "name": "tools_github__search",
       "effect": "host"
     },
     {
@@ -79,20 +79,35 @@
       "effect": "pure"
     },
     {
-      "name": "app.navigate",
+      "name": "app_navigate",
       "effect": "host"
     },
-    {"name": "photos.pick", "effect": "host"},
-    {"name": "print.pdf", "effect": "host"},
-    {"name": "share.send", "effect": "host"},
-    {"name": "files.save", "effect": "host"},
-    {"name": "notifications.post", "effect": "host"}
+    {
+      "name": "photos_pick",
+      "effect": "host"
+    },
+    {
+      "name": "print_pdf",
+      "effect": "host"
+    },
+    {
+      "name": "share_send",
+      "effect": "host"
+    },
+    {
+      "name": "files_save",
+      "effect": "host"
+    },
+    {
+      "name": "notifications_post",
+      "effect": "host"
+    }
   ],
   "check": [
     {
-      "name": "records.upsert writes",
-      "expr": "records.upsert(1)",
-      "error": "at 0: records.upsert writes: an expression is pure, use an action step"
+      "name": "records_upsert writes",
+      "expr": "records_upsert(1)",
+      "error": "at 0: records_upsert writes: an expression is pure, use an action step"
     },
     {
       "name": "set writes",
@@ -101,13 +116,13 @@
     },
     {
       "name": "a host function",
-      "expr": "harness.toast('hi')",
-      "error": "at 0: harness.toast is a host function: an expression is pure, use an action step"
+      "expr": "harness_toast('hi')",
+      "error": "at 0: harness_toast is a host function: an expression is pure, use an action step"
     },
     {
       "name": "a deep host name",
-      "expr": "1 + exponential.issues.create(1)",
-      "error": "at 4: exponential.issues.create is a host function: an expression is pure, use an action step"
+      "expr": "1 + exponential_issues_create(1)",
+      "error": "at 4: exponential_issues_create is a host function: an expression is pure, use an action step"
     },
     {
       "name": "openUrl is a host function",
@@ -116,8 +131,8 @@
     },
     {
       "name": "another action",
-      "expr": "actions.log(1)",
-      "error": "at 0: actions.log is a host function: an expression is pure, use an action step"
+      "expr": "actions_log(1)",
+      "error": "at 0: actions_log is a host function: an expression is pure, use an action step"
     },
     {
       "name": "an unknown method stays unknown",
@@ -131,13 +146,13 @@
     }
   ],
   "package": {
-    "formatVersion": 5,
+    "formatVersion": 6,
     "id": "acme.hours",
     "name": "Hours",
     "version": "1.0.0",
     "catalogId": "https://ui.exponential.at/catalogs/core/v1",
     "functions": [
-      "harness.toast"
+      "harness_toast"
     ],
     "records": {
       "entry": {
@@ -193,12 +208,12 @@
             "id": "total",
             "component": "Text",
             "text": {
-              "call": "expr",
+              "@call": "expr",
               "args": {
                 "expr": "formatDuration(h, 'h:mm')",
                 "vars": {
                   "h": {
-                    "path": "/form/hours"
+                    "@path": "/form/hours"
                   }
                 },
                 "default": null
@@ -211,13 +226,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "actions.log",
+                  "@call": "actions_log",
                   "args": {
                     "date": {
-                      "path": "/form/date"
+                      "@path": "/form/date"
                     },
                     "hours": {
-                      "path": "/form/hours"
+                      "@path": "/form/hours"
                     }
                   }
                 }
@@ -265,7 +280,7 @@
             "message": "A day has 24 hours"
           },
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "entry",
               "data": {
                 "date": "params.date",
@@ -281,7 +296,7 @@
             }
           },
           {
-            "call": "harness.toast",
+            "call": "harness_toast",
             "args": {
               "message": "'Logged ' + formatDuration(params.hours, 'h:mm')"
             }
@@ -307,7 +322,7 @@
         },
         "steps": [
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "entry",
               "id": "params.entryId",
               "data": {
@@ -335,7 +350,7 @@
             "message": "This month is locked"
           },
           {
-            "records.delete": {
+            "records_delete": {
               "id": "params.entryId"
             }
           }
@@ -359,7 +374,7 @@
         },
         "steps": [
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "entry",
               "id": "params.a",
               "data": {
@@ -368,7 +383,7 @@
             }
           },
           {
-            "records.delete": {
+            "records_delete": {
               "id": "params.b"
             }
           }
@@ -408,7 +423,7 @@
         },
         "steps": [
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "entry",
               "data": {
                 "date": "today()",
@@ -484,10 +499,15 @@
           "properties": {
             "stage": {
               "type": "string",
-              "enum": ["lead", "won"]
+              "enum": [
+                "lead",
+                "won"
+              ]
             }
           },
-          "required": ["stage"]
+          "required": [
+            "stage"
+          ]
         },
         "steps": [
           {
@@ -530,7 +550,7 @@
         },
         "steps": [
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "entry",
               "id": "params.id",
               "data": {
@@ -557,7 +577,7 @@
         },
         "steps": [
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "entry",
               "id": "params.entryId",
               "data": {
@@ -570,7 +590,7 @@
       "fresh": {
         "steps": [
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "entry",
               "data": {
                 "date": "today()",
@@ -584,7 +604,7 @@
       "byData": {
         "steps": [
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "entry",
               "id": "data.id",
               "data": {
@@ -620,7 +640,7 @@
                 "id": "t",
                 "component": "Text",
                 "text": {
-                  "call": "records.upsert",
+                  "@call": "records_upsert",
                   "args": {
                     "kind": "entry",
                     "data": {}
@@ -633,8 +653,8 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/text/call",
-          "message": "records.upsert writes: a binding is pure, name an action in on.press"
+          "path": "/templates/month/components/1/text/@call",
+          "message": "records_upsert writes: a binding is pure, name an action in on.press"
         }
       ]
     },
@@ -655,7 +675,7 @@
                 "id": "t",
                 "component": "Text",
                 "text": {
-                  "call": "harness.toast",
+                  "@call": "harness_toast",
                   "args": {
                     "message": "hi"
                   }
@@ -667,8 +687,8 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/text/call",
-          "message": "harness.toast is a host function: a binding is pure, name an action in on.press"
+          "path": "/templates/month/components/1/text/@call",
+          "message": "harness_toast is a host function: a binding is pure, name an action in on.press"
         }
       ]
     },
@@ -691,10 +711,10 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "actions.log",
+                      "@call": "actions_log",
                       "args": {
                         "hours": {
-                          "call": "set",
+                          "@call": "set",
                           "args": {
                             "path": "/a",
                             "value": 1
@@ -713,7 +733,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/on/press/functionCall/args/hours/call",
+          "path": "/templates/month/components/1/on/press/functionCall/args/hours/@call",
           "message": "set writes: a binding is pure, name an action in on.press"
         }
       ]
@@ -737,7 +757,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "actions.nope"
+                      "@call": "actions_nope"
                     }
                   }
                 },
@@ -749,7 +769,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/on/press/functionCall/call",
+          "path": "/templates/month/components/1/on/press/functionCall/@call",
           "message": "action nope names no package action"
         }
       ]
@@ -773,7 +793,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "harness.toast",
+                      "@call": "harness_toast",
                       "args": {
                         "message": "hi"
                       }
@@ -805,9 +825,9 @@
                 "id": "t",
                 "component": "Text",
                 "text": {
-                  "call": "expr",
+                  "@call": "expr",
                   "args": {
-                    "expr": "records.upsert(1)",
+                    "expr": "records_upsert(1)",
                     "vars": {},
                     "default": null
                   }
@@ -820,7 +840,7 @@
       "issues": [
         {
           "path": "/templates/month/components/1/text/args/expr",
-          "message": "at 0: records.upsert writes: an expression is pure, use an action step"
+          "message": "at 0: records_upsert writes: an expression is pure, use an action step"
         }
       ]
     },
@@ -838,7 +858,7 @@
                 "require": "true"
               },
               {
-                "records.upsert": {
+                "records_upsert": {
                   "kind": "nope",
                   "data": {
                     "a": 1
@@ -846,7 +866,7 @@
                 }
               },
               {
-                "records.upsert": {
+                "records_upsert": {
                   "kind": "entry",
                   "data": {
                     "hours": "'seven'",
@@ -856,7 +876,7 @@
                 }
               },
               {
-                "records.upsert": {
+                "records_upsert": {
                   "kind": "entry",
                   "data": {
                     "note": "'x'"
@@ -864,7 +884,7 @@
                 }
               },
               {
-                "records.delete": {
+                "records_delete": {
                   "id": "1"
                 }
               },
@@ -875,16 +895,16 @@
                 }
               },
               {
-                "call": "records.upsert"
+                "call": "records_upsert"
               },
               {
                 "call": "mul"
               },
               {
-                "call": "actions.bad"
+                "call": "actions_bad"
               },
               {
-                "call": "exponential.issues.create",
+                "call": "exponential_issues_create",
                 "args": {
                   "title": "'x'"
                 }
@@ -899,7 +919,7 @@
               {
                 "require": "true",
                 "set": {
-                  "path": "/a"
+                  "@path": "/a"
                 },
                 "message": "x"
               }
@@ -917,27 +937,27 @@
           "message": "message is the text shown when the requirement fails"
         },
         {
-          "path": "/actions/bad/steps/2/records.upsert/kind",
+          "path": "/actions/bad/steps/2/records_upsert/kind",
           "message": "records:nope names no declared kind"
         },
         {
-          "path": "/actions/bad/steps/3/records.upsert/data/hours",
+          "path": "/actions/bad/steps/3/records_upsert/data/hours",
           "message": "hours is number, got string"
         },
         {
-          "path": "/actions/bad/steps/3/records.upsert/data/when",
+          "path": "/actions/bad/steps/3/records_upsert/data/when",
           "message": "when is not in the schema of entry"
         },
         {
-          "path": "/actions/bad/steps/4/records.upsert/data",
+          "path": "/actions/bad/steps/4/records_upsert/data",
           "message": "date is required by entry"
         },
         {
-          "path": "/actions/bad/steps/4/records.upsert/data",
+          "path": "/actions/bad/steps/4/records_upsert/data",
           "message": "hours is required by entry"
         },
         {
-          "path": "/actions/bad/steps/5/records.delete/id",
+          "path": "/actions/bad/steps/5/records_delete/id",
           "message": "id is a string, got number"
         },
         {
@@ -950,7 +970,7 @@
         },
         {
           "path": "/actions/bad/steps/7/call",
-          "message": "records.upsert writes: use a records.upsert, records.delete or set step"
+          "message": "records_upsert writes: use a records_upsert, records_delete or set step"
         },
         {
           "path": "/actions/bad/steps/8/call",
@@ -962,7 +982,7 @@
         },
         {
           "path": "/actions/bad/steps/10/call",
-          "message": "exponential.issues.create is not in the package's functions"
+          "message": "exponential_issues_create is not in the package's functions"
         },
         {
           "path": "/actions/bad/steps/11/require",
@@ -970,11 +990,11 @@
         },
         {
           "path": "/actions/bad/steps/12",
-          "message": "a step is one of require, records.upsert, records.delete, set, call"
+          "message": "a step is one of require, records_upsert, records_delete, set, call"
         },
         {
           "path": "/actions/bad/steps/13",
-          "message": "a step is one of require, records.upsert, records.delete, set, call"
+          "message": "a step is one of require, records_upsert, records_delete, set, call"
         }
       ]
     },
@@ -1037,10 +1057,10 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "actions.log",
+                      "@call": "actions_log",
                       "args": {
                         "date": {
-                          "path": "/form/date"
+                          "@path": "/form/date"
                         },
                         "hourz": 1,
                         "note": 5
@@ -1088,7 +1108,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "actions.log",
+                      "@call": "actions_log",
                       "args": 3
                     }
                   }
@@ -1099,6 +1119,10 @@
         }
       },
       "issues": [
+        {
+          "path": "/templates/month/components/1/on/press/functionCall/args",
+          "message": "args is an object"
+        },
         {
           "path": "/templates/month/components/1/on/press/functionCall/args",
           "message": "args is an object of action log's params"
@@ -1125,7 +1149,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "bind",
+                      "@call": "bind",
                       "args": {
                         "path": "/x",
                         "source": "records:nope?query=missing"
@@ -1176,7 +1200,7 @@
                 "on": {
                   "press": {
                     "functionCall": {
-                      "call": "bind",
+                      "@call": "bind",
                       "args": {
                         "path": "/x",
                         "source": "nope"
@@ -1211,7 +1235,7 @@
             },
             "steps": [
               {
-                "records.upsert": {
+                "records_upsert": {
                   "kind": "entry",
                   "id": "params.id",
                   "data": {
@@ -1225,11 +1249,11 @@
       },
       "issues": [
         {
-          "path": "/actions/half/steps/0/records.upsert/data",
+          "path": "/actions/half/steps/0/records_upsert/data",
           "message": "date is required by entry"
         },
         {
-          "path": "/actions/half/steps/0/records.upsert/data",
+          "path": "/actions/half/steps/0/records_upsert/data",
           "message": "hours is required by entry"
         }
       ]
@@ -1252,7 +1276,7 @@
             },
             "steps": [
               {
-                "records.upsert": {
+                "records_upsert": {
                   "kind": "entry",
                   "id": "params.n",
                   "data": {
@@ -1266,7 +1290,7 @@
       },
       "issues": [
         {
-          "path": "/actions/badId/steps/0/records.upsert/id",
+          "path": "/actions/badId/steps/0/records_upsert/id",
           "message": "id is a string, got number"
         }
       ]
@@ -1301,7 +1325,7 @@
         ],
         "calls": [
           {
-            "name": "harness.toast",
+            "name": "harness_toast",
             "args": {
               "message": "Logged 7:30"
             }
@@ -1335,7 +1359,7 @@
         ],
         "calls": [
           {
-            "name": "harness.toast",
+            "name": "harness_toast",
             "args": {
               "message": "Logged 2:00"
             }
@@ -2152,46 +2176,153 @@
   },
   "hostCalls": {
     "package": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.steps",
       "name": "Steps",
       "version": "1.0.0",
       "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-      "sources": ["records:*"],
-      "functions": ["bind", "openUrl"],
-      "records": { "entry": { "schema": { "type": "object", "properties": { "day": { "type": "string" } } } } },
-      "templates": { "main": { "components": [{ "id": "root", "component": "Stack", "children": [] }], "data": { "rows": [] } } },
+      "sources": [
+        "records:*"
+      ],
+      "functions": [
+        "bind",
+        "openUrl"
+      ],
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "day": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "templates": {
+        "main": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": []
+            }
+          ],
+          "data": {
+            "rows": []
+          }
+        }
+      },
       "actions": {
         "refresh": {
-          "params": { "type": "object", "properties": { "day": { "type": "string" } }, "required": ["day"] },
-          "steps": [{ "call": "bind", "args": { "path": "'/rows'", "source": "'records:entry?day=' + params.day" } }]
+          "params": {
+            "type": "object",
+            "properties": {
+              "day": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "day"
+            ]
+          },
+          "steps": [
+            {
+              "call": "bind",
+              "args": {
+                "path": "'/rows'",
+                "source": "'records:entry?day=' + params.day"
+              }
+            }
+          ]
         },
-        "foreign": { "steps": [{ "call": "bind", "args": { "path": "'/rows'", "source": "'exp:issues'" } }] },
+        "foreign": {
+          "steps": [
+            {
+              "call": "bind",
+              "args": {
+                "path": "'/rows'",
+                "source": "'exp:issues'"
+              }
+            }
+          ]
+        },
         "open": {
-          "params": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] },
-          "steps": [{ "call": "openUrl", "args": { "url": "params.url" } }]
+          "params": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ]
+          },
+          "steps": [
+            {
+              "call": "openUrl",
+              "args": {
+                "url": "params.url"
+              }
+            }
+          ]
         }
       }
     },
     "cases": [
-      { "name": "a bind step re-binds the path", "action": "refresh", "args": { "day": "2026-11-03" }, "bound": { "day": "2026-11-03" }, "opened": [] },
-      { "name": "a bind step outside the package's sources is the outcome's error", "action": "foreign", "args": {}, "opened": [], "error": "bind was not allowed" },
-      { "name": "an openUrl step opens the url", "action": "open", "args": { "url": "https://docs.example.com/a" }, "opened": ["https://docs.example.com/a"] },
-      { "name": "an openUrl step the URL policy refuses is the outcome's error", "action": "open", "args": { "url": "javascript:alert(1)" }, "opened": [], "error": "openUrl was not allowed" }
+      {
+        "name": "a bind step re-binds the path",
+        "action": "refresh",
+        "args": {
+          "day": "2026-11-03"
+        },
+        "bound": {
+          "day": "2026-11-03"
+        },
+        "opened": []
+      },
+      {
+        "name": "a bind step outside the package's sources is the outcome's error",
+        "action": "foreign",
+        "args": {},
+        "opened": [],
+        "error": "bind was not allowed"
+      },
+      {
+        "name": "an openUrl step opens the url",
+        "action": "open",
+        "args": {
+          "url": "https://docs.example.com/a"
+        },
+        "opened": [
+          "https://docs.example.com/a"
+        ]
+      },
+      {
+        "name": "an openUrl step the URL policy refuses is the outcome's error",
+        "action": "open",
+        "args": {
+          "url": "javascript:alert(1)"
+        },
+        "opened": [],
+        "error": "openUrl was not allowed"
+      }
     ]
   },
   "results": {
     "$comment": "VAPP-271: a call's answer (the top-level $comment). `run` = runAction(package, action, params, {data, me, now = env.now, zone env.offset, results}) → {plan} | {error} | {pending}; `validate` = validatePackage of `package` with a case's `with` (as the top-level validate); `host` = the host's press of `actions.<action>` (args {}) on a surface of `package`'s template `main` (its data), the records in an empty store as member u1 at env.now: `answers` = what each host function answers (by name, every call), `throws` = the error a function fails with, `deny` = names the host's function policy denies; `called` = every host function the host ran, in order, with its args; `created` = the data of every row the store holds after; `data` = the surface data after; `error` = the outcome's error (absent = none).",
     "package": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.snaps",
       "name": "Snaps",
       "version": "1.0.0",
       "catalogId": "https://ui.exponential.at/catalogs/core/v1",
       "functions": [
-        "photos.pick",
-        "print.pdf",
-        "harness.toast"
+        "photos_pick",
+        "print_pdf",
+        "harness_toast"
       ],
       "records": {
         "entry": {
@@ -2237,7 +2368,7 @@
               "on": {
                 "press": {
                   "functionCall": {
-                    "call": "actions.addPhotos"
+                    "@call": "actions_addPhotos"
                   }
                 }
               }
@@ -2252,7 +2383,7 @@
         "addPhotos": {
           "steps": [
             {
-              "call": "photos.pick",
+              "call": "photos_pick",
               "args": {
                 "limit": 3
               },
@@ -2263,7 +2394,7 @@
               "message": "No photos picked"
             },
             {
-              "records.upsert": {
+              "records_upsert": {
                 "kind": "entry",
                 "data": {
                   "date": "today()",
@@ -2279,7 +2410,7 @@
               }
             },
             {
-              "call": "harness.toast",
+              "call": "harness_toast",
               "args": {
                 "message": "'Picked ' + string(size(orElse(results.picked.photos, [])))"
               }
@@ -2289,7 +2420,7 @@
         "export": {
           "steps": [
             {
-              "call": "print.pdf",
+              "call": "print_pdf",
               "args": {
                 "title": "'Hours'",
                 "blocks": "[{'heading': 'Hours'}]"
@@ -2297,7 +2428,7 @@
               "result": "pdf"
             },
             {
-              "call": "print.pdf",
+              "call": "print_pdf",
               "args": {
                 "title": "results.pdf.file.name",
                 "blocks": "[{'text': 'again'}]"
@@ -2315,26 +2446,407 @@
       }
     },
     "run": [
-      {"name": "a result call is pending until the host answers it", "action": "addPhotos", "pending": {"step": 0, "name": "photos.pick", "args": {"limit": 3}, "result": "picked"}},
-      {"name": "the answer is results.<name>: the record, the sets and the later calls read it; the result call is not in the plan's calls", "action": "addPhotos", "results": {"picked": {"photos": [{"fileId": "f1"}, {"fileId": "f2"}]}}, "plan": {"writes": [{"op": "upsert", "kind": "entry", "data": {"date": "2026-11-02", "hours": 1, "tags": ["f1", "f2"]}}], "sets": [{"path": "/picked", "value": 2}], "calls": [{"name": "harness.toast", "args": {"message": "Picked 2"}}]}},
-      {"name": "a later require reads the answer", "action": "addPhotos", "results": {"picked": {"photos": []}}, "error": "No photos picked"},
-      {"name": "the next result call is pending, its args read the first answer", "action": "export", "results": {"pdf": {"file": {"name": "Hours.pdf", "fileId": "b1"}}}, "pending": {"step": 1, "name": "print.pdf", "args": {"blocks": [{"text": "again"}], "title": "Hours.pdf"}, "result": "again"}},
-      {"name": "every answer given: the plan", "action": "export", "results": {"pdf": {"file": {"name": "Hours.pdf", "fileId": "b1"}}, "again": {"file": {"name": "Hours.pdf", "fileId": "b2"}}}, "plan": {"writes": [], "sets": [{"path": "/pdf", "value": {"name": "Hours.pdf", "fileId": "b2"}}], "calls": []}}
+      {
+        "name": "a result call is pending until the host answers it",
+        "action": "addPhotos",
+        "pending": {
+          "step": 0,
+          "name": "photos_pick",
+          "args": {
+            "limit": 3
+          },
+          "result": "picked"
+        }
+      },
+      {
+        "name": "the answer is results.<name>: the record, the sets and the later calls read it; the result call is not in the plan's calls",
+        "action": "addPhotos",
+        "results": {
+          "picked": {
+            "photos": [
+              {
+                "fileId": "f1"
+              },
+              {
+                "fileId": "f2"
+              }
+            ]
+          }
+        },
+        "plan": {
+          "writes": [
+            {
+              "op": "upsert",
+              "kind": "entry",
+              "data": {
+                "date": "2026-11-02",
+                "hours": 1,
+                "tags": [
+                  "f1",
+                  "f2"
+                ]
+              }
+            }
+          ],
+          "sets": [
+            {
+              "path": "/picked",
+              "value": 2
+            }
+          ],
+          "calls": [
+            {
+              "name": "harness_toast",
+              "args": {
+                "message": "Picked 2"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "a later require reads the answer",
+        "action": "addPhotos",
+        "results": {
+          "picked": {
+            "photos": []
+          }
+        },
+        "error": "No photos picked"
+      },
+      {
+        "name": "the next result call is pending, its args read the first answer",
+        "action": "export",
+        "results": {
+          "pdf": {
+            "file": {
+              "name": "Hours.pdf",
+              "fileId": "b1"
+            }
+          }
+        },
+        "pending": {
+          "step": 1,
+          "name": "print_pdf",
+          "args": {
+            "blocks": [
+              {
+                "text": "again"
+              }
+            ],
+            "title": "Hours.pdf"
+          },
+          "result": "again"
+        }
+      },
+      {
+        "name": "every answer given: the plan",
+        "action": "export",
+        "results": {
+          "pdf": {
+            "file": {
+              "name": "Hours.pdf",
+              "fileId": "b1"
+            }
+          },
+          "again": {
+            "file": {
+              "name": "Hours.pdf",
+              "fileId": "b2"
+            }
+          }
+        },
+        "plan": {
+          "writes": [],
+          "sets": [
+            {
+              "path": "/pdf",
+              "value": {
+                "name": "Hours.pdf",
+                "fileId": "b2"
+              }
+            }
+          ],
+          "calls": []
+        }
+      }
     ],
     "validate": [
-      {"name": "the base package is valid", "with": {}, "issues": []},
-      {"name": "only a call step has a result", "with": {"addActions": {"bad": {"steps": [{"set": {"path": "/x", "value": 1}, "result": "x"}]}}}, "issues": [{"path": "/actions/bad/steps/0/result", "message": "result names a call's answer: only a call step has one"}]},
-      {"name": "a result name", "with": {"addActions": {"bad": {"steps": [{"call": "photos.pick", "result": "Picked"}]}}}, "issues": [{"path": "/actions/bad/steps/0/result", "message": "a result name is a letter, then letters, digits and underscores"}]},
-      {"name": "a result is named once", "with": {"addActions": {"bad": {"steps": [{"call": "photos.pick", "result": "p"}, {"call": "photos.pick", "result": "p"}]}}}, "issues": [{"path": "/actions/bad/steps/1/result", "message": "result p is already named by step 0"}]},
-      {"name": "a step reads only the results before it", "with": {"addActions": {"bad": {"steps": [{"set": {"path": "/x", "value": "results.p"}}, {"call": "photos.pick", "result": "p"}]}}}, "issues": [{"path": "/actions/bad/steps/0/set/value", "message": "unknown field p"}]},
-      {"name": "a capability is a host function the package lists", "with": {"addActions": {"bad": {"steps": [{"call": "share.send", "args": {"text": "'x'"}}]}}}, "issues": [{"path": "/actions/bad/steps/0/call", "message": "share.send is not in the package's functions"}]},
-      {"name": "a capability in a binding is a host function", "with": {"templates": {"main": {"components": [{"id": "root", "component": "Stack", "children": ["t"]}, {"id": "t", "component": "Text", "text": {"call": "photos.pick", "args": {}}}]}}}, "issues": [{"path": "/templates/main/components/1/text/call", "message": "photos.pick is a host function: a binding is pure, name an action in on.press"}]}
+      {
+        "name": "the base package is valid",
+        "with": {},
+        "issues": []
+      },
+      {
+        "name": "only a call step has a result",
+        "with": {
+          "addActions": {
+            "bad": {
+              "steps": [
+                {
+                  "set": {
+                    "path": "/x",
+                    "value": 1
+                  },
+                  "result": "x"
+                }
+              ]
+            }
+          }
+        },
+        "issues": [
+          {
+            "path": "/actions/bad/steps/0/result",
+            "message": "result names a call's answer: only a call step has one"
+          }
+        ]
+      },
+      {
+        "name": "a result name",
+        "with": {
+          "addActions": {
+            "bad": {
+              "steps": [
+                {
+                  "call": "photos_pick",
+                  "result": "Picked"
+                }
+              ]
+            }
+          }
+        },
+        "issues": [
+          {
+            "path": "/actions/bad/steps/0/result",
+            "message": "a result name is a letter, then letters, digits and underscores"
+          }
+        ]
+      },
+      {
+        "name": "a result is named once",
+        "with": {
+          "addActions": {
+            "bad": {
+              "steps": [
+                {
+                  "call": "photos_pick",
+                  "result": "p"
+                },
+                {
+                  "call": "photos_pick",
+                  "result": "p"
+                }
+              ]
+            }
+          }
+        },
+        "issues": [
+          {
+            "path": "/actions/bad/steps/1/result",
+            "message": "result p is already named by step 0"
+          }
+        ]
+      },
+      {
+        "name": "a step reads only the results before it",
+        "with": {
+          "addActions": {
+            "bad": {
+              "steps": [
+                {
+                  "set": {
+                    "path": "/x",
+                    "value": "results.p"
+                  }
+                },
+                {
+                  "call": "photos_pick",
+                  "result": "p"
+                }
+              ]
+            }
+          }
+        },
+        "issues": [
+          {
+            "path": "/actions/bad/steps/0/set/value",
+            "message": "unknown field p"
+          }
+        ]
+      },
+      {
+        "name": "a capability is a host function the package lists",
+        "with": {
+          "addActions": {
+            "bad": {
+              "steps": [
+                {
+                  "call": "share_send",
+                  "args": {
+                    "text": "'x'"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "issues": [
+          {
+            "path": "/actions/bad/steps/0/call",
+            "message": "share_send is not in the package's functions"
+          }
+        ]
+      },
+      {
+        "name": "a capability in a binding is a host function",
+        "with": {
+          "templates": {
+            "main": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "t"
+                  ]
+                },
+                {
+                  "id": "t",
+                  "component": "Text",
+                  "text": {
+                    "@call": "photos_pick",
+                    "args": {}
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "issues": [
+          {
+            "path": "/templates/main/components/1/text/@call",
+            "message": "photos_pick is a host function: a binding is pure, name an action in on.press"
+          }
+        ]
+      }
     ],
     "host": [
-      {"name": "the answer lands in the record, the sets and the later calls", "action": "addPhotos", "answers": {"photos.pick": {"photos": [{"fileId": "f1"}]}}, "called": [{"name": "photos.pick", "args": {"limit": 3}}, {"name": "harness.toast", "args": {"message": "Picked 1"}}], "created": [{"date": "2026-11-02", "hours": 1, "tags": ["f1"]}], "data": {"picked": 1}},
-      {"name": "a result call that fails lands nothing", "action": "addPhotos", "throws": {"photos.pick": "cancelled"}, "called": [{"name": "photos.pick", "args": {"limit": 3}}], "created": [], "data": {"picked": 0}, "error": "cancelled"},
-      {"name": "a result call the policy refuses lands nothing", "action": "addPhotos", "deny": ["photos.pick"], "called": [], "created": [], "data": {"picked": 0}, "error": "photos.pick was not allowed"},
-      {"name": "chained results: each answer feeds the next call", "action": "export", "answers": {"print.pdf": {"file": {"name": "Hours.pdf", "fileId": "b1"}}}, "called": [{"name": "print.pdf", "args": {"blocks": [{"heading": "Hours"}], "title": "Hours"}}, {"name": "print.pdf", "args": {"blocks": [{"text": "again"}], "title": "Hours.pdf"}}], "created": [], "data": {"picked": 0, "pdf": {"name": "Hours.pdf", "fileId": "b1"}}}
+      {
+        "name": "the answer lands in the record, the sets and the later calls",
+        "action": "addPhotos",
+        "answers": {
+          "photos_pick": {
+            "photos": [
+              {
+                "fileId": "f1"
+              }
+            ]
+          }
+        },
+        "called": [
+          {
+            "name": "photos_pick",
+            "args": {
+              "limit": 3
+            }
+          },
+          {
+            "name": "harness_toast",
+            "args": {
+              "message": "Picked 1"
+            }
+          }
+        ],
+        "created": [
+          {
+            "date": "2026-11-02",
+            "hours": 1,
+            "tags": [
+              "f1"
+            ]
+          }
+        ],
+        "data": {
+          "picked": 1
+        }
+      },
+      {
+        "name": "a result call that fails lands nothing",
+        "action": "addPhotos",
+        "throws": {
+          "photos_pick": "cancelled"
+        },
+        "called": [
+          {
+            "name": "photos_pick",
+            "args": {
+              "limit": 3
+            }
+          }
+        ],
+        "created": [],
+        "data": {
+          "picked": 0
+        },
+        "error": "cancelled"
+      },
+      {
+        "name": "a result call the policy refuses lands nothing",
+        "action": "addPhotos",
+        "deny": [
+          "photos_pick"
+        ],
+        "called": [],
+        "created": [],
+        "data": {
+          "picked": 0
+        },
+        "error": "photos_pick was not allowed"
+      },
+      {
+        "name": "chained results: each answer feeds the next call",
+        "action": "export",
+        "answers": {
+          "print_pdf": {
+            "file": {
+              "name": "Hours.pdf",
+              "fileId": "b1"
+            }
+          }
+        },
+        "called": [
+          {
+            "name": "print_pdf",
+            "args": {
+              "blocks": [
+                {
+                  "heading": "Hours"
+                }
+              ],
+              "title": "Hours"
+            }
+          },
+          {
+            "name": "print_pdf",
+            "args": {
+              "blocks": [
+                {
+                  "text": "again"
+                }
+              ],
+              "title": "Hours.pdf"
+            }
+          }
+        ],
+        "created": [],
+        "data": {
+          "picked": 0,
+          "pdf": {
+            "name": "Hours.pdf",
+            "fileId": "b1"
+          }
+        }
+      }
     ]
   }
 }

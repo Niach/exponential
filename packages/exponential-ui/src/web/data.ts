@@ -1,33 +1,20 @@
 // VAPP-87: the surface DATA MODEL and A2UI's dynamic values. Props may carry
-// a `{path}` binding (a JSON Pointer into the data model, relative inside a
-// template item) or a `{call, args}` function call (the basic catalog's 14
-// client functions + round 1's 13 CORE functions the macro expander emits
-// for bound inputs); `resolveValue` turns a prop tree into literals for one
+// a `{"@path"}` binding (a JSON Pointer into the data model, relative inside
+// a template item) or a `{"@call", args}` function call (the basic catalog's
+// 14 renderer functions + round 1's 13 CORE functions the macro expander
+// emits for bound inputs); `resolveValue` turns a prop tree into literals for one
 // render, `$string.<id>` built-in copy included (round-1 contract §1, §4:
 // the React mirror of `@exponential_app/eui` `resolveDynamic`). The format
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { CORE_FUNCTIONS, EXPRESSION_CALL_NAMES, callExpressionFunction, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, truthy, writePointer } from "@exponential_app/eui"
-import type { CatalogView, ExtensionDef, Formatter } from "@exponential_app/eui"
+import { BIND_FUNCTIONS, CORE_CATALOG_ID, CORE_FUNCTIONS, EFFECT_FUNCTIONS, EXPRESSION_CALL_NAMES, INDEX_FUNCTION, coerceBoolean, isBinding, isCall, callExpressionFunction, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, writePointer } from "@exponential_app/eui"
+import type { CatalogView, DataBinding, ExtensionDef, Failure, Formatter, FunctionCall, RouteAnswer, RoutedCall } from "@exponential_app/eui"
 
 export type DataModel = Record<string, unknown> | unknown[]
 
-export interface DataBinding {
-  path: string
-}
-export interface FunctionCall {
-  call: string
-  args?: Record<string, unknown>
-  returnType?: string
-}
-
-export function isBinding(value: unknown): value is DataBinding {
-  return typeof value === `object` && value !== null && !Array.isArray(value) && typeof (value as DataBinding).path === `string` && Object.keys(value as object).length === 1
-}
-export function isCall(value: unknown): value is FunctionCall {
-  return typeof value === `object` && value !== null && !Array.isArray(value) && typeof (value as FunctionCall).call === `string`
-}
+export type { DataBinding, FunctionCall }
+export { isBinding, isCall }
 
 const unescape = (token: string) => token.replace(/~1/g, `/`).replace(/~0/g, `~`)
 
@@ -68,6 +55,9 @@ export interface ResolveContext {
   functions?: Record<string, ClientFunction>
   /** `openUrl` and other side effects go to the host. */
   openUrl?: (url: string) => void
+  /** Round 9 §6.2: the innermost template item's index (`@index`); default
+   *  the last index of `scope`. */
+  index?: number
   /** The surface locale (BCP 47) the format functions use; default en-US. */
   locale?: string
   /** The surface's built-in string table: `$string.<id>` resolves through it. */
@@ -77,6 +67,13 @@ export interface ResolveContext {
   formatter?: Formatter
   /** The clock `formatRelativeTime` reads without a `now` argument. */
   now?: () => number
+  /** Round 9 §5.5: the surface's default catalog (a call's own wins). */
+  catalogId?: string
+  /** Round 9 §6.5: a name with no local function: the host's routing
+   *  (`ExponentialHost.reactiveRoute`). Absent = no value. */
+  route?: (call: RoutedCall) => RouteAnswer
+  /** Round 9 §6.8: a routed call failed (the host sends it, once). */
+  onFailure?: (failure: Failure) => void
 }
 
 /** The synthetic root a Table's LITERAL rows are mounted under in a slot
@@ -91,11 +88,22 @@ export function hostPath(path: string | undefined): string | undefined {
 
 export type ClientFunction = (args: Record<string, unknown>, ctx: ResolveContext) => unknown
 
-const num = (v: unknown) => (typeof v === `number` ? v : Number(v))
+/** Round 9 §6.2: the innermost template item's index. */
+function itemIndex(ctx: ResolveContext): number | undefined {
+  if (ctx.index !== undefined) return ctx.index
+  const m = ctx.scope === undefined ? null : /\/(\d+)$/.exec(ctx.scope)
+  return m ? Number(m[1]) : undefined
+}
 
-/** `${/path}` and `${rel/path}` interpolations (formatString). */
+/** `${/path}`, `${rel/path}`, `${@index()}` and `${@index(offset: <n>)}`
+ *  interpolations (formatString). */
 function interpolate(text: string, ctx: ResolveContext): string {
   return text.replace(/\$\{([^}]+)\}/g, (_, expr: string) => {
+    const index = /^@index\(\s*(?:offset\s*:\s*(-?\d+(?:\.\d+)?)\s*)?\)$/.exec(expr.trim())
+    if (index) {
+      const at = itemIndex(ctx)
+      return at === undefined ? `` : String(at + (index[1] ? Number(index[1]) : 0))
+    }
     return displayString(getPointer(ctx.data, absolutePath(expr.trim(), ctx.scope)))
   })
 }
@@ -174,35 +182,19 @@ const EXPRESSIONS: Record<string, ClientFunction> = Object.fromEntries(
   ]),
 )
 
+/** The validators and `and`/`or`/`not` are the core's (round 9 §6.6, §6.7;
+ *  no second table); only the context-reading ones live here. */
+const CORE_TABLE: Record<string, ClientFunction> = Object.fromEntries(
+  [`required`, `regex`, `length`, `numeric`, `email`, `and`, `or`, `not`].map((name) => [name, (args: Record<string, unknown>) => BIND_FUNCTIONS[name]!(args)])
+)
+
 export const CLIENT_FUNCTIONS: Record<string, ClientFunction> = {
-  // The contract's `required` (dynamic.ts LOGIC_FUNCTIONS, Rust data.rs):
-  // truthy (so `false` and `""` fail, 0 passes) and not an empty array.
-  required: ({ value }) => truthy(value) && !(Array.isArray(value) && value.length === 0),
-  regex: ({ value, pattern }) => {
-    try {
-      return new RegExp(String(pattern)).test(String(value ?? ``))
-    } catch {
-      return false
-    }
-  },
-  length: ({ value, min, max }) => {
-    const n = String(value ?? ``).length
-    return (min === undefined || n >= num(min)) && (max === undefined || n <= num(max))
-  },
-  numeric: ({ value, min, max }) => {
-    const n = num(value)
-    return Number.isFinite(n) && (min === undefined || n >= num(min)) && (max === undefined || n <= num(max))
-  },
-  email: ({ value }) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? ``)),
+  ...CORE_TABLE,
   formatString: ({ value }, ctx) => interpolate(String(value ?? ``), ctx),
   openUrl: ({ url }, ctx) => {
     if (typeof url === `string`) ctx.openUrl?.(url)
     return undefined
   },
-  // Truthiness = the catalog's `truthy` (0 is TRUE, "" is false).
-  and: ({ values }) => (Array.isArray(values) ? values.every(truthy) : false),
-  or: ({ values }) => (Array.isArray(values) ? values.some(truthy) : false),
-  not: ({ value }) => !truthy(value),
   ...CORE,
   ...FORMAT,
   ...EXPRESSIONS,
@@ -211,19 +203,40 @@ export const CLIENT_FUNCTIONS: Record<string, ClientFunction> = {
 /** A prop value with its bindings and calls resolved for one render. Plain
  *  objects recurse (a check's `condition`, a menu item's label). */
 export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
-  if (isBinding(value)) return getPointer(ctx.data, absolutePath(value.path, ctx.scope))
+  if (isBinding(value)) return getPointer(ctx.data, absolutePath(value[`@path`], ctx.scope))
   if (isCall(value)) {
-    const fn = ctx.functions?.[value.call] ?? CLIENT_FUNCTIONS[value.call]
-    if (!fn) return undefined
+    const name = value[`@call`]
+    if (name === INDEX_FUNCTION) {
+      const at = itemIndex(ctx)
+      const offset = resolveValue(value.args?.offset, ctx)
+      return at === undefined ? null : at + (typeof offset === `number` ? offset : 0)
+    }
+    // Round 9 §6.4: an effect never runs in a reactive position.
+    if (EFFECT_FUNCTIONS.has(name) && !Object.prototype.hasOwnProperty.call(ctx.functions ?? {}, name)) return null
+    const fn = ctx.functions?.[name] ?? CLIENT_FUNCTIONS[name]
+    if (!fn && !ctx.route) return undefined
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value.args ?? {})) args[k] = resolveValue(v, ctx)
-    return fn(args, ctx)
+    if (!fn) {
+      const catalogId = typeof value.catalogId === `string` ? value.catalogId : (ctx.catalogId ?? CORE_CATALOG_ID)
+      const answer = ctx.route!({ name, catalogId, args, position: `reactive` })
+      if (`value` in answer) return answer.value
+      if (args.default !== undefined) return args.default
+      ctx.onFailure?.(answer.failure)
+      return null
+    }
+    try {
+      return fn(args, ctx)
+    } catch {
+      // §6.8: a failing binding resolves to null, siblings stay mounted.
+      return args.default !== undefined ? args.default : null
+    }
   }
   if (typeof value === `string`) return ctx.strings && value.startsWith(`$string.`) ? resolveString(value, ctx.strings) : value
   if (Array.isArray(value)) return value.map((item) => resolveValue(item, ctx))
   if (typeof value === `object` && value !== null) {
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value)) out[k] = resolveValue(v, ctx)
+    for (const [k, v] of Object.entries(value)) out[k.startsWith(`@@`) ? k.slice(1) : k] = resolveValue(v, ctx)
     return out
   }
   return value
@@ -280,13 +293,14 @@ export function resolveNodeProps(component: string, props: Record<string, unknow
 /** The pointer a bindable prop writes back to (two-way state), if bound. */
 export function boundPath(props: Record<string, unknown>, name: string, scope = ``): string | undefined {
   const raw = props[name]
-  return isBinding(raw) ? absolutePath(raw.path, scope) : undefined
+  return isBinding(raw) ? absolutePath(raw[`@path`], scope) : undefined
 }
 
-/** A node's `visible`: absent = shown, else its resolved truthiness. */
+/** A node's `visible`: absent = shown, else its resolved value under the
+ *  A2UI 1.0 boolean coercion (round 9 §6.7). */
 export function resolveVisible(visible: unknown, ctx: ResolveContext): boolean {
   if (visible === undefined) return true
-  return truthy(resolveValue(visible, ctx))
+  return coerceBoolean(resolveValue(visible, ctx))
 }
 
 /** True when a value holds a binding or a call anywhere (a style value the

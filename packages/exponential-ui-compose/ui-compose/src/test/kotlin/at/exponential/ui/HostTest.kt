@@ -9,6 +9,7 @@ import at.exponential.ui.host.ExponentialHost
 import at.exponential.ui.host.FilePickRequest
 import at.exponential.ui.host.FunctionCallInfo
 import at.exponential.ui.host.FunctionDecision
+import at.exponential.ui.host.FunctionOutcome
 import at.exponential.ui.host.FunctionPolicy
 import at.exponential.ui.host.HostExtension
 import at.exponential.ui.host.HostOptions
@@ -24,8 +25,11 @@ import at.exponential.ui.host.sourceWithParams
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.fire
+import at.exponential.ui.model.press
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -52,6 +56,114 @@ class HostTest {
     private fun create(id: String = "s1", catalog: String = core) = msg("""{"version":"v0.9","createSurface":{"surfaceId":"$id","catalogId":"$catalog"}}""")
 
     private fun components(id: String, vararg c: String) = msg("""{"version":"v0.9","updateComponents":{"surfaceId":"$id","components":[${c.joinToString(",")}]}}""")
+
+    /** Round 9 §6.5: a function the host lacks goes to the surface's agent and the press gets the answer (fixtures a2ui10-functions.json `sequences`). */
+    @Test
+    fun aFunctionTheHostLacksGoesToTheAgent() {
+        val transport = MemoryTransport()
+        val h = host(HostOptions(transport = transport, agent = true))
+        h.connect()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"$core","sendDataModel":true}}"""))
+        h.surface("s1")!!.setData("/name", JsonValue.Str("Ada"))
+        val call = FunctionCallInfo("s1", "b", "lookup", mapOf("q" to JsonValue.Str("hi")))
+        var outcome: FunctionOutcome? = null
+        h.scope.launch { outcome = h.callFunction(call) }
+        // `sendDataModel`: the metadata travels beside the message.
+        val wrapped = transport.sent.last()
+        assertEquals(JsonValue.Str("Ada"), wrapped["metadata"]?.get("a2uiRendererDataModel")?.get("surfaces")?.get("s1")?.get("name"))
+        val sent = wrapped["message"]!!["callAgentFunction"]!!
+        assertEquals("s1:1", sent["functionCallId"]?.string)
+        assertEquals("lookup", sent["callFunction"]?.get("@call")?.string)
+        assertEquals(JsonValue.Str("hi"), sent["callFunction"]?.get("args")?.get("q"))
+        assertNull(outcome)
+        h.receive(msg("""{"version":"1.0","agentFunctionResponse":{"functionCallId":"s1:1","value":42}}"""))
+        assertEquals(FunctionDecision.Allow, outcome?.decision)
+        assertEquals(JsonValue.Num(42.0), outcome?.result)
+        assertNull(outcome?.error)
+        // A press never shares a call.
+        outcome = null
+        h.scope.launch { outcome = h.callFunction(call) }
+        assertEquals("s1:2", transport.sent.last()["message"]?.get("callAgentFunction")?.get("functionCallId")?.string)
+        h.receive(msg("""{"version":"1.0","agentFunctionResponse":{"functionCallId":"s1:2","error":{"code":"UNKNOWN_FUNCTION","message":"no"}}}"""))
+        assertEquals("no", outcome?.error)
+        // The failure names the call, no surface: nothing to sync beside it.
+        assertEquals("EXPRESSION_ERROR", transport.sent.last()["error"]?.get("code")?.string)
+    }
+
+    /** Round 9 §6.5: a reactive position's call leaves after the layout, once, and its answer binds the surface again. */
+    @Test
+    fun aReactiveCallGoesToTheAgentAndItsAnswerRebinds() {
+        val transport = MemoryTransport()
+        val h = host(HostOptions(transport = transport, agent = true))
+        h.connect()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
+        h.receive(msg("""{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Text","text":{"@call":"lookup","args":{"q":"hi"}}}]}}"""))
+        val m = laidOut(h.surface("s1")!!)
+        assertEquals(transport.sent.toString(), "s1:1", transport.sent.single()["callAgentFunction"]?.get("functionCallId")?.string)
+        h.receive(msg("""{"version":"1.0","agentFunctionResponse":{"functionCallId":"s1:1","value":"Ada"}}"""))
+        assertEquals(JsonValue.Str("Ada"), m.nodes.first().props["text"])
+        assertEquals(1, transport.sent.size)
+    }
+
+    /** Round 9 §6.8: an action's function runs first; its event fires only when the function did not fail. */
+    @Test
+    fun aFailedFunctionHoldsItsEvent() {
+        val transport = MemoryTransport()
+        val order = ArrayList<String>()
+        var release: CompletableDeferred<Unit>? = null
+        val h = host(
+            HostOptions(
+                transport = transport,
+                functions = mapOf(
+                    "harness_ok" to { _, _ -> release?.await(); order.add("ok") },
+                    "harness_boom" to { _, _ -> error("boom") },
+                    "harness_wipe" to { _, _ -> order.add("wipe") },
+                ),
+                policy = HostPolicy(functions = FunctionPolicy(deny = listOf("harness_wipe"))),
+            ),
+        )
+        h.connect()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
+        fun button(name: String) = """{"id":"$name","component":"Button","label":"x","on":{"press":{"functionCall":{"@call":"$name"},"event":{"name":"done_$name"}}}}"""
+        val names = listOf("harness_ok", "harness_boom", "harness_wipe", "harness_nope")
+        h.receive(msg("""{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Box","children":[${names.joinToString(",") { "\"$it\"" }}]},${names.joinToString(",", transform = ::button)}]}}"""))
+        val m = laidOut(h.surface("s1")!!)
+        fun events() = transport.sent.mapNotNull { it["action"]?.get("name")?.string }
+
+        // The event waits for the function.
+        release = CompletableDeferred()
+        m.press("harness_ok")
+        assertEquals(emptyList<String>(), events())
+        release!!.complete(Unit)
+        assertEquals(listOf("ok"), order)
+        assertEquals(listOf("done_harness_ok"), events())
+        // A throw, a denial, an unknown name: the error, no event.
+        m.press("harness_boom")
+        assertEquals("EXECUTION_ERROR", errorCode(transport.sent.last()))
+        m.press("harness_wipe")
+        assertEquals("INVALID_FUNCTION_CALL", errorCode(transport.sent.last()))
+        m.press("harness_nope")
+        assertEquals("UNKNOWN_FUNCTION", errorCode(transport.sent.last()))
+        assertEquals(listOf("ok"), order)
+        assertEquals(listOf("done_harness_ok"), events())
+    }
+
+    /** Round 9 §6.5: a surface without an agent (here a host's own) answers UNKNOWN_FUNCTION at the gate; a layout with nothing to report asks the hub nothing. */
+    @Test
+    fun noAgentNoPressAndNoNeedlessFlush() {
+        val transport = MemoryTransport()
+        val h = host(HostOptions(transport = transport, agent = true))
+        h.connect()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"own","catalogId":"$core"}}"""), trusted = true)
+        h.receive(msg("""{"version":"1.0","updateComponents":{"surfaceId":"own","components":[{"id":"root","component":"Text","text":"hi"}]}}"""), trusted = true)
+        val m = laidOut(h.surface("own")!!)
+        assertFalse(m.surface.needsFlush())
+        val outcome = runBlocking { h.callFunction(FunctionCallInfo("own", "b", "lookup", emptyMap())) }
+        assertEquals(FunctionDecision.NotFound, outcome.decision)
+        assertEquals("UNKNOWN_FUNCTION", errorCode(transport.sent.last()))
+        assertEquals("no function lookup", transport.sent.last()["error"]?.get("message")?.string)
+        assertTrue(transport.sent.none { it["callAgentFunction"] != null })
+    }
 
     private fun laidOut(m: SurfaceModel): SurfaceModel {
         m.fixedMeasure = true
@@ -90,13 +202,14 @@ class HostTest {
         assertNull(m.data["b"])
         t.feed(msg("""{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"x":1}}}"""))
         assertEquals("""{"x":1}""", m.data.json)
-        // A re-create replaces the model.
+        // Round 9 §1.4: a live id is not created twice.
         t.feed(create())
-        assertTrue(h.surface("s1") !== m)
+        assertTrue(h.surface("s1") === m)
+        assertEquals("INTEGRITY_ERROR", errorCode(t.sent.last()))
         t.feed(msg("""{"version":"v0.9","deleteSurface":{"surfaceId":"s1"}}"""))
         assertNull(h.surface("s1"))
         assertEquals(emptyList<String>(), h.surfaceIds())
-        assertEquals(listOf("create", "components", "components", "data", "data", "data", "create", "delete"), ops)
+        assertEquals(listOf("create", "components", "components", "data", "data", "data", "send", "delete"), ops)
         // An error op goes out on the transport.
         t.feed(components("ghost", """{"id":"root","component":"Text","text":"x"}"""))
         assertEquals("SURFACE_NOT_FOUND", errorCode(t.sent.last()))
@@ -146,7 +259,7 @@ class HostTest {
         t.feed(create())
         t.feed(msg("""{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"FileUpload","files":{"path":"/draft/files"}}]}}"""))
         val m = h.surface("s1")!!
-        assertEquals("/draft/files", m.components.first()["files"]?.get("path")?.string)
+        assertEquals("/draft/files", m.components.first()["files"]?.get("@path")?.string)
         assertEquals("s1", FilePickRequest(m, "root", null, false).surfaceId)
     }
 
@@ -171,14 +284,14 @@ class HostTest {
         )
         h.connect()
         t.feed(create())
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/devices","source":"exp:devices?team=t1"}}"""))
+        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/devices","source":"exp:devices?team=t1"}}"""), trusted = true)
         assertEquals("exp:devices {team=t1}", seen)
         val m = h.surface("s1")!!
         assertEquals("""["d1"]""", m.data["devices"]?.json)
         emit!!(JsonValue.Arr(listOf(JsonValue.Str("d1"), JsonValue.Str("d2"))))
         assertEquals("""["d1","d2"]""", m.data["devices"]?.json)
         // No resolver for a scheme → VALIDATION_FAILED back to the server.
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/x","source":"acme:things"}}"""))
+        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/x","source":"acme:things"}}"""), trusted = true)
         val err = t.sent.last()["error"]!!
         assertEquals("VALIDATION_FAILED", err["code"]?.string)
         assertEquals("no resolver for the source scheme acme", err["message"]?.string)
@@ -206,8 +319,8 @@ class HostTest {
         )
         h.connect()
         t.feed(create())
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/records","source":"records:entry"}}"""))
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/other","source":"exp:devices"}}"""))
+        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/records","source":"records:entry"}}"""), trusted = true)
+        h.receive(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/other","source":"exp:devices"}}"""), trusted = true)
         val args = mapOf(
             "path" to JsonValue.Str("/records"),
             "source" to JsonValue.Str("records:entry"),
@@ -247,19 +360,19 @@ class HostTest {
         val ran = ArrayList<String>()
         var consent = true
         val asked = ArrayList<String>()
-        val pkg = """{"formatVersion":5,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness.toast"]}"""
+        val pkg = """{"formatVersion":5,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness_toast"]}"""
         val h = host(
             HostOptions(
                 transport = t,
                 functions = mapOf(
-                    "harness.toast" to { args, _ -> ran.add("toast ${args["text"]?.string}"); "ok" },
-                    "harness.wipe" to { _, _ -> ran.add("wipe") },
-                    "harness.ask" to { _, _ -> ran.add("ask") },
-                    "harness.boom" to { _, _ -> error("boom") },
+                    "harness_toast" to { args, _ -> ran.add("toast ${args["text"]?.string}"); "ok" },
+                    "harness_wipe" to { _, _ -> ran.add("wipe") },
+                    "harness_ask" to { _, _ -> ran.add("ask") },
+                    "harness_boom" to { _, _ -> error("boom") },
                 ),
                 packages = listOf(pkg),
                 policy = HostPolicy(
-                    functions = FunctionPolicy(deny = listOf("harness.wipe"), ask = listOf("harness.ask")),
+                    functions = FunctionPolicy(deny = listOf("harness_wipe"), ask = listOf("harness_ask")),
                     onFunctionCall = { asked.add(it.name); consent },
                 ),
             ),
@@ -268,33 +381,65 @@ class HostTest {
         t.feed(create("free"))
         fun call(name: String, surface: String = "free", args: Map<String, JsonValue> = emptyMap()) = FunctionCallInfo(surface, "c", name, args)
 
-        val ok = h.callFunction(call("harness.toast", args = mapOf("text" to JsonValue.Str("hi"))))
+        val ok = h.callFunction(call("harness_toast", args = mapOf("text" to JsonValue.Str("hi"))))
         assertEquals(FunctionDecision.Allow, ok.decision)
         assertEquals("ok", ok.result)
-        assertEquals(FunctionDecision.NotFound, h.callFunction(call("harness.nope")).decision)
-        assertEquals("FUNCTION_NOT_FOUND", errorCode(t.sent.last()))
-        assertEquals("no function harness.nope", t.sent.last()["error"]?.get("message")?.string)
-        assertEquals(FunctionDecision.Deny, h.callFunction(call("harness.wipe")).decision)
-        assertEquals("FUNCTION_DENIED", errorCode(t.sent.last()))
-        assertEquals("harness.wipe was not allowed", t.sent.last()["error"]?.get("message")?.string)
-        assertEquals(FunctionDecision.Allow, h.callFunction(call("harness.ask")).decision)
+        assertEquals(FunctionDecision.NotFound, h.callFunction(call("harness_nope")).decision)
+        assertEquals("UNKNOWN_FUNCTION", errorCode(t.sent.last()))
+        assertEquals("no function harness_nope", t.sent.last()["error"]?.get("message")?.string)
+        assertEquals(FunctionDecision.Deny, h.callFunction(call("harness_wipe")).decision)
+        assertEquals("INVALID_FUNCTION_CALL", errorCode(t.sent.last()))
+        assertEquals("harness_wipe was not allowed", t.sent.last()["error"]?.get("message")?.string)
+        assertEquals(FunctionDecision.Allow, h.callFunction(call("harness_ask")).decision)
         consent = false
-        assertEquals(FunctionDecision.Deny, h.callFunction(call("harness.ask")).decision)
-        assertEquals(listOf("harness.ask", "harness.ask"), asked)
-        assertEquals("boom", h.callFunction(call("harness.boom")).error)
+        assertEquals(FunctionDecision.Deny, h.callFunction(call("harness_ask")).decision)
+        assertEquals(listOf("harness_ask", "harness_ask"), asked)
+        assertEquals("boom", h.callFunction(call("harness_boom")).error)
         // A built-in value function is allowed and has no effect as an action.
         assertEquals(FunctionDecision.Allow, h.decide("free", "formatDate"))
 
         // A package surface: its `functions` list narrows the host's decision.
-        t.feed(msg("""{"version":"v0.9","applyTemplate":{"surfaceId":"pkg","templateId":"list","packageId":"acme.devices"}}"""))
+        h.receive(msg("""{"version":"v0.9","applyTemplate":{"surfaceId":"pkg","templateId":"list","packageId":"acme.devices"}}"""), trusted = true)
         assertNotNull(h.surface("pkg"))
         assertEquals("acme.devices", h.packageIdOf("pkg"))
-        assertEquals(FunctionDecision.Allow, h.decide("pkg", "harness.toast"))
-        assertEquals(FunctionDecision.Deny, h.decide("pkg", "harness.boom"))
-        assertEquals(FunctionDecision.Allow, h.decide("free", "harness.boom"))
+        assertEquals(FunctionDecision.Allow, h.decide("pkg", "harness_toast"))
+        assertEquals(FunctionDecision.Deny, h.decide("pkg", "harness_boom"))
+        assertEquals(FunctionDecision.Allow, h.decide("free", "harness_boom"))
         assertEquals(listOf("toast hi", "ask"), ran)
         // A broken package does not install.
         assertTrue(h.installPackage("""{"id":"broken","name":"","version":"1","catalogId":"x","templates":{}}""").isNotEmpty())
+    }
+
+    /** Round 9 §1.4: a re-open mints, applies, and only then deletes the old surface. */
+    @Test
+    fun aReopenedSurfacePaintsUnderAMintedId() {
+        val t = MemoryTransport()
+        val pkg = """{"formatVersion":6,"id":"acme.screens","name":"Screens","version":"1.0.0","catalogId":"$core","templates":{"one":{"components":[{"id":"root","component":"Text","text":"one"}]},"two":{"components":[{"id":"root","component":"Text","text":"two"}]}}}"""
+        val h = host(HostOptions(transport = t, packages = listOf(pkg)))
+        h.connect()
+        fun apply(id: String, template: String) = h.receive(msg("""{"version":"1.0","applyTemplate":{"surfaceId":"$id","templateId":"$template","packageId":"acme.screens"}}"""), trusted = true)
+        fun delete(id: String) = h.receive(msg("""{"version":"1.0","deleteSurface":{"surfaceId":"$id"}}"""))
+
+        val first = h.mintSurfaceId("app")
+        apply(first, "one")
+        assertNotNull(h.surface(first))
+        val second = h.mintSurfaceId("app")
+        assertTrue(first != second)
+        apply(second, "two")
+        assertNotNull("the old surface paints until the new one exists", h.surface(first))
+        delete(first)
+        assertNull(h.surface(first))
+        assertNotNull(h.surface(second))
+        val third = h.mintSurfaceId("app")
+        apply(third, "one")
+        delete(second)
+        assertNotNull(h.surface(third))
+        assertEquals(emptyList<String>(), t.sent.mapNotNull(::errorCode))
+
+        // The fixed id the hosts used to re-apply is refused for good.
+        apply(first, "two")
+        assertEquals(listOf("INTEGRITY_ERROR"), t.sent.mapNotNull(::errorCode))
+        assertNull(h.surface(first))
     }
 
     @Test
@@ -337,7 +482,7 @@ class HostTest {
         val h = host(
             HostOptions(
                 transport = t,
-                functions = mapOf("harness.toast" to { args, call -> calls.add("${call.componentId} ${args["text"]?.string}") }),
+                functions = mapOf("harness_toast" to { args, call -> calls.add("${call.componentId} ${args["text"]?.string}") }),
                 policy = HostPolicy(openUrl = { opened.add(it) }),
             ),
         )
@@ -348,7 +493,7 @@ class HostTest {
                 "s1",
                 """{"id":"root","component":"Stack","children":["go","fn","docs"]}""",
                 """{"id":"go","component":"Button","label":"Go","on":{"press":{"event":{"name":"refresh","context":{"note":{"path":"/note"}}}}}}""",
-                """{"id":"fn","component":"Button","label":"Toast","on":{"press":{"functionCall":{"call":"harness.toast","args":{"text":"hi"}}}}}""",
+                """{"id":"fn","component":"Button","label":"Toast","on":{"press":{"functionCall":{"call":"harness_toast","args":{"text":"hi"}}}}}""",
                 """{"id":"docs","component":"Button","label":"Docs","on":{"press":{"functionCall":{"call":"openUrl","args":{"url":"https://ui.exponential.at"}}}}}""",
             ),
         )
@@ -382,7 +527,7 @@ class HostTest {
         val h = host(HostOptions(transport = t, extensions = listOf(HostExtension(ext, mapOf("Spark" to NoPaint)))))
         h.connect()
         assertEquals("https://acme.example/catalog/v1", h.supportedCatalogIds.last())
-        assertEquals(h.supportedCatalogIds, h.clientCapabilities()["v0.9"]?.get("supportedCatalogIds")?.array?.map { it.string })
+        assertEquals(h.supportedCatalogIds, h.rendererCapabilities()["1.0"]?.get("supportedCatalogIds")?.array?.map { it.string })
         // A surface on the extension catalog paints its native.
         t.feed(create("x", "https://acme.example/catalog/v1"))
         t.feed(components("x", """{"id":"root","component":"Spark","values":[1,2,3]}"""))

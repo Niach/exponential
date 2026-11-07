@@ -1,6 +1,6 @@
 // VAPP-91: the app host — the Devices package (installed explicitly) through the public host API
 // with the `exp:devices` binding over the (mocked) synced devices, the
-// consent gate in front of harness.mcp, and the banners.
+// consent gate in front of harness_mcp, and the banners.
 
 import { describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render } from "@testing-library/react"
@@ -98,7 +98,7 @@ describe(`the app host`, () => {
     const consent = createConsentGate()
     const host = createAppHost({ consent, navigate: () => {}, packages: DEVICES })
     act(() => {
-      host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `devices`, templateId: `devices` } })
+      host.applyTemplate({ surfaceId: `devices`, templateId: `devices` })
     })
     const view = render(<HostSurface host={host} surfaceId="devices" extensions={[appReactExtension]} theme="exponential" />)
     expect(host.surface(`devices`)!.data.devices).toMatchObject({ count: 2, online: 1 })
@@ -115,7 +115,7 @@ describe(`the app host`, () => {
     expect(host.surface(`devices`)!.data.devices).toMatchObject({ count: 1 })
   })
 
-  it(`harness.mcp waits for the consent card`, async () => {
+  it(`harness_mcp waits for the consent card`, async () => {
     const consent = createConsentGate()
     const host = createAppHost({ consent, navigate: () => {} })
     const fetchMock = answering((id) => new Response(JSON.stringify({ jsonrpc: `2.0`, id, result: { content: [] } }), { status: 200 }))
@@ -123,7 +123,7 @@ describe(`the app host`, () => {
     const view = render(<ConsentCard gate={consent} />)
     let outcome: Promise<unknown> | undefined
     act(() => {
-      outcome = host.callFunction({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues_list`, arguments: {} } })
+      outcome = host.callFunction({ surfaceId: `s`, componentId: `b`, name: `harness_mcp`, args: { tool: `exponential_issues_list`, arguments: {} } })
     })
     expect(await view.findByText(`Allow this surface to run exponential_issues_list?`)).toBeTruthy()
     expect(fetchMock).not.toHaveBeenCalled()
@@ -145,7 +145,7 @@ describe(`the app host`, () => {
     expect(b.getByTestId(`exponential-ui-host-offline`)).toBeTruthy()
     act(() => remote.connect())
     expect(b.queryByTestId(`exponential-ui-host-offline`)).toBeNull()
-    act(() => transport.feed({ version: `v0.9`, createSurface: { surfaceId: `x`, catalogId: `https://ui.exponential.at/catalogs/core/v9` } }))
+    act(() => transport.feed({ version: `1.0`, createSurface: { surfaceId: `x`, catalogId: `https://ui.exponential.at/catalogs/core/v9` } }))
     expect(b.getByTestId(`exponential-ui-catalog-update`)).toBeTruthy()
   })
 })
@@ -162,13 +162,13 @@ describe(`VAPP-120: typed actions`, () => {
       })
     )
     const ask = vi.fn(async () => false)
-    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential.issues.get`] })
-    const granted = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.issues.get`, args: { id: `APP-5`, op: `delete` } })
+    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential_issues_get`] })
+    const granted = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential_issues_get`, args: { id: `APP-5`, op: `delete` } })
     expect(granted.decision).toBe(`allow`)
     expect(ask).not.toHaveBeenCalled()
     expect(bodies[0]).toMatchObject({ name: `exponential_issues`, arguments: { id: `APP-5`, op: `get` } })
     // An ungranted action asks; a refusal is a deny and no call.
-    const denied = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.issues.delete`, args: { id: `APP-5` } })
+    const denied = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential_issues_delete`, args: { id: `APP-5` } })
     expect(denied.decision).toBe(`deny`)
     expect(ask).toHaveBeenCalledTimes(1)
     expect(bodies).toHaveLength(1)
@@ -178,11 +178,11 @@ describe(`VAPP-120: typed actions`, () => {
   it(`a granted send still asks before it stops a session (prompts.json stop-run)`, async () => {
     vi.stubGlobal(`fetch`, answering((id) => new Response(JSON.stringify({ jsonrpc: `2.0`, id, result: { content: [] } }), { status: 200, headers: { "content-type": `application/json` } })))
     const ask = vi.fn(async () => false)
-    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential.sessions.send`] })
-    const sent = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.sessions.send`, args: { sessionId: `s1`, text: `hi` } })
+    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential_sessions_send`] })
+    const sent = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential_sessions_send`, args: { sessionId: `s1`, text: `hi` } })
     expect(sent.decision).toBe(`allow`)
     expect(ask).not.toHaveBeenCalled()
-    const stopped = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.sessions.send`, args: { sessionId: `s1`, stop: true } })
+    const stopped = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential_sessions_send`, args: { sessionId: `s1`, stop: true } })
     expect(stopped.decision).toBe(`deny`)
     expect(ask).toHaveBeenCalledTimes(1)
     vi.unstubAllGlobals()
@@ -194,8 +194,8 @@ describe(`VAPP-158: owner-only actions`, () => {
     const fetchMock = vi.fn()
     vi.stubGlobal(`fetch`, fetchMock)
     const ask = vi.fn(async () => false)
-    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential.teams.update`, `exponential.people.add`] })
-    for (const name of [`exponential.teams.update`, `exponential.people.add`]) {
+    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential_teams_update`, `exponential_people_add`] })
+    for (const name of [`exponential_teams_update`, `exponential_people_add`]) {
       const outcome = await host.callFunction({ surfaceId: `s`, componentId: `c`, name, args: {} })
       expect(outcome.decision, name).toBe(`deny`)
     }
@@ -206,7 +206,7 @@ describe(`VAPP-158: owner-only actions`, () => {
 })
 
 describe(`the via-app claim (VAPP-231, via-app.json claim)`, () => {
-  const call = (host: ReturnType<typeof createAppHost>) => host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.issues.get`, args: { id: `APP-5` } })
+  const call = (host: ReturnType<typeof createAppHost>) => host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential_issues_get`, args: { id: `APP-5` } })
   const claimHeaders = () => {
     const sent: (string | null)[] = []
     vi.stubGlobal(
@@ -219,7 +219,7 @@ describe(`the via-app claim (VAPP-231, via-app.json claim)`, () => {
     )
     return sent
   }
-  const options = { consent: { ask: async () => true } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, appId: `a1`, grantedTools: () => [`exponential.issues.get`] }
+  const options = { consent: { ask: async () => true } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, appId: `a1`, grantedTools: () => [`exponential_issues_get`] }
 
   it(`an MCP call of a published app's host carries the header`, async () => {
     mocks.apps = [{ id: `a1`, publishedVersion: 3 }]
@@ -292,7 +292,7 @@ describe(`exp:devices liveness`, () => {
       mocks.devices = [{ ...mocks.devices[0], id: `d1`, label: `MacBook`, lastSeenAt: new Date().toISOString() }]
       const host = createAppHost({ consent: createConsentGate(), navigate: () => {}, packages: DEVICES })
       act(() => {
-        host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `devices`, templateId: `devices` } })
+        host.applyTemplate({ surfaceId: `devices`, templateId: `devices` })
       })
       expect(host.surface(`devices`)!.data.devices).toMatchObject({ online: 1 })
       act(() => {
@@ -310,7 +310,7 @@ describe(`the consent card`, () => {
     const gate = createConsentGate()
     const view = render(<ConsentCard gate={gate} />)
     act(() => {
-      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: { op: `get`, id: `EXP-12` } } } as never)
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness_mcp`, args: { tool: `exponential_issues`, arguments: { op: `get`, id: `EXP-12` } } } as never)
     })
     const block = await view.findByTestId(`exponential-ui-consent-arguments`)
     expect(block.textContent).toBe(`{"op":"get","id":"EXP-12"}`)
@@ -319,7 +319,7 @@ describe(`the consent card`, () => {
     // A long argument list previews and discloses.
     const long = { op: `create`, boardId: `b`.repeat(40), title: `t`.repeat(120), description: `d`.repeat(300) }
     act(() => {
-      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: long } } as never)
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness_mcp`, args: { tool: `exponential_issues`, arguments: long } } as never)
     })
     const preview = await view.findByTestId(`exponential-ui-consent-arguments`)
     expect(preview.textContent).toBe(`${JSON.stringify(long).slice(0, 160)}…`)
@@ -328,18 +328,18 @@ describe(`the consent card`, () => {
     expect(view.getByTestId(`exponential-ui-consent-arguments`).textContent).toBe(JSON.stringify(long, null, 2).replace(/\n/g, ``))
     // A destructive op: the destructive entry (Allow destructive, Deny still focused).
     act(() => {
-      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: { op: `delete`, id: `EXP-12` } } } as never)
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness_mcp`, args: { tool: `exponential_issues`, arguments: { op: `delete`, id: `EXP-12` } } } as never)
     })
     await vi.waitFor(() => expect(view.getByTestId(`exponential-ui-consent-arguments`).textContent).toBe(`{"op":"delete","id":"EXP-12"}`))
     expect(view.getByRole(`button`, { name: `Allow` }).getAttribute(`data-role`)).toBe(`destructive`)
     expect(document.activeElement).toBe(view.getByRole(`button`, { name: `Deny` }))
     // No arguments: no block. A plain host function shows its own args.
     act(() => {
-      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.toast`, args: { message: `EXP-1` } } as never)
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness_toast`, args: { message: `EXP-1` } } as never)
     })
     expect((await view.findByTestId(`exponential-ui-consent-arguments`)).textContent).toBe(`{"message":"EXP-1"}`)
     act(() => {
-      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_devices` } } as never)
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness_mcp`, args: { tool: `exponential_devices` } } as never)
     })
     await view.findByText(`Allow this surface to run exponential_devices?`)
     expect(view.queryByTestId(`exponential-ui-consent-arguments`)).toBeNull()
@@ -350,7 +350,7 @@ describe(`the consent card`, () => {
     const view = render(<ConsentCard gate={gate} />)
     let answer: Promise<boolean> | undefined
     act(() => {
-      answer = gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues_list` } } as never)
+      answer = gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness_mcp`, args: { tool: `exponential_issues_list` } } as never)
     })
     const deny = await view.findByRole(`button`, { name: `Deny` })
     const allow = view.getByRole(`button`, { name: `Allow` })
@@ -421,7 +421,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
 
   it(`#VAPP-230: an upstream binding reads through the broker; disconnected keeps the default and shows Connect <server>`, async () => {
     const pkg = {
-      formatVersion: 5,
+      formatVersion: 6,
       id: `acme.console`,
       name: `Console`,
       version: `1.0.0`,
@@ -435,7 +435,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
             { path: `/mrr`, source: `upstream:crm/mrr?months=3` },
             { path: `/charges`, source: `upstream:stripe/list_charges` },
           ],
-          components: [{ id: `root`, component: `Text`, text: { path: `/mrr/total` } }],
+          components: [{ id: `root`, component: `Text`, text: { "@path": `/mrr/total` } }],
         },
       },
     } as unknown as AppPackage
@@ -444,7 +444,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
     )
     const host = createAppHost({ consent: createConsentGate(), navigate: () => {}, packages: [pkg], appId: `a1` })
     await act(async () => {
-      host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `main`, templateId: `main`, packageId: `acme.console` } })
+      host.applyTemplate({ surfaceId: `main`, templateId: `main`, packageId: `acme.console` })
       await new Promise((r) => setTimeout(r, 0))
     })
     expect(mocks.upstreamRead).toHaveBeenCalledWith({ id: `a1`, source: `upstream:crm/mrr?months=3` })
@@ -458,7 +458,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
 
   it(`#VAPP-239: an offline device keeps the default and shows its banner without Connect`, async () => {
     const pkg = {
-      formatVersion: 5,
+      formatVersion: 6,
       id: `acme.console`,
       name: `Console`,
       version: `1.0.0`,
@@ -472,7 +472,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
             { path: `/mrr`, source: `upstream:crm/mrr?months=3` },
             { path: `/charges`, source: `upstream:stripe/list_charges` },
           ],
-          components: [{ id: `root`, component: `Text`, text: { path: `/mrr/total` } }],
+          components: [{ id: `root`, component: `Text`, text: { "@path": `/mrr/total` } }],
         },
       },
     } as unknown as AppPackage
@@ -483,7 +483,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
     )
     const host = createAppHost({ consent: createConsentGate(), navigate: () => {}, packages: [pkg], appId: `a1` })
     await act(async () => {
-      host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `main`, templateId: `main`, packageId: `acme.console` } })
+      host.applyTemplate({ surfaceId: `main`, templateId: `main`, packageId: `acme.console` })
       await new Promise((r) => setTimeout(r, 0))
     })
     expect(mocks.upstreamRead).toHaveBeenCalledWith({ id: `a1`, source: `upstream:crm/mrr?months=3` })

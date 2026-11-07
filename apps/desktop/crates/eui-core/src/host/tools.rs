@@ -14,19 +14,18 @@ use super::signature::canonical_json;
 use super::{is_js_space, js_trim};
 
 /// `^[a-z][a-z0-9_-]{0,31}$`: a tool's id (`package.tools.idPattern`).
-pub const TOOL_ID_PATTERN: &str = "^[a-z][a-z0-9_-]{0,31}$";
+pub const TOOL_ID_PATTERN: &str = "^[a-z][a-z0-9]*(_[a-z0-9]+)*$";
 pub const TOOL_KINDS: &[&str] = &["mcp", "script"];
 pub const TOOL_TRANSPORTS: &[&str] = &["http", "stdio", "script"];
 /// The host function names a tool call starts with.
-pub const TOOL_FUNCTION_PREFIX: &str = "tools.";
+pub const TOOL_FUNCTION_PREFIX: &str = "tools_";
 
-fn is_id_char(c: char) -> bool {
-    c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
-}
-
-/// [`TOOL_ID_PATTERN`].
+/// [`TOOL_ID_PATTERN`] (round 9 §12: `^[a-z][a-z0-9]*(_[a-z0-9]+)*$`, no
+/// `-`, no `__`, no leading or trailing `_`), at most 32 bytes.
 pub fn is_tool_id(id: &str) -> bool {
-    id.chars().next().is_some_and(|c| c.is_ascii_lowercase()) && id.len() <= 32 && id.chars().all(is_id_char)
+    id.len() <= 32
+        && id.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && id.split('_').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
 }
 
 /// `^[A-Za-z_][A-Za-z0-9_]*$`: an env variable name.
@@ -56,7 +55,7 @@ pub fn validate_tools(tools: &Value) -> Vec<PackageIssue> {
     for id in ids {
         let at = format!("/tools/{id}");
         if !is_tool_id(id) {
-            issues.push(issue(&at, "a tool id is lowercase letters, digits, - and _"));
+            issues.push(issue(&at, "a tool id is lowercase letters and digits in _-separated words"));
         }
         let Some(tool) = tools[id].as_object() else {
             issues.push(issue(&at, "a tool is {kind, title, url | command}"));
@@ -179,22 +178,37 @@ pub struct ToolCall {
     pub tool: Option<String>,
 }
 
-/// `tools.<id>` (a script) or `tools.<id>.<name>` (an MCP server's tool);
-/// `None` = not a tool call (`^tools\.([a-z][a-z0-9_-]{0,31})(?:\.(.+))?$`,
-/// `.` matching no line terminator).
+/// Round 9 §6.3: `tools_<id>` (a script) or `tools_<id>__<tool>` (an MCP
+/// server's tool, the MANGLED tool name the host resolves against the live
+/// tools); `None` = not a tool call.
 pub fn tool_call(name: &str) -> Option<ToolCall> {
     let rest = name.strip_prefix(TOOL_FUNCTION_PREFIX)?;
-    let end = rest.find(|c: char| !is_id_char(c)).unwrap_or(rest.len());
-    let (id, tail) = rest.split_at(end);
+    let (id, tool) = match rest.split_once("__") {
+        Some((id, tool)) if !tool.is_empty() => (id, Some(tool.to_string())),
+        Some(_) => return None,
+        None => (rest, None),
+    };
     if !is_tool_id(id) {
         return None;
     }
-    let tool = match tail {
-        "" => None,
-        t => {
-            let t = t.strip_prefix('.').filter(|t| !t.is_empty() && !t.chars().any(|c| matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')))?;
-            Some(t.to_string())
-        }
-    };
     Some(ToolCall { tool_id: id.to_string(), tool })
+}
+
+/// The flat function name of a tool (`tools_<id>`, `tools_<id>__<mangle(tool)>`).
+pub fn tool_function_name(tool_id: &str, tool: Option<&str>) -> String {
+    match tool {
+        Some(t) => format!("{TOOL_FUNCTION_PREFIX}{tool_id}__{}", crate::ident::mangle(t)),
+        None => format!("{TOOL_FUNCTION_PREFIX}{tool_id}"),
+    }
+}
+
+/// §6.3: the ONE live tool whose `mangle` equals `mangled`; `Err(true)` =
+/// ambiguous (two or more), `Err(false)` = none.
+pub fn resolve_mangled<'a>(mangled: &str, live: &'a [String]) -> Result<&'a str, bool> {
+    let mut hits = live.iter().filter(|t| crate::ident::mangle(t) == mangled);
+    match (hits.next(), hits.next()) {
+        (Some(one), None) => Ok(one.as_str()),
+        (Some(_), Some(_)) => Err(true),
+        _ => Err(false),
+    }
 }

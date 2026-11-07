@@ -301,6 +301,12 @@ pub struct LocalState {
 }
 
 pub struct BuildContext<'a> {
+    /// Round 9 §6.8: a reactive failure, with the node it hit.
+    pub on_failure: &'a dyn Fn(&crate::data::Failure, &str),
+    /// Round 9 §6.5: the host's routing of reactive calls.
+    pub route: Option<&'a dyn Fn(crate::data::RoutedCall) -> crate::data::RouteAnswer>,
+    /// Round 9 §5.5: the surface's default catalog.
+    pub catalog_id: &'a str,
     pub view: &'a CatalogView,
     pub recipes: &'a RecipeIndex,
     pub data: &'a Value,
@@ -513,7 +519,11 @@ pub(crate) fn js(v: &Value) -> String {
 
 impl<'a, 'b> Builder<'a, 'b> {
     pub(crate) fn resolve_ctx<'s>(&'s self, scope: &'s str) -> ResolveContext<'s> {
-        let ctx = ResolveContext::new(self.ctx.data, scope).with_strings(self.ctx.strings).with_formatter(self.ctx.formatter).with_now(self.ctx.now);
+        let ctx = ResolveContext::new(self.ctx.data, scope).with_strings(self.ctx.strings).with_formatter(self.ctx.formatter).with_now(self.ctx.now).with_catalog(self.ctx.catalog_id, None);
+        let ctx = match self.ctx.route {
+            Some(route) => ctx.with_route(route),
+            None => ctx,
+        };
         match row_scope_root(scope).and_then(|root| self.row_scopes.get_key_value(root)) {
             Some((root, row)) => ctx.with_overlay(root, row),
             None => ctx,
@@ -717,7 +727,8 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     /// Is a node visible under the data model (`visible` absent = yes)?
     fn visible(&self, node: &UiNode, scope: &str) -> bool {
-        crate::data::is_visible(node.visible.as_ref(), &self.resolve_ctx(scope))
+        let report = |f: &crate::data::Failure| (self.ctx.on_failure)(f, &node.id);
+        crate::data::is_visible(node.visible.as_ref(), &self.resolve_ctx(scope).with_on_error(&report))
     }
 
     /// Add `node` under `parent`; `None` when its `visible` is falsy.
@@ -734,7 +745,8 @@ impl<'a, 'b> Builder<'a, 'b> {
         // Round 2: props resolve ALONG THEIR SCHEMA (a literal Table `rows`
         // holding `{path}` is data), then a bound number or boolean in a
         // text prop shows as its display string.
-        let mut props = crate::data::resolve_node_props(def, &node.props, &self.resolve_ctx(scope), &view.defs);
+        let report = |f: &crate::data::Failure| (self.ctx.on_failure)(f, &node.id);
+        let mut props = crate::data::resolve_node_props(def, &node.props, &self.resolve_ctx(scope).with_on_error(&report), &view.defs);
         if let Some(def) = def {
             display_text_props(def, &mut props);
         }
@@ -1059,7 +1071,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             return true;
         };
         self.template_refused = true;
-        self.issues.push(crate::types::ReduceIssue { id: template.to_string(), message });
+        self.issues.push(crate::types::ReduceIssue::new(template.to_string(), message));
         false
     }
 

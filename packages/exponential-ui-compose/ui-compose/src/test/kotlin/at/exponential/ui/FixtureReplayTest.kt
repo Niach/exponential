@@ -87,7 +87,7 @@ class FixtureReplayTest {
             assertTrue(n.id, f.right <= m.surfaceSize.width + 0.01f)
         }
         // The header reads first (pre-order = accessibility order).
-        assertTrue(m.indexOf("hdr-title")!! < m.indexOf("hdr-scan")!!)
+        assertTrue(m.indexOf("hdr_title")!! < m.indexOf("hdr_scan")!!)
         // A warm pass makes no measure calls.
         m.layoutNeeded = true
         m.pass()

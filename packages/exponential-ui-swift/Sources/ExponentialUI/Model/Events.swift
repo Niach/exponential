@@ -26,15 +26,30 @@ extension SurfaceModel {
     /// Forward the core's OutEvents to the host. `inputRevision` = the
     /// revision of a host-owned text edit (else a per-component counter).
     func dispatch(_ events: [FfiEvent], inputRevision: Int? = nil) {
-        for e in events {
+        func action(_ v: JSONValue) -> SurfaceActionEvent {
+            SurfaceActionEvent(surfaceId: id, event: v["event"]?.string ?? "", name: v["name"]?.string ?? "", componentId: v["componentId"]?.string ?? "", context: v["context"] ?? .object([:]), payload: v["payload"])
+        }
+        var next = 0
+        while next < events.count {
+            let e = events[next]
+            next += 1
             let v = JSONValue.parse(e.json)
             switch e.kind {
             case "action":
-                host.onAction(SurfaceActionEvent(surfaceId: id, event: v["event"]?.string ?? "", name: v["name"]?.string ?? "", componentId: v["componentId"]?.string ?? "", context: v["context"] ?? .object([:]), payload: v["payload"]))
+                host.onAction(action(v))
             case "openUrl":
                 openLink(v["url"]?.string ?? "")
             case "functionCall":
-                host.onFunctionCall(SurfaceFunctionCall(surfaceId: id, componentId: v["componentId"]?.string ?? "", name: v["name"]?.string ?? "", args: v["args"]?.object ?? [:]))
+                let call = SurfaceFunctionCall(surfaceId: id, componentId: v["componentId"]?.string ?? "", name: v["name"]?.string ?? "", args: v["args"]?.object ?? [:])
+                // Round 9 §6.8: the function first, its event only when it did not fail.
+                if next < events.count, events[next].kind == "action" {
+                    let plugin = host
+                    let event = action(JSONValue.parse(events[next].json))
+                    next += 1
+                    plugin.onFunctionCallThen(call) { plugin.onAction(event) }
+                } else {
+                    host.onFunctionCall(call)
+                }
             case "input":
                 let component = v["componentId"]?.string ?? ""
                 let revision: Int

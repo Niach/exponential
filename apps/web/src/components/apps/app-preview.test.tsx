@@ -105,6 +105,25 @@ describe(`AppPreview on a refused package`, () => {
   })
 })
 
+describe(`AppPreview re-opening`, () => {
+  const two = { ...usable(`One`), templates: { one: { components: [{ id: `root`, component: `Text`, text: `First` }] }, two: { components: [{ id: `root`, component: `Text`, text: `Second` }] } } }
+
+  it(`round 9 §1.4: navigating twice paints the second screen on the same host`, async () => {
+    const reports = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    const view = render(<AppPreview pkg={two} template="one" />)
+    await waitFor(() => expect(screen.getByTestId(APPS_TEST_IDS.preview).textContent).toContain(`First`))
+    view.rerender(<AppPreview pkg={two} template="two" />)
+    await waitFor(() => expect(screen.getByTestId(APPS_TEST_IDS.preview).textContent).toContain(`Second`))
+    expect(screen.getByTestId(APPS_TEST_IDS.preview).textContent).not.toContain(`First`)
+    view.rerender(<AppPreview pkg={two} template="one" />)
+    await waitFor(() => expect(screen.getByTestId(APPS_TEST_IDS.preview).textContent).toContain(`First`))
+    view.rerender(<AppPreview pkg={two} template="two" />)
+    await waitFor(() => expect(screen.getByTestId(APPS_TEST_IDS.preview).textContent).toContain(`Second`))
+    expect(document.body.textContent).not.toContain(APPS_COPY.needsUpdate)
+    expect(reports.mock.calls.flat().join(` `)).not.toContain(`INTEGRITY_ERROR`)
+  })
+})
+
 describe(`AppSurfaceBoundary`, () => {
   const Throw = (): ReactNode => {
     throw new Error(`boom`)

@@ -3,7 +3,7 @@
 //! Android `AppActions.kt`), byte-locked by `fixtures/app-actions.json`
 //! (`parseCases`, `grantCases`, `declaredCases`, `consentCases`,
 //! `ownerOnlyCases`): which
-//! `exponential.<noun>.<op>` functions exist, what a name resolves to, what a
+//! `exponential_<noun>_<op>` functions exist, what a name resolves to, what a
 //! package declares, what an app's grants allow, and the consent card's
 //! words. Pure: the app host feeds it names, grants and args.
 
@@ -55,7 +55,7 @@ struct ActionsSpec {
 static SPEC: LazyLock<ActionsSpec> =
     LazyLock::new(|| serde_json::from_str(ACTIONS_JSON).expect("app-actions.json parses"));
 
-/// `exponential.`
+/// `exponential_`
 pub static APP_ACTION_PREFIX: LazyLock<&'static str> = LazyLock::new(|| SPEC.prefix.as_str());
 /// Every function name, sorted (the fixture's ×4 list).
 pub static APP_ACTIONS: LazyLock<&'static [String]> = LazyLock::new(|| SPEC.functions.as_slice());
@@ -65,9 +65,21 @@ pub static APP_ACTIONS: LazyLock<&'static [String]> = LazyLock::new(|| SPEC.func
 pub static APP_ACTION_ALIASES: LazyLock<&'static BTreeMap<String, String>> =
     LazyLock::new(|| &SPEC.aliases);
 
+/// Round 9 §14: a stored name from before the flat names (a grant, a v5
+/// package's `functions`): `exponential.issues.update` is
+/// `exponential_issues_update` until the flag-day migration rewrites it.
+pub fn flat_action(name: &str) -> String {
+    if name.starts_with("exponential.") {
+        name.replace('.', "_")
+    } else {
+        name.to_string()
+    }
+}
+
 /// The name an action is judged by: an alias's new name, else the name.
-pub fn canonical_action(name: &str) -> &str {
-    SPEC.aliases.get(name).map(String::as_str).unwrap_or(name)
+pub fn canonical_action(name: &str) -> String {
+    let flat = flat_action(name);
+    SPEC.aliases.get(&flat).cloned().unwrap_or(flat)
 }
 
 /// The settings page's Tools group copy.
@@ -80,10 +92,10 @@ pub struct ActionTarget {
     pub op: Option<String>,
 }
 
-/// `exponential.issues.update_status` → the tool and op it runs (an alias →
+/// `exponential_issues_update_status` → the tool and op it runs (an alias →
 /// its new name's); None for anything that is not an offered action.
 pub fn parse_action_name(name: &str) -> Option<ActionTarget> {
-    SPEC.tools.get(canonical_action(name)).map(|row| ActionTarget { tool: row.tool.clone(), op: row.op.clone() })
+    SPEC.tools.get(&canonical_action(name)).map(|row| ActionTarget { tool: row.tool.clone(), op: row.op.clone() })
 }
 
 /// VAPP-107's pattern rule: an exact name or a `prefix*`.
@@ -98,7 +110,7 @@ fn matches(pattern: &str, name: &str) -> bool {
 /// the aliases too: an alias declares its NEW name), in the fixture's order;
 /// anything that is not an offered action is dropped.
 pub fn declared_actions<S: AsRef<str>>(functions: &[S]) -> Vec<String> {
-    let named = |name: &str| functions.iter().any(|pattern| matches(pattern.as_ref(), name));
+    let named = |name: &str| functions.iter().any(|pattern| matches(&flat_action(pattern.as_ref()), name));
     APP_ACTIONS
         .iter()
         .filter(|name| {
@@ -132,7 +144,7 @@ pub fn action_destructive(name: &str) -> bool {
 /// always asks (the plain card).
 pub fn action_owner_only(name: &str) -> bool {
     let name = canonical_action(name);
-    SPEC.owner_actions.iter().any(|a| a == name)
+    SPEC.owner_actions.iter().any(|a| *a == name)
 }
 
 /// May `name` be granted at all: an offered action that is neither
@@ -143,12 +155,12 @@ pub fn action_grantable(name: &str) -> bool {
 
 /// A destructive CALL: a destructive action, or a grantable one whose args
 /// carry a `destructiveArgs` key (present and not false/null):
-/// `exponential.sessions.send` with `stop` = prompts.json's stop-run.
+/// `exponential_sessions_send` with `stop` = prompts.json's stop-run.
 pub fn call_destructive(name: &str, args: &Map<String, Value>) -> bool {
     if action_destructive(name) {
         return true;
     }
-    SPEC.destructive_args.get(canonical_action(name)).is_some_and(|keys| {
+    SPEC.destructive_args.get(&canonical_action(name)).is_some_and(|keys| {
         keys.iter()
             .any(|key| args.get(key).is_some_and(|v| !v.is_null() && *v != Value::Bool(false)))
     })
@@ -243,7 +255,7 @@ mod tests {
 
     #[test]
     fn the_fixture_parses() {
-        assert_eq!(*APP_ACTION_PREFIX, "exponential.");
+        assert_eq!(*APP_ACTION_PREFIX, "exponential_");
         let fixture: Value = serde_json::from_str(ACTIONS_JSON).unwrap();
         assert_eq!(APP_ACTIONS.to_vec(), strings(&fixture["functions"]));
         assert!(APP_ACTIONS.iter().all(|name| name.starts_with(*APP_ACTION_PREFIX)));
@@ -299,7 +311,7 @@ mod tests {
             assert_eq!(action_grantable(name), case["expected"].as_bool().unwrap(), "{name}");
         }
         assert_eq!(SPEC.grant_role, GRANT_ROLE);
-        assert!(!SPEC.destructive_words.is_empty() && SPEC.destructive_args.contains_key("exponential.sessions.send"));
+        assert!(!SPEC.destructive_words.is_empty() && SPEC.destructive_args.contains_key("exponential_sessions_send"));
     }
 
     #[test]

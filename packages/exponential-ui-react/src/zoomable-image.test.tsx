@@ -228,7 +228,7 @@ describe(`ZoomableImage native`, () => {
   it(`a bound scale opens there and a zoom writes it back`, () => {
     const r = render(
       <ExponentialSurface
-        root={reduceNested({ id: `z`, component: `ZoomableImage`, props: { src: `https://example.com/a.png`, alt: `Shot`, naturalWidth: 1200, naturalHeight: 800, scale: { path: `/scale` } } } as unknown as NestedNode, { catalogId: CORE_CATALOG_ID }).root}
+        root={reduceNested({ id: `z`, component: `ZoomableImage`, props: { src: `https://example.com/a.png`, alt: `Shot`, naturalWidth: 1200, naturalHeight: 800, scale: { "@path": `/scale` } } } as unknown as NestedNode, { catalogId: CORE_CATALOG_ID }).root}
         data={{ scale: 2 }}
         theme="neutral"
         id="zb"

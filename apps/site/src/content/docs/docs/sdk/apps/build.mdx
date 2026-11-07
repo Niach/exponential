@@ -74,7 +74,7 @@ if (issues.length) throw new Error(issues.map((i) => `${i.path}: ${i.message}`).
 
 export const app = createAppHost({
   package: pkg as AppPackage,
-  functions: { "app.toast": ({ text }) => console.info(String(text)) },
+  functions: { app_toast: ({ text }) => console.info(String(text)) },
   sources: { weather: (_source, emit) => emit({ summary: `Sunny, 21 °C` }) },
 })
 

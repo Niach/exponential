@@ -28,28 +28,39 @@ import kotlinx.coroutines.launch
  * per-component counter).
  */
 internal fun SurfaceModel.dispatch(events: List<FfiEvent>, inputRevision: Int? = null) {
-    for (e in events) {
+    fun action(v: JsonValue) = SurfaceActionEvent(
+        surfaceId = id,
+        event = v["event"]?.string ?: "",
+        name = v["name"]?.string ?: "",
+        componentId = v["componentId"]?.string ?: "",
+        context = v["context"] ?: JsonValue.Obj(emptyMap()),
+        payload = v["payload"],
+    )
+    var next = 0
+    while (next < events.size) {
+        val e = events[next++]
         val v = JsonValue.parse(e.json)
         when (e.kind) {
-            "action" -> host.onAction(
-                SurfaceActionEvent(
-                    surfaceId = id,
-                    event = v["event"]?.string ?: "",
-                    name = v["name"]?.string ?: "",
-                    componentId = v["componentId"]?.string ?: "",
-                    context = v["context"] ?: JsonValue.Obj(emptyMap()),
-                    payload = v["payload"],
-                ),
-            )
+            "action" -> host.onAction(action(v))
             "openUrl" -> openHref(v["url"]?.string ?: "")
-            "functionCall" -> host.onFunctionCall(
-                SurfaceFunctionCallEvent(
+            "functionCall" -> {
+                val call = SurfaceFunctionCallEvent(
                     surfaceId = id,
                     componentId = v["componentId"]?.string ?: "",
                     name = v["name"]?.string ?: "",
                     args = v["args"]?.obj ?: emptyMap(),
-                ),
-            )
+                )
+                // Round 9 §6.8: the function first, its event only when it did not fail.
+                val held = events.getOrNull(next)?.takeIf { it.kind == "action" }
+                if (held == null) {
+                    host.onFunctionCall(call)
+                } else {
+                    next++
+                    val plugin = host
+                    val event = action(JsonValue.parse(held.json))
+                    plugin.onFunctionCallThen(call) { plugin.onAction(event) }
+                }
+            }
             "input" -> {
                 val component = v["componentId"]?.string ?: ""
                 val revision = inputRevision ?: ((revisions[component] ?: 0) + 1).also { revisions[component] = it }

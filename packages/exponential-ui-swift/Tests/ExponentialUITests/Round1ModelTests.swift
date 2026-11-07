@@ -70,7 +70,7 @@ final class Round1ModelTests: XCTestCase {
             var props = (c["props"]?.any as? J) ?? [:]
             props["label"] = "N"
             props["name"] = "n"
-            props["value"] = obj(["path": "/v"])
+            props["value"] = obj(["@path": "/v"])
             let m = try model(root([obj(["id": "n", "component": "NumberField", "props": props, "on": obj(["change": obj(["event": obj(["name": "change"])])])])]))
             if let v = c["value"], !v.isNull { m.setData(path: "/v", value: v) }
             let input = try XCTUnwrap(m.index(of: "n.input"), name)
@@ -104,7 +104,7 @@ final class Round1ModelTests: XCTestCase {
                 "id": "f", "component": "Form", "props": obj(["name": "f"]),
                 "on": obj(["submit": obj(["event": obj(["name": "submit"])]), "invalid": obj(["event": obj(["name": "invalid"])])]),
                 "children": [
-                    obj(["id": "agree", "component": "Checkbox", "props": obj(["label": "I agree", "name": "agree", "checked": obj(["path": "/agreed"]), "checks": c["checks"]?.any ?? [Any]()])]),
+                    obj(["id": "agree", "component": "Checkbox", "props": obj(["label": "I agree", "name": "agree", "checked": obj(["@path": "/agreed"]), "checks": c["checks"]?.any ?? [Any]()])]),
                     obj(["id": "go", "component": "Button", "props": obj(["label": "Send", "submit": true])]),
                 ],
             ])
@@ -157,7 +157,7 @@ final class Round1ModelTests: XCTestCase {
             for c in cases {
                 let name = "\(c["name"]?.string ?? "?")\(native ? " (selectPick)" : "")"
                 let host = Round1Host()
-                let m = try model(root([obj(["id": "s", "component": "Select", "props": obj(["label": "Status", "name": "s", "options": options, "value": obj(["path": "/v"])]), "on": obj(["change": obj(["event": obj(["name": "change"])])])])]), host: host)
+                let m = try model(root([obj(["id": "s", "component": "Select", "props": obj(["label": "Status", "name": "s", "options": options, "value": obj(["@path": "/v"])]), "on": obj(["change": obj(["event": obj(["name": "change"])])])])]), host: host)
                 if let v = c["value"], !v.isNull { m.setData(path: "/v", value: v) }
                 for i in c["presses"]?.array?.compactMap(\.number).map({ Int($0) }) ?? [] {
                     if native {
@@ -354,7 +354,7 @@ final class Round1ModelTests: XCTestCase {
 
     func testFieldKeysSegmentedKeysAndAFocusedToast() throws {
         let tree = root([
-            obj(["id": "n", "component": "NumberField", "props": obj(["label": "N", "name": "n", "value": obj(["path": "/v"]), "step": 1, "max": 100])]),
+            obj(["id": "n", "component": "NumberField", "props": obj(["label": "N", "name": "n", "value": obj(["@path": "/v"]), "step": 1, "max": 100])]),
             obj(["id": "g", "component": "Segmented", "props": obj(["items": [obj(["label": "A", "value": "a"]), obj(["label": "B", "value": "b"]), obj(["label": "C", "value": "c"])], "value": "a"])]),
             obj(["id": "toast", "component": "Toast", "props": obj(["title": "Saved", "duration": 0])]),
         ])
@@ -587,9 +587,9 @@ final class Round1ModelTests: XCTestCase {
     private func fieldWritesModel(pressPath: String?, pressValue: JSONValue?, seed: JSONValue, host: HostPlugin? = nil) throws -> SurfaceModel {
         var save: J = ["id": "save", "component": "Button", "props": obj(["label": "Save"])]
         if let pressPath {
-            save["on"] = obj(["press": obj(["functionCall": obj(["call": "set", "args": obj(["path": pressPath, "value": pressValue?.any ?? NSNull()])])])])
+            save["on"] = obj(["press": obj(["functionCall": obj(["@call": "set", "args": obj(["path": pressPath, "value": pressValue?.any ?? NSNull()])])])])
         }
-        let m = try model(root([obj(["id": "draft", "component": "Input", "props": obj(["label": "Draft", "name": "draft", "value": obj(["path": "/draft"])])]), save]), host: host)
+        let m = try model(root([obj(["id": "draft", "component": "Input", "props": obj(["label": "Draft", "name": "draft", "value": obj(["@path": "/draft"])])]), save]), host: host)
         m.setData(path: "/draft", value: seed)
         return m
     }

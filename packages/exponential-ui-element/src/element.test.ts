@@ -107,8 +107,8 @@ describe(`<exponential-surface>`, () => {
       id: `root`,
       component: `Stack`,
       children: [
-        { id: `n`, component: `Text`, props: { text: { call: `formatNumber`, args: { value: 1234.5 } } } },
-        { id: `d`, component: `Text`, props: { text: { call: `formatDate`, args: { value: `2026-10-14T23:30:00Z`, format: `MMM d, yyyy` } } } },
+        { id: `n`, component: `Text`, props: { text: { "@call": `formatNumber`, args: { value: 1234.5 } } } },
+        { id: `d`, component: `Text`, props: { text: { "@call": `formatDate`, args: { value: `2026-10-14T23:30:00Z`, format: `MMM d, yyyy` } } } },
       ],
     } as unknown as NestedNode
     const el = mount((e) => fixture(e, node, {}), { locale: `en-US`, "time-zone": `UTC` })
@@ -183,20 +183,20 @@ describe(`<exponential-surface>`, () => {
     const el = mount()
     expect(el.surfaceState).toBeNull()
     expect(el.issues).toEqual([])
-    el.apply({ createSurface: { surfaceId: `main`, catalogId: `https://a2ui.org/specification/v0_9/basic_catalog.json` } })
-    el.apply({ updateComponents: { surfaceId: `main`, components: [{ id: `root`, component: `Column`, children: [`t`] }, { id: `t`, component: `Text`, text: { path: `/greeting` } }] as never } })
-    el.apply({ updateDataModel: { surfaceId: `main`, path: `/greeting`, value: `Hello` } })
+    el.apply({ version: `1.0`, createSurface: { surfaceId: `main`, catalogId: `https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json` } })
+    el.apply({ version: `1.0`, updateComponents: { surfaceId: `main`, components: [{ id: `root`, component: `Column`, children: [`t`] }, { id: `t`, component: `Text`, text: { "@path": `/greeting` } }] as never } })
+    el.apply({ version: `1.0`, updateDataModel: { surfaceId: `main`, path: `/greeting`, value: `Hello` } })
     expect(el.surfaceState).not.toBeNull()
     expect(el.surfaceState!.root).not.toBeNull()
     expect(textOf(el, `t`)).toBe(`Hello`)
-    el.apply({ updateDataModel: { surfaceId: `main`, path: `/greeting`, value: `Bye` } })
+    el.apply({ version: `1.0`, updateDataModel: { surfaceId: `main`, path: `/greeting`, value: `Bye` } })
     expect(textOf(el, `t`)).toBe(`Bye`)
     el.setData(`/greeting`, `Set`)
     expect(textOf(el, `t`)).toBe(`Set`)
     expect(el.issues).toBe(el.surfaceState!.issues)
-    el.apply({ updateDataModel: { surfaceId: `elsewhere`, path: `/greeting`, value: `Nope` } })
+    el.apply({ version: `1.0`, updateDataModel: { surfaceId: `elsewhere`, path: `/greeting`, value: `Nope` } })
     expect(textOf(el, `t`)).toBe(`Set`)
-    el.apply({ deleteSurface: { surfaceId: `main` } })
+    el.apply({ version: `1.0`, deleteSurface: { surfaceId: `main` } })
     expect(el.querySelector(`[data-xui-id="t"]`)).toBeNull()
     expect(el.surfaceState!.deleted).toBe(true)
   })
@@ -205,7 +205,7 @@ describe(`<exponential-surface>`, () => {
     const { createSurface } = await import(`./index`)
     const store = createSurface({ surfaceId: `main` })
     const el = mount((e) => (e.surface = store))
-    el.apply({ updateComponents: { surfaceId: `main`, components: [{ id: `root`, component: `Text`, text: `From the store` }] as never } })
+    el.apply({ version: `1.0`, updateComponents: { surfaceId: `main`, components: [{ id: `root`, component: `Text`, text: `From the store` }] as never } })
     expect(store.root).not.toBeNull()
     expect(el.surfaceState).toBe(store)
     expect(textOf(el, `root`)).toBe(`From the store`)

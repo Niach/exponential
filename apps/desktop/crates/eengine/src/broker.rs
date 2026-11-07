@@ -98,12 +98,12 @@ pub enum CallFrom {
 }
 
 /// A call's name → `(capability, tool)`: `<capability>__<tool>` from an
-/// agent, `<capability>.<tool>` from app UI; `None` for any other form or a
+/// agent, `<capability>_<tool>` from app UI (round 9 §6.3: the first `_`); `None` for any other form or a
 /// reserved name.
 pub fn parse_capability_call(from: CallFrom, name: &str) -> Option<(String, String)> {
     let sep = match from {
         CallFrom::Agent => "__",
-        CallFrom::Ui => ".",
+        CallFrom::Ui => "_",
     };
     let (capability, tool) = name.split_once(sep)?;
     if !name_part(capability) || !name_part(tool) || RESERVED_NAMES.iter().any(|r| r == capability) {
@@ -272,7 +272,7 @@ pub fn args_hash(args: &Value) -> String {
 pub fn broker_audit_row(app_id: &str, client: Option<&str>, call: &BrokerCall, verdict: &Verdict, outcome: Option<CallOutcome>) -> BrokerAuditRow {
     let tool = match (&verdict.capability, &verdict.tool) {
         (Some(c), Some(t)) => format!("{c}__{t}"),
-        _ if call.from == CallFrom::Ui => call.name.replacen('.', "__", 1),
+        _ if call.from == CallFrom::Ui => call.name.replacen('_', "__", 1),
         _ => call.name.clone(),
     };
     let client_id = match call.from {

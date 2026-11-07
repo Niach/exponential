@@ -108,7 +108,7 @@ pub fn record_form_fields(kind: &Value, path: &str) -> Vec<Value> {
         }
         let ty = f.get("type").and_then(Value::as_str).unwrap_or("");
         let format = f.get("format").and_then(Value::as_str);
-        let value = json!({"path": format!("{path}/{name}")});
+        let value = json!({"@path": format!("{path}/{name}")});
         let is_required = req.contains(&name);
         let mut o = Map::new();
         o.insert("name".into(), json!(name));
@@ -125,7 +125,7 @@ pub fn record_form_fields(kind: &Value, path: &str) -> Vec<Value> {
         if reference == Some("member") || reference == Some("issue") {
             widget = "select";
             let list = if reference == Some("member") { RECORD_MEMBERS_PATH } else { RECORD_ISSUES_PATH };
-            o.insert("options".into(), json!({"path": format!("{list}/rows")}));
+            o.insert("options".into(), json!({"@path": format!("{list}/rows")}));
             o.insert("searchable".into(), json!(true));
         } else if ty == "boolean" {
             widget = "switch";
@@ -163,8 +163,8 @@ pub fn record_form_fields(kind: &Value, path: &str) -> Vec<Value> {
         } else if format == Some("date-time") {
             widget = "datetime";
             o.insert("wide".into(), json!(true));
-            o.insert("date".into(), json!({"path": format!("{path}Parts/{name}/date")}));
-            o.insert("time".into(), json!({"path": format!("{path}Parts/{name}/time")}));
+            o.insert("date".into(), json!({"@path": format!("{path}Parts/{name}/date")}));
+            o.insert("time".into(), json!({"@path": format!("{path}Parts/{name}/time")}));
         } else if f.get("maxLength").and_then(Value::as_f64).is_none_or(|m| m > RECORD_LONG_TEXT) {
             widget = "textarea";
             o.insert("wide".into(), json!(true));
@@ -172,11 +172,11 @@ pub fn record_form_fields(kind: &Value, path: &str) -> Vec<Value> {
         o.insert("widget".into(), json!(widget));
         let mut checks = Vec::new();
         if is_required && widget != "switch" {
-            checks.push(json!({"condition": {"call": "required", "args": {"value": value}}, "message": "$string.required"}));
+            checks.push(json!({"condition": {"@call": "required", "args": {"value": value}}, "message": "$string.required"}));
         }
         if ty == "string" && f.get("enum").is_none() && widget != "select" {
             if let Some(max) = f.get("maxLength") {
-                checks.push(json!({"condition": {"call": "length", "args": {"value": value, "max": max}}, "message": "$string.invalidValue"}));
+                checks.push(json!({"condition": {"@call": "length", "args": {"value": value, "max": max}}, "message": "$string.invalidValue"}));
             }
         }
         if (ty == "number" || ty == "integer") && (f.contains_key("minimum") || f.contains_key("maximum")) {
@@ -188,7 +188,7 @@ pub fn record_form_fields(kind: &Value, path: &str) -> Vec<Value> {
             if let Some(m) = f.get("maximum") {
                 args.insert("max".into(), m.clone());
             }
-            checks.push(json!({"condition": {"call": "numeric", "args": args}, "message": "$string.invalidValue"}));
+            checks.push(json!({"condition": {"@call": "numeric", "args": args}, "message": "$string.invalidValue"}));
         }
         if !checks.is_empty() {
             o.insert("checks".into(), Value::Array(checks));
@@ -246,7 +246,7 @@ pub fn record_table_columns(kind: &Value, columns: Option<&[String]>, editable: 
 }
 
 fn set(path: &str, value: Value) -> Value {
-    json!({"functionCall": {"call": "set", "args": {"path": path, "value": value}}})
+    json!({"functionCall": {"@call": "set", "args": {"path": path, "value": value}}})
 }
 
 fn set_on(node: &mut Map<String, Value>, event: &str, action: Value) {
@@ -261,32 +261,32 @@ fn set_on(node: &mut Map<String, Value>, event: &str, action: Value) {
 /// A date-time field's value: its picked day + time in the team zone; no
 /// day picked = the draft's value as it is.
 fn date_time_value(f: &Value) -> Value {
-    json!({"call": "cond", "args": {"if": f.get("date"), "then": {"call": "dateTime", "args": {"date": f.get("date"), "time": f.get("time")}}, "else": f.get("value")}})
+    json!({"@call": "cond", "args": {"if": f.get("date"), "then": {"@call": "dateTime", "args": {"date": f.get("date"), "time": f.get("time")}}, "else": f.get("value")}})
 }
 
 fn my_id() -> Value {
-    json!({"path": format!("{RECORD_MEMBERS_PATH}/me")})
+    json!({"@path": format!("{RECORD_MEMBERS_PATH}/me")})
 }
 
 /// The Author Select's options: the members for a team owner, else none (so
 /// no picker).
 fn author_options() -> Value {
-    let rows = json!({"path": format!("{RECORD_MEMBERS_PATH}/rows")});
-    let mine = json!({"call": "filter", "args": {"items": rows, "where": {"id": my_id(), "role": "owner"}}});
-    json!({"call": "cond", "args": {"if": {"call": "lt", "args": {"a": 0, "b": {"call": "len", "args": {"value": mine}}}}, "then": rows, "else": null}})
+    let rows = json!({"@path": format!("{RECORD_MEMBERS_PATH}/rows")});
+    let mine = json!({"@call": "filter", "args": {"items": rows, "where": {"id": my_id(), "role": "owner"}}});
+    json!({"@call": "cond", "args": {"if": {"@call": "lt", "args": {"a": 0, "b": {"@call": "len", "args": {"value": mine}}}}, "then": rows, "else": null}})
 }
 
 /// The form's `author`: an owner's pick, only when it moved off the record's
 /// author (domain-contract app-records.json `formAuthor`), else nothing.
 fn author_arg(path: &str) -> Value {
-    let picked = json!({"path": format!("{path}Author")});
-    let base = json!({"path": format!("{path}AuthorBase")});
-    json!({"call": "cond", "args": {"if": author_options(), "then": {"call": "cond", "args": {"if": {"call": "or", "args": {"values": [{"call": "not", "args": {"value": picked}}, {"call": "eq", "args": {"a": picked, "b": base}}]}}, "then": null, "else": picked}}, "else": null}})
+    let picked = json!({"@path": format!("{path}Author")});
+    let base = json!({"@path": format!("{path}AuthorBase")});
+    json!({"@call": "cond", "args": {"if": author_options(), "then": {"@call": "cond", "args": {"if": {"@call": "or", "args": {"values": [{"@call": "not", "args": {"value": picked}}, {"@call": "eq", "args": {"a": picked, "b": base}}]}}, "then": null, "else": picked}}, "else": null}})
 }
 
 fn has_issue_ref(fields: &[Value]) -> bool {
     let rows = format!("{RECORD_ISSUES_PATH}/rows");
-    fields.iter().any(|f| f.get("options").and_then(|o| o.get("path")).and_then(Value::as_str) == Some(rows.as_str()))
+    fields.iter().any(|f| f.get("options").and_then(|o| o.get("@path")).and_then(Value::as_str) == Some(rows.as_str()))
 }
 
 fn bind_once(binds: &mut Vec<Value>, source: &str, path: &str) {
@@ -301,10 +301,10 @@ fn edit_action(base: &str, fields: &[Value]) -> Value {
     let mut parts = Map::new();
     for f in fields {
         let Some(name) = f.get("name").and_then(Value::as_str).filter(|_| f.get("widget").and_then(Value::as_str) == Some("datetime")) else { continue };
-        let value = json!({"path": name});
-        parts.insert(name.into(), json!({"date": {"call": "formatDate", "args": {"value": value, "format": "yyyy-MM-dd"}}, "time": {"call": "formatDate", "args": {"value": value, "format": "HH:mm"}}}));
+        let value = json!({"@path": name});
+        parts.insert(name.into(), json!({"date": {"@call": "formatDate", "args": {"value": value, "format": "yyyy-MM-dd"}}, "time": {"@call": "formatDate", "args": {"value": value, "format": "HH:mm"}}}));
     }
-    let mut editor = json!({"open": true, "draft": {"path": ""}, "draftAuthor": {"call": "coalesce", "args": {"values": [{"path": "authorId"}, my_id()]}}, "draftAuthorBase": {"path": "authorId"}});
+    let mut editor = json!({"open": true, "draft": {"@path": ""}, "draftAuthor": {"@call": "coalesce", "args": {"values": [{"@path": "authorId"}, my_id()]}}, "draftAuthorBase": {"@path": "authorId"}});
     if !parts.is_empty() {
         editor["draftParts"] = Value::Object(parts);
     }
@@ -318,7 +318,7 @@ fn upsert_action(kind: &str, fields: &[Value], record_id: Option<&Value>, path: 
             let value = if f.get("widget").and_then(Value::as_str) == Some("datetime") { date_time_value(f) } else { value.clone() };
             // VAPP-206: an optional field left "" (an unpicked Select, an
             // emptied Input) writes null: absent on a create, cleared on a patch.
-            let bound = if f.get("required") == Some(&Value::Bool(true)) { value } else { json!({"call": "expr", "args": {"expr": "v == '' ? null : v", "vars": {"v": value}, "default": null}}) };
+            let bound = if f.get("required") == Some(&Value::Bool(true)) { value } else { json!({"@call": "expr", "args": {"expr": "v == '' ? null : v", "vars": {"v": value}, "default": null}}) };
             data.insert(name.into(), bound);
         }
     }
@@ -334,7 +334,7 @@ fn upsert_action(kind: &str, fields: &[Value], record_id: Option<&Value>, path: 
         form["close"] = json!(close);
     }
     args.insert("form".into(), form);
-    json!({"functionCall": {"call": "records.upsert", "args": args}})
+    json!({"functionCall": {"@call": "records_upsert", "args": args}})
 }
 
 /// True when a template uses a record macro.
@@ -377,8 +377,8 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
                 node.insert("readOnly".into(), json!(true));
             }
             if node.get("readOnly") != Some(&Value::Bool(true)) {
-                node.insert("error".into(), json!({"path": format!("{path}Error")}));
-                node.insert("author".into(), json!({"path": format!("{path}Author")}));
+                node.insert("error".into(), json!({"@path": format!("{path}Error")}));
+                node.insert("author".into(), json!({"@path": format!("{path}Author")}));
                 node.insert("authorOptions".into(), author_options());
                 bind_once(&mut binds, MEMBERS_SOURCE, RECORD_MEMBERS_PATH);
             }
@@ -398,9 +398,9 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         let title = kind.get("title").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| field_label(&kind_name));
         node.insert("title".into(), json!(title));
         node.insert("cols".into(), Value::Array(record_table_columns(kind, columns.as_deref(), editable)));
-        node.insert("rows".into(), json!({"path": format!("{base}/rows/rows")}));
-        node.insert("count".into(), json!({"call": "pluralize", "args": {"value": {"call": "coalesce", "args": {"values": [{"path": format!("{base}/rows/count")}, 0]}}, "one": "$string.recordCountOne", "other": "$string.recordCount"}}));
-        node.insert("loading".into(), json!({"call": "not", "args": {"value": {"path": format!("{base}/rows")}}}));
+        node.insert("rows".into(), json!({"@path": format!("{base}/rows/rows")}));
+        node.insert("count".into(), json!({"@call": "pluralize", "args": {"value": {"@call": "coalesce", "args": {"values": [{"@path": format!("{base}/rows/count")}, 0]}}, "one": "$string.recordCountOne", "other": "$string.recordCount"}}));
+        node.insert("loading".into(), json!({"@call": "not", "args": {"value": {"@path": format!("{base}/rows")}}}));
         if read_only {
             node.insert("add".into(), json!(false));
         }
@@ -409,22 +409,22 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         if editable {
             node.insert("fields".into(), Value::Array(fields.clone()));
             node.insert("path".into(), json!(draft));
-            node.insert("error".into(), json!({"path": format!("{draft}Error")}));
-            node.insert("author".into(), json!({"path": format!("{draft}Author")}));
+            node.insert("error".into(), json!({"@path": format!("{draft}Error")}));
+            node.insert("author".into(), json!({"@path": format!("{draft}Author")}));
             node.insert("authorOptions".into(), author_options());
             bind_once(&mut binds, MEMBERS_SOURCE, RECORD_MEMBERS_PATH);
             if has_issue_ref(&fields) {
                 bind_once(&mut binds, ISSUES_SOURCE, RECORD_ISSUES_PATH);
             }
-            node.insert("editorOpen".into(), json!({"path": format!("{base}/editor/open")}));
-            node.insert("editorId".into(), json!({"path": format!("{draft}/id")}));
-            node.insert("deleteOpen".into(), json!({"path": format!("{base}/delete/open")}));
+            node.insert("editorOpen".into(), json!({"@path": format!("{base}/editor/open")}));
+            node.insert("editorId".into(), json!({"@path": format!("{draft}/id")}));
+            node.insert("deleteOpen".into(), json!({"@path": format!("{base}/delete/open")}));
             set_on(&mut node, "add", set(&format!("{base}/editor"), json!({"open": true, "draft": {}, "draftAuthor": my_id(), "draftAuthorBase": my_id()})));
             set_on(&mut node, "edit", edit_action(&base, &fields));
-            set_on(&mut node, "delete", set(&format!("{base}/delete"), json!({"open": true, "id": {"path": "id"}})));
-            set_on(&mut node, "submit", upsert_action(&kind_name, &fields, Some(&json!({"path": format!("{draft}/id")})), &draft, Some(format!("{base}/editor/open").as_str())));
+            set_on(&mut node, "delete", set(&format!("{base}/delete"), json!({"open": true, "id": {"@path": "id"}})));
+            set_on(&mut node, "submit", upsert_action(&kind_name, &fields, Some(&json!({"@path": format!("{draft}/id")})), &draft, Some(format!("{base}/editor/open").as_str())));
             set_on(&mut node, "cancel", set(&format!("{base}/editor/open"), json!(false)));
-            set_on(&mut node, "confirm", json!({"functionCall": {"call": "records.delete", "args": {"id": {"path": format!("{base}/delete/id")}}}}));
+            set_on(&mut node, "confirm", json!({"functionCall": {"@call": "records_delete", "args": {"id": {"@path": format!("{base}/delete/id")}}}}));
             set_on(&mut node, "cancelDelete", set(&format!("{base}/delete/open"), json!(false)));
         } else {
             node.insert("add".into(), json!(false));
@@ -437,11 +437,11 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         let mut row = Map::new();
         row.insert("id".into(), json!(format!("{id}__row")));
         row.insert("component".into(), json!("Row"));
-        row.insert("title".into(), json!({"call": "coalesce", "args": {"values": [{"call": "text", "args": {"value": {"path": first}}}, "—"]}}));
+        row.insert("title".into(), json!({"@call": "coalesce", "args": {"values": [{"@call": "text", "args": {"value": {"@path": first}}}, "—"]}}));
         if let Some(second) = shown.get(1) {
-            row.insert("subtitle".into(), json!({"call": "coalesce", "args": {"values": [{"call": "text", "args": {"value": {"path": second}}}, ""]}}));
+            row.insert("subtitle".into(), json!({"@call": "coalesce", "args": {"values": [{"@call": "text", "args": {"value": {"@path": second}}}, ""]}}));
         }
-        row.insert("meta".into(), json!({"call": "formatRelativeTime", "args": {"value": {"path": "updatedAt"}}}));
+        row.insert("meta".into(), json!({"@call": "formatRelativeTime", "args": {"value": {"@path": "updatedAt"}}}));
         if editable {
             row.insert("on".into(), json!({"press": edit_action(&base, &fields)}));
             // The row's own Delete (the table's Delete cell is hidden on phones).
@@ -477,11 +477,11 @@ pub fn record_macro_issues(pkg: &Map<String, Value>) -> Vec<(String, String)> {
             }
             let at = format!("/templates/{id}/components/{i}");
             let writes = if component == "RecordForm" { c.get("readOnly") != Some(&Value::Bool(true)) } else { c.get("editable") != Some(&Value::Bool(false)) };
-            if writes && !allows("records.upsert") {
-                issues.push((at.clone(), format!("{component} writes with records.upsert: list it in functions")));
+            if writes && !allows("records_upsert") {
+                issues.push((at.clone(), format!("{component} writes with records_upsert: list it in functions")));
             }
-            if component == "RecordTable" && writes && !allows("records.delete") {
-                issues.push((at.clone(), "RecordTable deletes with records.delete: list it in functions".into()));
+            if component == "RecordTable" && writes && !allows("records_delete") {
+                issues.push((at.clone(), "RecordTable deletes with records_delete: list it in functions".into()));
             }
             if component == "RecordTable" {
                 if let (Some(kind), Some(list)) = (c.get("kind").and_then(Value::as_str), sources.as_deref()) {

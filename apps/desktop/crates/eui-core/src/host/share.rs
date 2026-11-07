@@ -127,7 +127,7 @@ fn template_issues(pkg: &Map<String, Value>, s: &Map<String, Value>, at: &str, k
             say(&mut issues, format!("uses the extension component {}: a guest's page has no extensions", show(what)));
         }
         for handler in component.get("on").and_then(Value::as_object).into_iter().flat_map(Map::values) {
-            if let Some(call) = handler.get("functionCall").and_then(|f| f.get("call")).and_then(Value::as_str) {
+            if let Some(call) = handler.get("functionCall").and_then(|f| f.get("@call")).and_then(Value::as_str) {
                 if !GUEST_CALLS.contains(&call) {
                     say(&mut issues, format!("calls {call}: a guest's page only reads"));
                 }

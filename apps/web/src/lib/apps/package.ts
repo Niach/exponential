@@ -3,7 +3,10 @@ import {
   ACTION_LIMITS,
   PACKAGE_TEST_LIMITS,
   EXPOSES_LIMITS,
+  ACCEPT_V09,
   PACKAGE_FORMAT_VERSION,
+  PACKAGE_FORMAT_VERSION_09,
+  bridgePackage,
   availableExtensions,
   defineExtension,
   packageScreens,
@@ -16,7 +19,7 @@ import { catalogPrompt, componentPrompt } from "@exponential_app/eui/prompt"
 import extensionJson from "@exp/ui/exponential-ui/extension.json"
 import { APP_PACKAGE_MAX_BYTES, APP_RECORD_KINDS_MAX, APP_RECORD_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS, APPS_SCREENS } from "@exp/domain-contract/apps"
 import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
-import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS, storedAction } from "@exp/domain-contract/app-actions"
 import { validateExposes, type Expose } from "@exp/emcp/exposes"
 import { UPSTREAM_BINDING, upstreamDeclareIssues } from "@exp/emcp/upstream"
 import { AUTOMATIONS_LIMITS, validateAutomations } from "@exp/emcp/automations"
@@ -57,9 +60,17 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   if (bytes > APP_PACKAGE_MAX_BYTES) {
     return { ...none, rules: [{ path: `/`, message: `package is ${bytes} bytes; the cap is ${APP_PACKAGE_MAX_BYTES}: simplify it` }] }
   }
-  const sdk = validatePackage(pkg, APP_CATALOG_IDS, APP_EXTENSIONS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
+  // Round 9 §14: a stored package syncs to every client, and a released one
+  // reads format 5 alone.
+  if (ACCEPT_V09 && (pkg as { formatVersion?: unknown }).formatVersion === PACKAGE_FORMAT_VERSION) {
+    return { ...none, rules: [{ path: `/formatVersion`, message: `format ${PACKAGE_FORMAT_VERSION} is not stored yet: write formatVersion ${PACKAGE_FORMAT_VERSION_09}` }] }
+  }
+  // Round 9 §12: format 5 is what the server stores until the flag day; every
+  // check reads its upgraded form, what every client runs.
+  const upgraded = bridgePackage(pkg)
+  const sdk = validatePackage(upgraded, APP_CATALOG_IDS, APP_EXTENSIONS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
   if (sdk.length > 0) return { ...none, sdk }
-  const valid = pkg as AppPackage
+  const valid = upgraded as AppPackage
   const rules: PackageIssue[] = []
   // VAPP-107: an app's bindings follow only what it declares, and only the
   // sources every client's app host resolves (the SDK treats a missing list
@@ -114,7 +125,7 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
     // VAPP-181: the broker never chains tools across apps, so an exposed tool
     // never reaches an app (its own included) through exponential.apps.*.
     valid.exposes.forEach((expose, index) => {
-      if (`action` in expose.run && expose.run.action.startsWith(`exponential.apps.`)) {
+      if (`action` in expose.run && expose.run.action.startsWith(`exponential_apps_`)) {
         rules.push({ path: `/exposes/${index}/run/action`, message: `an exposed tool never reaches an app through exponential.apps.*: read or write this app's records with a records binding` })
       }
     })
@@ -295,7 +306,7 @@ export function appCatalogText(): string {
   const functions = APP_HOST_FUNCTIONS.map((f) => `- ${f.name}(${f.args}): ${f.effect}`).join(`\n`)
   return [
     `# App package`,
-    `A package = {formatVersion: ${PACKAGE_FORMAT_VERSION} (REQUIRED, exactly this), id, name, version, catalogId: "${appExtension.id}" (the Exponential app extension over the core catalog; "${APP_CATALOG_IDS[0]}" = the core alone), templates: {<templateId>: {components: [flat components, one with id "root"], data?: the initial data model, bindings?: [{path: "/json/pointer", source: "exp:…" | "records:<kind>?…"}]}}, functions?: [the host functions its surfaces may call: a name or a prefix like "records.*"], sources: [the sources its bindings follow ("exp:issues", "records:*"…), REQUIRED, [] for none: a binding to an undeclared source never resolves], theme?: a built-in theme id, icon?: {glyph, color}, description?}. The editor renders the FIRST template. Components are FLAT: every child is an id, children: [ids] or {componentId, path, key?} for a bound list.`,
+    `A package = {formatVersion: ${PACKAGE_FORMAT_VERSION_09} (REQUIRED, exactly this), id, name, version, catalogId: "${appExtension.id}" (the Exponential app extension over the core catalog; "${APP_CATALOG_IDS[0]}" = the core alone), templates: {<templateId>: {components: [flat components, one with id "root"], data?: the initial data model, bindings?: [{path: "/json/pointer", source: "exp:…" | "records:<kind>?…"}]}}, functions?: [the host functions its surfaces may call: a name or a prefix like "records.*"], sources: [the sources its bindings follow ("exp:issues", "records:*"…), REQUIRED, [] for none: a binding to an undeclared source never resolves], theme?: a built-in theme id, icon?: {glyph, color}, description?}. The editor renders the FIRST template. Components are FLAT: every child is an id, children: [ids] or {componentId, path, key?} for a bound list.`,
     `Cap: ${APP_PACKAGE_MAX_BYTES} bytes per package, ${APP_TEMPLATE_MAX_COMPONENTS} components per template.`,
     ``,
     `# Bindings (sources the clients resolve, written into the data model at path)`,
@@ -303,7 +314,7 @@ export function appCatalogText(): string {
     ``,
     `# Host functions (on: {press: {functionCall: {call, args}}}; list the ones you use in functions)`,
     functions,
-    `- exponential.<noun>.<op>({…the op's fields}): VAPP-120: every Exponential MCP operation as a typed function, run as the viewer (${APP_ACTIONS.length} names; list what you call in functions, exactly or as exponential.<noun>.*): ${APP_ACTIONS.map((n) => n.slice(`exponential.`.length)).join(`, `)}. A call asks the person with the operation's own words unless a team owner granted that action on the app's settings page (then it runs without asking); a destructive operation (delete, merge, close, end, remove, trash) can never be granted and always asks; harness.mcp stays the raw escape hatch and always asks.`,
+    `- exponential.<noun>.<op>({…the op's fields}): VAPP-120: every Exponential MCP operation as a typed function, run as the viewer (${APP_ACTIONS.length} names; list what you call in functions, exactly or as exponential.<noun>.*): ${APP_ACTIONS.map((n) => storedAction(n).slice(`exponential.`.length)).join(`, `)}. A call asks the person with the operation's own words unless a team owner granted that action on the app's settings page (then it runs without asking); a destructive operation (delete, merge, close, end, remove, trash) can never be granted and always asks; harness.mcp stays the raw escape hatch and always asks.`,
     `- openUrl({url}), Link.href, Row.href, Button.href: a link through the URL policy; ~/x = the app's team (~/issues/<identifier>, ~/devices, ~/apps/<slug>/<screen>?k=v). href is a literal; a link per list row = on: {press: {functionCall: {call: "openUrl", args: {url: {call: "formatString", args: {value: "~/issues/\${identifier}"}}}}}}. A link at ANOTHER app opens only a screen it declares exposed, with its required params; exponential_apps get lists an app's linkableScreens. app.navigate({screen, params?}) = this app's own screens (a screen with nav: false stays out of the navigation)`,
     `- bind({path, source, params?}): a built-in: re-follows a data model path from a source with params appended as its query (the month switcher: bind {path: "/entries", source: "records:entry?by=date", params: {month: {path: "/entries/month/prev"}}}); list it in functions too`,
     ``,

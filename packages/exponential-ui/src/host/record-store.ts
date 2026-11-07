@@ -1,6 +1,6 @@
 // VAPP-161: the format's NEUTRAL records (docs/package-format.md "Records").
 // A surface reads a kind through the binding `records:<kind>?query` and
-// writes through the host functions `records.upsert` / `records.delete`;
+// writes through the host functions `records_upsert` / `records_delete`;
 // the HOST provides the store (Exponential: its synced store, spezl: a p2p
 // store over eNet). `RecordStore` is what a host implements;
 // `MemoryRecordStore` + `recordsHost` are the reference; the query and its
@@ -15,7 +15,7 @@ import { RecordRefusal } from "./record-macros"
 import type { SourceResolver } from "./sources"
 
 /** The write functions (no consent card: the app's own rows). */
-export const RECORDS_FUNCTIONS: readonly string[] = [`records.upsert`, `records.delete`, RECORDS_BATCH_FUNCTION]
+export const RECORDS_FUNCTIONS: readonly string[] = [`records_upsert`, `records_delete`, RECORDS_BATCH_FUNCTION]
 
 /** What a host provides: one package's records, any transport. */
 export interface RecordStore {
@@ -115,7 +115,7 @@ export function recordsHost(
       },
     },
     functions: {
-      "records.upsert": async (args) => {
+      "records_upsert": async (args) => {
         const id = typeof args.id === `string` && args.id ? args.id : undefined
         const data = isObject(args.data) ? args.data : {}
         const base = id ? store.get(id) : undefined
@@ -125,7 +125,7 @@ export function recordsHost(
         if (issues.length) throw new RecordRefusal(`records: ${issues.map((i) => `${i.path || `/`} ${i.message}`).join(`; `)}`)
         return store.upsert({ kind, data, ...(id ? { id } : {}) })
       },
-      "records.delete": async (args) => {
+      "records_delete": async (args) => {
         await store.delete(String(args.id ?? ``))
         return null
       },

@@ -46,12 +46,12 @@ describe(`format.json (§3)`, () => {
 
   test(`the English fallback equals Intl en-US (the platform ICU) on every call`, () => {
     const intl = formatFunctions(intlFormatter(`en-US`, `UTC`)) as Record<string, (args: Record<string, unknown>) => unknown>
-    for (const c of formatFixture.calls) expect(dateTimeJoiner(intl[c.call.call](c.call.args)), c.name).toEqual(dateTimeJoiner(c.expected))
+    for (const c of formatFixture.calls) expect(dateTimeJoiner(intl[c.call[`@call`]](c.call.args)), c.name).toEqual(dateTimeJoiner(c.expected))
   })
 
   test(`zoned: the fallback at the host's offset = Intl in the IANA zone`, () => {
     for (const c of formatFixture.zoned) {
-      const call = c.call.call as `formatDate`
+      const call = c.call[`@call`] as `formatDate`
       expect(formatFunctions(englishFormatter(fixedOffset(c.offsetMinutes)))[call](c.call.args), c.name).toBe(c.expected)
       expect(dateTimeJoiner(formatFunctions(intlFormatter(`en-US`, c.timeZone))[call](c.call.args)), `${c.name} (Intl)`).toBe(dateTimeJoiner(c.expected))
       const at = typeof c.call.args.value === `number` ? c.call.args.value : Date.parse(String(c.call.args.value))
@@ -72,11 +72,11 @@ describe(`format.json (§3)`, () => {
 
   test(`a surface Formatter replaces the fallback (locale + time zone)`, () => {
     const de = intlFormatter(`de-DE`, `Europe/Berlin`)
-    expect(resolveDynamic({ call: `formatNumber`, args: { value: 1234.5678 } }, {}, { formatter: de })).toBe(`1.234,568`)
-    expect(resolveDynamic({ call: `formatDate`, args: { value: `2026-10-14T22:30:00Z`, format: `HH:mm` } }, {}, { formatter: de })).toBe(`00:30`)
-    expect(resolveDynamic({ call: `formatRelativeTime`, args: { value: 1000 } }, {}, { now: () => 61_000 })).toBe(`1 minute ago`)
+    expect(resolveDynamic({ "@call": `formatNumber`, args: { value: 1234.5678 } }, {}, { formatter: de })).toBe(`1.234,568`)
+    expect(resolveDynamic({ "@call": `formatDate`, args: { value: `2026-10-14T22:30:00Z`, format: `HH:mm` } }, {}, { formatter: de })).toBe(`00:30`)
+    expect(resolveDynamic({ "@call": `formatRelativeTime`, args: { value: 1000 } }, {}, { now: () => 61_000 })).toBe(`1 minute ago`)
     const loud: Formatter = { ...englishFormatter(), number: (v) => `#${v}` }
-    expect(resolveDynamic({ call: `formatNumber`, args: { value: 3 } }, {}, { formatter: loud })).toBe(`#3`)
+    expect(resolveDynamic({ "@call": `formatNumber`, args: { value: 3 } }, {}, { formatter: loud })).toBe(`#3`)
   })
 
   test(`display strings: ECMAScript Number→String, booleans, nothing else`, () => {
@@ -116,7 +116,7 @@ describe(`template-items.json (§4)`, () => {
 
   test(`the kitchen sink's list template renders only per item`, () => {
     const result = kitchenExpanded as unknown as { root: UiNode; templates?: Record<string, UiNode> }
-    expect(Object.keys(result.templates ?? {})).toEqual([`list-item`])
+    expect(Object.keys(result.templates ?? {})).toEqual([`list_item`])
     expect(preorder(result.root)).not.toContain(`list-item`)
   })
 })
@@ -177,11 +177,11 @@ describe(`decisions, by hand (the fixtures above come from the reference)`, () =
       { id: `l`, component: `List`, children: { componentId: `col`, path: `/items` } },
     ]
     const r = reduceSurface(flat, { catalogId: CORE_CATALOG_ID })
-    expect(r.issues).toEqual([{ id: `col`, message: `template: cycle through this id` }])
+    expect(r.issues).toEqual([{ id: `col`, message: `template: cycle through this id`, code: `VALIDATION_FAILED`, path: `/components/col` }])
     expect(r.templates).toBeUndefined()
     expect(preorder(r.root)).toEqual([`root`, `col`, `l`])
     const self = reduceNested({ id: `root`, component: `Box`, children: [{ id: `l`, component: `List`, template: { component: `l`, path: `/x` } }] }, { catalogId: CORE_CATALOG_ID })
-    expect(self.issues).toEqual([{ id: `l`, message: `template: cycle through this id` }])
+    expect(self.issues).toEqual([{ id: `l`, message: `template: cycle through this id`, code: `VALIDATION_FAILED`, path: `/components/l` }])
     expect(preorder(self.root)).toEqual([`root`, `l`])
   })
 
@@ -269,7 +269,7 @@ describe(`virtual-list.json (§5)`, () => {
 
   test(`List sections are row-scoped and a header binds its section`, () => {
     expect(coreCatalog.components.List.slotScope).toBe(`row`)
-    const header: UiNode = { id: `h`, component: `Text`, props: { text: { call: `concat`, args: { values: [{ path: `value` }, ` · `, { path: `count` }, ` · `, { path: `/title` }] } } }, children: [] }
+    const header: UiNode = { id: `h`, component: `Text`, props: { text: { "@call": `concat`, args: { values: [{ "@path": `value` }, ` · `, { "@path": `count` }, ` · `, { "@path": `/title` }] } } }, children: [] }
     expect(bindSectionHeader(header, { value: `Today`, count: 2 }, 0, { title: `Inbox` })?.props.text).toBe(`Today · 2 · Inbox`)
     const list: UiNode = { id: `l`, component: `List`, props: {}, children: [], slots: { section: header } }
     expect(bindTree(list, {})?.slots?.section).toBe(header)

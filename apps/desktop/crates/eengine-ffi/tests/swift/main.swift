@@ -43,8 +43,8 @@ final class Pinned: EngineClock, @unchecked Sendable {
 }
 
 let package = #"""
-{"formatVersion":5,"id":"acme.album","name":"Album","version":"1.0.0","catalogId":"https://ui.exponential.at/catalogs/core/v1",
- "functions":["records.*","app.navigate","photos.pick"],"sources":["records:*"],
+{"formatVersion":6,"id":"acme.album","name":"Album","version":"1.0.0","catalogId":"https://ui.exponential.at/catalogs/core/v1",
+ "functions":["records.*","app_navigate","photos_pick"],"sources":["records:*"],
  "records":{"note":{"title":"Note","schema":{"type":"object","properties":{"text":{"type":"string"}}},"policy":{"update":"author","delete":"owners"}}},
  "capabilities":[{"id":"photos.read","why":"Pick the photos for an album."}],
  "screens":[{"template":"albums","title":"Albums"},{"template":"page","title":"Page","nav":false}],
@@ -70,27 +70,27 @@ check(!app.queues(), "no sync provider: writes go to the store")
 let effects = json(try! app.event(eventJson: #"{"type":"launch"}"#)) as! [[String: Any]]
 check(effects.contains { $0["effect"] as? String == "flush" }, "launch flushes: \(effects)")
 check(nav.opened.last == "albums", "launch opens the first screen: \(nav.opened)")
-if case let .value(created) = try! app.call(name: "records.upsert", argsJson: #"{"kind":"note","data":{"text":"hi"}}"#, newIds: ["n1"]) {
+if case let .value(created) = try! app.call(name: "records_upsert", argsJson: #"{"kind":"note","data":{"text":"hi"}}"#, newIds: ["n1"]) {
     check(created == #"{"id":"n1"}"#, "upsert answers the id: \(created)")
 } else { check(false, "upsert refused") }
 check(count(app) == 1, "the record is there")
-_ = try! app.call(name: "app.navigate", argsJson: #"{"screen":"page"}"#, newIds: [])
+_ = try! app.call(name: "app_navigate", argsJson: #"{"screen":"page"}"#, newIds: [])
 check(nav.opened.last == "page", "navigate opens the screen")
 do { _ = try app.event(eventJson: "{"); check(false, "bad JSON throws") } catch EngineError.Invalid { check(true, "") } catch { check(false, "\(error)") }
 
 // The consent round trip.
-guard case let .ask(verdict, sheet) = try! app.call(name: "photos.pick", argsJson: "{}", newIds: []) else { fatalError("no sheet") }
+guard case let .ask(verdict, sheet) = try! app.call(name: "photos_pick", argsJson: "{}", newIds: []) else { fatalError("no sheet") }
 check(sheet.scope == "photos.read", "the sheet's scope")
 let title = ((json(sheet.componentsJson) as! [[String: Any]])[0]["title"] as? String) ?? ""
 check(title == "Allow Album to access your photos?", "the sheet's title: \(title)")
-if case let .value(picked) = try! app.answerConsent(name: "photos.pick", argsJson: "{}", verdictJson: verdict, answer: .allow) {
-    check(picked.contains(#""structuredContent":{"photos":[]}"#), "the capability ran: \(picked)")
+if case let .value(picked) = try! app.answerConsent(name: "photos_pick", argsJson: "{}", verdictJson: verdict, answer: .allow) {
+    check(picked.contains(#""photos":[]"#), "the capability ran: \(picked)")
 } else { check(false, "allow did not run the call") }
 check(app.grantsJson() == #"{"photos.read":"granted"}"#, "the grant persists: \(app.grantsJson())")
 check(keychain.values["eengine/grants/acme.album"]?.contains("granted") == true, "in the Vault")
 try! app.setGrant(scope: "photos.read", value: nil)
-if case .ask = try! app.call(name: "photos.pick", argsJson: "{}", newIds: []) { check(true, "") } else { check(false, "revoked: asks again") }
-if case let .refused(_, message) = try! app.call(name: "camera.capture", argsJson: "{}", newIds: []) {
+if case .ask = try! app.call(name: "photos_pick", argsJson: "{}", newIds: []) { check(true, "") } else { check(false, "revoked: asks again") }
+if case let .refused(_, message) = try! app.call(name: "camera_capture", argsJson: "{}", newIds: []) {
     check(message == "notDeclared", "undeclared: \(message)")
 } else { check(false, "camera.capture ran") }
 
@@ -106,7 +106,7 @@ if engineFeatures().contains("sqlite") {
         let e = try! Engine(host: host(dir), identity: .local(deviceId: "d-1"), providers: EngineProviders(vault: Keychain(), window: Nav()))
         let a = try! e.load(fileJson: package)
         _ = try! a.event(eventJson: #"{"type":"launch"}"#)
-        if round == 0 { _ = try! a.call(name: "records.upsert", argsJson: #"{"kind":"note","data":{}}"#, newIds: ["n1"]) }
+        if round == 0 { _ = try! a.call(name: "records_upsert", argsJson: #"{"kind":"note","data":{}}"#, newIds: ["n1"]) }
         check(count(a) == 1, "round \(round): the record survives")
     }
     try? FileManager.default.removeItem(atPath: dir)

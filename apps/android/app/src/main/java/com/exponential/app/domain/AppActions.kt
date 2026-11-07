@@ -6,104 +6,104 @@ import at.exponential.ui.json.JsonValue
 // `packages/domain-contract/src/app-actions.ts` (fixtures/app-actions.json is
 // the spec; `AppActionsTest` replays its `parseCases`, `grantCases`,
 // `declaredCases`, `consentCases` and `ownerOnlyCases` and locks [ALL], [TOOLS] and [Copy] to
-// the fixture): which `exponential.<noun>.<op>` functions exist, what a name
+// the fixture): which `exponential_<noun>_<op>` functions exist, what a name
 // resolves to, what a package declares, what an app's grants allow, and the
 // consent card's words. The display titles come from the generated contract
 // (`DomainContract.expTool*`).
 object AppActions {
-    const val PREFIX = "exponential."
+    const val PREFIX = "exponential_"
 
     /** The MCP tool (`exponential_issues`) and the noun's op (null for a verb tool). */
     data class Target(val tool: String, val op: String?)
 
     /** Every function name → what it runs, in the fixture's (sorted) order. */
     val TOOLS: Map<String, Target> = linkedMapOf(
-        "exponential.agents.get" to Target("exponential_agents", "get"),
-        "exponential.agents.list" to Target("exponential_agents", "list"),
-        "exponential.apps.catalog" to Target("exponential_apps", "catalog"),
-        "exponential.apps.delete" to Target("exponential_apps", "delete"),
-        "exponential.apps.get" to Target("exponential_apps", "get"),
-        "exponential.apps.handoff" to Target("exponential_apps", "handoff"),
-        "exponential.apps.list" to Target("exponential_apps", "list"),
-        "exponential.apps.records_delete" to Target("exponential_apps", "records_delete"),
-        "exponential.apps.records_list" to Target("exponential_apps", "records_list"),
-        "exponential.apps.records_upsert" to Target("exponential_apps", "records_upsert"),
-        "exponential.apps.upsert" to Target("exponential_apps", "upsert"),
-        "exponential.attachments.delete" to Target("exponential_attachments", "delete"),
-        "exponential.attachments.get" to Target("exponential_attachments", "get"),
-        "exponential.attachments.list" to Target("exponential_attachments", "list"),
-        "exponential.attachments.upload" to Target("exponential_attachments", "upload"),
-        "exponential.boards.create" to Target("exponential_boards", "create"),
-        "exponential.boards.delete" to Target("exponential_boards", "delete"),
-        "exponential.boards.get" to Target("exponential_boards", "get"),
-        "exponential.boards.list" to Target("exponential_boards", "list"),
-        "exponential.boards.set_repository" to Target("exponential_boards", "set_repository"),
-        "exponential.boards.update" to Target("exponential_boards", "update"),
-        "exponential.comments.create" to Target("exponential_comments", "create"),
-        "exponential.comments.delete" to Target("exponential_comments", "delete"),
-        "exponential.comments.list" to Target("exponential_comments", "list"),
-        "exponential.comments.update" to Target("exponential_comments", "update"),
-        "exponential.devices.account_login" to Target("exponential_devices", "account_login"),
-        "exponential.devices.list" to Target("exponential_devices", "list"),
-        "exponential.events.emit" to Target("exponential_events", "emit"),
-        "exponential.events.list" to Target("exponential_events", "list"),
-        "exponential.issues.activity" to Target("exponential_issues", "activity"),
-        "exponential.issues.create" to Target("exponential_issues", "create"),
-        "exponential.issues.delete" to Target("exponential_issues", "delete"),
-        "exponential.issues.get" to Target("exponential_issues", "get"),
-        "exponential.issues.labels_add" to Target("exponential_issues", "labels_add"),
-        "exponential.issues.labels_remove" to Target("exponential_issues", "labels_remove"),
-        "exponential.issues.list" to Target("exponential_issues", "list"),
-        "exponential.issues.relations_add" to Target("exponential_issues", "relations_add"),
-        "exponential.issues.relations_remove" to Target("exponential_issues", "relations_remove"),
-        "exponential.issues.show" to Target("exponential_issues", "show"),
-        "exponential.issues.subscribe" to Target("exponential_issues", "subscribe"),
-        "exponential.issues.unsubscribe" to Target("exponential_issues", "unsubscribe"),
-        "exponential.issues.update" to Target("exponential_issues", "update"),
-        "exponential.issues.update_status" to Target("exponential_issues", "update_status"),
-        "exponential.labels.create" to Target("exponential_labels", "create"),
-        "exponential.labels.delete" to Target("exponential_labels", "delete"),
-        "exponential.labels.get" to Target("exponential_labels", "get"),
-        "exponential.labels.list" to Target("exponential_labels", "list"),
-        "exponential.labels.update" to Target("exponential_labels", "update"),
-        "exponential.mcp_servers.create" to Target("exponential_mcp_servers", "create"),
-        "exponential.mcp_servers.delete" to Target("exponential_mcp_servers", "delete"),
-        "exponential.mcp_servers.list" to Target("exponential_mcp_servers", "list"),
-        "exponential.notifications.list" to Target("exponential_notifications", "list"),
-        "exponential.notifications.mark_read" to Target("exponential_notifications", "mark_read"),
-        "exponential.people.add" to Target("exponential_people", "add"),
-        "exponential.people.invites_create" to Target("exponential_people", "invites_create"),
-        "exponential.people.invites_list" to Target("exponential_people", "invites_list"),
-        "exponential.people.invites_revoke" to Target("exponential_people", "invites_revoke"),
-        "exponential.people.list" to Target("exponential_people", "list"),
-        "exponential.pr.close" to Target("exponential_pr", "close"),
-        "exponential.pr.files" to Target("exponential_pr", "files"),
-        "exponential.pr.merge" to Target("exponential_pr", "merge"),
-        "exponential.pr.open" to Target("exponential_pr", "open"),
-        "exponential.pr.retarget" to Target("exponential_pr", "retarget"),
-        "exponential.pr.unlink" to Target("exponential_pr", "unlink"),
-        "exponential.pr.update" to Target("exponential_pr", "update"),
-        "exponential.prompts.create" to Target("exponential_prompts", "create"),
-        "exponential.prompts.delete" to Target("exponential_prompts", "delete"),
-        "exponential.prompts.get" to Target("exponential_prompts", "get"),
-        "exponential.prompts.list" to Target("exponential_prompts", "list"),
-        "exponential.prompts.update" to Target("exponential_prompts", "update"),
-        "exponential.repositories.create" to Target("exponential_repositories", "create"),
-        "exponential.repositories.list" to Target("exponential_repositories", "list"),
-        "exponential.sessions.end" to Target("exponential_sessions", "end"),
-        "exponential.sessions.get" to Target("exponential_sessions", "get"),
-        "exponential.sessions.link" to Target("exponential_sessions", "link"),
-        "exponential.sessions.list" to Target("exponential_sessions", "list"),
-        "exponential.sessions.send" to Target("exponential_sessions_send", null),
-        "exponential.sessions.unlink" to Target("exponential_sessions", "unlink"),
-        "exponential.statuses.create" to Target("exponential_statuses", "create"),
-        "exponential.statuses.delete" to Target("exponential_statuses", "delete"),
-        "exponential.statuses.list" to Target("exponential_statuses", "list"),
-        "exponential.statuses.update" to Target("exponential_statuses", "update"),
-        "exponential.teams.create" to Target("exponential_teams", "create"),
-        "exponential.teams.get" to Target("exponential_teams", "get"),
-        "exponential.teams.list" to Target("exponential_teams", "list"),
-        "exponential.teams.update" to Target("exponential_teams", "update"),
+        "exponential_agents_get" to Target("exponential_agents", "get"),
+        "exponential_agents_list" to Target("exponential_agents", "list"),
+        "exponential_apps_catalog" to Target("exponential_apps", "catalog"),
+        "exponential_apps_delete" to Target("exponential_apps", "delete"),
+        "exponential_apps_get" to Target("exponential_apps", "get"),
+        "exponential_apps_handoff" to Target("exponential_apps", "handoff"),
+        "exponential_apps_list" to Target("exponential_apps", "list"),
+        "exponential_apps_records_delete" to Target("exponential_apps", "records_delete"),
+        "exponential_apps_records_list" to Target("exponential_apps", "records_list"),
+        "exponential_apps_records_upsert" to Target("exponential_apps", "records_upsert"),
+        "exponential_apps_upsert" to Target("exponential_apps", "upsert"),
+        "exponential_attachments_delete" to Target("exponential_attachments", "delete"),
+        "exponential_attachments_get" to Target("exponential_attachments", "get"),
+        "exponential_attachments_list" to Target("exponential_attachments", "list"),
+        "exponential_attachments_upload" to Target("exponential_attachments", "upload"),
+        "exponential_boards_create" to Target("exponential_boards", "create"),
+        "exponential_boards_delete" to Target("exponential_boards", "delete"),
+        "exponential_boards_get" to Target("exponential_boards", "get"),
+        "exponential_boards_list" to Target("exponential_boards", "list"),
+        "exponential_boards_set_repository" to Target("exponential_boards", "set_repository"),
+        "exponential_boards_update" to Target("exponential_boards", "update"),
+        "exponential_comments_create" to Target("exponential_comments", "create"),
+        "exponential_comments_delete" to Target("exponential_comments", "delete"),
+        "exponential_comments_list" to Target("exponential_comments", "list"),
+        "exponential_comments_update" to Target("exponential_comments", "update"),
+        "exponential_devices_account_login" to Target("exponential_devices", "account_login"),
+        "exponential_devices_list" to Target("exponential_devices", "list"),
+        "exponential_events_emit" to Target("exponential_events", "emit"),
+        "exponential_events_list" to Target("exponential_events", "list"),
+        "exponential_issues_activity" to Target("exponential_issues", "activity"),
+        "exponential_issues_create" to Target("exponential_issues", "create"),
+        "exponential_issues_delete" to Target("exponential_issues", "delete"),
+        "exponential_issues_get" to Target("exponential_issues", "get"),
+        "exponential_issues_labels_add" to Target("exponential_issues", "labels_add"),
+        "exponential_issues_labels_remove" to Target("exponential_issues", "labels_remove"),
+        "exponential_issues_list" to Target("exponential_issues", "list"),
+        "exponential_issues_relations_add" to Target("exponential_issues", "relations_add"),
+        "exponential_issues_relations_remove" to Target("exponential_issues", "relations_remove"),
+        "exponential_issues_show" to Target("exponential_issues", "show"),
+        "exponential_issues_subscribe" to Target("exponential_issues", "subscribe"),
+        "exponential_issues_unsubscribe" to Target("exponential_issues", "unsubscribe"),
+        "exponential_issues_update" to Target("exponential_issues", "update"),
+        "exponential_issues_update_status" to Target("exponential_issues", "update_status"),
+        "exponential_labels_create" to Target("exponential_labels", "create"),
+        "exponential_labels_delete" to Target("exponential_labels", "delete"),
+        "exponential_labels_get" to Target("exponential_labels", "get"),
+        "exponential_labels_list" to Target("exponential_labels", "list"),
+        "exponential_labels_update" to Target("exponential_labels", "update"),
+        "exponential_mcp_servers_create" to Target("exponential_mcp_servers", "create"),
+        "exponential_mcp_servers_delete" to Target("exponential_mcp_servers", "delete"),
+        "exponential_mcp_servers_list" to Target("exponential_mcp_servers", "list"),
+        "exponential_notifications_list" to Target("exponential_notifications", "list"),
+        "exponential_notifications_mark_read" to Target("exponential_notifications", "mark_read"),
+        "exponential_people_add" to Target("exponential_people", "add"),
+        "exponential_people_invites_create" to Target("exponential_people", "invites_create"),
+        "exponential_people_invites_list" to Target("exponential_people", "invites_list"),
+        "exponential_people_invites_revoke" to Target("exponential_people", "invites_revoke"),
+        "exponential_people_list" to Target("exponential_people", "list"),
+        "exponential_pr_close" to Target("exponential_pr", "close"),
+        "exponential_pr_files" to Target("exponential_pr", "files"),
+        "exponential_pr_merge" to Target("exponential_pr", "merge"),
+        "exponential_pr_open" to Target("exponential_pr", "open"),
+        "exponential_pr_retarget" to Target("exponential_pr", "retarget"),
+        "exponential_pr_unlink" to Target("exponential_pr", "unlink"),
+        "exponential_pr_update" to Target("exponential_pr", "update"),
+        "exponential_prompts_create" to Target("exponential_prompts", "create"),
+        "exponential_prompts_delete" to Target("exponential_prompts", "delete"),
+        "exponential_prompts_get" to Target("exponential_prompts", "get"),
+        "exponential_prompts_list" to Target("exponential_prompts", "list"),
+        "exponential_prompts_update" to Target("exponential_prompts", "update"),
+        "exponential_repositories_create" to Target("exponential_repositories", "create"),
+        "exponential_repositories_list" to Target("exponential_repositories", "list"),
+        "exponential_sessions_end" to Target("exponential_sessions", "end"),
+        "exponential_sessions_get" to Target("exponential_sessions", "get"),
+        "exponential_sessions_link" to Target("exponential_sessions", "link"),
+        "exponential_sessions_list" to Target("exponential_sessions", "list"),
+        "exponential_sessions_send" to Target("exponential_sessions_send", null),
+        "exponential_sessions_unlink" to Target("exponential_sessions", "unlink"),
+        "exponential_statuses_create" to Target("exponential_statuses", "create"),
+        "exponential_statuses_delete" to Target("exponential_statuses", "delete"),
+        "exponential_statuses_list" to Target("exponential_statuses", "list"),
+        "exponential_statuses_update" to Target("exponential_statuses", "update"),
+        "exponential_teams_create" to Target("exponential_teams", "create"),
+        "exponential_teams_get" to Target("exponential_teams", "get"),
+        "exponential_teams_list" to Target("exponential_teams", "list"),
+        "exponential_teams_update" to Target("exponential_teams", "update"),
     )
 
     /** Every function name, sorted. */
@@ -113,30 +113,35 @@ object AppActions {
      *  the fixture's `aliases`). A host registers each as a function too, so
      *  a published package keeps working; never in [ALL] or a declared list. */
     val ALIASES: Map<String, String> = linkedMapOf(
-        "exponential.team_config.agents_list" to "exponential.agents.list",
-        "exponential.team_config.labels_create" to "exponential.labels.create",
-        "exponential.team_config.labels_delete" to "exponential.labels.delete",
-        "exponential.team_config.labels_get" to "exponential.labels.get",
-        "exponential.team_config.labels_list" to "exponential.labels.list",
-        "exponential.team_config.labels_update" to "exponential.labels.update",
-        "exponential.team_config.mcp_servers_add" to "exponential.mcp_servers.create",
-        "exponential.team_config.mcp_servers_list" to "exponential.mcp_servers.list",
-        "exponential.team_config.mcp_servers_remove" to "exponential.mcp_servers.delete",
-        "exponential.team_config.prompts_create" to "exponential.prompts.create",
-        "exponential.team_config.prompts_delete" to "exponential.prompts.delete",
-        "exponential.team_config.prompts_get" to "exponential.prompts.get",
-        "exponential.team_config.prompts_list" to "exponential.prompts.list",
-        "exponential.team_config.prompts_update" to "exponential.prompts.update",
-        "exponential.team_config.repositories_add" to "exponential.repositories.create",
-        "exponential.team_config.repositories_list" to "exponential.repositories.list",
-        "exponential.team_config.statuses_create" to "exponential.statuses.create",
-        "exponential.team_config.statuses_delete" to "exponential.statuses.delete",
-        "exponential.team_config.statuses_list" to "exponential.statuses.list",
-        "exponential.team_config.statuses_update" to "exponential.statuses.update",
+        "exponential_team_config_agents_list" to "exponential_agents_list",
+        "exponential_team_config_labels_create" to "exponential_labels_create",
+        "exponential_team_config_labels_delete" to "exponential_labels_delete",
+        "exponential_team_config_labels_get" to "exponential_labels_get",
+        "exponential_team_config_labels_list" to "exponential_labels_list",
+        "exponential_team_config_labels_update" to "exponential_labels_update",
+        "exponential_team_config_mcp_servers_add" to "exponential_mcp_servers_create",
+        "exponential_team_config_mcp_servers_list" to "exponential_mcp_servers_list",
+        "exponential_team_config_mcp_servers_remove" to "exponential_mcp_servers_delete",
+        "exponential_team_config_prompts_create" to "exponential_prompts_create",
+        "exponential_team_config_prompts_delete" to "exponential_prompts_delete",
+        "exponential_team_config_prompts_get" to "exponential_prompts_get",
+        "exponential_team_config_prompts_list" to "exponential_prompts_list",
+        "exponential_team_config_prompts_update" to "exponential_prompts_update",
+        "exponential_team_config_repositories_add" to "exponential_repositories_create",
+        "exponential_team_config_repositories_list" to "exponential_repositories_list",
+        "exponential_team_config_statuses_create" to "exponential_statuses_create",
+        "exponential_team_config_statuses_delete" to "exponential_statuses_delete",
+        "exponential_team_config_statuses_list" to "exponential_statuses_list",
+        "exponential_team_config_statuses_update" to "exponential_statuses_update",
     )
 
+    /** Round 9 §14: a stored name from before the flat names (a grant, a v5
+     *  package's `functions`): `exponential.issues.update` is
+     *  `exponential_issues_update` until the flag-day migration rewrites it. */
+    fun flatAction(name: String): String = if (name.startsWith("exponential.")) name.replace('.', '_') else name
+
     /** The name an action is judged by: an alias's new name, else the name. */
-    fun canonicalAction(name: String): String = ALIASES[name] ?: name
+    fun canonicalAction(name: String): String = flatAction(name).let { ALIASES[it] ?: it }
 
     /** The settings page's `copy.tools` strings (web + desktop render them; phones have no app settings). */
     object Copy {
@@ -173,7 +178,7 @@ object AppActions {
     fun actionGrantable(name: String): Boolean =
         parseActionName(name) != null && !actionDestructive(name) && !actionOwnerOnly(name)
 
-    /** `exponential.issues.update_status` → the tool and op it runs (an alias
+    /** `exponential_issues_update_status` → the tool and op it runs (an alias
      *  → its new name's); null for anything that is not an offered action. */
     fun parseActionName(name: String): Target? = TOOLS[canonicalAction(name)]
 
@@ -185,7 +190,7 @@ object AppActions {
      *  the aliases too: an alias declares its NEW name), in the fixture's
      *  order; anything that is not an offered action is dropped. */
     fun declaredActions(functions: List<String>): List<String> {
-        val named = { name: String -> functions.any { matches(it, name) } }
+        val named = { name: String -> functions.any { matches(flatAction(it), name) } }
         val viaAlias = ALIASES.filterKeys(named).values.toSet()
         return ALL.filter { named(it) || it in viaAlias }
     }
@@ -214,18 +219,18 @@ object AppActions {
 
     /** The fixture's `ownerActions` (`AppActionsTest` locks the copy). */
     internal val OWNER_ACTIONS = listOf(
-        "exponential.mcp_servers.create",
-        "exponential.people.add",
-        "exponential.people.invites_create",
-        "exponential.people.invites_revoke",
-        "exponential.prompts.create",
-        "exponential.prompts.update",
-        "exponential.teams.update",
+        "exponential_mcp_servers_create",
+        "exponential_people_add",
+        "exponential_people_invites_create",
+        "exponential_people_invites_revoke",
+        "exponential_prompts_create",
+        "exponential_prompts_update",
+        "exponential_teams_update",
     )
 
     /** The fixture's `destructiveArgs`: an arg that makes a grantable
-     *  action's call destructive (`sessions.send` + `stop` = stop-run). */
-    internal val DESTRUCTIVE_ARGS: Map<String, List<String>> = mapOf("exponential.sessions.send" to listOf("stop"))
+     *  action's call destructive (`exponential_sessions_send` + `stop` = stop-run). */
+    internal val DESTRUCTIVE_ARGS: Map<String, List<String>> = mapOf("exponential_sessions_send" to listOf("stop"))
 
     /** A destructive CALL: a destructive action, or a grantable one whose
      *  args carry a [DESTRUCTIVE_ARGS] key (present and not false/null). */

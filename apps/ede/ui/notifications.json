@@ -1,26 +1,213 @@
 {
   "$comment": "Exponential Desktop's factory toasts (#EDE-12): the shell is the session's org.freedesktop.Notifications server; a new notification opens this on-demand top-right layer surface and the newest three show as cards until they expire (the app's timeout, else 6 s; critical ones stay) or are closed. /notifications/toasts holds them newest first; every card may close (ede.notify_close) or press one of the app's actions (ede.notify_action). The whole history is the panel's bell (notification-center.json).",
-  "surface": {"layer": "top", "anchor": ["top", "right"], "size": {"width": 380, "height": 420}, "margin": {"top": 8, "right": 8}, "onDemand": true, "functions": ["ede.notify_close", "ede.notify_action"]},
+  "surface": {
+    "layer": "top",
+    "anchor": [
+      "top",
+      "right"
+    ],
+    "size": {
+      "width": 380,
+      "height": 420
+    },
+    "margin": {
+      "top": 8,
+      "right": 8
+    },
+    "onDemand": true,
+    "functions": [
+      "ede.notify_close",
+      "ede.notify_action"
+    ]
+  },
   "root": {
     "id": "toasts",
     "component": "Stack",
-    "props": {"direction": "vertical", "gap": "sm", "align": "stretch"},
-    "template": {"component": "toast", "path": "/notifications/toasts", "key": "id"},
+    "props": {
+      "direction": "vertical",
+      "gap": "sm",
+      "align": "stretch"
+    },
+    "template": {
+      "component": "toast",
+      "path": "/notifications/toasts",
+      "key": "id"
+    },
     "children": [
-      {"id": "toast", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.sm", "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"}, "children": [
-        {"id": "toast-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": [
-          {"id": "toast-icon", "component": "Image", "props": {"src": {"path": "icon"}, "alt": {"path": "app"}, "width": 20, "height": 20, "fit": "contain", "fallback": "nav-notifications"}},
-          {"id": "toast-app", "component": "Text", "props": {"text": {"path": "app"}, "variant": "caption", "lines": 1}, "style": {"flexGrow": 1}},
-          {"id": "toast-at", "component": "Text", "props": {"text": {"path": "at"}, "variant": "muted"}},
-          {"id": "toast-close", "component": "Button", "props": {"icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Close"}, "on": {"press": {"functionCall": {"call": "ede.notify_close", "args": {"id": {"path": "id"}}}}}}
-        ]},
-        {"id": "toast-summary", "component": "Text", "props": {"text": {"path": "summary"}, "variant": "label", "lines": 2}},
-        {"id": "toast-body", "component": "Text", "props": {"text": {"path": "body"}, "variant": "muted", "lines": 3}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"path": "body"}, "b": ""}}}}},
-        {"id": "toast-actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "wrap": true}, "template": {"component": "toast-action", "path": "actions", "key": "key"}, "children": [
-          {"id": "toast-action", "component": "Button", "props": {"label": {"path": "label"}, "variant": "outline", "size": "sm"}, "on": {"press": {"functionCall": {"call": "ede.notify_action", "args": {"id": {"path": "/id"}, "key": {"path": "key"}}}}}}
-        ]}
-      ]}
+      {
+        "id": "toast",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs",
+          "padding": "$spacing.sm",
+          "backgroundColor": "$color.popover",
+          "borderWidth": 1,
+          "borderColor": "$color.border",
+          "borderRadius": "$radius.md"
+        },
+        "children": [
+          {
+            "id": "toast_head",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "center"
+            },
+            "children": [
+              {
+                "id": "toast_icon",
+                "component": "Image",
+                "props": {
+                  "src": {
+                    "@path": "icon"
+                  },
+                  "alt": {
+                    "@path": "app"
+                  },
+                  "width": 20,
+                  "height": 20,
+                  "fit": "contain",
+                  "fallback": "nav-notifications"
+                }
+              },
+              {
+                "id": "toast_app",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "app"
+                  },
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "style": {
+                  "flexGrow": 1
+                }
+              },
+              {
+                "id": "toast_at",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "at"
+                  },
+                  "variant": "muted"
+                }
+              },
+              {
+                "id": "toast_close",
+                "component": "Button",
+                "props": {
+                  "icon": "ui-close",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "Close"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_notify_close",
+                      "args": {
+                        "id": {
+                          "@path": "id"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "toast_summary",
+            "component": "Text",
+            "props": {
+              "text": {
+                "@path": "summary"
+              },
+              "variant": "label",
+              "lines": 2
+            }
+          },
+          {
+            "id": "toast_body",
+            "component": "Text",
+            "props": {
+              "text": {
+                "@path": "body"
+              },
+              "variant": "muted",
+              "lines": 3
+            },
+            "visible": {
+              "@call": "not",
+              "args": {
+                "value": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "body"
+                    },
+                    "b": ""
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "toast_actions",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "xs",
+              "wrap": true
+            },
+            "template": {
+              "component": "toast_action",
+              "path": "actions",
+              "key": "key"
+            },
+            "children": [
+              {
+                "id": "toast_action",
+                "component": "Button",
+                "props": {
+                  "label": {
+                    "@path": "label"
+                  },
+                  "variant": "outline",
+                  "size": "sm"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_notify_action",
+                      "args": {
+                        "id": {
+                          "@path": "/id"
+                        },
+                        "key": {
+                          "@path": "key"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
     ]
   },
-  "data": {"notifications": {"toasts": [], "list": [], "count": 0}}
+  "data": {
+    "notifications": {
+      "toasts": [],
+      "list": [],
+      "count": 0
+    }
+  }
 }

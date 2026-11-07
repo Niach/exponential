@@ -43,7 +43,7 @@ pub struct ToolDef {
 impl ToolDef {
     /// The tool's part after the capability (`pick`).
     pub fn tool(&self) -> &str {
-        self.name.split_once('.').map_or(self.name.as_str(), |(_, t)| t)
+        self.name.split_once('_').map_or(self.name.as_str(), |(_, t)| t)
     }
 
     /// The app-facing MCP tool object under `name` (an agent sees it as
@@ -55,9 +55,9 @@ impl ToolDef {
 
 pub static TOOLS: LazyLock<Vec<ToolDef>> = LazyLock::new(|| serde_json::from_value(CAPABILITIES["tools"].clone()).expect("capabilities.json tools parse"));
 
-/// The v1 tool `<capability>.<tool>`, if the catalog defines one.
+/// The v1 tool `<capability>_<tool>`, if the catalog defines one.
 pub fn tool_def(capability: &str, tool: &str) -> Option<&'static ToolDef> {
-    TOOLS.iter().find(|t| t.name.split_once('.') == Some((capability, tool)))
+    TOOLS.iter().find(|t| t.name.split_once('_') == Some((capability, tool)))
 }
 
 // ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ pub fn bridge_call(cx: &BridgeContext, native: &dyn Capability, tool: &str, argu
     // The answer the app sees when it differs from the stored native result (notifications: the app's own id).
     let mut answer: Option<Value> = None;
     let native_args = match def.name.as_str() {
-        "files.save" => {
+        "files_save" => {
             let name = str_of(&args, "name").unwrap_or_default();
             let (bytes, fallback) = match str_of(&args, "fileId") {
                 Some(id) => match file_bytes(cx, id) {
@@ -423,7 +423,7 @@ pub fn bridge_call(cx: &BridgeContext, native: &dyn Capability, tool: &str, argu
             };
             native_file(name, mime_of(str_of(&args, "mimeType"), name, &bytes, fallback), &bytes)
         }
-        "share.send" => {
+        "share_send" => {
             let mut out = Map::new();
             for key in ["title", "text", "url"] {
                 if let Some(v) = args.get(key) {
@@ -440,7 +440,7 @@ pub fn bridge_call(cx: &BridgeContext, native: &dyn Capability, tool: &str, argu
             }
             Value::Object(out)
         }
-        "print.print" => {
+        "print_print" => {
             let bytes = match file_bytes(cx, str_of(&args, "fileId").unwrap_or_default()) {
                 Ok(bytes) => bytes,
                 Err(reason) => return refused(reason),
@@ -454,7 +454,7 @@ pub fn bridge_call(cx: &BridgeContext, native: &dyn Capability, tool: &str, argu
             let name = str_of(&args, "name").map_or_else(|| format!("document.{ext}"), str::to_string);
             native_file(&name, mime.to_string(), &bytes)
         }
-        "notifications.post" => {
+        "notifications_post" => {
             let tap = match str_of(&args, "screen") {
                 Some(screen) if !cx.screens.iter().any(|s| s == screen) => return (mcp_error("invalidParams: /screen enum"), CallOutcome::InvalidParams),
                 Some(screen) => json!({"type": "notificationTap", "app": cx.app, "screen": screen, "params": args.get("params").cloned().unwrap_or_else(|| json!({}))}),
@@ -464,7 +464,7 @@ pub fn bridge_call(cx: &BridgeContext, native: &dyn Capability, tool: &str, argu
             answer = Some(json!({"id": id}));
             json!({"id": format!("{}/{id}", cx.app), "title": args["title"], "body": args.get("body").cloned().unwrap_or(Value::Null), "at": args.get("at").cloned().unwrap_or(Value::Null), "tap": tap})
         }
-        "notifications.cancel" => json!({"id": format!("{}/{}", cx.app, str_of(&args, "id").unwrap_or_default())}),
+        "notifications_cancel" => json!({"id": format!("{}/{}", cx.app, str_of(&args, "id").unwrap_or_default())}),
         _ => args,
     };
     let result = match native.call(tool, &native_args) {

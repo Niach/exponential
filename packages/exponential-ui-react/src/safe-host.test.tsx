@@ -70,7 +70,7 @@ describe(`Link: an external href opens through host.openUrl`, () => {
 describe(`openUrl without a host opener: the policy still applies`, () => {
   it(`opens https in a new tab, never javascript:`, () => {
     const open = vi.spyOn(window, `open`).mockImplementation(() => null)
-    const button = (url: string): NestedNode => ({ id: `b`, component: `Button`, props: { label: `Go` }, on: { press: { functionCall: { call: `openUrl`, args: { url } } } } })
+    const button = (url: string): NestedNode => ({ id: `b`, component: `Button`, props: { label: `Go` }, on: { press: { functionCall: { "@call": `openUrl`, args: { url } } } } })
     fireEvent.click(paint(button(`javascript:alert(1)`)).querySelector(`button`)!)
     expect(open).not.toHaveBeenCalled()
     cleanup()
@@ -312,8 +312,8 @@ describe(`paint failures reach the host (onPaintError → RENDER_FAILED)`, () =>
     act(() => host.connect())
     act(() =>
       transport.feed(
-        { version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } },
-        { version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`md`, `t`] }, { id: `md`, component: `Markdown`, text: `x` }, { id: `t`, component: `Text`, text: `still here` }] } }
+        { version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } },
+        { version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`md`, `t`] }, { id: `md`, component: `Markdown`, text: `x` }, { id: `t`, component: `Text`, text: `still here` }] } }
       )
     )
     const errors = (transport.sent as ClientMessage[]).filter((m) => `error` in m).map((m) => (m as Extract<ClientMessage, { error: unknown }>).error)
@@ -323,10 +323,10 @@ describe(`paint failures reach the host (onPaintError → RENDER_FAILED)`, () =>
     host.paintError({ surfaceId: `s`, componentId: `md`, message: `Markdown failed to paint: boom` })
     expect((transport.sent as ClientMessage[]).filter((m) => `error` in m)).toHaveLength(1)
     // A re-reduce for ANOTHER component does not re-report md (same props) …
-    act(() => transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `t`, component: `Text`, text: `changed` }] } }))
+    act(() => transport.feed({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `t`, component: `Text`, text: `changed` }] } }))
     expect(seen).toEqual([`md`])
     // … md's own props changing does.
-    act(() => transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `md`, component: `Markdown`, text: `y` }] } }))
+    act(() => transport.feed({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `md`, component: `Markdown`, text: `y` }] } }))
     expect(seen).toEqual([`md`, `md`])
     expect((transport.sent as ClientMessage[]).filter((m) => `error` in m)).toHaveLength(2)
   })
@@ -417,7 +417,7 @@ describe(`fixtures/markdown-text-links.json: a Markdown's text asks the host's t
 })
 
 describe(`an overlay's trigger slot`, () => {
-  for (const [component, props] of [[`Dialog`, { title: `T` }], [`Dialog`, { title: `T`, open: false }], [`Dialog`, { title: `T`, open: { path: `/o` } }], [`Drawer`, { title: `T` }], [`Popover`, {}]] as const) {
+  for (const [component, props] of [[`Dialog`, { title: `T` }], [`Dialog`, { title: `T`, open: false }], [`Dialog`, { title: `T`, open: { "@path": `/o` } }], [`Drawer`, { title: `T` }], [`Popover`, {}]] as const) {
     it(`a Button opens the ${component} ${JSON.stringify(props)}, and still presses`, () => {
       const onAction = vi.fn()
       const c = paint({ id: `d`, component, props, slots: { trigger: { id: `t`, component: `Button`, props: { label: `Open` }, on: { press: { event: { name: `pressed` } } } } }, children: [{ id: `x`, component: `Text`, props: { text: `Inside` } }] } as unknown as NestedNode, { onAction })

@@ -19,7 +19,7 @@ describe(`DOM parity: motion`, { timeout: 60_000 }, () => {
         id: `root`,
         component: `Stack`,
         children: [
-          { id: `m1`, component: `Motion`, props: { ...dot, progress: { path: `/p` }, label: `Upload` } },
+          { id: `m1`, component: `Motion`, props: { ...dot, progress: { "@path": `/p` }, label: `Upload` } },
           { id: `m2`, component: `Motion`, props: { ...dot, fit: `cover` }, style: { width: 120, height: 40 } },
           { id: `m3`, component: `Motion`, props: { ...dot }, style: { width: 64 } },
           { id: `m4`, component: `Motion`, props: { lottie: { v: `5.7.0`, fr: 30, ip: 0, op: 30, w: 30, h: 60, layers: [] }, label: `Lottie` } },

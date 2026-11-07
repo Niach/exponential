@@ -37,8 +37,8 @@ describe(`record macros: the host fill (fixtures/record-macros.json)`, () => {
     }
     const at = `f.fields.field.${index}.datetime`
     expect(find(root as never, at)?.component).toBe(`Box`)
-    expect(find(root as never, `${at}.day`)?.props.value).toEqual({ path: `/recordForm/fParts/loggedAt/date` })
-    expect(find(root as never, `${at}.clock`)?.props.value).toEqual({ path: `/recordForm/fParts/loggedAt/time` })
+    expect(find(root as never, `${at}.day`)?.props.value).toEqual({ "@path": `/recordForm/fParts/loggedAt/date` })
+    expect(find(root as never, `${at}.clock`)?.props.value).toEqual({ "@path": `/recordForm/fParts/loggedAt/time` })
   })
 
   test(`the runtime answers a record form's write`, async () => {
@@ -48,14 +48,14 @@ describe(`record macros: the host fill (fixtures/record-macros.json)`, () => {
       packages: [pkg],
       policy: { functions: { allow: [`*`] } },
       functions: {
-        "records.upsert": () => {
+        "records_upsert": () => {
           if (refuse) throw new RecordRefusal(`bad`)
           return { id: `r` }
         },
       },
     } as never)
-    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, templateId: `main`, packageId: (pkg as { id: string }).id } } as never)
-    const call = { surfaceId: `s`, componentId: `f`, name: `records.upsert`, args: { form: { error: `/e`, close: `/open` } } }
+    host.applyTemplate({ surfaceId: `s`, templateId: `main`, packageId: (pkg as { id: string }).id })
+    const call = { surfaceId: `s`, componentId: `f`, name: `records_upsert`, args: { form: { error: `/e`, close: `/open` } } }
     host.surface(`s`)!.setData(`/open`, true)
     await host.callFunction(call)
     expect(host.surface(`s`)!.data).toMatchObject({ e: `bad`, open: true })
@@ -74,7 +74,7 @@ describe(`record macros: the host fill (fixtures/record-macros.json)`, () => {
   test(`templateMessages sends the filled components and the rows binding`, () => {
     const pkg = fixture.install[0]!.package as never
     const messages = templateMessages(pkg, `main`, `s`) ?? []
-    const components = (messages[1] as { updateComponents: { components: { id: string; cols?: unknown }[] } }).updateComponents.components
+    const components = (messages[0] as { createSurface: { components: { id: string; cols?: unknown }[] } }).createSurface.components
     expect(components.map((c) => c.id)).toEqual([`root`, `m`, `m__row`, `m__rowDelete`])
     expect(messages.some((m) => (m as { bindDataModel?: { path: string; source: string } }).bindDataModel?.source === `records:deal?sort=updatedAt&order=desc`)).toBe(true)
   })

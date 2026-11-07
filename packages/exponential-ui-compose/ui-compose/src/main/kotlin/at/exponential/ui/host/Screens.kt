@@ -14,7 +14,7 @@ import at.exponential.ui.json.JsonValue
  */
 object Screens {
     /** The host function (and action call) that opens a screen; always allowed (the package need not list it). */
-    const val NAVIGATE_FUNCTION = "app.navigate"
+    const val NAVIGATE_FUNCTION = "app_navigate"
 
     /** A screen as a host opens it. */
     data class Resolved(val screen: String, val title: String, val icon: String?, val params: Map<String, String>) {

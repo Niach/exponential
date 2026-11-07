@@ -11,7 +11,7 @@ import { pageTitle } from "@/lib/page-title"
 
 // VAPP-241 (eApps P1, fixtures/app-share.json): a guest's page, outside the
 // auth shell: a one-template package from `/api/share/<token>` on a plain
-// host: `records.upsert` posts the submission, `records:` follows the
+// host: `records_upsert` posts the submission, `records:` follows the
 // server's snapshot. No session, no synced data, no `exp:` source. #VAPP-251:
 // a package the host refuses or cannot paint = the dead link's page.
 export const Route = createFileRoute(`/s/$token`)({
@@ -37,7 +37,7 @@ function GuestSurface({ token, page, honeypot, onDone, onError }: { token: strin
         // `exp:` = a RecordForm's member list: a guest has none (so no Author).
         sources: { records: (_source, emit) => emit(page.value ?? { rows: [], count: 0 }), exp: (_source, emit) => emit(null) },
         functions: {
-          "records.upsert": async (args) => {
+          records_upsert: async (args) => {
             const response = await fetch(`/api/share/${token}`, { method: `POST`, headers: { "content-type": `application/json` }, body: JSON.stringify({ data: args.data, website: honeypot() }) })
             const body = (await response.json().catch(() => ({}))) as { error?: string }
             if (response.ok) onDone()
@@ -51,7 +51,7 @@ function GuestSurface({ token, page, honeypot, onDone, onError }: { token: strin
   const plugin = useMemo(() => ({ icons: exponentialUiIcons }), [])
   const [appliedHost, setAppliedHost] = useState<ExponentialHost | null>(null)
   useEffect(() => {
-    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: SURFACE, templateId: `main`, packageId: page.package.id } })
+    host.applyTemplate({ surfaceId: SURFACE, templateId: `main`, packageId: page.package.id })
     setAppliedHost(host)
     return () => host.close()
   }, [host, page.package.id])

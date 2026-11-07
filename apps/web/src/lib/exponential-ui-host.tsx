@@ -1,7 +1,7 @@
 // VAPP-91: the Exponential web app as an Exponential UI HOST. Everything the
 // app adds goes through the SDK's public host API (`ExponentialHost` +
 // `<HostSurface>`), like a third party's host would:
-//   - functions: `harness.toast`, `harness.mcp` (a tools/call on the app's own
+//   - functions: `harness_toast`, `harness_mcp` (a tools/call on the app's own
 //     /api/mcp as the viewer); a link goes through the URL policy (`~/` = the
 //     app's team) and app-link.json's classifier;
 //   - bindings: the `exp:` scheme over the synced Electric collections
@@ -12,7 +12,7 @@
 //     fixtures/records-query.json) and `records.upsert/delete/batch`;
 //   - extensions: the app extension (`@exp/ui` appExtensionCatalog +
 //     appReactExtension) and its declarative packages (Devices);
-//   - policy: `harness.mcp` asks first (the consent card), urls through the
+//   - policy: `harness_mcp` asks first (the consent card), urls through the
 //     URL policy (same-origin app links navigate in place; VAPP-107: a
 //     private origin, the localhost dev setup, is opted back in for the
 //     app's own loads and nothing else);
@@ -456,7 +456,7 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
   }
 }
 
-/** A JSON-RPC `error` reply to `harness.mcp`: the server's message, with
+/** A JSON-RPC `error` reply to `harness_mcp`: the server's message, with
  *  its `code` (the desktop twin's `mcp_result` rejects the same way). */
 export class McpCallError extends Error {
   readonly code: number | undefined
@@ -624,7 +624,7 @@ export function ownPrivateHosts(origin: string): string[] {
 
 /** VAPP-198: under Run as, every function but the toast and navigation is
  *  refused with `copy.runAs.writesOff` (a preview never acts as someone else). */
-const RUN_AS_ALLOWED = new Set([`harness.toast`])
+const RUN_AS_ALLOWED = new Set([`harness_toast`])
 function refuseAsOther(runAs: AppHostOptions[`runAs`], functions: Record<string, HostFunction>): Record<string, HostFunction> {
   if (!runAs) return functions
   const refused: HostFunction = () => {
@@ -729,12 +729,12 @@ export function createAppHost(options: AppHostOptions): AppHost {
       [UPSTREAM_BINDING.scheme]: (source, emit) => upstreamSource(source, emit, scope, upstreamAnswers),
     },
     functions: refuseAsOther(runAs, {
-      "harness.toast": ({ message, tone }) => {
+      harness_toast: ({ message, tone }) => {
         const text = String(message ?? ``)
         if (tone === `error`) toast.error(text)
         else toast(text)
       },
-      "harness.mcp": ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>, claim()),
+      harness_mcp: ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>, claim()),
       // VAPP-120: every MCP operation as a typed function (fixtures/app-actions.json):
       // the same tools/call as the viewer, `op` + the args. EXP-1657: the
       // aliases too, so a package published before the split keeps working.
@@ -745,12 +745,12 @@ export function createAppHost(options: AppHostOptions): AppHost {
         })
       ),
       // VAPP-161: the package format's record writes.
-      "records.upsert": recordsUpsert,
-      "records.delete": recordsDelete,
-      "records.batch": recordsBatch,
+      records_upsert: recordsUpsert,
+      records_delete: recordsDelete,
+      records_batch: recordsBatch,
     }),
     policy: {
-      functions: { ask: [`harness.mcp`, `exponential.*`] },
+      functions: { ask: [`harness_mcp`, `exponential_*`] },
       // A granted typed action runs without the card; anything else asks.
       onFunctionCall: (call) => (parseActionName(call.name) && grantAllows(grantableTools(options.grantedTools?.()), call.name, call.args) ? true : options.consent.ask(call)),
       media: { baseUrl: origin, allowPrivate },
@@ -809,7 +809,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
 }
 
 /** VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
- *  the tool it names, the arguments it carries (a `harness.mcp` call's MCP
+ *  the tool it names, the arguments it carries (a `harness_mcp` call's MCP
  *  `arguments`, else the function's own args; an empty object = none, as
  *  compact JSON) and whether it sounds destructive. The desktop twin's
  *  `consent_words` derives the same three. */
@@ -817,7 +817,7 @@ export function consentWords(call: Pick<FunctionCallInfo, `name` | `args`>): { t
   // VAPP-120: a typed action is worded for its operation (the contract's rows).
   const typed = actionConsent(call.name, call.args)
   if (typed) return { tool: typed.tool, args: typed.args, destructive: typed.destructive, title: typed.title }
-  const mcp = call.name === `harness.mcp`
+  const mcp = call.name === `harness_mcp`
   const tool = mcp ? String(call.args.tool ?? ``) : call.name
   const raw = mcp ? call.args.arguments : call.args
   const args = raw && typeof raw === `object` ? JSON.stringify(raw) : null

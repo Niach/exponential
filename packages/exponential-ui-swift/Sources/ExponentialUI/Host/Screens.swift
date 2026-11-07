@@ -10,7 +10,7 @@ import ExponentialUICore
 public enum Screens {
     /// The host function (and action call) that opens a screen; always
     /// allowed (the package need not list it).
-    public static let navigateFunction = "app.navigate"
+    public static let navigateFunction = "app_navigate"
 
     /// A screen as a host opens it.
     public struct Resolved: Equatable, Sendable {

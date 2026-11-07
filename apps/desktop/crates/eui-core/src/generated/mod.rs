@@ -8,6 +8,12 @@ pub mod catalog {
     include!("catalog.rs");
 }
 
+/// Round 9 §4: the UAX #31 XID tables (Unicode 17.0.0).
+#[allow(dead_code)]
+pub mod xid {
+    include!("xid.rs");
+}
+
 #[allow(dead_code)]
 pub mod themes {
     include!("themes.rs");

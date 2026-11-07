@@ -31,7 +31,7 @@
     },
     "children": [
       {
-        "id": "chat-head",
+        "id": "chat_head",
         "component": "Stack",
         "props": {
           "direction": "horizontal",
@@ -41,21 +41,21 @@
         },
         "children": [
           {
-            "id": "chat-title",
+            "id": "chat_title",
             "component": "Heading",
             "props": {
               "text": {
-                "path": "/chatting/title"
+                "@path": "/chatting/title"
               },
               "level": "h3"
             }
           },
           {
-            "id": "chat-status",
+            "id": "chat_status",
             "component": "Text",
             "props": {
               "text": {
-                "path": "/chatting/status"
+                "@path": "/chatting/status"
               },
               "variant": "muted",
               "lines": 1
@@ -65,7 +65,7 @@
             }
           },
           {
-            "id": "chat-close",
+            "id": "chat_close",
             "component": "Button",
             "props": {
               "icon": "ui-close",
@@ -76,7 +76,7 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "ede.chat"
+                  "@call": "ede_chat"
                 }
               }
             }
@@ -84,7 +84,7 @@
         ]
       },
       {
-        "id": "chat-empty",
+        "id": "chat_empty",
         "component": "EmptyState",
         "props": {
           "icon": "action-chat",
@@ -96,17 +96,24 @@
           "flexGrow": 1
         },
         "visible": {
-          "call": "not",
+          "@call": "not",
           "args": {
             "value": {
-              "path": "/chatting/local"
+              "@call": "cond",
+              "args": {
+                "if": {
+                  "@path": "/chatting/local"
+                },
+                "then": true,
+                "else": false
+              }
             }
           }
         },
         "on": {
           "press": {
             "functionCall": {
-              "call": "ede.switcher",
+              "@call": "ede_switcher",
               "args": {
                 "action": "connect"
               }
@@ -115,7 +122,7 @@
         }
       },
       {
-        "id": "chat-no-cli",
+        "id": "chat_no_cli",
         "component": "EmptyState",
         "props": {
           "icon": "settings-agents",
@@ -127,17 +134,24 @@
           "flexGrow": 1
         },
         "visible": {
-          "call": "and",
+          "@call": "and",
           "args": {
             "values": [
               {
-                "path": "/chatting/local"
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/chatting/local"
+                  },
+                  "then": true,
+                  "else": false
+                }
               },
               {
-                "call": "eq",
+                "@call": "eq",
                 "args": {
                   "a": {
-                    "path": "/chatting/agent"
+                    "@path": "/chatting/agent"
                   },
                   "b": ""
                 }
@@ -147,7 +161,7 @@
         }
       },
       {
-        "id": "chat-thread",
+        "id": "chat_thread",
         "component": "ScrollArea",
         "props": {
           "direction": "vertical"
@@ -157,20 +171,27 @@
           "minHeight": 0
         },
         "visible": {
-          "call": "and",
+          "@call": "and",
           "args": {
             "values": [
               {
-                "path": "/chatting/local"
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/chatting/local"
+                  },
+                  "then": true,
+                  "else": false
+                }
               },
               {
-                "call": "not",
+                "@call": "not",
                 "args": {
                   "value": {
-                    "call": "eq",
+                    "@call": "eq",
                     "args": {
                       "a": {
-                        "path": "/chatting/agent"
+                        "@path": "/chatting/agent"
                       },
                       "b": ""
                     }
@@ -182,20 +203,20 @@
         },
         "children": [
           {
-            "id": "chat-messages",
+            "id": "chat_messages",
             "component": "List",
             "props": {
               "gap": "sm"
             },
             "template": {
-              "component": "chat-message",
+              "component": "chat_message",
               "path": "/chatting/messages",
               "key": "id"
             },
             "children": []
           },
           {
-            "id": "chat-message",
+            "id": "chat_message",
             "component": "Box",
             "style": {
               "display": "flex",
@@ -204,41 +225,41 @@
             },
             "children": [
               {
-                "id": "chat-message-author",
+                "id": "chat_message_author",
                 "component": "Text",
                 "props": {
                   "text": {
-                    "path": "author"
+                    "@path": "author"
                   },
                   "variant": "caption"
                 }
               },
               {
-                "id": "chat-message-body",
+                "id": "chat_message_body",
                 "component": "Markdown",
                 "props": {
                   "text": {
-                    "path": "body"
+                    "@path": "body"
                   }
                 }
               }
             ]
           },
           {
-            "id": "chat-nothing",
+            "id": "chat_nothing",
             "component": "Text",
             "props": {
               "text": "Ask the desktop's agent anything about its issues, boards and files.",
               "variant": "muted"
             },
             "visible": {
-              "call": "eq",
+              "@call": "eq",
               "args": {
                 "a": {
-                  "call": "len",
+                  "@call": "len",
                   "args": {
                     "value": {
-                      "path": "/chatting/messages"
+                      "@path": "/chatting/messages"
                     }
                   }
                 },
@@ -254,25 +275,32 @@
         "props": {
           "placeholder": "What do you want to build?",
           "value": {
-            "path": "/chat/draft"
+            "@path": "/chat/draft"
           }
         },
         "visible": {
-          "call": "not",
+          "@call": "not",
           "args": {
             "value": {
-              "path": "/chatting/local"
+              "@call": "cond",
+              "args": {
+                "if": {
+                  "@path": "/chatting/local"
+                },
+                "then": true,
+                "else": false
+              }
             }
           }
         },
         "on": {
           "submit": {
             "functionCall": {
-              "call": "ede.launch",
+              "@call": "ede_launch",
               "args": {
                 "app": "at.exponential",
                 "text": {
-                  "path": "/chat/draft"
+                  "@path": "/chat/draft"
                 }
               }
             }
@@ -280,25 +308,32 @@
         }
       },
       {
-        "id": "composer-local",
+        "id": "composer_local",
         "component": "Composer",
         "props": {
           "placeholder": "What do you want to build?",
           "value": {
-            "path": "/chat/draft"
+            "@path": "/chat/draft"
           }
         },
         "visible": {
-          "path": "/chatting/local"
+          "@call": "cond",
+          "args": {
+            "if": {
+              "@path": "/chatting/local"
+            },
+            "then": true,
+            "else": false
+          }
         },
         "on": {
           "submit": {
             "functionCall": {
-              "call": "ede.chat",
+              "@call": "ede_chat",
               "args": {
                 "action": "send",
                 "text": {
-                  "path": "/chat/draft"
+                  "@path": "/chat/draft"
                 }
               }
             }

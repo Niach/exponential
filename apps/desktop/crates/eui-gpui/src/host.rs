@@ -76,6 +76,8 @@ pub struct ActionEvent {
     /// The action's resolved `event.context`.
     pub context: serde_json::Value,
     pub payload: Option<serde_json::Value>,
+    /// Round 9 §1.3: the action's resolved `event.userMessage`.
+    pub user_message: Option<String>,
 }
 
 /// An `on.<event> = {functionCall: {call, args}}` naming a HOST function
@@ -130,6 +132,10 @@ impl<F: Fn(&str) -> Option<Vec<u8>> + Send + Sync + 'static> AppFiles for F {
 
 /// The embedding app's side of the painter.
 pub trait HostPlugin: 'static {
+    /// Round 9 §5.2, §6.8: a layout left issues or reactive failures on the
+    /// surface: the host sends them (`CallHub::flush_surface`).
+    fn after_layout(&self, _surface_id: &str, _cx: &mut gpui::App) {}
+
     /// An icon registry CONCEPT name (`ui-send`, `nav-inbox`…) → an SVG asset
     /// path for gpui `svg().path(..)`. `None` = the painter's built-in chrome
     /// glyph when it has one, else the placeholder circle.
@@ -144,6 +150,13 @@ pub trait HostPlugin: 'static {
     /// default ignores it; [`crate::runtime::host_plugin`] routes it through
     /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).
     fn on_function_call(&self, _event: &FunctionCallEvent, _cx: &mut gpui::App) {}
+
+    /// Round 9 §6.8: an action with both: the function first, `then` (its
+    /// event) only when the function did not fail.
+    fn on_function_call_then(&self, event: &FunctionCallEvent, then: Box<dyn FnOnce(&mut gpui::App)>, cx: &mut gpui::App) {
+        self.on_function_call(event, cx);
+        then(cx);
+    }
 
     /// The URL policy EVERY href passes (Link, markdown links, `openUrl`):
     /// `catalog/host.json` urls. `None` = the default schemes, no base.

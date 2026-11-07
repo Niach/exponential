@@ -4,7 +4,7 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY, APPS_TEST_IDS, APP_DESCRIPTION_MAX, grantVersion, policyCaption, policyKinds } from "@exp/domain-contract/apps"
 import { recordPolicy } from "@exponential_app/eui/host"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
-import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions, flatAction } from "@exp/domain-contract/app-actions"
 import { Button, conceptIcon, GlassGroup, Switch, Textarea } from "@exp/ui"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import type { AppListEntry } from "@/hooks/use-apps"
@@ -74,7 +74,7 @@ export function AppSettingsTab({
   )
   const declared = useMemo(() => declaredActions((grantPackage?.functions ?? []) as string[]), [grantPackage])
   // FEED-159: a stored grant that is no longer grantable reads as none.
-  const granted = grantableTools(app.row?.grantedTools as string[] | null | undefined)
+  const granted = grantableTools(app.row?.grantedTools as string[] | null | undefined).map(flatAction)
   const [toolBusy, setToolBusy] = useState<string | null>(null)
   const toggleTool = async (name: string, on: boolean) => {
     if (!app || !canGrant || !actionGrantable(name)) return

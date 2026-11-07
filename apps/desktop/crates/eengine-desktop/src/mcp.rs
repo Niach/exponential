@@ -36,7 +36,7 @@ pub(crate) fn answer(result: NativeResult<Value>) -> Value {
 /// The native tools of `capability` as MCP tool objects: the short `name`
 /// (`pick`), the catalog's description and schemas.
 pub(crate) fn tools(capability: &str) -> Vec<Value> {
-    let prefix = format!("{capability}.");
+    let prefix = format!("{capability}_");
     CAPABILITIES["tools"]
         .as_array()
         .into_iter()

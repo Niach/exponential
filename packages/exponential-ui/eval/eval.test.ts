@@ -222,7 +222,7 @@ describe(`the parser and the rubric`, () => {
       { id: `box`, component: `Box`, style: { padding: 12, gap: `$spacing.md`, "@media (min-width: $breakpoint.md)": { paddingTop: 7 } } },
       { id: `md`, component: `Markdown`, text: `- a\n- b` },
       { id: `list`, component: `List`, children: { componentId: `item`, path: `/items` } },
-      { id: `item`, component: `Row`, title: { path: `t` } },
+      { id: `item`, component: `Row`, title: { "@path": `t` } },
       { id: `empty`, component: `EmptyState`, icon: `inbox`, title: `None` },
       { id: `form`, component: `Form`, name: `f`, children: [`in`] },
       { id: `in`, component: `Input`, label: `A`, name: `a` },
@@ -232,7 +232,7 @@ describe(`the parser and the rubric`, () => {
     expect(r).toEqual({ primaryActions: 1, emptyStates: 1, loadingStates: 0, fields: 2, fieldsInForm: 1, lists: 1, overlays: 0, unalignedRows: 1, boxes: 1, markdownForUi: 1, hexColours: 0 })
     expect(spacingStats(components as never)).toEqual({ tokenised: 1, raw: 2, rawValues: [7, 12], rhythm: 1 / 3 })
     expect(authoredDepth(components as never)).toBe(3)
-    const row = scoreFixture({ id: `x`, title: `x`, prompt: `x`, expects: { form: true, primaryAction: true } }, { id: `x`, prompt: `x`, model: `m`, promptVariant: `full`, recordedAt: ``, recordedBy: `session`, usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, estimated: true }, text: JSON.stringify({ version: `v0.9`, updateComponents: { surfaceId: `main`, components } }) })
+    const row = scoreFixture({ id: `x`, title: `x`, prompt: `x`, expects: { form: true, primaryAction: true } }, { id: `x`, prompt: `x`, model: `m`, promptVariant: `full`, recordedAt: ``, recordedBy: `session`, usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, estimated: true }, text: JSON.stringify({ version: `1.0`, updateComponents: { surfaceId: `main`, components } }) })
     expect(row.expects).toEqual({ form: false, primaryAction: true })
     expect(row.findings).toContain(`1 of 2 fields outside a Form`)
     expect(row.findings).toContain(`2 raw px spacing value(s): 7, 12`)

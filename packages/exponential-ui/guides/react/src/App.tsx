@@ -1,14 +1,17 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { ExponentialHost, JsonlStreamTransport } from "@exponential_app/eui"
 import { HostSurface } from "@exponential_app/eui-react"
 import { Button } from "@exponential_app/eui-react/primitives"
 import "@exponential_app/eui-react/styles.css"
 
 export function App() {
-  // One host per app: A2UI messages in over a transport, actions back out.
+  // One host per connection: A2UI messages in over a transport, actions back
+  // out. A surface id lives once per host, so a reconnect that replays the
+  // agent's createSurface needs a new host.
+  const [connection, setConnection] = useState(0)
   const host = useMemo(
     () => new ExponentialHost({ transport: new JsonlStreamTransport({ url: `/a2ui.jsonl`, postUrl: `/action` }) }),
-    []
+    [connection]
   )
   useEffect(() => {
     host.connect()
@@ -20,7 +23,7 @@ export function App() {
   return (
     <>
       <HostSurface host={host} surfaceId="main" theme="exponential" mode="dark" fallback={<p>Waiting for the agent…</p>} />
-      <Button variant="outline" onClick={() => { host.close(); host.connect() }}>
+      <Button variant="outline" onClick={() => setConnection((n) => n + 1)}>
         Reconnect
       </Button>
     </>

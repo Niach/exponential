@@ -1,5 +1,5 @@
 // VAPP-269: the capability runtime, the twin of the crate's `capability.rs`.
-// ONE `Broker` per app instance answers app UI calls (`photos.pick`) and
+// ONE `Broker` per app instance answers app UI calls (`photos_pick`) and
 // agent calls (`photos__pick`) the same way: the package's manifest is the
 // ceiling, the person's consent next (the host paints the sheet and answers
 // through `answer`), then one audit row. Grants persist in the Vault and
@@ -112,11 +112,11 @@ export class Broker {
       return { refused: { code: `FORBIDDEN`, message: `unavailable` } }
     }
     const { result, outcome } = await bridgeCall({
-      tool: `${capability.name}.${verdict.tool}`,
+      tool: `${capability.name}_${verdict.tool}`,
       arguments: call.arguments ?? {},
       context: { app: this.setup.appId, screens: this.setup.screens },
       blobs: this.setup.blobs,
-      native: (tool, args) => capability.call(tool.slice(tool.indexOf(`.`) + 1), args),
+      native: (tool, args) => capability.call(tool.slice(tool.indexOf(`_`) + 1), args),
     })
     this.record(client, call, verdict, outcome)
     return { result }

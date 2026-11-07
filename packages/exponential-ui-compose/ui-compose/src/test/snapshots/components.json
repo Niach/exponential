@@ -14965,6 +14965,66 @@
       }
     ]
   },
+  "Markdown\/profile=document" : {
+    "height" : 80,
+    "nodes" : [
+      {
+        "component" : "Markdown",
+        "frame" : [
+          0,
+          0,
+          390,
+          80
+        ],
+        "id" : "markdown"
+      }
+    ]
+  },
+  "Markdown\/profile=inline" : {
+    "height" : 80,
+    "nodes" : [
+      {
+        "component" : "Markdown",
+        "frame" : [
+          0,
+          0,
+          390,
+          80
+        ],
+        "id" : "markdown"
+      }
+    ]
+  },
+  "Markdown\/variant=body" : {
+    "height" : 80,
+    "nodes" : [
+      {
+        "component" : "Markdown",
+        "frame" : [
+          0,
+          0,
+          390,
+          80
+        ],
+        "id" : "markdown"
+      }
+    ]
+  },
+  "Markdown\/variant=caption" : {
+    "height" : 80,
+    "nodes" : [
+      {
+        "component" : "Markdown",
+        "frame" : [
+          0,
+          0,
+          390,
+          80
+        ],
+        "id" : "markdown"
+      }
+    ]
+  },
   "Menu\/align=center" : {
     "height" : 20,
     "nodes" : [

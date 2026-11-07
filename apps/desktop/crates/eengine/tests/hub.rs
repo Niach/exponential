@@ -60,7 +60,7 @@ fn the_hub_lists_only_declared_catalog_tools() {
     let tools = hub.tools().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert_eq!(names, vec!["get", "list", "pick"], "the catalog's photos tools, not the native's own list");
-    let pick = TOOLS.iter().find(|t| t.name == "photos.pick").unwrap();
+    let pick = TOOLS.iter().find(|t| t.name == "photos_pick").unwrap();
     assert_eq!(tools[2], json!({"name": "pick", "description": pick.description, "inputSchema": pick.input_schema, "outputSchema": pick.output_schema}));
     assert_eq!(agent_grant(&broker(Grants::new(), true)).servers.len(), 1);
 }

@@ -3,10 +3,10 @@
 import { ExponentialHost, decideUrl, parseSource } from "@exponential_app/eui"
 import type { HostFunction, HostPolicy, SourceResolvers, Transport } from "@exponential_app/eui"
 
-// 1. Functions: `on: {press: {functionCall: {call: "cart.add", args: {sku: "A1"}}}}`.
+// 1. Functions: `on: {press: {functionCall: {"@call": "cart_add", args: {sku: "A1"}}}}`.
 const functions: Record<string, HostFunction> = {
-  "app.toast": ({ text }) => console.info(String(text)),
-  "cart.add": async ({ sku }) => (await fetch(`/api/cart`, { method: `POST`, body: JSON.stringify({ sku }) })).ok,
+  app_toast: ({ text }) => console.info(String(text)),
+  cart_add: async ({ sku }) => (await fetch(`/api/cart`, { method: `POST`, body: JSON.stringify({ sku }) })).ok,
 }
 
 // 2. Bindings: `bindDataModel {path: "/weather", source: "weather:current?city=Vienna"}`.
@@ -22,7 +22,7 @@ const sources: SourceResolvers = {
 
 // 3. Policy: deny wins, then allow, then ask (your consent UI), then default.
 const policy: HostPolicy = {
-  functions: { allow: [`app.*`], ask: [`cart.*`], default: `deny` },
+  functions: { allow: [`app_*`], ask: [`cart_*`], default: `deny` },
   onFunctionCall: (call) => window.confirm(`Allow ${call.name}(${JSON.stringify(call.args)})?`),
   urls: { schemes: [`https`, `mailto`], hosts: [`example.com`, `*.example.com`] },
   openUrl: (url) => window.open(url, `_blank`, `noopener`),

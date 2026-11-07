@@ -558,7 +558,7 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
               disabled={bool(item.disabled)}
               onCheckedChange={(next) => {
                 const checked = next === true
-                if (isBinding(raw)) ctx.setData(absolutePath(raw.path, scope), checked)
+                if (isBinding(raw)) ctx.setData(absolutePath(raw[`@path`], scope), checked)
                 void emit(`select`, { value: item.value ?? item.label, checked })
               }}
               onSelect={(e) => e.preventDefault()}

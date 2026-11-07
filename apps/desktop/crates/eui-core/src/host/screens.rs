@@ -23,7 +23,7 @@ pub const MAX_SCREEN_TITLE: usize = 32;
 /// An exposed screen's description's most characters (code points).
 pub const MAX_EXPOSED_DESCRIPTION: usize = 200;
 /// The host function (and action call) that opens a screen; always allowed.
-pub const NAVIGATE_FUNCTION: &str = "app.navigate";
+pub const NAVIGATE_FUNCTION: &str = "app_navigate";
 /// The template data key a screen's params land under (`/params/*`).
 pub const SCREEN_PARAMS_KEY: &str = "params";
 
@@ -213,7 +213,7 @@ fn navigate_issues(pkg: &Map<String, Value>, screens: &[String]) -> Vec<PackageI
                 let Some(on) = c.get("on").and_then(Value::as_object) else { continue };
                 for event in sorted_keys(on) {
                     let Some(fc) = on[event].get("functionCall").filter(|f| f.is_object()) else { continue };
-                    if fc.get("call").and_then(Value::as_str) != Some(NAVIGATE_FUNCTION) {
+                    if fc.get("@call").and_then(Value::as_str) != Some(NAVIGATE_FUNCTION) {
                         continue;
                     }
                     let at = format!("/templates/{}/components/{i}/on/{}/functionCall/args", escape(id), escape(event));

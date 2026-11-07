@@ -36,16 +36,16 @@ const KNOWN: &str = "packages/exponential-ui/fixtures/conformance-known.json";
 /// occur in.
 const SURVIVORS: &[(&str, &str, &str)] = &[
     // EXP-1604: temporary, until the web Motion painter regenerates the baseline.
-    ("feedback-demo.body", "regenerate the web baseline with the React Motion native (EXP-1604 web child), then rewrite this budget", "The kitchen sink's new 48 px Motion is not in the web baseline yet (no web painter when it was recorded): the box holding it is taller here and everything after it moves."),
+    ("feedback_demo.body", "regenerate the web baseline with the React Motion native (EXP-1604 web child), then rewrite this budget", "The kitchen sink's new 48 px Motion is not in the web baseline yet (no web painter when it was recorded): the box holding it is taller here and everything after it moves."),
 ];
 
 /// Nodes only ONE side places (not compared): every one is a decision. An
 /// unlisted web-only (`ref`) or gpui-only (`gpui`) id fails the gate; the
 /// writer records them under `coverageGaps`. (id, side, reason)
 const COVERAGE_GAPS: &[(&str, &str, &str)] = &[
-    ("media-img.fallback", "ref", "Image/fallback: gpui paints the broken-picture glyph inside the Image leaf (the box is compared)."),
-    ("page-1.fallback", "ref", "Image/fallback of a Carousel page: painted inside the Image leaf; shows only where the web's load fails first."),
-    ("chip-user.image.fallback", "ref", "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."),
+    ("media_img.fallback", "ref", "Image/fallback: gpui paints the broken-picture glyph inside the Image leaf (the box is compared)."),
+    ("page_1.fallback", "ref", "Image/fallback of a Carousel page: painted inside the Image leaf; shows only where the web's load fails first."),
+    ("chip_user.image.fallback", "ref", "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."),
     ("accordion.count.1", "ref", "Accordion count: painted inside the trigger leaf; its room is measured (round2.rs an_accordion_count_is_measured_after_the_title)."),
     ("ring.label", "ref", "Ring centre label: painted inside the Ring leaf."),
     ("video.controls", "ref", "Video controls bar: painted inside the Video leaf (16:9 box compared)."),

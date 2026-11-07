@@ -186,6 +186,8 @@ public protocol HostPlugin: AnyObject {
     /// `nav-inbox`) → a view drawn at `size` in the current foreground
     /// colour. nil = the placeholder circle.
     func icon(_ name: String, size: CGFloat) -> AnyView?
+    /// Round 9 §5.2, §6.8: a layout ran; the host sends what it left.
+    func afterLayout(surfaceId: String)
     /// Every A2UI action.
     func onAction(_ event: SurfaceActionEvent)
     /// Host-owned text edits (debounced `change`, `commit` on blur / Enter).
@@ -224,6 +226,9 @@ public protocol HostPlugin: AnyObject {
     /// A host function call (VAPP-91). `ExponentialHost` gates and runs it;
     /// a bare plugin ignores it.
     func onFunctionCall(_ call: SurfaceFunctionCall)
+    /// Round 9 §6.8: an action with both: the function first, `then` (its
+    /// event) only when the function did not fail.
+    func onFunctionCallThen(_ call: SurfaceFunctionCall, then: @escaping @MainActor () -> Void)
     /// The request an image / avatar / video poster loads with (auth
     /// headers). Default: `resolveUrl(src)` through the media policy
     /// (`mediaOptions`). The surface re-checks the result's url against the
@@ -260,6 +265,7 @@ public protocol HostPlugin: AnyObject {
 
 public extension HostPlugin {
     func icon(_ name: String, size: CGFloat) -> AnyView? { nil }
+    func afterLayout(surfaceId: String) {}
     func onAction(_ event: SurfaceActionEvent) {}
     func onInput(_ event: SurfaceInputEvent) {}
     func openUrl(_ url: String) {
@@ -275,6 +281,10 @@ public extension HostPlugin {
     var mediaOptions: MediaOptions? { nil }
     func resolveUrl(_ src: String) -> String { src }
     func onFunctionCall(_ call: SurfaceFunctionCall) {}
+    func onFunctionCallThen(_ call: SurfaceFunctionCall, then: @escaping @MainActor () -> Void) {
+        onFunctionCall(call)
+        then()
+    }
     func mediaRequest(_ src: String) -> URLRequest? {
         policyMediaRequest(resolveUrl(src), options: mediaOptions)
     }

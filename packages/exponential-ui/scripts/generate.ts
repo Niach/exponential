@@ -4,7 +4,8 @@
 // re-renders in memory and fails on any committed drift.
 //
 // Outputs (all committed):
-//   catalog/core.schema.json              the catalog as JSON Schema (A2UI catalog shape)
+//   catalog/core.schema.json              the catalog as an A2UI 1.0 catalog definition
+//   catalog/core-lite.schema.json         the core-lite subset, the same shape
 //   src/catalog.generated.ts              names, enums, token names, icon names, basic map
 //   generated/ExponentialUICatalog.generated.swift   the same for the SwiftUI painter (VAPP-88)
 //   generated/ExponentialUICatalog.generated.kt      the same for the Compose painter (VAPP-89)
@@ -37,12 +38,12 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { A2UI_BASIC_CATALOG_ID, A2UI_VERSION, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, TOKEN_GROUPS, coreCatalog } from "../src/catalog"
+import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, TOKEN_GROUPS, coreCatalog } from "../src/catalog"
 import { splitDescriptions } from "../src/catalog.described"
 import { basicMap } from "../src/basic-map"
 import { catalogPrompt, componentPrompt, estimateTokens } from "../src/prompt"
 import { reduceNested, reduceSurface } from "../src/reducer"
-import { coreSchema } from "../src/schema"
+import { coreLiteSchema, coreSchema } from "../src/schema"
 import { STYLE_KEYS, STYLE_STATES, resolveConditions, type ConditionContext } from "../src/style"
 import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, runAction } from "../src/dynamic"
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
@@ -53,7 +54,9 @@ import { qrMatrix } from "../src/qr-code"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
 import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
+import { renderA2ui10 } from "./generate-a2ui10"
 import { renderHost } from "./generate-host"
+import { renderXid } from "./generate-xid"
 import { renderRound2 } from "./generate-round2"
 import { renderRound4 } from "./generate-round4"
 import { ANIMATION_NAMES } from "../src/animation"
@@ -68,6 +71,7 @@ import localeJson from "../catalog/locale.json" with { type: "json" }
 import type { CatalogSource, ComponentDef, ExtensionDef, FlatComponent, NestedNode, PropSchema, UiNode } from "../src/types"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
+const HOST_JSON = JSON.parse(readFileSync(join(pkgRoot, `catalog/host.json`), `utf8`)) as { a2uiVersion: string; transition: { acceptV09: boolean } }
 const repoRoot = join(pkgRoot, `..`, `..`)
 
 // VAPP-106: the generator works on the SOURCE catalog (descriptions, examples,
@@ -137,8 +141,8 @@ function hostRuntime() {
   return {
     version: host.version,
     a2uiVersion: host.a2uiVersion,
-    messages: { a2ui: host.messages.a2ui, extensions: host.messages.extensions },
-    clientMessages: { errorCodes: host.clientMessages.errorCodes },
+    messages: { a2ui: host.messages.a2ui, host: host.messages.host },
+    clientMessages: { kinds: host.clientMessages.kinds, errorCodes: host.clientMessages.errorCodes },
     urls: { defaultSchemes: host.urls.defaultSchemes },
     media: { defaultSchemes: host.media.defaultSchemes, limits: host.media.limits },
     paint: { hook: host.paint.hook },
@@ -200,6 +204,9 @@ function tsPropType(schema: PropSchema): string {
     case `style`:
       base = `Style`
       break
+    case `dynamic`:
+      base = `Dynamic`
+      break
     case `array`:
       base = schema.items ? `${schema.items.type === `object` ? (schema.items.shape ? `Shapes[${JSON.stringify(schema.items.shape)}]` : `Record<string, unknown>`) : tsPropType(schema.items)}[]` : `unknown[]`
       break
@@ -238,7 +245,10 @@ import type { DataBinding, FunctionCall } from "./types"
 export const CATALOG_ID = ${JSON.stringify(CORE_CATALOG_ID)}
 export const LITE_CATALOG_ID = ${JSON.stringify(CORE_LITE_CATALOG_ID)}
 export const BASIC_CATALOG_ID = ${JSON.stringify(A2UI_BASIC_CATALOG_ID)}
-export const BASIC_VERSION = ${JSON.stringify(A2UI_VERSION)}
+/** VAPP-289: the A2UI wire version every core entry accepts and emits (catalog/host.json \`a2uiVersion\`). */
+export const A2UI_VERSION = ${JSON.stringify(HOST_JSON.a2uiVersion)}
+/** VAPP-289 (round 9 §14): while true, every core entry upgrades 0.9 input through upgrade09 (catalog/host.json \`transition.acceptV09\`). */
+export const ACCEPT_V09: boolean = ${JSON.stringify(HOST_JSON.transition.acceptV09)}
 export const CATALOG_VERSION = ${JSON.stringify(coreCatalog.version)}
 export const UNKNOWN_COMPONENT_NAME = ${JSON.stringify(coreCatalog.unknownComponent)}
 
@@ -357,7 +367,9 @@ const scalars: [string, string][] = [
   [`catalogId`, CORE_CATALOG_ID],
   [`liteCatalogId`, CORE_LITE_CATALOG_ID],
   [`basicCatalogId`, A2UI_BASIC_CATALOG_ID],
-  [`basicVersion`, A2UI_VERSION],
+  [`a2uiVersion`, HOST_JSON.a2uiVersion],
+  // VAPP-289: the round-8 name of a2uiVersion, kept until the natives read a2uiVersion (phase B).
+  [`basicVersion`, HOST_JSON.a2uiVersion],
   [`catalogVersion`, coreCatalog.version],
   [`unknownComponent`, coreCatalog.unknownComponent],
   [`basicPlaceholderIcon`, basicMap.placeholderIcon],
@@ -377,6 +389,7 @@ public enum ExponentialUICatalog {
 ${scalars.map(([k, v]) => `    public static let ${k}: String = ${JSON.stringify(v)}`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
     public static let componentLite: [Bool] = [${liteFlags.join(`, `)}]
+    public static let acceptV09: Bool = ${HOST_JSON.transition.acceptV09}
 }
 `
 }
@@ -395,6 +408,7 @@ object ExponentialUICatalog {
 ${scalars.map(([k, v]) => `    const val ${k}: String = ${ktString(v)}`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
     val componentLite: List<Boolean> = listOf(${liteFlags.join(`, `)})
+    const val acceptV09: Boolean = ${HOST_JSON.transition.acceptV09}
 }
 `
 }
@@ -455,6 +469,8 @@ function renderRust(icons: string[]): string {
 ${scalars.map(([k, v]) => `pub const ${screaming(k)}: &str = ${JSON.stringify(v)};`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
 pub const COMPONENT_LITE: &[bool] = &[${liteFlags.join(`, `)}];
+/// VAPP-289 (round 9 §14): while true, every core entry upgrades 0.9 input through upgrade09.
+pub const ACCEPT_V09: bool = ${HOST_JSON.transition.acceptV09};
 /// The Icon prop's vocabulary (packages/icons/icons.json at generate time).
 ${arr(`iconNames`, icons)}
 /// The catalog source files, embedded (minified, \`$comment\`s dropped); parse once at startup.
@@ -558,7 +574,7 @@ function boundMacroCases(): ComponentCase[] {
     if (def.kind !== `macro`) continue
     const base = { ...(def.example ?? {}) }
     for (const [prop, schema] of Object.entries(def.props)) {
-      if (schema.bindable) cases.push(makeCase(name, def, `bound:${prop}`, { ...base, [prop]: { path: `/${prop}` } }))
+      if (schema.bindable) cases.push(makeCase(name, def, `bound:${prop}`, { ...base, [prop]: { "@path": `/${prop}` } }))
       if (schema.responsive) cases.push(makeCase(name, def, `responsive:${prop}`, { ...base, [prop]: responsiveSample(schema) }))
     }
   }
@@ -762,7 +778,7 @@ function treeCases(): ComponentCase[] {
     { name: `Tree/files`, node: fileTree({}, { on: TREE_ON }) },
     { name: `Tree/lazy-open`, node: fileTree({ expanded: [`apps`, `apps/desktop`] }, { on: TREE_ON }) },
     { name: `Tree/nothing-open`, node: fileTree({ expanded: [] }) },
-    { name: `Tree/bound`, node: fileTree({ expanded: { path: `/open` }, value: { path: `/picked` } }, { on: TREE_ON }) },
+    { name: `Tree/bound`, node: fileTree({ expanded: { "@path": `/open` }, value: { "@path": `/picked` } }, { on: TREE_ON }) },
   ]
 }
 
@@ -1138,8 +1154,8 @@ function inlineBindings(value: unknown, data: Record<string, unknown>): unknown 
   if (Array.isArray(value)) return value.map((v) => inlineBindings(v, data))
   if (!value || typeof value !== `object`) return value
   const o = value as Record<string, unknown>
-  if (Object.keys(o).length === 1 && typeof o.path === `string`) {
-    const got = o.path.split(`/`).filter(Boolean).reduce<unknown>((at, k) => (at && typeof at === `object` ? (at as Record<string, unknown>)[k] : undefined), data)
+  if (Object.keys(o).length === 1 && typeof o[`@path`] === `string`) {
+    const got = (o[`@path`] as string).split(`/`).filter(Boolean).reduce<unknown>((at, k) => (at && typeof at === `object` ? (at as Record<string, unknown>)[k] : undefined), data)
     if (got === undefined) throw new Error(`specimen source: ${o.path} has no data`)
     return got
   }
@@ -1247,12 +1263,12 @@ const TREE_ROW_CASES: { name: string; expanded: unknown; rail?: unknown }[] = [
   { name: `a closed parent hides an open child`, expanded: [`apps/web`] },
   { name: `the lazy folder open: a loading row`, expanded: [`apps`, `apps/desktop`] },
   { name: `an empty folder open shows nothing under it`, expanded: [`packages`, `packages/ui`] },
-  { name: `bound: every row, shown and open as calls`, expanded: { path: `/open` } },
+  { name: `bound: every row, shown and open as calls`, expanded: { "@path": `/open` } },
   // #VAPP-277 × #VAPP-285: a rail Sidebar hands the Tree `rail`.
   { name: `rail: every row shows whatever expanded, no loading row`, expanded: [`apps/desktop`], rail: true },
   { name: `rail false: as without it`, expanded: [`apps`, `apps/desktop`], rail: false },
-  { name: `bound rail: every row, shown = cond(rail, …)`, expanded: [`apps`, `apps/desktop`], rail: { path: `/collapsed` } },
-  { name: `bound rail and bound expanded`, expanded: { path: `/open` }, rail: { path: `/collapsed` } },
+  { name: `bound rail: every row, shown = cond(rail, …)`, expanded: [`apps`, `apps/desktop`], rail: { "@path": `/collapsed` } },
+  { name: `bound rail and bound expanded`, expanded: { "@path": `/open` }, rail: { "@path": `/collapsed` } },
 ]
 const TREE_KEY_ROWS: TreeKeyRow[] = [
   { level: 1, expanded: true },
@@ -1311,7 +1327,7 @@ function railCases(): ComponentCase[] {
   })
   const right = sidebar(`right`, true)
   right.node.props = { ...right.node.props, side: `right` }
-  return [sidebar(`collapsed`, true), sidebar(`expanded`, false), sidebar(`bound`, { path: `/collapsed` }), right]
+  return [sidebar(`collapsed`, true), sidebar(`expanded`, false), sidebar(`bound`, { "@path": `/collapsed` }), right]
 }
 
 /** #VAPP-284: the fold cases (helpers above SPECIMEN_EXTRA). */
@@ -1320,7 +1336,7 @@ function foldCases(): ComponentCase[] {
     { name: `Row/fold:closed`, node: foldRow(false) },
     { name: `Row/fold:open`, node: foldRow(true) },
     { name: `Row/fold:plain-open`, node: { ...foldRow(true), on: { change: FOLD_ON.change } } },
-    { name: `Row/fold:bound`, node: foldRow({ path: `/open` }) },
+    { name: `Row/fold:bound`, node: foldRow({ "@path": `/open` }) },
     { name: `Row/fold:rtl`, node: { ...foldRow(true), style: { direction: `rtl` } } },
   ]
 }
@@ -1481,8 +1497,8 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     input: {
       id: `table`,
       component: `Table`,
-      props: { columns: [{ key: `name`, label: `Name` }, { key: `s`, label: `Status`, type: `slot`, slot: `status` }], rows: { path: `/rows` } },
-      slots: { status: { id: `cell`, component: `Badge`, props: { text: { path: `s` } }, visible: { path: `show` } } },
+      props: { columns: [{ key: `name`, label: `Name` }, { key: `s`, label: `Status`, type: `slot`, slot: `status` }], rows: { "@path": `/rows` } },
+      slots: { status: { id: `cell`, component: `Badge`, props: { text: { "@path": `s` } }, visible: { "@path": `show` } } },
     },
     datasets: [{ rows: [{ id: `a`, name: `Alice`, s: `ok`, show: true }, { id: `b`, name: `Bob`, s: `late`, show: false }, { id: `c`, name: `Cy`, s: 0, show: 0 }] }, { rows: [] }, {}],
   },
@@ -1495,21 +1511,21 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
         columns: [{ key: `path`, label: `Path` }, { key: `call`, label: `Call` }, { key: `note`, label: `Note` }, { key: `s`, label: `Status`, type: `slot`, slot: `status` }],
         rows: [
           { id: `a`, path: `/etc/hosts`, call: `openUrl`, note: `$string.cancel`, s: `ok` },
-          { id: `b`, path: { path: `/etc/hosts` }, call: { call: `not`, args: { value: true } }, note: `plain`, s: `late` },
+          { id: `b`, path: { "@path": `/etc/hosts` }, call: { "@call": `not`, args: { value: true } }, note: `plain`, s: `late` },
         ],
       },
-      slots: { status: { id: `cell`, component: `Text`, props: { text: { call: `concat`, args: { values: [{ path: `s` }, ` · `, { path: `/suffix` }] } } } } },
+      slots: { status: { id: `cell`, component: `Text`, props: { text: { "@call": `concat`, args: { values: [{ "@path": `s` }, ` · `, { "@path": `/suffix` }] } } } } },
     },
     datasets: [{ etc: { hosts: `PWNED` }, suffix: `today` }, {}],
   },
   {
     name: `Text/accessibility:bound-label`,
-    input: { id: `text`, component: `Text`, props: { text: `hi` }, accessibility: { label: { path: `/l` }, description: `$string.close` } },
+    input: { id: `text`, component: `Text`, props: { text: `hi` }, accessibility: { label: { "@path": `/l` }, description: `$string.close` } },
     datasets: [{ l: `Hello` }, {}],
   },
   {
     name: `Section/set:author-function`,
-    input: { id: `section`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { functionCall: { call: `openUrl`, args: { url: `https://example.com` } } } }, children: [{ id: `r`, component: `Row`, props: { title: `A` } }] },
+    input: { id: `section`, component: `Section`, props: { title: `More`, collapsible: true, open: { "@path": `/open` } }, on: { change: { functionCall: { "@call": `openUrl`, args: { url: `https://example.com` } } } }, children: [{ id: `r`, component: `Row`, props: { title: `A` } }] },
     datasets: [{ open: true }],
   },
   {
@@ -1518,24 +1534,24 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     name: `Row/fold:bound`,
     // No author handlers: a press is the two-way `set` alone (the renderers'
     // bind replays compare the data a press writes).
-    input: { ...foldRow({ path: `/open` }), props: { ...foldRow({ path: `/open` }).props, pressable: true }, on: {} },
+    input: { ...foldRow({ "@path": `/open` }), props: { ...foldRow({ "@path": `/open` }).props, pressable: true }, on: {} },
     datasets: [{ open: true }, { open: false }, {}],
   },
   {
     name: `Row/fold:bound-plain`,
-    input: { ...foldRow({ path: `/open` }), on: {} },
+    input: { ...foldRow({ "@path": `/open` }), on: {} },
     datasets: [{ open: true }, {}],
   },
   {
     // #VAPP-285: a Tree bound to /open and /picked: rows show while every
     // ancestor is open; a branch press writes the toggled list, a leaf the id.
     name: `Tree/bound`,
-    input: fileTree({ expanded: { path: `/open` }, value: { path: `/picked` } }),
+    input: fileTree({ expanded: { "@path": `/open` }, value: { "@path": `/picked` } }),
     datasets: [{ open: [`apps`, `apps/web`], picked: `apps/web/router.ts` }, { open: [`apps`, `apps/desktop`] }, { open: [] }, {}],
   },
   {
     name: `Pagination/page:string-data`,
-    input: { id: `pagination`, component: `Pagination`, props: { totalPages: 5, page: { path: `/page` } } },
+    input: { id: `pagination`, component: `Pagination`, props: { totalPages: 5, page: { "@path": `/page` } } },
     datasets: [{ page: `5` }, { page: `1` }, { page: 9 }, {}],
   },
   {
@@ -1545,9 +1561,9 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     input: {
       id: `text`,
       component: `Text`,
-      props: { text: { call: `formatDuration`, args: { hours: { call: `expr`, args: { expr: `round(minutes / 60, 2)`, vars: { minutes: { path: `/minutes` } } } }, format: `h:mm` } } },
-      accessibility: { label: { call: `dateAdd`, args: { date: { path: `/day` }, n: 1, unit: `month` } } },
-      visible: { call: `expr`, args: { expr: `weekday(d) >= 6 || mul(minutes, 2) > 1000`, vars: { d: { path: `/day` }, minutes: { path: `/minutes` } } } },
+      props: { text: { "@call": `formatDuration`, args: { hours: { "@call": `expr`, args: { expr: `round(minutes / 60, 2)`, vars: { minutes: { "@path": `/minutes` } } } }, format: `h:mm` } } },
+      accessibility: { label: { "@call": `dateAdd`, args: { date: { "@path": `/day` }, n: 1, unit: `month` } } },
+      visible: { "@call": `expr`, args: { expr: `weekday(d) >= 6 || mul(minutes, 2) > 1000`, vars: { d: { "@path": `/day` }, minutes: { "@path": `/minutes` } } } },
     },
     datasets: [{ minutes: 450, day: `2026-01-31` }, { minutes: 600, day: `2026-02-02` }, { minutes: 450, day: `2026-02-02` }, { minutes: `x`, day: `nope` }, {}],
   },
@@ -1556,7 +1572,7 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     // part and style is a call the bind pass resolves (rail when true,
     // the plain Rows when false or missing).
     name: `Sidebar/rail:bound-collapsed`,
-    input: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed: { path: `/collapsed` }, collapseBelow: `never` }, slots: { sidebar: railNav() } },
+    input: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed: { "@path": `/collapsed` }, collapseBelow: `never` }, slots: { sidebar: railNav() } },
     datasets: [{ collapsed: true }, { collapsed: false }, {}],
   },
   // Round 8: a collapsed Stepper bound to /current shows ONE line (each
@@ -1564,12 +1580,12 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
   // Progress whose trailing text and caption are bound.
   {
     name: `Stepper/collapse-always:bound-current`,
-    input: { id: `wizard`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: { path: `/current` }, collapse: `always` } },
+    input: { id: `wizard`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: { "@path": `/current` }, collapse: `always` } },
     datasets: [{ current: 0 }, { current: 2 }, { current: 5 }, {}],
   },
   {
     name: `Progress/bound:valueText+detail`,
-    input: { id: `download`, component: `Progress`, props: { value: { path: `/done` }, valueText: { path: `/rate` }, detail: { path: `/files` } } },
+    input: { id: `download`, component: `Progress`, props: { value: { "@path": `/done` }, valueText: { "@path": `/rate` }, detail: { "@path": `/files` } } },
     datasets: [{ done: 41, rate: `41 MB/s · 12 min`, files: `3 of 8 files` }, { done: 0 }],
   },
 ]
@@ -1777,7 +1793,9 @@ function renderFiles(): Record<string, string> {
   const rust = renderRust(icons)
   const rustDescriptions = renderRustDescriptions()
   return {
+    // Round 9 §11: the 1.0 catalog definitions (catalog_definition.json).
     "catalog/core.schema.json": json(coreSchema(icons)),
+    "catalog/core-lite.schema.json": json(coreLiteSchema(icons)),
     // VAPP-106: the runtime catalog and its text, split (src/catalog.described.ts).
     "generated/core.runtime.json": json(catalogSplit.runtime),
     "generated/core.descriptions.json": json(catalogSplit.descriptions),
@@ -1832,8 +1850,11 @@ function renderFiles(): Record<string, string> {
     "fixtures/zoom.json": json(zoomCases(readJson<ZoomCaseFile>(`fixtures/zoom.json`))),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
+    // VAPP-289: the UAX #31 identifier tables (round 9 §4).
+    ...renderXid(),
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).
     ...renderHost(),
+    ...renderA2ui10(),
     // Round 2: the contract fixtures (inputs in scripts/generate-round2.ts).
     ...renderRound2(),
     // Round 4: the styling + semantics contract (inputs in scripts/generate-round4.ts).

@@ -29,16 +29,58 @@ pub struct ExprContext<'a> {
     pub id: &'a str,
     pub props: &'a Props,
     pub vars: IndexMap<String, Value>,
+    /// VAPP-289: the macro component's prop schemas: a bound condition
+    /// operand `props.<boolean prop>` passes through unwrapped (§6.7).
+    pub types: Option<&'a IndexMap<String, crate::types::PropSchema>>,
 }
 
-/// An A2UI data binding: an object with exactly one key, `path` (a string).
+/// Round 9 §6.7: a DYNAMIC condition operand of a macro (`$if`, `$any`,
+/// `$not`, `{!…}`) keeps PRESENCE semantics under the 1.0 boolean coercion:
+/// unless it is a call to a boolean function or the expression is
+/// `props.<name>` (optionally `|true`/`|false`) over a boolean-typed prop,
+/// it is wrapped as `cond {if: operand, then: true, else: false}`.
+pub fn presence_operand(value: Value, text: Option<&str>, ctx: &ExprContext) -> Value {
+    if call_name(&value).is_some_and(|n| matches!(crate::functions::return_type(n), Some("boolean" | "validationResult"))) {
+        return value;
+    }
+    let prop = text.map(str::trim).and_then(|t| t.strip_prefix("props.")).map(|t| t.strip_suffix("|true").or_else(|| t.strip_suffix("|false")).unwrap_or(t));
+    let boolean = prop.filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')).and_then(|p| ctx.types?.get(p)).is_some_and(|s| s.type_ == "boolean");
+    if boolean {
+        return value;
+    }
+    call("cond", vec![("if", Some(value)), ("then", Some(Value::Bool(true))), ("else", Some(Value::Bool(false)))])
+}
+
+/// The 1.0 binding key (`{"@path": "<pointer>"}`, round 9 §3).
+pub const PATH_KEY: &str = "@path";
+/// The 1.0 call key (`{"@call": "<name>", "args"?, "catalogId"?}`).
+pub const CALL_KEY: &str = "@call";
+
+/// An A2UI 1.0 data binding: an object with exactly one key, `@path` (a string).
 pub fn is_binding(value: &Value) -> bool {
-    value.as_object().is_some_and(|o| o.len() == 1 && o.get("path").is_some_and(Value::is_string))
+    value.as_object().is_some_and(|o| o.len() == 1 && o.get(PATH_KEY).is_some_and(Value::is_string))
 }
 
-/// An A2UI function call: an object with a string `call`.
+/// The pointer of a binding (`None` when `value` is not one).
+pub fn binding_path(value: &Value) -> Option<&str> {
+    value.as_object().filter(|o| o.len() == 1).and_then(|o| o.get(PATH_KEY)).and_then(Value::as_str)
+}
+
+/// `{"@path": path}`.
+pub fn binding(path: &str) -> Value {
+    let mut m = Map::new();
+    m.insert(PATH_KEY.into(), Value::String(path.to_string()));
+    Value::Object(m)
+}
+
+/// An A2UI 1.0 function call: an object with a string `@call`.
 pub fn is_call(value: &Value) -> bool {
-    value.as_object().is_some_and(|o| o.get("call").is_some_and(Value::is_string))
+    value.as_object().is_some_and(|o| o.get(CALL_KEY).is_some_and(Value::is_string))
+}
+
+/// The function a call names (`None` when `value` is not a call).
+pub fn call_name(value: &Value) -> Option<&str> {
+    value.as_object().and_then(|o| o.get(CALL_KEY)).and_then(Value::as_str)
 }
 
 /// A value the expander cannot evaluate: the renderer will.
@@ -50,15 +92,103 @@ fn is_dynamic_opt(value: &Option<Value>) -> bool {
     value.as_ref().is_some_and(is_dynamic)
 }
 
-/// `undefined`, `null`, `false` and `""` are false; 0 is TRUE (a count of
-/// zero still shows).
-pub fn truthy(value: &Value) -> bool {
+/// Round 9 §3.3: a literal object's key as the author meant it: `@@x` loses
+/// ONE leading `@`. `None` = a refused single-`@` key (`@x`, `@`).
+pub fn literal_key(key: &str) -> Option<std::borrow::Cow<'_, str>> {
+    match key.strip_prefix('@') {
+        None => Some(std::borrow::Cow::Borrowed(key)),
+        Some(rest) if rest.starts_with('@') => Some(std::borrow::Cow::Borrowed(rest)),
+        Some(_) => None,
+    }
+}
+
+/// Round 9 §3.3: the first MALFORMED directive in a dynamic value, as
+/// `(pointer below value, reason)`. Checks bindings, calls (keys, `args`,
+/// `catalogId`, identifier function and arg names) and single-`@` literal
+/// keys at any depth.
+pub fn malformed_directive(value: &Value) -> Option<(String, String)> {
+    fn esc(k: &str) -> String {
+        k.replace('~', "~0").replace('/', "~1")
+    }
+    fn walk(value: &Value, at: &str) -> Option<(String, String)> {
+        match value {
+            Value::Array(items) => items.iter().enumerate().find_map(|(i, v)| walk(v, &format!("{at}/{i}"))),
+            Value::Object(o) if o.contains_key(PATH_KEY) => {
+                if !o[PATH_KEY].is_string() {
+                    return Some((format!("{at}/@path"), "@path is a string".into()));
+                }
+                o.keys().find(|k| *k != PATH_KEY).map(|k| (format!("{at}/{}", esc(k)), format!("a binding has only @path (not {k})")))
+            }
+            Value::Object(o) if o.contains_key(CALL_KEY) => {
+                let Some(name) = o[CALL_KEY].as_str() else {
+                    return Some((format!("{at}/@call"), "@call is a string".into()));
+                };
+                if name != "@index" && !crate::ident::is_identifier(name) {
+                    return Some((format!("{at}/@call"), format!("function {} is not an identifier (UAX #31)", Value::String(name.to_string()))));
+                }
+                if let Some(k) = o.keys().find(|k| !matches!(k.as_str(), CALL_KEY | "args" | "catalogId")) {
+                    return Some((format!("{at}/{}", esc(k)), format!("a call has only @call, args and catalogId (not {k})")));
+                }
+                if o.get("catalogId").is_some_and(|c| !c.is_string()) {
+                    return Some((format!("{at}/catalogId"), "catalogId is a string".into()));
+                }
+                match o.get("args") {
+                    None => None,
+                    Some(Value::Object(args)) => args.iter().find_map(|(k, v)| {
+                        if !crate::ident::is_identifier(k) {
+                            return Some((format!("{at}/args/{}", esc(k)), format!("arg {} is not an identifier (UAX #31)", Value::String(k.clone()))));
+                        }
+                        walk(v, &format!("{at}/args/{}", esc(k)))
+                    }),
+                    Some(_) => Some((format!("{at}/args"), "args is an object".into())),
+                }
+            }
+            Value::Object(o) => o.iter().find_map(|(k, v)| {
+                if literal_key(k).is_none() {
+                    return Some((format!("{at}/{}", esc(k)), format!("{k} is not a directive (write @@ for a literal @)")));
+                }
+                walk(v, &format!("{at}/{}", esc(k)))
+            }),
+            _ => None,
+        }
+    }
+    walk(value, "")
+}
+
+/// PRESENCE (the old `truthy`, round 9 §6.7): `undefined`, `null`, `false`
+/// and `""` are false; 0 is TRUE (a count of zero still shows). Macro
+/// conditions over literals, `cond.if`, `coalesce`, `required`.
+pub fn present(value: &Value) -> bool {
     !matches!(value, Value::Null | Value::Bool(false)) && value.as_str() != Some("")
+}
+
+/// [`present`] over an optional (`None` = undefined = false).
+pub fn present_opt(value: Option<&Value>) -> bool {
+    value.is_some_and(present)
+}
+
+/// The pre-1.0 name of [`present`].
+pub fn truthy(value: &Value) -> bool {
+    present(value)
 }
 
 /// [`truthy`] over an optional (`None` = undefined = false).
 pub fn truthy_opt(value: Option<&Value>) -> bool {
-    value.is_some_and(truthy)
+    present_opt(value)
+}
+
+/// Round 9 §6.7: the A2UI 1.0 boolean coercion at every DynamicBoolean
+/// position (boolean props, `visible`, `accessibility.hidden`, the args of
+/// `and`/`or`/`not`, a check condition that is no ValidationResult).
+pub fn coerce_boolean(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(Value::String(s)) => s.eq_ignore_ascii_case("true"),
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Some(Value::Object(o)) => matches!(o.get("valid"), Some(Value::Bool(true))),
+        Some(Value::Array(_)) => false,
+    }
 }
 
 /// `{call: name, args}` with undefined args dropped (the TS `call`).
@@ -70,7 +200,7 @@ pub fn call(name: &str, args: Vec<(&str, Option<Value>)>) -> Value {
         }
     }
     let mut c = Map::new();
-    c.insert("call".into(), Value::String(name.to_string()));
+    c.insert(CALL_KEY.into(), Value::String(name.to_string()));
     c.insert("args".into(), Value::Object(out));
     Value::Object(c)
 }
@@ -264,8 +394,8 @@ pub fn eval_expr(expr: &str, ctx: &ExprContext) -> Option<Value> {
     }
     if let Some(rest) = text.strip_prefix('!') {
         let value = eval_expr(rest, ctx);
-        if is_dynamic_opt(&value) {
-            return Some(call("not", vec![("value", value)]));
+        if let Some(v) = value.as_ref().filter(|v| is_dynamic(v)) {
+            return Some(call("not", vec![("value", Some(presence_operand(v.clone(), Some(rest), ctx)))]));
         }
         return Some(Value::Bool(!truthy_opt(value.as_ref())));
     }
@@ -276,7 +406,7 @@ pub fn eval_expr(expr: &str, ctx: &ExprContext) -> Option<Value> {
 /// `fallback` a `|fallback` wrapped it in is unwrapped again.
 fn pass_through(value: Option<Value>) -> Option<Value> {
     if let Some(v) = &value {
-        if is_call(v) && v.get("call").and_then(Value::as_str) == Some("fallback") {
+        if call_name(v) == Some("fallback") {
             if let Some(inner) = v.get("args").and_then(|a| a.get("value")).filter(|x| is_dynamic(x)) {
                 return Some(inner.clone());
             }
@@ -307,12 +437,26 @@ pub enum Decided {
 /// A condition: a string expression or a value object (`$eq` …). `Bool`
 /// when it can be decided now; the dynamic value when it cannot.
 pub fn eval_condition_value(cond: Option<&Value>, ctx: &ExprContext) -> Decided {
+    decide_condition(cond, ctx, true)
+}
+
+/// `wrap` = the presence wrap of a dynamic operand (§6.7); `cond.if` tests
+/// presence itself.
+fn decide_condition(cond: Option<&Value>, ctx: &ExprContext, wrap: bool) -> Decided {
     let value = match cond {
         Some(Value::String(s)) => eval_expr(s, ctx),
         other => eval_operand(other, ctx),
     };
     match value {
-        Some(v) if is_dynamic(&v) => Decided::Dynamic(v),
+        Some(v) if is_dynamic(&v) => {
+            if !wrap {
+                return Decided::Dynamic(v);
+            }
+            let whole = cond.and_then(Value::as_str).map(|c| {
+                c.strip_prefix('{').and_then(|t| t.strip_suffix('}')).filter(|t| !t.is_empty() && !t.contains(['{', '}'])).unwrap_or(c)
+            });
+            Decided::Dynamic(presence_operand(v, whole, ctx))
+        }
         other => Decided::Bool(truthy_opt(other.as_ref())),
     }
 }
@@ -423,7 +567,8 @@ fn eval_object(obj: &Map<String, Value>, ctx: &ExprContext) -> Option<Value> {
         return eval_operand(hit, ctx);
     }
     if let Some(args) = obj.get("$cond") {
-        let decided = eval_condition_value(arg(args, 0), ctx);
+        // `cond.if` tests presence itself: no wrap (round 9 §6.7).
+        let decided = decide_condition(arg(args, 0), ctx, false);
         return match decided {
             Decided::Dynamic(test) => {
                 Some(call("cond", vec![("if", Some(test)), ("then", eval_operand(arg(args, 1), ctx)), ("else", eval_operand(arg(args, 2), ctx))]))
@@ -675,14 +820,14 @@ mod tests {
         let mut vars = IndexMap::new();
         vars.insert("item".to_string(), json!({"value": "b", "label": "Bee"}));
         vars.insert("index".to_string(), json!(1));
-        let ctx = ExprContext { id: "n1", props: &props, vars };
+        let ctx = ExprContext { id: "n1", props: &props, vars, types: None };
         f(&ctx);
     }
 
     fn with_bound(f: impl FnOnce(&ExprContext)) {
-        let props = json!({"page": {"path": "/page"}, "total": 5, "open": {"path": "/open"}, "value": {"call": "len", "args": {"value": {"path": "/xs"}}}});
+        let props = json!({"page": {"@path": "/page"}, "total": 5, "open": {"@path": "/open"}, "value": {"@call": "len", "args": {"value": {"@path": "/xs"}}}});
         let props = props.as_object().unwrap().clone();
-        let ctx = ExprContext { id: "p", props: &props, vars: IndexMap::new() };
+        let ctx = ExprContext { id: "p", props: &props, vars: IndexMap::new(), types: None };
         f(&ctx);
     }
 
@@ -738,7 +883,7 @@ mod tests {
             assert_eq!(ev(json!({"$eq": ["{props.page}", "2"]}), ctx), Some(json!(true)));
             assert_eq!(
                 ev(json!({"$fill": ["$string.pageOf", {"page": "{props.page}", "x": "{props.missing}"}]}), ctx),
-                Some(json!({"call": "fill", "args": {"template": "$string.pageOf", "params": {"page": 2}}}))
+                Some(json!({"@call": "fill", "args": {"template": "$string.pageOf", "params": {"page": 2}}}))
             );
         });
     }
@@ -765,28 +910,34 @@ mod tests {
         with_bound(|ctx| {
             // A member passes the binding through (two-way binding survives),
             // the fallback is dropped.
-            assert_eq!(ev(json!("{props.page}"), ctx), Some(json!({"path": "/page"})));
-            assert_eq!(ev(json!("{props.page|1}"), ctx), Some(json!({"path": "/page"})));
+            assert_eq!(ev(json!("{props.page}"), ctx), Some(json!({"@path": "/page"})));
+            assert_eq!(ev(json!("{props.page|1}"), ctx), Some(json!({"@path": "/page"})));
             // An operand keeps it.
             assert_eq!(
                 ev(json!({"$eq": ["{props.page|1}", 1]}), ctx),
-                Some(json!({"call": "eq", "args": {"a": {"call": "fallback", "args": {"value": {"path": "/page"}, "default": 1}}, "b": 1}}))
+                Some(json!({"@call": "eq", "args": {"a": {"@call": "fallback", "args": {"value": {"@path": "/page"}, "default": 1}}, "b": 1}}))
             );
-            assert_eq!(ev(json!("{props.page} / {props.total}"), ctx), Some(json!({"call": "concat", "args": {"values": [{"path": "/page"}, " / ", 5]}})));
-            assert_eq!(ev(json!("{!props.open}"), ctx), Some(json!({"call": "not", "args": {"value": {"path": "/open"}}})));
+            assert_eq!(ev(json!("{props.page} / {props.total}"), ctx), Some(json!({"@call": "concat", "args": {"values": [{"@path": "/page"}, " / ", 5]}})));
+            assert_eq!(
+                ev(json!("{!props.open}"), ctx),
+                Some(json!({"@call": "not", "args": {"value": {"@call": "cond", "args": {"if": {"@path": "/open"}, "then": true, "else": false}}}}))
+            );
             assert_eq!(ev(json!("{range(props.page)}"), ctx), None);
-            assert_eq!(ev(json!({"$percent": ["{props.page}", 10]}), ctx), Some(json!({"call": "percent", "args": {"value": {"path": "/page"}, "max": 10}})));
-            assert_eq!(ev(json!({"$cond": ["props.open", "a", "b"]}), ctx), Some(json!({"call": "cond", "args": {"if": {"path": "/open"}, "then": "a", "else": "b"}})));
+            assert_eq!(ev(json!({"$percent": ["{props.page}", 10]}), ctx), Some(json!({"@call": "percent", "args": {"value": {"@path": "/page"}, "max": 10}})));
+            assert_eq!(ev(json!({"$cond": ["props.open", "a", "b"]}), ctx), Some(json!({"@call": "cond", "args": {"if": {"@path": "/open"}, "then": "a", "else": "b"}})));
             assert_eq!(
                 ev(json!({"$coalesce": ["", "{props.page}", "x", "y"]}), ctx),
-                Some(json!({"call": "coalesce", "args": {"values": [{"path": "/page"}, "x"]}}))
+                Some(json!({"@call": "coalesce", "args": {"values": [{"@path": "/page"}, "x"]}}))
             );
-            assert_eq!(ev(json!({"$text": "props.page"}), ctx), Some(json!({"call": "text", "args": {"value": {"path": "/page"}}})));
+            assert_eq!(ev(json!({"$text": "props.page"}), ctx), Some(json!({"@call": "text", "args": {"value": {"@path": "/page"}}})));
             assert_eq!(
                 ev(json!({"$clamp": ["{props.page|1}", 1, "{props.total}"]}), ctx),
-                Some(json!({"call": "clamp", "args": {"value": {"call": "fallback", "args": {"value": {"path": "/page"}, "default": 1}}, "min": 1, "max": 5}}))
+                Some(json!({"@call": "clamp", "args": {"value": {"@call": "fallback", "args": {"value": {"@path": "/page"}, "default": 1}}, "min": 1, "max": 5}}))
             );
-            assert_eq!(eval_condition_value(Some(&json!("props.open")), ctx), Decided::Dynamic(json!({"path": "/open"})));
+            assert_eq!(
+                eval_condition_value(Some(&json!("props.open")), ctx),
+                Decided::Dynamic(json!({"@call": "cond", "args": {"if": {"@path": "/open"}, "then": true, "else": false}}))
+            );
             assert!(eval_condition(&json!("props.open"), ctx));
         });
     }
@@ -818,7 +969,7 @@ mod tests {
     fn range_is_clamped() {
         let props = json!({"huge": 1e8, "vast": 1e300, "neg": -3, "nan": "x"});
         let props = props.as_object().unwrap().clone();
-        let ctx = ExprContext { id: "r", props: &props, vars: IndexMap::new() };
+        let ctx = ExprContext { id: "r", props: &props, vars: IndexMap::new(), types: None };
         let len = |e: &str| ev(json!(e), &ctx).and_then(|v| v.as_array().map(Vec::len));
         assert_eq!(len("{range(props.huge)}"), Some(MAX_RANGE_ITEMS));
         assert_eq!(len("{range(props.vast)}"), Some(MAX_RANGE_ITEMS));

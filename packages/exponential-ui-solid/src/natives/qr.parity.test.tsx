@@ -21,7 +21,7 @@ const codes: NestedNode = {
     { id: `q1`, component: `QrCode`, props: { value: `https://exponential.at/pair/abc`, label: `Scan to pair`, size: 200 } },
     { id: `q2`, component: `QrCode`, props: { value: `x`, level: `H` } },
     { id: `q3`, component: `QrCode`, props: { value: `` } },
-    { id: `q4`, component: `QrCode`, props: { value: { path: `/code` }, level: `L`, size: 96 } },
+    { id: `q4`, component: `QrCode`, props: { value: { "@path": `/code` }, level: `L`, size: 96 } },
   ],
 }
 

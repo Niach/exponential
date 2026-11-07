@@ -19,7 +19,7 @@ use crate::types::UiNode;
 pub const READ_ONLY_FIELDS: &[&str] = crate::layout_tree::FORM_FIELDS;
 
 /// The call prefixes that write at app access `read`.
-pub const READ_ONLY_WRITE_PREFIXES: &[&str] = &["records.", "actions."];
+pub const READ_ONLY_WRITE_PREFIXES: &[&str] = &["records_", "actions_"];
 
 /// Does this function name write (`records.*`, `actions.*`)?
 pub fn call_writes(name: &str) -> bool {
@@ -28,7 +28,7 @@ pub fn call_writes(name: &str) -> bool {
 
 /// Does this action (`{functionCall: {call}}`) call a write?
 pub fn action_writes(action: &Value) -> bool {
-    action.get("functionCall").and_then(|f| f.get("call")).and_then(Value::as_str).is_some_and(call_writes)
+    action.get("functionCall").and_then(|f| f.get("@call")).and_then(Value::as_str).is_some_and(call_writes)
 }
 
 /// Is `node` a writing control of a read-only surface?

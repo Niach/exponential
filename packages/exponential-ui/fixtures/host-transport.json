@@ -1,22 +1,22 @@
 {
-  "$comment": "VAPP-91: the wire decoders (catalog/host.json transport). Inputs hand-written; `expected` filled by `bun run --filter @exponential_app/eui generate` from the TS reference (src/host/decoders.ts). Every renderer's conformance runner replays it: feed `chunks` in order through ONE decoder, then end().",
+  "$comment": "VAPP-91: the wire decoders (catalog/host.json transport). Inputs hand-written; `expected` filled by `bun run --filter @exponential_app/eui generate` from the TS reference (src/host/decoders.ts). `mcpAction` cases carry `metadata` (round 9 §1.3) when the surface has sendDataModel. Every renderer's conformance runner replays it: feed `chunks` in order through ONE decoder, then end().",
   "jsonl": [
     {
       "name": "one message per line",
       "chunks": [
-        "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
+        "{\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -35,21 +35,21 @@
     {
       "name": "a line split across chunks",
       "chunks": [
-        "{\"version\": \"v0.9",
+        "{\"version\": \"1.0",
         "\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"ver",
-        "sion\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
+        "sion\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -68,19 +68,19 @@
     {
       "name": "CRLF and blank lines",
       "chunks": [
-        "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\r\n\r\n\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\r\n"
+        "{\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\r\n\r\n\n{\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\r\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -99,19 +99,19 @@
     {
       "name": "no trailing newline",
       "chunks": [
-        "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}"
+        "{\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -130,19 +130,19 @@
     {
       "name": "a bad line is an issue, never fatal",
       "chunks": [
-        "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\nnot json\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
+        "{\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\nnot json\n{\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -166,12 +166,12 @@
     {
       "name": "unicode across chunk edges",
       "chunks": [
-        "{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"s1\",\"path\":\"/t\",\"value\":\"Grüße 👋\"}}\n"
+        "{\"version\":\"1.0\",\"updateDataModel\":{\"surfaceId\":\"s1\",\"path\":\"/t\",\"value\":\"Grüße 👋\"}}\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateDataModel": {
               "surfaceId": "s1",
               "path": "/t",
@@ -187,20 +187,20 @@
     {
       "name": "one message per event",
       "chunks": [
-        "data: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\n",
-        "data: {\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
+        "data: {\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\n",
+        "data: {\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -219,12 +219,12 @@
     {
       "name": "comments, retry and id fields are ignored",
       "chunks": [
-        ": keep-alive\n\nretry: 1000\nid: 7\ndata: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\n"
+        ": keep-alive\n\nretry: 1000\nid: 7\ndata: {\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
@@ -237,19 +237,19 @@
     {
       "name": "multi-line data is JSONL",
       "chunks": [
-        "data: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\ndata: {\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
+        "data: {\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\ndata: {\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -268,12 +268,12 @@
     {
       "name": "an a2ui-named event counts, another name is dropped",
       "chunks": [
-        "event: a2ui\ndata: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\nevent: ping\ndata: {\"ping\":1}\n\n"
+        "event: a2ui\ndata: {\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\nevent: ping\ndata: {\"ping\":1}\n\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
@@ -287,12 +287,12 @@
       "name": "CRLF lines and a split field",
       "chunks": [
         "da",
-        "ta: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\r\n\r\n"
+        "ta: {\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\r\n\r\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
@@ -305,12 +305,12 @@
     {
       "name": "a bad event is an issue",
       "chunks": [
-        "data: nope\n\ndata: {\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
+        "data: nope\n\ndata: {\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -334,12 +334,12 @@
     {
       "name": "end() flushes the last event",
       "chunks": [
-        "data: {\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}"
+        "data: {\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}"
       ],
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -369,8 +369,8 @@
             "type": "resource",
             "resource": {
               "uri": "a2ui://s1",
-              "mimeType": "application/json+a2ui",
-              "text": "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
+              "mimeType": "application/a2ui+json",
+              "text": "{\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
             }
           }
         ]
@@ -378,14 +378,14 @@
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -410,7 +410,7 @@
             "resource": {
               "uri": "a2ui://s1",
               "mimeType": "application/a2ui+json",
-              "text": "[{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}},{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}]"
+              "text": "[{\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}},{\"version\": \"1.0\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}]"
             }
           }
         ]
@@ -418,14 +418,14 @@
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s1",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
           {
-            "version": "v0.9",
+            "version": "1.0",
             "updateComponents": {
               "surfaceId": "s1",
               "components": [
@@ -450,7 +450,7 @@
             "resource": {
               "uri": "x",
               "mimeType": "application/json",
-              "text": "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}"
+              "text": "{\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}"
             }
           }
         ]
@@ -466,7 +466,7 @@
         "structuredContent": {
           "a2ui": [
             {
-              "version": "v0.9",
+              "version": "1.0",
               "createSurface": {
                 "surfaceId": "s2",
                 "catalogId": "https://ui.exponential.at/catalogs/core/v1"
@@ -479,7 +479,7 @@
       "expected": {
         "messages": [
           {
-            "version": "v0.9",
+            "version": "1.0",
             "createSurface": {
               "surfaceId": "s2",
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
@@ -498,27 +498,33 @@
             "resource": {
               "uri": "a2ui://s1",
               "mimeType": "application/json+a2ui",
-              "text": "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{oops\n"
+              "text": "{\"version\": \"1.0\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{oops\n"
             }
           }
         ]
       },
       "expected": {
-        "messages": [
+        "messages": [],
+        "issues": []
+      }
+    },
+    {
+      "name": "the 0.9 MIME type is ignored like any other",
+      "result": {
+        "content": [
           {
-            "version": "v0.9",
-            "createSurface": {
-              "surfaceId": "s1",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            "type": "resource",
+            "resource": {
+              "uri": "a2ui://s1",
+              "mimeType": "application/json+a2ui",
+              "text": "{\"version\": \"1.0\", \"deleteSurface\": {\"surfaceId\": \"s1\"}}\n"
             }
           }
-        ],
-        "issues": [
-          {
-            "at": 1,
-            "message": "content[0]: line 2 is not JSON"
-          }
         ]
+      },
+      "expected": {
+        "messages": [],
+        "issues": []
       }
     }
   ],
@@ -526,7 +532,7 @@
     {
       "name": "an action goes back as tools/call a2ui_event",
       "message": {
-        "version": "v0.9",
+        "version": "1.0",
         "action": {
           "name": "save",
           "surfaceId": "s1",
@@ -543,7 +549,7 @@
           "name": "a2ui_event",
           "arguments": {
             "message": {
-              "version": "v0.9",
+              "version": "1.0",
               "action": {
                 "name": "save",
                 "surfaceId": "s1",
@@ -562,7 +568,7 @@
       "name": "a custom action tool",
       "tool": "vapp_event",
       "message": {
-        "version": "v0.9",
+        "version": "1.0",
         "error": {
           "code": "FUNCTION_DENIED",
           "surfaceId": "s1",
@@ -575,11 +581,70 @@
           "name": "vapp_event",
           "arguments": {
             "message": {
-              "version": "v0.9",
+              "version": "1.0",
               "error": {
                 "code": "FUNCTION_DENIED",
                 "surfaceId": "s1",
                 "message": "harness.mcp was not allowed"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "callAgentFunction with the data model beside the message",
+      "message": {
+        "version": "1.0",
+        "callAgentFunction": {
+          "surfaceId": "s1",
+          "functionCallId": "s1:1",
+          "callFunction": {
+            "@call": "lookup",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+            "args": {
+              "q": "a"
+            }
+          }
+        }
+      },
+      "metadata": {
+        "a2uiRendererDataModel": {
+          "version": "1.0",
+          "surfaces": {
+            "s1": {
+              "q": "a"
+            }
+          }
+        }
+      },
+      "expected": {
+        "method": "tools/call",
+        "params": {
+          "name": "a2ui_event",
+          "arguments": {
+            "message": {
+              "version": "1.0",
+              "callAgentFunction": {
+                "surfaceId": "s1",
+                "functionCallId": "s1:1",
+                "callFunction": {
+                  "@call": "lookup",
+                  "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                  "args": {
+                    "q": "a"
+                  }
+                }
+              }
+            },
+            "metadata": {
+              "a2uiRendererDataModel": {
+                "version": "1.0",
+                "surfaces": {
+                  "s1": {
+                    "q": "a"
+                  }
+                }
               }
             }
           }

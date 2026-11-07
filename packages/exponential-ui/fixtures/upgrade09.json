@@ -1,0 +1,3573 @@
+{
+  "$comment": "VAPP-289 (round 9 contract §14): upgrade09, the pure A2UI v0.9 → 1.0 converter. ONE fixture for the TS reference (src/upgrade09.ts) and the Rust core (eui-core upgrade09.rs); Swift and Kotlin replay two smoke cases through the FFI upgrade09Json. Inputs hand-written; `expected` recorded from the TS reference and reviewed against §14.3. Kinds: `message` = upgradeMessage09(input, emptyUpgrade09State()) → `expected` = its one message, `expectedState` = the state after; `stream` = `inputs` threaded through upgradeMessage09 from the empty state in order → `expected` = the concatenated messages, `expectedState` = the final state; `client` = upgradeClientMessage09(input); `card` = upgradeCard09(input); `package` = upgradePackageBody09(input) (a package object, no signature handling), or with `verify: true` upgradePackage09(input) with the default verifier (verifyPackageFile, Ed25519) → `expected` = {package, status, author?}. The signed files are signed with the RFC 8032 §7.1 TEST 1 keypair (fixtures/host-package.json `key`, name \"Test Author\"): public, NEVER a real author's; the invalid one is that file with `name` changed after signing. Messages, cards and packages compare as JSON with key order (§14.2: renamed keys in place, added keys at the end of their object, `version` first); `expectedState` compares as a map (key order free). State = {surfaces: {<surfaceId>: {<old id>: <new id>}}, catalogs: {<surfaceId>: <the createSurface catalogId, after the basic rewrite>}}; kept ids map to themselves.",
+  "cases": [
+    {
+      "name": "version v0.9 → 1.0, createSurface theme → metadata.extensions",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "createSurface": {
+          "surfaceId": "s1",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "theme": "neutral",
+          "sendDataModel": true
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "s1",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "sendDataModel": true,
+          "metadata": {
+            "extensions": {
+              "at_exponential_theme": "neutral"
+            }
+          }
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {
+          "s1": "https://ui.exponential.at/catalogs/core/v1"
+        }
+      }
+    },
+    {
+      "name": "version absent → added first",
+      "kind": "message",
+      "input": {
+        "deleteSurface": {
+          "surfaceId": "s1"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "deleteSurface": {
+          "surfaceId": "s1"
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "theme merged into existing metadata.extensions, theme wins",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "createSurface": {
+          "surfaceId": "s1",
+          "metadata": {
+            "extensions": {
+              "at_exponential_theme": "old",
+              "at_exponential_other": 1
+            }
+          },
+          "theme": {
+            "extends": "neutral"
+          },
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "s1",
+          "metadata": {
+            "extensions": {
+              "at_exponential_theme": {
+                "extends": "neutral"
+              },
+              "at_exponential_other": 1
+            }
+          },
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {
+          "s1": "https://ui.exponential.at/catalogs/core/v1"
+        }
+      }
+    },
+    {
+      "name": "createSurface basic id (basic_catalog.json) → 1.0 basic id",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "createSurface": {
+          "surfaceId": "s1",
+          "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "s1",
+          "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {
+          "s1": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        }
+      }
+    },
+    {
+      "name": "createSurface basic id (catalogs/basic/catalog.json) → 1.0 basic id",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "createSurface": {
+          "surfaceId": "s1",
+          "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "s1",
+          "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {
+          "s1": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        }
+      }
+    },
+    {
+      "name": "updateDataModel without value → value null",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateDataModel": {
+          "surfaceId": "s1",
+          "path": "/x"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateDataModel": {
+          "surfaceId": "s1",
+          "path": "/x",
+          "value": null
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "updateDataModel value is data (never dyn'd)",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateDataModel": {
+          "surfaceId": "s1",
+          "path": "/x",
+          "value": {
+            "path": "/y",
+            "@k": 1
+          }
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateDataModel": {
+          "surfaceId": "s1",
+          "path": "/x",
+          "value": {
+            "path": "/y",
+            "@k": 1
+          }
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "applyTemplate: only version changes",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "applyTemplate": {
+          "surfaceId": "user-card",
+          "templateId": "main",
+          "packageId": "acme.crm",
+          "data": {
+            "path": "/x"
+          }
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "applyTemplate": {
+          "surfaceId": "user-card",
+          "templateId": "main",
+          "packageId": "acme.crm",
+          "data": {
+            "path": "/x"
+          }
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "bindDataModel: only version changes",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "bindDataModel": {
+          "surfaceId": "s1",
+          "path": "/rows",
+          "source": "records:contact"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "bindDataModel": {
+          "surfaceId": "s1",
+          "path": "/rows",
+          "source": "records:contact"
+        }
+      },
+      "expectedState": {
+        "surfaces": {},
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "dyn: binding, call (returnType dropped, args values), literal @ keys, arrays, data positions, style",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t",
+                "tbl",
+                "btn"
+              ],
+              "style": {
+                "padding": {
+                  "path": "/p"
+                }
+              }
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": {
+                "call": "formatString",
+                "args": {
+                  "value": "${/n}",
+                  "path": "/not-a-binding"
+                },
+                "returnType": "string",
+                "extra": 1
+              }
+            },
+            {
+              "id": "tbl",
+              "component": "Table",
+              "rows": [
+                {
+                  "path": "/a"
+                }
+              ],
+              "columns": [
+                {
+                  "key": "a",
+                  "label": {
+                    "path": "/l"
+                  }
+                }
+              ],
+              "caption": {
+                "@type": "x",
+                "@@y": {
+                  "path": "/z"
+                },
+                "path": "/p",
+                "other": 1
+              }
+            },
+            {
+              "id": "btn",
+              "component": "Button",
+              "label": [
+                "a",
+                {
+                  "path": "/b"
+                }
+              ],
+              "accessibility": {
+                "label": {
+                  "path": "/al"
+                },
+                "description": {
+                  "call": "text",
+                  "args": {
+                    "value": {
+                      "path": "/d"
+                    }
+                  }
+                },
+                "live": "polite"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "go",
+                    "context": {
+                      "id": {
+                        "path": "/id"
+                      },
+                      "@raw": {
+                        "@k": 1
+                      }
+                    },
+                    "userMessage": {
+                      "path": "/m"
+                    }
+                  },
+                  "functionCall": {
+                    "call": "set",
+                    "args": {
+                      "path": "/x",
+                      "value": {
+                        "path": "/y"
+                      }
+                    },
+                    "returnType": "void"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t",
+                "tbl",
+                "btn"
+              ],
+              "style": {
+                "padding": {
+                  "path": "/p"
+                }
+              }
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": {
+                "@call": "formatString",
+                "args": {
+                  "value": "${/n}",
+                  "path": "/not-a-binding"
+                }
+              }
+            },
+            {
+              "id": "tbl",
+              "component": "Table",
+              "rows": [
+                {
+                  "path": "/a"
+                }
+              ],
+              "columns": [
+                {
+                  "key": "a",
+                  "label": {
+                    "@path": "/l"
+                  }
+                }
+              ],
+              "caption": {
+                "@@type": "x",
+                "@@@y": {
+                  "@path": "/z"
+                },
+                "path": "/p",
+                "other": 1
+              }
+            },
+            {
+              "id": "btn",
+              "component": "Button",
+              "label": [
+                "a",
+                {
+                  "@path": "/b"
+                }
+              ],
+              "accessibility": {
+                "label": {
+                  "@path": "/al"
+                },
+                "description": {
+                  "@call": "text",
+                  "args": {
+                    "value": {
+                      "@path": "/d"
+                    }
+                  }
+                },
+                "live": "polite"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "go",
+                    "context": {
+                      "id": {
+                        "@path": "/id"
+                      },
+                      "@raw": {
+                        "@@k": 1
+                      }
+                    },
+                    "userMessage": {
+                      "@path": "/m"
+                    }
+                  },
+                  "functionCall": {
+                    "@call": "set",
+                    "args": {
+                      "path": "/x",
+                      "value": {
+                        "@path": "/y"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "root": "root",
+            "t": "t",
+            "tbl": "tbl",
+            "btn": "btn"
+          }
+        },
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "presence: visible",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "a",
+              "component": "Text",
+              "text": "a",
+              "visible": true
+            },
+            {
+              "id": "b",
+              "component": "Text",
+              "text": "b",
+              "visible": ""
+            },
+            {
+              "id": "c",
+              "component": "Text",
+              "text": "c",
+              "visible": 0
+            },
+            {
+              "id": "d",
+              "component": "Text",
+              "text": "d",
+              "visible": {
+                "path": "/show"
+              }
+            },
+            {
+              "id": "e",
+              "component": "Text",
+              "text": "e",
+              "visible": {
+                "call": "eq",
+                "args": {
+                  "a": 1,
+                  "b": 1
+                }
+              }
+            },
+            {
+              "id": "f",
+              "component": "Text",
+              "text": "f",
+              "visible": {
+                "call": "required",
+                "args": {
+                  "value": {
+                    "path": "/v"
+                  }
+                }
+              }
+            },
+            {
+              "id": "g",
+              "component": "Text",
+              "text": "g",
+              "visible": {
+                "call": "len",
+                "args": {
+                  "value": {
+                    "path": "/v"
+                  }
+                }
+              }
+            },
+            {
+              "id": "h",
+              "component": "Text",
+              "text": "h",
+              "visible": {
+                "call": "harness.flag"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "a",
+              "component": "Text",
+              "text": "a",
+              "visible": true
+            },
+            {
+              "id": "b",
+              "component": "Text",
+              "text": "b",
+              "visible": false
+            },
+            {
+              "id": "c",
+              "component": "Text",
+              "text": "c",
+              "visible": true
+            },
+            {
+              "id": "d",
+              "component": "Text",
+              "text": "d",
+              "visible": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/show"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              }
+            },
+            {
+              "id": "e",
+              "component": "Text",
+              "text": "e",
+              "visible": {
+                "@call": "eq",
+                "args": {
+                  "a": 1,
+                  "b": 1
+                }
+              }
+            },
+            {
+              "id": "f",
+              "component": "Text",
+              "text": "f",
+              "visible": {
+                "@call": "required",
+                "args": {
+                  "value": {
+                    "@path": "/v"
+                  }
+                }
+              }
+            },
+            {
+              "id": "g",
+              "component": "Text",
+              "text": "g",
+              "visible": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@call": "len",
+                    "args": {
+                      "value": {
+                        "@path": "/v"
+                      }
+                    }
+                  },
+                  "then": true,
+                  "else": false
+                }
+              }
+            },
+            {
+              "id": "h",
+              "component": "Text",
+              "text": "h",
+              "visible": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@call": "harness_flag"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "a": "a",
+            "b": "b",
+            "c": "c",
+            "d": "d",
+            "e": "e",
+            "f": "f",
+            "g": "g",
+            "h": "h"
+          }
+        },
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "presence: checks[].condition",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "in",
+              "component": "Input",
+              "label": "L",
+              "name": "n",
+              "checks": [
+                {
+                  "condition": true,
+                  "message": "bool"
+                },
+                {
+                  "condition": "x",
+                  "message": "lit"
+                },
+                {
+                  "condition": {
+                    "path": "/ok"
+                  },
+                  "message": "path"
+                },
+                {
+                  "condition": {
+                    "call": "email",
+                    "args": {
+                      "value": {
+                        "path": "/e"
+                      }
+                    }
+                  },
+                  "message": "validator"
+                },
+                {
+                  "condition": {
+                    "call": "lt",
+                    "args": {
+                      "a": 1,
+                      "b": 2
+                    }
+                  },
+                  "message": "boolean"
+                },
+                {
+                  "condition": {
+                    "call": "coalesce",
+                    "args": {
+                      "values": [
+                        {
+                          "path": "/a"
+                        }
+                      ]
+                    }
+                  },
+                  "message": "any"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "in",
+              "component": "Input",
+              "label": "L",
+              "name": "n",
+              "checks": [
+                {
+                  "condition": {
+                    "@call": "cond",
+                    "args": {
+                      "if": true,
+                      "then": true,
+                      "else": false
+                    }
+                  },
+                  "message": "bool"
+                },
+                {
+                  "condition": {
+                    "@call": "cond",
+                    "args": {
+                      "if": "x",
+                      "then": true,
+                      "else": false
+                    }
+                  },
+                  "message": "lit"
+                },
+                {
+                  "condition": {
+                    "@call": "cond",
+                    "args": {
+                      "if": {
+                        "@path": "/ok"
+                      },
+                      "then": true,
+                      "else": false
+                    }
+                  },
+                  "message": "path"
+                },
+                {
+                  "condition": {
+                    "@call": "email",
+                    "args": {
+                      "value": {
+                        "@path": "/e"
+                      }
+                    }
+                  },
+                  "message": "validator"
+                },
+                {
+                  "condition": {
+                    "@call": "lt",
+                    "args": {
+                      "a": 1,
+                      "b": 2
+                    }
+                  },
+                  "message": "boolean"
+                },
+                {
+                  "condition": {
+                    "@call": "cond",
+                    "args": {
+                      "if": {
+                        "@call": "coalesce",
+                        "args": {
+                          "values": [
+                            {
+                              "@path": "/a"
+                            }
+                          ]
+                        }
+                      },
+                      "then": true,
+                      "else": false
+                    }
+                  },
+                  "message": "any"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "in": "in"
+          }
+        },
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "presence: and.values[i], or.values[i], not.value",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "x",
+              "component": "Text",
+              "text": "x",
+              "visible": {
+                "call": "and",
+                "args": {
+                  "values": [
+                    true,
+                    "s",
+                    "",
+                    {
+                      "path": "/a"
+                    },
+                    {
+                      "call": "not",
+                      "args": {
+                        "value": {
+                          "path": "/b"
+                        }
+                      }
+                    },
+                    {
+                      "call": "len",
+                      "args": {
+                        "value": []
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "id": "y",
+              "component": "Text",
+              "text": "y",
+              "visible": {
+                "call": "or",
+                "args": {
+                  "values": {
+                    "path": "/list"
+                  }
+                }
+              }
+            },
+            {
+              "id": "z",
+              "component": "Text",
+              "text": "z",
+              "visible": {
+                "call": "not",
+                "args": {
+                  "value": 0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "x",
+              "component": "Text",
+              "text": "x",
+              "visible": {
+                "@call": "and",
+                "args": {
+                  "values": [
+                    true,
+                    true,
+                    false,
+                    {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/a"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    },
+                    {
+                      "@call": "not",
+                      "args": {
+                        "value": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "/b"
+                            },
+                            "then": true,
+                            "else": false
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@call": "len",
+                          "args": {
+                            "value": []
+                          }
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "id": "y",
+              "component": "Text",
+              "text": "y",
+              "visible": {
+                "@call": "or",
+                "args": {
+                  "values": {
+                    "@path": "/list"
+                  }
+                }
+              }
+            },
+            {
+              "id": "z",
+              "component": "Text",
+              "text": "z",
+              "visible": {
+                "@call": "not",
+                "args": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "x": "x",
+            "y": "y",
+            "z": "z"
+          }
+        },
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "rename: every dotted prefix",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "b",
+              "component": "Button",
+              "label": "x",
+              "on": {
+                "a": {
+                  "functionCall": {
+                    "call": "app.navigate",
+                    "args": {
+                      "screen": "home"
+                    }
+                  }
+                },
+                "b": {
+                  "functionCall": {
+                    "call": "records.upsert"
+                  }
+                },
+                "c": {
+                  "functionCall": {
+                    "call": "actions.log"
+                  }
+                },
+                "d": {
+                  "functionCall": {
+                    "call": "harness.records.upsert"
+                  }
+                },
+                "e": {
+                  "functionCall": {
+                    "call": "exponential.issues.update_status"
+                  }
+                },
+                "f": {
+                  "functionCall": {
+                    "call": "camera.capture"
+                  }
+                },
+                "g": {
+                  "functionCall": {
+                    "call": "clipboard.write"
+                  }
+                },
+                "h": {
+                  "functionCall": {
+                    "call": "files.open"
+                  }
+                },
+                "i": {
+                  "functionCall": {
+                    "call": "http.fetch"
+                  }
+                },
+                "j": {
+                  "functionCall": {
+                    "call": "location.current"
+                  }
+                },
+                "k": {
+                  "functionCall": {
+                    "call": "notifications.post"
+                  }
+                },
+                "l": {
+                  "functionCall": {
+                    "call": "photos.pick"
+                  }
+                },
+                "m": {
+                  "functionCall": {
+                    "call": "print.pdf"
+                  }
+                },
+                "n": {
+                  "functionCall": {
+                    "call": "share.send"
+                  }
+                },
+                "o": {
+                  "functionCall": {
+                    "call": "openUrl",
+                    "args": {
+                      "url": "https://x.y"
+                    }
+                  }
+                },
+                "p": {
+                  "functionCall": {
+                    "call": "acme.custom"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "b",
+              "component": "Button",
+              "label": "x",
+              "on": {
+                "a": {
+                  "functionCall": {
+                    "@call": "app_navigate",
+                    "args": {
+                      "screen": "home"
+                    }
+                  }
+                },
+                "b": {
+                  "functionCall": {
+                    "@call": "records_upsert"
+                  }
+                },
+                "c": {
+                  "functionCall": {
+                    "@call": "actions_log"
+                  }
+                },
+                "d": {
+                  "functionCall": {
+                    "@call": "harness_records_upsert"
+                  }
+                },
+                "e": {
+                  "functionCall": {
+                    "@call": "exponential_issues_update_status"
+                  }
+                },
+                "f": {
+                  "functionCall": {
+                    "@call": "camera_capture"
+                  }
+                },
+                "g": {
+                  "functionCall": {
+                    "@call": "clipboard_write"
+                  }
+                },
+                "h": {
+                  "functionCall": {
+                    "@call": "files_open"
+                  }
+                },
+                "i": {
+                  "functionCall": {
+                    "@call": "http_fetch"
+                  }
+                },
+                "j": {
+                  "functionCall": {
+                    "@call": "location_current"
+                  }
+                },
+                "k": {
+                  "functionCall": {
+                    "@call": "notifications_post"
+                  }
+                },
+                "l": {
+                  "functionCall": {
+                    "@call": "photos_pick"
+                  }
+                },
+                "m": {
+                  "functionCall": {
+                    "@call": "print_pdf"
+                  }
+                },
+                "n": {
+                  "functionCall": {
+                    "@call": "share_send"
+                  }
+                },
+                "o": {
+                  "functionCall": {
+                    "@call": "openUrl",
+                    "args": {
+                      "url": "https://x.y"
+                    }
+                  }
+                },
+                "p": {
+                  "functionCall": {
+                    "@call": "acme.custom"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "b": "b"
+          }
+        },
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "rename: tools and upstream splits",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "b",
+              "component": "Button",
+              "label": "x",
+              "on": {
+                "a": {
+                  "functionCall": {
+                    "call": "tools.lint"
+                  }
+                },
+                "b": {
+                  "functionCall": {
+                    "call": "tools.my-crm"
+                  }
+                },
+                "c": {
+                  "functionCall": {
+                    "call": "tools.my-crm.search"
+                  }
+                },
+                "d": {
+                  "functionCall": {
+                    "call": "tools.crm.list.all-rows"
+                  }
+                },
+                "e": {
+                  "functionCall": {
+                    "call": "upstream.github.create_issue"
+                  }
+                },
+                "f": {
+                  "functionCall": {
+                    "call": "upstream.my-srv.a.b"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "b",
+              "component": "Button",
+              "label": "x",
+              "on": {
+                "a": {
+                  "functionCall": {
+                    "@call": "tools_lint"
+                  }
+                },
+                "b": {
+                  "functionCall": {
+                    "@call": "tools_my_crm"
+                  }
+                },
+                "c": {
+                  "functionCall": {
+                    "@call": "tools_my_crm__search"
+                  }
+                },
+                "d": {
+                  "functionCall": {
+                    "@call": "tools_crm__list_all_rows"
+                  }
+                },
+                "e": {
+                  "functionCall": {
+                    "@call": "upstream_github__create_issue"
+                  }
+                },
+                "f": {
+                  "functionCall": {
+                    "@call": "upstream_my_srv__a_b"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "b": "b"
+          }
+        },
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "re-key: valid id kept, mangle, _2 suffix, references (children, ChildList, slots, template, componentId props)",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "user-card",
+                "user_card",
+                "1st",
+                "list"
+              ]
+            },
+            {
+              "id": "user-card",
+              "component": "Card",
+              "slots": {
+                "header": "ab c"
+              }
+            },
+            {
+              "id": "user_card",
+              "component": "Label",
+              "text": "L",
+              "for": "field.x"
+            },
+            {
+              "id": "1st",
+              "component": "Popover",
+              "anchor": "user-card"
+            },
+            {
+              "id": "list",
+              "component": "List",
+              "children": {
+                "componentId": "row-item",
+                "path": "/rows",
+                "key": "/id"
+              }
+            },
+            {
+              "id": "row-item",
+              "component": "Text",
+              "text": {
+                "path": "name"
+              }
+            },
+            {
+              "id": "ab c",
+              "component": "Menu",
+              "anchor": "1st"
+            },
+            {
+              "id": "t-x",
+              "component": "Stack",
+              "template": {
+                "component": "row-item",
+                "path": "/rows"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "user_card_2",
+                "user_card",
+                "_1st",
+                "list"
+              ]
+            },
+            {
+              "id": "user_card_2",
+              "component": "Card",
+              "slots": {
+                "header": "ab_c"
+              }
+            },
+            {
+              "id": "user_card",
+              "component": "Label",
+              "text": "L",
+              "for": "field_x"
+            },
+            {
+              "id": "_1st",
+              "component": "Popover",
+              "anchor": "user_card_2"
+            },
+            {
+              "id": "list",
+              "component": "List",
+              "children": {
+                "componentId": "row_item",
+                "path": "/rows",
+                "key": "/id"
+              }
+            },
+            {
+              "id": "row_item",
+              "component": "Text",
+              "text": {
+                "@path": "name"
+              }
+            },
+            {
+              "id": "ab_c",
+              "component": "Menu",
+              "anchor": "_1st"
+            },
+            {
+              "id": "t_x",
+              "component": "Stack",
+              "template": {
+                "component": "row_item",
+                "path": "/rows"
+              }
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "root": "root",
+            "user_card": "user_card",
+            "list": "list",
+            "user-card": "user_card_2",
+            "1st": "_1st",
+            "row-item": "row_item",
+            "ab c": "ab_c",
+            "t-x": "t_x",
+            "field.x": "field_x"
+          }
+        },
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "re-key: cross-message state collision",
+      "kind": "stream",
+      "inputs": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "s1",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s1",
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "children": [
+                  "a-b"
+                ]
+              },
+              {
+                "id": "a-b",
+                "component": "Text",
+                "text": "1"
+              }
+            ]
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s1",
+            "components": [
+              {
+                "id": "a_b",
+                "component": "Text",
+                "text": "2"
+              },
+              {
+                "id": "a-b",
+                "component": "Text",
+                "text": "3"
+              }
+            ]
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s2",
+            "components": [
+              {
+                "id": "a_b",
+                "component": "Text",
+                "text": "other surface"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": [
+        {
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "s1",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+          }
+        },
+        {
+          "version": "1.0",
+          "updateComponents": {
+            "surfaceId": "s1",
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "children": [
+                  "a_b"
+                ]
+              },
+              {
+                "id": "a_b",
+                "component": "Text",
+                "text": "1"
+              }
+            ]
+          }
+        },
+        {
+          "version": "1.0",
+          "updateComponents": {
+            "surfaceId": "s1",
+            "components": [
+              {
+                "id": "a_b_2",
+                "component": "Text",
+                "text": "2"
+              },
+              {
+                "id": "a_b",
+                "component": "Text",
+                "text": "3"
+              }
+            ]
+          }
+        },
+        {
+          "version": "1.0",
+          "updateComponents": {
+            "surfaceId": "s2",
+            "components": [
+              {
+                "id": "a_b",
+                "component": "Text",
+                "text": "other surface"
+              }
+            ]
+          }
+        }
+      ],
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "root": "root",
+            "a-b": "a_b",
+            "a_b": "a_b_2"
+          },
+          "s2": {
+            "a_b": "a_b"
+          }
+        },
+        "catalogs": {
+          "s1": "https://ui.exponential.at/catalogs/core/v1"
+        }
+      }
+    },
+    {
+      "name": "basic: Icon {path} → {svgPath}, Text h1..h5 literal and dynamic, caption kept",
+      "kind": "stream",
+      "inputs": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "b1",
+            "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "b1",
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "i",
+                  "h1",
+                  "h2",
+                  "h3",
+                  "h4",
+                  "h5",
+                  "cap"
+                ]
+              },
+              {
+                "id": "i",
+                "component": "Icon",
+                "name": {
+                  "path": "M0 0L10 10"
+                }
+              },
+              {
+                "id": "h1",
+                "component": "Text",
+                "text": "Title",
+                "variant": "h1"
+              },
+              {
+                "id": "h2",
+                "component": "Text",
+                "variant": "h2",
+                "text": {
+                  "path": "/t"
+                }
+              },
+              {
+                "id": "h3",
+                "component": "Text",
+                "text": "Three",
+                "variant": "h3"
+              },
+              {
+                "id": "h4",
+                "component": "Text",
+                "text": {
+                  "call": "formatString",
+                  "args": {
+                    "value": "${/n}"
+                  }
+                },
+                "variant": "h4"
+              },
+              {
+                "id": "h5",
+                "component": "Text",
+                "text": "Five",
+                "variant": "h5"
+              },
+              {
+                "id": "cap",
+                "component": "Text",
+                "text": "c",
+                "variant": "caption"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": [
+        {
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "b1",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+          }
+        },
+        {
+          "version": "1.0",
+          "updateComponents": {
+            "surfaceId": "b1",
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "i",
+                  "h1",
+                  "h2",
+                  "h3",
+                  "h4",
+                  "h5",
+                  "cap"
+                ]
+              },
+              {
+                "id": "i",
+                "component": "Icon",
+                "name": {
+                  "svgPath": "M0 0L10 10"
+                }
+              },
+              {
+                "id": "h1",
+                "component": "Text",
+                "text": "# Title"
+              },
+              {
+                "id": "h2",
+                "component": "Text",
+                "text": {
+                  "@call": "concat",
+                  "args": {
+                    "values": [
+                      "## ",
+                      {
+                        "@path": "/t"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "h3",
+                "component": "Text",
+                "text": "### Three"
+              },
+              {
+                "id": "h4",
+                "component": "Text",
+                "text": {
+                  "@call": "concat",
+                  "args": {
+                    "values": [
+                      "#### ",
+                      {
+                        "@call": "formatString",
+                        "args": {
+                          "value": "${/n}"
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "h5",
+                "component": "Text",
+                "text": "##### Five"
+              },
+              {
+                "id": "cap",
+                "component": "Text",
+                "text": "c",
+                "variant": "caption"
+              }
+            ]
+          }
+        }
+      ],
+      "expectedState": {
+        "surfaces": {
+          "b1": {
+            "root": "root",
+            "i": "i",
+            "h1": "h1",
+            "h2": "h2",
+            "h3": "h3",
+            "h4": "h4",
+            "h5": "h5",
+            "cap": "cap"
+          }
+        },
+        "catalogs": {
+          "b1": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        }
+      }
+    },
+    {
+      "name": "basic: TextField validationRegexp (bound and unbound value), missing value, child/tabs/Modal re-key, action",
+      "kind": "stream",
+      "inputs": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "b2",
+            "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "b2",
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "tf-bound",
+                  "tf-free",
+                  "tabs",
+                  "modal",
+                  "btn"
+                ]
+              },
+              {
+                "id": "tf-bound",
+                "component": "TextField",
+                "label": "Zip",
+                "value": {
+                  "path": "/zip"
+                },
+                "validationRegexp": "^\\d{5}$",
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/zip"
+                        }
+                      }
+                    },
+                    "message": "Required"
+                  }
+                ]
+              },
+              {
+                "id": "tf-free",
+                "component": "TextField",
+                "label": "Code",
+                "validationRegexp": "^[A-Z]+$"
+              },
+              {
+                "id": "tabs",
+                "component": "Tabs",
+                "tabs": [
+                  {
+                    "title": {
+                      "path": "/t1"
+                    },
+                    "child": "tab-one"
+                  }
+                ]
+              },
+              {
+                "id": "tab-one",
+                "component": "Text",
+                "text": "one"
+              },
+              {
+                "id": "modal",
+                "component": "Modal",
+                "trigger": "btn",
+                "content": "tab-one"
+              },
+              {
+                "id": "btn",
+                "component": "Button",
+                "child": "btn-label",
+                "action": {
+                  "event": {
+                    "name": "submit",
+                    "context": {
+                      "zip": {
+                        "path": "/zip"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "btn-label",
+                "component": "Text",
+                "text": "Go"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": [
+        {
+          "version": "1.0",
+          "createSurface": {
+            "surfaceId": "b2",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+          }
+        },
+        {
+          "version": "1.0",
+          "updateComponents": {
+            "surfaceId": "b2",
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "tf_bound",
+                  "tf_free",
+                  "tabs",
+                  "modal",
+                  "btn"
+                ]
+              },
+              {
+                "id": "tf_bound",
+                "component": "TextField",
+                "label": "Zip",
+                "value": {
+                  "@path": "/zip"
+                },
+                "checks": [
+                  {
+                    "condition": {
+                      "@call": "required",
+                      "args": {
+                        "value": {
+                          "@path": "/zip"
+                        }
+                      }
+                    },
+                    "message": "Required"
+                  },
+                  {
+                    "condition": {
+                      "@call": "regex",
+                      "args": {
+                        "value": {
+                          "@path": "/zip"
+                        },
+                        "pattern": "^\\d{5}$"
+                      }
+                    },
+                    "message": "Invalid value"
+                  }
+                ]
+              },
+              {
+                "id": "tf_free",
+                "component": "TextField",
+                "label": "Code",
+                "checks": [
+                  {
+                    "condition": {
+                      "@call": "regex",
+                      "args": {
+                        "value": {
+                          "@path": "tf-free"
+                        },
+                        "pattern": "^[A-Z]+$"
+                      }
+                    },
+                    "message": "Invalid value"
+                  }
+                ],
+                "value": ""
+              },
+              {
+                "id": "tabs",
+                "component": "Tabs",
+                "tabs": [
+                  {
+                    "title": {
+                      "@path": "/t1"
+                    },
+                    "child": "tab_one"
+                  }
+                ]
+              },
+              {
+                "id": "tab_one",
+                "component": "Text",
+                "text": "one"
+              },
+              {
+                "id": "modal",
+                "component": "Modal",
+                "trigger": "btn",
+                "content": "tab_one"
+              },
+              {
+                "id": "btn",
+                "component": "Button",
+                "child": "btn_label",
+                "action": {
+                  "event": {
+                    "name": "submit",
+                    "context": {
+                      "zip": {
+                        "@path": "/zip"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "btn_label",
+                "component": "Text",
+                "text": "Go"
+              }
+            ]
+          }
+        }
+      ],
+      "expectedState": {
+        "surfaces": {
+          "b2": {
+            "root": "root",
+            "tabs": "tabs",
+            "modal": "modal",
+            "btn": "btn",
+            "tf-bound": "tf_bound",
+            "tf-free": "tf_free",
+            "tab-one": "tab_one",
+            "btn-label": "btn_label"
+          }
+        },
+        "catalogs": {
+          "b2": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        }
+      }
+    },
+    {
+      "name": "basic: a basic component catalogId inside a core surface",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s9",
+          "components": [
+            {
+              "id": "tf",
+              "component": "TextField",
+              "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json",
+              "label": "x"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s9",
+          "components": [
+            {
+              "id": "tf",
+              "component": "TextField",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+              "label": "x",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s9": {
+            "tf": "tf"
+          }
+        },
+        "catalogs": {}
+      }
+    },
+    {
+      "name": "client action: payload → extensions, instance id → sourceComponentId + at_exponential_instance",
+      "kind": "client",
+      "input": {
+        "version": "v0.9",
+        "action": {
+          "name": "pick",
+          "surfaceId": "s1",
+          "sourceComponentId": "row-btn.a1",
+          "timestamp": "2026-11-07T10:00:00.000Z",
+          "context": {
+            "id": "a1"
+          },
+          "payload": {
+            "value": "b"
+          }
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "action": {
+          "name": "pick",
+          "surfaceId": "s1",
+          "sourceComponentId": "row_btn",
+          "timestamp": "2026-11-07T10:00:00.000Z",
+          "context": {
+            "id": "a1"
+          },
+          "metadata": {
+            "extensions": {
+              "at_exponential_payload": {
+                "value": "b"
+              },
+              "at_exponential_instance": "row-btn.a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "client action: empty payload omitted, identifier source kept",
+      "kind": "client",
+      "input": {
+        "version": "v0.9",
+        "action": {
+          "name": "go",
+          "surfaceId": "s1",
+          "sourceComponentId": "btn",
+          "timestamp": "2026-11-07T10:00:00.000Z",
+          "context": {},
+          "payload": {}
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "action": {
+          "name": "go",
+          "surfaceId": "s1",
+          "sourceComponentId": "btn",
+          "timestamp": "2026-11-07T10:00:00.000Z",
+          "context": {}
+        }
+      }
+    },
+    {
+      "name": "client error: FUNCTION_NOT_FOUND → UNKNOWN_FUNCTION",
+      "kind": "client",
+      "input": {
+        "version": "v0.9",
+        "error": {
+          "code": "FUNCTION_NOT_FOUND",
+          "surfaceId": "s1",
+          "message": "m"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "UNKNOWN_FUNCTION",
+          "surfaceId": "s1",
+          "message": "m"
+        }
+      }
+    },
+    {
+      "name": "client error: FUNCTION_DENIED → INVALID_FUNCTION_CALL",
+      "kind": "client",
+      "input": {
+        "version": "v0.9",
+        "error": {
+          "code": "FUNCTION_DENIED",
+          "surfaceId": "s1",
+          "message": "m"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "INVALID_FUNCTION_CALL",
+          "surfaceId": "s1",
+          "message": "m"
+        }
+      }
+    },
+    {
+      "name": "client error: ACTION_FAILED → EXECUTION_ERROR",
+      "kind": "client",
+      "input": {
+        "version": "v0.9",
+        "error": {
+          "code": "ACTION_FAILED",
+          "surfaceId": "s1",
+          "message": "m"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "EXECUTION_ERROR",
+          "surfaceId": "s1",
+          "message": "m"
+        }
+      }
+    },
+    {
+      "name": "client error: other codes kept",
+      "kind": "client",
+      "input": {
+        "version": "v0.9",
+        "error": {
+          "code": "VALIDATION_FAILED",
+          "surfaceId": "s1",
+          "path": "/x",
+          "message": "m"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "error": {
+          "code": "VALIDATION_FAILED",
+          "surfaceId": "s1",
+          "path": "/x",
+          "message": "m"
+        }
+      }
+    },
+    {
+      "name": "card: nested nodes as core components, ids re-keyed pre-order, version first",
+      "kind": "card",
+      "input": {
+        "root": {
+          "id": "s",
+          "component": "Stack",
+          "slots": {
+            "header": {
+              "id": "top-bar",
+              "component": "Text",
+              "props": {
+                "text": "T"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "r",
+              "component": "Row",
+              "props": {
+                "title": {
+                  "path": "/title"
+                }
+              },
+              "visible": {
+                "path": "/show"
+              }
+            },
+            {
+              "id": "top_bar",
+              "component": "Label",
+              "props": {
+                "text": "x",
+                "for": "top-bar"
+              }
+            },
+            {
+              "id": "b",
+              "component": "Button",
+              "props": {
+                "label": "Ship"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "reply",
+                    "context": {
+                      "text": "Ship"
+                    }
+                  },
+                  "functionCall": {
+                    "call": "harness.toast",
+                    "args": {
+                      "text": "hi"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "l",
+              "component": "List",
+              "template": {
+                "component": "top-bar",
+                "path": "/items"
+              }
+            }
+          ]
+        },
+        "data": {
+          "title": "Tests green",
+          "path": "/stays"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "root": {
+          "id": "s",
+          "component": "Stack",
+          "slots": {
+            "header": {
+              "id": "top_bar_2",
+              "component": "Text",
+              "props": {
+                "text": "T"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "r",
+              "component": "Row",
+              "props": {
+                "title": {
+                  "@path": "/title"
+                }
+              },
+              "visible": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/show"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              }
+            },
+            {
+              "id": "top_bar",
+              "component": "Label",
+              "props": {
+                "text": "x",
+                "for": "top_bar_2"
+              }
+            },
+            {
+              "id": "b",
+              "component": "Button",
+              "props": {
+                "label": "Ship"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "reply",
+                    "context": {
+                      "text": "Ship"
+                    }
+                  },
+                  "functionCall": {
+                    "@call": "harness_toast",
+                    "args": {
+                      "text": "hi"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "l",
+              "component": "List",
+              "template": {
+                "component": "top_bar_2",
+                "path": "/items"
+              }
+            }
+          ]
+        },
+        "data": {
+          "title": "Tests green",
+          "path": "/stays"
+        }
+      }
+    },
+    {
+      "name": "package body: format 6, templates, functions, actions, exposes, tests, tools re-key",
+      "kind": "package",
+      "input": {
+        "id": "acme.crm",
+        "name": "CRM",
+        "version": "1.0.0",
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "children": [
+                  "user-card",
+                  "save"
+                ]
+              },
+              {
+                "id": "user-card",
+                "component": "Text",
+                "text": {
+                  "path": "/name"
+                }
+              },
+              {
+                "id": "save",
+                "component": "Button",
+                "label": "Save",
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "actions.save",
+                      "args": {
+                        "name": {
+                          "path": "/name"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "name": "Ada"
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:contact"
+              }
+            ]
+          }
+        },
+        "functions": [
+          "app.navigate",
+          "harness.*",
+          "tools.my-crm.*",
+          "tools.my_crm.search",
+          "exponential.issues.*",
+          "set"
+        ],
+        "tools": {
+          "my-crm": {
+            "kind": "mcp",
+            "title": "CRM",
+            "url": "https://mcp.example.com/crm"
+          },
+          "my_crm": {
+            "kind": "script",
+            "title": "Local",
+            "command": "bun"
+          }
+        },
+        "actions": {
+          "save": {
+            "params": {
+              "name": "string"
+            },
+            "steps": [
+              {
+                "require": "params.name != \"\""
+              },
+              {
+                "records.upsert": {
+                  "kind": "contact",
+                  "data": {
+                    "name": "params.name"
+                  }
+                }
+              },
+              {
+                "call": "app.toast",
+                "args": {
+                  "text": "\"Saved\""
+                }
+              },
+              {
+                "call": "tools.my-crm.log-it"
+              },
+              {
+                "records.delete": "params.id"
+              }
+            ]
+          }
+        },
+        "exposes": [
+          {
+            "name": "list_issues",
+            "title": "List",
+            "description": "d",
+            "input": {},
+            "access": "read",
+            "run": {
+              "action": "exponential.issues.list",
+              "args": {}
+            }
+          }
+        ],
+        "tests": [
+          {
+            "name": "saves",
+            "action": {
+              "name": "save",
+              "params": {
+                "name": "x"
+              }
+            },
+            "expect": {
+              "calls": [
+                {
+                  "name": "app.toast"
+                },
+                {
+                  "name": "tools.my-crm.log-it"
+                }
+              ],
+              "note": "plain text. not a name"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "acme.crm",
+        "name": "CRM",
+        "version": "1.0.0",
+        "formatVersion": 6,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "children": [
+                  "user_card",
+                  "save"
+                ]
+              },
+              {
+                "id": "user_card",
+                "component": "Text",
+                "text": {
+                  "@path": "/name"
+                }
+              },
+              {
+                "id": "save",
+                "component": "Button",
+                "label": "Save",
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "actions_save",
+                      "args": {
+                        "name": {
+                          "@path": "/name"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "name": "Ada"
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:contact"
+              }
+            ]
+          }
+        },
+        "functions": [
+          "app_navigate",
+          "harness_*",
+          "tools_my_crm_2__*",
+          "tools_my_crm__search",
+          "exponential_issues_*",
+          "set"
+        ],
+        "tools": {
+          "my_crm_2": {
+            "kind": "mcp",
+            "title": "CRM",
+            "url": "https://mcp.example.com/crm"
+          },
+          "my_crm": {
+            "kind": "script",
+            "title": "Local",
+            "command": "bun"
+          }
+        },
+        "actions": {
+          "save": {
+            "params": {
+              "name": "string"
+            },
+            "steps": [
+              {
+                "require": "params.name != \"\""
+              },
+              {
+                "records_upsert": {
+                  "kind": "contact",
+                  "data": {
+                    "name": "params.name"
+                  }
+                }
+              },
+              {
+                "call": "app_toast",
+                "args": {
+                  "text": "\"Saved\""
+                }
+              },
+              {
+                "call": "tools_my_crm_2__log_it"
+              },
+              {
+                "records_delete": "params.id"
+              }
+            ]
+          }
+        },
+        "exposes": [
+          {
+            "name": "list_issues",
+            "title": "List",
+            "description": "d",
+            "input": {},
+            "access": "read",
+            "run": {
+              "action": "exponential_issues_list",
+              "args": {}
+            }
+          }
+        ],
+        "tests": [
+          {
+            "name": "saves",
+            "action": {
+              "name": "save",
+              "params": {
+                "name": "x"
+              }
+            },
+            "expect": {
+              "calls": [
+                {
+                  "name": "app_toast"
+                },
+                {
+                  "name": "tools_my_crm_2__log_it"
+                }
+              ],
+              "note": "plain text. not a name"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "package: signed v5, signature valid",
+      "kind": "package",
+      "input": {
+        "id": "acme.crm",
+        "name": "CRM",
+        "version": "1.0.0",
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "children": [
+                  "user-card",
+                  "save"
+                ]
+              },
+              {
+                "id": "user-card",
+                "component": "Text",
+                "text": {
+                  "path": "/name"
+                }
+              },
+              {
+                "id": "save",
+                "component": "Button",
+                "label": "Save",
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "actions.save",
+                      "args": {
+                        "name": {
+                          "path": "/name"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "name": "Ada"
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:contact"
+              }
+            ]
+          }
+        },
+        "functions": [
+          "app.navigate",
+          "harness.*",
+          "tools.my-crm.*",
+          "tools.my_crm.search",
+          "exponential.issues.*",
+          "set"
+        ],
+        "tools": {
+          "my-crm": {
+            "kind": "mcp",
+            "title": "CRM",
+            "url": "https://mcp.example.com/crm"
+          },
+          "my_crm": {
+            "kind": "script",
+            "title": "Local",
+            "command": "bun"
+          }
+        },
+        "actions": {
+          "save": {
+            "params": {
+              "name": "string"
+            },
+            "steps": [
+              {
+                "require": "params.name != \"\""
+              },
+              {
+                "records.upsert": {
+                  "kind": "contact",
+                  "data": {
+                    "name": "params.name"
+                  }
+                }
+              },
+              {
+                "call": "app.toast",
+                "args": {
+                  "text": "\"Saved\""
+                }
+              },
+              {
+                "call": "tools.my-crm.log-it"
+              },
+              {
+                "records.delete": "params.id"
+              }
+            ]
+          }
+        },
+        "exposes": [
+          {
+            "name": "list_issues",
+            "title": "List",
+            "description": "d",
+            "input": {},
+            "access": "read",
+            "run": {
+              "action": "exponential.issues.list",
+              "args": {}
+            }
+          }
+        ],
+        "tests": [
+          {
+            "name": "saves",
+            "action": {
+              "name": "save",
+              "params": {
+                "name": "x"
+              }
+            },
+            "expect": {
+              "calls": [
+                {
+                  "name": "app.toast"
+                },
+                {
+                  "name": "tools.my-crm.log-it"
+                }
+              ],
+              "note": "plain text. not a name"
+            }
+          }
+        ],
+        "author": {
+          "name": "Test Author",
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "qh5bcW3j1YqMHgCWAIy0rXlMp0yhti3pRNzH-1q3AlbeaYS1NH4DEH-UEjPWdkaazmdxuGzGaiPpE_GS2VoKAw"
+        }
+      },
+      "verify": true,
+      "expected": {
+        "package": {
+          "id": "acme.crm",
+          "name": "CRM",
+          "version": "1.0.0",
+          "formatVersion": 6,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "main": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "user_card",
+                    "save"
+                  ]
+                },
+                {
+                  "id": "user_card",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/name"
+                  }
+                },
+                {
+                  "id": "save",
+                  "component": "Button",
+                  "label": "Save",
+                  "on": {
+                    "press": {
+                      "functionCall": {
+                        "@call": "actions_save",
+                        "args": {
+                          "name": {
+                            "@path": "/name"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "data": {
+                "name": "Ada"
+              },
+              "bindings": [
+                {
+                  "path": "/rows",
+                  "source": "records:contact"
+                }
+              ]
+            }
+          },
+          "functions": [
+            "app_navigate",
+            "harness_*",
+            "tools_my_crm_2__*",
+            "tools_my_crm__search",
+            "exponential_issues_*",
+            "set"
+          ],
+          "tools": {
+            "my_crm_2": {
+              "kind": "mcp",
+              "title": "CRM",
+              "url": "https://mcp.example.com/crm"
+            },
+            "my_crm": {
+              "kind": "script",
+              "title": "Local",
+              "command": "bun"
+            }
+          },
+          "actions": {
+            "save": {
+              "params": {
+                "name": "string"
+              },
+              "steps": [
+                {
+                  "require": "params.name != \"\""
+                },
+                {
+                  "records_upsert": {
+                    "kind": "contact",
+                    "data": {
+                      "name": "params.name"
+                    }
+                  }
+                },
+                {
+                  "call": "app_toast",
+                  "args": {
+                    "text": "\"Saved\""
+                  }
+                },
+                {
+                  "call": "tools_my_crm_2__log_it"
+                },
+                {
+                  "records_delete": "params.id"
+                }
+              ]
+            }
+          },
+          "exposes": [
+            {
+              "name": "list_issues",
+              "title": "List",
+              "description": "d",
+              "input": {},
+              "access": "read",
+              "run": {
+                "action": "exponential_issues_list",
+                "args": {}
+              }
+            }
+          ],
+          "tests": [
+            {
+              "name": "saves",
+              "action": {
+                "name": "save",
+                "params": {
+                  "name": "x"
+                }
+              },
+              "expect": {
+                "calls": [
+                  {
+                    "name": "app_toast"
+                  },
+                  {
+                    "name": "tools_my_crm_2__log_it"
+                  }
+                ],
+                "note": "plain text. not a name"
+              }
+            }
+          ],
+          "author": {
+            "name": "Test Author",
+            "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+          }
+        },
+        "status": "valid",
+        "author": {
+          "name": "Test Author",
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        }
+      }
+    },
+    {
+      "name": "package: signed v5, signature invalid (tampered)",
+      "kind": "package",
+      "input": {
+        "id": "acme.crm",
+        "name": "CRM (tampered)",
+        "version": "1.0.0",
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "children": [
+                  "user-card",
+                  "save"
+                ]
+              },
+              {
+                "id": "user-card",
+                "component": "Text",
+                "text": {
+                  "path": "/name"
+                }
+              },
+              {
+                "id": "save",
+                "component": "Button",
+                "label": "Save",
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "actions.save",
+                      "args": {
+                        "name": {
+                          "path": "/name"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "name": "Ada"
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:contact"
+              }
+            ]
+          }
+        },
+        "functions": [
+          "app.navigate",
+          "harness.*",
+          "tools.my-crm.*",
+          "tools.my_crm.search",
+          "exponential.issues.*",
+          "set"
+        ],
+        "tools": {
+          "my-crm": {
+            "kind": "mcp",
+            "title": "CRM",
+            "url": "https://mcp.example.com/crm"
+          },
+          "my_crm": {
+            "kind": "script",
+            "title": "Local",
+            "command": "bun"
+          }
+        },
+        "actions": {
+          "save": {
+            "params": {
+              "name": "string"
+            },
+            "steps": [
+              {
+                "require": "params.name != \"\""
+              },
+              {
+                "records.upsert": {
+                  "kind": "contact",
+                  "data": {
+                    "name": "params.name"
+                  }
+                }
+              },
+              {
+                "call": "app.toast",
+                "args": {
+                  "text": "\"Saved\""
+                }
+              },
+              {
+                "call": "tools.my-crm.log-it"
+              },
+              {
+                "records.delete": "params.id"
+              }
+            ]
+          }
+        },
+        "exposes": [
+          {
+            "name": "list_issues",
+            "title": "List",
+            "description": "d",
+            "input": {},
+            "access": "read",
+            "run": {
+              "action": "exponential.issues.list",
+              "args": {}
+            }
+          }
+        ],
+        "tests": [
+          {
+            "name": "saves",
+            "action": {
+              "name": "save",
+              "params": {
+                "name": "x"
+              }
+            },
+            "expect": {
+              "calls": [
+                {
+                  "name": "app.toast"
+                },
+                {
+                  "name": "tools.my-crm.log-it"
+                }
+              ],
+              "note": "plain text. not a name"
+            }
+          }
+        ],
+        "author": {
+          "name": "Test Author",
+          "key": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "qh5bcW3j1YqMHgCWAIy0rXlMp0yhti3pRNzH-1q3AlbeaYS1NH4DEH-UEjPWdkaazmdxuGzGaiPpE_GS2VoKAw"
+        }
+      },
+      "verify": true,
+      "expected": {
+        "package": null,
+        "status": "invalid"
+      }
+    },
+    {
+      "name": "package: unsigned v5 file",
+      "kind": "package",
+      "input": {
+        "id": "acme.crm",
+        "name": "CRM",
+        "version": "1.0.0",
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "children": [
+                  "user-card",
+                  "save"
+                ]
+              },
+              {
+                "id": "user-card",
+                "component": "Text",
+                "text": {
+                  "path": "/name"
+                }
+              },
+              {
+                "id": "save",
+                "component": "Button",
+                "label": "Save",
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "actions.save",
+                      "args": {
+                        "name": {
+                          "path": "/name"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "name": "Ada"
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:contact"
+              }
+            ]
+          }
+        },
+        "functions": [
+          "app.navigate",
+          "harness.*",
+          "tools.my-crm.*",
+          "tools.my_crm.search",
+          "exponential.issues.*",
+          "set"
+        ],
+        "tools": {
+          "my-crm": {
+            "kind": "mcp",
+            "title": "CRM",
+            "url": "https://mcp.example.com/crm"
+          },
+          "my_crm": {
+            "kind": "script",
+            "title": "Local",
+            "command": "bun"
+          }
+        },
+        "actions": {
+          "save": {
+            "params": {
+              "name": "string"
+            },
+            "steps": [
+              {
+                "require": "params.name != \"\""
+              },
+              {
+                "records.upsert": {
+                  "kind": "contact",
+                  "data": {
+                    "name": "params.name"
+                  }
+                }
+              },
+              {
+                "call": "app.toast",
+                "args": {
+                  "text": "\"Saved\""
+                }
+              },
+              {
+                "call": "tools.my-crm.log-it"
+              },
+              {
+                "records.delete": "params.id"
+              }
+            ]
+          }
+        },
+        "exposes": [
+          {
+            "name": "list_issues",
+            "title": "List",
+            "description": "d",
+            "input": {},
+            "access": "read",
+            "run": {
+              "action": "exponential.issues.list",
+              "args": {}
+            }
+          }
+        ],
+        "tests": [
+          {
+            "name": "saves",
+            "action": {
+              "name": "save",
+              "params": {
+                "name": "x"
+              }
+            },
+            "expect": {
+              "calls": [
+                {
+                  "name": "app.toast"
+                },
+                {
+                  "name": "tools.my-crm.log-it"
+                }
+              ],
+              "note": "plain text. not a name"
+            }
+          }
+        ],
+        "author": {
+          "name": "Claimed",
+          "key": "ed25519:x"
+        }
+      },
+      "verify": true,
+      "expected": {
+        "package": {
+          "id": "acme.crm",
+          "name": "CRM",
+          "version": "1.0.0",
+          "formatVersion": 6,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "templates": {
+            "main": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "user_card",
+                    "save"
+                  ]
+                },
+                {
+                  "id": "user_card",
+                  "component": "Text",
+                  "text": {
+                    "@path": "/name"
+                  }
+                },
+                {
+                  "id": "save",
+                  "component": "Button",
+                  "label": "Save",
+                  "on": {
+                    "press": {
+                      "functionCall": {
+                        "@call": "actions_save",
+                        "args": {
+                          "name": {
+                            "@path": "/name"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "data": {
+                "name": "Ada"
+              },
+              "bindings": [
+                {
+                  "path": "/rows",
+                  "source": "records:contact"
+                }
+              ]
+            }
+          },
+          "functions": [
+            "app_navigate",
+            "harness_*",
+            "tools_my_crm_2__*",
+            "tools_my_crm__search",
+            "exponential_issues_*",
+            "set"
+          ],
+          "tools": {
+            "my_crm_2": {
+              "kind": "mcp",
+              "title": "CRM",
+              "url": "https://mcp.example.com/crm"
+            },
+            "my_crm": {
+              "kind": "script",
+              "title": "Local",
+              "command": "bun"
+            }
+          },
+          "actions": {
+            "save": {
+              "params": {
+                "name": "string"
+              },
+              "steps": [
+                {
+                  "require": "params.name != \"\""
+                },
+                {
+                  "records_upsert": {
+                    "kind": "contact",
+                    "data": {
+                      "name": "params.name"
+                    }
+                  }
+                },
+                {
+                  "call": "app_toast",
+                  "args": {
+                    "text": "\"Saved\""
+                  }
+                },
+                {
+                  "call": "tools_my_crm_2__log_it"
+                },
+                {
+                  "records_delete": "params.id"
+                }
+              ]
+            }
+          },
+          "exposes": [
+            {
+              "name": "list_issues",
+              "title": "List",
+              "description": "d",
+              "input": {},
+              "access": "read",
+              "run": {
+                "action": "exponential_issues_list",
+                "args": {}
+              }
+            }
+          ],
+          "tests": [
+            {
+              "name": "saves",
+              "action": {
+                "name": "save",
+                "params": {
+                  "name": "x"
+                }
+              },
+              "expect": {
+                "calls": [
+                  {
+                    "name": "app_toast"
+                  },
+                  {
+                    "name": "tools_my_crm_2__log_it"
+                  }
+                ],
+                "note": "plain text. not a name"
+              }
+            }
+          ],
+          "author": {
+            "name": "Claimed",
+            "key": "ed25519:x"
+          }
+        },
+        "status": "unsigned"
+      }
+    },
+    {
+      "name": "a binding or call AT a data prop converts, a literal's inside stays data",
+      "kind": "message",
+      "input": {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "t",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": {
+                "path": "/rows"
+              }
+            },
+            {
+              "id": "u",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": {
+                "call": "filter",
+                "args": {
+                  "items": {
+                    "path": "/rows"
+                  }
+                }
+              }
+            },
+            {
+              "id": "v",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": [
+                {
+                  "path": "/not/a/binding"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "s1",
+          "components": [
+            {
+              "id": "t",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": {
+                "@path": "/rows"
+              }
+            },
+            {
+              "id": "u",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": {
+                "@call": "filter",
+                "args": {
+                  "items": {
+                    "@path": "/rows"
+                  }
+                }
+              }
+            },
+            {
+              "id": "v",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "a",
+                  "label": "A"
+                }
+              ],
+              "rows": [
+                {
+                  "path": "/not/a/binding"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expectedState": {
+        "surfaces": {
+          "s1": {
+            "t": "t",
+            "u": "u",
+            "v": "v"
+          }
+        },
+        "catalogs": {}
+      }
+    }
+  ]
+}

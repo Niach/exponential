@@ -78,11 +78,11 @@ struct RunnerView: View {
     }
 
     @ViewBuilder
-    func surface(_ id: String, _ size: CGSize) -> some View {
-        if let surface = model.host.surface(id) {
+    func surface(_ name: String, _ size: CGSize) -> some View {
+        if let id = model.surfaces[name], let surface = model.host.surface(id) {
             HostSurface(host: model.host, surfaceId: id)
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
-                .allowsHitTesting(id == RunnerSurface.app || surface.layers.contains { $0.modal })
+                .allowsHitTesting(name == RunnerSurface.app || surface.layers.contains { $0.modal })
                 // At the window's height (the page scrolls inside the shell, never
                 // the window), again for every new model: a template apply
                 // recreates the surface.

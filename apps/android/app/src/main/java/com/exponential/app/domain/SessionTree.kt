@@ -911,7 +911,8 @@ object SessionTree {
     fun cardSurface(raw: kotlinx.serialization.json.JsonElement?): CardSurface? {
         val surface = raw as? JsonObject ?: return null
         val root = surface["root"] as? JsonObject ?: return null
-        return CardSurface(root, surface["data"] as? JsonObject)
+        val version = (surface["version"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        return CardSurface(root, surface["data"] as? JsonObject, version)
     }
 
     /** A plan card's `answers` (question id → labels), strings only. */

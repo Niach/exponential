@@ -7,7 +7,7 @@ import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
-import { planCardHost, useCardLinks } from "./plan-card"
+import { paintedCard, planCardHost, useCardLinks } from "./plan-card"
 import { userMessageTime } from "./user-message-bubble"
 
 // Thread 58cb32df (fixtures/chats.json TRANSCRIPT + SURFACE CARD ×4; iOS
@@ -135,11 +135,12 @@ export function SurfaceCard({
   animate?: boolean
   className?: string
 }) {
+  const upgraded = useMemo(() => paintedCard(surface), [surface])
   const state = useSurface({
     surfaceId: `surface-${testKey}`,
     catalogId: CORE_CATALOG_ID,
-    initial: surface.root as NestedNode,
-    data: { ...(surface.data ?? {}) },
+    initial: upgraded.root as NestedNode,
+    data: { ...((upgraded.data as Record<string, unknown> | null | undefined) ?? {}) },
   })
   const replyRef = useRef(onReply)
   replyRef.current = onReply

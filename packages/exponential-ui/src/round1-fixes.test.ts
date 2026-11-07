@@ -49,8 +49,8 @@ describe(`row-scoped Table slot cells (§3, review blocker)`, () => {
   const table: NestedNode = {
     id: `t`,
     component: `Table`,
-    props: { columns: [{ key: `s`, label: `S`, type: `slot`, slot: `status` }], rows: { path: `/rows` } },
-    slots: { status: { id: `cell`, component: `Badge`, props: { text: { path: `s` } }, visible: { path: `show` } } },
+    props: { columns: [{ key: `s`, label: `S`, type: `slot`, slot: `status` }], rows: { "@path": `/rows` } },
+    slots: { status: { id: `cell`, component: `Badge`, props: { text: { "@path": `s` } }, visible: { "@path": `show` } } },
   }
 
   test(`the bind pass leaves the slot unbound; each row binds it with the row as its scope`, () => {
@@ -64,19 +64,19 @@ describe(`row-scoped Table slot cells (§3, review blocker)`, () => {
     const row0 = bindRowSlot(bound.slots!.status, root.props.rows, rows, 0, data, STRINGS)!
     expect(byId(row0, `cell.label`)!.props.text).toBe(`ok`)
     expect(bindRowSlot(bound.slots!.status, root.props.rows, rows, 1, data, STRINGS)).toBeNull()
-    expect(rowScope(root.props.rows, rows, 1)).toEqual({ base: `/rows/1` })
+    expect(rowScope(root.props.rows, rows, 1)).toEqual({ base: `/rows/1`, index: 1 })
   })
 
   test(`literal rows bind relative paths inside the row; absolute ones read the data; a relative set writes nothing`, () => {
     const scope = rowScope([{ s: `x` }], [{ s: `x` }], 0)
-    expect(scope).toEqual({ item: { s: `x` } })
+    expect(scope).toEqual({ item: { s: `x` }, index: 0 })
     expect(readPath({ s: `root` }, `s`, scope)).toBe(`x`)
     expect(readPath({ s: `root` }, `/s`, scope)).toBe(`root`)
     expect(readPath({}, ``, scope)).toEqual({ s: `x` })
-    expect(runAction({ functionCall: { call: `set`, args: { path: `s`, value: 1 } } }, { a: 1 }, { scope }).data).toEqual({ a: 1 })
-    expect(runAction({ functionCall: { call: `set`, args: { path: `/b`, value: 1 } } }, { a: 1 }, { scope }).data).toEqual({ a: 1, b: 1 })
+    expect(runAction({ functionCall: { "@call": `set`, args: { path: `s`, value: 1 } } }, { a: 1 }, { scope }).data).toEqual({ a: 1 })
+    expect(runAction({ functionCall: { "@call": `set`, args: { path: `/b`, value: 1 } } }, { a: 1 }, { scope }).data).toEqual({ a: 1, b: 1 })
     // Bound rows: a relative set writes into the row.
-    expect(runAction({ functionCall: { call: `set`, args: { path: `s`, value: `y` } } }, { rows: [{ s: `x` }] }, { scope: { base: `/rows/0` } }).data).toEqual({ rows: [{ s: `y` }] })
+    expect(runAction({ functionCall: { "@call": `set`, args: { path: `s`, value: `y` } } }, { rows: [{ s: `x` }] }, { scope: { base: `/rows/0` } }).data).toEqual({ rows: [{ s: `y` }] })
   })
 
   test(`bind-time.json extra cases replay, rowSlots included`, () => {
@@ -99,7 +99,7 @@ describe(`row-scoped Table slot cells (§3, review blocker)`, () => {
       }
     }
     const bound = extra[0].datasets[0]
-    expect(bound.rowSlots![0].rows.map((r) => (r.slots.status ? byId(r.slots.status, `cell.label`)!.props.text : null))).toEqual([`ok`, null, 0])
+    expect(bound.rowSlots![0].rows.map((r) => (r.slots.status ? byId(r.slots.status, `cell.label`)!.props.text : null))).toEqual([`ok`, null, null])
   })
 })
 
@@ -107,16 +107,16 @@ describe(`DATA props are copied verbatim (§1, review minor)`, () => {
   test(`Table rows: a {path} row, a {call} row and a "$string.x" cell stay data`, () => {
     expect(isDataSchema(coreCatalog.components.Table.props.rows)).toBe(true)
     expect(isDataSchema(coreCatalog.components.Table.props.columns)).toBe(false)
-    const rows = [{ path: `/etc/hosts` }, { call: `not`, args: { value: true } }, { note: `$string.cancel` }]
+    const rows = [{ "@path": `/etc/hosts` }, { "@call": `not`, args: { value: true } }, { note: `$string.cancel` }]
     const root = expand({ id: `t`, component: `Table`, props: { columns: [{ key: `path`, label: `P` }], rows } })
     const bound = bindTree(root, { etc: { hosts: `PWNED` } }, STRINGS)!
     expect(bound.props.rows).toEqual(rows)
     // Data read through a binding is never descended either.
-    expect(bindTree(expand({ id: `t`, component: `Table`, props: { columns: [{ key: `path`, label: `P` }], rows: { path: `/r` } } }), { r: rows, etc: { hosts: `x` } }, STRINGS)!.props.rows).toEqual(rows)
+    expect(bindTree(expand({ id: `t`, component: `Table`, props: { columns: [{ key: `path`, label: `P` }], rows: { "@path": `/r` } } }), { r: rows, etc: { hosts: `x` } }, STRINGS)!.props.rows).toEqual(rows)
   })
 
   test(`authored strings still resolve $string; shaped props still resolve nested bindings (Sparkline series)`, () => {
-    const root = expand({ id: `s`, component: `Sparkline`, props: { values: { path: `/v` } } })
+    const root = expand({ id: `s`, component: `Sparkline`, props: { values: { "@path": `/v` } } })
     expect((bindTree(root, { v: [1, 2] }, STRINGS)!.props.series as { values: unknown }[])[0].values).toEqual([1, 2])
     expect(resolveDynamic(`$string.cancel`, {}, STRINGS)).toBe(`Cancel`)
   })
@@ -124,7 +124,7 @@ describe(`DATA props are copied verbatim (§1, review minor)`, () => {
 
 describe(`accessibility channel (§6, review majors)`, () => {
   test(`bindTree resolves a bound accessible name and $string copy in accessibility`, () => {
-    const root = expand({ id: `x`, component: `Text`, props: { text: `hi` }, accessibility: { label: { path: `/l` }, description: `$string.close` } })
+    const root = expand({ id: `x`, component: `Text`, props: { text: `hi` }, accessibility: { label: { "@path": `/l` }, description: `$string.close` } })
     expect(bindTree(root, { l: `Hello` }, STRINGS)!.accessibility).toEqual({ label: `Hello`, description: `Close` })
     expect(bindTree(root, {}, STRINGS)!.accessibility).toEqual({ description: `Close` })
   })
@@ -165,19 +165,19 @@ describe(`accessibility channel (§6, review majors)`, () => {
     expect(bindTree(readOnly, {}, STRINGS)!.accessibility).toEqual({ role: `img`, label: `Rated 4 of 5` })
     expect(byId(readOnly, `r.star.0`)!.accessibility!.role).toBe(`hidden`)
 
-    const bound = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, children: [{ id: `b`, component: `Text`, props: { text: `x` } }] })
-    expect(byId(bound, `c.trigger`)!.accessibility).toEqual({ role: `button`, expanded: { path: `/open` } })
+    const bound = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/open` } }, children: [{ id: `b`, component: `Text`, props: { text: `x` } }] })
+    expect(byId(bound, `c.trigger`)!.accessibility).toEqual({ role: `button`, expanded: { "@path": `/open` } })
     expect(byId(bindTree(bound, { open: true }, STRINGS)!, `c.trigger`)!.accessibility).toEqual({ role: `button`, expanded: true })
     expect(byId(expand({ id: `c`, component: `Collapsible`, props: { title: `More` } }), `c.trigger`)!.accessibility).toEqual({ role: `button`, expanded: false })
 
     // Round 3: a `bar` Segmented is a native (its navigation role comes from a11y.json, the painter sets aria-current); a Section header is a heading, or a button with aria-expanded (no aria-level) when collapsible; the fold toggles against its default open.
-    const tabs = bindTree(expand({ id: `tb`, component: `Segmented`, props: { variant: `bar`, items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }], value: { path: `/tab` } } }), { tab: `b` }, STRINGS)!
+    const tabs = bindTree(expand({ id: `tb`, component: `Segmented`, props: { variant: `bar`, items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }], value: { "@path": `/tab` } } }), { tab: `b` }, STRINGS)!
     expect(tabs.component).toBe(`Segmented`)
     expect(tabs.props).toMatchObject({ variant: `bar`, value: `b` })
     expect(byId(expand({ id: `s`, component: `Section`, props: { title: `More` } }), `s.header`)!.accessibility).toEqual({ role: `heading`, level: 3 })
-    expect(byId(bindTree(expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } } }), { open: false }, STRINGS)!, `s.header`)!.accessibility).toEqual({ role: `button`, expanded: false })
+    expect(byId(bindTree(expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { "@path": `/open` } } }), { open: false }, STRINGS)!, `s.header`)!.accessibility).toEqual({ role: `button`, expanded: false })
 
-    const stepper = bindTree(expand({ id: `s`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: { path: `/c` } } }), { c: 1 }, STRINGS)!
+    const stepper = bindTree(expand({ id: `s`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: { "@path": `/c` } } }), { c: 1 }, STRINGS)!
     expect(stepper.children.map((c) => c.accessibility)).toEqual([
       { role: `listitem`, current: false, label: `Step 1 of 3: Account, completed` },
       { role: `listitem`, current: `step`, label: `Step 2 of 3: Team, current` },
@@ -214,20 +214,20 @@ describe(`accessibility channel (§6, review majors)`, () => {
 
 describe(`$set meets an author function (§1, review minor)`, () => {
   test(`the author's function is kept, no set is added, the reducer reports it once`, () => {
-    const { root, issues } = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { functionCall: { call: `openUrl`, args: { url: `https://x` } } } } })
-    expect(root.children[0].on!.press).toEqual({ functionCall: { call: `openUrl`, args: { url: `https://x` } } })
-    expect(issues).toEqual([{ id: `s`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event` }])
+    const { root, issues } = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { "@path": `/open` } }, on: { change: { functionCall: { "@call": `openUrl`, args: { url: `https://x` } } } } })
+    expect(root.children[0].on!.press).toEqual({ functionCall: { "@call": `openUrl`, args: { url: `https://x` } } })
+    expect(issues).toEqual([{ id: `s`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event`, code: `VALIDATION_FAILED`, path: `/components/s/on/change` }])
     // An event handler still gets the set.
-    const ok = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { event: { name: `fold` } } } })
+    const ok = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { "@path": `/open` } }, on: { change: { event: { name: `fold` } } } })
     expect(ok.issues).toEqual([])
-    expect(ok.root.children[0].on!.press).toEqual({ event: { name: `fold`, context: { open: { call: `not`, args: { value: { call: `fallback`, args: { value: { path: `/open` }, default: true } } } } } }, functionCall: { call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { call: `fallback`, args: { value: { path: `/open` }, default: true } } } } } } })
+    expect(ok.root.children[0].on!.press).toEqual({ event: { name: `fold`, context: { open: { "@call": `not`, args: { value: { "@call": `fallback`, args: { value: { "@path": `/open` }, default: true } } } } } }, functionCall: { "@call": `set`, args: { path: `/open`, value: { "@call": `not`, args: { value: { "@call": `fallback`, args: { value: { "@path": `/open` }, default: true } } } } } } })
   })
 
   test(`an A2UI functionCall counts as the author's function too (VAPP-99)`, () => {
-    const { root, issues } = reduce({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/o` } }, on: { change: { functionCall: { call: `harness.track` } } } })
+    const { root, issues } = reduce({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/o` } }, on: { change: { functionCall: { "@call": `harness_track` } } } })
     const press = byId(root, `c.trigger`)!.on!.press as Record<string, unknown>
-    expect(press).toEqual({ functionCall: { call: `harness.track` } })
-    expect(issues).toEqual([{ id: `c`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event` }])
+    expect(press).toEqual({ functionCall: { "@call": `harness_track` } })
+    expect(issues).toEqual([{ id: `c`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event`, code: `VALIDATION_FAILED`, path: `/components/c/on/change` }])
   })
 })
 
@@ -252,7 +252,7 @@ describe(`numeric equality and clamping (§1, review minor)`, () => {
   })
 
   test(`Pagination over string data: next disabled on the last page, writes clamped`, () => {
-    const root = expand({ id: `p`, component: `Pagination`, props: { totalPages: 5, page: { path: `/page` } } })
+    const root = expand({ id: `p`, component: `Pagination`, props: { totalPages: 5, page: { "@path": `/page` } } })
     const bound = bindTree(root, { page: `5` }, STRINGS)!
     expect(byId(bound, `p.next`)!.props.disabled).toBe(true)
     expect(byId(bound, `p.prev`)!.props.disabled).toBe(false)
@@ -266,7 +266,7 @@ describe(`the bind function table (§1, review minor)`, () => {
   test(`every call the expander emits (catalog-macros.json, bind-time.json) is in BIND_FUNCTIONS`, () => {
     const called = new Set<string>()
     walk([macrosFixture, bindFixture], (v) => {
-      if (typeof v.call === `string` && (v.args === undefined || typeof v.args === `object`)) called.add(v.call)
+      if (typeof v[`@call`] === `string` && (v.args === undefined || typeof v.args === `object`)) called.add(v[`@call`] as string)
     })
     called.delete(`set`)
     called.delete(`openUrl`)
@@ -369,13 +369,13 @@ describe(`reducer: visible on the basic catalog (review minor)`, () => {
     const { root } = reduceSurface(
       [
         { id: `root`, component: `Column`, children: [`t`] },
-        { id: `t`, component: `Text`, text: `hi`, visible: { path: `/show` } },
+        { id: `t`, component: `Text`, text: `hi`, visible: { "@path": `/show` } },
       ],
       { catalogId: A2UI_BASIC_CATALOG_ID }
     )
-    expect(root.children[0].visible).toEqual({ path: `/show` })
+    expect(root.children[0].visible).toEqual({ "@path": `/show` })
     expect(bindTree(root, { show: false })!.children).toEqual([])
     const bad = reduceSurface([{ id: `root`, component: `Text`, text: `hi`, visible: `yes` as unknown as boolean }], { catalogId: A2UI_BASIC_CATALOG_ID })
-    expect(bad.issues).toContainEqual({ id: `root`, message: `visible: expected a boolean, a binding or a function call` })
+    expect(bad.issues).toContainEqual({ id: `root`, message: `visible: expected a boolean, a binding or a function call`, code: `VALIDATION_FAILED`, path: `/components/root/visible` })
   })
 })

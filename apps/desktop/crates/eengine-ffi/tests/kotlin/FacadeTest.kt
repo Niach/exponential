@@ -91,8 +91,8 @@ class Pinned : EngineClock {
 }
 
 val PACKAGE = """
-{"formatVersion":5,"id":"acme.album","name":"Album","version":"1.0.0","catalogId":"https://ui.exponential.at/catalogs/core/v1",
- "functions":["records.*","app.navigate","photos.pick"],"sources":["records:*"],
+{"formatVersion":6,"id":"acme.album","name":"Album","version":"1.0.0","catalogId":"https://ui.exponential.at/catalogs/core/v1",
+ "functions":["records.*","app_navigate","photos_pick"],"sources":["records:*"],
  "records":{"note":{"title":"Note","schema":{"type":"object","properties":{"text":{"type":"string"}}},"policy":{"update":"author","delete":"owners"}}},
  "capabilities":[{"id":"photos.read","why":"Pick the photos for an album."}],
  "screens":[{"template":"albums","title":"Albums"},{"template":"page","title":"Page","nav":false}],
@@ -117,25 +117,25 @@ fun main(args: Array<String>) {
     val effects = Json.parse(app.event("""{"type":"launch"}""")) as List<*>
     check(effects.any { (it as Map<*, *>)["effect"] == "flush" }) { "launch flushes: $effects" }
     check(nav.opened.lastOrNull() == "albums") { "launch opens the first screen: ${nav.opened}" }
-    val created = app.call("records.upsert", """{"kind":"note","data":{"text":"hi"}}""", listOf("n1"))
+    val created = app.call("records_upsert", """{"kind":"note","data":{"text":"hi"}}""", listOf("n1"))
     check(created == CallResult.Value("""{"id":"n1"}""")) { "upsert answers the id: $created" }
     check(count(app) == 1) { "the record is there" }
-    app.call("app.navigate", """{"screen":"page"}""", listOf())
+    app.call("app_navigate", """{"screen":"page"}""", listOf())
     check(nav.opened.lastOrNull() == "page") { "navigate opens the screen" }
     check(try { app.event("{"); false } catch (e: EngineException.Invalid) { true }) { "bad JSON throws" }
 
     // The consent round trip.
-    val ask = app.call("photos.pick", "{}", listOf()) as CallResult.Ask
+    val ask = app.call("photos_pick", "{}", listOf()) as CallResult.Ask
     check(ask.sheet.scope == "photos.read") { "the sheet's scope" }
     val title = ((Json.parse(ask.sheet.componentsJson) as List<*>)[0] as Map<*, *>)["title"]
     check(title == "Allow Album to access your photos?") { "the sheet's title: $title" }
-    val picked = app.answerConsent("photos.pick", "{}", ask.verdictJson, ConsentAnswer.ALLOW)
-    check(picked is CallResult.Value && picked.json.contains(""""structuredContent":{"photos":[]}""")) { "the capability ran: $picked" }
+    val picked = app.answerConsent("photos_pick", "{}", ask.verdictJson, ConsentAnswer.ALLOW)
+    check(picked is CallResult.Value && picked.json.contains(""""photos":[]""")) { "the capability ran: $picked" }
     check(app.grantsJson() == """{"photos.read":"granted"}""") { "the grant persists: ${app.grantsJson()}" }
     check(keychain.values["eengine/grants/acme.album"]?.contains("granted") == true) { "in the Vault" }
     app.setGrant("photos.read", null)
-    check(app.call("photos.pick", "{}", listOf()) is CallResult.Ask) { "revoked: asks again" }
-    val refused = app.call("camera.capture", "{}", listOf())
+    check(app.call("photos_pick", "{}", listOf()) is CallResult.Ask) { "revoked: asks again" }
+    val refused = app.call("camera_capture", "{}", listOf())
     check(refused is CallResult.Refused && refused.message == "notDeclared") { "undeclared: $refused" }
 
     // A bad package says why.
@@ -147,7 +147,7 @@ fun main(args: Array<String>) {
         for (round in 0..1) {
             val a = Engine(host(dir), EngineIdentity.Local("d-1"), EngineProviders(Keychain(), Nav())).load(PACKAGE)
             a.event("""{"type":"launch"}""")
-            if (round == 0) a.call("records.upsert", """{"kind":"note","data":{}}""", listOf("n1"))
+            if (round == 0) a.call("records_upsert", """{"kind":"note","data":{}}""", listOf("n1"))
             check(count(a) == 1) { "round $round: the record survives" }
         }
         File(dir).deleteRecursively()

@@ -128,7 +128,7 @@ fn a_sticky_child_of_the_scroller_stays_pinned_all_the_way() {
 fn table_text_cells_and_slot_cells_share_the_row_equally() {
     let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
         {"id": "t", "component": "Table", "props": {"columns": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}], "rows": [{"id": "x", "a": "one", "b": "two"}]},
-         "slots": {"cell": {"id": "slot", "component": "Chip", "props": {"label": {"path": "b"}}}}}
+         "slots": {"cell": {"id": "slot", "component": "Chip", "props": {"label": {"@path": "b"}}}}}
     ]}));
     s.layout(&mut measure());
     let nodes: Vec<String> = s.nodes().into_iter().map(|n| n.id).collect();

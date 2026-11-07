@@ -7,7 +7,7 @@
 //   GET  /a2ui.jsonl        the surface as A2UI JSONL, then a live tick every 3 s (?once=1: the surface only, then close)
 //   GET  /a2ui.sse          the same as Server-Sent Events
 //   GET  /ws                the same over a WebSocket (client messages come back as frames)
-//   POST /action            client messages (A2UI v0.9 action / error); `refresh` pushes new readings
+//   POST /action            client messages (A2UI 1.0 action / error); `refresh` pushes new readings
 //   GET  /theme.json        the sample theme (extends neutral)
 //   GET  /extension.json    the sample extension catalog (TrendLine)
 //   GET  /surface.jsonl     the static surface (what ?once=1 streams)
@@ -19,6 +19,7 @@ const shared = join(import.meta.dir, `..`, `shared`)
 const surfaceJsonl = readFileSync(join(shared, `surface.jsonl`), `utf8`)
 const theme = readFileSync(join(shared, `sample.theme.json`), `utf8`)
 const extension = readFileSync(join(shared, `sample.extension.json`), `utf8`)
+const VERSION = (JSON.parse(surfaceJsonl.split(`\n`)[0]!) as { version: string }).version // the shared surface names it
 const port = Number(process.env.PORT ?? 4190)
 const SURFACE = `greenhouse`
 
@@ -33,7 +34,7 @@ function reading(): string[] {
   tick += 1
   const next = Math.max(8, Math.min(30, series[series.length - 1]! + Math.round(Math.sin(tick) * 3)))
   series = [...series.slice(-15), next]
-  const msg = (path: string, value: unknown) => JSON.stringify({ version: `v0.9`, updateDataModel: { surfaceId: SURFACE, path, value } })
+  const msg = (path: string, value: unknown) => JSON.stringify({ version: VERSION, updateDataModel: { surfaceId: SURFACE, path, value } })
   return [msg(`/series`, series), msg(`/temperature`, `${next} °C`), msg(`/status`, `3 sensors online · update ${tick}`)]
 }
 
@@ -70,7 +71,7 @@ function onClientMessage(text: string): void {
   }
   console.log(`[server] ←`, JSON.stringify(message))
   if (message.action?.name === `refresh`) broadcast(reading())
-  if (message.action?.name === `fans`) broadcast([JSON.stringify({ version: `v0.9`, updateDataModel: { surfaceId: SURFACE, path: `/status`, value: `fans toggled` } })])
+  if (message.action?.name === `fans`) broadcast([JSON.stringify({ version: VERSION, updateDataModel: { surfaceId: SURFACE, path: `/status`, value: `fans toggled` } })])
 }
 
 Bun.serve({

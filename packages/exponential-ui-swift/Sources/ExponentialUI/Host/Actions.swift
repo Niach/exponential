@@ -6,7 +6,7 @@ import ExponentialUICore
 /// eui-core `host::actions`, `fixtures/actions.json`). Expressions are PURE;
 /// a package's `actions: {<name>: {params?, steps}}` are the only place it
 /// writes. A Button's `on.press` names one as the function call
-/// `actions.<name>`; `ExponentialHost.callFunction` runs it: the PLAN
+/// `actions_<name>`; `ExponentialHost.callFunction` runs it: the PLAN
 /// (`run`, one snapshot), every host call's gate, the record writes as ONE
 /// `records.batch`, the data sets, then the calls. This is the direct entry
 /// for a host (and the tests).
@@ -17,19 +17,19 @@ public enum Actions {
         case pure
         /// `set`, `records.upsert` / `.delete` / `.batch`.
         case write
-        /// `openUrl`, `bind`, every `actions.` `harness.` `exponential.`
-        /// `tools.` `upstream.` name and every Engine capability's
-        /// (`photos.`, `files.`, `print.`, `share.`, …; VAPP-271).
+        /// `openUrl`, `bind`, every `actions_` `harness_` `exponential_`
+        /// `tools_` `upstream_` name and every Engine capability's
+        /// (`photos_`, `files_`, `print_`, `share_`, …; VAPP-271).
         case host
     }
 
     /// The function-call prefix that runs a package action.
-    public static let callPrefix = "actions."
+    public static let callPrefix = "actions_"
     /// The host function a host commits an action's record writes through
     /// (args `{writes}`; answers `{ids}`).
-    public static let batchFunction = "records.batch"
+    public static let batchFunction = "records_batch"
 
-    /// The action a call name runs (`actions.log` → `log`), else nil.
+    /// The action a call name runs (`actions_log` → `log`), else nil.
     public static func actionName(call: String) -> String? {
         call.hasPrefix(callPrefix) ? String(call.dropFirst(callPrefix.count)) : nil
     }
@@ -157,7 +157,7 @@ public enum Actions {
 /// refused write, a refused host call): the host's failed-action toast.
 public struct ActionFailure: Equatable, Sendable {
     public let surfaceId: String
-    /// The action's name (`log` for `actions.log`).
+    /// The action's name (`log` for `actions_log`).
     public let action: String
     public let message: String
 

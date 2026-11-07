@@ -16,7 +16,7 @@ use eengine::CallFrom;
 use eengine::{CallResult, FormFactor, LifecycleEvent, RunnerFailure};
 use eengine_runner::bundle::{find_bundle, read_bundle, Platform};
 use eengine_runner::events;
-use eengine_runner::runner::{self, Dispatch, Paint, Providers, Runner};
+use eengine_runner::runner::{self, Dispatch, LiveSurfaces, Paint, Providers, Runner};
 use eengine_runner::{assets, storage, vault::RunnerVault};
 use eui_core::theme::{Mode, ResolvedTheme};
 use eui_gpui::host::HostPlugin;
@@ -54,6 +54,7 @@ struct Binding {
 struct Ctx {
     runner: RefCell<Option<Runner>>,
     host: Entity<ExponentialHost>,
+    surfaces: RefCell<LiveSurfaces>,
     replies: RefCell<HashMap<u64, Reply>>,
     bindings: RefCell<Vec<Binding>>,
     live: Cell<bool>,
@@ -81,7 +82,13 @@ impl Ctx {
                     self.host.update(cx, |h, _| h.install_package(&pkg));
                 }
                 Paint::Message(message) => {
-                    self.host.update(cx, |h, cx| h.receive(&message, cx));
+                    let (message, replaced) = self.host.update(cx, |h, _| self.surfaces.borrow_mut().rewrite(&message, |base| h.mint_surface_id(base)));
+                    self.host.update(cx, |h, cx| {
+                        h.receive_trusted(&message, cx);
+                        if let Some(delete) = replaced {
+                            h.receive_trusted(&delete, cx);
+                        }
+                    });
                 }
                 Paint::Live(live) => {
                     self.live.set(live);
@@ -157,13 +164,13 @@ impl Ctx {
             Inbound::Navigate { screen, params } => {
                 let args = json!({"screen": screen, "params": params});
                 let result = match self.runner.borrow_mut().as_mut() {
-                    Some(r) => match r.dispatch("app.navigate", &args) {
+                    Some(r) => match r.dispatch("app_navigate", &args) {
                         Dispatch::Done(result) => result,
                         Dispatch::Broker(_) => return,
                     },
                     None => return,
                 };
-                self.finish(0, "app.navigate", &args, result)
+                self.finish(0, "app_navigate", &args, result)
             }
             Inbound::Link(link) => {
                 self.front(cx);
@@ -274,8 +281,10 @@ impl Render for RunnerView {
         }
         let bg: Hsla = eui_gpui::paint::parts::theme_color(Some(&self.theme), self.mode, "background").unwrap_or_else(|| gpui::black());
         let host = self.ctx.host.read(cx);
-        let app = host.surface(runner::APP);
-        let overlays: Vec<_> = [runner::CONSENT, runner::PERMISSIONS, runner::TOAST].into_iter().filter_map(|id| host.surface(id)).collect();
+        let surfaces = self.ctx.surfaces.borrow();
+        let app = host.surface(surfaces.live(runner::APP));
+        let overlays: Vec<_> = [runner::CONSENT, runner::PERMISSIONS, runner::TOAST].into_iter().filter_map(|id| host.surface(surfaces.live(id))).collect();
+        drop(surfaces);
         // runner.json SURFACES: `app` is laid out at the window's height, so
         // the shell fills the window and the page scrolls inside it.
         if let Some(app) = &app {
@@ -403,7 +412,8 @@ fn main() {
         }
         if let Ok(r) = &booted {
             for name in runner::function_names(r.instance().package()) {
-                let (tx, slot, key) = (tx.clone(), ctx_slot.clone(), name.clone());
+                // Round 9 §6.3: genUI calls the flat name; the Engine keeps its own.
+                let (tx, slot, key) = (tx.clone(), ctx_slot.clone(), eui_core::upgrade09::rename09(&name));
                 let f: HostFunction = Rc::new(move |args: Value, _call, cx: &mut App| {
                     let (reply, answer) = flume::bounded(1);
                     let ticket = slot.borrow().as_ref().map_or(0, |c| c.ticket());
@@ -440,6 +450,7 @@ fn main() {
         let ctx = Rc::new(Ctx {
             runner: RefCell::new(None),
             host: host.clone(),
+            surfaces: RefCell::new(LiveSurfaces::default()),
             replies: RefCell::new(HashMap::new()),
             bindings: RefCell::new(Vec::new()),
             live: Cell::new(false),

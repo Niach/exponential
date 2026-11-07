@@ -67,6 +67,7 @@ fn surface() -> CardSurface {
         })
         .collect();
     CardSurface {
+        version: None,
         root: serde_json::json!({"id": "s", "component": "Stack", "children": rows}),
         data: None,
     }

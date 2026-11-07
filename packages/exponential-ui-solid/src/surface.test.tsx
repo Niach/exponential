@@ -22,7 +22,7 @@ const nested: NestedNode = {
   props: { gap: `sm` },
   children: [
     { id: `h`, component: `Heading`, props: { text: `Title` } },
-    { id: `row`, component: `Stack`, props: { direction: `horizontal` }, children: [{ id: `a`, component: `Text`, props: { text: { path: `/a` } } }, { id: `b`, component: `Icon`, props: { name: `star` } }] },
+    { id: `row`, component: `Stack`, props: { direction: `horizontal` }, children: [{ id: `a`, component: `Text`, props: { text: { "@path": `/a` } } }, { id: `b`, component: `Icon`, props: { name: `star` } }] },
     { id: `box`, component: `Box`, style: { padding: 8 }, children: [{ id: `c`, component: `Text`, props: { text: `deep` } }] },
   ],
 }
@@ -68,7 +68,7 @@ describe(`ExponentialSurface`, () => {
   it(`a press on a Text inside a pressable Box routes onAction through the plugin with the resolved context`, async () => {
     const actions: SurfaceActionEvent[] = []
     const host: HostPlugin = { onAction: (e) => void actions.push(e) }
-    const { root } = tree({ id: `root`, component: `Box`, props: { pressable: true }, on: { press: { event: { name: `open`, context: { source: { path: `/src` } } } } }, children: [{ id: `label`, component: `Text`, props: { text: `Open` } }] })
+    const { root } = tree({ id: `root`, component: `Box`, props: { pressable: true }, on: { press: { event: { name: `open`, context: { source: { "@path": `/src` } } } } }, children: [{ id: `label`, component: `Text`, props: { text: `Open` } }] })
     const { container } = render(() => <ExponentialSurface id="act" root={root} data={{ src: `reddit` }} host={host} theme="neutral" />)
     fireEvent.click(container.querySelector(`[data-xui-id="label"]`)!)
     expect(actions).toHaveLength(1)
@@ -77,7 +77,7 @@ describe(`ExponentialSurface`, () => {
 
   it(`a set function writes the data model before the event and re-binds the Text`, () => {
     const actions: SurfaceActionEvent[] = []
-    const { root } = tree({ id: `root`, component: `Box`, props: { pressable: true }, on: { press: { functionCall: { call: `set`, args: { path: `/n`, value: 2 } }, event: { name: `bumped`, context: { n: { path: `/n` } } } } }, children: [{ id: `n`, component: `Text`, props: { text: { path: `/n` } } }] })
+    const { root } = tree({ id: `root`, component: `Box`, props: { pressable: true }, on: { press: { functionCall: { "@call": `set`, args: { path: `/n`, value: 2 } }, event: { name: `bumped`, context: { n: { "@path": `/n` } } } } }, children: [{ id: `n`, component: `Text`, props: { text: { "@path": `/n` } } }] })
     const { container } = render(() => <ExponentialSurface id="set" root={root} data={{ n: 1 }} host={{ onAction: (e) => void actions.push(e) }} theme="neutral" />)
     expect(container.querySelector(`[data-xui-id="n"]`)!.textContent).toBe(`1`)
     fireEvent.click(container.querySelector(`[data-xui-id="root"]`)!)
@@ -107,18 +107,18 @@ describe(`ExponentialSurface`, () => {
 describe(`createSurface`, () => {
   it(`applies A2UI messages, resolves bindings and renders a template per item; a re-reduce keeps the painted nodes`, () => {
     const s = createSurface({ surfaceId: `s` })
-    s.apply({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    s.apply({ version: `1.0`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
     s.apply({
-      version: `v0.9`,
+      version: `1.0`,
       updateComponents: {
         surfaceId: `s`,
         components: [
           { id: `root`, component: `List`, children: { componentId: `row`, path: `/rows` } },
-          { id: `row`, component: `Text`, text: { path: `title` } },
+          { id: `row`, component: `Text`, text: { "@path": `title` } },
         ],
       },
     })
-    s.apply({ version: `v0.9`, updateDataModel: { surfaceId: `s`, path: `/rows`, value: [{ title: `one` }, { title: `two` }] } })
+    s.apply({ version: `1.0`, updateDataModel: { surfaceId: `s`, path: `/rows`, value: [{ title: `one` }, { title: `two` }] } })
     expect(s.root?.component).toBe(`List`)
     const { container } = render(() => <ExponentialSurface surface={s} theme="neutral" />)
     const texts = () => Array.from(container.querySelectorAll(`[data-xui-c="Text"]`)).map((e) => e.textContent)
@@ -130,16 +130,16 @@ describe(`createSurface`, () => {
     expect(texts()).toEqual([`uno`, `two`])
     expect(container.querySelector(`[data-xui-id="row.0"]`)).toBe(first)
     // A re-reduce (new node objects, same ids) keeps the painted elements.
-    s.apply({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `row`, component: `Text`, text: { path: `title` }, variant: `caption` }] } })
+    s.apply({ version: `1.0`, updateComponents: { surfaceId: `s`, components: [{ id: `row`, component: `Text`, text: { "@path": `title` }, variant: `caption` }] } })
     expect(container.querySelector(`[data-xui-id="row.0"]`)).toBe(first)
     expect(first!.getAttribute(`data-r-variant`)).toBe(`caption`)
-    s.apply({ version: `v0.9`, deleteSurface: { surfaceId: `s` } })
+    s.apply({ version: `1.0`, deleteSurface: { surfaceId: `s` } })
     expect(s.root).toBeNull()
     expect(s.deleted).toBe(true)
   })
   it(`ignores messages for another surface`, () => {
     const s = createSurface({ surfaceId: `s` })
-    s.apply({ updateDataModel: { surfaceId: `other`, path: `/x`, value: 1 } })
+    s.apply({ version: `1.0`, updateDataModel: { surfaceId: `other`, path: `/x`, value: 1 } })
     expect(s.data).toEqual({})
   })
 })

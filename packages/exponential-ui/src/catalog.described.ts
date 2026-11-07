@@ -23,6 +23,8 @@ export interface PropDescription {
 
 /** The text of the catalog, keyed like the catalog itself. */
 export interface CatalogDescriptions {
+  /** Round 9 §11: the catalog rules (Markdown), the 1.0 catalog file's `instructions`. */
+  instructions?: string
   components: Record<string, { description?: string; example?: Record<string, unknown>; props: Record<string, PropDescription> }>
   defs: Record<string, { description?: string; properties: Record<string, PropDescription> }>
   functions: { core: Record<string, string>; basic: Record<string, string> }
@@ -67,6 +69,10 @@ function withoutComments<T>(value: T): T {
 export function splitDescriptions(source: CatalogSource): { runtime: CatalogSource; descriptions: CatalogDescriptions } {
   const runtime = withoutComments(structuredClone(source)) as Mutable<CatalogSource>
   const descriptions: CatalogDescriptions = { components: {}, defs: {}, functions: { core: {}, basic: {} } }
+  if (runtime.instructions !== undefined) {
+    descriptions.instructions = runtime.instructions
+    delete runtime.instructions
+  }
   for (const [name, def] of Object.entries(runtime.components) as [string, Mutable<ComponentDef>][]) {
     const entry: CatalogDescriptions[`components`][string] = { props: {} }
     if (def.description !== undefined) {
@@ -106,6 +112,7 @@ export function splitDescriptions(source: CatalogSource): { runtime: CatalogSour
 
 /** Puts the text back onto a runtime catalog, in place. */
 export function applyDescriptions(target: CatalogSource, descriptions: CatalogDescriptions): void {
+  if (descriptions.instructions !== undefined) target.instructions = descriptions.instructions
   for (const [name, text] of Object.entries(descriptions.components)) {
     const def = target.components[name] as Mutable<ComponentDef> | undefined
     if (!def) continue

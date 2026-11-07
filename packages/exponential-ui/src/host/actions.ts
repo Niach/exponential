@@ -6,9 +6,9 @@
 //   them, with the path and the reason (`functionEffect`, src/cel.ts).
 // - ACTIONS (`actions: {<name>: {params?, steps}}`) are the only place a
 //   package writes. A Button's `on.press` names one as the function call
-//   `actions.<name>` (its args = the params). The steps run IN ORDER against
+//   `actions_<name>` (its args = the params). The steps run IN ORDER against
 //   ONE snapshot (the params, the surface data at the press, the member, the
-//   clock): `require`, `records.upsert`, `records.delete`, `set` and `call`
+//   clock): `require`, `records_upsert`, `records_delete`, `set` and `call`
 //   (a host function from `functions`). Running them is pure: `runAction`
 //   returns the PLAN (the record writes, the data sets, the host calls) or
 //   the one error that discards the whole action. The host then commits the
@@ -43,13 +43,13 @@ export const ACTION_LIMITS = { actions: 32, steps: 64, maxSteps: 100_000 } as co
 /** VAPP-271: a `call` step's `result` name (`results.<name>`). */
 export const ACTION_RESULT_PATTERN = /^[a-z][A-Za-z0-9_]{0,31}$/
 /** The step forms, by their one key. */
-export const ACTION_STEP_KINDS: readonly string[] = [`require`, `records.upsert`, `records.delete`, `set`, `call`]
-/** `^[a-z][A-Za-z0-9_]{0,31}$`: an action's name (`actions.<name>`). */
+export const ACTION_STEP_KINDS: readonly string[] = [`require`, `records_upsert`, `records_delete`, `set`, `call`]
+/** `^[a-z][A-Za-z0-9_]{0,31}$`: an action's name (`actions_<name>`). */
 export const ACTION_NAME_PATTERN = /^[a-z][A-Za-z0-9_]{0,31}$/
 /** The function-call prefix that runs a package action. */
-export const ACTION_CALL_PREFIX = `actions.`
+export const ACTION_CALL_PREFIX = `actions_`
 /** The host function a host commits an action's record writes through. */
-export const RECORDS_BATCH_FUNCTION = `records.batch`
+export const RECORDS_BATCH_FUNCTION = `records_batch`
 
 export type ActionWrite = { op: `upsert`; kind: string; data: Record<string, unknown>; id?: string } | { op: `delete`; id: string }
 
@@ -89,7 +89,7 @@ const own = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnPr
 const escape = (key: string) => key.replace(/~/g, `~0`).replace(/\//g, `~1`)
 const POINTER = /^(\/([^/~]|~[01])*)*$/
 
-/** The action a call name runs (`actions.log` → `log`), else null. */
+/** The action a call name runs (`actions_log` → `log`), else null. */
 export function actionCallName(call: string): string | null {
   return call.startsWith(ACTION_CALL_PREFIX) ? call.slice(ACTION_CALL_PREFIX.length) : null
 }
@@ -129,7 +129,7 @@ function fits(field: ExprType, t: ExprType): boolean {
 // ---------------------------------------------------------------------------
 
 /** Every problem with a package's `actions`, and every action call
- *  (`actions.<name>`) its templates make. */
+ *  (`actions_<name>`) its templates make. */
 export function validatePackageActions(pkg: Record<string, unknown>): PackageIssue[] {
   const issues: PackageIssue[] = []
   const actions = pkg.actions
@@ -195,8 +195,8 @@ function validateStep(step: unknown, at: string, types: Record<string, ExprType>
       if (typeof step.message !== `string` || !step.message) issues.push({ path: `${at}/message`, message: `message is the text shown when the requirement fails` })
       return issues
     }
-    case `records.upsert`: {
-      if (!isObject(body)) return [{ path: here, message: `records.upsert is {kind, data, id?}` }]
+    case `records_upsert`: {
+      if (!isObject(body)) return [{ path: here, message: `records_upsert is {kind, data, id?}` }]
       const kindName = typeof body.kind === `string` ? body.kind : ``
       const def = own(records, kindName) && isObject(records[kindName]) ? (records[kindName] as Record<string, unknown>) : null
       if (!def) issues.push({ path: `${here}/kind`, message: `records:${kindName} names no declared kind` })
@@ -227,8 +227,8 @@ function validateStep(step: unknown, at: string, types: Record<string, ExprType>
         for (const field of schema.required) if (typeof field === `string` && !own(body.data, field)) issues.push({ path: `${here}/data`, message: `${field} is required by ${kindName}` })
       return issues
     }
-    case `records.delete`: {
-      if (!isObject(body) || body.id === undefined) return [{ path: here, message: `records.delete is {id}` }]
+    case `records_delete`: {
+      if (!isObject(body) || body.id === undefined) return [{ path: here, message: `records_delete is {id}` }]
       const t = slot(body.id, `${here}/id`, types, issues)
       if (t !== null && !fits(`string`, t)) issues.push({ path: `${here}/id`, message: `id is a string, got ${typeDisplay(t)}` })
       return issues
@@ -241,7 +241,7 @@ function validateStep(step: unknown, at: string, types: Record<string, ExprType>
     case `call`: {
       if (typeof body !== `string` || !body) return [{ path: here, message: `call names a host function` }]
       const effect = functionEffect(body)
-      if (effect === `write`) issues.push({ path: here, message: `${effectWords(body, effect)}: use a records.upsert, records.delete or set step` })
+      if (effect === `write`) issues.push({ path: here, message: `${effectWords(body, effect)}: use a records_upsert, records_delete or set step` })
       else if (effect === `pure`) issues.push({ path: here, message: `${body} is pure: compute it in an expression` })
       else if (actionCallName(body) !== null) issues.push({ path: here, message: `an action never runs another action` })
       else if (body !== NAVIGATE_FUNCTION && functions !== null && !functions.some((p) => p === body || (p.endsWith(`*`) && body.startsWith(p.slice(0, -1)))))
@@ -259,7 +259,7 @@ function validateStep(step: unknown, at: string, types: Record<string, ExprType>
 /** VAPP-194: every function call in a template's PURE places (component
  *  props, a call's args, an event's context) is pure; an action's
  *  `functionCall` may name a host or write function, and an
- *  `actions.<name>` one names a declared action. */
+ *  `actions_<name>` one names a declared action. */
 export function validatePackageEffects(pkg: Record<string, unknown>): PackageIssue[] {
   const issues: PackageIssue[] = []
   if (!isObject(pkg.templates)) return issues
@@ -267,9 +267,9 @@ export function validatePackageEffects(pkg: Record<string, unknown>): PackageIss
   const pure = (value: unknown, at: string) => {
     if (Array.isArray(value)) return value.forEach((v, i) => pure(v, `${at}/${i}`))
     if (!isObject(value)) return
-    if (typeof value.call === `string`) {
-      const effect = functionEffect(value.call)
-      if (effect !== `pure`) issues.push({ path: `${at}/call`, message: `${effectWords(value.call, effect)}: a binding is pure, name an action in on.press` })
+    if (typeof value[`@call`] === `string`) {
+      const effect = functionEffect(value[`@call`])
+      if (effect !== `pure`) issues.push({ path: `${at}/@call`, message: `${effectWords(value[`@call`], effect)}: a binding is pure, name an action in on.press` })
     }
     for (const [k, v] of Object.entries(value)) pure(v, `${at}/${escape(k)}`)
   }
@@ -292,13 +292,13 @@ export function validatePackageEffects(pkg: Record<string, unknown>): PackageIss
               pure(hv, `${hat}/${escape(hk)}`)
               continue
             }
-            const call = typeof hv.call === `string` ? hv.call : ``
+            const call = typeof hv[`@call`] === `string` ? hv[`@call`] : ``
             const action = actionCallName(call)
-            if (action !== null && !own(actions, action)) issues.push({ path: `${hat}/functionCall/call`, message: `action ${action} names no package action` })
+            if (action !== null && !own(actions, action)) issues.push({ path: `${hat}/functionCall/@call`, message: `action ${action} names no package action` })
             // VAPP-204: a press's args are the action's params; a bind's source is one the package may follow.
             if (action !== null && own(actions, action) && isObject(actions[action])) issues.push(...pressArgIssues(action, actions[action] as Record<string, unknown>, hv.args, `${hat}/functionCall/args`))
             if (call === `bind`) issues.push(...bindSourceIssues(pkg, hv.args, `${hat}/functionCall/args`))
-            for (const [fk, fv] of Object.entries(hv)) if (fk !== `call`) pure(fv, `${hat}/functionCall/${escape(fk)}`)
+            for (const [fk, fv] of Object.entries(hv)) if (fk !== `@call`) pure(fv, `${hat}/functionCall/${escape(fk)}`)
           }
         }
       }
@@ -307,7 +307,7 @@ export function validatePackageEffects(pkg: Record<string, unknown>): PackageIss
   return issues
 }
 
-/** VAPP-204: a press's `actions.<name>` args against the action's params:
+/** VAPP-204: a press's `actions_<name>` args against the action's params:
  *  every key a param (unless the schema allows additional properties),
  *  every required param given, a literal scalar of the param's type (a
  *  dynamic value is checked when it runs). */
@@ -426,8 +426,8 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
           if (!ok) failAction(typeof step.message === `string` && step.message ? step.message : `${where}: requirement failed`)
           return true
         }
-        case `records.upsert`: {
-          if (!isObject(body) || !isObject(body.data)) return failAction(`${where}: records.upsert is {kind, data, id?}`)
+        case `records_upsert`: {
+          if (!isObject(body) || !isObject(body.data)) return failAction(`${where}: records_upsert is {kind, data, id?}`)
           const kindName = typeof body.kind === `string` ? body.kind : ``
           const def = own(records, kindName) && isObject(records[kindName]) ? (records[kindName] as Record<string, unknown>) : null
           if (!def || !isObject(def.schema)) return failAction(`${where}: records: no kind ${kindName}`)
@@ -458,8 +458,8 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
           plan.writes.push(id === undefined ? { op: `upsert`, kind: kindName, data } : { op: `upsert`, kind: kindName, data, id })
           return true
         }
-        case `records.delete`: {
-          if (!isObject(body)) return failAction(`${where}: records.delete is {id}`)
+        case `records_delete`: {
+          if (!isObject(body)) return failAction(`${where}: records_delete is {id}`)
           const v = value(body.id)
           if (typeof v !== `string` || !v) failAction(`${where}: id is a string, got ${typeName(v)}`)
           plan.writes.push({ op: `delete`, id: v as string })

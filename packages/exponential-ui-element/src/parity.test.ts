@@ -75,10 +75,10 @@ const form: NestedNode = {
   component: `Form`,
   props: { summary: true },
   children: [
-    { id: `in`, component: `Input`, props: { label: `Title`, name: `title`, description: `Short`, value: { path: `/title` } } },
+    { id: `in`, component: `Input`, props: { label: `Title`, name: `title`, description: `Short`, value: { "@path": `/title` } } },
     { id: `ta`, component: `Textarea`, props: { label: `Body`, name: `body`, value: `Hello` } },
-    { id: `nf`, component: `NumberField`, props: { label: `Seats`, name: `seats`, value: { path: `/seats` }, min: 1, max: 50 } },
-    { id: `cb`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, checked: { path: `/agree` } } },
+    { id: `nf`, component: `NumberField`, props: { label: `Seats`, name: `seats`, value: { "@path": `/seats` }, min: 1, max: 50 } },
+    { id: `cb`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, checked: { "@path": `/agree` } } },
     { id: `ra`, component: `Radio`, props: { label: `Plan`, name: `plan`, options: [{ label: `Free`, value: `free` }, { label: `Team`, value: `team` }], value: `team` } },
     { id: `sl`, component: `Slider`, props: { label: `Volume`, name: `vol`, min: 0, max: 10, value: 3 } },
     { id: `go`, component: `Button`, props: { label: `Save`, type: `submit` } },
@@ -102,7 +102,7 @@ const templatedList = {
   component: `Box`,
   children: [
     { id: `list`, component: `List`, props: { divided: true }, template: { component: `item`, path: `/items`, key: `id` }, children: [] },
-    { id: `item`, component: `Text`, props: { text: { path: `t` } } },
+    { id: `item`, component: `Text`, props: { text: { "@path": `t` } } },
   ],
 } as unknown as NestedNode
 

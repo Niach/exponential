@@ -355,6 +355,17 @@ class SessionTreeTest {
         put("attachmentId", nullable(option.attachmentId))
     }
 
+    @org.junit.Test
+    fun `cardSurface keeps a 1_0 card's version`() {
+        val root = kotlinx.serialization.json.buildJsonObject { put("id", kotlinx.serialization.json.JsonPrimitive("a")) }
+        val v10 = kotlinx.serialization.json.buildJsonObject {
+            put("version", kotlinx.serialization.json.JsonPrimitive("1.0"))
+            put("root", root)
+        }
+        org.junit.Assert.assertEquals("1.0", SessionTree.cardSurface(v10)?.version)
+        org.junit.Assert.assertNull(SessionTree.cardSurface(kotlinx.serialization.json.buildJsonObject { put("root", root) })?.version)
+    }
+
     private fun encode(surface: CardSurface?): JsonElement = surface?.let {
         buildJsonObject {
             put("root", it.root)

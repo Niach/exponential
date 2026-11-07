@@ -1,3 +1,4 @@
+import type { Failure, RouteAnswer, RoutedCall } from "@exponential_app/eui"
 // VAPP-87: what an EMBEDDING APP provides (the host plugin) and what a web
 // renderer sends it, framework-free. The plugin knows no transport: actions
 // and input edits are plain objects the host forwards wherever it likes.
@@ -142,6 +143,13 @@ export interface HostPlugin<Icon = unknown, Markdown = unknown> {
    *  function registry + its policy gate, `ExponentialHost.callFunction`).
    *  A promise keeps the source control pending until it settles. */
   onFunctionCall?: (call: FunctionCallInfo) => unknown | Promise<unknown>
+  /** Round 9 §6.5: a binding's call with no local function
+   *  (`ExponentialHost.reactiveRoute`). */
+  routeCall?: (surfaceId: string, call: RoutedCall) => RouteAnswer
+  /** Round 9 §6.8: a routed call failed (`ExponentialHost.reportFailure`). */
+  reportFailure?: (surfaceId: string, failure: Failure) => void
+  /** Round 9 §5.5: the surface's default catalog. */
+  surfaceCatalogId?: (surfaceId: string) => string | undefined
   /** The media loader's request for a source (absolute url + headers, e.g.
    *  auth for /api/attachments); null = denied. A request WITH headers is
    *  fetched (under the media limits) and shown as a blob url; without, its

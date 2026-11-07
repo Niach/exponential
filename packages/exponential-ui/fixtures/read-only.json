@@ -1,88 +1,527 @@
 {
-  "$comment": "VAPP-200 (docs/spec/apps.md §9.2): a READ-ONLY surface (`SurfaceSettings.readOnly`, catalog/host.json surface): the viewer may read, not write (an app at app access `read`). Every renderer paints the WRITING controls as if their author had written `disabled: true`, with the components' own disabled look. A writing control: a node with an `on.<event>` action whose `functionCall.call` writes (`records.*`, `actions.*`); a form field (Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Select, ChipInput, DatePicker, DateRangePicker, TimePicker, FileUpload, Slider) WITHOUT an action of its own (what it edits feeds a later write). A node whose own actions are all pure or host calls (`set`, `bind`, `openUrl`, a host namespace other than `actions.`) stays live: a month Select that `bind`s a query, a filter that `set`s, a dialog's open button. Per case, reduce `node` with the core catalog (templates lifted), then: `disabled` = the ids the read-only pass disables, pre-order (slots before children), the root first, then each lifted template in key order (TS `readOnlyDisabledIds`, Rust `read_only::disabled_ids`; an author's literal `disabled: true` is already disabled and not listed). A PAINTING runner mounts the case with `readOnly` on and checks every `inert` id paints disabled (the read-only ones plus what a disabled Form disables inside it and what the author disabled) and every `live` id paints enabled; and, with `readOnly` off, that the ids of `disabled` paint enabled.",
+  "$comment": "VAPP-200 (docs/spec/apps.md §9.2): a READ-ONLY surface (`SurfaceSettings.readOnly`, catalog/host.json surface): the viewer may read, not write (an app at app access `read`). Every renderer paints the WRITING controls as if their author had written `disabled: true`, with the components' own disabled look. A writing control: a node with an `on.<event>` action whose `functionCall.call` writes (`records_*`, `actions_*`); a form field (Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Select, ChipInput, DatePicker, DateRangePicker, TimePicker, FileUpload, Slider) WITHOUT an action of its own (what it edits feeds a later write). A node whose own actions are all pure or host calls (`set`, `bind`, `openUrl`, a host namespace other than `actions.`) stays live: a month Select that `bind`s a query, a filter that `set`s, a dialog's open button. Per case, reduce `node` with the core catalog (templates lifted), then: `disabled` = the ids the read-only pass disables, pre-order (slots before children), the root first, then each lifted template in key order (TS `readOnlyDisabledIds`, Rust `read_only::disabled_ids`; an author's literal `disabled: true` is already disabled and not listed). A PAINTING runner mounts the case with `readOnly` on and checks every `inert` id paints disabled (the read-only ones plus what a disabled Form disables inside it and what the author disabled) and every `live` id paints enabled; and, with `readOnly` off, that the ids of `disabled` paint enabled.",
   "cases": [
     {
       "name": "buttons: a write or an action disables, a pure or host call stays live",
       "node": {
-        "id": "root", "component": "Stack",
+        "id": "root",
+        "component": "Stack",
         "children": [
-          { "id": "save", "component": "Button", "props": { "label": "Save" }, "on": { "press": { "functionCall": { "call": "records.upsert", "args": { "kind": "entry", "data": { "hours": 1 } } } } } },
-          { "id": "remove", "component": "Button", "props": { "label": "Delete", "variant": "destructive" }, "on": { "press": { "functionCall": { "call": "records.delete", "args": { "id": "e1" } } } } },
-          { "id": "log", "component": "Button", "props": { "label": "Log" }, "on": { "press": { "functionCall": { "call": "actions.log", "args": { "hours": 1 } } } } },
-          { "id": "open", "component": "Button", "props": { "label": "New" }, "on": { "press": { "functionCall": { "call": "set", "args": { "path": "/draft/open", "value": true } } } } },
-          { "id": "next", "component": "Button", "props": { "label": "Next" }, "on": { "press": { "functionCall": { "call": "bind", "args": { "path": "/entries", "source": "records:entry", "params": { "month": "2026-11" } } } } } },
-          { "id": "docs", "component": "Button", "props": { "label": "Docs" }, "on": { "press": { "functionCall": { "call": "openUrl", "args": { "url": "https://exponential.at" } } } } },
-          { "id": "comment", "component": "Button", "props": { "label": "Comment" }, "on": { "press": { "functionCall": { "call": "exponential.comments.create", "args": { "issueId": "EXP-1", "body": "Hi" } } } } },
-          { "id": "plain", "component": "Button", "props": { "label": "Plain" } }
+          {
+            "id": "save",
+            "component": "Button",
+            "props": {
+              "label": "Save"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "records_upsert",
+                  "args": {
+                    "kind": "entry",
+                    "data": {
+                      "hours": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "remove",
+            "component": "Button",
+            "props": {
+              "label": "Delete",
+              "variant": "destructive"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "records_delete",
+                  "args": {
+                    "id": "e1"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "log",
+            "component": "Button",
+            "props": {
+              "label": "Log"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "actions_log",
+                  "args": {
+                    "hours": 1
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "open",
+            "component": "Button",
+            "props": {
+              "label": "New"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "set",
+                  "args": {
+                    "path": "/draft/open",
+                    "value": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "next",
+            "component": "Button",
+            "props": {
+              "label": "Next"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "bind",
+                  "args": {
+                    "path": "/entries",
+                    "source": "records:entry",
+                    "params": {
+                      "month": "2026-11"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "docs",
+            "component": "Button",
+            "props": {
+              "label": "Docs"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "openUrl",
+                  "args": {
+                    "url": "https://exponential.at"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "comment",
+            "component": "Button",
+            "props": {
+              "label": "Comment"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "exponential_comments_create",
+                  "args": {
+                    "issueId": "EXP-1",
+                    "body": "Hi"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "plain",
+            "component": "Button",
+            "props": {
+              "label": "Plain"
+            }
+          }
         ]
       },
-      "disabled": ["save", "remove", "log"],
-      "inert": ["save", "remove", "log"],
-      "live": ["open", "next", "docs", "comment", "plain"]
+      "disabled": [
+        "save",
+        "remove",
+        "log"
+      ],
+      "inert": [
+        "save",
+        "remove",
+        "log"
+      ],
+      "live": [
+        "open",
+        "next",
+        "docs",
+        "comment",
+        "plain"
+      ]
     },
     {
       "name": "fields: no action of their own = disabled, a pure or host action = a view control, a writing action = disabled",
       "node": {
-        "id": "root", "component": "Stack",
+        "id": "root",
+        "component": "Stack",
         "children": [
-          { "id": "month", "component": "Select", "props": { "label": "Month", "name": "month", "options": [{ "label": "October", "value": "2026-10" }, { "label": "November", "value": "2026-11" }], "value": "2026-11" }, "on": { "change": { "functionCall": { "call": "bind", "args": { "path": "/entries", "source": "records:entry", "params": { "month": { "path": "/month" } } } } } } },
-          { "id": "filter", "component": "Input", "props": { "label": "Filter", "name": "filter" }, "on": { "change": { "functionCall": { "call": "set", "args": { "path": "/q", "value": "" } } } } },
-          { "id": "done", "component": "Switch", "props": { "label": "Done", "name": "done", "checked": false }, "on": { "change": { "functionCall": { "call": "records.upsert", "args": { "kind": "task", "id": "t1", "data": { "done": true } } } } } },
-          { "id": "target", "component": "NumberField", "props": { "label": "Target", "name": "target", "value": 160 } },
-          { "id": "agree", "component": "Checkbox", "props": { "label": "Billable", "name": "billable", "checked": true } },
-          { "id": "note", "component": "Textarea", "props": { "label": "Note", "name": "note" } },
-          { "id": "day", "component": "DatePicker", "props": { "label": "Day", "name": "day", "value": "2026-11-03" } },
-          { "id": "locked", "component": "Input", "props": { "label": "Locked", "name": "locked", "disabled": true } },
-          { "id": "caption", "component": "Text", "props": { "text": "Hours" } }
+          {
+            "id": "month",
+            "component": "Select",
+            "props": {
+              "label": "Month",
+              "name": "month",
+              "options": [
+                {
+                  "label": "October",
+                  "value": "2026-10"
+                },
+                {
+                  "label": "November",
+                  "value": "2026-11"
+                }
+              ],
+              "value": "2026-11"
+            },
+            "on": {
+              "change": {
+                "functionCall": {
+                  "@call": "bind",
+                  "args": {
+                    "path": "/entries",
+                    "source": "records:entry",
+                    "params": {
+                      "month": {
+                        "@path": "/month"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "filter",
+            "component": "Input",
+            "props": {
+              "label": "Filter",
+              "name": "filter"
+            },
+            "on": {
+              "change": {
+                "functionCall": {
+                  "@call": "set",
+                  "args": {
+                    "path": "/q",
+                    "value": ""
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "done",
+            "component": "Switch",
+            "props": {
+              "label": "Done",
+              "name": "done",
+              "checked": false
+            },
+            "on": {
+              "change": {
+                "functionCall": {
+                  "@call": "records_upsert",
+                  "args": {
+                    "kind": "task",
+                    "id": "t1",
+                    "data": {
+                      "done": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "target",
+            "component": "NumberField",
+            "props": {
+              "label": "Target",
+              "name": "target",
+              "value": 160
+            }
+          },
+          {
+            "id": "agree",
+            "component": "Checkbox",
+            "props": {
+              "label": "Billable",
+              "name": "billable",
+              "checked": true
+            }
+          },
+          {
+            "id": "note",
+            "component": "Textarea",
+            "props": {
+              "label": "Note",
+              "name": "note"
+            }
+          },
+          {
+            "id": "day",
+            "component": "DatePicker",
+            "props": {
+              "label": "Day",
+              "name": "day",
+              "value": "2026-11-03"
+            }
+          },
+          {
+            "id": "locked",
+            "component": "Input",
+            "props": {
+              "label": "Locked",
+              "name": "locked",
+              "disabled": true
+            }
+          },
+          {
+            "id": "caption",
+            "component": "Text",
+            "props": {
+              "text": "Hours"
+            }
+          }
         ]
       },
-      "disabled": ["done", "target", "agree", "note", "day"],
-      "inert": ["done", "target", "agree", "note", "day", "locked"],
-      "live": ["month", "filter"]
+      "disabled": [
+        "done",
+        "target",
+        "agree",
+        "note",
+        "day"
+      ],
+      "inert": [
+        "done",
+        "target",
+        "agree",
+        "note",
+        "day",
+        "locked"
+      ],
+      "live": [
+        "month",
+        "filter"
+      ]
     },
     {
       "name": "a Form whose submit writes: the Form, so every field and button inside",
       "node": {
-        "id": "root", "component": "Stack",
+        "id": "root",
+        "component": "Stack",
         "children": [
           {
-            "id": "entry", "component": "Form", "props": { "name": "entry" }, "on": { "submit": { "functionCall": { "call": "records.upsert", "args": { "kind": "entry", "data": { "hours": { "path": "/entry/hours" } } } } } },
+            "id": "entry",
+            "component": "Form",
+            "props": {
+              "name": "entry"
+            },
+            "on": {
+              "submit": {
+                "functionCall": {
+                  "@call": "records_upsert",
+                  "args": {
+                    "kind": "entry",
+                    "data": {
+                      "hours": {
+                        "@path": "/entry/hours"
+                      }
+                    }
+                  }
+                }
+              }
+            },
             "children": [
-              { "id": "entry-hours", "component": "NumberField", "props": { "label": "Hours", "name": "hours" } },
-              { "id": "entry-kind", "component": "Select", "props": { "label": "Kind", "name": "kind", "options": [{ "label": "Work", "value": "work" }] }, "on": { "change": { "functionCall": { "call": "set", "args": { "path": "/kind", "value": "work" } } } } },
-              { "id": "entry-ok", "component": "Button", "props": { "label": "Save", "submit": true } }
+              {
+                "id": "entry_hours",
+                "component": "NumberField",
+                "props": {
+                  "label": "Hours",
+                  "name": "hours"
+                }
+              },
+              {
+                "id": "entry_kind",
+                "component": "Select",
+                "props": {
+                  "label": "Kind",
+                  "name": "kind",
+                  "options": [
+                    {
+                      "label": "Work",
+                      "value": "work"
+                    }
+                  ]
+                },
+                "on": {
+                  "change": {
+                    "functionCall": {
+                      "@call": "set",
+                      "args": {
+                        "path": "/kind",
+                        "value": "work"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "entry_ok",
+                "component": "Button",
+                "props": {
+                  "label": "Save",
+                  "submit": true
+                }
+              }
             ]
           },
           {
-            "id": "search", "component": "Form", "props": { "name": "search" }, "on": { "submit": { "functionCall": { "call": "bind", "args": { "path": "/hits", "source": "records:entry", "params": { "q": { "path": "/search/q" } } } } } },
+            "id": "search",
+            "component": "Form",
+            "props": {
+              "name": "search"
+            },
+            "on": {
+              "submit": {
+                "functionCall": {
+                  "@call": "bind",
+                  "args": {
+                    "path": "/hits",
+                    "source": "records:entry",
+                    "params": {
+                      "q": {
+                        "@path": "/search/q"
+                      }
+                    }
+                  }
+                }
+              }
+            },
             "children": [
-              { "id": "search-go", "component": "Button", "props": { "label": "Search", "submit": true } }
+              {
+                "id": "search_go",
+                "component": "Button",
+                "props": {
+                  "label": "Search",
+                  "submit": true
+                }
+              }
             ]
           }
         ]
       },
-      "disabled": ["entry", "entry-hours"],
-      "inert": ["entry-hours", "entry-kind", "entry-ok"],
-      "live": ["search-go"]
+      "disabled": [
+        "entry",
+        "entry_hours"
+      ],
+      "inert": [
+        "entry_hours",
+        "entry_kind",
+        "entry_ok"
+      ],
+      "live": [
+        "search_go"
+      ]
     },
     {
       "name": "a template's rows: the lifted template is read-only too",
       "node": {
-        "id": "root", "component": "Stack",
+        "id": "root",
+        "component": "Stack",
         "children": [
-          { "id": "rows", "component": "List", "template": { "component": "row", "path": "/rows" } },
           {
-            "id": "row", "component": "Stack", "props": { "direction": "horizontal" },
+            "id": "rows",
+            "component": "List",
+            "template": {
+              "component": "row",
+              "path": "/rows"
+            }
+          },
+          {
+            "id": "row",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal"
+            },
             "children": [
-              { "id": "row-title", "component": "Text", "props": { "text": { "path": "title" } } },
-              { "id": "row-edit", "component": "Button", "props": { "label": "Edit" }, "on": { "press": { "functionCall": { "call": "set", "args": { "path": "/draft/id", "value": { "path": "id" } } } } } },
-              { "id": "row-delete", "component": "Button", "props": { "label": "Delete" }, "on": { "press": { "functionCall": { "call": "records.delete", "args": { "id": { "path": "id" } } } } } }
+              {
+                "id": "row_title",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "title"
+                  }
+                }
+              },
+              {
+                "id": "row_edit",
+                "component": "Button",
+                "props": {
+                  "label": "Edit"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "set",
+                      "args": {
+                        "path": "/draft/id",
+                        "value": {
+                          "@path": "id"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "row_delete",
+                "component": "Button",
+                "props": {
+                  "label": "Delete"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "records_delete",
+                      "args": {
+                        "id": {
+                          "@path": "id"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             ]
           }
         ]
       },
-      "data": { "rows": [{ "id": "a", "title": "One" }] },
-      "disabled": ["row-delete"],
+      "data": {
+        "rows": [
+          {
+            "id": "a",
+            "title": "One"
+          }
+        ]
+      },
+      "disabled": [
+        "row_delete"
+      ],
       "inert": [],
       "live": []
     }

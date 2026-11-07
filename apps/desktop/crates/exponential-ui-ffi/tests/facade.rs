@@ -187,10 +187,10 @@ fn the_layout_and_overlay_fixtures_replay_through_the_facade() {
 #[test]
 fn messages_events_and_overlays_cross_the_facade_as_json() {
     let surface = Surface::new("s".into(), core_catalog_id(), None, "dark".into()).unwrap();
-    surface.apply(json!({"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [
+    surface.apply(json!({"version": "1.0", "updateComponents": {"surfaceId": "s", "components": [
         {"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": ["dlg", "t"]},
-        {"id": "t", "component": "Text", "text": {"path": "/title"}},
-        {"id": "dlg", "component": "Dialog", "title": "Hi", "open": {"path": "/open"}, "slots": {"trigger": "b"}, "children": ["body"]},
+        {"id": "t", "component": "Text", "text": {"@path": "/title"}},
+        {"id": "dlg", "component": "Dialog", "title": "Hi", "open": {"@path": "/open"}, "slots": {"trigger": "b"}, "children": ["body"]},
         {"id": "b", "component": "Button", "label": "Open", "on": {"press": {"event": {"name": "opened"}}}},
         {"id": "body", "component": "Text", "text": "Body"}
     ]}}).to_string()).unwrap();
@@ -451,7 +451,7 @@ fn a_panic_inside_a_throwing_call_is_a_typed_error() {
             panic!("the host formatter threw")
         }
     }
-    let call = json!({"call": "formatNumber", "args": {"value": 1234.5}}).to_string();
+    let call = json!({"@call": "formatNumber", "args": {"value": 1234.5}}).to_string();
     let err = std::panic::catch_unwind(|| format_call_json(call.clone(), Some(Arc::new(Boom)), None, None)).expect("the panic stays on the Rust side").unwrap_err();
     assert!(matches!(&err, UiError::Panic { reason } if reason.contains("the host formatter threw")), "{err}");
     let next = format_call_json(call, Some(Arc::new(Loud)), None, None).unwrap();
@@ -459,7 +459,7 @@ fn a_panic_inside_a_throwing_call_is_a_typed_error() {
     // A surface method: the error AND an issue of the surface, which stays usable.
     let surface = Surface::new("p".into(), core_catalog_id(), None, "light".into()).unwrap();
     surface.set_formatter(Some(Arc::new(Boom)));
-    let tree = json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": 1}}}}]}).to_string();
+    let tree = json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"@call": "formatNumber", "args": {"value": 1}}}}]}).to_string();
     surface.set_viewport(300.0, 0.0, None);
     let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| surface.set_nested(tree.clone()).and_then(|_| surface.layout_fixed(None, true)))).expect("the panic stays on the Rust side");
     assert!(matches!(&first, Err(UiError::Panic { reason }) if reason.contains("the host formatter threw")), "{first:?}");
@@ -588,7 +588,7 @@ fn the_host_transport_fixture_replays_through_the_facade() {
         eq(&messages_from_mcp_result_json(c["result"].to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
     }
     for c in f["mcpAction"].as_array().unwrap() {
-        let got = mcp_action_call_json(c["message"].to_string(), c.get("tool").and_then(Value::as_str).map(str::to_string)).unwrap();
+        let got = mcp_action_call_json(c["message"].to_string(), c.get("tool").and_then(Value::as_str).map(str::to_string), c.get("metadata").map(Value::to_string)).unwrap();
         eq(&got, &c["expected"], c["name"].as_str().unwrap());
     }
     eq(&decode_jsonl_json("[{\"a\":1}]".into()), &json!({"messages": [{"a": 1}], "issues": []}), "decodeJsonl");
@@ -617,10 +617,10 @@ fn the_host_policy_fixture_replays_through_the_facade() {
     for c in f["negotiation"].as_array().unwrap() {
         let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
         assert_eq!(json!(supported_catalog_ids_for(ids.clone())), c["expected"]["supportedCatalogIds"]);
-        eq(&client_capabilities_json(ids), &c["expected"]["clientCapabilities"], "clientCapabilities");
+        eq(&renderer_capabilities_json(ids, None).unwrap(), &c["expected"]["rendererCapabilities"], "clientCapabilities");
     }
     assert!(combine_decisions("allow".into(), "maybe".into()).is_err());
-    eq(&package_policy_json(Some("[\"harness.toast\"]".into())).unwrap(), &json!({"allow": ["harness.toast"], "default": "deny"}), "packagePolicy");
+    eq(&package_policy_json(Some("[\"harness_toast\"]".into())).unwrap(), &json!({"allow": ["harness_toast"], "default": "deny"}), "packagePolicy");
 }
 
 #[test]
@@ -649,30 +649,30 @@ fn the_host_router_fixture_replays_through_the_facade() {
             eq(&router.install_package(packages[id].to_string()).unwrap(), &flow["installIssues"][id], &format!("{name}: install {id}"));
         }
         for (i, step) in flow["steps"].as_array().unwrap().iter().enumerate() {
-            eq(&router.route(step["message"].to_string()), &step["expected"], &format!("{name}: step {i}"));
+            eq(&router.route_json(step["message"].to_string(), step["trusted"] == json!(true)), &step["expected"], &format!("{name}: step {i}"));
         }
     }
     // State + the client messages.
     let router = HostRouter::new(vec![]);
     router.install_package(packages["acme.devices"].to_string()).unwrap();
-    router.route(json!({"version": "v0.9", "applyTemplate": {"surfaceId": "d", "templateId": "list"}}).to_string());
+    router.route_json(json!({"version": a2ui_version(), "applyTemplate": {"surfaceId": "d", "templateId": "list"}}).to_string(), true);
     assert_eq!(router.surface_ids(), ["d"]);
     assert_eq!(router.package_id_of("d".into()).as_deref(), Some("acme.devices"));
     router.register_extension("https://acme.example/catalog/v1".into());
     assert_eq!(router.supported_catalog_ids().len(), 4);
-    let ops: Value = serde_json::from_str(&router.route("not json".into())).unwrap();
+    let ops: Value = serde_json::from_str(&router.route_json("not json".into(), false)).unwrap();
     assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
     let msgs = template_messages_json(packages["acme.devices"].to_string(), "list".into(), "x".into(), Some("{\"filter\":\"online\"}".into())).unwrap().unwrap();
     let msgs: Value = serde_json::from_str(&msgs).unwrap();
-    assert_eq!(msgs.as_array().unwrap().len(), 4);
-    assert_eq!(msgs[2]["updateDataModel"]["value"], json!({"title": "Devices", "filter": "online"}));
+    assert_eq!(msgs.as_array().unwrap().len(), 2);
+    assert_eq!(msgs[0]["createSurface"]["dataModel"], json!({"title": "Devices", "filter": "online"}));
     assert!(template_messages_json(packages["acme.devices"].to_string(), "nope".into(), "x".into(), None).unwrap().is_none());
     eq(
         &action_message_json("s".into(), "btn".into(), "save".into(), "{\"id\":1}".into(), Some("{\"value\":\"a\"}".into()), "t".into()).unwrap(),
-        &json!({"version": "v0.9", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {"id": 1}, "payload": {"value": "a"}}}),
+        &json!({"version": "1.0", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {"id": 1}, "metadata": {"extensions": {"at_exponential_payload": {"value": "a"}}}}}),
         "actionMessage",
     );
-    eq(&error_message_json("FUNCTION_DENIED".into(), "s".into(), "m".into(), None), &json!({"version": "v0.9", "error": {"code": "FUNCTION_DENIED", "surfaceId": "s", "message": "m"}}), "errorMessage");
+    eq(&error_message_json("INVALID_FUNCTION_CALL".into(), "s".into(), "m".into(), None), &json!({"version": "1.0", "error": {"code": "INVALID_FUNCTION_CALL", "surfaceId": "s", "message": "m"}}), "errorMessage");
     let contract: Value = serde_json::from_str(&host_contract_json()).unwrap();
     assert_eq!(contract["transport"]["mcpActionTool"], "a2ui_event");
 }
@@ -683,7 +683,7 @@ fn a_host_function_call_crosses_the_facade_as_a_function_call_event() {
     surface
         .set_nested(
             json!({"id": "root", "component": "Box", "children": [
-                {"id": "b", "component": "Button", "props": {"label": "Go"}, "on": {"press": {"functionCall": {"call": "harness.toast", "args": {"message": {"path": "/m"}}}}}}
+                {"id": "b", "component": "Button", "props": {"label": "Go"}, "on": {"press": {"functionCall": {"@call": "harness_toast", "args": {"message": {"@path": "/m"}}}}}}
             ]})
             .to_string(),
         )
@@ -693,7 +693,7 @@ fn a_host_function_call_crosses_the_facade_as_a_function_call_event() {
     surface.layout_fixed(None, false).unwrap();
     let events = surface.event(surface.index_of("b".into()).unwrap(), "press".into(), None).unwrap();
     let call = events.iter().find(|e| e.kind == "functionCall").expect("functionCall");
-    eq(&call.json, &json!({"kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": {"message": "hi"}}), "functionCall");
+    eq(&call.json, &json!({"kind": "functionCall", "componentId": "b", "name": "harness_toast", "args": {"message": "hi"}}), "functionCall");
 }
 
 // ---------------------------------------------------------------------------
@@ -799,15 +799,15 @@ fn the_round_2_fixtures_replay_through_the_free_functions() {
 #[test]
 fn a_foreign_formatter_localizes_what_the_core_decided() {
     let call = |c: Value, now: Option<f64>| format_call_json(c.to_string(), Some(Arc::new(Loud)), now, None).unwrap().unwrap();
-    assert_eq!(call(json!({"call": "formatNumber", "args": {"value": 3, "decimals": 2}}), None), json!("#3/2").to_string());
-    assert_eq!(call(json!({"call": "formatCurrency", "args": {"value": 3, "currency": "eur"}}), None), json!("EUR3").to_string());
-    assert_eq!(call(json!({"call": "formatDate", "args": {"value": "2026-10-14", "style": "long", "time": true}}), None), json!("1791936000000|true||long|true").to_string());
-    assert_eq!(call(json!({"call": "formatRelativeTime", "args": {"value": 0}}), Some(7_200_000.0)), json!("-2 hour").to_string());
-    assert_eq!(call(json!({"call": "pluralize", "args": {"value": 2, "two": "a pair", "other": "many"}}), None), json!("a pair").to_string());
+    assert_eq!(call(json!({"@call": "formatNumber", "args": {"value": 3, "decimals": 2}}), None), json!("#3/2").to_string());
+    assert_eq!(call(json!({"@call": "formatCurrency", "args": {"value": 3, "currency": "eur"}}), None), json!("EUR3").to_string());
+    assert_eq!(call(json!({"@call": "formatDate", "args": {"value": "2026-10-14", "style": "long", "time": true}}), None), json!("1791936000000|true||long|true").to_string());
+    assert_eq!(call(json!({"@call": "formatRelativeTime", "args": {"value": 0}}), Some(7_200_000.0)), json!("-2 hour").to_string());
+    assert_eq!(call(json!({"@call": "pluralize", "args": {"value": 2, "two": "a pair", "other": "many"}}), None), json!("a pair").to_string());
     // On a surface: Table cells and bound format calls.
     let surface = Surface::new("f".into(), core_catalog_id(), None, "light".into()).unwrap();
     surface
-        .set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": 1.5}}}}]}).to_string())
+        .set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"@call": "formatNumber", "args": {"value": 1.5}}}}]}).to_string())
         .unwrap();
     surface.set_formatter(Some(Arc::new(Loud)));
     surface.set_viewport(390.0, 0.0, None);
@@ -830,14 +830,14 @@ fn a_foreign_formatter_localizes_what_the_core_decided() {
         }
     }
     let zoned = Surface::new("z".into(), core_catalog_id(), None, "light".into()).unwrap();
-    zoned.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
+    zoned.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"@call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
     zoned.set_fallback_zone(Some(Arc::new(Berlin)));
     zoned.set_viewport(390.0, 0.0, None);
     zoned.layout_fixed(None, true).unwrap();
     assert!(zoned.nodes().into_iter().find(|n| n.id == "d").unwrap().props_json.contains("2026-10-15 00:30"));
     assert!(!zoned.uses_clock(), "no relative time on screen");
     let ticking = Surface::new("c".into(), core_catalog_id(), None, "light".into()).unwrap();
-    ticking.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "r", "component": "Text", "props": {"text": {"call": "formatRelativeTime", "args": {"value": 0}}}}]}).to_string()).unwrap();
+    ticking.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "r", "component": "Text", "props": {"text": {"@call": "formatRelativeTime", "args": {"value": 0}}}}]}).to_string()).unwrap();
     ticking.set_viewport(390.0, 0.0, None);
     ticking.layout_fixed(None, true).unwrap();
     assert!(ticking.uses_clock());
@@ -851,7 +851,7 @@ fn a_foreign_formatter_localizes_what_the_core_decided() {
     surface.set_settings(settings).unwrap();
     assert_eq!(surface.settings().time_zone.as_deref(), Some("Europe/Vienna"));
     let utc = Surface::new("u".into(), core_catalog_id(), None, "light".into()).unwrap();
-    utc.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
+    utc.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"@call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
     let mut settings = utc.settings();
     settings.time_zone = Some("Asia/Tokyo".into());
     utc.set_settings(settings).unwrap();
@@ -883,7 +883,7 @@ fn row_slots_and_section_headers_bind_over_the_facade() {
             }
         }
     }
-    let header = json!({"id": "h", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "value"}, " · ", {"path": "count"}, " · ", {"path": "/title"}]}}}});
+    let header = json!({"id": "h", "component": "Text", "props": {"text": {"@call": "concat", "args": {"values": [{"@path": "value"}, " · ", {"@path": "count"}, " · ", {"@path": "/title"}]}}}});
     let got: Value = serde_json::from_str(&bind_section_header_json(header.to_string(), json!({"value": "Today", "count": 2}).to_string(), 0, json!({"title": "Inbox"}).to_string(), None, None).unwrap().unwrap()).unwrap();
     assert_eq!(got["props"]["text"], json!("Today · 2 · Inbox"));
 }
@@ -955,14 +955,14 @@ fn list_and_resizable_helpers_take_the_gap_and_the_handle_extent() {
 
 #[test]
 fn bind_helpers_format_through_the_host_formatter() {
-    let slot = json!({"id": "c", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": {"path": "n"}}}}});
+    let slot = json!({"id": "c", "component": "Text", "props": {"text": {"@call": "formatNumber", "args": {"value": {"@path": "n"}}}}});
     let rows = json!([{"n": 2.5}]);
     let got: Value = serde_json::from_str(&bind_row_slot_json(slot.to_string(), rows.to_string(), rows.to_string(), 0, "{}".into(), None, Some(Arc::new(Loud))).unwrap().unwrap()).unwrap();
     assert_eq!(got["props"]["text"], json!("#2.5/"));
     let got: Value = serde_json::from_str(&bind_row_slot_json(slot.to_string(), rows.to_string(), rows.to_string(), 0, "{}".into(), None, None).unwrap().unwrap()).unwrap();
     assert_eq!(got["props"]["text"], json!("2.5"), "None = the English fallback");
     // A section header: the formatter and `options.now`.
-    let header = json!({"id": "h", "component": "Text", "props": {"text": {"call": "formatRelativeTime", "args": {"value": 0}}}});
+    let header = json!({"id": "h", "component": "Text", "props": {"text": {"@call": "formatRelativeTime", "args": {"value": 0}}}});
     let got: Value = serde_json::from_str(&bind_section_header_json(header.to_string(), json!({"value": "a", "count": 1}).to_string(), 0, "{}".into(), Some(json!({"now": 120000}).to_string()), Some(Arc::new(Loud))).unwrap().unwrap()).unwrap();
     assert_eq!(got["props"]["text"], json!("-2 minute"));
 }
@@ -1043,7 +1043,7 @@ fn leaves_name_their_owner_and_show_numbers_as_text() {
     s.set_nested(json!({"id": "root", "component": "Box", "children": [
         {"id": "tabs", "component": "Tabs", "props": {"tabs": [{"label": "A", "value": "a"}], "value": "a"}, "children": [{"id": "pa", "component": "Text", "props": {"text": "a"}}]},
         {"id": "steps", "component": "Stepper", "props": {"steps": [{"label": "One"}, {"label": "Two"}], "current": 1}},
-        {"id": "n", "component": "Text", "props": {"text": {"path": "/n"}}}
+        {"id": "n", "component": "Text", "props": {"text": {"@path": "/n"}}}
     ]}).to_string())
     .unwrap();
     s.set_data("/n".into(), Some("412".into())).unwrap();
@@ -1151,8 +1151,8 @@ fn contract_heights_and_a_loaded_markdown_cross_the_facade() {
 #[test]
 fn the_facade_refuses_oversized_messages_and_bad_writes() {
     let router = HostRouter::new(vec![]);
-    let big = format!(r#"{{"version":"v0.9","updateComponents":{{"surfaceId":"s","components":[{{"id":"root","component":"Text","text":"{}"}}]}}}}"#, "x".repeat(4_194_304));
-    let ops: Value = serde_json::from_str(&router.route(big)).unwrap();
+    let big = format!(r#"{{"version":"1.0","updateComponents":{{"surfaceId":"s","components":[{{"id":"root","component":"Text","text":"{}"}}]}}}}"#, "x".repeat(4_194_304));
+    let ops: Value = serde_json::from_str(&router.route_json(big, false)).unwrap();
     assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
     assert_eq!(ops[0]["message"]["error"]["message"], "message larger than 4194304 bytes");
     let surface = Surface::new("s".into(), core_catalog_id(), None, "light".into()).unwrap();
@@ -1561,4 +1561,47 @@ fn the_package_tests_fixture_replays_through_the_facade() {
     bad.insert("tests".into(), json!([{"name": ""}]));
     assert_eq!(run_package_tests_json(Value::Object(bad).to_string()).unwrap(), "[]");
     assert!(run_package_tests_json("{".into()).is_err());
+}
+
+/// Round 9: the wire constants, the host-internal gate, the id mint, the two
+/// `call` / `respond` ops and the 0.9 bridge reach the bindings.
+#[test]
+fn round_9_crosses_the_facade() {
+    assert_eq!(a2ui_version(), "1.0");
+    assert!(accept_v09() || !accept_v09());
+    let router = HostRouter::new(vec![]);
+    let core = core_catalog_id();
+    let ops = |json: &str| serde_json::from_str::<Value>(json).unwrap();
+    let bound = json!({"version": "1.0", "bindDataModel": {"surfaceId": "x", "path": "/a", "source": "exp:devices"}}).to_string();
+    assert_eq!(ops(&router.route_json(bound, false))[0]["message"]["error"]["message"], "bindDataModel is host-internal");
+    let created = json!({"version": "1.0", "createSurface": {"surfaceId": "s", "catalogId": core}}).to_string();
+    assert_eq!(ops(&router.route_json(created.clone(), false))[0]["op"], "create");
+    assert_eq!(ops(&router.route_json(created, false))[0]["message"]["error"]["code"], "INTEGRITY_ERROR");
+    assert_eq!(router.mint_surface_id("s".into()), "s#1");
+    let called = json!({"version": "1.0", "callRendererFunction": {"functionCallId": "c1", "callFunction": {"@call": "formatString", "catalogId": core, "args": {"value": "x"}}}}).to_string();
+    let called = ops(&router.route_json(called, false));
+    assert_eq!((called[0]["op"].as_str(), called[0]["functionCallId"].as_str()), (Some("call"), Some("c1")));
+    let answered = json!({"version": "1.0", "agentFunctionResponse": {"functionCallId": "s:1", "value": 3}}).to_string();
+    assert_eq!(ops(&router.route_json(answered, false))[0], json!({"op": "respond", "functionCallId": "s:1", "value": 3}));
+    router.register_inline_catalog("https://acme.example/inline".into());
+    assert!(router.available_catalog_ids().contains(&"https://acme.example/inline".to_string()));
+
+    let caps = ops(&renderer_capabilities_json(vec![], Some("[{\"catalogId\": \"x\"}]".into())).unwrap());
+    assert_eq!(caps["1.0"]["inlineCatalogs"], json!([{"catalogId": "x"}]));
+    assert!(caps["1.0"]["supportedCatalogIds"].as_array().unwrap().contains(&json!(core)));
+    eq(&function_error_message_json("EXPRESSION_ERROR".into(), "s:1".into(), "m".into(), None), &json!({"version": "1.0", "error": {"code": "EXPRESSION_ERROR", "functionCallId": "s:1", "message": "m"}}), "functionError");
+    eq(&call_agent_function_message_json("s".into(), "s:1".into(), "lookup".into(), core.clone(), "{}".into()).unwrap(), &json!({"version": "1.0", "callAgentFunction": {"surfaceId": "s", "functionCallId": "s:1", "callFunction": {"@call": "lookup", "catalogId": core, "args": {}}}}), "callAgentFunction");
+    eq(&renderer_function_value_json("c".into(), None).unwrap(), &json!({"version": "1.0", "rendererFunctionResponse": {"functionCallId": "c", "value": null}}), "value");
+    eq(&renderer_function_error_json("c".into(), "EXECUTION_ERROR".into(), "m".into()), &json!({"version": "1.0", "rendererFunctionResponse": {"functionCallId": "c", "error": {"code": "EXECUTION_ERROR", "message": "m"}}}), "error");
+    eq(&action_message_with_user_message_json("s".into(), "b".into(), "go".into(), "{}".into(), None, "t".into(), Some("hi".into())).unwrap(), &json!({"version": "1.0", "action": {"name": "go", "surfaceId": "s", "sourceComponentId": "b", "timestamp": "t", "context": {}, "userMessage": "hi"}}), "userMessage");
+
+    // The two smoke cases the Swift and Kotlin suites replay too (§15).
+    let fixture = fixture("upgrade09.json");
+    let case = |name: &str| fixture["cases"].as_array().unwrap().iter().find(|c| c["name"] == name).cloned().unwrap_or_else(|| panic!("{name}"));
+    let client = case("client action: payload → extensions, instance id → sourceComponentId + at_exponential_instance");
+    let request = json!({"kind": "client", "input": client["input"]});
+    assert_eq!(upgrade09_json(request.to_string()).unwrap(), client["expected"].to_string());
+    let card = fixture["cases"].as_array().unwrap().iter().find(|c| c["kind"] == "card").unwrap();
+    assert_eq!(upgrade_card09(card["input"].to_string()).unwrap(), card["expected"].to_string());
+    assert!(upgrade_card09("not json".into()).is_err());
 }

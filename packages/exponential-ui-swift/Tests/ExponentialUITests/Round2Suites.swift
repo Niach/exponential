@@ -501,7 +501,7 @@ enum Round2Suites {
     static func pointer() throws -> [Case] {
         let f = try json("pointer.json")
         func read(_ data: String, _ pointer: String, _ want: JSONValue?) throws -> String? {
-            let got = try resolveDynamicJson(valueJson: JSONValue.object(["path": .string(pointer)]).json, dataJson: data, scope: "")
+            let got = try resolveDynamicJson(valueJson: JSONValue.object(["@path": .string(pointer)]).json, dataJson: data, scope: "")
             guard let got, let want else { return got == nil && want == nil ? nil : "read \(got ?? "nothing") / expected \(want?.json ?? "nothing")" }
             return same(got, want).map { "read \($0)" }
         }

@@ -1,45 +1,684 @@
 {
   "$comment": "Exponential Desktop's factory sound applet (#EDE-43): the taskbar's sound button opens it as a popup surface. Cinnamon's content in the IDE's language: one card per MPRIS player (/services/media/players: the art, the title and artist, previous / play-pause / next, a seek slider over the track), the output volume with its mute switch, the output device (/services/sound/sinkOptions → set_default), then Applications: one slider and mute per playback stream (/services/sound/streams), and the Sound settings link. Every action is ede.service on the sound or media domain.",
-  "surface": {"popup": {"parent": "taskbar", "anchor": "applet-sound", "placement": "top-end", "size": {"width": 380, "height": 600}}, "functions": ["ede.service", "ede.open_document"]},
+  "surface": {
+    "popup": {
+      "parent": "taskbar",
+      "anchor": "applet-sound",
+      "placement": "top-end",
+      "size": {
+        "width": 380,
+        "height": 600
+      }
+    },
+    "functions": [
+      "ede.service",
+      "ede.open_document"
+    ]
+  },
   "root": {
     "id": "sound",
     "component": "Box",
-    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.sm", "height": 600, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"},
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "gap": "$spacing.sm",
+      "padding": "$spacing.sm",
+      "height": 600,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.md"
+    },
     "children": [
-      {"id": "players", "component": "Stack", "props": {"direction": "vertical", "gap": "sm"}, "template": {"component": "player", "path": "/services/media/players", "key": "name"}, "children": []},
-      {"id": "player", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.sm", "borderRadius": "$radius.md", "backgroundColor": "$color.card", "borderWidth": 1, "borderColor": "$color.border"}, "children": [
-        {"id": "player-art", "component": "Image", "props": {"src": {"path": "artUrl"}, "alt": {"path": "album"}, "width": 346, "height": 140, "fit": "cover", "fallback": "media-volume-up"}, "style": {"borderRadius": "$radius.sm"}},
-        {"id": "player-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center", "justify": "between"}, "children": [
-          {"id": "player-identity", "component": "Text", "props": {"text": {"path": "identity"}, "variant": "label", "lines": 1}},
-          {"id": "player-status", "component": "Text", "props": {"text": {"call": "map", "args": {"value": {"path": "status"}, "cases": {"playing": "Playing", "paused": "Paused", "stopped": "Stopped"}, "default": ""}}, "variant": "muted"}}
-        ]},
-        {"id": "player-title", "component": "Text", "props": {"text": {"path": "title"}, "variant": "title", "lines": 1}},
-        {"id": "player-artist", "component": "Text", "props": {"text": {"path": "artist"}, "variant": "muted", "lines": 1}},
-        {"id": "player-transport", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "center"}, "children": [
-          {"id": "player-previous", "component": "Button", "props": {"icon": "media-skip-previous", "variant": "ghost", "size": "icon", "label": "Previous"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "media", "action": "previous", "args": {"name": {"path": "name"}}}}}}},
-          {"id": "player-pause", "component": "Button", "props": {"icon": "run-pause", "variant": "ghost", "size": "icon", "label": "Pause"}, "visible": {"call": "eq", "args": {"a": {"path": "status"}, "b": "playing"}}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "media", "action": "play_pause", "args": {"name": {"path": "name"}}}}}}},
-          {"id": "player-play", "component": "Button", "props": {"icon": "action-run", "variant": "ghost", "size": "icon", "label": "Play"}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"path": "status"}, "b": "playing"}}}}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "media", "action": "play_pause", "args": {"name": {"path": "name"}}}}}}},
-          {"id": "player-next", "component": "Button", "props": {"icon": "media-skip-next", "variant": "ghost", "size": "icon", "label": "Next"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "media", "action": "next", "args": {"name": {"path": "name"}}}}}}}
-        ]},
-        {"id": "player-seek", "component": "Slider", "props": {"min": 0, "max": {"path": "length"}, "step": 1, "value": {"path": "position"}, "showValue": false, "endLabel": {"path": "positionText"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "media", "action": "seek", "args": {"name": {"path": "name"}, "position": {"path": "position"}}}}}}}
-      ]},
-      {"id": "volume", "component": "Slider", "props": {"icon": "media-volume-up", "min": 0, "max": 100, "step": 1, "value": {"path": "/services/sound/volume"}, "showValue": false, "endLabel": {"call": "concat", "args": {"values": [{"path": "/services/sound/volume"}, "%"]}}}, "visible": {"call": "not", "args": {"value": {"path": "/services/sound/muted"}}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "set_volume", "args": {"percent": {"path": "/services/sound/volume"}}}}}}},
-      {"id": "volume-muted", "component": "Slider", "props": {"icon": "media-volume-mute", "min": 0, "max": 100, "step": 1, "value": {"path": "/services/sound/volume"}, "showValue": false, "endLabel": {"call": "concat", "args": {"values": [{"path": "/services/sound/volume"}, "%"]}}}, "visible": {"path": "/services/sound/muted"}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "set_volume", "args": {"percent": {"path": "/services/sound/volume"}}}}}}},
-      {"id": "mute", "component": "Switch", "props": {"label": "Mute", "name": "mute", "checked": {"path": "/services/sound/muted"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "mute", "args": {"on": {"path": "/services/sound/muted"}}}}}}},
-      {"id": "output", "component": "Select", "props": {"label": "Output", "name": "output", "options": {"path": "/services/sound/sinkOptions"}, "value": {"path": "/services/sound/defaultSink"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "set_default", "args": {"id": {"path": "/services/sound/defaultSink"}}}}}}},
-      {"id": "apps-title", "component": "Text", "props": {"text": "Applications", "variant": "label"}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/services/sound/streams"}}}, "b": 0}}}}},
-      {"id": "streams", "component": "List", "props": {"gap": "xs"}, "template": {"component": "stream", "path": "/services/sound/streams", "key": "id"}, "children": []},
-      {"id": "stream", "component": "Stack", "props": {"direction": "vertical", "gap": "none"}, "children": [
-        {"id": "stream-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "between"}, "children": [
-          {"id": "stream-app", "component": "Text", "props": {"text": {"path": "app"}, "variant": "label", "lines": 1}},
-          {"id": "stream-mute", "component": "Switch", "props": {"label": "Mute", "name": "stream-mute", "checked": {"path": "muted"}, "size": "compact"}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "mute_stream", "args": {"id": {"path": "id"}, "on": {"path": "muted"}}}}}}}
-        ]},
-        {"id": "stream-volume", "component": "Slider", "props": {"icon": "media-volume-up", "min": 0, "max": 100, "step": 1, "value": {"path": "volume"}, "showValue": false, "endLabel": {"call": "concat", "args": {"values": [{"path": "volume"}, "%"]}}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "set_stream_volume", "args": {"id": {"path": "id"}, "percent": {"path": "volume"}}}}}}}
-      ]},
-      {"id": "sound-foot", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": [
-        {"id": "sound-settings", "component": "Link", "props": {"label": "Sound settings"}, "on": {"press": {"functionCall": {"call": "ede.open_document", "args": {"name": "settings"}}}}}
-      ]}
+      {
+        "id": "players",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "sm"
+        },
+        "template": {
+          "component": "player",
+          "path": "/services/media/players",
+          "key": "name"
+        },
+        "children": []
+      },
+      {
+        "id": "player",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs",
+          "padding": "$spacing.sm",
+          "borderRadius": "$radius.md",
+          "backgroundColor": "$color.card",
+          "borderWidth": 1,
+          "borderColor": "$color.border"
+        },
+        "children": [
+          {
+            "id": "player_art",
+            "component": "Image",
+            "props": {
+              "src": {
+                "@path": "artUrl"
+              },
+              "alt": {
+                "@path": "album"
+              },
+              "width": 346,
+              "height": 140,
+              "fit": "cover",
+              "fallback": "media-volume-up"
+            },
+            "style": {
+              "borderRadius": "$radius.sm"
+            }
+          },
+          {
+            "id": "player_head",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "xs",
+              "align": "center",
+              "justify": "between"
+            },
+            "children": [
+              {
+                "id": "player_identity",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "identity"
+                  },
+                  "variant": "label",
+                  "lines": 1
+                }
+              },
+              {
+                "id": "player_status",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@call": "map",
+                    "args": {
+                      "value": {
+                        "@path": "status"
+                      },
+                      "cases": {
+                        "playing": "Playing",
+                        "paused": "Paused",
+                        "stopped": "Stopped"
+                      },
+                      "default": ""
+                    }
+                  },
+                  "variant": "muted"
+                }
+              }
+            ]
+          },
+          {
+            "id": "player_title",
+            "component": "Text",
+            "props": {
+              "text": {
+                "@path": "title"
+              },
+              "variant": "title",
+              "lines": 1
+            }
+          },
+          {
+            "id": "player_artist",
+            "component": "Text",
+            "props": {
+              "text": {
+                "@path": "artist"
+              },
+              "variant": "muted",
+              "lines": 1
+            }
+          },
+          {
+            "id": "player_transport",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "center",
+              "justify": "center"
+            },
+            "children": [
+              {
+                "id": "player_previous",
+                "component": "Button",
+                "props": {
+                  "icon": "media-skip-previous",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "Previous"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_service",
+                      "args": {
+                        "domain": "media",
+                        "action": "previous",
+                        "args": {
+                          "name": {
+                            "@path": "name"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "player_pause",
+                "component": "Button",
+                "props": {
+                  "icon": "run-pause",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "Pause"
+                },
+                "visible": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "status"
+                    },
+                    "b": "playing"
+                  }
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_service",
+                      "args": {
+                        "domain": "media",
+                        "action": "play_pause",
+                        "args": {
+                          "name": {
+                            "@path": "name"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "player_play",
+                "component": "Button",
+                "props": {
+                  "icon": "action-run",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "Play"
+                },
+                "visible": {
+                  "@call": "not",
+                  "args": {
+                    "value": {
+                      "@call": "eq",
+                      "args": {
+                        "a": {
+                          "@path": "status"
+                        },
+                        "b": "playing"
+                      }
+                    }
+                  }
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_service",
+                      "args": {
+                        "domain": "media",
+                        "action": "play_pause",
+                        "args": {
+                          "name": {
+                            "@path": "name"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "player_next",
+                "component": "Button",
+                "props": {
+                  "icon": "media-skip-next",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "Next"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_service",
+                      "args": {
+                        "domain": "media",
+                        "action": "next",
+                        "args": {
+                          "name": {
+                            "@path": "name"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "player_seek",
+            "component": "Slider",
+            "props": {
+              "min": 0,
+              "max": {
+                "@path": "length"
+              },
+              "step": 1,
+              "value": {
+                "@path": "position"
+              },
+              "showValue": false,
+              "endLabel": {
+                "@path": "positionText"
+              }
+            },
+            "on": {
+              "change": {
+                "functionCall": {
+                  "@call": "ede_service",
+                  "args": {
+                    "domain": "media",
+                    "action": "seek",
+                    "args": {
+                      "name": {
+                        "@path": "name"
+                      },
+                      "position": {
+                        "@path": "position"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "volume",
+        "component": "Slider",
+        "props": {
+          "icon": "media-volume-up",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "value": {
+            "@path": "/services/sound/volume"
+          },
+          "showValue": false,
+          "endLabel": {
+            "@call": "concat",
+            "args": {
+              "values": [
+                {
+                  "@path": "/services/sound/volume"
+                },
+                "%"
+              ]
+            }
+          }
+        },
+        "visible": {
+          "@call": "not",
+          "args": {
+            "value": {
+              "@call": "cond",
+              "args": {
+                "if": {
+                  "@path": "/services/sound/muted"
+                },
+                "then": true,
+                "else": false
+              }
+            }
+          }
+        },
+        "on": {
+          "change": {
+            "functionCall": {
+              "@call": "ede_service",
+              "args": {
+                "domain": "sound",
+                "action": "set_volume",
+                "args": {
+                  "percent": {
+                    "@path": "/services/sound/volume"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "volume_muted",
+        "component": "Slider",
+        "props": {
+          "icon": "media-volume-mute",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "value": {
+            "@path": "/services/sound/volume"
+          },
+          "showValue": false,
+          "endLabel": {
+            "@call": "concat",
+            "args": {
+              "values": [
+                {
+                  "@path": "/services/sound/volume"
+                },
+                "%"
+              ]
+            }
+          }
+        },
+        "visible": {
+          "@call": "cond",
+          "args": {
+            "if": {
+              "@path": "/services/sound/muted"
+            },
+            "then": true,
+            "else": false
+          }
+        },
+        "on": {
+          "change": {
+            "functionCall": {
+              "@call": "ede_service",
+              "args": {
+                "domain": "sound",
+                "action": "set_volume",
+                "args": {
+                  "percent": {
+                    "@path": "/services/sound/volume"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "mute",
+        "component": "Switch",
+        "props": {
+          "label": "Mute",
+          "name": "mute",
+          "checked": {
+            "@path": "/services/sound/muted"
+          }
+        },
+        "on": {
+          "change": {
+            "functionCall": {
+              "@call": "ede_service",
+              "args": {
+                "domain": "sound",
+                "action": "mute",
+                "args": {
+                  "on": {
+                    "@path": "/services/sound/muted"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "output",
+        "component": "Select",
+        "props": {
+          "label": "Output",
+          "name": "output",
+          "options": {
+            "@path": "/services/sound/sinkOptions"
+          },
+          "value": {
+            "@path": "/services/sound/defaultSink"
+          }
+        },
+        "on": {
+          "change": {
+            "functionCall": {
+              "@call": "ede_service",
+              "args": {
+                "domain": "sound",
+                "action": "set_default",
+                "args": {
+                  "id": {
+                    "@path": "/services/sound/defaultSink"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "apps_title",
+        "component": "Text",
+        "props": {
+          "text": "Applications",
+          "variant": "label"
+        },
+        "visible": {
+          "@call": "not",
+          "args": {
+            "value": {
+              "@call": "eq",
+              "args": {
+                "a": {
+                  "@call": "len",
+                  "args": {
+                    "value": {
+                      "@path": "/services/sound/streams"
+                    }
+                  }
+                },
+                "b": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "streams",
+        "component": "List",
+        "props": {
+          "gap": "xs"
+        },
+        "template": {
+          "component": "stream",
+          "path": "/services/sound/streams",
+          "key": "id"
+        },
+        "children": []
+      },
+      {
+        "id": "stream",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "none"
+        },
+        "children": [
+          {
+            "id": "stream_head",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "center",
+              "justify": "between"
+            },
+            "children": [
+              {
+                "id": "stream_app",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "app"
+                  },
+                  "variant": "label",
+                  "lines": 1
+                }
+              },
+              {
+                "id": "stream_mute",
+                "component": "Switch",
+                "props": {
+                  "label": "Mute",
+                  "name": "stream-mute",
+                  "checked": {
+                    "@path": "muted"
+                  },
+                  "size": "compact"
+                },
+                "on": {
+                  "change": {
+                    "functionCall": {
+                      "@call": "ede_service",
+                      "args": {
+                        "domain": "sound",
+                        "action": "mute_stream",
+                        "args": {
+                          "id": {
+                            "@path": "id"
+                          },
+                          "on": {
+                            "@path": "muted"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "stream_volume",
+            "component": "Slider",
+            "props": {
+              "icon": "media-volume-up",
+              "min": 0,
+              "max": 100,
+              "step": 1,
+              "value": {
+                "@path": "volume"
+              },
+              "showValue": false,
+              "endLabel": {
+                "@call": "concat",
+                "args": {
+                  "values": [
+                    {
+                      "@path": "volume"
+                    },
+                    "%"
+                  ]
+                }
+              }
+            },
+            "on": {
+              "change": {
+                "functionCall": {
+                  "@call": "ede_service",
+                  "args": {
+                    "domain": "sound",
+                    "action": "set_stream_volume",
+                    "args": {
+                      "id": {
+                        "@path": "id"
+                      },
+                      "percent": {
+                        "@path": "volume"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "sound_foot",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "sound_settings",
+            "component": "Link",
+            "props": {
+              "label": "Sound settings"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_open_document",
+                  "args": {
+                    "name": "settings"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
     ]
   },
-  "data": {"services": {"sound": {"available": false, "volume": 0, "muted": false, "sinks": [], "sinkOptions": [], "defaultSink": "", "streams": []}, "media": {"available": false, "players": [], "active": null}}}
+  "data": {
+    "services": {
+      "sound": {
+        "available": false,
+        "volume": 0,
+        "muted": false,
+        "sinks": [],
+        "sinkOptions": [],
+        "defaultSink": "",
+        "streams": []
+      },
+      "media": {
+        "available": false,
+        "players": [],
+        "active": null
+      }
+    }
+  }
 }

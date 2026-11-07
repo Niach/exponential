@@ -20,7 +20,7 @@ import { basicMap } from "./basic-map"
 import { ICON_NAMES, LITE_COMPONENTS, MACRO_COMPONENTS, NATIVE_COMPONENTS, SPECIMEN_IDS } from "./catalog.generated"
 import { validateProps } from "./validate"
 import { CORE_FUNCTIONS } from "./expr"
-import vendoredBasic from "../vendor/a2ui/v0_9/basic_catalog.json" with { type: "json" }
+import vendoredBasic from "../vendor/a2ui/v1_0/catalogs/basic/v1/catalog.json" with { type: "json" }
 
 const components = Object.entries(coreCatalog.components)
 
@@ -28,7 +28,7 @@ describe(`catalog ids`, () => {
   test(`the ids the issue names`, () => {
     expect(CORE_CATALOG_ID).toBe(`https://ui.exponential.at/catalogs/core/v1`)
     expect(CORE_LITE_CATALOG_ID).toBe(`https://ui.exponential.at/catalogs/core-lite/v1`)
-    expect(A2UI_BASIC_CATALOG_ID).toBe(`https://a2ui.org/specification/v0_9/basic_catalog.json`)
+    expect(A2UI_BASIC_CATALOG_ID).toBe(`https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json`)
     expect(SUPPORTED_CATALOG_IDS).toEqual([CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, A2UI_BASIC_CATALOG_ID])
   })
 
@@ -203,11 +203,11 @@ describe(`tokens and icons`, () => {
 describe(`basic map`, () => {
   test(`every basic component, icon and function is mapped (or the explicit placeholder)`, () => {
     const basic = vendoredBasic as unknown as {
-      components: Record<string, { allOf: { properties?: { name?: { oneOf: { enum: string[] }[] } } }[] }>
+      components: Record<string, { allOf: { properties?: { name?: { oneOf: { enum?: string[] }[] } } }[] }>
       functions: Record<string, unknown>
     }
     expect(Object.keys(basicMap.components).sort()).toEqual(Object.keys(basic.components).sort())
-    const iconEnum = basic.components.Icon.allOf[2].properties!.name!.oneOf[0].enum
+    const iconEnum = (basic.components.Icon as unknown as { properties: { name: { oneOf: { enum?: string[] }[] } } }).properties.name.oneOf.flatMap((o) => o.enum ?? [])
     expect(Object.keys(basicMap.icons).sort()).toEqual([...iconEnum].sort())
     expect(Object.keys(basicMap.functions).sort()).toEqual(Object.keys(basic.functions).sort())
     // Round 1: the basic catalog's 14 functions, then the core ones (functions.core), in that order.

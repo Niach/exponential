@@ -6,6 +6,7 @@
   "maxTemplateItems": 10000,
   "maxPointerBytes": 1024,
   "maxPointerSegments": 64,
+  "agentFunctionTimeoutMs": 30000,
   "motion": {
     "$comment": "EXP-1584/1602: the eUI Motion (Lottie) limits, enforced by the one engine (apps/desktop/crates/eui-motion, src/validate.rs Limits) on every renderer through its WASM and uniffi builds. A source past maxBytes (UTF-8 JSON), maxShapes (shape items: objects with a string `ty` inside a layer's `shapes` or a group's `it`) or maxSeconds ((op − ip) / fr) is refused with an issue (`limit-bytes`, `limit-shapes`, `limit-duration`; expressions are refused too: `expression`); maxVertices = path vertices in one sampled frame (checked per frame by the player, not by the validator); maxFps = the highest frame rate a player samples at; maxPlayingPerSurface = Motion components one surface animates at once. Cases: fixtures/motion-validate.json.",
     "maxBytes": 2097152,
@@ -20,5 +21,41 @@
       "maxTexts": 500,
       "maxTextChars": 1000
     }
+  },
+  "regex": {
+    "$comment": "VAPP-289 (docs/round-9-contract.md §9.3): the `regex` function's dialect limits, one hand-written parser + checker + backtracking matcher per core (TS src/regex.ts, Rust eui-core src/regex.rs; no platform engine). maxPatternCodePoints = the longest pattern (longer: EXPRESSION_ERROR `issues.regexPatternLength`); maxValueCodePoints = the longest value matched (longer: {valid: false}, no error); maxSteps = backtracking steps one call may take (one step = one attempt of one AST node at one position; past it: `issues.regexTooExpensive`). Cases: fixtures/regex.json.",
+    "maxPatternCodePoints": 256,
+    "maxValueCodePoints": 4096,
+    "maxSteps": 1000000
+  },
+  "issues": {
+    "$comment": "VAPP-289: the check failures, byte-identical in every core (sent as EXPRESSION_ERROR messages). `{reason}` = one of `regexReasons`, `{offset}` = the code point offset in the pattern, `{rule}` = 2, 3 or 4 (the lowest rule the pattern breaks). Cases: fixtures/regex.json.",
+    "regexPatternLength": "regex: pattern longer than 256 code points",
+    "regexSyntax": "regex: {reason} at {offset}",
+    "regexRule": "regex: rule {rule}",
+    "regexTooExpensive": "regex: too expensive",
+    "regexReasons": [
+      "pattern is not a string",
+      "unmatched (",
+      "unmatched )",
+      "unmatched [",
+      "unmatched ]",
+      "lone {",
+      "lone }",
+      "nothing to repeat",
+      "quantifier on assertion",
+      "quantifier range out of order",
+      "range out of order",
+      "class escape in range",
+      "backreference",
+      "lookbehind",
+      "named group",
+      "inline flags",
+      "property escape",
+      "control escape",
+      "octal escape",
+      "invalid escape",
+      "code point out of range"
+    ]
   }
 }

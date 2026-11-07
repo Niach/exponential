@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,6 +48,9 @@ import kotlinx.coroutines.CoroutineScope
 class ComposePainter(scope: CoroutineScope) : RunnerPainter {
     lateinit var controller: RunnerController
     private var packageId: String? = null
+
+    /** The painted id of each [RunnerSurfaces] name: minted per open (round 9 §1.4). */
+    val surfaces = mutableStateMapOf<String, String>()
 
     private val plugin = object : HostPlugin {
         override fun icon(name: String, size: Float): (@Composable () -> Unit)? {
@@ -85,7 +89,7 @@ class ComposePainter(scope: CoroutineScope) : RunnerPainter {
 
     override fun install(packageJson: String) {
         val pkg = JsonValue.parse(packageJson)
-        // The package's capability calls (`photos.pick`, …) reach the Engine like the records functions.
+        // The package's capability calls (`photos_pick`, …) reach the Engine like the records functions.
         pkg["functions"]?.array?.mapNotNull { it.string }
             ?.filter { !it.endsWith("*") && it !in BUILT_INS }
             ?.forEach { host.registerFunction(it, engineFunction(it)) }
@@ -95,43 +99,62 @@ class ComposePainter(scope: CoroutineScope) : RunnerPainter {
     }
 
     override fun open(packageId: String, screen: String, params: Map<String, String>) {
-        drop(RunnerSurfaces.APP)
         val data = JsonValue.Obj(mapOf("params" to JsonValue.Obj(params.mapValues { JsonValue.Str(it.value) })))
-        send(
-            "applyTemplate",
-            mapOf(
-                "surfaceId" to JsonValue.Str(RunnerSurfaces.APP),
-                "templateId" to JsonValue.Str(screen),
-                "packageId" to JsonValue.Str(packageId),
-                "data" to data,
-            ),
-        )
+        replace(RunnerSurfaces.APP) { surfaceId ->
+            send(
+                "applyTemplate",
+                mapOf(
+                    "surfaceId" to surfaceId,
+                    "templateId" to JsonValue.Str(screen),
+                    "packageId" to JsonValue.Str(packageId),
+                    "data" to data,
+                ),
+                trusted = true,
+            )
+        }
     }
 
     override fun paint(surface: String, componentsJson: String, dataJson: String?) {
-        drop(surface)
-        val surfaceId = JsonValue.Str(surface)
-        send("createSurface", mapOf("surfaceId" to surfaceId, "catalogId" to JsonValue.Str(ExponentialUICatalog.catalogId)))
-        send("updateComponents", mapOf("surfaceId" to surfaceId, "components" to JsonValue.parse(componentsJson)))
-        if (dataJson != null) send("updateDataModel", mapOf("surfaceId" to surfaceId, "path" to JsonValue.Str("/"), "value" to JsonValue.parse(dataJson)))
+        replace(surface) { surfaceId ->
+            send("createSurface", mapOf("surfaceId" to surfaceId, "catalogId" to JsonValue.Str(ExponentialUICatalog.catalogId)))
+            send("updateComponents", mapOf("surfaceId" to surfaceId, "components" to JsonValue.parse(componentsJson)))
+            if (dataJson != null) send("updateDataModel", mapOf("surfaceId" to surfaceId, "path" to JsonValue.Str("/"), "value" to JsonValue.parse(dataJson)))
+        }
     }
 
-    override fun close(surface: String) = drop(surface)
-
-    private fun drop(surface: String) {
-        if (host.surface(surface) != null) send("deleteSurface", mapOf("surfaceId" to JsonValue.Str(surface)))
+    override fun close(surface: String) {
+        surfaces.remove(surface)?.let(::drop)
     }
 
-    private fun send(kind: String, body: Map<String, JsonValue>) {
-        host.receive(JsonValue.Obj(mapOf("version" to JsonValue.Str(A2UI_VERSION), kind to JsonValue.Obj(body))))
+    /** Round 9 §1.4: a fresh id, the new surface on it, then the old one goes, so it paints until the new one exists. */
+    private fun replace(name: String, create: (JsonValue) -> Unit) {
+        val old = surfaces[name]
+        val surfaceId = host.mintSurfaceId(name)
+        create(JsonValue.Str(surfaceId))
+        surfaces[name] = surfaceId
+        old?.let(::drop)
+    }
+
+    private fun drop(surfaceId: String) {
+        send("deleteSurface", mapOf("surfaceId" to JsonValue.Str(surfaceId)))
+    }
+
+    private fun send(kind: String, body: Map<String, JsonValue>, trusted: Boolean = false) {
+        host.receive(JsonValue.Obj(mapOf("version" to JsonValue.Str(A2UI_VERSION), kind to JsonValue.Obj(body))), trusted)
     }
 
     private companion object {
-        val RECORD_FUNCTIONS = listOf("records.upsert", "records.delete", "records.batch")
+        val RECORD_FUNCTIONS = listOf("records_upsert", "records_delete", "records_batch")
 
-        /** genUI's own (bind, openUrl, set, app.navigate) and the package's actions stay genUI's. */
-        val BUILT_INS = setOf("bind", "openUrl", "set", "app.navigate")
+        /** genUI's own (bind, openUrl, set, app_navigate) and the package's actions stay genUI's. */
+        val BUILT_INS = setOf("bind", "openUrl", "set", "app_navigate")
     }
+}
+
+/** One runner surface, under the id it is painted on now. */
+@Composable
+private fun Painted(painter: ComposePainter, name: String) {
+    painter.surfaces[name]?.let { HostSurface(painter.host, it, Modifier.fillMaxWidth()) }
 }
 
 /**
@@ -142,7 +165,7 @@ class ComposePainter(scope: CoroutineScope) : RunnerPainter {
 @Composable
 fun RunnerWindow(painter: ComposePainter, onWidth: (Float) -> Unit) {
     val host = painter.host
-    val app = host.surfaces[RunnerSurfaces.APP]
+    val app = painter.surfaces[RunnerSurfaces.APP]?.let { host.surfaces[it] }
     val background = app?.color("background") ?: Color(0xFF0A0A0A)
     BoxWithConstraints(
         Modifier
@@ -168,12 +191,12 @@ fun RunnerWindow(painter: ComposePainter, onWidth: (Float) -> Unit) {
                     layout(placeable.width, placeable.height) { placeable.place(0, 0) }
                 },
         ) {
-            HostSurface(host, RunnerSurfaces.APP, Modifier.fillMaxWidth())
+            Painted(painter, RunnerSurfaces.APP)
         }
         Column(Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
-            HostSurface(host, RunnerSurfaces.CONSENT, Modifier.fillMaxWidth())
-            HostSurface(host, RunnerSurfaces.PERMISSIONS, Modifier.fillMaxWidth())
-            HostSurface(host, RunnerSurfaces.TOAST, Modifier.fillMaxWidth())
+            Painted(painter, RunnerSurfaces.CONSENT)
+            Painted(painter, RunnerSurfaces.PERMISSIONS)
+            Painted(painter, RunnerSurfaces.TOAST)
         }
     }
 }

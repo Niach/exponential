@@ -14,7 +14,7 @@ const items = Array.from({ length: 14 }, (_, i) => ({ label: `Issue number ${i}`
 
 describe(`SearchList DOM parity`, () => {
   for (const c of examples) it(c.name, async () => expectDomParity({ tree: c.node }))
-  it(`kitchen-sink SearchList (picked value)`, async () => expectDomParity({ tree: sinkNode(`search-list`) }))
+  it(`kitchen-sink SearchList (picked value)`, async () => expectDomParity({ tree: sinkNode(`search_list`) }))
   it(`a typed query: count, filtered rows; no match: the empty state`, async () => {
     await expectDomParity({ tree: { id: `s`, component: `SearchList`, props: { items, query: `exp-1`, value: `v4` } } as NestedNode })
     await expectDomParity({ tree: { id: `s`, component: `SearchList`, props: { items, query: `zzz`, emptyText: `Nothing here` } } as NestedNode })
@@ -22,13 +22,13 @@ describe(`SearchList DOM parity`, () => {
   })
   it(`maxRows, disabled rows, a bound query + value, host search`, async () => {
     await expectDomParity({ tree: { id: `s`, component: `SearchList`, props: { items, maxRows: 3 } } as NestedNode })
-    await expectDomParity({ tree: { id: `s`, component: `SearchList`, props: { items, query: { path: `/q` }, value: { path: `/v` }, maxRows: 2.7 } } as unknown as NestedNode, data: { q: `number 1`, v: `v10` } })
+    await expectDomParity({ tree: { id: `s`, component: `SearchList`, props: { items, query: { "@path": `/q` }, value: { "@path": `/v` }, maxRows: 2.7 } } as unknown as NestedNode, data: { q: `number 1`, v: `v10` } })
     await expectDomParity({ tree: { id: `s`, component: `SearchList`, props: { items, query: `zzz` }, on: { search: { event: { name: `search` } } } } as unknown as NestedNode })
   })
   for (const states of [[`hover`], [`focus`, `selected`], [`disabled`, `pressed`]]) {
-    it(`forced states ${states.join(`+`)}`, async () => expectDomParity({ tree: sinkNode(`search-list`), states }))
+    it(`forced states ${states.join(`+`)}`, async () => expectDomParity({ tree: sinkNode(`search_list`), states }))
   }
   it(`dark + rtl, exponential theme`, async () => {
-    await expectDomParity({ tree: sinkNode(`search-list`), theme: `exponential`, mode: `dark`, direction: `rtl` })
+    await expectDomParity({ tree: sinkNode(`search_list`), theme: `exponential`, mode: `dark`, direction: `rtl` })
   })
 })

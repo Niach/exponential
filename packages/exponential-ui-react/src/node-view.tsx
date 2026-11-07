@@ -98,6 +98,12 @@ function rowPressContext(event: string, payload: Record<string, unknown> | undef
   return { ...rctx, data: { ...(rctx.data as Record<string, unknown>), $pressedRow: payload.row }, scope: `/$pressedRow` }
 }
 
+/** Round 9 §6.8: a host function's outcome that stops its action. */
+const actionFailed = (outcome: unknown): boolean => {
+  const o = outcome as { decision?: string; error?: unknown } | undefined
+  return o !== undefined && o !== null && (o.error !== undefined || o.decision === `deny` || o.decision === `not_found`)
+}
+
 /** Run one of a node's actions (round-1 contract §1 `runAction`): the
  *  function args AND the event context resolve against the data WITH the
  *  component's own write applied (round 4 `withOwnWrites`: `own` = what
@@ -118,21 +124,24 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   let pending: unknown
   if (fn && args) {
-    if (fn.call === `set`) {
+    if (fn[`@call`] === `set`) {
       // #VAPP-288: a PROGRAMMATIC write (bumps the write epoch).
       if (typeof args.path === `string`) ctx.assignData(absolutePath(args.path, scope), args.value)
     } else {
-      const f = ctx.functions[fn.call]
+      const f = ctx.functions[fn[`@call`]]
       // A name outside the client functions is a HOST function (VAPP-91):
       // the host's registry + policy gate (`ExponentialHost.callFunction`).
       if (f) f(args, rctx)
-      else pending = ctx.host.onFunctionCall?.({ surfaceId: ctx.surfaceId, componentId: domId, name: fn.call, args })
+      else pending = ctx.host.onFunctionCall?.({ surfaceId: ctx.surfaceId, componentId: domId, name: fn[`@call`], args })
     }
   }
   if (pending instanceof Promise) {
     // The source control stays pending until the host function settles.
-    const sent = action.event ? runNodeEvent(ctx, action.event, domId, event, context, payload) : undefined
-    return Promise.all([pending, sent]).then(() => undefined)
+    // Round 9 §6.8: the function, then the event; a failure stops the action.
+    return pending.then((outcome) => {
+      if (actionFailed(outcome) || !action.event) return undefined
+      return runNodeEvent(ctx, action.event, domId, event, context, payload)
+    })
   }
   if (action.event) return runNodeEvent(ctx, action.event, domId, event, context, payload)
   return undefined

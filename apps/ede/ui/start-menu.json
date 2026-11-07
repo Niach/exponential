@@ -1,50 +1,584 @@
 {
   "$comment": "Exponential Desktop's factory start menu (#EDE-52): Mint's menu, opened from the sidebar's Exponential button (or Super) as a popup surface above it, 760×620, with the keyboard. Three columns: the person (/user) with the favourites (the taskbar's pins) and lock / log out / power at the bottom; the categories (/shell/startMenu/categories: All applications, Favourites, Exponential, Accessories, … in Mint's order, the current one selected); the app rows with icon, name and description (/shell/startMenu/apps: the category's apps, or the ranked matches while the search box at the bottom has text). Entries include the Exponential app, Files (Nemo) and Version history (#EDE-53) with the installed applications. Footer: What's new, the account, Devices, Settings.",
-  "surface": {"popup": {"parent": "sidebar", "anchor": "start", "placement": "top-start", "size": {"width": 760, "height": 620}}, "functions": ["ede.launch", "ede.lock", "ede.logout", "ede.power", "ede.open_document", "ede.start_menu"]},
-  "root": {
-    "id": "start-menu",
-    "component": "Box",
-    "style": {"display": "flex", "flexDirection": "column", "width": 760, "height": 620, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
-    "children": [
-      {"id": "columns", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexGrow": 1, "minHeight": 0}, "children": [
-        {"id": "left", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": 220, "flexShrink": 0, "padding": "$spacing.sm", "gap": "$spacing.xs", "borderRightWidth": 1, "borderColor": "$color.border"}, "children": [
-          {"id": "person", "component": "Row", "props": {"title": {"path": "/user/name"}, "subtitle": {"path": "/user/host"}, "density": "default"}, "slots": {"leading": {"id": "person-avatar", "component": "Avatar", "props": {"name": {"path": "/user/name"}, "size": "lg"}}}},
-          {"id": "favourites-label", "component": "Text", "props": {"text": "Favourites", "variant": "caption"}, "style": {"paddingLeft": "$spacing.sm", "paddingTop": "$spacing.xs"}},
-          {"id": "favourites-scroll", "component": "ScrollArea", "style": {"flexGrow": 1, "minHeight": 0}, "children": [
-            {"id": "favourites", "component": "List", "props": {"gap": "none"}, "template": {"component": "favourite", "path": "/shell/startMenu/favourites", "key": "id"}, "children": []},
-            {"id": "favourite", "component": "Row", "props": {"title": {"path": "name"}, "density": "compact", "pressable": true}, "slots": {"leading": {"id": "favourite-icon", "component": "Image", "props": {"src": {"path": "icon"}, "alt": {"path": "name"}, "width": 20, "height": 20, "fit": "contain", "fallback": "nav-apps"}}}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"app": {"path": "id"}}}}}},
-            {"id": "no-favourites", "component": "Text", "props": {"text": "Pin an app to the taskbar", "variant": "muted"}, "style": {"paddingLeft": "$spacing.sm"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/shell/startMenu/favourites"}}}, "b": 0}}}
-          ]},
-          {"id": "power-row", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": [
-            {"id": "lock", "component": "Button", "props": {"icon": "ede-lock", "variant": "outline", "size": "icon", "label": "Lock"}, "on": {"press": {"functionCall": {"call": "ede.lock"}}}},
-            {"id": "logout", "component": "Button", "props": {"icon": "nav-sign-out", "variant": "outline", "size": "icon", "label": "Log out"}, "on": {"press": {"functionCall": {"call": "ede.logout"}}}},
-            {"id": "power", "component": "Menu", "props": {"side": "top", "align": "start", "items": [{"label": "Suspend", "value": "suspend", "icon": "ede-suspend"}, {"label": "Restart", "value": "reboot", "icon": "ui-refresh"}, {"label": "Shut down", "value": "poweroff", "icon": "ede-power", "destructive": true}]}, "on": {"select": {"functionCall": {"call": "ede.power", "args": {"action": {"path": "value"}}}}}, "children": [
-              {"id": "power-button", "component": "Button", "props": {"icon": "ede-power", "variant": "destructive", "size": "icon", "label": "Power"}}
-            ]}
-          ]}
-        ]},
-        {"id": "middle", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": 200, "flexShrink": 0, "padding": "$spacing.sm", "borderRightWidth": 1, "borderColor": "$color.border"}, "children": [
-          {"id": "categories-scroll", "component": "ScrollArea", "style": {"flexGrow": 1, "minHeight": 0}, "children": [
-            {"id": "categories", "component": "List", "props": {"gap": "none"}, "template": {"component": "category", "path": "/shell/startMenu/categories", "key": "id"}, "children": []},
-            {"id": "category", "component": "Row", "props": {"title": {"path": "label"}, "icon": {"path": "icon"}, "density": "compact", "pressable": true, "selected": {"path": "selected"}}, "on": {"press": {"functionCall": {"call": "ede.start_menu", "args": {"category": {"path": "id"}}}}}}
-          ]}
-        ]},
-        {"id": "right", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0, "padding": "$spacing.sm"}, "children": [
-          {"id": "apps-scroll", "component": "ScrollArea", "style": {"flexGrow": 1, "minHeight": 0}, "children": [
-            {"id": "apps", "component": "List", "props": {"gap": "none"}, "template": {"component": "app", "path": "/shell/startMenu/apps", "key": "id"}, "children": []},
-            {"id": "app", "component": "Row", "props": {"title": {"path": "name"}, "subtitle": {"path": "comment"}, "pressable": true, "density": "default"}, "slots": {"leading": {"id": "app-icon", "component": "Image", "props": {"src": {"path": "icon"}, "alt": {"path": "name"}, "width": 24, "height": 24, "fit": "contain", "fallback": "nav-apps"}}}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"app": {"path": "id"}}}}}},
-            {"id": "no-apps", "component": "EmptyState", "props": {"icon": "ui-empty-search", "title": "No app matches", "size": "list"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/shell/startMenu/apps"}}}, "b": 0}}}
-          ]}
-        ]}
-      ]},
-      {"id": "bottom", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "padding": "$spacing.sm", "borderTopWidth": 1, "borderColor": "$color.border"}, "children": [
-        {"id": "search", "component": "Input", "props": {"type": "search", "name": "query", "label": "Search", "placeholder": "Search apps, files, settings and teams", "value": {"path": "/shell/startMenu/query"}}, "style": {"flexGrow": 1}},
-        {"id": "whats-new", "component": "Button", "props": {"icon": "nav-changelog", "variant": "ghost", "size": "icon", "label": "What's new"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"app": "at.exponential"}}}}},
-        {"id": "account", "component": "Button", "props": {"icon": "nav-account", "variant": "ghost", "size": "icon", "label": "Account"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"app": "at.exponential"}}}}},
-        {"id": "devices", "component": "Button", "props": {"icon": "nav-devices", "variant": "ghost", "size": "icon", "label": "Devices"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"app": "at.exponential"}}}}},
-        {"id": "settings", "component": "Button", "props": {"icon": "nav-settings", "variant": "ghost", "size": "icon", "label": "Settings"}, "on": {"press": {"functionCall": {"call": "ede.open_document", "args": {"name": "settings"}}}}}
-      ]}
+  "surface": {
+    "popup": {
+      "parent": "sidebar",
+      "anchor": "start",
+      "placement": "top-start",
+      "size": {
+        "width": 760,
+        "height": 620
+      }
+    },
+    "functions": [
+      "ede.launch",
+      "ede.lock",
+      "ede.logout",
+      "ede.power",
+      "ede.open_document",
+      "ede.start_menu"
     ]
   },
-  "data": {"user": {"name": "", "host": ""}, "shell": {"startMenu": {"open": false, "query": "", "category": "all", "categories": [], "apps": [], "favourites": []}}}
+  "root": {
+    "id": "start_menu",
+    "component": "Box",
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "width": 760,
+      "height": 620,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.lg"
+    },
+    "children": [
+      {
+        "id": "columns",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "flexGrow": 1,
+          "minHeight": 0
+        },
+        "children": [
+          {
+            "id": "left",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": 220,
+              "flexShrink": 0,
+              "padding": "$spacing.sm",
+              "gap": "$spacing.xs",
+              "borderRightWidth": 1,
+              "borderColor": "$color.border"
+            },
+            "children": [
+              {
+                "id": "person",
+                "component": "Row",
+                "props": {
+                  "title": {
+                    "@path": "/user/name"
+                  },
+                  "subtitle": {
+                    "@path": "/user/host"
+                  },
+                  "density": "default"
+                },
+                "slots": {
+                  "leading": {
+                    "id": "person_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": {
+                        "@path": "/user/name"
+                      },
+                      "size": "lg"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "favourites_label",
+                "component": "Text",
+                "props": {
+                  "text": "Favourites",
+                  "variant": "caption"
+                },
+                "style": {
+                  "paddingLeft": "$spacing.sm",
+                  "paddingTop": "$spacing.xs"
+                }
+              },
+              {
+                "id": "favourites_scroll",
+                "component": "ScrollArea",
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": 0
+                },
+                "children": [
+                  {
+                    "id": "favourites",
+                    "component": "List",
+                    "props": {
+                      "gap": "none"
+                    },
+                    "template": {
+                      "component": "favourite",
+                      "path": "/shell/startMenu/favourites",
+                      "key": "id"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "favourite",
+                    "component": "Row",
+                    "props": {
+                      "title": {
+                        "@path": "name"
+                      },
+                      "density": "compact",
+                      "pressable": true
+                    },
+                    "slots": {
+                      "leading": {
+                        "id": "favourite_icon",
+                        "component": "Image",
+                        "props": {
+                          "src": {
+                            "@path": "icon"
+                          },
+                          "alt": {
+                            "@path": "name"
+                          },
+                          "width": 20,
+                          "height": 20,
+                          "fit": "contain",
+                          "fallback": "nav-apps"
+                        }
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_launch",
+                          "args": {
+                            "app": {
+                              "@path": "id"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "no_favourites",
+                    "component": "Text",
+                    "props": {
+                      "text": "Pin an app to the taskbar",
+                      "variant": "muted"
+                    },
+                    "style": {
+                      "paddingLeft": "$spacing.sm"
+                    },
+                    "visible": {
+                      "@call": "eq",
+                      "args": {
+                        "a": {
+                          "@call": "len",
+                          "args": {
+                            "value": {
+                              "@path": "/shell/startMenu/favourites"
+                            }
+                          }
+                        },
+                        "b": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "power_row",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "lock",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ede-lock",
+                      "variant": "outline",
+                      "size": "icon",
+                      "label": "Lock"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_lock"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "logout",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-sign-out",
+                      "variant": "outline",
+                      "size": "icon",
+                      "label": "Log out"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_logout"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "power",
+                    "component": "Menu",
+                    "props": {
+                      "side": "top",
+                      "align": "start",
+                      "items": [
+                        {
+                          "label": "Suspend",
+                          "value": "suspend",
+                          "icon": "ede-suspend"
+                        },
+                        {
+                          "label": "Restart",
+                          "value": "reboot",
+                          "icon": "ui-refresh"
+                        },
+                        {
+                          "label": "Shut down",
+                          "value": "poweroff",
+                          "icon": "ede-power",
+                          "destructive": true
+                        }
+                      ]
+                    },
+                    "on": {
+                      "select": {
+                        "functionCall": {
+                          "@call": "ede_power",
+                          "args": {
+                            "action": {
+                              "@path": "value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "children": [
+                      {
+                        "id": "power_button",
+                        "component": "Button",
+                        "props": {
+                          "icon": "ede-power",
+                          "variant": "destructive",
+                          "size": "icon",
+                          "label": "Power"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "middle",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": 200,
+              "flexShrink": 0,
+              "padding": "$spacing.sm",
+              "borderRightWidth": 1,
+              "borderColor": "$color.border"
+            },
+            "children": [
+              {
+                "id": "categories_scroll",
+                "component": "ScrollArea",
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": 0
+                },
+                "children": [
+                  {
+                    "id": "categories",
+                    "component": "List",
+                    "props": {
+                      "gap": "none"
+                    },
+                    "template": {
+                      "component": "category",
+                      "path": "/shell/startMenu/categories",
+                      "key": "id"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "category",
+                    "component": "Row",
+                    "props": {
+                      "title": {
+                        "@path": "label"
+                      },
+                      "icon": {
+                        "@path": "icon"
+                      },
+                      "density": "compact",
+                      "pressable": true,
+                      "selected": {
+                        "@path": "selected"
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_start_menu",
+                          "args": {
+                            "category": {
+                              "@path": "id"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "right",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "padding": "$spacing.sm"
+            },
+            "children": [
+              {
+                "id": "apps_scroll",
+                "component": "ScrollArea",
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": 0
+                },
+                "children": [
+                  {
+                    "id": "apps",
+                    "component": "List",
+                    "props": {
+                      "gap": "none"
+                    },
+                    "template": {
+                      "component": "app",
+                      "path": "/shell/startMenu/apps",
+                      "key": "id"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "app",
+                    "component": "Row",
+                    "props": {
+                      "title": {
+                        "@path": "name"
+                      },
+                      "subtitle": {
+                        "@path": "comment"
+                      },
+                      "pressable": true,
+                      "density": "default"
+                    },
+                    "slots": {
+                      "leading": {
+                        "id": "app_icon",
+                        "component": "Image",
+                        "props": {
+                          "src": {
+                            "@path": "icon"
+                          },
+                          "alt": {
+                            "@path": "name"
+                          },
+                          "width": 24,
+                          "height": 24,
+                          "fit": "contain",
+                          "fallback": "nav-apps"
+                        }
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_launch",
+                          "args": {
+                            "app": {
+                              "@path": "id"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "no_apps",
+                    "component": "EmptyState",
+                    "props": {
+                      "icon": "ui-empty-search",
+                      "title": "No app matches",
+                      "size": "list"
+                    },
+                    "visible": {
+                      "@call": "eq",
+                      "args": {
+                        "a": {
+                          "@call": "len",
+                          "args": {
+                            "value": {
+                              "@path": "/shell/startMenu/apps"
+                            }
+                          }
+                        },
+                        "b": 0
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "bottom",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "padding": "$spacing.sm",
+          "borderTopWidth": 1,
+          "borderColor": "$color.border"
+        },
+        "children": [
+          {
+            "id": "search",
+            "component": "Input",
+            "props": {
+              "type": "search",
+              "name": "query",
+              "label": "Search",
+              "placeholder": "Search apps, files, settings and teams",
+              "value": {
+                "@path": "/shell/startMenu/query"
+              }
+            },
+            "style": {
+              "flexGrow": 1
+            }
+          },
+          {
+            "id": "whats_new",
+            "component": "Button",
+            "props": {
+              "icon": "nav-changelog",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "What's new"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_launch",
+                  "args": {
+                    "app": "at.exponential"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "account",
+            "component": "Button",
+            "props": {
+              "icon": "nav-account",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "Account"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_launch",
+                  "args": {
+                    "app": "at.exponential"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "devices",
+            "component": "Button",
+            "props": {
+              "icon": "nav-devices",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "Devices"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_launch",
+                  "args": {
+                    "app": "at.exponential"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "settings",
+            "component": "Button",
+            "props": {
+              "icon": "nav-settings",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "Settings"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_open_document",
+                  "args": {
+                    "name": "settings"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "data": {
+    "user": {
+      "name": "",
+      "host": ""
+    },
+    "shell": {
+      "startMenu": {
+        "open": false,
+        "query": "",
+        "category": "all",
+        "categories": [],
+        "apps": [],
+        "favourites": []
+      }
+    }
+  }
 }

@@ -7,7 +7,7 @@
     }
   },
   "cases": {
-    "id": "sg-motion",
+    "id": "sg_motion",
     "component": "Stack",
     "props": {
       "direction": "horizontal",
@@ -17,7 +17,7 @@
     },
     "children": [
       {
-        "id": "sg-motion-spinner-case",
+        "id": "sg_motion_spinner_case",
         "component": "Stack",
         "props": {
           "direction": "vertical",
@@ -26,7 +26,7 @@
         },
         "children": [
           {
-            "id": "sg-motion-spinner",
+            "id": "sg_motion_spinner",
             "component": "Motion",
             "props": {
               "label": "Loading",
@@ -80,7 +80,7 @@
             }
           },
           {
-            "id": "sg-motion-spinner-label",
+            "id": "sg_motion_spinner_label",
             "component": "Text",
             "props": {
               "text": "Spinner",
@@ -90,7 +90,7 @@
         ]
       },
       {
-        "id": "sg-motion-success-case",
+        "id": "sg_motion_success_case",
         "component": "Stack",
         "props": {
           "direction": "vertical",
@@ -99,7 +99,7 @@
         },
         "children": [
           {
-            "id": "sg-motion-success",
+            "id": "sg_motion_success",
             "component": "Motion",
             "props": {
               "label": "Done",
@@ -194,7 +194,7 @@
             }
           },
           {
-            "id": "sg-motion-success-label",
+            "id": "sg_motion_success_label",
             "component": "Text",
             "props": {
               "text": "Success",
@@ -204,7 +204,7 @@
         ]
       },
       {
-        "id": "sg-motion-scrub-case",
+        "id": "sg_motion_scrub_case",
         "component": "Stack",
         "props": {
           "direction": "vertical",
@@ -216,11 +216,11 @@
         },
         "children": [
           {
-            "id": "sg-motion-scrub",
+            "id": "sg_motion_scrub",
             "component": "Motion",
             "props": {
               "progress": {
-                "path": "/progress"
+                "@path": "/progress"
               },
               "label": "Upload progress",
               "size": [
@@ -317,7 +317,7 @@
             }
           },
           {
-            "id": "sg-motion-scrub-slider",
+            "id": "sg_motion_scrub_slider",
             "component": "Slider",
             "props": {
               "label": "Progress",
@@ -325,12 +325,12 @@
               "max": 1,
               "step": 0.01,
               "value": {
-                "path": "/progress"
+                "@path": "/progress"
               }
             }
           },
           {
-            "id": "sg-motion-scrub-label",
+            "id": "sg_motion_scrub_label",
             "component": "Text",
             "props": {
               "text": "Scrubbed by progress",
@@ -342,7 +342,7 @@
     ]
   },
   "illustration": {
-    "id": "sg-motion-illustration-card",
+    "id": "sg_motion_illustration_card",
     "component": "Box",
     "style": {
       "backgroundColor": "$color.background",
@@ -356,7 +356,7 @@
     },
     "children": [
       {
-        "id": "sg-motion-illustration",
+        "id": "sg_motion_illustration",
         "component": "Motion",
         "props": {
           "label": "Empty inbox",
@@ -521,7 +521,7 @@
     ]
   },
   "interactive": {
-    "id": "sg-motion-interactive",
+    "id": "sg_motion_interactive",
     "component": "Stack",
     "props": {
       "direction": "horizontal",
@@ -531,7 +531,7 @@
     },
     "children": [
       {
-        "id": "sg-motion-like-case",
+        "id": "sg_motion_like_case",
         "component": "Stack",
         "props": {
           "direction": "vertical",
@@ -540,7 +540,7 @@
         },
         "children": [
           {
-            "id": "sg-motion-like",
+            "id": "sg_motion_like",
             "component": "Motion",
             "props": {
               "label": "Like",
@@ -721,7 +721,7 @@
             }
           },
           {
-            "id": "sg-motion-like-label",
+            "id": "sg_motion_like_label",
             "component": "Text",
             "props": {
               "text": "Click to toggle",
@@ -731,7 +731,7 @@
         ]
       },
       {
-        "id": "sg-motion-level-case",
+        "id": "sg_motion_level_case",
         "component": "Stack",
         "props": {
           "direction": "vertical",
@@ -743,7 +743,7 @@
         },
         "children": [
           {
-            "id": "sg-motion-level",
+            "id": "sg_motion_level",
             "component": "Motion",
             "props": {
               "label": "Level",
@@ -850,7 +850,7 @@
                 ]
               },
               "inputs": {
-                "path": "/meter"
+                "@path": "/meter"
               },
               "layers": [
                 {
@@ -1020,7 +1020,7 @@
             }
           },
           {
-            "id": "sg-motion-level-slider",
+            "id": "sg_motion_level_slider",
             "component": "Slider",
             "props": {
               "label": "Level",
@@ -1028,12 +1028,12 @@
               "max": 100,
               "step": 1,
               "value": {
-                "path": "/meter/level"
+                "@path": "/meter/level"
               }
             }
           },
           {
-            "id": "sg-motion-level-label",
+            "id": "sg_motion_level_label",
             "component": "Text",
             "props": {
               "text": "States follow inputs.level",

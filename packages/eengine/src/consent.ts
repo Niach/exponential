@@ -99,8 +99,8 @@ export function consentSheet(app: string, entry: ManifestEntry): { components: S
         on: { change: { event: { name: `consent.answer`, context: { answer: `dismiss` } } } },
       },
       { id: `why`, component: `Text`, text: entry.why },
-      { id: `answer`, component: `ChoiceTiles`, name: `answer`, columns: 1, value: { path: `/answer` }, options: fixture.copy.options.map((o) => ({ ...o })) },
-      { id: `confirm`, component: `Button`, label: fixture.copy.confirm, on: { press: { event: { name: `consent.answer`, context: { answer: { path: `/answer` } } } } } },
+      { id: `answer`, component: `ChoiceTiles`, name: `answer`, columns: 1, value: { "@path": `/answer` }, options: fixture.copy.options.map((o) => ({ ...o })) },
+      { id: `confirm`, component: `Button`, label: fixture.copy.confirm, on: { press: { event: { name: `consent.answer`, context: { answer: { "@path": `/answer` } } } } } },
     ],
     data: { answer: `allow` },
   }
@@ -110,9 +110,9 @@ export function consentSheet(app: string, entry: ManifestEntry): { components: S
 export function manageSheet(manifest: readonly ManifestEntry[], grants: Grants): SurfaceComponent[] {
   const rows = manifest.filter((m) => declaredAsk(manifest, m.id))
   return [
-    { id: `root`, component: `Drawer`, title: fixture.copy.manageTitle, open: true, side: `bottom`, children: rows.map((_, i) => `scope-${i}`) },
+    { id: `root`, component: `Drawer`, title: fixture.copy.manageTitle, open: true, side: `bottom`, children: rows.map((_, i) => `scope_${i}`) },
     ...rows.map((m, i) => ({
-      id: `scope-${i}`,
+      id: `scope_${i}`,
       component: `Switch`,
       label: scopeDef(m.id)!.capability.label,
       description: m.why,

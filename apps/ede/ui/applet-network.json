@@ -1,34 +1,460 @@
 {
   "$comment": "Exponential Desktop's factory network applet (#EDE-43): the taskbar's network button opens it as a popup surface. Cinnamon's content in the IDE's language: the Wired and Wi-Fi switches (wired_enable, wifi_enable), the saved VPNs each with its own switch (vpn_connect / vpn_disconnect), the Wi-Fi networks in reach (a press joins one: connect), and the Network settings link. Every action is ede.service on the network domain.",
-  "surface": {"popup": {"parent": "taskbar", "anchor": "applet-network", "placement": "top-end", "size": {"width": 380, "height": 350}}, "functions": ["ede.service", "ede.open_document"]},
+  "surface": {
+    "popup": {
+      "parent": "taskbar",
+      "anchor": "applet-network",
+      "placement": "top-end",
+      "size": {
+        "width": 380,
+        "height": 350
+      }
+    },
+    "functions": [
+      "ede.service",
+      "ede.open_document"
+    ]
+  },
   "root": {
     "id": "network",
     "component": "Box",
-    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.sm", "height": 350, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"},
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "gap": "$spacing.sm",
+      "padding": "$spacing.sm",
+      "height": 350,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.md"
+    },
     "children": [
-      {"id": "net-off", "component": "Text", "props": {"text": {"path": "/services/network/reason"}, "variant": "muted"}, "visible": {"call": "not", "args": {"value": {"path": "/services/network/available"}}}},
-      {"id": "wired", "component": "Switch", "props": {"label": "Wired", "name": "wired", "checked": {"path": "/services/network/wiredConnected"}}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/services/network/wired"}}}, "b": 0}}}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "network", "action": "wired_enable", "args": {"on": {"path": "/services/network/wiredConnected"}}}}}}},
-      {"id": "wifi", "component": "Switch", "props": {"label": "Wi-Fi", "name": "wifi", "checked": {"path": "/services/network/wifiEnabled"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "network", "action": "wifi_enable", "args": {"on": {"path": "/services/network/wifiEnabled"}}}}}}},
-      {"id": "vpn-title", "component": "Text", "props": {"text": "VPN", "variant": "label"}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/services/network/vpn"}}}, "b": 0}}}}},
-      {"id": "vpns", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "vpn", "path": "/services/network/vpn", "key": "id"}, "children": []},
-      {"id": "vpn", "component": "Row", "props": {"title": {"path": "name"}, "subtitle": {"path": "type"}, "icon": "ede-lock", "density": "compact"}, "slots": {
-        "trailing": {"id": "vpn-switches", "component": "Stack", "props": {"direction": "horizontal", "gap": "none", "align": "center"}, "children": [
-          {"id": "vpn-up", "component": "Switch", "props": {"label": "Connected", "name": "vpn", "checked": {"path": "active"}, "size": "compact"}, "visible": {"path": "active"}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "network", "action": "vpn_disconnect", "args": {"id": {"path": "id"}}}}}}},
-          {"id": "vpn-down", "component": "Switch", "props": {"label": "Connect", "name": "vpn", "checked": {"path": "active"}, "size": "compact"}, "visible": {"call": "not", "args": {"value": {"path": "active"}}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "network", "action": "vpn_connect", "args": {"id": {"path": "id"}}}}}}}
-        ]}
-      }},
-      {"id": "aps-title", "component": "Text", "props": {"text": "Wi-Fi networks", "variant": "label"}, "visible": {"path": "/services/network/wifiEnabled"}},
-      {"id": "aps-scroll", "component": "ScrollArea", "props": {"maxHeight": 180}, "visible": {"path": "/services/network/wifiEnabled"}, "children": [
-        {"id": "aps", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "ap", "path": "/services/network/accessPoints", "key": "ssid"}, "children": []},
-        {"id": "ap", "component": "Row", "props": {"title": {"path": "ssid"}, "icon": "ede-wifi", "meta": {"call": "concat", "args": {"values": [{"path": "strength"}, "%"]}}, "selected": {"path": "active"}, "pressable": true, "density": "compact"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "network", "action": "connect", "args": {"ssid": {"path": "ssid"}}}}}}, "slots": {
-          "trailing": {"id": "ap-secured", "component": "Icon", "props": {"name": "ede-lock", "size": "sm", "tone": "neutral", "label": "Secured"}, "visible": {"path": "secured"}}
-        }},
-        {"id": "no-aps", "component": "Text", "props": {"text": "No Wi-Fi network in reach", "variant": "muted"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/services/network/accessPoints"}}}, "b": 0}}}
-      ]},
-      {"id": "network-foot", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": [
-        {"id": "network-settings", "component": "Link", "props": {"label": "Network settings"}, "on": {"press": {"functionCall": {"call": "ede.open_document", "args": {"name": "settings"}}}}}
-      ]}
+      {
+        "id": "net_off",
+        "component": "Text",
+        "props": {
+          "text": {
+            "@path": "/services/network/reason"
+          },
+          "variant": "muted"
+        },
+        "visible": {
+          "@call": "not",
+          "args": {
+            "value": {
+              "@call": "cond",
+              "args": {
+                "if": {
+                  "@path": "/services/network/available"
+                },
+                "then": true,
+                "else": false
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "wired",
+        "component": "Switch",
+        "props": {
+          "label": "Wired",
+          "name": "wired",
+          "checked": {
+            "@path": "/services/network/wiredConnected"
+          }
+        },
+        "visible": {
+          "@call": "not",
+          "args": {
+            "value": {
+              "@call": "eq",
+              "args": {
+                "a": {
+                  "@call": "len",
+                  "args": {
+                    "value": {
+                      "@path": "/services/network/wired"
+                    }
+                  }
+                },
+                "b": 0
+              }
+            }
+          }
+        },
+        "on": {
+          "change": {
+            "functionCall": {
+              "@call": "ede_service",
+              "args": {
+                "domain": "network",
+                "action": "wired_enable",
+                "args": {
+                  "on": {
+                    "@path": "/services/network/wiredConnected"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "wifi",
+        "component": "Switch",
+        "props": {
+          "label": "Wi-Fi",
+          "name": "wifi",
+          "checked": {
+            "@path": "/services/network/wifiEnabled"
+          }
+        },
+        "on": {
+          "change": {
+            "functionCall": {
+              "@call": "ede_service",
+              "args": {
+                "domain": "network",
+                "action": "wifi_enable",
+                "args": {
+                  "on": {
+                    "@path": "/services/network/wifiEnabled"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "vpn_title",
+        "component": "Text",
+        "props": {
+          "text": "VPN",
+          "variant": "label"
+        },
+        "visible": {
+          "@call": "not",
+          "args": {
+            "value": {
+              "@call": "eq",
+              "args": {
+                "a": {
+                  "@call": "len",
+                  "args": {
+                    "value": {
+                      "@path": "/services/network/vpn"
+                    }
+                  }
+                },
+                "b": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "vpns",
+        "component": "List",
+        "props": {
+          "gap": "none",
+          "divided": true
+        },
+        "template": {
+          "component": "vpn",
+          "path": "/services/network/vpn",
+          "key": "id"
+        },
+        "children": []
+      },
+      {
+        "id": "vpn",
+        "component": "Row",
+        "props": {
+          "title": {
+            "@path": "name"
+          },
+          "subtitle": {
+            "@path": "type"
+          },
+          "icon": "ede-lock",
+          "density": "compact"
+        },
+        "slots": {
+          "trailing": {
+            "id": "vpn_switches",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "none",
+              "align": "center"
+            },
+            "children": [
+              {
+                "id": "vpn_up",
+                "component": "Switch",
+                "props": {
+                  "label": "Connected",
+                  "name": "vpn",
+                  "checked": {
+                    "@path": "active"
+                  },
+                  "size": "compact"
+                },
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "active"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                },
+                "on": {
+                  "change": {
+                    "functionCall": {
+                      "@call": "ede_service",
+                      "args": {
+                        "domain": "network",
+                        "action": "vpn_disconnect",
+                        "args": {
+                          "id": {
+                            "@path": "id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "vpn_down",
+                "component": "Switch",
+                "props": {
+                  "label": "Connect",
+                  "name": "vpn",
+                  "checked": {
+                    "@path": "active"
+                  },
+                  "size": "compact"
+                },
+                "visible": {
+                  "@call": "not",
+                  "args": {
+                    "value": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "active"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
+                  }
+                },
+                "on": {
+                  "change": {
+                    "functionCall": {
+                      "@call": "ede_service",
+                      "args": {
+                        "domain": "network",
+                        "action": "vpn_connect",
+                        "args": {
+                          "id": {
+                            "@path": "id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "aps_title",
+        "component": "Text",
+        "props": {
+          "text": "Wi-Fi networks",
+          "variant": "label"
+        },
+        "visible": {
+          "@call": "cond",
+          "args": {
+            "if": {
+              "@path": "/services/network/wifiEnabled"
+            },
+            "then": true,
+            "else": false
+          }
+        }
+      },
+      {
+        "id": "aps_scroll",
+        "component": "ScrollArea",
+        "props": {
+          "maxHeight": 180
+        },
+        "visible": {
+          "@call": "cond",
+          "args": {
+            "if": {
+              "@path": "/services/network/wifiEnabled"
+            },
+            "then": true,
+            "else": false
+          }
+        },
+        "children": [
+          {
+            "id": "aps",
+            "component": "List",
+            "props": {
+              "gap": "none",
+              "divided": true
+            },
+            "template": {
+              "component": "ap",
+              "path": "/services/network/accessPoints",
+              "key": "ssid"
+            },
+            "children": []
+          },
+          {
+            "id": "ap",
+            "component": "Row",
+            "props": {
+              "title": {
+                "@path": "ssid"
+              },
+              "icon": "ede-wifi",
+              "meta": {
+                "@call": "concat",
+                "args": {
+                  "values": [
+                    {
+                      "@path": "strength"
+                    },
+                    "%"
+                  ]
+                }
+              },
+              "selected": {
+                "@path": "active"
+              },
+              "pressable": true,
+              "density": "compact"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_service",
+                  "args": {
+                    "domain": "network",
+                    "action": "connect",
+                    "args": {
+                      "ssid": {
+                        "@path": "ssid"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "slots": {
+              "trailing": {
+                "id": "ap_secured",
+                "component": "Icon",
+                "props": {
+                  "name": "ede-lock",
+                  "size": "sm",
+                  "tone": "neutral",
+                  "label": "Secured"
+                },
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "secured"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "no_aps",
+            "component": "Text",
+            "props": {
+              "text": "No Wi-Fi network in reach",
+              "variant": "muted"
+            },
+            "visible": {
+              "@call": "eq",
+              "args": {
+                "a": {
+                  "@call": "len",
+                  "args": {
+                    "value": {
+                      "@path": "/services/network/accessPoints"
+                    }
+                  }
+                },
+                "b": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "network_foot",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "network_settings",
+            "component": "Link",
+            "props": {
+              "label": "Network settings"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "ede_open_document",
+                  "args": {
+                    "name": "settings"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
     ]
   },
-  "data": {"services": {"network": {"available": false, "reason": "", "wifiEnabled": false, "wiredConnected": false, "wired": [], "vpn": [], "accessPoints": []}}}
+  "data": {
+    "services": {
+      "network": {
+        "available": false,
+        "reason": "",
+        "wifiEnabled": false,
+        "wiredConnected": false,
+        "wired": [],
+        "vpn": [],
+        "accessPoints": []
+      }
+    }
+  }
 }

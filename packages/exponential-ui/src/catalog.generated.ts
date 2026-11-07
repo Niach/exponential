@@ -6,8 +6,11 @@ import type { DataBinding, FunctionCall } from "./types"
 
 export const CATALOG_ID = "https://ui.exponential.at/catalogs/core/v1"
 export const LITE_CATALOG_ID = "https://ui.exponential.at/catalogs/core-lite/v1"
-export const BASIC_CATALOG_ID = "https://a2ui.org/specification/v0_9/basic_catalog.json"
-export const BASIC_VERSION = "v0.9"
+export const BASIC_CATALOG_ID = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+/** VAPP-289: the A2UI wire version every core entry accepts and emits (catalog/host.json `a2uiVersion`). */
+export const A2UI_VERSION = "1.0"
+/** VAPP-289 (round 9 §14): while true, every core entry upgrades 0.9 input through upgrade09 (catalog/host.json `transition.acceptV09`). */
+export const ACCEPT_V09: boolean = true
 export const CATALOG_VERSION = "1"
 export const UNKNOWN_COMPONENT_NAME = "Unknown"
 
@@ -181,7 +184,7 @@ export type IconName = (typeof ICON_NAMES)[number]
 /** The shared shapes (catalog `defs`). */
 export interface Shapes {
   option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; image?: string; count?: number | Dynamic }
-  check: { condition: boolean | Dynamic; message: string }
+  check: { condition: Dynamic; message?: string }
   tab: { label: string | Dynamic; value: string; icon?: IconName; count?: number }
   menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; shortcut?: string; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
   searchItem: { label: string | Dynamic; value: string; icon?: IconName; identifier?: string; disabled?: boolean }
@@ -219,7 +222,7 @@ export interface ComponentProps {
   Group: { title?: string; footer?: string }
   Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; style?: Style }
   Heading: { text: string | Dynamic; level?: HeadingLevelValue }
-  Markdown: { text: string | Dynamic; lines?: number; style?: Style }
+  Markdown: { text: string | Dynamic; profile?: "document" | "inline"; variant?: "body" | "caption"; lines?: number; style?: Style }
   CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }
   Kbd: { keys: string }
   Label: { text: string | Dynamic; for?: string; required?: boolean }
@@ -305,7 +308,7 @@ export interface ComponentProps {
 }
 
 /** A2UI basic component → core component. */
-export const BASIC_COMPONENT_MAP: Record<string, string> = {"Text":"Text","Image":"Image","Icon":"Icon","Video":"Video","AudioPlayer":"AudioPlayer","Row":"Stack","Column":"Stack","List":"List","Card":"Card","Tabs":"Tabs","Modal":"Dialog","Divider":"Separator","Button":"Button","TextField":"Input","CheckBox":"Checkbox","ChoicePicker":"Radio","Slider":"Slider","DateTimeInput":"DatePicker"}
+export const BASIC_COMPONENT_MAP: Record<string, string> = {"Text":"Markdown","Image":"Image","Icon":"Icon","Video":"Video","AudioPlayer":"AudioPlayer","Row":"Stack","Column":"Stack","List":"List","Card":"Card","Tabs":"Tabs","Modal":"Dialog","Divider":"Separator","Button":"Button","TextField":"Input","CheckBox":"Checkbox","ChoicePicker":"Radio","Slider":"Slider","DateTimeInput":"DatePicker"}
 /** A2UI basic icon name → icons.json name (the placeholder where none exists). */
 export const BASIC_ICON_MAP: Record<string, string> = {"accountCircle":"ui-assignee","add":"ui-add","arrowBack":"ui-back","arrowForward":"ui-arrow-right","attachFile":"ui-attach","calendarToday":"calendar","call":"phone","camera":"camera","check":"ui-check","close":"ui-close","delete":"ui-delete","download":"ui-download","edit":"ui-edit","event":"ui-due-date","error":"ui-error","fastForward":"media-fast-forward","favorite":"heart","favoriteOff":"ui-favorite-off","folder":"ui-folder","help":"ui-help","home":"house","info":"ui-info","locationOn":"map-pin","lock":"ui-private","lockOpen":"ui-unlock","mail":"ui-mail","menu":"ui-menu","moreVert":"ui-more-vertical","moreHoriz":"ui-more","notificationsOff":"ui-unsubscribe","notifications":"ui-subscribe","pause":"run-pause","payment":"credit-card","person":"ui-avatar-placeholder","phone":"smartphone","photo":"image","play":"action-run","print":"ui-print","refresh":"ui-refresh","rewind":"media-rewind","search":"nav-search","send":"ui-send","settings":"nav-settings","share":"ui-share","shoppingCart":"shopping-cart","skipNext":"media-skip-next","skipPrevious":"media-skip-previous","star":"star","starHalf":"ui-star-half","starOff":"ui-star-off","stop":"ui-stop","upload":"sc-push","visibility":"ui-watch","visibilityOff":"ui-hide","volumeDown":"media-volume-down","volumeMute":"media-volume-mute","volumeOff":"media-volume-off","volumeUp":"media-volume-up","warning":"ui-warning"}
 export const BASIC_PLACEHOLDER_ICON = "ui-icon-placeholder"

@@ -57,56 +57,57 @@ describe(`bound macro inputs (§1)`, () => {
   })
 
   test(`the audit's bugs: Progress width, Pagination label, Collapsible body, Chip label`, () => {
-    const progress = expand({ id: `p`, component: `Progress`, props: { value: { path: `/upload` } } })
-    expect(byId(progress, `p.track.fill`)!.style!.width).toEqual({ call: `percent`, args: { value: { path: `/upload` }, max: 100 } })
-    const pager = expand({ id: `g`, component: `Pagination`, props: { totalPages: 5, page: { path: `/page` } } })
-    expect(byId(pager, `g.label`)!.props.text).toEqual({ call: `concat`, args: { values: [{ call: `fallback`, args: { value: { path: `/page` }, default: 1 } }, ` / `, 5] } })
-    const collapsible = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, children: [{ id: `c-x`, component: `Text`, props: { text: `x` } }] })
-    expect(byId(collapsible, `c.body`)!.visible).toEqual({ path: `/open` })
-    const pill = expand({ id: `pl`, component: `Chip`, props: { label: { path: `/name` } } })
-    expect(byId(pill, `pl.label`)!.props.text).toEqual({ path: `/name` })
+    const progress = expand({ id: `p`, component: `Progress`, props: { value: { "@path": `/upload` } } })
+    expect(byId(progress, `p.track.fill`)!.style!.width).toEqual({ "@call": `percent`, args: { value: { "@path": `/upload` }, max: 100 } })
+    const pager = expand({ id: `g`, component: `Pagination`, props: { totalPages: 5, page: { "@path": `/page` } } })
+    expect(byId(pager, `g.label`)!.props.text).toEqual({ "@call": `concat`, args: { values: [{ "@call": `fallback`, args: { value: { "@path": `/page` }, default: 1 } }, ` / `, 5] } })
+    const collapsible = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/open` } }, children: [{ id: `c-x`, component: `Text`, props: { text: `x` } }] })
+    expect(byId(collapsible, `c.body`)!.visible).toEqual({ "@path": `/open` })
+    const pill = expand({ id: `pl`, component: `Chip`, props: { label: { "@path": `/name` } } })
+    expect(byId(pill, `pl.label`)!.props.text).toEqual({ "@path": `/name` })
   })
 
   test(`resolved against data, the bound expansions show the right values`, () => {
-    const progress = expand({ id: `p`, component: `Progress`, props: { value: { path: `/upload` }, max: 200 } })
+    const progress = expand({ id: `p`, component: `Progress`, props: { value: { "@path": `/upload` }, max: 200 } })
     expect(bindTree(progress, { upload: 50 })!.children[0].children[0].style!.width).toBe(`25%`)
-    const pager = expand({ id: `g`, component: `Pagination`, props: { totalPages: 5, page: { path: `/page` } } })
+    const pager = expand({ id: `g`, component: `Pagination`, props: { totalPages: 5, page: { "@path": `/page` } } })
     const bound = bindTree(pager, { page: 1 })!
     expect(bound.children[1].props.text).toBe(`1 / 5`)
     expect(bound.children[0].props.disabled).toBe(true)
     expect(bindTree(pager, {})!.children[1].props.text).toBe(`1 / 5`)
-    const collapsible = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, children: [{ id: `c-x`, component: `Text`, props: { text: `x` } }] })
+    const collapsible = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/open` } }, children: [{ id: `c-x`, component: `Text`, props: { text: `x` } }] })
     expect(bindTree(collapsible, { open: false })!.children.map((n) => n.id)).toEqual([`c.trigger`])
     expect(bindTree(collapsible, { open: true })!.children.map((n) => n.id)).toEqual([`c.trigger`, `c.body`])
   })
 
   test(`$set: a bound prop gets the write-back, the author's event keeps its routed context`, () => {
-    const withHandler = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, on: { change: { event: { name: `toggled` } } } })
+    const withHandler = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { "@path": `/open` } }, on: { change: { event: { name: `toggled` } } } })
     const press = byId(withHandler, `c.trigger`)!.on!.press as Action
     expect(Object.keys(press)).toEqual([`event`, `functionCall`])
-    expect(press.functionCall).toEqual({ call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { path: `/open` } } } } })
+    expect(press.functionCall).toEqual({ "@call": `set`, args: { path: `/open`, value: { "@call": `not`, args: { value: { "@path": `/open` } } } } })
     const outcome = runAction(press, { open: false })
     expect(outcome.data).toEqual({ open: true })
     expect(outcome.event).toEqual({ name: `toggled`, context: { open: true } })
     const literal = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: false }, on: { change: { event: { name: `toggled` } } } })
     expect(byId(literal, `c.trigger`)!.on!.press).toEqual({ event: { name: `toggled`, context: { open: true } } })
     // Round 3: a collapsible Section's header writes `open` back like Collapsible's trigger.
-    const section = expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } } })
+    const section = expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { "@path": `/open` } } })
     expect(runAction(byId(section, `s.header`)!.on!.press, { open: true }).data).toEqual({ open: false })
-    const alert = expand({ id: `a`, component: `AlertDialog`, props: { title: `Sure?`, open: { path: `/ask` } } })
+    const alert = expand({ id: `a`, component: `AlertDialog`, props: { title: `Sure?`, open: { "@path": `/ask` } } })
     expect(runAction(alert.slots!.footer.children[1].on!.press, { ask: true }).data).toEqual({ ask: false })
   })
 
   test(`$each over a bound array emits nothing; a bound $any emits the condition (an or of several)`, () => {
     // expandMacros directly: these props are not bindable in the catalog, the
     // expander's rules hold for any input (extensions may bind them).
-    const bc = expandMacros({ id: `b`, component: `Breadcrumb`, props: { items: { path: `/items` } }, children: [] })
+    const bc = expandMacros({ id: `b`, component: `Breadcrumb`, props: { items: { "@path": `/items` } }, children: [] })
     expect(bc.children).toEqual([])
-    const one = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: { path: `/l` } }, children: [] })
-    expect(one.children[0].visible).toEqual({ path: `/l` })
-    const both = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: { path: `/l` }, value: { path: `/v` } }, children: [] })
-    expect(both.children[0].visible).toEqual({ call: `or`, args: { values: [{ path: `/l` }, { path: `/v` }] } })
-    const literal = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: `Disk`, value: { path: `/v` } }, children: [] })
+    const one = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: { "@path": `/l` } }, children: [] })
+    expect(one.children[0].visible).toEqual({ "@call": `cond`, args: { if: { "@path": `/l` }, then: true, else: false } })
+    const both = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: { "@path": `/l` }, value: { "@path": `/v` } }, children: [] })
+    const has = (path: string) => ({ "@call": `cond`, args: { if: { "@path": path }, then: true, else: false } })
+    expect(both.children[0].visible).toEqual({ "@call": `or`, args: { values: [has(`/l`), has(`/v`)] } })
+    const literal = expandMacros({ id: `m`, component: `Meter`, props: { segments: [], label: `Disk`, value: { "@path": `/v` } }, children: [] })
     expect(literal.children[0].visible).toBeUndefined()
   })
 
@@ -160,8 +161,8 @@ describe(`responsive props (§2)`, () => {
     expect(md.children[0].style!["@media (max-width: $breakpoint.md)"]).toEqual({ display: `none` })
     const never = expand({ id: `sb`, component: `Sidebar`, props: { collapseBelow: `never` } })
     expect(Object.keys(never.children[0].style!).some((k) => k.startsWith(`@media`))).toBe(false)
-    const bound = expand({ id: `sb`, component: `Sidebar`, props: { collapsed: { path: `/c` } } })
-    expect(bound.children[0].visible).toEqual({ call: `not`, args: { value: { path: `/c` } } })
+    const bound = expand({ id: `sb`, component: `Sidebar`, props: { collapsed: { "@path": `/c` } } })
+    expect(bound.children[0].visible).toEqual({ "@call": `not`, args: { value: { "@path": `/c` } } })
   })
 })
 
@@ -170,16 +171,16 @@ describe(`the bind pass (§1)`, () => {
     const data = { a: { "b/c": [1, { d: 2 }] } }
     expect(readPointer(data, `/a/b~1c/1/d`)).toBe(2)
     expect(absolutePath(`d`, { base: `/a/b~1c/1` })).toBe(`/a/b~1c/1/d`)
-    expect(resolveDynamic({ path: `d` }, data, { scope: { base: `/a/b~1c/1` } })).toBe(2)
+    expect(resolveDynamic({ "@path": `d` }, data, { scope: { base: `/a/b~1c/1` } })).toBe(2)
     const written = writePointer(data, `/a/x/y`, 3).data as Record<string, Record<string, unknown>>
     expect(written.a.x).toEqual({ y: 3 })
     expect((data.a as Record<string, unknown>).x).toBeUndefined()
   })
 
   test(`values resolve at any depth; unknown functions are undefined`, () => {
-    expect(resolveDynamic({ series: [{ values: { path: `/v` } }], n: { call: `len`, args: { value: { path: `/v` } } } }, { v: [1, 2] })).toEqual({ series: [{ values: [1, 2] }], n: 2 })
-    expect(resolveDynamic({ call: `nope` }, {})).toBeUndefined()
-    expect(resolveDynamic({ call: `and`, args: { values: [true, { path: `/x` }] } }, { x: 0 })).toBe(true)
+    expect(resolveDynamic({ series: [{ values: { "@path": `/v` } }], n: { "@call": `len`, args: { value: { "@path": `/v` } } } }, { v: [1, 2] })).toEqual({ series: [{ values: [1, 2] }], n: 2 })
+    expect(resolveDynamic({ "@call": `nope` }, {})).toBeNull()
+    expect(resolveDynamic({ "@call": `and`, args: { values: [true, { "@path": `/x` }] } }, { x: 0 })).toBe(false)
   })
 
   test(`fixtures/bind-time.json replays: bound trees and presses`, () => {
@@ -355,17 +356,17 @@ describe(`reducer and schema additions`, () => {
   test(`visible, template keys and accessibility on the flat form; slots admitted by name or *`, () => {
     const flat: FlatComponent[] = [
       { id: `root`, component: `Stack`, children: [`list`, `t`, `x`] },
-      { id: `list`, component: `List`, children: { componentId: `row`, path: `/rows`, key: `id` }, visible: { path: `/show` } },
-      { id: `row`, component: `Row`, title: { path: `name` } },
+      { id: `list`, component: `List`, children: { componentId: `row`, path: `/rows`, key: `id` }, visible: { "@path": `/show` } },
+      { id: `row`, component: `Row`, title: { "@path": `name` } },
       { id: `t`, component: `Table`, columns: [{ key: `s`, label: `S`, type: `slot`, slot: `status` }], rows: [], slots: { status: `cell` }, accessibility: { label: `Members` } },
-      { id: `cell`, component: `Badge`, text: { path: `s` } },
+      { id: `cell`, component: `Badge`, text: { "@path": `s` } },
       { id: `x`, component: `Text`, text: `x`, visible: `yes` as unknown as boolean, slots: { nope: `cell2` } },
       { id: `cell2`, component: `Badge`, text: `x` },
     ]
     const { root, issues } = reduceSurface(flat, { catalogId: CORE_CATALOG_ID })
     const list = root.children[0]
     expect(list.template).toEqual({ component: `row`, path: `/rows`, key: `id` })
-    expect(list.visible).toEqual({ path: `/show` })
+    expect(list.visible).toEqual({ "@path": `/show` })
     expect(root.children[1].accessibility).toEqual({ label: `Members` })
     expect(root.children[1].slots!.status.component).toBe(`Box`)
     expect(issues.map((i) => `${i.id}: ${i.message}`)).toEqual([`x: visible: expected a boolean, a binding or a function call`, `x: slots.nope: Text has no such slot`])
@@ -373,13 +374,13 @@ describe(`reducer and schema additions`, () => {
 
   test(`the core schema knows visible, responsive values, any-slot tables, both-action and the core functions`, () => {
     const schema = coreSchema([`ui-check`]) as Record<string, Record<string, Record<string, unknown>>>
-    expect(schema.$defs.Visible).toBeDefined()
+    expect(JSON.stringify(schema.components.Text)).toContain(`"visible":{"$ref":"common_types.json#/$defs/DynamicBoolean"}`)
     expect(Object.keys(schema.functions)).toContain(`percent`)
     expect(Object.keys(schema.functions)).toContain(`set`)
     const stack = JSON.stringify(schema.components.Stack)
     expect(stack).toContain(`"required":["base"]`)
-    expect(JSON.stringify(schema.components.Table)).toContain(`"additionalProperties":{"$ref":"#/$defs/ComponentId"}`)
-    expect(JSON.stringify(schema.$defs.Action)).toContain(`anyOf`)
+    expect(JSON.stringify(schema.$defs.Slots_Table)).toContain(`"additionalProperties":{"$ref":"common_types.json#/$defs/ComponentId"}`)
+    expect(JSON.stringify(schema.$defs.EuiAction)).toContain(`anyOf`)
     expect(JSON.stringify(schema.$defs.Style)).toContain(`:focus-visible`)
   })
 
@@ -392,8 +393,8 @@ describe(`reducer and schema additions`, () => {
   })
 
   test(`expansion keeps a node's visible and accessibility on the macro root`, () => {
-    const root = expandMacros({ id: `b`, component: `Badge`, props: { text: `x` }, children: [], visible: { path: `/v` }, accessibility: { label: `Count` } })
-    expect(root.visible).toEqual({ path: `/v` })
+    const root = expandMacros({ id: `b`, component: `Badge`, props: { text: `x` }, children: [], visible: { "@path": `/v` }, accessibility: { label: `Count` } })
+    expect(root.visible).toEqual({ "@path": `/v` })
     expect(root.accessibility).toEqual({ label: `Count` })
   })
 })

@@ -270,7 +270,21 @@ pub struct LayoutOutput {
 pub enum OutEvent {
     /// A server event (A2UI `action`): forward it. `context` = the author's
     /// context with the event payload merged over it.
-    Action { name: String, component_id: String, event: String, context: Value, #[serde(skip_serializing_if = "Option::is_none")] payload: Option<Value> },
+    /// Round 9 §1.3: `user_message` = the Action's `event.userMessage`,
+    /// resolved to a string.
+    Action {
+        name: String,
+        component_id: String,
+        event: String,
+        context: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        payload: Option<Value>,
+        #[serde(default, rename = "userMessage", skip_serializing_if = "Option::is_none")]
+        user_message: Option<String>,
+    },
+    /// Round 9 §6.8: resolving an action failed: it stopped (no write, no
+    /// event). The host sends the `error`.
+    ActionFailed { component_id: String, code: String, message: String },
     /// `openUrl` or a `Link`.
     OpenUrl { url: String },
     /// An `on.<event>` `functionCall` naming a HOST function (not one of
@@ -516,6 +530,16 @@ pub struct Surface {
     pub(crate) issues: Vec<ReduceIssue>,
     reduce_issues: Vec<ReduceIssue>,
     pub(crate) build_issues: Vec<ReduceIssue>,
+    /// Round 9 §6.8: reactive failures since the last [`Surface::take_failures`].
+    pub(crate) failures: Arc<std::sync::Mutex<Vec<crate::data::Failure>>>,
+    /// Round 9 §6.5: where reactive calls that are no local function go.
+    pub(crate) call_route: Option<CallRoute>,
+    /// A reactive call went through [`Self::call_route`] since the last ask.
+    routed: Arc<std::sync::atomic::AtomicBool>,
+    /// [`Self::issues`]' length at the last [`Self::mark_flushed`].
+    flushed_issues: std::sync::atomic::AtomicUsize,
+    /// What [`Surface::take_failures`] already answered (once per lifetime).
+    sent_failures: HashSet<(String, String, String)>,
     pub(crate) style_issues: Vec<ReduceIssue>,
     local: LocalState,
     states: HashMap<String, Vec<String>>,
@@ -599,7 +623,12 @@ pub struct Surface {
     /// host's [`Surface::assign_data`]); a painter's focused field adopts a
     /// changed bound value when this moved since it last looked.
     write_epoch: u64,
+    /// Round 9 §14: the 0.9 bridge's id maps across this surface's stream.
+    upgrade_state: crate::upgrade09::Upgrade09State,
 }
+
+/// What [`Surface::set_call_route`] takes.
+pub type CallRoute = Arc<dyn Fn(crate::data::RoutedCall) -> crate::data::RouteAnswer + Send + Sync>;
 
 // SAFETY: taffy's `CompactLength` carries a `*const ()` slot for `calc()`
 // expressions, which makes `Style` `!Send`. This crate never builds a calc
@@ -634,6 +663,11 @@ impl Surface {
             issues: Vec::new(),
             reduce_issues: Vec::new(),
             build_issues: Vec::new(),
+            failures: Default::default(),
+            call_route: None,
+            routed: Default::default(),
+            flushed_issues: Default::default(),
+            sent_failures: HashSet::new(),
             style_issues: Vec::new(),
             local: LocalState::default(),
             states: HashMap::new(),
@@ -687,6 +721,7 @@ impl Surface {
             clock: None,
             data_version: 0,
             write_epoch: 0,
+            upgrade_state: Default::default(),
         };
         s.refresh_theme();
         s
@@ -732,7 +767,7 @@ impl Surface {
     pub fn uses_clock(&self) -> bool {
         fn relative_call(v: &Value) -> bool {
             match v {
-                Value::Object(o) => (o.get("call").and_then(Value::as_str) == Some("formatRelativeTime") && o.get("args").and_then(|a| a.get("now")).is_none()) || o.values().any(relative_call),
+                Value::Object(o) => (o.get("@call").and_then(Value::as_str) == Some("formatRelativeTime") && o.get("args").and_then(|a| a.get("now")).is_none()) || o.values().any(relative_call),
                 Value::Array(a) => a.iter().any(relative_call),
                 _ => false,
             }
@@ -1250,7 +1285,33 @@ impl Surface {
     /// Apply one A2UI server→client message (`createSurface`,
     /// `updateComponents`, `updateDataModel`, `deleteSurface`).
     pub fn apply(&mut self, message: &Value) -> Result<ApplyOutcome, String> {
-        let obj = message.as_object().ok_or("message must be an object")?;
+        self.apply_with(message, crate::catalog::ACCEPT_V09)
+    }
+
+    /// [`Self::apply`] with the 0.9 bridge on or off (round 9 §1.5: the
+    /// bare surface path checks the version like every core entry; 0.9 is
+    /// upgraded while `accept_v09`, else refused). A refused message is the
+    /// `Err` (the INVALID_MESSAGE text).
+    pub fn apply_with(&mut self, message: &Value, accept_v09: bool) -> Result<ApplyOutcome, String> {
+        let obj = message.as_object().ok_or("a message is a JSON object")?;
+        match crate::host::check_envelope(obj, accept_v09) {
+            crate::host::Envelope::V10 => {}
+            crate::host::Envelope::Refused(reason) => return Err(reason),
+            crate::host::Envelope::Upgrade => {
+                let (messages, state) = crate::upgrade09::upgrade_message09(message, &self.upgrade_state);
+                self.upgrade_state = state;
+                let mut out = ApplyOutcome { structure_changed: false, issues: Vec::new() };
+                for m in messages {
+                    if m.get("version").and_then(Value::as_str) != Some(crate::catalog::A2UI_VERSION) {
+                        return Err("upgrade09 produced no 1.0 message".into());
+                    }
+                    let o = self.apply_with(&m, false)?;
+                    out.structure_changed |= o.structure_changed;
+                    out.issues.extend(o.issues);
+                }
+                return Ok(out);
+            }
+        }
         if let Some(create) = obj.get("createSurface") {
             if let Some(cid) = create.get("catalogId").and_then(Value::as_str) {
                 self.catalog_id = cid.to_string();
@@ -1260,25 +1321,48 @@ impl Surface {
             }
             self.set_component_list(Vec::new());
             self.nested = None;
-            self.data = Value::Object(Map::new());
+            self.data = match create.get("dataModel") {
+                Some(Value::Object(d)) => Value::Object(d.clone()),
+                _ => Value::Object(Map::new()),
+            };
             self.data_version += 1;
             self.local = LocalState::default();
             self.template_cache.clear();
+            if let Some(components) = create.get("components").and_then(Value::as_array) {
+                let (list, mut issues) = self.checked_entries("createSurface", components);
+                let outcome = self.update_components(list);
+                self.ensure_reduced();
+                issues.extend(outcome.issues);
+                return Ok(ApplyOutcome { structure_changed: true, issues });
+            }
             self.reduce();
             return Ok(ApplyOutcome { structure_changed: true, issues: self.issues.clone() });
         }
         if let Some(update) = obj.get("updateComponents") {
-            let components = update.get("components").ok_or("updateComponents.components is required")?;
-            let list: Vec<FlatComponent> = serde_json::from_value(components.clone()).map_err(|e| format!("components: {e}"))?;
-            return Ok(self.update_components(list));
+            let components = update.get("components").and_then(Value::as_array).ok_or("updateComponents.components is required")?;
+            if components.is_empty() {
+                return Err("updateComponents.components needs at least one component".into());
+            }
+            // Round 9 §5.2: entry by entry; a malformed entry is dropped with
+            // its issue and the rest applies.
+            let (list, mut issues) = self.checked_entries("updateComponents", components);
+            let outcome = self.update_components(list);
+            issues.extend(outcome.issues);
+            return Ok(ApplyOutcome { structure_changed: outcome.structure_changed, issues });
         }
         self.ensure_reduced();
         if let Some(update) = obj.get("updateDataModel") {
-            let path = update.get("path").and_then(Value::as_str).unwrap_or("");
-            let value = update.get("value").cloned();
-            let issues = match self.set_data(path, value) {
+            let path = crate::host::normalize_path(update.get("path").and_then(Value::as_str));
+            let value = update.get("value").ok_or("updateDataModel.value is required (null deletes)")?;
+            let result = match value {
+                // `null` deletes; on the whole model that resets it to `{}`.
+                Value::Null if path.is_empty() => self.set_data("", Some(Value::Object(Map::new()))),
+                Value::Null => self.set_data(&path, None),
+                v => self.set_data(&path, Some(v.clone())),
+            };
+            let issues = match result {
                 Ok(()) => Vec::new(),
-                Err(message) => vec![ReduceIssue { id: path.to_string(), message }],
+                Err(message) => vec![ReduceIssue::new(path.to_string(), message)],
             };
             return Ok(ApplyOutcome { structure_changed: self.needs_build, issues });
         }
@@ -1293,6 +1377,70 @@ impl Surface {
             return Ok(ApplyOutcome { structure_changed: true, issues: Vec::new() });
         }
         Err("unknown message: expected createSurface | updateComponents | updateDataModel | deleteSurface".into())
+    }
+
+    /// Round 9 §6.5: route this surface's reactive calls through the host
+    /// (`host::route_handle`).
+    pub fn set_call_route(&mut self, route: Option<CallRoute>) {
+        let routed = self.routed.clone();
+        self.call_route = route.map(|route| -> CallRoute {
+            Arc::new(move |call| {
+                routed.store(true, std::sync::atomic::Ordering::Relaxed);
+                route(call)
+            })
+        });
+        self.needs_build = true;
+    }
+
+    /// Must the host flush after this layout: a reactive failure, a call
+    /// that went through the route (it may have queued a message), or
+    /// issues it has not seen? (`CallHub::flush_surface`.)
+    pub fn needs_flush(&mut self) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.routed.load(Relaxed) || self.issues().len() != self.flushed_issues.load(Relaxed) || self.failures.lock().map(|l| !l.is_empty()).unwrap_or(false)
+    }
+
+    /// The host flushed.
+    pub fn mark_flushed(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.routed.store(false, Relaxed);
+        let seen = self.issues().len();
+        self.flushed_issues.store(seen, Relaxed);
+    }
+
+    /// A routed value settled (`CallHub::take_dirty`): bind again.
+    pub fn rebind(&mut self) {
+        self.needs_build = true;
+    }
+
+    /// Round 9 §6.8: the reactive failures (bindings, `visible`) of the
+    /// builds since the last call, each `(code, path, message)` once for the
+    /// surface's lifetime: the host sends them as `error` messages.
+    pub fn take_failures(&mut self) -> Vec<crate::data::Failure> {
+        let list = self.failures.lock().map(|mut l| std::mem::take(&mut *l)).unwrap_or_default();
+        list.into_iter().filter(|f| self.sent_failures.insert((f.code.clone(), f.path.clone().unwrap_or_default(), f.message.clone()))).collect()
+    }
+
+    /// Round 9 §5.2: the entries that pass [`crate::host::check_entry`] and
+    /// deserialize, plus one issue per dropped entry (id = the path).
+    fn checked_entries(&self, kind: &str, components: &[Value]) -> (Vec<FlatComponent>, Vec<ReduceIssue>) {
+        let mut list = Vec::new();
+        let mut issues = Vec::new();
+        for (i, entry) in components.iter().enumerate() {
+            if let Some((at, message)) = crate::host::check_entry(entry, Some(&self.catalog_id), &self.view) {
+                let path = format!("/{kind}/components/{i}{at}");
+                issues.push(ReduceIssue { id: path.clone(), message, code: "INVALID_MESSAGE".into(), path });
+                continue;
+            }
+            match serde_json::from_value::<FlatComponent>(entry.clone()) {
+                Ok(c) => list.push(c),
+                Err(e) => {
+                    let path = format!("/{kind}/components/{i}");
+                    issues.push(ReduceIssue { id: path.clone(), message: format!("components[{i}]: {e}"), code: "INVALID_MESSAGE".into(), path });
+                }
+            }
+        }
+        (list, issues)
     }
 
     /// An `updateComponents` payload. A2UI: a later update replaces

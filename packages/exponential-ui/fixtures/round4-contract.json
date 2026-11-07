@@ -296,7 +296,9 @@
       "issues": [
         {
           "id": "card24",
-          "message": "nesting deeper than 48 levels"
+          "message": "nesting deeper than 48 levels",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/card24"
         }
       ]
     },
@@ -312,7 +314,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.fontColor: not in the Box style whitelist"
+          "message": "style.fontColor: not in the Box style whitelist",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/fontColor"
         }
       ]
     },
@@ -328,7 +332,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.gap: gap: expected px, \"N%\", \"auto\" or a numeric token"
+          "message": "style.gap: gap: expected px, \"N%\", \"auto\" or a numeric token",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/gap"
         }
       ]
     },
@@ -345,7 +351,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.backgroundColor: backgroundColor: expected $color.<name>"
+          "message": "style.backgroundColor: backgroundColor: expected $color.<name>",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/backgroundColor"
         }
       ]
     },
@@ -363,7 +371,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.@media (min-width: $breakpoint.md).borderColor: borderColor: expected $color.<name>"
+          "message": "style.@media (min-width: $breakpoint.md).borderColor: borderColor: expected $color.<name>",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/@media (min-width: $breakpoint/md)/borderColor"
         }
       ]
     },
@@ -391,7 +401,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "style.backgroundGradient: backgroundGradient: expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops"
+          "message": "style.backgroundGradient: backgroundGradient: expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/style/backgroundGradient"
         }
       ]
     },
@@ -408,7 +420,9 @@
       "issues": [
         {
           "id": "root",
-          "message": "props.dot: expected $color.<name>"
+          "message": "props.dot: expected $color.<name>",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/dot"
         }
       ]
     },
@@ -435,7 +449,7 @@
         "on": {
           "press": {
             "functionCall": {
-              "call": "opneUrl",
+              "@call": "opneUrl",
               "args": {
                 "url": "https://ui.exponential.at/"
               }
@@ -443,12 +457,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "on.press.functionCall: unknown function \"opneUrl\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "action: a namespaced host function passes",
@@ -461,7 +470,7 @@
         "on": {
           "press": {
             "functionCall": {
-              "call": "app.toast",
+              "@call": "app_toast",
               "args": {
                 "text": "Hi"
               }
@@ -485,10 +494,10 @@
               "name": "save",
               "context": {
                 "title": {
-                  "call": "trimm",
+                  "@call": "trimm",
                   "args": {
                     "value": {
-                      "path": "/title"
+                      "@path": "/title"
                     }
                   }
                 }
@@ -497,12 +506,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "on.press.event.context.title: unknown function \"trimm\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "prop: an unknown function in a binding",
@@ -511,7 +515,7 @@
         "component": "Text",
         "props": {
           "text": {
-            "call": "concatt",
+            "@call": "concatt",
             "args": {
               "values": [
                 "a",
@@ -521,12 +525,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "props.text: unknown function \"concatt\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "visible: an unknown function",
@@ -537,20 +536,15 @@
           "text": "x"
         },
         "visible": {
-          "call": "nott",
+          "@call": "nott",
           "args": {
             "value": {
-              "path": "/hide"
+              "@path": "/hide"
             }
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "visible: unknown function \"nott\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "data: a literal Table row with a call key is a row, never a function",
@@ -594,7 +588,7 @@
           "options": [
             {
               "label": {
-                "call": "uppr",
+                "@call": "uppr",
                 "args": {
                   "value": "a"
                 }
@@ -608,12 +602,7 @@
           ]
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "props.options[0].label: unknown function \"uppr\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "action: an unknown function nested in another call's args",
@@ -626,11 +615,11 @@
         "on": {
           "press": {
             "functionCall": {
-              "call": "set",
+              "@call": "set",
               "args": {
                 "path": "/n",
                 "value": {
-                  "call": "ad",
+                  "@call": "ad",
                   "args": {
                     "a": 1,
                     "b": 2
@@ -641,12 +630,7 @@
           }
         }
       },
-      "issues": [
-        {
-          "id": "root",
-          "message": "on.press.functionCall.args.value: unknown function \"ad\"; known: the catalog functions, or a namespaced host function (app.toast)"
-        }
-      ]
+      "issues": []
     },
     {
       "name": "Table: a slot column naming a missing slot",
@@ -672,7 +656,7 @@
             }
           ],
           "rows": {
-            "path": "/rows"
+            "@path": "/rows"
           }
         },
         "slots": {
@@ -681,7 +665,7 @@
             "component": "Badge",
             "props": {
               "text": {
-                "path": "status"
+                "@path": "status"
               }
             }
           }
@@ -690,11 +674,15 @@
       "issues": [
         {
           "id": "root",
-          "message": "props.columns[1].slot: no slot \"status\" on this Table; slots: state"
+          "message": "props.columns[1].slot: no slot \"status\" on this Table; slots: state",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/columns/1/slot"
         },
         {
           "id": "root",
-          "message": "props.columns[2].slot: a slot column names one of the Table's slots"
+          "message": "props.columns[2].slot: a slot column names one of the Table's slots",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/root/columns/2/slot"
         }
       ]
     },
@@ -717,20 +705,20 @@
             }
           ],
           "rows": {
-            "call": "filter",
+            "@call": "filter",
             "args": {
               "items": {
-                "path": "/rows"
+                "@path": "/rows"
               },
               "query": {
-                "path": "/query"
+                "@path": "/query"
               },
               "fields": [
                 "title"
               ],
               "where": {
                 "status": {
-                  "path": "/status"
+                  "@path": "/status"
                 }
               }
             }
@@ -742,7 +730,7 @@
             "component": "Badge",
             "props": {
               "text": {
-                "path": "status"
+                "@path": "status"
               }
             }
           }
@@ -1046,7 +1034,9 @@
       "issues": [
         {
           "id": "card24",
-          "message": "nesting deeper than 48 levels"
+          "message": "nesting deeper than 48 levels",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/card24"
         }
       ],
       "placeholders": [
@@ -1240,7 +1230,9 @@
       "issues": [
         {
           "id": "tcard24",
-          "message": "nesting deeper than 48 levels"
+          "message": "nesting deeper than 48 levels",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/tcard24"
         }
       ],
       "placeholders": [
@@ -1404,7 +1396,9 @@
       "issues": [
         {
           "id": "nope",
-          "message": "unknown component NoSuchComponent"
+          "message": "unknown component NoSuchComponent",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/nope/component"
         }
       ],
       "placeholders": [
@@ -2077,7 +2071,7 @@
               "name": "q",
               "label": "Search",
               "value": {
-                "path": "/query"
+                "@path": "/query"
               }
             },
             "on": {
@@ -2086,7 +2080,7 @@
                   "name": "search",
                   "context": {
                     "query": {
-                      "path": "/query"
+                      "@path": "/query"
                     }
                   }
                 }
@@ -2135,7 +2129,7 @@
               "name": "q",
               "label": "Search",
               "value": {
-                "path": "/query"
+                "@path": "/query"
               }
             },
             "on": {
@@ -2144,16 +2138,16 @@
                   "name": "search",
                   "context": {
                     "hits": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "call": "filter",
+                          "@call": "filter",
                           "args": {
                             "items": {
-                              "path": "/issues"
+                              "@path": "/issues"
                             },
                             "query": {
-                              "path": "/query"
+                              "@path": "/query"
                             },
                             "fields": [
                               "title"
@@ -2261,7 +2255,7 @@
               "name": "s",
               "label": "Notify",
               "checked": {
-                "path": "/notify"
+                "@path": "/notify"
               }
             },
             "on": {
@@ -2270,7 +2264,7 @@
                   "name": "toggled",
                   "context": {
                     "notify": {
-                      "path": "/notify"
+                      "@path": "/notify"
                     }
                   }
                 }
@@ -2320,7 +2314,7 @@
               "label": "Attachments",
               "multiple": true,
               "files": {
-                "path": "/att"
+                "@path": "/att"
               }
             },
             "on": {
@@ -2329,10 +2323,10 @@
                   "name": "uploaded",
                   "context": {
                     "count": {
-                      "call": "len",
+                      "@call": "len",
                       "args": {
                         "value": {
-                          "path": "/att"
+                          "@path": "/att"
                         }
                       }
                     }
@@ -2479,7 +2473,7 @@
             "props": {
               "title": "New issue",
               "open": {
-                "path": "/open"
+                "@path": "/open"
               }
             },
             "on": {
@@ -2511,7 +2505,7 @@
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
@@ -2558,7 +2552,7 @@
             "props": {
               "title": "Filters",
               "open": {
-                "path": "/panel"
+                "@path": "/panel"
               },
               "side": "right"
             },
@@ -2584,7 +2578,7 @@
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
@@ -2629,7 +2623,7 @@
             "component": "Popover",
             "props": {
               "open": {
-                "path": "/pop"
+                "@path": "/pop"
               }
             },
             "children": [
@@ -2654,7 +2648,7 @@
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
@@ -2700,7 +2694,7 @@
             "props": {
               "title": "Edit",
               "open": {
-                "path": "/open"
+                "@path": "/open"
               }
             },
             "children": [
@@ -2709,7 +2703,7 @@
                 "component": "Popover",
                 "props": {
                   "open": {
-                    "path": "/pop"
+                    "@path": "/pop"
                   }
                 },
                 "slots": {
@@ -2743,7 +2737,7 @@
                           "name": "title",
                           "label": "Title",
                           "value": {
-                            "path": "/draft"
+                            "@path": "/draft"
                           }
                         }
                       },
@@ -2793,7 +2787,7 @@
             "props": {
               "title": "Required",
               "open": {
-                "path": "/open"
+                "@path": "/open"
               },
               "dismissible": false
             },
@@ -2819,7 +2813,7 @@
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
@@ -2865,7 +2859,7 @@
             "props": {
               "title": "Delete?",
               "open": {
-                "path": "/open"
+                "@path": "/open"
               }
             },
             "children": [
@@ -2890,7 +2884,7 @@
                       "name": "title",
                       "label": "Title",
                       "value": {
-                        "path": "/draft"
+                        "@path": "/draft"
                       }
                     }
                   },
@@ -2951,7 +2945,7 @@
                   "name": "title",
                   "label": "Title",
                   "value": {
-                    "path": "/draft"
+                    "@path": "/draft"
                   }
                 }
               },

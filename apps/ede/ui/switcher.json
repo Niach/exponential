@@ -1,22 +1,176 @@
 {
   "$comment": "Exponential Desktop's factory window switcher (#EDE-12): Alt+Tab opens it as an overlay layer surface in the middle of the screen (onDemand: the shell opens and closes it on the compositor's switcher.* hotkeys), Tab moves the selection, releasing Alt focuses the selected window, Escape cancels, a click picks a tile. The shell feeds /switcher (the open windows, most recent first, with live thumbnails at about 5 fps captured over ede-protocol into Image; protected windows show no picture).",
-  "surface": {"layer": "overlay", "size": {"width": 760, "height": 196}, "onDemand": true, "functions": ["ede.select"]},
+  "surface": {
+    "layer": "overlay",
+    "size": {
+      "width": 760,
+      "height": 196
+    },
+    "onDemand": true,
+    "functions": [
+      "ede.select"
+    ]
+  },
   "root": {
     "id": "switcher",
     "component": "Box",
-    "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "gap": "$spacing.sm", "padding": "$spacing.md", "height": 196, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "style": {
+      "display": "flex",
+      "flexDirection": "row",
+      "alignItems": "center",
+      "justifyContent": "center",
+      "gap": "$spacing.sm",
+      "padding": "$spacing.md",
+      "height": 196,
+      "backgroundColor": "$color.popover",
+      "borderWidth": 1,
+      "borderColor": "$color.border",
+      "borderRadius": "$radius.lg"
+    },
     "children": [
-      {"id": "tiles", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "template": {"component": "tile", "path": "/switcher/windows", "key": "id"}, "children": []},
-      {"id": "tile", "component": "Box", "props": {"pressable": true}, "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "gap": "$spacing.xs", "padding": "$spacing.xs", "width": 200, "borderRadius": "$radius.md"},
-        "on": {"press": {"functionCall": {"call": "ede.select", "args": {"window": {"path": "id"}}}}},
+      {
+        "id": "tiles",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center"
+        },
+        "template": {
+          "component": "tile",
+          "path": "/switcher/windows",
+          "key": "id"
+        },
+        "children": []
+      },
+      {
+        "id": "tile",
+        "component": "Box",
+        "props": {
+          "pressable": true
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "padding": "$spacing.xs",
+          "width": 200,
+          "borderRadius": "$radius.md"
+        },
+        "on": {
+          "press": {
+            "functionCall": {
+              "@call": "ede_select",
+              "args": {
+                "window": {
+                  "@path": "id"
+                }
+              }
+            }
+          }
+        },
         "children": [
-          {"id": "thumb", "component": "Image", "props": {"src": {"path": "thumbnail"}, "alt": {"path": "title"}, "width": 184, "height": 110, "fit": "contain", "fallback": "ede-window"}},
-          {"id": "title", "component": "Text", "props": {"text": {"path": "title"}, "variant": "caption", "lines": 1, "align": "center"}},
-          {"id": "mark-on", "component": "Box", "style": {"height": 3, "width": 184, "borderRadius": "$radius.sm", "backgroundColor": "$color.primary"}, "visible": {"path": "selected"}},
-          {"id": "mark-off", "component": "Box", "style": {"height": 3, "width": 184}, "visible": {"call": "not", "args": {"value": {"path": "selected"}}}}
-        ]},
-      {"id": "no-windows", "component": "Text", "props": {"text": "No open windows", "variant": "muted"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/switcher/windows"}}}, "b": 0}}}
+          {
+            "id": "thumb",
+            "component": "Image",
+            "props": {
+              "src": {
+                "@path": "thumbnail"
+              },
+              "alt": {
+                "@path": "title"
+              },
+              "width": 184,
+              "height": 110,
+              "fit": "contain",
+              "fallback": "ede-window"
+            }
+          },
+          {
+            "id": "title",
+            "component": "Text",
+            "props": {
+              "text": {
+                "@path": "title"
+              },
+              "variant": "caption",
+              "lines": 1,
+              "align": "center"
+            }
+          },
+          {
+            "id": "mark_on",
+            "component": "Box",
+            "style": {
+              "height": 3,
+              "width": 184,
+              "borderRadius": "$radius.sm",
+              "backgroundColor": "$color.primary"
+            },
+            "visible": {
+              "@call": "cond",
+              "args": {
+                "if": {
+                  "@path": "selected"
+                },
+                "then": true,
+                "else": false
+              }
+            }
+          },
+          {
+            "id": "mark_off",
+            "component": "Box",
+            "style": {
+              "height": 3,
+              "width": 184
+            },
+            "visible": {
+              "@call": "not",
+              "args": {
+                "value": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "selected"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "no_windows",
+        "component": "Text",
+        "props": {
+          "text": "No open windows",
+          "variant": "muted"
+        },
+        "visible": {
+          "@call": "eq",
+          "args": {
+            "a": {
+              "@call": "len",
+              "args": {
+                "value": {
+                  "@path": "/switcher/windows"
+                }
+              }
+            },
+            "b": 0
+          }
+        }
+      }
     ]
   },
-  "data": {"switcher": {"windows": []}}
+  "data": {
+    "switcher": {
+      "windows": []
+    }
+  }
 }

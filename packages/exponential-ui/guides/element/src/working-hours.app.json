@@ -1,5 +1,5 @@
 {
-  "formatVersion": 5,
+  "formatVersion": 6,
   "id": "acme.working-hours",
   "name": "Working hours",
   "version": "1.4.0",
@@ -11,9 +11,9 @@
     "exp:issues"
   ],
   "functions": [
-    "records.*",
+    "records_*",
     "bind",
-    "exponential.comments.create"
+    "exponential_comments_create"
   ],
   "records": {
     "entry": {
@@ -135,7 +135,7 @@
           "component": "Page",
           "title": "Working hours",
           "subtitle": {
-            "path": "/entries/month/label"
+            "@path": "/entries/month/label"
           },
           "children": [
             "toolbar",
@@ -174,30 +174,30 @@
           "name": "who",
           "placeholder": "My hours",
           "options": {
-            "path": "/members/rows"
+            "@path": "/members/rows"
           },
           "value": {
-            "path": "/who"
+            "@path": "/who"
           },
           "on": {
             "change": {
               "functionCall": {
-                "call": "bind",
+                "@call": "bind",
                 "args": {
                   "path": "/entries",
                   "source": "records:entry?by=date&sum=hours&sort=date&order=desc",
                   "params": {
                     "month": {
-                      "path": "/entries/month/key"
+                      "@path": "/entries/month/key"
                     },
                     "user": {
-                      "path": "/who"
+                      "@path": "/who"
                     },
                     "mine": {
-                      "call": "cond",
+                      "@call": "cond",
                       "args": {
                         "if": {
-                          "path": "/who"
+                          "@path": "/who"
                         },
                         "then": "0",
                         "else": "1"
@@ -218,22 +218,22 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "bind",
+                "@call": "bind",
                 "args": {
                   "path": "/entries",
                   "source": "records:entry?by=date&sum=hours&sort=date&order=desc",
                   "params": {
                     "month": {
-                      "path": "/entries/month/prev"
+                      "@path": "/entries/month/prev"
                     },
                     "user": {
-                      "path": "/who"
+                      "@path": "/who"
                     },
                     "mine": {
-                      "call": "cond",
+                      "@call": "cond",
                       "args": {
                         "if": {
-                          "path": "/who"
+                          "@path": "/who"
                         },
                         "then": "0",
                         "else": "1"
@@ -249,7 +249,7 @@
           "id": "monthLabel",
           "component": "Text",
           "text": {
-            "path": "/entries/month/label"
+            "@path": "/entries/month/label"
           },
           "variant": "title"
         },
@@ -262,22 +262,22 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "bind",
+                "@call": "bind",
                 "args": {
                   "path": "/entries",
                   "source": "records:entry?by=date&sum=hours&sort=date&order=desc",
                   "params": {
                     "month": {
-                      "path": "/entries/month/next"
+                      "@path": "/entries/month/next"
                     },
                     "user": {
-                      "path": "/who"
+                      "@path": "/who"
                     },
                     "mine": {
-                      "call": "cond",
+                      "@call": "cond",
                       "args": {
                         "if": {
-                          "path": "/who"
+                          "@path": "/who"
                         },
                         "then": "0",
                         "else": "1"
@@ -297,14 +297,14 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/draft",
                   "value": {
                     "open": true,
                     "id": null,
                     "date": {
-                      "path": "/entries/month/today"
+                      "@path": "/entries/month/today"
                     },
                     "hours": null,
                     "note": "",
@@ -331,18 +331,18 @@
           "component": "StatTile",
           "label": "Logged",
           "value": {
-            "call": "concat",
+            "@call": "concat",
             "args": {
               "values": [
                 {
-                  "path": "/entries/sum"
+                  "@path": "/entries/sum"
                 },
                 " h"
               ]
             }
           },
           "trend": {
-            "path": "/entries/month/sums"
+            "@path": "/entries/month/sums"
           }
         },
         {
@@ -350,14 +350,14 @@
           "component": "StatTile",
           "label": "Target",
           "value": {
-            "call": "concat",
+            "@call": "concat",
             "args": {
               "values": [
                 {
-                  "call": "fallback",
+                  "@call": "fallback",
                   "args": {
                     "value": {
-                      "path": "/settings/rows/0/hours_per_month"
+                      "@path": "/settings/rows/0/hours_per_month"
                     },
                     "default": 40
                   }
@@ -372,23 +372,23 @@
           "component": "StatTile",
           "label": "Left",
           "value": {
-            "call": "concat",
+            "@call": "concat",
             "args": {
               "values": [
                 {
-                  "call": "sub",
+                  "@call": "sub",
                   "args": {
                     "a": {
-                      "call": "fallback",
+                      "@call": "fallback",
                       "args": {
                         "value": {
-                          "path": "/settings/rows/0/hours_per_month"
+                          "@path": "/settings/rows/0/hours_per_month"
                         },
                         "default": 40
                       }
                     },
                     "b": {
-                      "path": "/entries/sum"
+                      "@path": "/entries/sum"
                     }
                   }
                 },
@@ -402,7 +402,7 @@
           "component": "Section",
           "title": "Entries",
           "count": {
-            "path": "/entries/count"
+            "@path": "/entries/count"
           },
           "children": [
             "entryList"
@@ -422,23 +422,23 @@
           "id": "entryRow",
           "component": "Row",
           "title": {
-            "call": "fallback",
+            "@call": "fallback",
             "args": {
               "value": {
-                "path": "note"
+                "@path": "note"
               },
               "default": "No note"
             }
           },
           "subtitle": {
-            "path": "date"
+            "@path": "date"
           },
           "value": {
-            "call": "concat",
+            "@call": "concat",
             "args": {
               "values": [
                 {
-                  "path": "hours"
+                  "@path": "hours"
                 },
                 " h"
               ]
@@ -449,25 +449,25 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/draft",
                   "value": {
                     "open": true,
                     "id": {
-                      "path": "id"
+                      "@path": "id"
                     },
                     "date": {
-                      "path": "date"
+                      "@path": "date"
                     },
                     "hours": {
-                      "path": "hours"
+                      "@path": "hours"
                     },
                     "note": {
-                      "path": "note"
+                      "@path": "note"
                     },
                     "issues": {
-                      "path": "issues"
+                      "@path": "issues"
                     }
                   }
                 }
@@ -499,7 +499,7 @@
           "label": "Hours per month",
           "name": "hours_per_month",
           "value": {
-            "path": "/targetDraft"
+            "@path": "/targetDraft"
           },
           "min": 0,
           "max": 744,
@@ -514,15 +514,15 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "records.upsert",
+                "@call": "records_upsert",
                 "args": {
                   "kind": "settings",
                   "id": {
-                    "path": "/settings/rows/0/id"
+                    "@path": "/settings/rows/0/id"
                   },
                   "data": {
                     "hours_per_month": {
-                      "path": "/targetDraft"
+                      "@path": "/targetDraft"
                     }
                   }
                 }
@@ -535,7 +535,7 @@
           "component": "Dialog",
           "title": "Log hours",
           "open": {
-            "path": "/draft/open"
+            "@path": "/draft/open"
           },
           "children": [
             "form"
@@ -555,24 +555,24 @@
           "on": {
             "submit": {
               "functionCall": {
-                "call": "records.upsert",
+                "@call": "records_upsert",
                 "args": {
                   "kind": "entry",
                   "id": {
-                    "path": "/draft/id"
+                    "@path": "/draft/id"
                   },
                   "data": {
                     "date": {
-                      "path": "/draft/date"
+                      "@path": "/draft/date"
                     },
                     "hours": {
-                      "path": "/draft/hours"
+                      "@path": "/draft/hours"
                     },
                     "note": {
-                      "path": "/draft/note"
+                      "@path": "/draft/note"
                     },
                     "issues": {
-                      "path": "/draft/issues"
+                      "@path": "/draft/issues"
                     }
                   }
                 }
@@ -597,7 +597,7 @@
           "label": "Day",
           "name": "date",
           "value": {
-            "path": "/draft/date"
+            "@path": "/draft/date"
           }
         },
         {
@@ -606,7 +606,7 @@
           "label": "Hours",
           "name": "hours",
           "value": {
-            "path": "/draft/hours"
+            "@path": "/draft/hours"
           },
           "min": 0,
           "max": 24,
@@ -619,7 +619,7 @@
           "label": "What you did",
           "name": "note",
           "value": {
-            "path": "/draft/note"
+            "@path": "/draft/note"
           },
           "rows": 2
         },
@@ -629,11 +629,11 @@
           "label": "Issues",
           "name": "issues",
           "values": {
-            "path": "/draft/issues"
+            "@path": "/draft/issues"
           },
           "placeholder": "Pick the issues you worked on",
           "suggestions": {
-            "path": "/issues/rows"
+            "@path": "/issues/rows"
           }
         },
         {
@@ -644,7 +644,7 @@
           "on": {
             "cancel": {
               "functionCall": {
-                "call": "set",
+                "@call": "set",
                 "args": {
                   "path": "/draft/open",
                   "value": false
@@ -659,15 +659,22 @@
           "label": "Delete entry",
           "variant": "ghost",
           "visible": {
-            "path": "/draft/id"
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "/draft/id"
+              },
+              "then": true,
+              "else": false
+            }
           },
           "on": {
             "press": {
               "functionCall": {
-                "call": "records.delete",
+                "@call": "records_delete",
                 "args": {
                   "id": {
-                    "path": "/draft/id"
+                    "@path": "/draft/id"
                   }
                 }
               }
@@ -691,27 +698,34 @@
           "label": "Post to the issue",
           "variant": "outline",
           "visible": {
-            "path": "/draft/issues/0"
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "/draft/issues/0"
+              },
+              "then": true,
+              "else": false
+            }
           },
           "on": {
             "press": {
               "functionCall": {
-                "call": "exponential.comments.create",
+                "@call": "exponential_comments_create",
                 "args": {
                   "issueId": {
-                    "path": "/draft/issues/0"
+                    "@path": "/draft/issues/0"
                   },
                   "body": {
-                    "call": "concat",
+                    "@call": "concat",
                     "args": {
                       "values": [
                         "Logged ",
                         {
-                          "path": "/draft/hours"
+                          "@path": "/draft/hours"
                         },
                         " h: ",
                         {
-                          "path": "/draft/note"
+                          "@path": "/draft/note"
                         }
                       ]
                     }

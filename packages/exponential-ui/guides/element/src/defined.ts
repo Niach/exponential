@@ -13,7 +13,7 @@ const entries = ui.Stack({ gap: `md` }, [
   ),
   ui.EmptyState({ icon: `ui-clock`, title: `No hours yet`, description: `Log the hours you worked and they appear here.`, actionLabel: `Log hours` }, undefined, {
     visible: call(`eq`, { a: 0, b: bind(`/entries/count`) }),
-    on: { press: run(`app.toast`, { title: `Soon` }) },
+    on: { press: run(`app_toast`, { title: `Soon` }) },
   }),
 ])
 

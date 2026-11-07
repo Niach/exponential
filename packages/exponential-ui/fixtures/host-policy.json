@@ -20,13 +20,13 @@
     },
     {
       "name": "an unregistered name",
-      "fn": "harness.mcp",
+      "fn": "harness_mcp",
       "registered": false,
       "expected": "not_found"
     },
     {
       "name": "registered, no policy = allow",
-      "fn": "harness.toast",
+      "fn": "harness_toast",
       "registered": true,
       "expected": "allow"
     },
@@ -34,10 +34,10 @@
       "name": "a prefix ask",
       "policy": {
         "ask": [
-          "harness.*"
+          "harness_*"
         ]
       },
-      "fn": "harness.mcp",
+      "fn": "harness_mcp",
       "registered": true,
       "expected": "ask"
     },
@@ -45,13 +45,13 @@
       "name": "allow beats ask",
       "policy": {
         "allow": [
-          "harness.toast"
+          "harness_toast"
         ],
         "ask": [
-          "harness.*"
+          "harness_*"
         ]
       },
-      "fn": "harness.toast",
+      "fn": "harness_toast",
       "registered": true,
       "expected": "allow"
     },
@@ -59,13 +59,13 @@
       "name": "deny beats allow",
       "policy": {
         "allow": [
-          "harness.*"
+          "harness_*"
         ],
         "deny": [
-          "harness.mcp"
+          "harness_mcp"
         ]
       },
-      "fn": "harness.mcp",
+      "fn": "harness_mcp",
       "registered": true,
       "expected": "deny"
     },
@@ -73,11 +73,11 @@
       "name": "the default when nothing matches",
       "policy": {
         "allow": [
-          "harness.toast"
+          "harness_toast"
         ],
         "default": "deny"
       },
-      "fn": "harness.toast",
+      "fn": "harness_toast",
       "registered": true,
       "expected": "allow"
     },
@@ -85,7 +85,7 @@
       "name": "a package allowlist",
       "policy": {
         "allow": [
-          "harness.toast",
+          "harness_toast",
           "acme.*"
         ],
         "default": "deny"
@@ -1352,14 +1352,14 @@
         "supportedCatalogIds": [
           "https://ui.exponential.at/catalogs/core/v1",
           "https://ui.exponential.at/catalogs/core-lite/v1",
-          "https://a2ui.org/specification/v0_9/basic_catalog.json"
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
         ],
-        "clientCapabilities": {
-          "v0.9": {
+        "rendererCapabilities": {
+          "1.0": {
             "supportedCatalogIds": [
               "https://ui.exponential.at/catalogs/core/v1",
               "https://ui.exponential.at/catalogs/core-lite/v1",
-              "https://a2ui.org/specification/v0_9/basic_catalog.json"
+              "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
             ]
           }
         }
@@ -1373,15 +1373,15 @@
         "supportedCatalogIds": [
           "https://ui.exponential.at/catalogs/core/v1",
           "https://ui.exponential.at/catalogs/core-lite/v1",
-          "https://a2ui.org/specification/v0_9/basic_catalog.json",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
           "https://ui.exponential.at/catalogs/exponential-app/v1"
         ],
-        "clientCapabilities": {
-          "v0.9": {
+        "rendererCapabilities": {
+          "1.0": {
             "supportedCatalogIds": [
               "https://ui.exponential.at/catalogs/core/v1",
               "https://ui.exponential.at/catalogs/core-lite/v1",
-              "https://a2ui.org/specification/v0_9/basic_catalog.json",
+              "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
               "https://ui.exponential.at/catalogs/exponential-app/v1"
             ]
           }
@@ -1398,15 +1398,15 @@
         "supportedCatalogIds": [
           "https://ui.exponential.at/catalogs/core/v1",
           "https://ui.exponential.at/catalogs/core-lite/v1",
-          "https://a2ui.org/specification/v0_9/basic_catalog.json",
+          "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
           "https://acme.example/catalog/v1"
         ],
-        "clientCapabilities": {
-          "v0.9": {
+        "rendererCapabilities": {
+          "1.0": {
             "supportedCatalogIds": [
               "https://ui.exponential.at/catalogs/core/v1",
               "https://ui.exponential.at/catalogs/core-lite/v1",
-              "https://a2ui.org/specification/v0_9/basic_catalog.json",
+              "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
               "https://acme.example/catalog/v1"
             ]
           }

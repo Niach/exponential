@@ -365,6 +365,12 @@
         "text": {
           "description": "The GFM source."
         },
+        "profile": {
+          "description": "`inline` = a run of text (no outer block gap, paragraphs in the Text type of `variant`), `document` = full prose."
+        },
+        "variant": {
+          "description": "The paragraph type of the inline profile."
+        },
         "lines": {
           "description": "Truncates the rendered body to this many lines with an ellipsis."
         },
@@ -3029,15 +3035,15 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/title"
+              "@path": "/recordForm/deal/title"
             },
             "checks": [
               {
                 "condition": {
-                  "call": "required",
+                  "@call": "required",
                   "args": {
                     "value": {
-                      "path": "/recordForm/deal/title"
+                      "@path": "/recordForm/deal/title"
                     }
                   }
                 },
@@ -3052,7 +3058,7 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/amount"
+              "@path": "/recordForm/deal/amount"
             },
             "min": 0
           },
@@ -3063,7 +3069,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/stage"
+              "@path": "/recordForm/deal/stage"
             },
             "options": [
               {
@@ -3083,7 +3089,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/close"
+              "@path": "/recordForm/deal/close"
             }
           }
         ]
@@ -3200,15 +3206,15 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/title"
+              "@path": "/recordForm/deal/title"
             },
             "checks": [
               {
                 "condition": {
-                  "call": "required",
+                  "@call": "required",
                   "args": {
                     "value": {
-                      "path": "/recordForm/deal/title"
+                      "@path": "/recordForm/deal/title"
                     }
                   }
                 },
@@ -3223,7 +3229,7 @@
             "required": true,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/amount"
+              "@path": "/recordForm/deal/amount"
             },
             "min": 0
           },
@@ -3234,7 +3240,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/stage"
+              "@path": "/recordForm/deal/stage"
             },
             "options": [
               {
@@ -3254,7 +3260,7 @@
             "required": false,
             "wide": false,
             "value": {
-              "path": "/recordForm/deal/close"
+              "@path": "/recordForm/deal/close"
             }
           }
         ],
@@ -3294,10 +3300,10 @@
     "check": {
       "properties": {
         "condition": {
-          "description": "A function call or binding that must be true for the input to be valid."
+          "description": "A binding or a function call that must hold (true, or a validation result) for the input to be valid."
         },
         "message": {
-          "description": "The error shown when the condition is false."
+          "description": "The error shown when the condition fails."
         }
       },
       "description": "A client-side validation rule."
@@ -3637,5 +3643,6 @@
       "expr": "Evaluates a CEL expression string (docs/package-format.md Expressions) over vars (name → value or binding): \"round(entries.sum / 60, 1)\"; default is shown when it fails (required in a package)."
     },
     "basic": {}
-  }
+  },
+  "instructions": "Exponential UI core: shadcn-named components for app-shaped surfaces.\n\n## Catalog rules\n\n1. Components are flat: `{id, component, ...props}`. Exactly one has the id `root`. Ids are identifiers (letters, digits, `_`). `children` are ids (`[\"a\", \"b\"]`), never inline components, or `{componentId, path, key?}`: one `componentId` per item of the array at `path` (`key` = the item field naming it). `slots` = `{name: id}`.\n2. A dynamic prop takes a literal, a binding `{\"@path\": \"/json/pointer\"}` or a call `{\"@call\": \"name\", \"args\": {…}}`. Keep data in the data model and bind to it; a path without a leading `/` reads the current item.\n3. `on: {<event>: action}`: an action is `{event: {name, context?, userMessage?}}` (sent to the agent) and/or `{functionCall: {\"@call\", args}}` (runs on the renderer: a catalog function, `set`, or a host function such as `app_toast`).\n4. `visible: false` (or a binding) removes a component and its space. Inputs take `checks: [{condition, message?}]`; a condition is a binding or a call (`required`, `regex`, `length`, `numeric`, `email`).\n5. Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List. A row of controls is a Toolbar, fields side by side a FieldGroup, the Cancel/submit row FormActions; Box + `style` only for the rest. Wrap fields in Form.\n6. Prefer catalog components over Markdown, labels and tones over colours. A colour is a `$color.*` token, never `#hex`. Leave built-in copy (Cancel, Search…) unset: it is localized.\n7. One default Button per screen (the submit or main action); the rest outline, secondary or ghost."
 }

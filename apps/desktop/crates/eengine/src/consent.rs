@@ -134,8 +134,8 @@ pub fn consent_sheet(app: &str, entry: &ManifestEntry) -> (Vec<Value>, Value) {
     let components = vec![
         json!({"id": "root", "component": "Drawer", "title": title, "open": true, "side": "bottom", "children": ["why", "answer"], "slots": {"footer": "confirm"}, "on": {"change": {"event": {"name": "consent.answer", "context": {"answer": "dismiss"}}}}}),
         json!({"id": "why", "component": "Text", "text": entry.why}),
-        json!({"id": "answer", "component": "ChoiceTiles", "name": "answer", "columns": 1, "value": {"path": "/answer"}, "options": CONSENT["copy"]["options"].clone()}),
-        json!({"id": "confirm", "component": "Button", "label": copy("confirm"), "on": {"press": {"event": {"name": "consent.answer", "context": {"answer": {"path": "/answer"}}}}}}),
+        json!({"id": "answer", "component": "ChoiceTiles", "name": "answer", "columns": 1, "value": {"@path": "/answer"}, "options": CONSENT["copy"]["options"].clone()}),
+        json!({"id": "confirm", "component": "Button", "label": copy("confirm"), "on": {"press": {"event": {"name": "consent.answer", "context": {"answer": {"@path": "/answer"}}}}}}),
     ];
     (components, json!({"answer": "allow"}))
 }
@@ -143,10 +143,10 @@ pub fn consent_sheet(app: &str, entry: &ManifestEntry) -> (Vec<Value>, Value) {
 /// The Permissions sheet: one Switch per declared ask scope, in manifest order.
 pub fn manage_sheet(manifest: &[ManifestEntry], grants: &Grants) -> Vec<Value> {
     let rows: Vec<&ManifestEntry> = manifest.iter().filter(|m| declared_ask(manifest, &m.id)).collect();
-    let mut out = vec![json!({"id": "root", "component": "Drawer", "title": copy("manageTitle"), "open": true, "side": "bottom", "children": (0..rows.len()).map(|i| format!("scope-{i}")).collect::<Vec<_>>()})];
+    let mut out = vec![json!({"id": "root", "component": "Drawer", "title": copy("manageTitle"), "open": true, "side": "bottom", "children": (0..rows.len()).map(|i| format!("scope_{i}")).collect::<Vec<_>>()})];
     for (i, m) in rows.iter().enumerate() {
         let label = scope_def(&m.id).map(|(c, _)| c.label.clone()).unwrap_or_default();
-        out.push(json!({"id": format!("scope-{i}"), "component": "Switch", "label": label, "description": m.why, "checked": grants.get(&m.id) == Some(&GrantValue::Granted), "on": {"change": {"event": {"name": "consent.toggle", "context": {"scope": m.id}}}}}));
+        out.push(json!({"id": format!("scope_{i}"), "component": "Switch", "label": label, "description": m.why, "checked": grants.get(&m.id) == Some(&GrantValue::Granted), "on": {"change": {"event": {"name": "consent.toggle", "context": {"scope": m.id}}}}}));
     }
     out
 }

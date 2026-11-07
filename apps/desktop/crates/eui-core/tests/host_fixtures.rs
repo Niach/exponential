@@ -116,10 +116,10 @@ fn the_contract_constants_match_catalog_host_json() {
         panic!("src/host/contract.rs drifted from catalog/host.json: {e}");
     }
     let messages = &contract["messages"];
-    let all: Vec<&str> = messages["a2ui"].as_array().unwrap().iter().chain(messages["extensions"].as_array().unwrap()).map(|v| v.as_str().unwrap()).collect();
+    let all: Vec<&str> = messages["a2ui"].as_array().unwrap().iter().chain(messages["host"].as_array().unwrap()).map(|v| v.as_str().unwrap()).collect();
     assert_eq!(host::MESSAGE_KINDS, all.as_slice());
     for code in HOST_ERROR_CODES {
-        assert!([host::VALIDATION_FAILED, host::INVALID_MESSAGE, host::UNSUPPORTED_CATALOG, host::SURFACE_NOT_FOUND, host::TEMPLATE_NOT_FOUND, host::FUNCTION_NOT_FOUND, host::FUNCTION_DENIED, host::SOURCE_DENIED, host::RENDER_FAILED, host::ACTION_FAILED].contains(code));
+        assert!(contract["clientMessages"]["errorCodes"].as_array().unwrap().iter().any(|c| c == code));
     }
     assert_eq!(contract["a2uiVersion"], json!(eui_core::catalog::A2UI_VERSION));
 }
@@ -150,7 +150,7 @@ fn every_error_code_the_router_emits_is_in_the_contract() {
     }
     let mut kinds = OP_KINDS.to_vec();
     kinds.sort();
-    assert_eq!(kinds, ["bind", "components", "create", "data", "delete", "send"]);
+    assert_eq!(kinds, ["bind", "call", "components", "create", "data", "delete", "respond", "send"]);
 }
 
 #[test]
@@ -158,8 +158,8 @@ fn the_router_tracks_surfaces_packages_and_extensions() {
     let f = fixture("host-router.json");
     let mut router = host::HostRouter::new::<&str>(&[]);
     assert!(router.install_package(&f["packages"]["acme.devices"]).is_empty());
-    router.route(&json!({"version": "v0.9", "applyTemplate": {"surfaceId": "d", "templateId": "list"}}));
-    router.route(&json!({"version": "v0.9", "createSurface": {"surfaceId": "free", "catalogId": eui_core::CORE_CATALOG_ID}}));
+    router.route(&json!({"version": "1.0", "applyTemplate": {"surfaceId": "d", "templateId": "list"}}), eui_core::host::RouteOptions::trusted());
+    router.route(&json!({"version": "1.0", "createSurface": {"surfaceId": "free", "catalogId": eui_core::CORE_CATALOG_ID}}), Default::default());
     assert_eq!(router.surface_ids(), ["d", "free"]);
     assert_eq!(router.package_id_of("d").as_deref(), Some("acme.devices"));
     assert_eq!(router.package_id_of("free"), None);
@@ -167,7 +167,7 @@ fn the_router_tracks_surfaces_packages_and_extensions() {
     router.register_extension("https://acme.example/catalog/v1");
     assert_eq!(router.supported_catalog_ids().last().map(String::as_str), Some("https://acme.example/catalog/v1"));
     assert_eq!(router.supported_catalog_ids().len(), 4);
-    router.route(&json!({"version": "v0.9", "deleteSurface": {"surfaceId": "d"}}));
+    router.route(&json!({"version": "1.0", "deleteSurface": {"surfaceId": "d"}}), Default::default());
     assert_eq!(router.surface_ids(), ["free"]);
 }
 
@@ -178,7 +178,7 @@ fn a_router_with_extensions_checks_versions_and_components_of_registered_ones() 
     let id = charts["extensions"][0]["id"].as_str().unwrap();
     // Ids only: registered = installs.
     let mut ids_only = host::HostRouter::new(&[id]);
-    assert!(ids_only.install_package(charts).is_empty());
+    assert_eq!(ids_only.install_package(charts), Vec::new());
     // With availability: a registration without a version satisfies any, its components are checked.
     let mut router = host::HostRouter::with_extensions::<&str>(&[], Some(Vec::new()));
     router.register_extension_with(id, Some(host::AvailableExtension { id: id.into(), version: Some("1.3.0".into()), components: Some(vec![]) }));
@@ -187,7 +187,7 @@ fn a_router_with_extensions_checks_versions_and_components_of_registered_ones() 
     assert!(issues.iter().any(|i| i.path == "/extensions/0/components/0"), "{issues:?}");
     let mut bare = host::HostRouter::with_extensions::<&str>(&[], Some(Vec::new()));
     bare.register_extension(id);
-    assert!(bare.install_package(charts).is_empty());
+    assert_eq!(bare.install_package(charts), Vec::new());
     assert!(host::version_satisfies("1.6.2", "1.4.0") && !host::version_satisfies("2.0.0", "1.4.0") && !host::version_satisfies("1.4", "1.4.0") && !host::version_satisfies("01.4.0", "1.4.0"));
 }
 
@@ -195,20 +195,20 @@ fn a_router_with_extensions_checks_versions_and_components_of_registered_ones() 
 fn client_messages_match_the_reference_shapes() {
     assert_eq!(
         host::action_message("s", "btn", "save", json!({"id": 1}), Some(json!({"value": "a"})), "2026-10-08T00:00:00.000Z"),
-        json!({"version": "v0.9", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "2026-10-08T00:00:00.000Z", "context": {"id": 1}, "payload": {"value": "a"}}})
+        json!({"version": "1.0", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "2026-10-08T00:00:00.000Z", "context": {"id": 1}, "metadata": {"extensions": {"at_exponential_payload": {"value": "a"}}}}})
     );
     assert_eq!(
         host::action_message("s", "btn", "save", Value::Null, Some(json!({})), "t"),
-        json!({"version": "v0.9", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {}}})
+        json!({"version": "1.0", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {}}})
     );
     assert_eq!(
         host::error_message("VALIDATION_FAILED", "s", "no resolver for the source scheme acme", Some("/x")),
-        json!({"version": "v0.9", "error": {"code": "VALIDATION_FAILED", "surfaceId": "s", "message": "no resolver for the source scheme acme", "path": "/x"}})
+        json!({"version": "1.0", "error": {"code": "VALIDATION_FAILED", "surfaceId": "s", "message": "no resolver for the source scheme acme", "path": "/x"}})
     );
     assert_eq!(host::error_message("FUNCTION_DENIED", "s", "m", None)["error"].get("path"), None);
-    let policy = host::package_policy(Some(&["harness.toast".to_string()]));
-    assert_eq!(serde_json::to_value(&policy).unwrap(), json!({"allow": ["harness.toast"], "default": "deny"}));
-    assert_eq!(host::decide_function(Some(&policy), "harness.mcp", true), host::FunctionDecision::Deny);
+    let policy = host::package_policy(Some(&["harness_toast".to_string()]));
+    assert_eq!(serde_json::to_value(&policy).unwrap(), json!({"allow": ["harness_toast"], "default": "deny"}));
+    assert_eq!(host::decide_function(Some(&policy), "harness_mcp", true), host::FunctionDecision::Deny);
     assert_eq!(host::normalize_path(Some("/")), "");
     assert_eq!(host::merge_data(Some(&json!({"a": 1, "b": 1})), Some(&json!({"b": 2}))), Some(json!({"a": 1, "b": 2})));
     assert_eq!(host::merge_data(Some(&json!({"a": 1})), None), Some(json!({"a": 1})));
@@ -236,45 +236,45 @@ fn button_surface(on_press: Value) -> (Surface, u32) {
 
 #[test]
 fn a_host_function_call_fires_function_call_with_the_resolved_args() {
-    let (mut surface, b) = button_surface(json!({"functionCall": {"call": "harness.toast", "args": {"message": {"path": "/m"}, "n": 2}}}));
+    let (mut surface, b) = button_surface(json!({"functionCall": {"@call": "harness_toast", "args": {"message": {"@path": "/m"}, "n": 2}}}));
     let events = surface.event(b, "press", None);
     let call = events.iter().find(|e| matches!(e, OutEvent::FunctionCall { .. })).expect("a FunctionCall");
-    assert_eq!(call, &OutEvent::FunctionCall { component_id: "b".into(), name: "harness.toast".into(), args: json!({"message": "hi", "n": 2}) });
-    assert_eq!(serde_json::to_value(call).unwrap(), json!({"kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": {"message": "hi", "n": 2}}));
+    assert_eq!(call, &OutEvent::FunctionCall { component_id: "b".into(), name: "harness_toast".into(), args: json!({"message": "hi", "n": 2}) });
+    assert_eq!(serde_json::to_value(call).unwrap(), json!({"kind": "functionCall", "componentId": "b", "name": "harness_toast", "args": {"message": "hi", "n": 2}}));
     // No args = `{}`; a legacy `function` key is not an action (round 4).
-    let (mut surface, b) = button_surface(json!({"functionCall": {"call": "acme.refresh"}}));
+    let (mut surface, b) = button_surface(json!({"functionCall": {"@call": "acme_refresh"}}));
     let events = surface.event(b, "press", None);
-    assert!(events.contains(&OutEvent::FunctionCall { component_id: "b".into(), name: "acme.refresh".into(), args: json!({}) }));
-    let (mut surface, b) = button_surface(json!({"function": {"call": "acme.refresh"}}));
+    assert!(events.contains(&OutEvent::FunctionCall { component_id: "b".into(), name: "acme_refresh".into(), args: json!({}) }));
+    let (mut surface, b) = button_surface(json!({"function": {"@call": "acme_refresh"}}));
     assert!(!surface.event(b, "press", None).iter().any(|e| matches!(e, OutEvent::FunctionCall { .. })));
 }
 
 #[test]
 fn open_url_through_function_call_is_still_open_url_and_other_built_ins_do_nothing() {
-    let (mut surface, b) = button_surface(json!({"functionCall": {"call": "openUrl", "args": {"url": "https://exponential.at"}}}));
+    let (mut surface, b) = button_surface(json!({"functionCall": {"@call": "openUrl", "args": {"url": "https://exponential.at"}}}));
     let events = surface.event(b, "press", None);
     assert!(events.contains(&OutEvent::OpenUrl { url: "https://exponential.at".into() }));
     assert!(!events.iter().any(|e| matches!(e, OutEvent::FunctionCall { .. })));
-    let (mut surface, b) = button_surface(json!({"functionCall": {"call": "formatString", "args": {"value": "x"}}}));
+    let (mut surface, b) = button_surface(json!({"functionCall": {"@call": "formatString", "args": {"value": "x"}}}));
     let events = surface.event(b, "press", None);
     assert!(!events.iter().any(|e| matches!(e, OutEvent::FunctionCall { .. } | OutEvent::OpenUrl { .. })));
 }
 
 #[test]
 fn an_event_and_a_function_call_on_one_handler_both_fire() {
-    let (mut surface, b) = button_surface(json!({"event": {"name": "go"}, "functionCall": {"call": "harness.toast", "args": {"message": "x"}}}));
+    let (mut surface, b) = button_surface(json!({"event": {"name": "go"}, "functionCall": {"@call": "harness_toast", "args": {"message": "x"}}}));
     let events = surface.event(b, "press", None);
     assert!(events.iter().any(|e| matches!(e, OutEvent::Action { name, .. } if name == "go")));
-    assert!(events.iter().any(|e| matches!(e, OutEvent::FunctionCall { name, .. } if name == "harness.toast")));
+    assert!(events.iter().any(|e| matches!(e, OutEvent::FunctionCall { name, .. } if name == "harness_toast")));
 }
 
 #[test]
 fn a_basic_catalog_button_action_function_call_reaches_the_host() {
     let mut surface = Surface::new("s1", SurfaceOptions { catalog_id: eui_core::A2UI_BASIC_CATALOG_ID.into(), ..SurfaceOptions::default() });
     let outcome = surface
-        .apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s1", "components": [
+        .apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "s1", "components": [
             {"id": "root", "component": "Column", "children": ["btn"]},
-            {"id": "btn", "component": "Button", "child": "l", "action": {"functionCall": {"call": "harness.toast", "args": {"message": "hey"}}}},
+            {"id": "btn", "component": "Button", "child": "l", "action": {"functionCall": {"@call": "harness_toast", "args": {"message": "hey"}}}},
             {"id": "l", "component": "Text", "text": "Go"}
         ]}}))
         .unwrap();
@@ -283,7 +283,7 @@ fn a_basic_catalog_button_action_function_call_reaches_the_host() {
     surface.layout(&mut eui_core::measure::FixedMeasure::default());
     let btn = surface.index_of("btn").unwrap();
     let events = surface.event(btn, "press", None);
-    assert!(events.contains(&OutEvent::FunctionCall { component_id: "btn".into(), name: "harness.toast".into(), args: json!({"message": "hey"}) }), "{events:?}");
+    assert!(events.contains(&OutEvent::FunctionCall { component_id: "btn".into(), name: "harness_toast".into(), args: json!({"message": "hey"}) }), "{events:?}");
 }
 
 #[test]

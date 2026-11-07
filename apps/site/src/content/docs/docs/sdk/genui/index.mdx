@@ -9,13 +9,13 @@ import componentsDoc from "@exponential_app/eui/docs/components.generated.json"
 export const all = componentsDoc.components
 export const natives = all.filter((c) => c.kind === `native`).length
 export const macros = all.filter((c) => c.kind === `macro`).length
-export const MESSAGES = `{"version":"v0.9","createSurface":{"surfaceId":"main","catalogId":"${componentsDoc.catalogId}"}}
-{"version":"v0.9","updateComponents":{"surfaceId":"main","components":[
+export const MESSAGES = `{"version":"1.0","createSurface":{"surfaceId":"main","catalogId":"${componentsDoc.catalogId}"}}
+{"version":"1.0","updateComponents":{"surfaceId":"main","components":[
   {"id":"root","component":"Card","title":"Deploy 0.18.84?","children":["note","go"]},
-  {"id":"note","component":"Text","text":{"path":"/summary"}},
+  {"id":"note","component":"Text","text":{"@path":"/summary"}},
   {"id":"go","component":"Button","label":"Deploy","on":{"press":{"event":{"name":"deploy","context":{"version":"0.18.84"}}}}}
 ]}}
-{"version":"v0.9","updateDataModel":{"surfaceId":"main","path":"/summary","value":"3 platforms, all checks green."}}`
+{"version":"1.0","updateDataModel":{"surfaceId":"main","path":"/summary","value":"3 platforms, all checks green."}}`
 
 An agent answers with an interface: a card with the numbers, a form for the missing fields, a button that does the next step. The model decides what to show; the app decides how it looks and what it may do. [A2UI](https://a2ui.org/) is the open protocol for this: the agent sends components from a catalog both sides agree on, a data model and the actions it wants back, all as data. genUI speaks A2UI v0.9 (the pinned v0.9.1 spec, vendored byte for byte).
 

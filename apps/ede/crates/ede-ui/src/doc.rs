@@ -159,7 +159,7 @@ pub fn validate_document(name: &str, source: &Value) -> Result<Document, Vec<Iss
         }
         if let Some(on) = node.get("on").and_then(Value::as_object) {
             for handler in on.values() {
-                if let Some(call) = handler.get("functionCall").and_then(|f| f.get("call")).and_then(Value::as_str) {
+                if let Some(call) = handler.get("functionCall").and_then(|f| f.get("@call")).and_then(Value::as_str) {
                     if !functions.iter().any(|f| f == call) {
                         issues.push(Issue::new(format!("#{id}"), format!("function {call} is not in surface.functions")));
                     }

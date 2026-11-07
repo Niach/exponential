@@ -12,7 +12,7 @@ import { ExponentialSurface, sameData } from "./surface"
 import { renderHook } from "@testing-library/react"
 import { defineReactExtension } from "./extensions"
 
-const V = `v0.9`
+const V = `1.0`
 const create = (surfaceId: string, catalogId = CORE_CATALOG_ID) => ({ version: V, createSurface: { surfaceId, catalogId } })
 const components = (surfaceId: string, list: FlatComponent[]) => ({ version: V, updateComponents: { surfaceId, components: list } })
 
@@ -43,8 +43,8 @@ describe(`HostSurface`, () => {
         create(`s1`),
         components(`s1`, [
           { id: `root`, component: `Box`, children: [`t`, `b`] },
-          { id: `t`, component: `Text`, text: { path: `/greeting` } },
-          { id: `b`, component: `Button`, label: `Save`, on: { press: { event: { name: `save`, context: { who: { path: `/greeting` } } } } } },
+          { id: `t`, component: `Text`, text: { "@path": `/greeting` } },
+          { id: `b`, component: `Button`, label: `Save`, on: { press: { event: { name: `save`, context: { who: { "@path": `/greeting` } } } } } },
         ]),
         { version: V, updateDataModel: { surfaceId: `s1`, path: `/greeting`, value: `Hello` } }
       )
@@ -65,18 +65,18 @@ describe(`HostSurface`, () => {
     const calls: unknown[] = []
     const opened: string[] = []
     const host = new ExponentialHost({
-      functions: { "harness.toast": (args) => void calls.push(args) },
-      policy: { functions: { deny: [`harness.mcp`] }, openUrl: (u) => opened.push(u), urls: { schemes: [`https`] } },
+      functions: { "harness_toast": (args) => void calls.push(args) },
+      policy: { functions: { deny: [`harness_mcp`] }, openUrl: (u) => opened.push(u), urls: { schemes: [`https`] } },
     })
     act(() => {
       host.receive(create(`s`))
       host.receive(
         components(`s`, [
           { id: `root`, component: `Box`, children: [`a`, `b`, `c`, `d`] },
-          { id: `a`, component: `Button`, label: `Toast`, on: { press: { functionCall: { call: `harness.toast`, args: { message: `hi` } } } } },
-          { id: `b`, component: `Button`, label: `Mcp`, on: { press: { functionCall: { call: `harness.mcp`, args: {} } } } },
-          { id: `c`, component: `Button`, label: `Docs`, on: { press: { functionCall: { call: `openUrl`, args: { url: `https://ui.exponential.at` } } } } },
-          { id: `d`, component: `Button`, label: `Bad`, on: { press: { functionCall: { call: `openUrl`, args: { url: `http://insecure.example` } } } } },
+          { id: `a`, component: `Button`, label: `Toast`, on: { press: { functionCall: { "@call": `harness_toast`, args: { message: `hi` } } } } },
+          { id: `b`, component: `Button`, label: `Mcp`, on: { press: { functionCall: { "@call": `harness_mcp`, args: {} } } } },
+          { id: `c`, component: `Button`, label: `Docs`, on: { press: { functionCall: { "@call": `openUrl`, args: { url: `https://ui.exponential.at` } } } } },
+          { id: `d`, component: `Button`, label: `Bad`, on: { press: { functionCall: { "@call": `openUrl`, args: { url: `http://insecure.example` } } } } },
         ])
       )
     })
@@ -100,8 +100,8 @@ describe(`HostSurface`, () => {
     const host = new ExponentialHost({ extensions: [catalog], sources: { acme: (_s, e) => void (emit = e) } })
     act(() => {
       host.receive(create(`g`, catalog.id))
-      host.receive(components(`g`, [{ id: `root`, component: `Gauge`, value: { path: `/v` } }]))
-      host.receive({ version: V, bindDataModel: { surfaceId: `g`, path: `/v`, source: `acme:gauge` } })
+      host.receive(components(`g`, [{ id: `root`, component: `Gauge`, value: { "@path": `/v` } }]))
+      host.receive({ version: V, bindDataModel: { surfaceId: `g`, path: `/v`, source: `acme:gauge` } }, { trusted: true })
     })
     const ext = defineReactExtension({ catalog, components: { Gauge: ({ props, rootProps }) => <div {...rootProps}>gauge {String(props.value)}</div> } })
     const view = render(<HostSurface host={host} surfaceId="g" extensions={[ext]} />)
@@ -127,7 +127,7 @@ describe(`HostSurface`, () => {
         components(`t`, [
           { id: `root`, component: `List`, children: { componentId: `row`, path: `/rows` } },
           { id: `row`, component: `Box`, style: { flexDirection: `column`, gap: 12 }, children: [`label`] },
-          { id: `label`, component: `Text`, text: { path: `name` } },
+          { id: `label`, component: `Text`, text: { "@path": `name` } },
         ])
       )
       host.receive({ version: V, updateDataModel: { surfaceId: `t`, path: `/rows`, value: [{ name: `a` }, { name: `b` }] } })
@@ -145,7 +145,7 @@ describe(`review fixes`, () => {
   it(`the server's createSurface.theme wins over the theme prop`, () => {
     const host = new ExponentialHost()
     act(() => {
-      host.receive({ version: V, createSurface: { surfaceId: `th`, catalogId: CORE_CATALOG_ID, theme: `playful` } })
+      host.receive({ version: V, createSurface: { surfaceId: `th`, catalogId: CORE_CATALOG_ID, metadata: { extensions: { at_exponential_theme: `playful` } } } })
       host.receive(components(`th`, [{ id: `root`, component: `Text`, text: `hi` }]))
       host.receive({ version: V, createSurface: { surfaceId: `plain`, catalogId: CORE_CATALOG_ID } })
       host.receive(components(`plain`, [{ id: `root`, component: `Text`, text: `ho` }]))
@@ -167,7 +167,7 @@ describe(`review fixes`, () => {
       host.receive(
         components(`t`, [
           { id: `root`, component: `List`, children: { componentId: `row`, path: `/rows` } },
-          { id: `row`, component: `Text`, text: { path: `name` } },
+          { id: `row`, component: `Text`, text: { "@path": `name` } },
         ])
       )
     })
@@ -258,7 +258,7 @@ describe(`the data prop`, () => {
 
   it(`an inline data object re-created per render keeps edits; new content replaces the model; no JSON.stringify`, () => {
     const root = reduceNested(
-      { id: `root`, component: `Box`, children: [{ id: `in`, component: `Input`, props: { label: `Name`, name: `name`, value: { path: `/name` } } }, { id: `out`, component: `Text`, props: { text: { path: `/name` } } }] },
+      { id: `root`, component: `Box`, children: [{ id: `in`, component: `Input`, props: { label: `Name`, name: `name`, value: { "@path": `/name` } } }, { id: `out`, component: `Text`, props: { text: { "@path": `/name` } } }] },
       { catalogId: CORE_CATALOG_ID }
     ).root!
     const stringify = vi.spyOn(JSON, `stringify`)

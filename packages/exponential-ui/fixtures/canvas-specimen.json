@@ -4,7 +4,7 @@
     "pressed": "Last press: none"
   },
   "cases": {
-    "id": "sg-canvas",
+    "id": "sg_canvas",
     "component": "Stack",
     "props": {
       "direction": "horizontal",
@@ -14,7 +14,7 @@
     },
     "children": [
       {
-        "id": "sg-canvas-bars-case",
+        "id": "sg_canvas_bars_case",
         "component": "Stack",
         "props": {
           "direction": "vertical",
@@ -22,7 +22,7 @@
         },
         "children": [
           {
-            "id": "sg-canvas-bars-caption",
+            "id": "sg_canvas_bars_caption",
             "component": "Text",
             "props": {
               "text": "Bar chart",
@@ -30,7 +30,7 @@
             }
           },
           {
-            "id": "sg-canvas-bars",
+            "id": "sg_canvas_bars",
             "component": "Canvas",
             "props": {
               "label": "Visits by day",
@@ -88,7 +88,7 @@
                   "text": "50",
                   "position": [
                     30,
-                    62.0
+                    62
                   ],
                   "size": 10,
                   "align": "end",
@@ -203,7 +203,7 @@
                     {
                       "type": "rect",
                       "position": [
-                        132.0,
+                        132,
                         83.6
                       ],
                       "size": [
@@ -222,7 +222,7 @@
                   "type": "text",
                   "text": "55",
                   "position": [
-                    132.0,
+                    132,
                     53.2
                   ],
                   "size": 9,
@@ -234,7 +234,7 @@
                   "type": "text",
                   "text": "Wed",
                   "position": [
-                    132.0,
+                    132,
                     116
                   ],
                   "size": 10,
@@ -338,7 +338,7 @@
         ]
       },
       {
-        "id": "sg-canvas-line-case",
+        "id": "sg_canvas_line_case",
         "component": "Stack",
         "props": {
           "direction": "vertical",
@@ -346,7 +346,7 @@
         },
         "children": [
           {
-            "id": "sg-canvas-line-caption",
+            "id": "sg_canvas_line_caption",
             "component": "Text",
             "props": {
               "text": "Line plot",
@@ -354,7 +354,7 @@
             }
           },
           {
-            "id": "sg-canvas-line",
+            "id": "sg_canvas_line",
             "component": "Canvas",
             "props": {
               "label": "Sign-ups this week",
@@ -412,7 +412,7 @@
                   "text": "50",
                   "position": [
                     30,
-                    62.0
+                    62
                   ],
                   "size": 10,
                   "align": "end",
@@ -453,7 +453,7 @@
                     {
                       "type": "ellipse",
                       "position": [
-                        36.0,
+                        36,
                         90.8
                       ],
                       "size": [
@@ -464,7 +464,7 @@
                     {
                       "type": "ellipse",
                       "position": [
-                        68.0,
+                        68,
                         76.4
                       ],
                       "size": [
@@ -475,7 +475,7 @@
                     {
                       "type": "ellipse",
                       "position": [
-                        100.0,
+                        100,
                         81.2
                       ],
                       "size": [
@@ -486,7 +486,7 @@
                     {
                       "type": "ellipse",
                       "position": [
-                        132.0,
+                        132,
                         57.2
                       ],
                       "size": [
@@ -497,7 +497,7 @@
                     {
                       "type": "ellipse",
                       "position": [
-                        164.0,
+                        164,
                         63.92
                       ],
                       "size": [
@@ -508,7 +508,7 @@
                     {
                       "type": "ellipse",
                       "position": [
-                        196.0,
+                        196,
                         40.88
                       ],
                       "size": [
@@ -519,7 +519,7 @@
                     {
                       "type": "ellipse",
                       "position": [
-                        228.0,
+                        228,
                         28.4
                       ],
                       "size": [
@@ -537,7 +537,7 @@
                   "type": "text",
                   "text": "Mon",
                   "position": [
-                    36.0,
+                    36,
                     116
                   ],
                   "size": 10,
@@ -549,7 +549,7 @@
                   "type": "text",
                   "text": "Tue",
                   "position": [
-                    68.0,
+                    68,
                     116
                   ],
                   "size": 10,
@@ -561,7 +561,7 @@
                   "type": "text",
                   "text": "Wed",
                   "position": [
-                    100.0,
+                    100,
                     116
                   ],
                   "size": 10,
@@ -573,7 +573,7 @@
                   "type": "text",
                   "text": "Thu",
                   "position": [
-                    132.0,
+                    132,
                     116
                   ],
                   "size": 10,
@@ -585,7 +585,7 @@
                   "type": "text",
                   "text": "Fri",
                   "position": [
-                    164.0,
+                    164,
                     116
                   ],
                   "size": 10,
@@ -597,7 +597,7 @@
                   "type": "text",
                   "text": "Sat",
                   "position": [
-                    196.0,
+                    196,
                     116
                   ],
                   "size": 10,
@@ -609,7 +609,7 @@
                   "type": "text",
                   "text": "Sun",
                   "position": [
-                    228.0,
+                    228,
                     116
                   ],
                   "size": 10,
@@ -623,7 +623,7 @@
         ]
       },
       {
-        "id": "sg-canvas-pointer-case",
+        "id": "sg_canvas_pointer_case",
         "component": "Stack",
         "props": {
           "direction": "vertical",
@@ -631,7 +631,7 @@
         },
         "children": [
           {
-            "id": "sg-canvas-pointer-caption",
+            "id": "sg_canvas_pointer_caption",
             "component": "Text",
             "props": {
               "text": "Pointer",
@@ -639,7 +639,7 @@
             }
           },
           {
-            "id": "sg-canvas-pointer",
+            "id": "sg_canvas_pointer",
             "component": "Canvas",
             "props": {
               "label": "Pointer pad",
@@ -736,11 +736,11 @@
             }
           },
           {
-            "id": "sg-canvas-pointer-readout",
+            "id": "sg_canvas_pointer_readout",
             "component": "Text",
             "props": {
               "text": {
-                "path": "/pressed"
+                "@path": "/pressed"
               },
               "variant": "caption"
             }

@@ -901,6 +901,9 @@ pub struct PlanQuestion {
 /// NestedNode, `data` = its initial data model).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CardSurface {
+    /// Round 9 §13: `"1.0"`; `None` = the stored 0.9 form.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     pub root: Value,
     pub data: Option<Value>,
 }
@@ -911,6 +914,7 @@ pub fn card_surface(raw: Option<&Value>) -> Option<CardSurface> {
     let surface = raw?.as_object()?;
     let root = surface.get("root").filter(|root| root.is_object())?;
     Some(CardSurface {
+        version: surface.get("version").and_then(Value::as_str).map(str::to_string),
         root: root.clone(),
         data: surface.get("data").filter(|data| data.is_object()).cloned(),
     })

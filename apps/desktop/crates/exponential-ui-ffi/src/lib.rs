@@ -16,6 +16,10 @@
 //!   (server messages in, ops out), the `JsonlDecoder` / `SseDecoder`
 //!   transports' decoders, and the policy / sources / packages functions,
 //!   JSON text in and out; a `Theme` object painters query per part (VAPP-88).
+//! - Round 9 (A2UI 1.0, `docs/round-9-contract.md`): `routeJson(message,
+//!   trusted)`, `mintSurfaceId`, the `call` / `respond` ops, the renderer →
+//!   agent builders, `rendererCapabilitiesJson`, `upgrade09Json`,
+//!   `upgradeCard09`, `a2uiVersion`, `acceptV09`.
 //!
 //! Round 1:
 //! - `layout(measurer)` calls the measurer WITHOUT holding the surface lock
@@ -1031,7 +1035,7 @@ impl Surface {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
             Ok(v) => v,
             Err(payload) => {
-                let issue = eui_core::types::ReduceIssue { id: format!("ffi.{what}"), message: format!("panicked: {}", panic_text(payload.as_ref())) };
+                let issue = eui_core::types::ReduceIssue { id: format!("ffi.{what}"), message: format!("panicked: {}", panic_text(payload.as_ref())), code: String::new(), path: String::new() };
                 let mut panics = self.panics.lock().unwrap_or_else(|e| e.into_inner());
                 if !panics.contains(&issue) {
                     panics.push(issue);
@@ -1421,6 +1425,23 @@ impl Surface {
         self.shield("data_json", || "{}".to_string(), || {
             self.core().data().to_string()
         })
+    }
+
+    /// Round 9 §6.8: the reactive failures since the last call, as JSON
+    /// `[{code, message, functionCallId?, path?}]`, each once for the
+    /// surface's lifetime: the host sends them as `error` messages.
+    /// After a layout: anything for `HostCalls.flushSurface`?
+    pub fn needs_flush(&self) -> bool {
+        self.shield("needs_flush", || false, || self.core().needs_flush())
+    }
+
+    /// Round 9 §6.5: a routed value settled; the next layout binds again.
+    pub fn rebind(&self) {
+        self.shield("rebind", || (), || self.core().rebind())
+    }
+
+    pub fn take_failures_json(&self) -> String {
+        self.shield("take_failures_json", || "[]".to_string(), || serde_json::to_string(&self.core().take_failures()).unwrap_or_default())
     }
 
     pub fn issues_json(&self) -> String {
@@ -2560,21 +2581,55 @@ impl HostRouter {
         Arc::new(HostRouter { inner: Mutex::new(h::HostRouter::new(&extension_ids)) })
     }
 
-    /// One server message (JSON) → the ops to perform, in order, as a JSON
-    /// array (`[{op: create|components|data|bind|delete|send, …}]`). Never
-    /// fails: unparseable text is an INVALID_MESSAGE `send` op.
-    pub fn route(&self, message_json: String) -> String {
-        shield("route", || "[]".to_string(), || {
+    /// One agent message (JSON) → the ops to perform, in order, as a JSON
+    /// array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+    /// Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+    /// §1.1: a transport routes with `trusted = false`; only host code passes
+    /// `true` (the host-internal `applyTemplate` / `bindDataModel`).
+    /// [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
+    pub fn route_with_bridge_json(&self, message_json: String, trusted: bool, accept_v09: bool) -> String {
+        shield("route_with_bridge_json", || "[]".to_string(), || {
+            let options = h::RouteOptions { trusted, accept_v09 };
+            let message: Value = serde_json::from_str(&message_json).unwrap_or(Value::Null);
+            Value::Array(self.inner.lock().unwrap_or_else(|e| e.into_inner()).route(&message, options)).to_string()
+        })
+    }
+
+    pub fn route_json(&self, message_json: String, trusted: bool) -> String {
+        shield("route_json", || "[]".to_string(), || {
             // VAPP-103: an oversized message is refused before it is parsed.
             if message_json.len() > eui_core::limits::MAX_MESSAGE_BYTES {
                 let message = h::error_message(h::INVALID_MESSAGE, "", &eui_core::limits::message_bytes_issue(), None);
                 return Value::Array(vec![serde_json::json!({"op": "send", "message": message})]).to_string();
             }
+            let options = if trusted { h::RouteOptions::trusted() } else { h::RouteOptions::default() };
             let ops = match serde_json::from_str::<Value>(&message_json) {
-                Ok(message) => self.inner.lock().unwrap_or_else(|e| e.into_inner()).route(&message),
+                Ok(message) => self.inner.lock().unwrap_or_else(|e| e.into_inner()).route(&message, options),
                 Err(_) => vec![serde_json::json!({"op": "send", "message": h::error_message(h::INVALID_MESSAGE, "", "a message is a JSON object", None)})],
             };
             Value::Array(ops).to_string()
+        })
+    }
+
+    /// Round 9 §1.4: a fresh id for a re-opened surface (`<base>#<n>`).
+    /// Mint, `applyTemplate` onto it, then `deleteSurface` the old one.
+    pub fn mint_surface_id(&self, base: String) -> String {
+        shield("mint_surface_id", String::new, || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).mint_surface_id(&base)
+        })
+    }
+
+    /// Round 9 §10: an inline catalog id joins the available set.
+    pub fn register_inline_catalog(&self, id: String) {
+        shield("register_inline_catalog", || (), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).register_inline_catalog(&id)
+        })
+    }
+
+    /// Round 9 §5.5: the supported ids, then the inline catalogs.
+    pub fn available_catalog_ids(&self) -> Vec<String> {
+        shield("available_catalog_ids", || Vec::new(), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).available_catalog_ids()
         })
     }
 
@@ -2616,6 +2671,131 @@ impl HostRouter {
 
 /// A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
 /// Both return `{"messages": […], "issues": [{at, message}]}`.
+/// Round 9 §6.5–§6.8, §18.3: the host's routed calls (`eui_core::host::CallHub`):
+/// the ONE entry a Swift or Compose host has for the agent channel, reactive
+/// caching and pending, timeouts and the capped, once-per-lifetime errors.
+#[derive(uniffi::Object)]
+pub struct HostCalls {
+    inner: h::SharedCalls,
+}
+
+impl HostCalls {
+    fn hub(&self) -> std::sync::MutexGuard<'_, h::CallHub> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+#[uniffi::export]
+impl HostCalls {
+    /// `agent` = the transport's far end reads renderer → agent messages.
+    #[uniffi::constructor]
+    pub fn new(agent: bool) -> Arc<Self> {
+        Arc::new(HostCalls { inner: h::CallHub::shared(agent) })
+    }
+
+    /// The host's function policy (`FunctionPolicy` JSON; `None` = allow).
+    pub fn set_policy_json(&self, policy_json: Option<String>) -> Result<(), UiError> {
+        guarded("set_policy_json", || {
+            let policy = policy_json.as_deref().map(parse).transpose()?;
+            self.hub().set_policy(policy);
+            Ok(())
+        })
+    }
+
+    pub fn set_registered(&self, names: Vec<String>) {
+        shield("set_registered", || (), || self.hub().set_registered(&names));
+    }
+
+    /// Every `routeJson` answer goes through here AFTER the host performed
+    /// it. Answers the action calls that settled: `[SettledCall]` JSON.
+    pub fn observe_json(&self, ops_json: String, router: Arc<HostRouter>) -> Result<String, UiError> {
+        guarded("observe_json", || {
+            let ops: Vec<Value> = parse(&ops_json)?;
+            let router = router.inner.lock().unwrap_or_else(|e| e.into_inner());
+            Ok(serde_json::to_string(&self.hub().observe(&ops, &router)).unwrap_or_default())
+        })
+    }
+
+    /// A surface resolves its reactive calls here.
+    pub fn attach_surface(&self, surface_id: String, surface: Arc<Surface>) {
+        shield("attach_surface", || (), || surface.core().set_call_route(Some(h::route_handle(&self.inner, &surface_id))));
+    }
+
+    /// After a layout: the surface's issues and failures go to the outbox.
+    pub fn flush_surface(&self, surface_id: String, surface: Arc<Surface>) {
+        shield("flush_surface", || (), || self.hub().flush_surface(&surface_id, &mut surface.core()));
+    }
+
+    /// An action's function call: `PressRoute` JSON. On `ask` press again
+    /// with the consent's answer.
+    pub fn press_json(&self, surface_id: String, name: String, catalog_id: Option<String>, args_json: String, consent: Option<bool>) -> Result<String, UiError> {
+        guarded("press_json", || {
+            let args: serde_json::Map<String, Value> = parse(&args_json)?;
+            Ok(serde_json::to_string(&self.hub().press(&surface_id, &name, catalog_id.as_deref(), &args, consent)).unwrap_or_default())
+        })
+    }
+
+    pub fn local_failed(&self, surface_id: String, message: String) {
+        shield("local_failed", || (), || self.hub().local_failed(&surface_id, &message));
+    }
+
+    /// §6.5: does the surface have an agent? No agent = a press of an
+    /// unregistered name is UNKNOWN_FUNCTION without going through the hub.
+    pub fn has_agent(&self, surface_id: String) -> bool {
+        shield("has_agent", || false, || self.hub().has_agent(&surface_id))
+    }
+
+    /// The answer to an `ask` effect.
+    pub fn consent(&self, ticket: u64, allowed: bool) {
+        shield("consent", || (), || self.hub().consent(ticket, allowed));
+    }
+
+    /// The answer to a `runLocal` effect: its value JSON, or its error.
+    pub fn settle_local(&self, ticket: u64, value_json: Option<String>, error: Option<String>) -> Result<(), UiError> {
+        guarded("settle_local", || {
+            let answer = match error {
+                Some(e) => Err(e),
+                None => Ok(value_json.as_deref().map(parse).transpose()?.unwrap_or(Value::Null)),
+            };
+            self.hub().settle_local(ticket, answer);
+            Ok(())
+        })
+    }
+
+    /// The calls past their deadline: `[SettledCall]` JSON.
+    pub fn expire_json(&self) -> String {
+        shield("expire_json", || "[]".to_string(), || serde_json::to_string(&self.hub().expire()).unwrap_or_default())
+    }
+
+    /// When to call [`Self::expire_json`] next (epoch ms).
+    pub fn next_deadline_ms(&self) -> Option<f64> {
+        shield("next_deadline_ms", || None, || self.hub().next_deadline_ms())
+    }
+
+    /// §1.3: the metadata to send beside `message_json`, or `None`.
+    pub fn data_model_metadata_json(&self, message_json: String, data_json: String) -> Result<Option<String>, UiError> {
+        guarded("data_model_metadata_json", || {
+            let (message, data): (Value, Value) = (parse(&message_json)?, parse(&data_json)?);
+            Ok(self.hub().data_model_metadata(&message, &|_| Some(data.clone())).map(|m| m.to_string()))
+        })
+    }
+
+    /// What must leave on the transport, in order (JSON array).
+    pub fn take_outbox_json(&self) -> String {
+        shield("take_outbox_json", || "[]".to_string(), || Value::Array(self.hub().take_outbox()).to_string())
+    }
+
+    /// `[CallEffect]` JSON: what the host must run for reactive calls.
+    pub fn take_effects_json(&self) -> String {
+        shield("take_effects_json", || "[]".to_string(), || serde_json::to_string(&self.hub().take_effects()).unwrap_or_default())
+    }
+
+    /// The surfaces to bind again (`Surface.rebind`).
+    pub fn take_dirty(&self) -> Vec<String> {
+        shield("take_dirty", Vec::new, || self.hub().take_dirty())
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct JsonlDecoder {
     inner: Mutex<h::JsonlDecoder>,
@@ -2689,10 +2869,11 @@ pub fn messages_from_mcp_result_json(result_json: String) -> Result<String, UiEr
 /// A client message as the MCP `tools/call` that carries it back (`tool`
 /// defaults to `a2ui_event`).
 #[uniffi::export]
-pub fn mcp_action_call_json(message_json: String, tool: Option<String>) -> Result<String, UiError> {
+pub fn mcp_action_call_json(message_json: String, tool: Option<String>, metadata_json: Option<String>) -> Result<String, UiError> {
     guarded("mcp_action_call_json", || {
         let message: Value = parse(&message_json)?;
-        Ok(h::mcp_action_call(&message, tool.as_deref()).to_string())
+        let metadata: Option<Value> = metadata_json.as_deref().map(serde_json::from_str).transpose().map_err(|e| UiError::Invalid { reason: format!("metadata: {e}") })?;
+        Ok(h::mcp_action_call_with(&message, tool.as_deref(), metadata.as_ref()).to_string())
     })
 }
 
@@ -2793,11 +2974,74 @@ pub fn supported_catalog_ids_for(extension_ids: Vec<String>) -> Vec<String> {
     })
 }
 
-/// A2UI `a2uiClientCapabilities` JSON.
+/// Round 9 §10: `{"1.0": {supportedCatalogIds, inlineCatalogs?}}` JSON.
+/// `inline_catalogs_json` = a JSON array of 1.0 catalog definitions.
 #[uniffi::export]
-pub fn client_capabilities_json(extension_ids: Vec<String>) -> String {
-    shield("client_capabilities_json", || "{}".to_string(), || {
-        h::client_capabilities(&extension_ids).to_string()
+pub fn renderer_capabilities_json(extension_ids: Vec<String>, inline_catalogs_json: Option<String>) -> Result<String, UiError> {
+    guarded("renderer_capabilities_json", || {
+        let inline: Option<Vec<Value>> = inline_catalogs_json.map(|j| parse(&j)).transpose()?;
+        Ok(h::renderer_capabilities(&extension_ids, inline).to_string())
+    })
+}
+
+/// The wire version every message carries (`A2UI_VERSION`, §1.1).
+#[uniffi::export]
+pub fn a2ui_version() -> String {
+    eui_core::catalog::A2UI_VERSION.to_string()
+}
+
+/// `ACCEPT_V09` (§14.1): every core entry upgrades 0.9 input while true.
+#[uniffi::export]
+pub fn accept_v09() -> bool {
+    eui_core::catalog::ACCEPT_V09
+}
+
+/// Round 9 §4.1: UAX #31 over the generated tables.
+#[uniffi::export]
+pub fn is_identifier(id: String) -> bool {
+    eui_core::ident::is_identifier(&id)
+}
+
+/// Round 9 §14.3: an id as an identifier.
+#[uniffi::export]
+pub fn mangle_id(id: String) -> String {
+    eui_core::ident::mangle(&id)
+}
+
+/// Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
+/// 1.0, `cardProblems`, its reduce over the core catalog).
+#[uniffi::export]
+pub fn card_v10_json(card_json: String, accept_v09: bool) -> Result<String, UiError> {
+    guarded("card_v10_json", || {
+        let card: Value = parse(&card_json)?;
+        Ok(match eui_core::reducer::card_v10(&card, accept_v09) {
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+            Ok(card) => {
+                let root: NestedNode = serde_json::from_value(card["root"].clone()).map_err(invalid)?;
+                let reduced = eui_core::reducer::reduce_nested(&root, &eui_core::reducer::ReduceOptions::new(eui_core::CORE_CATALOG_ID));
+                serde_json::json!({"card": card, "problems": eui_core::reducer::card_problems(&card["root"]), "issues": reduced.issues, "root": reduced.root}).to_string()
+            }
+        })
+    })
+}
+
+/// Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
+/// documented on `eui_core::upgrade09::upgrade09_json`.
+#[uniffi::export]
+pub fn upgrade09_json(request_json: String) -> Result<String, UiError> {
+    guarded("upgrade09_json", || {
+        let request: Value = parse(&request_json)?;
+        Ok(eui_core::upgrade09::upgrade09_json(&request).to_string())
+    })
+}
+
+/// A stored 0.9 `exponential_show` card (nested `{root, data}`) → 1.0
+/// (§18: to DISPLAY a card that has no `version: "1.0"`).
+#[uniffi::export]
+pub fn upgrade_card09(card_json: String) -> Result<String, UiError> {
+    guarded("upgrade_card09", || {
+        let card: Value = parse(&card_json)?;
+        Ok(eui_core::upgrade09::upgrade_card09(&card).to_string())
     })
 }
 
@@ -3175,7 +3419,8 @@ pub fn template_messages_json(package_json: String, template_id: String, surface
     })
 }
 
-/// A client action message (A2UI v0.9 `action`) JSON.
+/// A renderer `action` message (A2UI 1.0) JSON. `payload_json` travels as
+/// `metadata.extensions.at_exponential_payload`, merged over `context` (§1.3).
 #[uniffi::export]
 pub fn action_message_json(surface_id: String, component_id: String, name: String, context_json: String, payload_json: Option<String>, timestamp: String) -> Result<String, UiError> {
     guarded("action_message_json", || {
@@ -3185,11 +3430,58 @@ pub fn action_message_json(surface_id: String, component_id: String, name: Strin
     })
 }
 
-/// A client error message (A2UI v0.9 `error`) JSON.
+/// [`action_message_json`] with the Action's resolved `event.userMessage`.
+#[uniffi::export]
+pub fn action_message_with_user_message_json(surface_id: String, component_id: String, name: String, context_json: String, payload_json: Option<String>, timestamp: String, user_message: Option<String>) -> Result<String, UiError> {
+    guarded("action_message_with_user_message_json", || {
+        let context: Value = parse(&context_json)?;
+        let payload: Option<Value> = payload_json.map(|p| parse(&p)).transpose()?;
+        Ok(h::action_message_with(&surface_id, &component_id, &name, context, payload, &timestamp, user_message.as_deref()).to_string())
+    })
+}
+
+/// A renderer `error` message (A2UI 1.0) about a surface, JSON.
 #[uniffi::export]
 pub fn error_message_json(code: String, surface_id: String, message: String, path: Option<String>) -> String {
     shield("error_message_json", || "{}".to_string(), || {
         h::error_message(&code, &surface_id, &message, path.as_deref()).to_string()
+    })
+}
+
+/// A renderer `error` message about a routed call (`functionCallId`, §1.3), JSON.
+#[uniffi::export]
+pub fn function_error_message_json(code: String, function_call_id: String, message: String, path: Option<String>) -> String {
+    shield("function_error_message_json", || "{}".to_string(), || {
+        h::error_message_to(&code, h::ErrorTarget::FunctionCall(&function_call_id), &message, path.as_deref()).to_string()
+    })
+}
+
+/// A `callAgentFunction` message (§1.3) JSON; `args_json` = the resolved args object.
+#[uniffi::export]
+pub fn call_agent_function_message_json(surface_id: String, function_call_id: String, name: String, catalog_id: String, args_json: String) -> Result<String, UiError> {
+    guarded("call_agent_function_message_json", || {
+        let args = match parse::<Value>(&args_json)? {
+            Value::Object(args) => args,
+            _ => return Err(invalid("args is a JSON object".to_string())),
+        };
+        Ok(h::call_agent_function_message(&surface_id, &function_call_id, &name, &catalog_id, args).to_string())
+    })
+}
+
+/// A `rendererFunctionResponse` with a value (§1.3) JSON (`None` = `value: null`).
+#[uniffi::export]
+pub fn renderer_function_value_json(function_call_id: String, value_json: Option<String>) -> Result<String, UiError> {
+    guarded("renderer_function_value_json", || {
+        let value: Option<Value> = value_json.map(|v| parse(&v)).transpose()?;
+        Ok(h::renderer_function_response(&function_call_id, Ok(value)).to_string())
+    })
+}
+
+/// A `rendererFunctionResponse` with an error (§1.3) JSON.
+#[uniffi::export]
+pub fn renderer_function_error_json(function_call_id: String, code: String, message: String) -> String {
+    shield("renderer_function_error_json", || "{}".to_string(), || {
+        h::renderer_function_response(&function_call_id, Err((&code, &message))).to_string()
     })
 }
 

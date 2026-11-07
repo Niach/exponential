@@ -168,14 +168,14 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
     let page = components.iter().map(|c| {
         if c.get("id").and_then(Value::as_str) == Some("root") {
             let mut c = c.clone();
-            c["id"] = json!("runner-page");
+            c["id"] = json!("runner_page");
             c
         } else {
             c.clone()
         }
     });
     if !tabs && !permissions {
-        let mut out = vec![json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "height": "100%", "overflowY": "auto"}, "children": ["runner-page"]})];
+        let mut out = vec![json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "height": "100%", "overflowY": "auto"}, "children": ["runner_page"]})];
         out.extend(page);
         return Some((out, None));
     }
@@ -184,23 +184,23 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
     let mut out = Vec::new();
     match form {
         FormFactor::Wide => {
-            let mut nav_children = vec![json!("runner-title")];
+            let mut nav_children = vec![json!("runner_title")];
             if tabs {
-                nav_children.push(json!("runner-screens"));
+                nav_children.push(json!("runner_screens"));
             }
             if permissions {
-                nav_children.push(json!("runner-permissions"));
+                nav_children.push(json!("runner_permissions"));
             }
-            out.push(json!({"id": "root", "component": "Stack", "direction": "horizontal", "gap": "none", "align": "stretch", "style": {"height": "100%"}, "children": ["runner-sidebar"]}));
-            out.push(json!({"id": "runner-sidebar", "component": "Sidebar", "width": shell("sidebarWidth"), "collapseBelow": "never", "children": ["runner-scroll"], "slots": {"sidebar": "runner-nav"}}));
-            out.push(json!({"id": "runner-scroll", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minHeight": 0, "overflowY": "auto"}, "children": ["runner-page"]}));
-            out.push(json!({"id": "runner-nav", "component": "Stack", "gap": "sm", "style": {"padding": "$spacing.sm"}, "children": nav_children}));
-            out.push(json!({"id": "runner-title", "component": "Heading", "text": pkg.get("name").and_then(Value::as_str).unwrap_or(""), "level": shell("titleLevel")}));
+            out.push(json!({"id": "root", "component": "Stack", "direction": "horizontal", "gap": "none", "align": "stretch", "style": {"height": "100%"}, "children": ["runner_sidebar"]}));
+            out.push(json!({"id": "runner_sidebar", "component": "Sidebar", "width": shell("sidebarWidth"), "collapseBelow": "never", "children": ["runner_scroll"], "slots": {"sidebar": "runner_nav"}}));
+            out.push(json!({"id": "runner_scroll", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minHeight": 0, "overflowY": "auto"}, "children": ["runner_page"]}));
+            out.push(json!({"id": "runner_nav", "component": "Stack", "gap": "sm", "style": {"padding": "$spacing.sm"}, "children": nav_children}));
+            out.push(json!({"id": "runner_title", "component": "Heading", "text": pkg.get("name").and_then(Value::as_str).unwrap_or(""), "level": shell("titleLevel")}));
             if tabs {
-                out.push(json!({"id": "runner-screens", "component": "List", "children": (0..nav.len()).map(|i| format!("runner-screen-{i}")).collect::<Vec<_>>()}));
+                out.push(json!({"id": "runner_screens", "component": "List", "children": (0..nav.len()).map(|i| format!("runner_screen_{i}")).collect::<Vec<_>>()}));
                 for (i, s) in nav.iter().enumerate() {
                     let mut row = Map::new();
-                    row.insert("id".into(), json!(format!("runner-screen-{i}")));
+                    row.insert("id".into(), json!(format!("runner_screen_{i}")));
                     row.insert("component".into(), json!("Row"));
                     row.insert("title".into(), title_of(s));
                     if let Some(icon) = s.get("icon").filter(|i| truthy(i)) {
@@ -214,7 +214,7 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
                 }
             }
             if permissions {
-                out.push(json!({"id": "runner-permissions", "component": "Row", "title": copy("permissions"), "icon": icon, "density": "compact", "pressable": true, "on": {"press": event("runner.permissions", None)}}));
+                out.push(json!({"id": "runner_permissions", "component": "Row", "title": copy("permissions"), "icon": icon, "density": "compact", "pressable": true, "on": {"press": event("runner.permissions", None)}}));
             }
             out.extend(page);
             Some((out, None))
@@ -222,17 +222,17 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
         FormFactor::Compact => {
             let mut bar = Vec::new();
             if tabs {
-                bar.push(json!("runner-tabs-box"));
+                bar.push(json!("runner_tabs_box"));
             }
             if permissions {
-                bar.push(json!("runner-permissions"));
+                bar.push(json!("runner_permissions"));
             }
-            out.push(json!({"id": "root", "component": "Stack", "gap": "none", "style": {"height": "100%"}, "children": ["runner-main", "runner-separator", "runner-bar"]}));
-            out.push(json!({"id": "runner-main", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minHeight": 0, "overflowY": "auto"}, "children": ["runner-page"]}));
-            out.push(json!({"id": "runner-separator", "component": "Separator"}));
-            out.push(json!({"id": "runner-bar", "component": "Stack", "direction": "horizontal", "gap": "sm", "align": "center", "justify": "end", "style": {"padding": "$spacing.sm"}, "children": bar}));
+            out.push(json!({"id": "root", "component": "Stack", "gap": "none", "style": {"height": "100%"}, "children": ["runner_main", "runner_separator", "runner_bar"]}));
+            out.push(json!({"id": "runner_main", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minHeight": 0, "overflowY": "auto"}, "children": ["runner_page"]}));
+            out.push(json!({"id": "runner_separator", "component": "Separator"}));
+            out.push(json!({"id": "runner_bar", "component": "Stack", "direction": "horizontal", "gap": "sm", "align": "center", "justify": "end", "style": {"padding": "$spacing.sm"}, "children": bar}));
             if tabs {
-                out.push(json!({"id": "runner-tabs-box", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0}, "children": ["runner-tabs"]}));
+                out.push(json!({"id": "runner_tabs_box", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0}, "children": ["runner_tabs"]}));
                 let tab_list: Vec<Value> = nav
                     .iter()
                     .map(|s| {
@@ -245,10 +245,10 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
                         Value::Object(t)
                     })
                     .collect();
-                out.push(json!({"id": "runner-tabs", "component": "Tabs", "tabs": tab_list, "value": {"path": "/runner/screen"}, "fill": true, "on": {"change": event("runner.navigate", Some(json!({"screen": {"path": "/runner/screen"}})))}}));
+                out.push(json!({"id": "runner_tabs", "component": "Tabs", "tabs": tab_list, "value": {"@path": "/runner/screen"}, "fill": true, "on": {"change": event("runner.navigate", Some(json!({"screen": {"@path": "/runner/screen"}})))}}));
             }
             if permissions {
-                out.push(json!({"id": "runner-permissions", "component": "Button", "label": copy("permissions"), "icon": icon, "size": "icon", "variant": "ghost", "on": {"press": event("runner.permissions", None)}}));
+                out.push(json!({"id": "runner_permissions", "component": "Button", "label": copy("permissions"), "icon": icon, "size": "icon", "variant": "ghost", "on": {"press": event("runner.permissions", None)}}));
             }
             out.extend(page);
             Some((out, tabs.then(|| json!({"runner": {"screen": screen}}))))

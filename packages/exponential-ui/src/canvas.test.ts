@@ -45,7 +45,7 @@ describe(`canvas.json › refuse`, () => {
   it(`canvasPropsProblems names them with their paths; a bound shapes waits for data`, () => {
     expect(canvasPropsProblems({ size: [10, 10], shapes: [] })).toEqual([])
     expect(canvasPropsProblems({ size: [10, 10], shapes: [{ type: `rect`, size: { keys: [] } }] })[0]).toContain(`/shapes/0/size`)
-    expect(canvasPropsProblems({ size: [10, 10], shapes: { path: `/shapes` } })).toEqual([])
+    expect(canvasPropsProblems({ size: [10, 10], shapes: { "@path": `/shapes` } })).toEqual([])
   })
 })
 

@@ -173,7 +173,7 @@ class RunnerController(
 
     /**
      * Step 4: one of the app's function calls through the instance:
-     * `records.*`, `app.navigate`, capabilities through the broker. `Ask`
+     * `records_*`, `app_navigate`, capabilities through the broker. `Ask`
      * paints `consent` and waits for its `consent.answer`; `Refused` paints
      * `toast`. The value, or null when refused.
      */
@@ -195,7 +195,7 @@ class RunnerController(
         }
         return when (result) {
             is CallResult.Value -> {
-                if (name.startsWith("records.")) withContext(worker) { refreshSources() }
+                if (name.startsWith("records_")) withContext(worker) { refreshSources() }
                 runCatching { JsonValue.parse(result.json) }.getOrNull() ?: JsonValue.Null
             }
             is CallResult.Refused -> {
@@ -208,8 +208,8 @@ class RunnerController(
 
     /** The uuids a call's creates take: one for an upsert without an id, one per write of a batch. */
     private fun newIds(name: String, args: JsonValue.Obj): List<String> = when (name) {
-        "records.upsert" -> if (args["id"]?.string.isNullOrEmpty()) listOf(newId()) else emptyList()
-        "records.batch" -> List(args["writes"]?.array?.size ?: 0) { newId() }
+        "records_upsert" -> if (args["id"]?.string.isNullOrEmpty()) listOf(newId()) else emptyList()
+        "records_batch" -> List(args["writes"]?.array?.size ?: 0) { newId() }
         else -> emptyList()
     }
 
@@ -222,12 +222,12 @@ class RunnerController(
         when (name) {
             "runner.navigate" -> {
                 val screen = context["screen"]?.string ?: return true
-                // genUI's `app.navigate {screen, params}` arrives here too: the params open the screen.
+                // genUI's `app_navigate {screen, params}` arrives here too: the params open the screen.
                 val args = buildMap {
                     put("screen", JsonValue.Str(screen))
                     context["params"]?.obj?.let { put("params", JsonValue.Obj(it)) }
                 }
-                scope.launch { call("app.navigate", JsonValue.Obj(args)) }
+                scope.launch { call("app_navigate", JsonValue.Obj(args)) }
             }
             "runner.permissions" -> scope.launch { withContext(worker) { paintPermissions() } }
             "consent.toggle" -> {

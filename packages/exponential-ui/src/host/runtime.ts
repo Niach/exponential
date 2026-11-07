@@ -4,23 +4,29 @@
 // renderer (React: `@exponential_app/eui-react` `<HostSurface>`) paints a
 // store and hands its interactions back through `dispatch`.
 
-import { writePointer } from "../dynamic"
+import { evaluateCall, writePointer } from "../dynamic"
+import type { Failure, RouteAnswer, RoutedCall } from "../dynamic"
+import { declaredFunction } from "../functions"
+import { newSurfaceBridge, surfaceUpdates } from "../surface-updates"
+import type { SurfaceBridge, SurfaceRefusal } from "../surface-updates"
 import { reduceSurface } from "../reducer"
 import { tryLoadTheme } from "../theme"
 import type { ResolvedTheme } from "../theme-types"
 import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
 import type { ExtensionDef, FlatComponent, ReduceIssue, UiNode } from "../types"
-import { RENDER_FAILED, actionMessage, errorMessage } from "./contract"
+import { RENDER_FAILED, actionMessage, callAgentFunctionMessage, errorMessage, rendererFunctionResponse } from "./contract"
 import type { ClientMessage, HostOp } from "./contract"
-import { availableExtensions, clientCapabilities } from "./package"
+import { availableExtensions, rendererCapabilities } from "./package"
 import type { PackageIssue, AppPackage } from "./package"
-import { combineDecisions, decideFunction, decideUrl, mediaRequest, packagePolicy } from "./policy"
+import { BUILTIN_FUNCTIONS, combineDecisions, decideFunction, decideRoute, decideUrl, mediaRequest, packagePolicy, routedCallKey } from "./policy"
 import type { FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, UrlPolicy } from "./policy"
 import { recordFormTargets } from "./record-macros"
 import { HostRouter } from "./router"
+import type { RouteOptions } from "./router"
 import { hostParams, withHostParams } from "./host-params"
 import { parseSource, sourceWithParams } from "./sources"
 import { A2UI_VERSION } from "../catalog"
+import { AGENT_FUNCTION_TIMEOUT_MS } from "../limits"
 import { RECORDS_BATCH_FUNCTION, actionCallName, runAction } from "./actions"
 import { NAVIGATE_FUNCTION, navigateTarget } from "./screens"
 import type { ActionPlan } from "./actions"
@@ -28,11 +34,15 @@ import type { SourceResolvers } from "./sources"
 
 export type TransportStatus = `connecting` | `open` | `closed` | `error`
 
-/** Messages in, client messages out. Adapters: `transports.ts`. */
+/** Round 9 §1.3: what travels beside a message about a `sendDataModel`
+ *  surface: `{a2uiRendererDataModel: {version, surfaces: {<id>: <data>}}}`. */
+export type MessageMetadata = Record<string, unknown>
+
+/** Messages in, renderer messages out. Adapters: `transports.ts`. */
 export interface Transport {
   /** Start delivering messages; report the connection state. */
   start(receive: (message: unknown) => void, status: (status: TransportStatus, detail?: string) => void): void
-  send(message: ClientMessage): void | Promise<void>
+  send(message: ClientMessage, metadata?: MessageMetadata): void | Promise<void>
   close(): void
 }
 
@@ -41,6 +51,8 @@ export interface FunctionCallInfo {
   componentId: string
   name: string
   args: Record<string, unknown>
+  /** Round 9 §5.5: the call's own catalog (else the surface default). */
+  catalogId?: string
 }
 
 export type HostFunction = (args: Record<string, unknown>, call: FunctionCallInfo) => unknown | Promise<unknown>
@@ -77,6 +89,10 @@ export interface HostTextLink {
 
 export interface HostOptions {
   transport?: Transport
+  /** Round 9 §6.5: the transport's far end reads renderer → agent messages
+   *  (the MCP carrier, WebSocket, SSE + POST): an untrusted surface has an
+   *  agent, and an unregistered name routes to it. */
+  agent?: boolean
   functions?: Record<string, HostFunction>
   sources?: SourceResolvers
   extensions?: readonly ExtensionDef[]
@@ -130,7 +146,10 @@ export class PackageError extends Error {
 
 const MAX_ISSUES = 100
 
-/** A `createSurface.theme` (a built-in id or a theme JSON) → the resolved
+/** Round 9 §8 / §5.2: an issue past this many per message is summed up. */
+export const MAX_SENT_ISSUES = 32
+
+/** A surface's theme (`metadata.extensions.at_exponential_theme`: a built-in id or a theme JSON) → the resolved
  *  theme, or why it is unusable. */
 export function resolveSurfaceTheme(input: unknown): { theme: ResolvedTheme | null; issues: string[] } {
   if (typeof input === `string`) {
@@ -147,13 +166,18 @@ export interface FunctionOutcome {
   error?: string
 }
 
+/** Round 9 §6.5: a routed REACTIVE call: in flight, or settled for the
+ *  surface's lifetime. */
+type ReactiveRoute = { state: `pending`; previous: unknown } | { state: `value`; value: unknown } | { state: `failure`; failure: Failure }
+
 type Listener = () => void
 
 /** One surface's state: the flat components, the data model, the reduced
  *  tree. Mutations notify subscribers; `root` is reduced lazily. */
 export class SurfaceStore {
   readonly surfaceId: string
-  catalogId: string
+  /** The surface default (round 9 §5.5); undefined = none. */
+  catalogId: string | undefined
   packageId?: string
   sendDataModel = false
   /** The flat components, mutated in place while nothing holds them. */
@@ -162,9 +186,19 @@ export class SurfaceStore {
   private shared = false
   private positions = new Map<string, number>()
   data: Record<string, unknown> = {}
-  /** The server's `createSurface.theme`, resolved (undefined = the
-   *  renderer's own theme). */
+  /** The surface's `metadata.extensions.at_exponential_theme`, resolved
+   *  (undefined = the renderer's own theme). */
   theme?: ResolvedTheme
+  /** Round 9 §5.1: `createSurface.metadata`. */
+  metadata?: { extensions?: Record<string, unknown> }
+  /** Round 9 §1.3: `<surfaceId>:<n>`. */
+  private callCounter = 0
+  /** §1.5: the bare path's stream state. */
+  private bridge: SurfaceBridge
+  /** Round 9 §6.5: the routed reactive calls, by key. */
+  routes = new Map<string, ReactiveRoute>()
+  /** Round 9 §5.2: what was sent already: (code, path, message). */
+  sentIssues = new Set<string>()
   private reduced: { root: UiNode | null; issues: ReduceIssue[]; templates?: Record<string, UiNode> } | null = null
   private listeners = new Set<Listener>()
   version = 0
@@ -172,9 +206,50 @@ export class SurfaceStore {
    *  `set` step); a focused field adopts a value that came with a move. */
   writeEpoch = 0
 
-  constructor(surfaceId: string, catalogId: string, private extensions: () => readonly ExtensionDef[]) {
+  constructor(surfaceId: string, catalogId: string | undefined, private extensions: () => readonly ExtensionDef[]) {
     this.surfaceId = surfaceId
     this.catalogId = catalogId
+    this.bridge = newSurfaceBridge(catalogId)
+  }
+
+  /** The next `callAgentFunction` id. */
+  nextCallId(): string {
+    this.callCounter += 1
+    return `${this.surfaceId}:${this.callCounter}`
+  }
+
+  /** Round 9 §1.5: a message straight into this surface (no router): the
+   *  version check with the 0.9 bridge, the entry check per component.
+   *  Answers what was refused. */
+  apply(message: unknown): SurfaceRefusal[] {
+    const { updates, refused } = surfaceUpdates(message, this.bridge, { extensions: this.extensions() })
+    for (const u of updates) {
+      if (u.surfaceId !== this.surfaceId) continue
+      if (u.kind === `create`) {
+        this.catalogId = u.catalogId
+        this.list = []
+        this.shared = false
+        this.positions = new Map()
+        this.data = u.dataModel ?? {}
+        this.metadata = u.metadata
+        this.routes = new Map()
+        this.sentIssues = new Set()
+        this.reduced = null
+        if (u.components.length) this.setComponents(u.components)
+        else this.notify()
+      } else if (u.kind === `components`) {
+        if (u.components.length) this.setComponents(u.components)
+      } else if (u.kind === `data`) {
+        const error = this.setData(u.path, u.value)
+        if (error) refused.push({ message: error, path: u.path || `/` })
+      } else {
+        this.list = []
+        this.positions = new Map()
+        this.reduced = null
+        this.notify()
+      }
+    }
+    return refused
   }
 
   /** The flat components as a SNAPSHOT: an array handed out here is never
@@ -271,6 +346,8 @@ export class SurfaceStore {
 export class ExponentialHost {
   readonly router: HostRouter
   private stores = new Map<string, SurfaceStore>()
+  /** Round 9 §6.5: `callAgentFunction`s waiting for their response. */
+  private pendingCalls = new Map<string, { settle: (answer: RouteAnswer) => void; timer: ReturnType<typeof setTimeout> }>()
   /** Per surface, one entry per bound path (VAPP-122: a re-bind of a path
    *  cancels the earlier subscription at that path). */
   private subscriptions = new Map<string, { path: string; cancel: () => void }[]>()
@@ -311,8 +388,9 @@ export class ExponentialHost {
     return this.router.supportedCatalogIds
   }
 
-  clientCapabilities() {
-    return clientCapabilities(this.extensions.map((e) => e.id))
+  /** Round 9 §10: `inline` = the registered extensions' 1.0 catalog files. */
+  rendererCapabilities(inline?: readonly unknown[]) {
+    return rendererCapabilities(this.extensions.map((e) => e.id), inline ? { inline } : {})
   }
 
   get extensionDefs(): readonly ExtensionDef[] {
@@ -389,22 +467,80 @@ export class ExponentialHost {
     for (const id of this.surfaceIds()) this.perform({ op: `delete`, surfaceId: id })
   }
 
-  /** One server message (a transport calls this; tests and in-memory hosts
-   *  may call it directly). */
-  receive(message: unknown): HostOp[] {
+  /** One agent message (a transport calls this; tests and in-memory hosts
+   *  may call it directly). UNTRUSTED unless `options.trusted`: only host
+   *  code passes it (round 9 §2; `applyTemplate()`, `bind()`). */
+  receive(message: unknown, options: RouteOptions = {}): HostOp[] {
     // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
-    const ops = this.router.route(withHostParams(message, hostParams(this.options.now?.(), this.options.zone)))
+    const ops = this.router.route(withHostParams(message, hostParams(this.options.now?.(), this.options.zone)), options)
     for (const op of ops) this.perform(op)
     return ops
   }
 
+  /** Round 9 §2: a package template onto a (new) surface: host code, routed
+   *  trusted. `surfaceId` must be fresh (`mintSurfaceId` to re-open one). */
+  applyTemplate(input: { surfaceId: string; templateId: string; packageId?: string; data?: unknown }): HostOp[] {
+    const { surfaceId, templateId, packageId, data } = input
+    return this.receive({ version: A2UI_VERSION, applyTemplate: { surfaceId, templateId, ...(packageId === undefined ? {} : { packageId }), ...(data === undefined ? {} : { data }) } }, { trusted: true })
+  }
+
+  /** Round 9 §1.4: a fresh id to re-open a surface under. */
+  mintSurfaceId(base: string): string {
+    return this.router.mintSurfaceId(base)
+  }
+
+  /** §1.4's navigation: a surface id that is free, or a minted one; the
+   *  caller creates it, then deletes the old surface. */
+  freshSurfaceId(base: string): string {
+    return this.router.wasCreated(base) ? this.router.mintSurfaceId(base) : base
+  }
+
   send(message: ClientMessage): void {
-    void this.options.transport?.send(message)
+    const metadata = this.dataModelMetadata(message)
+    void this.options.transport?.send(message, metadata)
     this.options.onSend?.(message)
     if (`error` in message) {
       const e = message.error
       this.report({ code: e.code, message: e.message, ...(e.surfaceId ? { surfaceId: e.surfaceId } : {}), ...(e.path !== undefined ? { path: e.path } : {}) })
     }
+  }
+
+  /** Round 9 §1.3: the metadata beside a message about a `sendDataModel` surface. */
+  private dataModelMetadata(message: ClientMessage): MessageMetadata | undefined {
+    const about = `action` in message ? message.action.surfaceId : `callAgentFunction` in message ? message.callAgentFunction.surfaceId : `error` in message ? message.error.surfaceId : undefined
+    const store = about === undefined ? undefined : this.stores.get(about)
+    if (!store?.sendDataModel) return undefined
+    return { a2uiRendererDataModel: { version: A2UI_VERSION, surfaces: { [store.surfaceId]: store.data } } }
+  }
+
+  /** Round 9 §5.2 + §18.3: the surface's coded reducer issues, each once for
+   *  its lifetime, at most `MAX_SENT_ISSUES` per message. */
+  private sendIssues(store: SurfaceStore): void {
+    let sent = 0
+    let dropped = 0
+    for (const issue of store.issues) {
+      if (!issue.code) continue
+      const key = `${issue.code}\u0000${issue.path}\u0000${issue.message}`
+      if (store.sentIssues.has(key)) continue
+      if (sent >= MAX_SENT_ISSUES) {
+        dropped += 1
+        continue
+      }
+      store.sentIssues.add(key)
+      sent += 1
+      this.send(errorMessage(issue.code as never, store.surfaceId, issue.message, issue.path))
+    }
+    if (dropped > 0) this.send(errorMessage(`VALIDATION_FAILED`, store.surfaceId, `${dropped} more issues were dropped`, `/`))
+  }
+
+  /** Round 9 §6.8: a reactive evaluation failed; sent once (like a reducer issue). */
+  reportFailure(surfaceId: string, failure: Failure, path?: string): void {
+    const store = this.stores.get(surfaceId)
+    if (!store) return
+    const key = `${failure.code}\u0000${failure.functionCallId ?? path ?? ``}\u0000${failure.message}`
+    if (store.sentIssues.has(key)) return
+    store.sentIssues.add(key)
+    this.send(errorMessage(failure.code, failure.functionCallId === undefined ? { surfaceId } : { functionCallId: failure.functionCallId }, failure.message, failure.functionCallId === undefined ? path : undefined))
   }
 
   private perform(op: HostOp): void {
@@ -416,10 +552,11 @@ export class ExponentialHost {
         const store = new SurfaceStore(op.surfaceId, op.catalogId, () => this.extensions)
         store.sendDataModel = op.sendDataModel === true
         store.packageId = this.router.surface(op.surfaceId)?.packageId
+        if (op.metadata) store.metadata = op.metadata
         if (op.theme !== undefined && op.theme !== null) {
           const { theme, issues } = resolveSurfaceTheme(op.theme)
           if (theme) store.theme = theme
-          else this.send(errorMessage(`VALIDATION_FAILED`, op.surfaceId, `createSurface.theme is unusable: ${issues.join(`; `)}`, `/createSurface/theme`))
+          else this.send(errorMessage(`VALIDATION_FAILED`, op.surfaceId, `at_exponential_theme is unusable: ${issues.join(`; `)}`, `/createSurface/metadata/extensions/at_exponential_theme`))
         }
         this.stores.set(op.surfaceId, store)
         this.notify()
@@ -430,7 +567,9 @@ export class ExponentialHost {
         // changed: it may paint now, or fail anew); the rest stay reported.
         const failed = this.paintErrors.get(op.surfaceId)
         if (failed) for (const c of op.components) failed.delete(c.id)
-        this.stores.get(op.surfaceId)?.setComponents(op.components)
+        const store = this.stores.get(op.surfaceId)
+        store?.setComponents(op.components)
+        if (store && (this.options.transport || this.options.agent)) this.sendIssues(store)
         return
       }
       case `data`: {
@@ -460,6 +599,12 @@ export class ExponentialHost {
         this.stores.delete(op.surfaceId)
         this.notify()
         return
+      case `call`:
+        this.answerCall(op)
+        return
+      case `respond`:
+        this.settleCall(op)
+        return
       case `send`: {
         const err = `error` in op.message ? op.message.error : undefined
         if (err?.code === `UNSUPPORTED_CATALOG`) {
@@ -479,8 +624,9 @@ export class ExponentialHost {
 
   // --- interactions out ---------------------------------------------------
 
-  /** A component's server event: the A2UI client action message. */
-  action(event: { surfaceId: string; componentId: string; name: string; context?: Record<string, unknown>; payload?: Record<string, unknown>; timestamp?: string }): ClientMessage {
+  /** A component's event: the A2UI 1.0 `action` message (`componentId` =
+   *  the painted id; `userMessage` = the Action's resolved one). */
+  action(event: { surfaceId: string; componentId: string; name: string; context?: Record<string, unknown>; payload?: Record<string, unknown>; userMessage?: string; timestamp?: string }): ClientMessage {
     const message = actionMessage({
       name: event.name,
       surfaceId: event.surfaceId,
@@ -488,19 +634,113 @@ export class ExponentialHost {
       timestamp: event.timestamp ?? new Date().toISOString(),
       context: event.context ?? {},
       payload: event.payload,
+      ...(event.userMessage === undefined ? {} : { userMessage: event.userMessage }),
     })
     this.send(message)
     return message
   }
 
-  /** The policy decision for a call, before any consent hook. */
+  /** Round 9 §6.9: run a callRendererFunction that passed the router's
+   *  checks; a throw (or a failing evaluation) answers EXECUTION_ERROR. */
+  private answerCall(op: Extract<HostOp, { op: `call` }>): void {
+    const data = op.surfaceId === undefined ? {} : (this.stores.get(op.surfaceId)?.data ?? {})
+    const { value, failure } = evaluateCall({ "@call": op.name, catalogId: op.catalogId, args: op.args }, data, { catalogId: op.catalogId, available: this.router.availableCatalogIds })
+    this.send(rendererFunctionResponse(op.functionCallId, failure ? { error: { code: `EXECUTION_ERROR`, message: failure.message } } : { value }))
+  }
+
+  /** Round 9 §10: an agentFunctionResponse settles its pending call; an
+   *  unknown or settled id is a host issue, never sent. */
+  private settleCall(op: Extract<HostOp, { op: `respond` }>): void {
+    const pending = this.pendingCalls.get(op.functionCallId)
+    if (!pending) {
+      this.report({ code: `INVALID_MESSAGE`, message: `no pending call ${op.functionCallId}` })
+      return
+    }
+    this.pendingCalls.delete(op.functionCallId)
+    clearTimeout(pending.timer)
+    pending.settle(`error` in op ? { failure: { code: `EXPRESSION_ERROR`, message: op.error.message, functionCallId: op.functionCallId } } : { value: op.value })
+  }
+
+  /** Round 9 §6.5: does the surface have an agent? */
+  hasAgent(surfaceId: string): boolean {
+    return this.options.agent === true && this.router.surface(surfaceId)?.agent === true
+  }
+
+  /** Round 9 §1.3 + §6.5: one `callAgentFunction`, its answer or the timeout. */
+  private callAgent(store: SurfaceStore, name: string, catalogId: string, args: Record<string, unknown>): Promise<RouteAnswer> {
+    const functionCallId = store.nextCallId()
+    const defaults: Record<string, unknown> = {}
+    for (const [k, schema] of Object.entries(declaredFunction(catalogId, name)?.args ?? {}))
+      if (typeof schema === `object` && schema !== null && `default` in schema && !(k in args)) defaults[k] = (schema as { default: unknown }).default
+    return new Promise((settle) => {
+      const timer = setTimeout(() => {
+        this.pendingCalls.delete(functionCallId)
+        settle({ failure: { code: `EXPRESSION_ERROR`, message: `${name} timed out`, functionCallId } })
+      }, AGENT_FUNCTION_TIMEOUT_MS)
+      ;(timer as { unref?: () => void }).unref?.()
+      this.pendingCalls.set(functionCallId, { settle, timer })
+      this.send(callAgentFunctionMessage(store.surfaceId, functionCallId, name, catalogId, { ...defaults, ...args }))
+    })
+  }
+
+  /** Round 9 §6.5: `ResolveOptions.route` for one surface's REACTIVE
+   *  positions (`decideRoute`). Identical calls share one in-flight call and
+   *  a settled answer stays for the surface's lifetime; while pending the
+   *  position reads its previous value, else null. */
+  reactiveRoute(surfaceId: string): (call: RoutedCall) => RouteAnswer {
+    return (call) => {
+      const store = this.stores.get(surfaceId)
+      if (!store) return { failure: { code: `UNKNOWN_FUNCTION`, message: `no function ${call.name}` } }
+      const key = routedCallKey(call.catalogId, call.name, call.args)
+      const known = store.routes.get(key)
+      if (known) return known.state === `value` ? { value: known.value } : known.state === `failure` ? { failure: known.failure } : { value: known.previous }
+      const registered = Object.prototype.hasOwnProperty.call(this.functions, call.name)
+      const route = decideRoute({ name: call.name, catalogId: call.catalogId, available: this.router.availableCatalogIds, position: `reactive`, policy: this.options.policy?.functions, packageFunctions: this.packageOf(store)?.functions ?? (store.packageId ? [] : undefined), registered, agent: this.hasAgent(surfaceId) })
+      if (route.route === `fail`) return { failure: { code: route.code, message: route.message } }
+      store.routes.set(key, { state: `pending`, previous: null })
+      void this.settleReactive(store, key, call, route.route === `ask`, registered)
+      return { value: null }
+    }
+  }
+
+  private packageOf(store: SurfaceStore): AppPackage | undefined {
+    return store.packageId ? this.router.package(store.packageId) : undefined
+  }
+
+  /** The pending reactive call: consent, then the local function or the agent. */
+  private async settleReactive(store: SurfaceStore, key: string, call: RoutedCall, ask: boolean, registered: boolean): Promise<void> {
+    const info: FunctionCallInfo = { surfaceId: store.surfaceId, componentId: ``, name: call.name, args: call.args, catalogId: call.catalogId }
+    let answer: RouteAnswer
+    try {
+      const allowed = !ask || (await this.options.policy?.onFunctionCall?.(info)) === true
+      if (!allowed) answer = { failure: { code: `INVALID_FUNCTION_CALL`, message: `${call.name} was not allowed` } }
+      else if (registered) answer = { value: (await this.functions[call.name]!(call.args, info)) ?? null }
+      else answer = await this.callAgent(store, call.name, call.catalogId, call.args)
+    } catch (e) {
+      answer = { failure: { code: `EXPRESSION_ERROR`, message: e instanceof Error ? e.message : String(e) } }
+    }
+    store.routes.set(key, `failure` in answer ? { state: `failure`, failure: answer.failure } : { state: `value`, value: answer.value })
+    if (`failure` in answer) this.reportFailure(store.surfaceId, answer.failure)
+    store.notify()
+  }
+
+  /** The policy decision for a call, before any consent hook: `not_found`
+   *  when nothing can answer it. */
   decide(surfaceId: string, name: string): FunctionDecision {
     // Own names only: `constructor` is not a registered function (VAPP-107).
     const registered = Object.prototype.hasOwnProperty.call(this.functions, name)
-    let decision = decideFunction(this.options.policy?.functions, name, registered)
+    const decision = this.decidePolicy(surfaceId, name)
+    if (decision !== `allow` && decision !== `ask`) return decision
+    return registered || BUILTIN_FUNCTIONS.includes(name) || this.hasAgent(surfaceId) ? decision : `not_found`
+  }
+
+  /** Round 9 §6.5: the policy IN FRONT: the host's and the package's
+   *  decision whether or not the name is registered. */
+  private decidePolicy(surfaceId: string, name: string): FunctionDecision {
+    let decision = decideFunction(this.options.policy?.functions, name, true)
     const pkgId = this.stores.get(surfaceId)?.packageId
     const pkg = pkgId ? this.router.package(pkgId) : undefined
-    if (pkg) decision = combineDecisions(decision, decideFunction(packagePolicy(pkg.functions), name, registered))
+    if (pkg) decision = combineDecisions(decision, decideFunction(packagePolicy(pkg.functions), name, true))
     return decision
   }
 
@@ -514,19 +754,39 @@ export class ExponentialHost {
     if (action !== null) return this.runPackageAction(call, action)
     const gate = await this.gate(call)
     if (gate.decision !== `allow`) return gate
-    return this.run(call)
+    if (this.answersLocally(call.name)) {
+      const outcome = await this.run(call)
+      // Round 9 §6.8: a local function that threw stops the action.
+      if (outcome.error !== undefined) this.send(errorMessage(`EXECUTION_ERROR`, call.surfaceId, outcome.error))
+      return outcome
+    }
+    // Allowed, nothing local: the surface's agent, else UNKNOWN_FUNCTION.
+    const store = this.stores.get(call.surfaceId)
+    const catalogId = call.catalogId ?? store?.catalogId
+    if (!store || catalogId === undefined || !this.hasAgent(call.surfaceId)) {
+      this.send(errorMessage(`UNKNOWN_FUNCTION`, call.surfaceId, `no function ${call.name}`))
+      return { decision: `not_found` }
+    }
+    // An ACTION call is never shared or cached: a new id every time.
+    const answer = await this.callAgent(store, call.name, catalogId, call.args)
+    if (`failure` in answer) {
+      this.send(errorMessage(answer.failure.code, { functionCallId: answer.failure.functionCallId! }, answer.failure.message))
+      return { decision: `allow`, error: answer.failure.message }
+    }
+    return { decision: `allow`, result: answer.value }
+  }
+
+  /** A registered host function, or a built-in catalog name (no effect as an action). */
+  private answersLocally(name: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.functions, name) || BUILTIN_FUNCTIONS.includes(name)
   }
 
   /** The policy gate and the consent hook: `allow`, or the refusal (sent
-   *  as FUNCTION_NOT_FOUND / FUNCTION_DENIED). */
+   *  as INVALID_FUNCTION_CALL). */
   private async gate(call: FunctionCallInfo): Promise<FunctionOutcome> {
     // VAPP-218: navigate is always allowed (checked when it runs).
     if (call.name === NAVIGATE_FUNCTION) return { decision: `allow` }
-    let decision = this.decide(call.surfaceId, call.name)
-    if (decision === `not_found`) {
-      this.send(errorMessage(`FUNCTION_NOT_FOUND`, call.surfaceId, `no function ${call.name}`))
-      return { decision }
-    }
+    let decision = this.decidePolicy(call.surfaceId, call.name)
     let consentError: string | undefined
     if (decision === `ask`) {
       // A throwing/rejecting consent hook is a deny, never a rejected call
@@ -540,7 +800,7 @@ export class ExponentialHost {
       if (!ok) decision = `deny`
     }
     if (decision === `deny`) {
-      this.send(errorMessage(`FUNCTION_DENIED`, call.surfaceId, consentError === undefined ? `${call.name} was not allowed` : `${call.name} was not allowed: the consent hook failed: ${consentError}`))
+      this.send(errorMessage(`INVALID_FUNCTION_CALL`, call.surfaceId, consentError === undefined ? `${call.name} was not allowed` : `${call.name} was not allowed: the consent hook failed: ${consentError}`))
       return consentError === undefined ? { decision } : { decision, error: consentError }
     }
     return { decision: `allow` }
@@ -579,17 +839,17 @@ export class ExponentialHost {
     }
   }
 
-  /** VAPP-194: `actions.<name>` = the surface's package action, all or
+  /** VAPP-194: `actions_<name>` = the surface's package action, all or
    *  nothing: the plan over one snapshot (the args = params, the surface
    *  data, `me`, the clock), every host call's gate and consent, then the
-   *  record writes as ONE `records.batch`, then the sets, then the calls.
-   *  A failure before the commit lands nothing: ACTION_FAILED +
+   *  record writes as ONE `records_batch`, then the sets, then the calls.
+   *  A failure before the commit lands nothing: EXECUTION_ERROR +
    *  `onActionFailed` (the toast), the outcome's `error`. */
   private async runPackageAction(call: FunctionCallInfo, action: string): Promise<FunctionOutcome> {
     const store = this.stores.get(call.surfaceId)
     const pkg = store?.packageId ? this.router.package(store.packageId) : undefined
     const failed = (message: string): FunctionOutcome => {
-      this.send(errorMessage(`ACTION_FAILED`, call.surfaceId, message))
+      this.send(errorMessage(`EXECUTION_ERROR`, call.surfaceId, message))
       this.options.onActionFailed?.({ surfaceId: call.surfaceId, action, message })
       return { decision: `allow`, error: message }
     }
@@ -638,13 +898,13 @@ export class ExponentialHost {
   }
 
   /** VAPP-218: `navigate {screen, params?}` → the host's shell, when the
-   *  surface's package has that screen. A refusal = FUNCTION_DENIED. */
+   *  surface's package has that screen. A refusal = INVALID_FUNCTION_CALL. */
   navigate(call: FunctionCallInfo): FunctionOutcome {
     const store = this.stores.get(call.surfaceId)
     const pkg = store?.packageId ? this.router.package(store.packageId) : undefined
     const target = pkg ? navigateTarget(pkg, call.args) : { error: `navigate: the surface has no package` }
     const refuse = (message: string): FunctionOutcome => {
-      this.send(errorMessage(`FUNCTION_DENIED`, call.surfaceId, message))
+      this.send(errorMessage(`INVALID_FUNCTION_CALL`, call.surfaceId, message))
       return { decision: `deny`, error: message }
     }
     if (`error` in target) return refuse(target.error)
@@ -663,7 +923,7 @@ export class ExponentialHost {
     const source = typeof args.source === `string` ? args.source : ``
     if (!source || !this.stores.has(surfaceId)) return false
     const params = args.params && typeof args.params === `object` && !Array.isArray(args.params) ? (args.params as Record<string, unknown>) : undefined
-    const ops = this.receive({ version: A2UI_VERSION, bindDataModel: { surfaceId, path, source: sourceWithParams(source, params) } })
+    const ops = this.receive({ version: A2UI_VERSION, bindDataModel: { surfaceId, path, source: sourceWithParams(source, params) } }, { trusted: true })
     return ops.some((op) => op.op === `bind`)
   }
 

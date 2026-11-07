@@ -27,11 +27,12 @@ describe(`defineExtension`, () => {
     expect(() => defineExtension(badId)).toThrow(/catalog id/)
   })
 
-  test(`its schema extends the core and lists its components`, () => {
-    const schema = extensionSchema(example, [`ui-check`, `ui-chevron-up`, `ui-chevron-down`, `ui-minus`]) as { $id: string; extends: string; components: Record<string, unknown>; $defs: { anyComponent: { oneOf: { $ref: string }[] } } }
+  test(`its 1.0 catalog definition holds the core's components then its own (round 9 §11)`, () => {
+    const schema = extensionSchema(example, [`ui-check`, `ui-chevron-up`, `ui-chevron-down`, `ui-minus`]) as { $id: string; protocolVersion: string; components: Record<string, unknown>; $defs: { anyComponent: { oneOf: { $ref: string }[] } } }
     expect(schema.$id).toBe(example.id)
-    expect(schema.extends).toBe(CORE_CATALOG_ID)
-    expect(Object.keys(schema.components)).toEqual([`TrendLine`, `StatCard`])
-    expect(schema.$defs.anyComponent.oneOf[0].$ref).toBe(`${CORE_CATALOG_ID}#/$defs/anyComponent`)
+    expect(schema.protocolVersion).toBe(`1.0`)
+    expect(Object.keys(schema.components).slice(-2)).toEqual([`TrendLine`, `StatCard`])
+    expect(schema.components.Button).toBeDefined()
+    expect(schema.$defs.anyComponent.oneOf.at(-1)!.$ref).toBe(`#/components/StatCard`)
   })
 })

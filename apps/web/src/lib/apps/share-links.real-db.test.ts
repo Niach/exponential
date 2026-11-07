@@ -51,6 +51,8 @@ async function user(): Promise<string> {
 }
 
 const PACKAGE = {
+  // Round 9 §14: a stored format 5 package reaches a guest through the bridge.
+  formatVersion: 5,
   records: {
     signup: {
       title: `Signup`,
