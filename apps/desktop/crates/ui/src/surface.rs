@@ -263,10 +263,6 @@ pub(crate) const STRIP_CHIP_H: f32 = 32.;
 pub(crate) const STRIP_CHIP_PX: f32 = 10.;
 /// The "+N" overflow button's sides (web `StripOverflowButton`, `px-2`).
 pub(crate) const STRIP_OVERFLOW_PX: f32 = 8.;
-/// The chrome [`strip_overflow_button`] adds around its label: the sides
-/// and the 1px hairline, what a strip's width measurer reserves.
-pub(crate) const STRIP_OVERFLOW_CHROME: f32 = 2. * STRIP_OVERFLOW_PX + 2.;
-
 pub(crate) fn strip_chip_frame(id: impl Into<ElementId>, active: bool, bordered: bool, cx: &App) -> Stateful<Div> {
     let theme = cx.theme();
     let foreground = theme.foreground;
@@ -464,7 +460,6 @@ mod tests {
         // EXP-1334: the web `StripChip` box — `px-2.5`, the "+N" `px-2`.
         assert_eq!(STRIP_CHIP_PX, 10.);
         assert_eq!(STRIP_CHIP_H, 32.);
-        assert_eq!(STRIP_OVERFLOW_CHROME, 18.);
     }
 
     /// EXP-698: a Button pill and a `Div` pill must paint the SAME surface.

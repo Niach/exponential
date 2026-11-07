@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Drafts (while any, or on its page): the chat button beside the start button is the Agent entry, and Devices lives in the start menu (#EXP-1723). screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. An agent's dot = amber (needs you) before green (busy). gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (threads-list.json copy.title and needs-you.json copy.entry).",
+  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Drafts (while any, or on its page): the chat button beside the start button is the Agent entry, and Devices lives in the start menu (#EXP-1723). screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. An agent's dot = amber (needs you) before green (busy). gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (threads-list.json copy.title and needs-you.json copy.entry). tabs: the bottom tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged, activeTab = the active key while a tab holds the screen.",
   "version": 1,
   "copy": {
     "needs-you": "Needs you",
@@ -640,6 +640,69 @@
             "unread": true
           }
         ]
+      }
+    }
+  ],
+  "tabs": [
+    {
+      "name": "work tabs and terminals stay in tab order in one strip",
+      "tabs": [
+        {
+          "key": "issue:i1",
+          "title": "APP-1 Crash on launch",
+          "icon": "ide:tab:issue:i1"
+        },
+        {
+          "key": "terminal:3",
+          "title": "zsh",
+          "icon": "ide:tab:terminal:3"
+        }
+      ],
+      "active": "terminal:3",
+      "expected": {
+        "tabs": [
+          {
+            "value": "issue:i1",
+            "label": "APP-1 Crash on launch",
+            "icon": "ide:tab:issue:i1"
+          },
+          {
+            "value": "terminal:3",
+            "label": "zsh",
+            "icon": "ide:tab:terminal:3"
+          }
+        ],
+        "activeTab": "terminal:3"
+      }
+    },
+    {
+      "name": "a screen with no tab leaves nothing active",
+      "tabs": [
+        {
+          "key": "issue:i1",
+          "title": "APP-1 Crash on launch",
+          "icon": "ide:tab:issue:i1"
+        }
+      ],
+      "active": "home",
+      "expected": {
+        "tabs": [
+          {
+            "value": "issue:i1",
+            "label": "APP-1 Crash on launch",
+            "icon": "ide:tab:issue:i1"
+          }
+        ],
+        "activeTab": null
+      }
+    },
+    {
+      "name": "nothing open is an empty strip",
+      "tabs": [],
+      "active": null,
+      "expected": {
+        "tabs": [],
+        "activeTab": null
       }
     }
   ]

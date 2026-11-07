@@ -188,3 +188,32 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
         active: input.active.iter().map(|a| IdeActiveRow { id: a.id.clone(), title: a.title.clone(), icon: a.icon.clone(), selected: on("thread", &a.id) || a.session_ids.iter().any(|id| on("session", id)), unread: a.unread }).collect(),
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdeTabInput {
+    pub key: String,
+    pub title: String,
+    pub icon: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdeTab {
+    pub value: String,
+    pub label: String,
+    pub icon: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeTabs {
+    pub tabs: Vec<IdeTab>,
+    pub active_tab: Option<String>,
+}
+
+/// The bottom tab bar: every open tab in tab order, the active one by key.
+pub fn ide_tabs(tabs: &[IdeTabInput], active: Option<&str>) -> IdeTabs {
+    IdeTabs {
+        tabs: tabs.iter().map(|t| IdeTab { value: t.key.clone(), label: t.title.clone(), icon: t.icon.clone() }).collect(),
+        active_tab: active.filter(|a| tabs.iter().any(|t| t.key == *a)).map(str::to_string),
+    }
+}

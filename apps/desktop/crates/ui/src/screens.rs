@@ -19,12 +19,11 @@
 //! team switch drops all tabs (they are team-scoped). Tabs that don't fit
 //! the strip collapse into a "+N" overflow menu (EXP-288).
 
-use crate::controls::PointerContextMenuExt as _;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity, FocusHandle,
-    Focusable, FontWeight, InteractiveElement as _, IntoElement, MouseButton, ParentElement,
+    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
     Render, StatefulInteractiveElement as _, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
@@ -357,10 +356,6 @@ fn opens_no_tab(
         }
 }
 
-/// The strip's trailing "+" (a 24px ghost icon button), reserved out of the
-/// packer's budget so the last chip never slides under it.
-const NEW_TAB_BUTTON_PX: f32 = 24.;
-
 /// EXP-1294 — the strip's "+": a ghost icon button after the last chip (and
 /// after "+N") that opens Home ([`open_home`]).
 pub(crate) fn home_button(id: impl Into<gpui::ElementId>) -> Button {
@@ -449,15 +444,6 @@ fn resolve_tab_origin(
     }
 }
 
-/// EXP-769/EXP-791: one entry of the bottom session bar, in bar order — an
-/// open [`Screen::Terminal`] tab (`ix` into `ScreensPanel::tabs`). The bar is
-/// the terminal strip and nothing else — and takes no height at all without
-/// one.
-struct DockEntry {
-    ix: usize,
-    screen: Screen,
-}
-
 /// EXP-769: what a session-bar chip's × does (web `DockTab` semantics).
 #[derive(Clone)]
 enum DockClose {
@@ -467,73 +453,12 @@ enum DockClose {
     CloseTab(Screen),
 }
 
-impl DockClose {
-    fn label(&self) -> &'static str {
-        match self {
-            DockClose::CloseTerminal(_) => "Close terminal",
-            DockClose::CloseTab(_) => "Close",
-        }
-    }
-}
-
-/// Shaped width of a single line, in pixels (EXP-326).
-///
-/// `WindowTextSystem::layout_line` is the same path the text elements
-/// themselves take — including the per-frame layout cache — so measuring a
-/// label the strip is about to render is a cache hit, not a second shaping.
-/// The run carries no decorations: only the glyph advances matter here.
-pub(crate) fn measure_text(window: &Window, text: &str, font: gpui::Font, size: gpui::Rems) -> f32 {
-    if text.is_empty() {
-        return 0.;
-    }
-    let run = gpui::TextRun {
-        len: text.len(),
-        font,
-        color: gpui::black(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    let layout = window
-        .text_system()
-        .layout_line(text, size.to_pixels(window.rem_size()), &[run], None);
-    f32::from(layout.width)
-}
-
-/// Gap BETWEEN chips in the strip — the `gap_1()` on the strip's `h_flex`,
-/// which like every gpui spacing helper resolves against the rem size.
-/// Shared with the terminal dock's strip (EXP-497), which uses the same gap.
-pub(crate) fn chip_gap(window: &Window) -> f32 {
-    0.25 * f32::from(window.rem_size())
-}
-
-/// Gap between a chip's own CHILDREN — `surface::rich_tab`'s `gap(px(6.))`.
-/// EXP-698: this used to be measured with [`chip_gap`], which is the gap
-/// between chips, not inside one; the two are different helpers on different
-/// elements and reading one for the other under-measured every chip by a
-/// third of a gap per child. EXP-877: the chip's chrome is px literals now,
-/// so the gap is a px literal too and the `window` is only kept for symmetry
-/// with the rem-scaled measurers around it.
-pub(crate) fn rich_tab_child_gap(_window: &Window) -> f32 {
-    6.
-}
-
-/// Width of the trailing "+N" button: THE strip chip box at rest with the
-/// count alone (EXP-1334 `surface::strip_overflow_button`: 8px sides, the
-/// hairline, a `text_sm` label). `hidden_max` is the largest count the label
-/// could carry, so the reserve never comes out short.
-pub(crate) fn overflow_button_width(window: &Window, hidden_max: usize) -> f32 {
-    let label = format!("+{hidden_max}");
-    crate::surface::STRIP_OVERFLOW_CHROME
-        + measure_text(window, &label, window.text_style().font(), gpui::rems(0.875))
-}
 
 // EXP-288: which tabs get a chip, in strip order — the rest collapse into
 // the trailing "+N" dropdown (also the terminal dock, EXP-497, and the thread
 // strip, EXP-1334); it lives in the domain crate now. `widths`, `gap` and
 // `overflow_w` are measured against the window (EXP-326, see
 // [`ScreensPanel::measure_chip_width`]), so "fits" means fits.
-pub(crate) use domain::session_tree::partition_tabs;
 
 /// Chip content for one tab (EXP-310): issue-backed tabs lead with the
 /// colored status icon and the identifier shortcode. A blank issue title
@@ -551,9 +476,6 @@ struct ChipContent {
     title: Option<gpui::SharedString>,
     /// EXP-769: a tinted exit-code badge — terminal chips whose child exited.
     badge: Option<(gpui::SharedString, gpui::Hsla)>,
-    /// D8: the subject has not synced yet — the title slot is the
-    /// placeholder bar ([`CHIP_PLACEHOLDER_W`]), never "Loading…".
-    placeholder: bool,
 }
 
 impl ChipContent {
@@ -563,9 +485,15 @@ impl ChipContent {
             identifier: None,
             title: Some(title),
             badge: None,
-            placeholder: false,
         }
     }
+}
+
+/// #EXP-1726: one tab of the bottom tab bar.
+pub(crate) struct TabItem {
+    pub(crate) screen: Screen,
+    pub(crate) title: String,
+    pub(crate) status: crate::surface::RichTabStatus,
 }
 
 /// A chip's leading glyph (EXP-426). Cloneable — the overflow dropdown
@@ -603,16 +531,6 @@ impl ChipLead {
     }
 }
 
-/// The [`crate::surface::RichTabStatus`] a chip's lead paints as.
-/// EXP-1255 — the lead a thread / session chip in `state` wears on the
-/// strip (the styleguide's `work-tabs-strip` paints the strip's own chips).
-pub(crate) fn session_tab_status(
-    state: domain::session_tree::SessionState,
-    cx: &App,
-) -> crate::surface::RichTabStatus {
-    rich_tab_status(&state_lead_of(state, cx), cx)
-}
-
 fn rich_tab_status(lead: &ChipLead, cx: &App) -> crate::surface::RichTabStatus {
     match lead {
         ChipLead::Dot(tone) => crate::surface::RichTabStatus::Dot(*tone),
@@ -623,29 +541,6 @@ fn rich_tab_status(lead: &ChipLead, cx: &App) -> crate::surface::RichTabStatus {
     }
 }
 
-/// How much width the lead reserves in [`ScreensPanel::measure_chip_width`],
-/// in PIXELS.
-///
-/// EXP-877: `surface::rich_tab` puts every lead — glyph or dot — in the SAME
-/// 14px box, so the reserve is one number and a dot chip's title lines up
-/// with a status chip's. Pure, unit-tested; it must move whenever the lead
-/// box does.
-fn lead_reserve_px(lead: &ChipLead) -> f32 {
-    /// `surface::rich_tab`'s lead box.
-    const LEAD_BOX_PX: f32 = 14.;
-    match lead {
-        ChipLead::None => 0.,
-        ChipLead::Status(_) | ChipLead::Shell | ChipLead::Dot(_) | ChipLead::Tinted(..) => {
-            LEAD_BOX_PX
-        }
-    }
-}
-
-/// D8: the title slot of a chip whose row has not synced yet — a short
-/// placeholder bar, never "Loading…". Byte-identical with the web chip
-/// (`w-16`).
-const CHIP_PLACEHOLDER_W: f32 = 64.;
-
 /// D8: a thread / session / agent chip whose row has not synced yet.
 fn loading_chip(cx: &App) -> ChipContent {
     ChipContent {
@@ -653,7 +548,6 @@ fn loading_chip(cx: &App) -> ChipContent {
         identifier: None,
         title: None,
         badge: None,
-        placeholder: true,
     }
 }
 
@@ -688,7 +582,6 @@ fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
             cx,
         )),
         badge: None,
-        placeholder: false,
     }
 }
 
@@ -709,7 +602,6 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
             cx,
         )),
         badge: None,
-        placeholder: false,
     }
 }
 
@@ -733,7 +625,6 @@ fn agent_chip_content(agent_id: &str, cx: &App) -> ChipContent {
             cx,
         )),
         badge: None,
-        placeholder: false,
     }
 }
 
@@ -797,7 +688,6 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
                 identifier: Some(gpui::SharedString::from(issue.identifier.clone())),
                 title,
                 badge: None,
-                placeholder: false,
             };
         }
     }
@@ -1561,14 +1451,6 @@ impl ScreensPanel {
         origin.filter(|origin| !origin.is_list_of(screen))
     }
 
-    /// EXP-791: whether the bottom session bar has anything to show — it
-    /// takes no height without a terminal tab (`session_bar::bar_visible`).
-    pub(crate) fn has_terminal_tabs(&self) -> bool {
-        self.tabs
-            .iter()
-            .any(|tab| matches!(tab.screen, Screen::Terminal { .. }))
-    }
-
     /// This panel's screen for `session_id`, if a tab shows it.
     fn session_view(
         &self,
@@ -1699,20 +1581,6 @@ impl ScreensPanel {
         if let Some(ix) = self.tabs.iter().position(|tab| tab.holds(screen)) {
             self.remove_tab(ix, false, window, cx);
         }
-    }
-
-    /// EXP-769/EXP-791: the session bar's entries, in bar order — the open
-    /// TERMINAL tabs ([`Screen::is_dock_tab`]).
-    fn dock_entries(&self) -> Vec<DockEntry> {
-        self.tabs
-            .iter()
-            .enumerate()
-            .filter(|(_, tab)| matches!(tab.screen, Screen::Terminal { .. }))
-            .map(|(ix, tab)| DockEntry {
-                ix,
-                screen: tab.screen.clone(),
-            })
-            .collect()
     }
 
     /// Close every TOP-strip tab except `ix` (EXP-235 context menu). The kept
@@ -1881,320 +1749,58 @@ impl ScreensPanel {
         host.update(cx, |host, cx| host.undock_tab(tab, window, cx));
     }
 
-    /// Chip width for the overflow computation.
-    ///
-    /// EXP-326: both halves of this used to be guesses that ran long, which
-    /// is why the strip collapsed tabs into "+N" with visible room still to
-    /// its right. The labels are SHAPED with the window's own text system
-    /// now, and the chrome is expressed in the units gpui actually lays it
-    /// out in: every spacing helper (`px_2`, `gap_1`, `size_3`, `size_5`,
-    /// `gap_0p5`) resolves against the REM size, and this app's rem is
-    /// [`theme::FONT_SIZE_PX`] (14px), not the 16px browser root — reading
-    /// them as their 16px-rem pixel values inflated every chip. The one
-    /// genuine pixel constant is the title's `max_w`.
-    fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
-        /// The caller-appended 24px ghost × (and the undock beside it).
-        const XSMALL_BUTTON_PX: f32 = 24.;
-        /// The trailing button cluster's own `gap_0p5`.
-        const CLUSTER_GAP_REMS: f32 = 0.125;
-        /// `surface::RICH_TAB_TITLE_MAX_W` on the title child — a real pixel
-        /// value, so it does NOT scale with the rem.
-        const TITLE_MAX_W: f32 = crate::surface::RICH_TAB_TITLE_MAX_W;
-
-        let rem = f32::from(window.rem_size());
-        let content = chip_content(&entry.screen, cx);
-        let base_font = window.text_style().font();
-        let mut children: Vec<f32> = Vec::with_capacity(4);
-        let lead_reserve = lead_reserve_px(&content.lead);
-        if lead_reserve > 0. {
-            children.push(lead_reserve);
-        }
-        if let Some(identifier) = content.identifier.as_ref() {
-            // EXP-310: the shortcode renders `text_xs` in the terminal mono
-            // family, not the bar's proportional font.
-            let mut font = base_font.clone();
-            font.family = theme::terminal::FONT_FAMILY.into();
-            children.push(measure_text(window, identifier, font, gpui::rems(0.75)));
-        }
-        if content.placeholder {
-            children.push(CHIP_PLACEHOLDER_W);
-        }
-        if let Some(title) = content.title.as_ref() {
-            // `surface::rich_tab` renders the title `text_sm` — measuring it
-            // at the rem over-ran every chip by ~14 % of its title and folded
-            // tabs into "+N" with room still to their right (the EXP-326 bug
-            // the measured strip exists to avoid).
-            let width = measure_text(window, title, base_font.clone(), gpui::rems(0.875));
-            children.push(width.min(TITLE_MAX_W));
-        }
-        // The terminal chip's exit badge (`px_1` a side around a `text_xs`
-        // code) — the only trailing child left (EXP-877 retired the caption).
-        if let Some((label, _)) = content.badge.as_ref() {
-            children.push(0.5 * rem + measure_text(window, label, base_font, gpui::rems(0.75)));
-        }
-        // EXP-923: every chip carries the × (and, where the screen allows,
-        // the hover undock) — the live exemption went with the live tabs. The
-        // undock slot is `invisible`, not absent, so it keeps its box.
-        children.push(if entry.screen.undockable() {
-            XSMALL_BUTTON_PX * 2. + CLUSTER_GAP_REMS * rem
-        } else {
-            XSMALL_BUTTON_PX
-        });
-
-        // EXP-905: `surface::rich_tab`'s padding pair — `8 + 4` beside a ×.
-        let (pad_left, pad_right) = crate::surface::rich_tab_padding(true);
-        let gaps = rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
-        (pad_left + pad_right + gaps + children.into_iter().sum::<f32>())
-            .min(crate::surface::RICH_TAB_MAX_W)
-    }
-
-    /// EXP-277: the hand-rolled rounded tab strip. Hosted INSIDE the titlebar
-    /// (via [`screens_for_window`] from `AppTitleBar`) when the window paints
-    /// its own chrome; falls back to the legacy in-panel position under Linux
-    /// server-side decorations (where the titlebar is hidden). Chips are plain
-    /// stateful divs, so the EXP-235 context-menu overlay hack is gone — the
-    /// menu attaches directly.
-    ///
-    /// EXP-288: tabs that don't fit `available` collapse into a trailing
-    /// "+N" dropdown of the hidden tabs (no more cut-off horizontal scroll);
-    /// the ACTIVE tab is always kept visible (it displaces the last fitting
-    /// chip). `available` is the caller's width for the strip, with
-    /// `max_w_full` as the safety net.
-    ///
-    /// EXP-923: a FLAT list of plain chips, in tab order — what you opened:
-    /// issues, threads (and the session one of them shows), agents.
-    pub(crate) fn render_tab_strip(
-        &mut self,
-        available: gpui::Pixels,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        // EXP-769/EXP-870: the TOP strip holds every tab but terminals (the
-        // bottom bar's, `render_session_bar_tabs`). `top` maps strip
-        // position → real tab index; every handler keys on the real index.
-        let top: Vec<usize> = (0..self.tabs.len())
-            .filter(|&ix| !self.tabs[ix].screen.is_dock_tab())
-            .collect();
-        // EXP-1294: the "+" after the last chip (and after "+N") opens Home;
-        // it is there with no tab at all too.
-        let new_tab = home_button("center-tab-new");
-        if top.is_empty() {
-            return h_flex().items_center().child(new_tab).into_any_element();
-        }
-        let active = resolved_screen(&self.nav, cx);
-        let active_ix = active
-            .as_ref()
-            .and_then(|screen| self.tabs.iter().position(|tab| &tab.screen == screen));
-        let panel = cx.entity().downgrade();
-
-        let widths: Vec<f32> = top
+    /// #EXP-1726: every open tab in tab order for the bottom tab bar: its
+    /// screen, its strip label and its lead.
+    pub(crate) fn tab_items(&self, cx: &App) -> Vec<TabItem> {
+        self.tabs
             .iter()
-            .map(|&ix| self.measure_chip_width(&self.tabs[ix], window, cx))
-            .collect();
-        let active_pos = active_ix.and_then(|ix| top.iter().position(|&t| t == ix));
-        let visible = partition_tabs(
-            &widths,
-            (f32::from(available) - NEW_TAB_BUTTON_PX - chip_gap(window)).max(0.),
-            chip_gap(window),
-            overflow_button_width(window, top.len().saturating_sub(1)),
-            active_pos,
-        );
-        let shown: HashSet<usize> = visible.iter().copied().collect();
-        let hidden: Vec<Screen> = (0..top.len())
-            .filter(|pos| !shown.contains(pos))
-            .map(|pos| self.tabs[top[pos]].screen.clone())
-            .collect();
-        let tab_count = top.len();
-
-        let mut strip = h_flex()
-            .id("center-tab-strip")
-            .max_w_full()
-            // EXP-1250: paint the gap the packer measured, so "fits" fits.
-            .gap(px(chip_gap(window)))
-            .items_center();
-        for pos in 0..top.len() {
-            if shown.contains(&pos) {
-                strip = strip.child(self.tab_chip(top[pos], active_ix, tab_count, &panel, cx));
-            }
-        }
-
-        // EXP-288: the hidden tabs collapse into a "+N" dropdown; clicking
-        // one activates it (origin re-selection included via activate_tab).
-        if !hidden.is_empty() {
-            strip = strip.child(self.overflow_menu("center-tab-overflow", hidden, cx));
-        }
-        strip.child(new_tab).into_any_element()
-    }
-
-    /// ONE top-strip chip, with the EXP-235 set on every one of them.
-    fn tab_chip(
-        &self,
-        ix: usize,
-        active_ix: Option<usize>,
-        tab_count: usize,
-        panel: &gpui::WeakEntity<Self>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let entry = &self.tabs[ix];
-        let undockable = entry.screen.undockable();
-        let content = chip_content(&entry.screen, cx);
-        let mut tab = crate::surface::RichTab::new(("center-tab", ix), Some(ix) == active_ix);
-        tab.status = rich_tab_status(&content.lead, cx);
-        tab.identifier = content.identifier;
-        tab.title = content.title;
-        tab.placeholder = content.placeholder.then_some(CHIP_PLACEHOLDER_W);
-        tab.closable = true;
-        crate::surface::rich_tab(tab, cx)
-            .group(TAB_GROUP)
-            // Tab activation re-selects the tab's origin sidebar entry, then
-            // shows the screen (EXP-288) — never a back-stack push, never an
-            // origin rewrite.
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                cx.stop_propagation();
-                this.activate_tab(ix, window, cx);
-            }))
-            // Middle-click closes (EXP-235).
-            .on_mouse_down(
-                MouseButton::Middle,
-                cx.listener(move |this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.close_tab(ix, window, cx);
-                }),
-            )
-            // Right-click context menu (EXP-235). Hosted in the titlebar this
-            // used to lose to the Linux WM window menu; the strip's
-            // `app_title_bar::interactive` wrapper now swallows the press that
-            // popped it (EXP-294).
-            .pointer_context_menu({
-                let panel = panel.clone();
-                move |menu, _window, _cx| {
-                    let close = panel.clone();
-                    let close_others = panel.clone();
-                    let close_all = panel.clone();
-                    let menu = menu.item(crate::controls::pointer_label_item("Close", false).on_click(
-                        move |_, window, cx| {
-                            let _ = close.update(cx, |this, cx| {
-                                this.close_tab(ix, window, cx);
-                            });
-                        },
-                    ));
-                    menu.item(
-                        crate::controls::pointer_label_item("Close others", tab_count <= 1)
-                            .on_click(move |_, window, cx| {
-                                let _ = close_others.update(cx, |this, cx| {
-                                    this.close_other_tabs(ix, window, cx);
-                                });
-                            }),
-                    )
-                    .item(crate::controls::pointer_label_item("Close all", false).on_click(move |_, window, cx| {
-                        let _ = close_all.update(cx, |this, cx| {
-                            this.close_all_tabs(window, cx);
-                        });
-                    }))
-                }
-            })
-            // EXP-698: the lead glyph, the mono shortcode and the truncating
-            // title are `rich_tab`'s standard children; only the
-            // strip-specific trailing cluster is built here.
-            .child(
-                    h_flex()
-                        .gap_0p5()
-                        // Hover-revealed undock (EXP-65): `invisible` keeps
-                        // the layout slot so tabs don't jitter.
-                        .when(undockable, |this| {
-                            this.child(
-                                div()
-                                    .invisible()
-                                    .group_hover(TAB_GROUP, |style| style.visible())
-                                    .child(
-                                        Button::new(("undock-center-tab", ix))
-                                            .ghost()
-                                            .web_icon_xs()
-                                            .icon(ExpIcon::ExternalLink)
-                                            .tooltip("Open in new window")
-                                            .on_click(cx.listener(
-                                                move |this, _: &ClickEvent, window, cx| {
-                                                    cx.stop_propagation();
-                                                    this.undock_tab(ix, window, cx);
-                                                },
-                                            )),
-                                    ),
-                            )
-                        })
-                        // EXP-1255: the × shows on HOVER only, on every
-                        // chip including the active one (Cmd+W and the
-                        // middle-click still close); `invisible` keeps its
-                        // slot, so the measured width never jumps.
-                        .child(hover_close(
-                            Button::new(("close-center-tab", ix)).on_click(cx.listener(
-                                move |this, _: &ClickEvent, window, cx| {
-                                    cx.stop_propagation();
-                                    this.close_tab(ix, window, cx);
-                                },
-                            )),
-                        )),
-            )
-            .into_any_element()
-    }
-
-    /// The "+N" dropdown of the tabs a strip could not fit (EXP-288), shared
-    /// by both strips (EXP-769). Keyed by SCREEN, not by index: the menu's
-    /// closures run at click time, and a tab closed while the dropdown is
-    /// open (middle-click on a visible chip, a team switch) shifts every index
-    /// after it, which would activate the wrong tab. Tabs are deduped by
-    /// screen, so it is a stable identity — and a session-bar entry without a
-    /// tab has only its screen anyway.
-    fn overflow_menu(
-        &self,
-        id: &'static str,
-        hidden: Vec<Screen>,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        // EXP-310: the menu rows carry the same lead glyph + shortcode as
-        // the chips (composed into the label — menu items are plain icon +
-        // text).
-        let hidden_entries: Vec<(Screen, ChipLead, gpui::SharedString)> = hidden
-            .into_iter()
-            .map(|screen| {
-                let content = chip_content(&screen, cx);
-                let label = match (&content.identifier, &content.title) {
-                    (Some(identifier), Some(title)) => {
-                        gpui::SharedString::from(format!("{identifier} {title}"))
-                    }
-                    (Some(identifier), None) => identifier.clone(),
-                    _ => content
-                        .title
-                        .unwrap_or_else(|| screen_title(&screen, cx)),
+            .map(|tab| {
+                let content = chip_content(&tab.screen, cx);
+                let title = content.title.clone().unwrap_or_else(|| screen_title(&tab.screen, cx));
+                let mut title = match &content.identifier {
+                    Some(identifier) => format!("{identifier} {title}"),
+                    None => title.to_string(),
                 };
-                (screen, content.lead, label)
-            })
-            .collect();
-        let panel = cx.entity().downgrade();
-        // EXP-1334: THE "+N" (web `StripOverflowButton`): the strip chip box
-        // at rest, the count alone, the same button the thread header's
-        // folded zones open their menu with.
-        let trigger = crate::picker::PickerTrigger::new(
-            gpui::ElementId::from(gpui::SharedString::from(format!("{id}-trigger"))),
-            crate::surface::strip_overflow_button(gpui::SharedString::from(format!("{id}-chip")), hidden_entries.len(), cx)
-                .into_any_element(),
-        );
-        crate::controls::PointerMenu::new(id, trigger, move |mut menu, _window, cx| {
-                menu = menu.scrollable(true).max_h(px(320.));
-                for (screen, lead, title) in &hidden_entries {
-                    let panel = panel.clone();
-                    let screen = screen.clone();
-                    let mut item = crate::controls::pointer_label_item(title.clone(), false);
-                    if let Some(icon) = lead.icon(cx) {
-                        item = item.icon(icon);
-                    }
-                    menu = menu.item(item.on_click(move |_, window, cx| {
-                        let _ = panel.update(cx, |this, cx| {
-                            this.open_screen(screen.clone(), window, cx);
-                        });
-                    }));
+                if let Some((badge, _)) = &content.badge {
+                    title = format!("{title} ({badge})");
                 }
-                menu
+                TabItem { screen: tab.screen.clone(), title, status: rich_tab_status(&content.lead, cx) }
             })
+            .collect()
+    }
+
+    /// #EXP-1726: the tab bar's × and middle-click: a terminal's kills it.
+    pub(crate) fn close_screen(&mut self, screen: &Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let close = self.dock_close_action(screen, cx);
+        self.run_dock_close(&close, window, cx);
+    }
+
+    pub(crate) fn close_others_of(&mut self, screen: &Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if let Some(ix) = self.tabs.iter().position(|tab| &tab.screen == screen) {
+            self.close_other_tabs(ix, window, cx);
+        }
+    }
+
+    pub(crate) fn close_every_tab(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.close_all_tabs(window, cx);
+    }
+
+    /// #EXP-1726: a tab into its own window (a terminal, an undockable tab).
+    pub(crate) fn undock_screen(&mut self, screen: &Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(ix) = self.tabs.iter().position(|tab| &tab.screen == screen) else { return };
+        if matches!(screen, Screen::Terminal { .. }) {
+            self.undock_terminal_tab(ix, window, cx);
+        } else if screen.undockable() {
+            self.undock_tab(ix, window, cx);
+        }
+    }
+
+    /// #EXP-1726: the strip's drag: the tab lands at index `to`.
+    pub(crate) fn move_tab(&mut self, screen: &Screen, to: usize, cx: &mut gpui::Context<Self>) {
+        let Some(from) = self.tabs.iter().position(|tab| &tab.screen == screen) else { return };
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to.min(self.tabs.len()), tab);
+        cx.notify();
     }
 
     /// EXP-1347: whether a top tab holds `screen`.
@@ -2214,142 +1820,6 @@ impl ScreensPanel {
             Some(ix) => self.activate_tab(ix, window, cx),
             None => crate::navigation::navigate(window, cx, screen),
         }
-    }
-
-    /// EXP-769: the bottom session bar's TABS — one rich tab per
-    /// [`DockEntry`], the ACTIVE one following the screen the center shows,
-    /// the rest folding into "+N" past `available` (the same measured
-    /// partition as the top strip). Hosted by the
-    /// [`crate::session_bar::SessionBar`], which appends the `+` button and
-    /// records `available` off its own painted slot. EXP-791: terminal chips
-    /// only.
-    ///
-    /// The trailing ×: a terminal's × closes the terminal (kills the child).
-    /// Middle-click is the same. The chip's context menu adds "Open in new
-    /// window" (EXP-65's terminal undock) — the only place that affordance is
-    /// left.
-    pub(crate) fn render_session_bar_tabs(
-        &mut self,
-        available: f32,
-        trailing: Vec<gpui::AnyElement>,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let entries = self.dock_entries();
-        let active = resolved_screen(&self.nav, cx);
-        let active_pos = active
-            .as_ref()
-            .and_then(|screen| entries.iter().position(|entry| &entry.screen == screen));
-        let count = entries.len();
-        let widths: Vec<f32> = entries
-            .iter()
-            .map(|entry| self.measure_chip_width(&self.tabs[entry.ix], window, cx))
-            .collect();
-        let visible = partition_tabs(
-            &widths,
-            available,
-            chip_gap(window),
-            overflow_button_width(window, count.saturating_sub(1)),
-            active_pos,
-        );
-        let hidden: Vec<Screen> = (0..count)
-            .filter(|pos| !visible.contains(pos))
-            .map(|pos| entries[pos].screen.clone())
-            .collect();
-
-        let panel = cx.entity().downgrade();
-        let chips: Vec<gpui::AnyElement> = visible
-            .into_iter()
-            .map(|pos| {
-                let entry = &entries[pos];
-                let screen = entry.screen.clone();
-                let content = chip_content(&screen, cx);
-                let mut tab = crate::surface::RichTab::new(
-                    ("session-bar-tab", pos),
-                    Some(pos) == active_pos,
-                );
-                tab.status = rich_tab_status(&content.lead, cx);
-                tab.identifier = content.identifier;
-                tab.title = content.title;
-                tab.placeholder = content.placeholder.then_some(CHIP_PLACEHOLDER_W);
-                tab.badge = content.badge;
-                let close = self.dock_close_action(&screen, cx);
-                let close_for_middle = close.clone();
-                let open_screen = screen.clone();
-                let close_button = Button::new(("close-session-bar-tab", pos))
-                    .ghost()
-                    .cursor_pointer()
-                    .xsmall()
-                    .icon(registry::UI_CLOSE)
-                    .tooltip(close.label())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.run_dock_close(&close, window, cx);
-                    }));
-                let chip = crate::surface::rich_tab(tab, cx)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.open_screen(open_screen.clone(), window, cx);
-                    }))
-                    .on_mouse_down(MouseButton::Middle, {
-                        let panel = panel.clone();
-                        move |_, window, cx| {
-                            cx.stop_propagation();
-                            let _ = panel.update(cx, |this, cx| {
-                                this.run_dock_close(&close_for_middle, window, cx);
-                            });
-                        }
-                    })
-                    .child(close_button);
-                if let Screen::Terminal { .. } = &screen {
-                    let terminal = screen.clone();
-                    let panel = panel.clone();
-                    return chip.pointer_context_menu(move |menu, _window, _cx| {
-                        let undock = panel.clone();
-                        let undock_screen = terminal.clone();
-                        let close = panel.clone();
-                        let close_screen = terminal.clone();
-                        menu.item(crate::controls::pointer_label_item("Open in new window", false).on_click(
-                            move |_, window, cx| {
-                                let _ = undock.update(cx, |this, cx| {
-                                    if let Some(ix) = this
-                                        .tabs
-                                        .iter()
-                                        .position(|tab| tab.screen == undock_screen)
-                                    {
-                                        this.undock_terminal_tab(ix, window, cx);
-                                    }
-                                });
-                            },
-                        ))
-                        .item(crate::controls::pointer_label_item("Close", false).on_click(move |_, window, cx| {
-                            let _ = close.update(cx, |this, cx| {
-                                this.close_screen_tab_killing(&close_screen, window, cx);
-                            });
-                        }))
-                    })
-                    .into_any_element();
-                }
-                chip.into_any_element()
-            })
-            .collect();
-
-        // The `+` button rides right AFTER the last tab (the JetBrains
-        // placement the retired dock used), inside the same slot — the
-        // partition above reserved its width.
-        h_flex()
-            .id("session-bar-tabs")
-            .min_w_0()
-            .flex_1()
-            .overflow_x_hidden()
-            .gap_1()
-            .items_center()
-            .children(chips)
-            .when(!hidden.is_empty(), |this| {
-                this.child(self.overflow_menu("session-bar-overflow", hidden, cx))
-            })
-            .children(trailing)
-            .into_any_element()
     }
 
     /// EXP-769: what a session-bar chip's × does — resolved at render time
@@ -3206,44 +2676,9 @@ impl Render for ScreensPanel {
             None if !shapes_ready(cx) => self.render_syncing(cx),
             None => self.render_empty(cx),
         };
-        // EXP-1192: the second sidebar sits INSIDE the card, under the
-        // fallback strip — the strip spans the card regardless.
-
-        // EXP-277: the tab strip lives in the titlebar (AppTitleBar) whenever
-        // the window paints its own chrome; under Linux server-side
-        // decorations the titlebar is hidden, so the strip renders here in
-        // its legacy in-panel position (with its own EXP-288 divider — the
-        // titlebar carries it otherwise).
-        // EXP-1192: Settings is tab-less — no strip there, like the band.
-        let in_settings = matches!(resolved_screen(&self.nav, cx), Some(Screen::Settings));
-        let fallback_strip = (self.top_tab_count() > 0
-            && !in_settings
-            && !crate::app_title_bar::client_chrome(window))
-        .then(|| {
-            // Width budget: the strip shares the row with nothing, but the
-            // panel sits right of the window's left column (the rail — the
-            // strip is hidden in Settings) and carries its own `px_2`.
-            let occupant = crate::shell::LeftOccupant::Rail;
-            let available = (window.viewport_size().width
-                - px(crate::shell::left_column_width_for(
-                    occupant,
-                    crate::shell::window_extent(window),
-                ))
-                - px(2. * crate::shell::PANEL_MARGIN + 16.))
-            .max(px(160.));
-            div()
-                .w_full()
-                .px_2()
-                .pt_1()
-                .pb_1()
-                .border_b_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                .child(self.render_tab_strip(available, window, cx))
-        });
-
         pinned_panel_root(
             cx.theme().colors.list,
-            fallback_strip,
+            None,
             self.slot_width.clone(),
             content,
         )
@@ -3294,9 +2729,8 @@ fn pinned_panel_root(
 #[cfg(test)]
 mod tests {
     use super::{
-        dev_composer_menu_wanted, lead_reserve_px, neighbor_in_strip,
-        parse_dev_dialog, partition_tabs, resolve_tab_origin,
-        ChipLead, DevDialog, DEV_DIALOG_SPECS,
+        dev_composer_menu_wanted, neighbor_in_strip, parse_dev_dialog, resolve_tab_origin,
+        DevDialog, DEV_DIALOG_SPECS,
     };
 
     /// EXP-1551: `temporary` and `implement-issue` open the PAGE's "+",
@@ -3629,91 +3063,6 @@ mod tests {
         assert!(!work.holds(Some("t2")));
         // A screen with no tree (an issue, an unsynced session) is not it.
         assert!(!work.holds(None));
-    }
-
-    /// The strip's `gap_1` and the "+N" button at the app's rem
-    /// ([`theme::FONT_SIZE_PX`]). Every assertion below is expressed in terms
-    /// of these two, so the exact values only have to be plausible.
-    const GAP: f32 = 3.5;
-    const OVERFLOW: f32 = 22.;
-
-    fn partition(widths: &[f32], available: f32, active: Option<usize>) -> Vec<usize> {
-        partition_tabs(widths, available, GAP, OVERFLOW, active)
-    }
-
-    /// Widths that add up to exactly the available space keep every chip —
-    /// the overflow button's width is only spent once something overflows.
-    #[test]
-    fn an_exact_fit_keeps_every_tab() {
-        let widths = [100., 100., 100.];
-        assert_eq!(partition(&widths, 300. + GAP * 2., Some(0)), vec![0, 1, 2]);
-    }
-
-    /// EXP-326: the strip runs to the right edge — a tab is only dropped when
-    /// it genuinely does not fit, not one chip early.
-    #[test]
-    fn the_last_fitting_tab_is_kept() {
-        let widths = [100., 100., 100.];
-        // Room for two chips plus the "+N" button, one pixel short of three.
-        let available = 200. + GAP + OVERFLOW + GAP;
-        assert_eq!(partition(&widths, available, Some(0)), vec![0, 1]);
-        // One pixel less and only the first chip survives the budget.
-        assert_eq!(partition(&widths, available - 1., Some(0)), vec![0]);
-    }
-
-    /// EXP-746/EXP-877: the width reserve mirrors what `surface::rich_tab`
-    /// actually paints — ONE 14px lead box, whatever is in it, so a dot chip
-    /// and a status chip line their titles up and neither is over-measured
-    /// into the "+N" fold with room still to its right.
-    #[test]
-    fn lead_reserve_matches_the_rendered_lead() {
-        assert_eq!(lead_reserve_px(&ChipLead::None), 0., "no lead, no box");
-        assert_eq!(lead_reserve_px(&ChipLead::Dot(gpui::red())), 14.);
-        assert_eq!(lead_reserve_px(&ChipLead::Shell), 14.);
-        assert_eq!(
-            lead_reserve_px(&ChipLead::Status(domain::statuses::constructed_default(
-                domain::enums::IssueStatus::InProgress
-            ))),
-            14.,
-            "the same box as the dot"
-        );
-    }
-
-    /// The active tab is never hidden: it displaces the last chip that fit.
-    #[test]
-    fn the_active_tab_displaces_the_last_visible_chip() {
-        let widths = [100., 100., 100.];
-        let available = 200. + GAP + OVERFLOW + GAP;
-        assert_eq!(partition(&widths, available, Some(2)), vec![0, 2]);
-    }
-
-    /// EXP-343: a WIDER active chip shrinks the visible prefix instead of
-    /// overflowing. The old displacement swapped the active chip in for the
-    /// last fitting one without re-checking the budget, so the strip ran
-    /// past its width — on Linux far enough to push the window controls off
-    /// the window edge and clip the "+N" button.
-    #[test]
-    fn a_wide_active_tab_shrinks_the_prefix_instead_of_overflowing() {
-        let widths = [100., 100., 250.];
-        // Room for the two 100s plus "+N" — but not for 250 + 100.
-        let available = 200. + GAP + OVERFLOW + GAP;
-        assert_eq!(partition(&widths, available, Some(2)), vec![2]);
-        // With room for 250 + 100 + "+N", the first chip stays.
-        assert_eq!(partition(&widths, available + 150., Some(2)), vec![0, 2]);
-    }
-
-    /// A single chip wider than the whole strip still renders (clipped by
-    /// `max_w_full`) — collapsing everything into "+N" would leave the strip
-    /// showing nothing at all.
-    #[test]
-    fn one_tab_always_survives() {
-        assert_eq!(partition(&[500.], 40., Some(0)), vec![0]);
-        assert_eq!(partition(&[500., 500.], 0., None), vec![0]);
-    }
-
-    #[test]
-    fn no_tabs_partition_to_nothing() {
-        assert!(partition(&[], 400., None).is_empty());
     }
 
     /// EXP-499/EXP-508 regression (the EXP-492 fit-content collapse, on the

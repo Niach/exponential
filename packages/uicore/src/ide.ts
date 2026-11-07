@@ -46,6 +46,17 @@ export interface IdeSidebar {
   active: { id: string; title: string; icon: string; selected: boolean; unread: boolean }[]
 }
 
+export interface IdeTabInput {
+  key: string
+  title: string
+  icon: string
+}
+
+export interface IdeTabs {
+  tabs: { value: string; label: string; icon: string }[]
+  activeTab: string | null
+}
+
 const COPY = fixture.copy
 
 const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: string | null, dot: IdeDot | null): IdeNavRow => ({
@@ -86,5 +97,13 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
       selected: screen === `thread:${a.id}` || a.sessionIds.some((id) => screen === `session:${id}`),
       unread: a.unread,
     })),
+  }
+}
+
+/** The bottom tab bar: every open tab in tab order, the active one by key. */
+export function ideTabs(tabs: IdeTabInput[], active: string | null): IdeTabs {
+  return {
+    tabs: tabs.map((t) => ({ value: t.key, label: t.title, icon: t.icon })),
+    activeTab: tabs.some((t) => t.key === active) ? active : null,
   }
 }

@@ -117,12 +117,12 @@ const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
 /// pinned to exactly this span.
 fn card_vertical_gaps(client_chrome: bool, bar_visible: bool, bottom_resize_inset: f32) -> (f32, f32) {
     let top = if client_chrome {
-        crate::app_title_bar::WORK_TABS_BAND_H + PANEL_MARGIN_TOP
+        crate::app_title_bar::WINDOW_BAND_H + PANEL_MARGIN_TOP
     } else {
         PANEL_MARGIN
     };
     let bottom = if bar_visible {
-        PANEL_MARGIN_BOTTOM_BAR + crate::session_bar::SESSION_BAR_H + bottom_resize_inset
+        PANEL_MARGIN_BOTTOM_BAR + crate::app_title_bar::WORK_TABS_BAND_H + bottom_resize_inset
     } else {
         PANEL_MARGIN
     };
@@ -183,12 +183,6 @@ pub(crate) fn left_column_width_for(occupant: LeftOccupant, extent: f32) -> f32 
     crate::resize_edge::panel_width(occupant.panel(), extent)
 }
 
-/// EXP-456/EXP-870: this window's left column width, for the surfaces that
-/// budget around it (`app_title_bar`'s strip, the fallback strip).
-pub(crate) fn window_left_column_width(window: &Window, cx: &App) -> f32 {
-    left_column_width_for(window_left_occupant(window, cx), window_extent(window))
-}
-
 /// EXP-456: duration of the left-column occupant swap. The shared `standard`
 /// motion token — every client's default duration — rather than the 200ms it
 /// was hand-set to when this was the app's only animation.
@@ -207,12 +201,8 @@ pub struct Shell {
     /// window's `TerminalManager`; a terminal's content renders in the
     /// center as `Screen::Terminal`.
     session_bar: Entity<crate::session_bar::SessionBar>,
-    /// The in-app titlebar (EXP-269) — the first row of the DOCK shell;
-    /// hidden under the Linux server-decoration fallback (`client_chrome`).
-    /// EXP-364: the full-window surfaces (login, wizard, update gate) mount
-    /// `app_title_bar::chrome_only_title_bar()` instead — same strip, no tab
-    /// row, since there is no dock behind them.
-    title_bar: Entity<crate::app_title_bar::AppTitleBar>,
+    /// #EXP-1726: the bottom tab bar: work tabs and terminals, one strip.
+    tab_bar: Entity<crate::shell_regions::TabBarRegion>,
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
     /// (so the session bar spans everything right of it).
     rail: Entity<RailView>,
@@ -473,7 +463,7 @@ impl Shell {
         // The rail lives OUTSIDE the dock area. Built after the fixed chrome
         // so the dock already exists.
         let rail = cx.new(|cx| RailView::new(window, cx));
-        let title_bar = cx.new(|_| crate::app_title_bar::AppTitleBar::new());
+        let tab_bar = crate::shell_regions::TabBarRegion::new(window, cx);
         // EXP-769: the session bar (and with it this window's terminal
         // manager). After the nav registry entry above — a tab opening
         // navigates through it — and before the first frame, so the coding
@@ -493,7 +483,7 @@ impl Shell {
         Self {
             dock_area,
             session_bar,
-            title_bar,
+            tab_bar,
             rail,
             settings_nav,
             left_anim,
@@ -882,10 +872,6 @@ impl Render for Shell {
         // updates. This wins over the session switch (login OR board): the
         // whole window becomes the blocking "Update required" surface.
         let client_chrome = crate::app_title_bar::client_chrome(window);
-        // EXP-791: the session bar band only exists while a terminal tab is
-        // open. Read once per frame: the bar observes the screens panel and
-        // this shell observes the bar, so a tab opening/closing repaints.
-        let bar_visible = crate::session_bar::bar_visible(window, cx);
         let blocked = UpdateState::global_ref(cx).is_some_and(|m| m.read(cx).is_blocked());
         if blocked {
             let sheet_layer = Root::render_sheet_layer(window, cx);
@@ -992,15 +978,9 @@ impl Render for Shell {
                         .min_w_0()
                         .h_full()
                         .when(client_chrome, |col| {
-                            // EXP-525: pin the decoration band to a COMPUTED
-                            // definite width (the same budget terms as
-                            // `app_title_bar`'s `strip_available`). Under
-                            // gpui's stray fit-content passes (the EXP-492
-                            // class — see `screens::pinned_panel_root`) a
-                            // `flex_1` band has no definite width and
-                            // collapses to fit-content: the window controls
-                            // hug the rail. The tab-less Actions page idles on
-                            // exactly such a frame.
+                            // EXP-525: a COMPUTED definite width, or gpui's stray
+                            // fit-content passes collapse the band and the window
+                            // controls hug the rail.
                             let band_w = (window.viewport_size().width
                                 - crate::window_frame::frame_horizontal_chrome(window)
                                 - px(left_column_width_for(
@@ -1008,18 +988,11 @@ impl Render for Shell {
                                     window_extent(window),
                                 )))
                             .max(px(160.));
-                            // EXP-1192: Settings is tab-less — the band keeps
-                            // its height and the window controls / drag, but
-                            // carries no tab row.
-                            let band: AnyElement = if self.left_anim.to == LeftOccupant::Settings {
-                                div()
-                                    .w(band_w)
-                                    .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
-                                    .child(crate::app_title_bar::chrome_only_title_bar())
-                                    .into_any_element()
-                            } else {
-                                div().w(band_w).child(self.title_bar.clone()).into_any_element()
-                            };
+                            let band: AnyElement = div()
+                                .w(band_w)
+                                .h(px(crate::app_title_bar::WINDOW_BAND_H))
+                                .child(crate::app_title_bar::chrome_only_title_bar())
+                                .into_any_element();
                             col.child(
                                 // EXP-723: NO fill of its own — the band is
                                 // bare ground above the panel, which is what
@@ -1040,15 +1013,8 @@ impl Render for Shell {
                                     PANEL_MARGIN
                                 }))
                                 .mx(px(PANEL_MARGIN))
-                                // EXP-771: the session bar band below takes
-                                // the rest of the margin (see
-                                // `PANEL_MARGIN_BOTTOM_BAR`) — EXP-791: only
-                                // while it is up.
-                                .mb(px(if bar_visible {
-                                    PANEL_MARGIN_BOTTOM_BAR
-                                } else {
-                                    PANEL_MARGIN
-                                }))
+                                // The tab bar below takes the rest of the margin.
+                                .mb(px(PANEL_MARGIN_BOTTOM_BAR))
                                 .overflow_hidden()
                                 .relative()
                                 // The card FACE is a backdrop child (EXP-760)
@@ -1088,43 +1054,22 @@ impl Render for Shell {
                                 )),
                         )
                         .child(
-                            // EXP-771: the session bar band — the content
-                            // column's last child, OUTSIDE the card, the head
-                            // toolbar's twin at the bottom. Bare ground: no
-                            // fill and no hairline of its own, the panel's
-                            // 10px horizontal margins (the bar's own `px_2`
-                            // then insets the chips 8px from the card's left
-                            // edge), and flush with the window bottom. Unlike
-                            // the decoration band it is NOT a window-drag
-                            // area — every pixel here is a control.
-                            //
-                            // EXP-781: "flush" stops at the Linux CSD resize
-                            // band. That overlay sits INSIDE the content box's
-                            // bottom edge and would eat the bar's last row of
-                            // hit area, so the band clears it
-                            // (`frame_bottom_resize_inset`, zero on every
-                            // other platform and on a tiled bottom edge).
-                            //
-                            // EXP-791: ZERO height without a terminal tab —
-                            // the bar entity stays mounted (its manager and
-                            // observers live on), the band just folds away.
+                            // #EXP-1726: the tab bar, the content column's last
+                            // child, OUTSIDE the card on the bare ground, with the
+                            // card's horizontal margins. It clears the Linux CSD
+                            // resize band (EXP-781).
                             div()
                                 .flex_shrink_0()
-                                .h(px(if bar_visible {
-                                    crate::session_bar::SESSION_BAR_H
-                                } else {
-                                    0.
-                                }))
+                                .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
                                 .mx(px(PANEL_MARGIN))
-                                .when(bar_visible, |band| {
-                                    band.mb(crate::window_frame::frame_bottom_resize_inset(window))
-                                })
+                                .mb(crate::window_frame::frame_bottom_resize_inset(window))
+                                .child(self.tab_bar.clone())
                                 .child(self.session_bar.clone()),
                         )
                 })
                 // EXP-1156: the edge handle LAST, so it hit-tests above the
                 // content column it overhangs; then the live drag's capture.
-                .children(self.render_left_edge_handle(client_chrome, bar_visible, window, cx))
+                .children(self.render_left_edge_handle(client_chrome, true, window, cx))
                 .children(crate::resize_edge::drag_capture(self.resize_drag, cx))
                 .into_any_element(),
             // No rail here, so the whole window is content on the root's
@@ -1666,21 +1611,21 @@ mod tests {
     fn session_bar_band_sits_outside_the_panel() {
         assert_eq!(PANEL_MARGIN, 10.);
         assert_eq!(PANEL_MARGIN_TOP, 0.);
-        assert_eq!(crate::app_title_bar::WORK_TABS_BAND_H, 44.);
+        assert_eq!(crate::app_title_bar::WINDOW_BAND_H, 34.);
         assert_eq!(PANEL_MARGIN_BOTTOM_BAR, 6.);
-        assert_eq!(crate::session_bar::SESSION_BAR_H, 36.);
+        assert_eq!(crate::app_title_bar::WORK_TABS_BAND_H, 44.);
     }
 
     /// EXP-1163: the left column's edge handle spans the CARD — under the
-    /// 44px band (10px without client chrome), down to the card's bottom:
-    /// 10px above the window edge, or above the 6px gap + 36px session bar
-    /// (+ the CSD resize band it clears) while the bar is up.
+    /// 34px band (10px without client chrome), down to the card's bottom:
+    /// 10px above the window edge, or above the 6px gap + 44px tab bar
+    /// (+ the CSD resize band it clears).
     #[test]
     fn the_edge_handle_spans_the_card() {
-        assert_eq!(card_vertical_gaps(true, false, 0.), (44., 10.));
+        assert_eq!(card_vertical_gaps(true, false, 0.), (34., 10.));
         assert_eq!(card_vertical_gaps(false, false, 0.), (10., 10.));
-        assert_eq!(card_vertical_gaps(true, true, 0.), (44., 42.));
-        assert_eq!(card_vertical_gaps(true, true, 5.), (44., 47.));
+        assert_eq!(card_vertical_gaps(true, true, 0.), (34., 50.));
+        assert_eq!(card_vertical_gaps(true, true, 5.), (34., 55.));
     }
 
     /// EXP-851/EXP-1192: the occupant rule — Settings replaces the rail,

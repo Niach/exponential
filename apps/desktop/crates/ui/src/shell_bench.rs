@@ -15,6 +15,32 @@ use crate::transcript_bench::{draw, percentile};
 
 const SIDEBAR: (f32, f32) = (272., 900.);
 
+#[test]
+#[ignore]
+fn shell_tab_bar_frames() {
+    let mut cx = headless();
+    cx.update(seeded);
+    let handle = cx
+        .open_window(size(px(1100.), px(44.)), |window: &mut Window, cx| crate::shell_regions::TabBarRegion::new(window, cx))
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.entity(cx).expect("the tab bar"));
+    let titles = ["APP-1 Crash on launch", "Fix the login redirect", "APP-12 Offline queue for issue edits", "zsh", "Mobile App", "Release checklist", "APP-31 Rewrite the image cache", "npm run dev"];
+    cx.update(|cx| region.update(cx, |region, cx| region.show(&titles, cx)));
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    if let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") {
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(std::path::Path::new(&dir).join("ide-tabs.png")).expect("the PNG");
+    }
+    let mut times: Vec<f64> = (0..120).map(|_| draw(window, &mut cx)).collect();
+    times.sort_by(f64::total_cmp);
+    eprintln!("shell tab bar: median {:.2} ms, p95 {:.2} ms", percentile(&times, 0.5), percentile(&times, 0.95));
+    std::mem::forget(cx);
+}
+
 /// The app's assets from the source tree, gpui-component's behind them.
 struct Assets;
 
@@ -87,7 +113,7 @@ fn open(cx: &mut HeadlessAppContext, bounds: gpui::Size<gpui::Pixels>) -> gpui::
 
 /// Every row kind the sidebar draws: counts, dots, selection, a hover gear.
 fn sample() -> IdeSidebarInput {
-    let agent = |id: &str, name: &str, needs_you, busy| IdeAgentInput { id: id.into(), name: name.into(), icon: "nav-agents".into(), needs_you, busy };
+    let agent = |id: &str, name: &str, needs_you, busy| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you, busy };
     let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
     let app = |id: &str, name: &str, icon: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: icon.into() };
     IdeSidebarInput {

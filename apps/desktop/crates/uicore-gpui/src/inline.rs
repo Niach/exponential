@@ -6,7 +6,9 @@
 
 use std::{rc::Rc, sync::Arc};
 
-use ede_ui::{Body, Document};
+pub use ede_ui::Document;
+
+use ede_ui::Body;
 use eui_core::{
     surface::SurfaceSettings,
     theme::{Mode, ModeSetting, ResolvedTheme},
@@ -51,6 +53,20 @@ pub fn without(doc: &mut Document, ids: &[&str]) {
     }
 }
 
+/// Sets a literal prop of the node `id` (a prop the catalog does not let
+/// bind).
+pub fn set_prop(doc: &mut Document, id: &str, prop: &str, value: serde_json::Value) {
+    fn walk(node: &mut eui_core::types::NestedNode, id: &str, prop: &str, value: &serde_json::Value) {
+        if node.id == id {
+            node.props.get_or_insert_with(Default::default).insert(prop.to_string(), value.clone());
+        }
+        node.children.iter_mut().flatten().for_each(|c| walk(c, id, prop, value));
+    }
+    if let Body::Nested(tree) = &mut doc.body {
+        walk(tree, id, prop, &value);
+    }
+}
+
 /// The theme a host window draws its regions in: the regions sit on the
 /// host's one ground, so the Sidebar paints no fill of its own.
 pub fn theme(base: &ResolvedTheme) -> Arc<ResolvedTheme> {
@@ -69,6 +85,15 @@ pub fn mount(doc: &Document, feed: &Feed, theme: Arc<ResolvedTheme>, host: Rc<dy
         crate::load(&mut view, &doc, &feed, cx);
         view
     })
+}
+
+/// Redraws a mounted view from its edited document.
+pub fn reload(view: &Entity<SurfaceView>, doc: &Document, cx: &mut App) {
+    if let Body::Nested(tree) = &doc.body {
+        view.update(cx, |view, cx| {
+            view.set_nested(tree.clone(), cx);
+        });
+    }
 }
 
 /// The document's view filling the box the host's layout gives it.

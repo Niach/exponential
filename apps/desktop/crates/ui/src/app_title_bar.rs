@@ -10,8 +10,8 @@
 //! native chrome remains.
 
 use gpui::{
-    prelude::FluentBuilder as _, px, App, Entity, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement as _, Render, Styled as _, Subscription, Window,
+    prelude::FluentBuilder as _, App, InteractiveElement as _, IntoElement, MouseButton,
+    ParentElement as _, Styled as _, Window,
 };
 use gpui_component::h_flex;
 
@@ -20,26 +20,14 @@ use gpui_component::h_flex;
 // a square that lands in the window's rounded top-right corner.
 use crate::title_bar::TitleBar;
 
-use crate::screens::ScreensPanel;
-
-/// The bar's own breathing room, left of the strip and right of it before the
-/// window controls. One constant so the rendered padding and the strip's width
-/// budget can never drift apart.
-const BAR_INSET: f32 = 8.;
-
-/// #EXP-1724: what the macOS traffic lights take past the 56 px rail.
-fn rail_lights_inset(window: &Window) -> f32 {
-    if cfg!(target_os = "macos") && !window.is_fullscreen() && crate::ui_prefs::rail() {
-        28.
-    } else {
-        0.
-    }
-}
 
 /// EXP-877: the height of the main window's tab band — the web's
 /// `WORK_TABS_BAND_CLASS` (`md:h-[44px]`), with the panel starting flush
 /// beneath it (`shell::PANEL_MARGIN_TOP` is 0).
 pub(crate) const WORK_TABS_BAND_H: f32 = 44.;
+
+/// #EXP-1726: the band above the content card: drag and window controls, no tabs.
+pub(crate) const WINDOW_BAND_H: f32 = 34.;
 
 /// True when this window paints its own chrome. False only on Linux when gpui
 /// fell back to server-side decorations (X11 without a compositor forces
@@ -172,119 +160,6 @@ pub(crate) fn chrome_only_title_bar() -> impl IntoElement {
     // No hairline: with nothing in the strip, the vendored bottom border is
     // just a rule across the top of a surface that should read as one page.
     TitleBar::new().border_b_0()
-}
-
-/// The main window's titlebar content: the center tab strip, and nothing else
-/// (EXP-277 — the decoration band doubles as the tab row so the content area
-/// gains its height back). EXP-723 moved the New Issue button into the rail
-/// header next to Search, where the web keeps it, so the strip now runs from
-/// the rail's right edge all the way to the window controls; the brand and
-/// the rail toggle went the same way earlier / with the collapse.
-///
-/// EXP-364: mounted ONLY by the Shell's dock branch — every other surface
-/// takes [`chrome_only_title_bar`] — so the rail is always to our left here
-/// and the layout math below can count on it.
-pub struct AppTitleBar {
-    /// This window's center screens panel, resolved lazily from the
-    /// per-window registry — the panel is built after the titlebar during
-    /// `Shell::new`, so the first render(s) may not find it yet.
-    screens: Option<Entity<ScreensPanel>>,
-    /// Repaints the bar when tabs open/close/retitle.
-    _observe_screens: Option<Subscription>,
-}
-
-impl AppTitleBar {
-    pub fn new() -> Self {
-        Self {
-            screens: None,
-            _observe_screens: None,
-        }
-    }
-}
-
-impl Render for AppTitleBar {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        if self.screens.is_none() {
-            if let Some(panel) = crate::screens::screens_for_window(window, cx) {
-                self._observe_screens = Some(cx.observe(&panel, |_, _, cx| cx.notify()));
-                self.screens = Some(panel);
-            }
-        }
-        // EXP-326: the strip's width budget, computed instead of guessed.
-        // Everything left and right of it is fixed-width chrome whose widths
-        // are constants here, so the old 240/150 "rough estimates" (which cost
-        // the strip ~100px and collapsed tabs into "+N" with visible room to
-        // spare) have exact replacements:
-        //
-        //   left  = the rail column + this bar's own inset (`pl` below),
-        //           plus the vendored fullscreen `pl_3`.
-        //   right = the window controls: none on macOS (the lights are over
-        //           the rail), otherwise three `TITLE_BAR_HEIGHT`-wide buttons
-        //           — `TitleBar` draws min + max + close here.
-        let strip_available = {
-            // EXP-285/EXP-456: the full-height LEFT COLUMN (the rail or the
-            // settings nav) sits left of this bar — its
-            // width is the budget's first term. macOS lights float over that
-            // column, which is at least `theme::tokens::sidebar::MIN_WIDTH`
-            // wide (EXP-1156: dragged, never narrower) and clears the
-            // cluster on its own (EXP-723 removed the collapsed
-            // rail and with it the Shell's traffic-light tongue). Fullscreen
-            // hides the lights, so nothing is reserved for them either way.
-            let rail_w = crate::shell::window_left_column_width(window, cx);
-            let left_inset = BAR_INSET + rail_lights_inset(window);
-            let fullscreen_inset = if window.is_fullscreen() { 12. } else { 0. };
-            let right_reserve = if cfg!(target_os = "macos") {
-                BAR_INSET
-            } else {
-                3. * f32::from(crate::title_bar::TITLE_BAR_HEIGHT) + BAR_INSET
-            };
-            let taken = rail_w + left_inset + fullscreen_inset + right_reserve;
-            // EXP-343: on Linux CSD the viewport includes the rounded frame's
-            // shadow + border, which are NOT content space — without
-            // subtracting them the budget runs ~26px long and the strip's
-            // tail lands under the window controls.
-            let frame_chrome = crate::window_frame::frame_horizontal_chrome(window);
-            (window.viewport_size().width - frame_chrome - px(taken)).max(px(160.))
-        };
-        // Building the strip via `update` on the panel entity is safe here —
-        // the titlebar renders outside the panel's own render pass.
-        let strip = self.screens.as_ref().map(|panel| {
-            panel.update(cx, |panel, cx| {
-                panel.render_tab_strip(strip_available, window, cx)
-            })
-        });
-
-        let bar = TitleBar::new()
-            // EXP-723: NO hairline. The bar sits on the bare content ground
-            // above the cutout panel now, and the panel's own `strokeCard`
-            // stroke is the edge between them — a second rule right above it
-            // reads as a double border.
-            .border_b_0()
-            // EXP-877: the web's work-tabs band (`WORK_TABS_BAND_CLASS`,
-            // 44px, the 32px chips centred in it, the panel flush under it).
-            // The vendored 34px bar left the chips 1px under the window edge
-            // and a 6px gap above the panel.
-            .h(px(WORK_TABS_BAND_H))
-            // EXP-303: with the rail present the vendored 80px macOS
-            // traffic-light reserve is wrong — the left column is
-            // at least `theme::tokens::sidebar::MIN_WIDTH` wide and clears the
-            // cluster, so the bar itself only needs its normal inset.
-            .pl(px(BAR_INSET + rail_lights_inset(window)));
-
-        bar.child(
-            // The strip content swallows its own mouse-downs (interactive
-            // wrapper) so tab presses never start a window drag; the empty
-            // remainder of the flex_1 container stays a drag/zoom zone.
-            // EXP-282: this wrapper must be a FLEX container — a plain
-            // `div()` is display:block, which stretched the interactive
-            // strip to 100% width and swallowed every drag on the bar.
-            h_flex()
-                .flex_1()
-                .min_w_0()
-                .items_center()
-                .when_some(strip, |bar, strip| bar.child(interactive(strip))),
-        )
-    }
 }
 
 #[cfg(test)]
