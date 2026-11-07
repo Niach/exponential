@@ -17,7 +17,7 @@ export const MESSAGES = `{"version":"1.0","createSurface":{"surfaceId":"main","c
 ]}}
 {"version":"1.0","updateDataModel":{"surfaceId":"main","path":"/summary","value":"3 platforms, all checks green."}}`
 
-An agent answers with an interface: a card with the numbers, a form for the missing fields, a button that does the next step. The model decides what to show; the app decides how it looks and what it may do. [A2UI](https://a2ui.org/) is the open protocol for this: the agent sends components from a catalog both sides agree on, a data model and the actions it wants back, all as data. genUI speaks A2UI v0.9 (the pinned v0.9.1 spec, vendored byte for byte).
+An agent answers with an interface: a card with the numbers, a form for the missing fields, a button that does the next step. The model decides what to show; the app decides how it looks and what it may do. [A2UI](https://a2ui.org/) is the open protocol for this: the agent sends components from a catalog both sides agree on, a data model and the actions it wants back, all as data. genUI speaks A2UI 1.0 (`"version": "1.0"` on every message, the MIME type `application/a2ui+json`; the spec is pinned and vendored byte for byte).
 
 | Word | What it is |
 |---|---|
@@ -35,7 +35,7 @@ Four messages: `createSurface`, `updateComponents` (components added or replaced
 
 ## Data and actions
 
-Every surface has one JSON data model. A bindable prop takes `{"path": "/summary"}` and follows the model; inputs bind both ways. A `List` repeats a template per item, with relative paths reading the current item. Interactive components fire events: an event action goes back to the agent with its context resolved against the data model, and a function call runs on the client (built-ins on every renderer, plus the host's own, namespaced and behind a policy gate).
+Every surface has one JSON data model. A bindable prop takes `{"@path": "/summary"}` and follows the model, or `{"@call": "fn", "args": {}}` for a computed value; inputs bind both ways. A `List` repeats a template per item, with relative paths reading the current item. Interactive components fire events: an event action goes back to the agent with its context resolved against the data model, and a function call runs on the client (built-ins on every renderer, plus the host's own, prefixed and behind a policy gate).
 
 ## The catalog
 

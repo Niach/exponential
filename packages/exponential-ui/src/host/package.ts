@@ -33,10 +33,9 @@ import type { PackageScreen } from "./screens"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
- *  A package names it, and it is exactly this one; format 5 is upgraded
- *  through `upgrade09` while `ACCEPT_V09` holds (round 9 §12, §14). */
+ *  A package names it, and it is exactly this one (round 9 §12). */
 export const PACKAGE_FORMAT_VERSION = 6
-/** The 0.9-era format the bridge upgrades. */
+/** The 0.9-era format `upgrade09` reads (the stored-data migration, §14). */
 export const PACKAGE_FORMAT_VERSION_09 = 5
 
 /** The core, the core lite, the A2UI basic catalog, then every registered

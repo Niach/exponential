@@ -563,11 +563,6 @@ void uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(uint
 RustBuffer uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(uint64_t ptr, RustBuffer message_json, int8_t trusted, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_ROUTE_WITH_BRIDGE_JSON
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_ROUTE_WITH_BRIDGE_JSON
-RustBuffer uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(uint64_t ptr, RustBuffer message_json, int8_t trusted, int8_t accept_v09, RustCallStatus *_Nonnull out_status
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_SUPPORTED_CATALOG_IDS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_HOSTROUTER_SUPPORTED_CATALOG_IDS
 RustBuffer uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -1298,12 +1293,6 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_a2ui_version(RustCallStatus *_Nonnu
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_ACCEPT_V09
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_ACCEPT_V09
-int8_t uniffi_exponential_ui_ffi_fn_func_accept_v09(RustCallStatus *_Nonnull out_status
-    
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_ACTION_MESSAGE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_ACTION_MESSAGE_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_action_message_json(RustBuffer surface_id, RustBuffer component_id, RustBuffer name, RustBuffer context_json, RustBuffer payload_json, RustBuffer timestamp, RustCallStatus *_Nonnull out_status
@@ -1368,7 +1357,7 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(Ru
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CARD_V10_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CARD_V10_JSON
-RustBuffer uniffi_exponential_ui_ffi_fn_func_card_v10_json(RustBuffer card_json, int8_t accept_v09, RustCallStatus *_Nonnull out_status
+RustBuffer uniffi_exponential_ui_ffi_fn_func_card_v10_json(RustBuffer card_json, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CHART_EXTENT_JSON
@@ -1724,11 +1713,6 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(RustBuffer 
 RustBuffer uniffi_exponential_ui_ffi_fn_func_transitions_from_json(RustBuffer kind_json, RustBuffer record_json, RustBuffer viewer_json, RustBuffer row_json, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_UPGRADE09_JSON
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_UPGRADE09_JSON
-RustBuffer uniffi_exponential_ui_ffi_fn_func_upgrade09_json(RustBuffer request_json, RustCallStatus *_Nonnull out_status
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_UPGRADE_CARD09
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_UPGRADE_CARD09
 RustBuffer uniffi_exponential_ui_ffi_fn_func_upgrade_card09(RustBuffer card_json, RustCallStatus *_Nonnull out_status
@@ -2063,12 +2047,6 @@ void ffi_exponential_ui_ffi_rust_future_complete_void(uint64_t handle, RustCallS
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_A2UI_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_A2UI_VERSION
 uint16_t uniffi_exponential_ui_ffi_checksum_func_a2ui_version(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_ACCEPT_V09
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_ACCEPT_V09
-uint16_t uniffi_exponential_ui_ffi_checksum_func_accept_v09(void
     
 );
 #endif
@@ -2570,12 +2548,6 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_UPGRADE09_JSON
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_UPGRADE09_JSON
-uint16_t uniffi_exponential_ui_ffi_checksum_func_upgrade09_json(void
-    
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_UPGRADE_CARD09
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_UPGRADE_CARD09
 uint16_t uniffi_exponential_ui_ffi_checksum_func_upgrade_card09(void
@@ -2843,12 +2815,6 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_ca
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTROUTER_ROUTE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTROUTER_ROUTE_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTROUTER_ROUTE_WITH_BRIDGE_JSON
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_HOSTROUTER_ROUTE_WITH_BRIDGE_JSON
-uint16_t uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json(void
     
 );
 #endif

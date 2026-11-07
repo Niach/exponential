@@ -16,7 +16,7 @@ A host plugin is what your app lends a surface: **functions** it may call, **sou
 
 ## Functions
 
-A surface calls a function with `{"functionCall": {"call": "cart.add", "args": {…}}}` on an event. The catalog's {FUNCTION_COUNT} functions are built in; any other name is namespaced (`cart.add`), must be registered, and passes the gate first: **deny** wins, then **allow**, then **ask** (your `onFunctionCall` consent hook), then `default`. Patterns are exact names or prefixes ending in `*`. A function may be async; the button stays pending until it settles.
+A surface calls a function with `{"functionCall": {"@call": "cart_add", "args": {…}}}` on an event. The catalog's {FUNCTION_COUNT} functions are built in; any other name is an identifier with your own prefix (`cart_add`), must be registered, and passes the gate first: **deny** wins, then **allow**, then **ask** (your `onFunctionCall` consent hook), then `default`. Patterns are exact names or prefixes ending in `*`. A function may be async; the button stays pending until it settles.
 
 ## Data bindings
 
@@ -34,7 +34,7 @@ The host also sets how its Markdowns render, never the agent: `markdownOptions: 
 
 Private hosts are denied by default, for links and media alike: `localhost`, `*.local`, loopback, link-local (the cloud metadata address included) and the private IPv4 and IPv6 ranges. A host opts names back in with `allowPrivate: ["localhost"]` (a dev setup) or `["*"]`; a `hosts` allowlist alone leaves them denied. The check is on the literal address after URL normalization and resolves no names. The whole model, limits included, is on the [security page](/docs/sdk/genui/reference/security/).
 
-The rules are the same on every platform: they are written once in [host.json](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/host.json) and replayed from fixtures by every renderer. The Exponential web app is a host built on exactly this API: `harness.*` functions, an `exp:` source scheme over its synced data, a consent card for `ask`.
+The rules are the same on every platform: they are written once in [host.json](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/host.json) and replayed from fixtures by every renderer. The Exponential web app is a host built on exactly this API: `harness_*` functions, an `exp:` source scheme over its synced data, a consent card for `ask`.
 
 ## Compiled in CI
 

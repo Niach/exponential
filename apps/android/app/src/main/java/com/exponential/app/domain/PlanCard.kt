@@ -8,7 +8,15 @@ import kotlinx.serialization.json.doubleOrNull
 
 /** EXP-1280: the surface an agent authored: an Exponential UI core NestedNode
  *  ([root]) + its data model ([data]). */
-data class CardSurface(val root: JsonObject, val data: JsonObject?, val version: String? = null)
+data class CardSurface(val root: JsonObject, val data: JsonObject?, val version: String? = null) {
+    /** The card the display reader (`upgradeCard09`) takes: the version only
+     *  when the stored card has one, a card without it is the 0.9 form. */
+    fun displayJson(): String =
+        JsonObject(buildMap {
+            version?.let { put("version", JsonPrimitive(it)) }
+            put("root", root)
+        }).toString()
+}
 
 /**
  * EXP-1280 custom plan mode: THE plan / question card's behaviour ×4 — the

@@ -506,7 +506,7 @@ struct ChatTranscriptSpecimens: View {
                 ],
             ] as [Any],
         ]
-        return CardSurface.parse(["root": root, "data": [String: Any]()])
+        return CardSurface.parse(["version": "1.0", "root": root, "data": [String: Any]()])
     }()
 
     private var context: AgentMarkdownContext {

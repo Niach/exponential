@@ -5,7 +5,7 @@
 // reach through the facade).
 //
 // Round 9 (A2UI 1.0, docs/round-9-contract.md §1–§2): the check order of §1.1
-// (size, object, version through `checkEnvelope` with the 0.9 bridge, one
+// (size, object, version through `checkEnvelope`, one
 // known kind, host-internal kinds only TRUSTED, closed bodies, the kind's own
 // checks), lifetime-unique surface ids (INTEGRITY_ERROR, `mintSurfaceId`),
 // `createSurface{components, dataModel, metadata}`, the per-entry check (§5.2:
@@ -13,10 +13,8 @@
 // `callRendererFunction` (§6.9) and `agentFunctionResponse`.
 
 import { checkArgs, allowedCallers, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "../functions"
-import { ACCEPT_V09, A2UI_VERSION } from "../catalog"
 import { checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "../entry"
 import type { ExtensionDef } from "../types"
-import { emptyUpgrade09State, upgradeMessage09, upgradePackageBody09 } from "../upgrade09"
 import { A2UI_MESSAGE_KINDS, errorMessage, HOST_MESSAGE_KINDS, MESSAGE_KINDS, rendererFunctionResponse } from "./contract"
 import type { HostErrorCode, HostOp } from "./contract"
 import { isRecordMacroBinding } from "./record-macros"
@@ -48,10 +46,9 @@ export interface SurfaceInfo {
 }
 
 /** `route`'s options (§1.1): `trusted` = host code (applyTemplate,
- *  bindDataModel allowed); `acceptV09` = run the 0.9 bridge. */
+ *  bindDataModel allowed). */
 export interface RouteOptions {
   trusted?: boolean
-  acceptV09?: boolean
 }
 
 /** The body keys each kind allows (§1.2; the host kinds also carry the
@@ -80,8 +77,6 @@ export class HostRouter {
   private mintNext = 1
   private packages = new Map<string, AppPackage>()
   private extensions: AvailableExtension[] | undefined
-  /** §14: the 0.9 bridge's id maps, threaded across the stream. */
-  private upgradeState = emptyUpgrade09State()
 
   constructor(options: HostRouterOptions = {}) {
     this.extensionIds = [...(options.extensionIds ?? [])]
@@ -110,12 +105,10 @@ export class HostRouter {
   }
 
   /** Install a declarative package: its templates become `applyTemplate`
-   *  targets. Returns the validation issues (installed only when none).
-   *  Round 9 §12: a format-5 package is upgraded while the bridge is on. */
+   *  targets. Returns the validation issues (installed only when none). */
   installPackage(pkg: AppPackage): PackageIssue[] {
-    const upgraded = bridgePackage(pkg)
-    const issues = validatePackage(upgraded, this.supportedCatalogIds, this.extensions)
-    if (!issues.length) this.packages.set(upgraded.id, upgraded)
+    const issues = validatePackage(pkg, this.supportedCatalogIds, this.extensions)
+    if (!issues.length) this.packages.set(pkg.id, pkg)
     return issues
   }
 
@@ -148,23 +141,11 @@ export class HostRouter {
 
   /** One agent message → the ops to perform, in order. Never throws. */
   route(message: unknown, options: RouteOptions = {}): HostOp[] {
-    const acceptV09 = options.acceptV09 ?? ACCEPT_V09
     // VAPP-103: a message past `maxMessageBytes` (as UTF-8 JSON) is refused.
     if (oversized(message)) return [this.invalid(isObject(message) ? surfaceIdOf(message) : ``, LIMIT_ISSUES.messageBytes)]
     if (!isObject(message)) return [this.invalid(``, `a message is a JSON object`)]
-    const envelope = checkEnvelope(message, acceptV09)
+    const envelope = checkEnvelope(message)
     if (envelope.kind === `refused`) return [this.invalid(surfaceIdOf(message), envelope.reason)]
-    if (envelope.kind === `upgrade`) {
-      const { messages, state } = upgradeMessage09(message, this.upgradeState)
-      this.upgradeState = state
-      const ops: HostOp[] = []
-      for (const m of messages) {
-        // The upgraded form is 1.0: never bridged twice.
-        if (!isObject(m) || m.version !== A2UI_VERSION) ops.push(this.invalid(isObject(m) ? surfaceIdOf(m) : ``, `upgrade09 produced no 1.0 message`))
-        else ops.push(...this.route(m, options))
-      }
-      return ops
-    }
     const sid = surfaceIdOf(message)
     const kinds = Object.keys(message).filter((k) => k !== `version`)
     if (kinds.length !== 1 || !MESSAGE_KINDS.includes(kinds[0]!)) return [this.invalid(sid, `expected exactly one of ${A2UI_MESSAGE_KINDS.join(`, `)}`)]
@@ -351,12 +332,6 @@ function agentFunctionResponse(body: Record<string, unknown>): HostOp[] {
   const e = body.error
   if (!isObject(e) || typeof e.code !== `string` || typeof e.message !== `string` || Object.keys(e).some((k) => k !== `code` && k !== `message`)) return bad(`agentFunctionResponse.error is {code, message}`)
   return [{ op: `respond`, functionCallId: id, error: { code: e.code, message: e.message } }]
-}
-
-/** Round 9 §12: a `formatVersion` 5 package body through `upgradePackageBody09`
- *  while `ACCEPT_V09` holds (anything else comes back as it is). */
-export function bridgePackage<T>(pkg: T): T {
-  return ACCEPT_V09 && isObject(pkg) && pkg.formatVersion === 5 ? (upgradePackageBody09(pkg) as T) : pkg
 }
 
 /** Is the message's JSON past `maxMessageBytes`? (A string's UTF-8 size is

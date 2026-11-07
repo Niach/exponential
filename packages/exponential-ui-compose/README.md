@@ -280,9 +280,9 @@ val host = remember {
     ExponentialHost(HostOptions(
         transport = JsonlStreamTransport("https://example.com/a2ui.jsonl", postUrl = "https://example.com/action"),
         extensions = listOf(HostExtension(extensionJson, mapOf("TrendLine" to TrendLinePainter))),
-        functions = mapOf("app.toast" to { args, call -> toast(args["text"]?.string) }),
+        functions = mapOf("app_toast" to { args, call -> toast(args["text"]?.string) }),
         sources = mapOf("exp" to SourceResolver { source, emit -> subscribe(source, emit) /* returns the cancel */ }),
-        policy = HostPolicy(functions = FunctionPolicy(ask = listOf("app.*")), onFunctionCall = { consent(it) },
+        policy = HostPolicy(functions = FunctionPolicy(ask = listOf("app_*")), onFunctionCall = { consent(it) },
             urls = UrlPolicy(hosts = listOf("*.example.com")), media = MediaOptions(baseUrl, listOf(MediaRule(prefix, authHeaders)))),
         theme = ThemeHandle.load(themeJson), mode = Mode.Light, plugin = myIcons,
     ))

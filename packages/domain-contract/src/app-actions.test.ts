@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-actions.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
-import { APP_ACTIONS, actionConsent, actionGrantable, actionOwnerOnly, canGrantActions, declaredActions, flatAction, grantAllows, parseActionName, storedAction } from "./app-actions"
+import { APP_ACTIONS, actionConsent, actionGrantable, actionOwnerOnly, canGrantActions, declaredActions, grantAllows, parseActionName } from "./app-actions"
 
 describe(`app actions (VAPP-120)`, () => {
   test(`every function is sorted, prefixed and has a display row`, () => {
@@ -12,13 +12,6 @@ describe(`app actions (VAPP-120)`, () => {
       const t = parseActionName(name)!
       expect(rows.has(`${t.tool.replace(/^exponential_/, ``)}${t.op ? `_${t.op}` : ``}`), name).toBe(true)
     }
-  })
-  test(`storedAction (round 9 §14) = the dotted name a released client reads`, () => {
-    expect(storedAction(`exponential_issues_update_status`)).toBe(`exponential.issues.update_status`)
-    expect(storedAction(`exponential_mcp_servers_list`)).toBe(`exponential.mcp_servers.list`)
-    expect(storedAction(`exponential_sessions_send`)).toBe(`exponential.sessions.send`)
-    expect(storedAction(`exponential.issues.get`)).toBe(`exponential.issues.get`)
-    for (const name of APP_ACTIONS) expect(flatAction(storedAction(name))).toBe(name)
   })
   test(`aliases (EXP-1657) are never offered and each names an offered action`, () => {
     for (const [old, name] of Object.entries(fixture.aliases)) {

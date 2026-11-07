@@ -65,21 +65,9 @@ pub static APP_ACTIONS: LazyLock<&'static [String]> = LazyLock::new(|| SPEC.func
 pub static APP_ACTION_ALIASES: LazyLock<&'static BTreeMap<String, String>> =
     LazyLock::new(|| &SPEC.aliases);
 
-/// Round 9 §14: a stored name from before the flat names (a grant, a v5
-/// package's `functions`): `exponential.issues.update` is
-/// `exponential_issues_update` until the flag-day migration rewrites it.
-pub fn flat_action(name: &str) -> String {
-    if name.starts_with("exponential.") {
-        name.replace('.', "_")
-    } else {
-        name.to_string()
-    }
-}
-
 /// The name an action is judged by: an alias's new name, else the name.
 pub fn canonical_action(name: &str) -> String {
-    let flat = flat_action(name);
-    SPEC.aliases.get(&flat).cloned().unwrap_or(flat)
+    SPEC.aliases.get(name).cloned().unwrap_or_else(|| name.to_string())
 }
 
 /// The settings page's Tools group copy.
@@ -110,7 +98,7 @@ fn matches(pattern: &str, name: &str) -> bool {
 /// the aliases too: an alias declares its NEW name), in the fixture's order;
 /// anything that is not an offered action is dropped.
 pub fn declared_actions<S: AsRef<str>>(functions: &[S]) -> Vec<String> {
-    let named = |name: &str| functions.iter().any(|pattern| matches(&flat_action(pattern.as_ref()), name));
+    let named = |name: &str| functions.iter().any(|pattern| matches(pattern.as_ref(), name));
     APP_ACTIONS
         .iter()
         .filter(|name| {

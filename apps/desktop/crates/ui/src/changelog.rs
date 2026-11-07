@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-07-apps-and-cards-a2ui-1",
+    date: "2026-11-07",
+    title: "Apps and cards speak A2UI 1.0",
+    summary: "Apps and cards now speak A2UI 1.0; no action needed.",
+    body: r#"- **A2UI 1.0**: apps and cards now speak A2UI 1.0. Your apps and chat cards move over on their own; no action needed."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_222: ChangelogEntry = ChangelogEntry {
     id: "2026-11-07-assistant-in-every-team",
     date: "2026-11-07",
     title: "Your Assistant in every team, and team Coordinators",

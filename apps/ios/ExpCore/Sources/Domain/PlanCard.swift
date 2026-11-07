@@ -395,6 +395,14 @@ public struct CardSurface: Equatable, Sendable {
     /// The NestedNode the renderer's `setNested` takes (the data model is
     /// written beside it, key by key).
     public var rootJSON: String { root.compactString }
+
+    /// The card the display reader (`upgradeCard09`) takes: the version only
+    /// when the stored card has one, a card without it is the 0.9 form.
+    public var displayJSON: String {
+        var card: [String: CardJSON] = ["root": root]
+        if let version { card["version"] = .string(version) }
+        return CardJSON.object(card).compactString
+    }
 }
 
 /// A JSON value carried through the Sendable card model (the surface, its

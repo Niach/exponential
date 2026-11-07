@@ -52,6 +52,17 @@ impl Clock for FixedClock {
     }
 }
 
+/// Round 9 §14.1: the committed sample stays a signed format 5 file until the
+/// pinned signer re-signs it (`a2ui10-migrate.ts --apply --files`); until then
+/// this runs its upgrade, unsigned.
+fn sample() -> Value {
+    let file: Value = serde_json::from_str(FILE).unwrap();
+    if file["package"]["formatVersion"] == json!(5) {
+        return json!({"package": eui_core::upgrade09::upgrade_package_body09(&file["package"])});
+    }
+    file
+}
+
 struct Book {
     app: AppInstance,
     blobs: Arc<FsBlobStore>,
@@ -102,8 +113,7 @@ fn photobook() -> Book {
         consent: None,
         audit: None,
     };
-    let file: Value = serde_json::from_str(FILE).unwrap();
-    let mut app = AppInstance::load(config, &file).expect("the Photobook loads");
+    let mut app = AppInstance::load(config, &sample()).expect("the Photobook loads");
     app.event(&LifecycleEvent::Launch);
     Book { app, blobs, photos: photo_calls, files: file_calls, share: share_calls, print: print_calls, http: http_calls, ids: 0 }
 }
@@ -128,8 +138,7 @@ impl Book {
 
     /// A press of `actions.<name>`: the host's loop (eui-gpui `run_package_action`).
     fn press(&mut self, action: &str, params: Value, data: &mut Value) -> Result<(), String> {
-        let pkg = eui_core::upgrade09::upgrade_package_body09(eengine::package::package_of(&serde_json::from_str::<Value>(FILE).unwrap()));
-        let pkg = eui_core::upgrade09::upgrade_package_body09(&pkg);
+        let pkg = sample()["package"].clone();
         let snapshot = data.clone();
         let mut results = Map::new();
         let plan = loop {
@@ -162,7 +171,7 @@ impl Book {
 #[test]
 fn an_album_from_picked_photos_its_pdf_then_save_and_share() {
     let mut b = photobook();
-    let pkg = eui_core::upgrade09::upgrade_package_body09(eengine::package::package_of(&serde_json::from_str::<Value>(FILE).unwrap()));
+    let pkg = sample()["package"].clone();
     assert_eq!(pkg["catalogId"], "https://ui.exponential.at/catalogs/core/v1");
 
     // Albums: New album.

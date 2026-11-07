@@ -187,6 +187,7 @@ import {
 import { loadAgentForUser } from "@/lib/agents/conversation"
 import { loadAppForUser } from "@/lib/apps/editor-session"
 import { appCatalogText, componentCatalogText, linkableScreens } from "@/lib/apps/package"
+import { A2UI_VERSION } from "@exponential_app/eui"
 import coreCatalog from "@exponential_app/eui/catalog/core.catalog.json"
 import { emitEventInTx } from "@/lib/events"
 import {
@@ -425,6 +426,7 @@ const cardOptionInput = z.strictObject({
 })
 const cardSurfaceInput = z
   .strictObject({
+    version: z.literal(A2UI_VERSION, { error: `version is required: write "version": "${A2UI_VERSION}"` }),
     root: z.record(z.string(), z.unknown()),
     data: z.record(z.string(), z.unknown()).optional(),
   })
@@ -433,7 +435,7 @@ const cardSurfaceInput = z
 // S-3: the show tool's description (always-loaded bytes; its own per-tool
 // cap in context-budget.test.ts): the nested node syntax, one example, the
 // reply rule and the component names; props come from the apps catalog.
-const SHOW_TOOL_DESCRIPTION = `ONE card in your chat a turn (result, status, draft, choice); replace: true edits it. surface = nested nodes {id, component, props?, children?, slots?, on?} + data. The chat draws the card: never a Card root; a Stack/List of real components (Row, Badge, StatTile, Table…); text only = a plain message. E.g. {root:{id:"s",component:"Stack",children:[{id:"r",component:"Row",props:{title:"Tests"},slots:{trailing:{id:"g",component:"Badge",props:{text:"Green"}}}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event = the answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[…]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Pictures make a result (+description) and are PR pictures; result: false = chat only. After ask/plan end your turn; the answer comes next.`
+const SHOW_TOOL_DESCRIPTION = `ONE card in your chat a turn; replace: true edits it. surface = {version:"1.0", root, data}; nodes {id (a_b), component, props?, children?, slots?, on?}; bind {"@path":"/x"}. The chat draws the card: never a Card root, a Stack/List; text only = a plain message. E.g. {version:"1.0",root:{id:"s",component:"Stack",children:[{id:"r",component:"Row",props:{title:"Tests"},slots:{trailing:{id:"g",component:"Badge",props:{text:"Green"}}}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event = the answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[…]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Pictures make a result (+description) and PR pictures; result: false = chat only. After ask/plan end your turn.`
 
 // EXP-1445: the chat already draws every surface in a card, so a Card root
 // is a card in a card; a surface of text alone adds nothing over a plain
@@ -506,6 +508,7 @@ export function showSurfaceLinkProblem(surface: { root: Record<string, unknown> 
 export function picturesOnlySurface(title: string | undefined, pictures: readonly { label: string }[]) {
   const text = title?.trim() || pictures.map((picture) => picture.label).join(`, `)
   return {
+    version: A2UI_VERSION,
     root: { id: `s`, component: `Stack`, children: [{ id: `h`, component: `Heading`, props: { text } }] },
   }
 }

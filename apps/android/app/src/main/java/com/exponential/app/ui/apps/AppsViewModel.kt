@@ -306,7 +306,7 @@ class AppEditorViewModel @Inject constructor(
     /** VAPP-120: the app's synced `granted_tools` (the Settings sheet's switches). */
     val grantedTools: StateFlow<List<String>> =
         dbFlow.scopedQuery<AppEntity?>(null) { it.appDao().observeById(appId) }
-            .map { row -> AppActions.grantedList(row?.grantedTools).map(AppActions::flatAction) }
+            .map { row -> AppActions.grantedList(row?.grantedTools) }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

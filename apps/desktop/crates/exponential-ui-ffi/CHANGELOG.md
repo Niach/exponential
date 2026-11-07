@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A2UI 1.0 flag day (#VAPP-289): removed `routeWithBridgeJson`, `acceptV09`, `upgrade09Json`; `cardV10Json` takes one argument; `upgradeCard09` returns a `"version":"1.0"` card unchanged and is display only. Bindings regenerate.
 - A call's answer (#VAPP-271): `run_package_action_json` takes a trailing `results_json` (`{<name>: answer}`, defaulted to none) and may answer `{"pending": {step, name, args, result}}`. Bindings regenerated.
 
 ## 0.18.0 (2026-11-06)

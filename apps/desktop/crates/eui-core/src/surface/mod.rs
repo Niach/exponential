@@ -623,8 +623,6 @@ pub struct Surface {
     /// host's [`Surface::assign_data`]); a painter's focused field adopts a
     /// changed bound value when this moved since it last looked.
     write_epoch: u64,
-    /// Round 9 §14: the 0.9 bridge's id maps across this surface's stream.
-    upgrade_state: crate::upgrade09::Upgrade09State,
 }
 
 /// What [`Surface::set_call_route`] takes.
@@ -721,7 +719,6 @@ impl Surface {
             clock: None,
             data_version: 0,
             write_epoch: 0,
-            upgrade_state: Default::default(),
         };
         s.refresh_theme();
         s
@@ -1284,33 +1281,12 @@ impl Surface {
 
     /// Apply one A2UI server→client message (`createSurface`,
     /// `updateComponents`, `updateDataModel`, `deleteSurface`).
+    /// Round 9 §1.5: the bare surface path checks the version like every
+    /// core entry. A refused message is the `Err` (the INVALID_MESSAGE text).
     pub fn apply(&mut self, message: &Value) -> Result<ApplyOutcome, String> {
-        self.apply_with(message, crate::catalog::ACCEPT_V09)
-    }
-
-    /// [`Self::apply`] with the 0.9 bridge on or off (round 9 §1.5: the
-    /// bare surface path checks the version like every core entry; 0.9 is
-    /// upgraded while `accept_v09`, else refused). A refused message is the
-    /// `Err` (the INVALID_MESSAGE text).
-    pub fn apply_with(&mut self, message: &Value, accept_v09: bool) -> Result<ApplyOutcome, String> {
         let obj = message.as_object().ok_or("a message is a JSON object")?;
-        match crate::host::check_envelope(obj, accept_v09) {
-            crate::host::Envelope::V10 => {}
-            crate::host::Envelope::Refused(reason) => return Err(reason),
-            crate::host::Envelope::Upgrade => {
-                let (messages, state) = crate::upgrade09::upgrade_message09(message, &self.upgrade_state);
-                self.upgrade_state = state;
-                let mut out = ApplyOutcome { structure_changed: false, issues: Vec::new() };
-                for m in messages {
-                    if m.get("version").and_then(Value::as_str) != Some(crate::catalog::A2UI_VERSION) {
-                        return Err("upgrade09 produced no 1.0 message".into());
-                    }
-                    let o = self.apply_with(&m, false)?;
-                    out.structure_changed |= o.structure_changed;
-                    out.issues.extend(o.issues);
-                }
-                return Ok(out);
-            }
+        if let crate::host::Envelope::Refused(reason) = crate::host::check_envelope(obj) {
+            return Err(reason);
         }
         if let Some(create) = obj.get("createSurface") {
             if let Some(cid) = create.get("catalogId").and_then(Value::as_str) {

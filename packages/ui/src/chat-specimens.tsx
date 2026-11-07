@@ -284,6 +284,7 @@ const paragraph = (text: string): ReactNode => (
 
 /** An agent's inline preview (the core catalog), its two presses `reply`. */
 const LAUNCH_SURFACE = {
+  version: `1.0`,
   root: {
     id: `root`,
     component: `Stack`,

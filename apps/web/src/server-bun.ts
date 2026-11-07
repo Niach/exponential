@@ -61,13 +61,14 @@ import {
   recordRequest,
 } from "@/lib/metrics/registry"
 
-// Fire-and-forget: apply the custom trigger SQL and promote initial admins.
-// Idempotent; bootstrapCloud() retries internally with backoff until the pass
-// applies cleanly (the promise never rejects), so a boot-time DB hiccup can't
-// leave the instance running trigger-less (REV-18). Calling from
-// server-bun.ts keeps the entire bootstrap module (and its drizzle/pg deps)
-// out of the client bundle.
-void bootstrapCloud()
+// Apply the custom trigger SQL, run the one-shot data migrations and promote
+// initial admins. Idempotent; bootstrapCloud() retries internally with backoff
+// until the pass applies cleanly (the promise never rejects), so a boot-time DB
+// hiccup can't leave the instance running trigger-less (REV-18). serve() below
+// awaits it: a server listens only on migrated data (round 9 §14.1). Calling
+// from server-bun.ts keeps the entire bootstrap module (and its drizzle/pg
+// deps) out of the client bundle.
+const bootstrapped = bootstrapCloud()
 
 // Self-hosted only: start the outbound PR-merge poller (no-op on cloud, which
 // uses the GitHub webhook at /api/webhooks/github instead).
@@ -292,6 +293,8 @@ if (hasWebSocket && ws) {
   }
 }
 
+
+await bootstrapped
 
 serve({
   port,

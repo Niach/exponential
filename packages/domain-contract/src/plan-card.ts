@@ -43,7 +43,7 @@ export interface PlanCardQuestion {
 
 /** The surface an agent authored: an Exponential UI core NestedNode + data. */
 export interface CardSurface {
-  /** Round 9 §13: `"1.0"`; absent = the stored 0.9 form. */
+  /** Round 9 §13: `"1.0"`; absent = a stored 0.9 card (sealed: display only). */
   version?: string
   root: unknown
   data?: Record<string, unknown> | null

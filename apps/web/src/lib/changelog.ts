@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-07-apps-and-cards-a2ui-1`,
+    date: `2026-11-07`,
+    title: `Apps and cards speak A2UI 1.0`,
+    summary: `Apps and cards now speak A2UI 1.0; no action needed.`,
+    body: `- **A2UI 1.0**: apps and cards now speak A2UI 1.0. Your apps and chat cards move over on their own; no action needed.`,
+  },
+  {
     id: `2026-11-07-assistant-in-every-team`,
     date: `2026-11-07`,
     title: `Your Assistant in every team, and team Coordinators`,

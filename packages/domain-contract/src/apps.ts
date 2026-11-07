@@ -380,11 +380,12 @@ export function appUploadPath(appId: string): string {
 
 /** The absolute `files` path of the FIRST FileUpload (component order)
  *  named `name` (its `name`, else its id); null when it has no absolute
- *  `{path}` binding (`targetCases`). */
+ *  `{"@path"}` binding (`targetCases`). */
 export function appUploadTarget(components: readonly Record<string, unknown>[], name: string): string | null {
   const upload = components.find((c) => c.component === `FileUpload` && (typeof c.name === `string` ? c.name : c.id) === name)
-  const files = upload?.files as { path?: unknown } | undefined
-  return files && typeof files === `object` && !Array.isArray(files) && typeof files.path === `string` && files.path.startsWith(`/`) ? files.path : null
+  const files = upload?.files as { "@path"?: unknown } | undefined
+  const path = files && typeof files === `object` && !Array.isArray(files) ? files[`@path`] : null
+  return typeof path === `string` && path.startsWith(`/`) ? path : null
 }
 
 /** `list` with `url` on every object entry named `fileName`; null = nothing

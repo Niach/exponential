@@ -10,11 +10,11 @@ compact string form, with its inputs as `vars` (each a literal or any
 dynamic value: a binding, another call):
 
 ```jsonc
-{ "call": "expr", "args": {
+{ "@call": "expr", "args": {
     "expr": "formatDuration(target - entries.sum, 'h:mm')",
-    "vars": { "target": { "path": "/target" }, "entries": { "path": "/entries" } },
+    "vars": { "target": { "@path": "/target" }, "entries": { "@path": "/entries" } },
     "default": "–" } }
-{ "call": "dateAdd", "args": { "date": { "path": "/day" }, "n": 1, "unit": "month" } }
+{ "@call": "dateAdd", "args": { "date": { "@path": "/day" }, "n": 1, "unit": "month" } }
 ```
 
 The string form is a **subset of CEL** (the Common Expression Language),
@@ -84,9 +84,9 @@ view, `groups` without a group, `totals` without an aggregate, `before`
 without a before; the query is the binding's source with `query=`
 expanded, so `records:entry?sum=hours` makes `sum` a `number`). Inside a row
 template (a component's `children: {componentId, path}`), a relative
-`{"path": "hours"}` var is typed against the list's item: a records row's
+`{"@path": "hours"}` var is typed against the list's item: a records row's
 field is its schema type, and a field the row has not is the install issue
-`unknown field hourz in hourz` at the var's `…/path` (also below a records
+`unknown field hourz in hourz` at the var's `…/@path` (also below a records
 binding's absolute path; a kind with `additionalProperties: true` stays
 open). `has(x)` takes a field; for a bare name write `x != null`.
 Arithmetic, `< <= > >=`, `&& || !`, a condition, a
@@ -97,10 +97,10 @@ orElse()`); `==` / `!=` take one. Three guards narrow it to `T`:
 - `has(r.f)` (true when the field is there and not null) or `r.f != null`
   in a condition: `has(r.note) ? size(r.note) : 0`, also through `&&`,
   `||` and `!` (`r.note == null || size(r.note) > 2`);
-- `orElse(x, default)` (A2UI `{call: "orElse", args: {value, default}}`):
+- `orElse(x, default)` (A2UI `{"@call": "orElse", "args": {"value": x, "default": d}}`):
   `x`, or `default` when `x` is null, of `x`'s type.
 
-**Every binding has a fallback.** A `{"call": "expr"}` in a package needs a
+**Every binding has a fallback.** A `{"@call": "expr"}` in a package needs a
 `default` (`{"expr": "…", "vars": {…}, "default": "0:00"}`), shown when the
 evaluation fails (an error, the step limit). Every bind-time call takes the
 same optional `default`, and a call that fails or throws resolves to it, so
@@ -110,7 +110,7 @@ no renderer paints undefined or throws on a binding.
 10 000 evaluation steps (nodes + macro iterations) per run.
 
 **Type checking at validation:** `validatePackage` parses and type-checks
-every `{"call": "expr"}` anywhere in a template. A var's type comes from a
+every `{"@call": "expr"}` anywhere in a template. A var's type comes from a
 literal, from a records binding the path lies under (`records:<kind>`:
 `{rows: [row], count, sum, groups, totals, before,
 month}`, a row = the kind's schema fields + `id createdAt updatedAt

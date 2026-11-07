@@ -3679,6 +3679,15 @@ export const emailBounces = pgTable(`email_bounces`, {
   ...timestamps,
 })
 
+// VAPP-289 (round 9 §14.1): one row per one-shot stored-data migration: boot
+// runs it under an advisory lock and writes the row when the run finishes,
+// failures included (its report holds them). Server-only: no shape.
+export const dataMigrations = pgTable(`data_migrations`, {
+  name: text(`name`).primaryKey(),
+  finishedAt: timestamp(`finished_at`, { withTimezone: true }).notNull().defaultNow(),
+  report: jsonb(`report`).$type<unknown>().notNull(),
+})
+
 // First-party conversion-funnel event log (SERVER-ONLY, admin console;
 // EXP-362). Append-only — no updated_at on purpose. Cookieless: anonymous_id
 // is a daily-rotating salted hash of ip+ua computed server-side (nothing is

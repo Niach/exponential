@@ -123,6 +123,8 @@ docker compose pull && docker compose up -d
 
 The image self-migrates on boot. No other steps. `latest` tracks upstream `master`; to move deliberately instead, pin `IMAGE_TAG` in `.env` to a [release tag](https://github.com/Niach/exponential/tags) (e.g. `IMAGE_TAG=0.18`, which tracks the latest patch of that minor) and bump it when you choose.
 
+**A2UI 1.0 release: back up first.** This release runs a one-shot data migration at boot: it rewrites apps, app versions and chat cards to A2UI 1.0. Take a [Postgres backup](#backup-and-restore) BEFORE you pull the image. A row that fails is logged and does not stop the boot; re-run `bun scripts/a2ui10-migrate.ts --apply` for it, from `apps/web` in a checkout of the same release, with `DATABASE_URL` pointing at this database.
+
 **At every upgrade, also raise `CLIENT_MIN_VERSION_*` in `.env` to the versions the release notes name** (and `CLIENT_LATEST_VERSION_*` alongside), then `docker compose up -d`. Those floors are what stops an out-of-date Android, iOS, desktop or CLI client from talking to a server that no longer speaks its dialect — a below-floor client gets HTTP 426 and a blocking update screen instead of mystery failures. Leaving them unset turns the gate off entirely.
 
 The reverse floor matters too: native clients updated from the stores or the desktop self-updater expect a server at least as new as the release they shipped with (since iOS 0.14.23 / Android 0.14.25 / desktop 0.14.30 they attach steering images through `/api/sessions/{id}/files`, which needs web v0.18.53 or newer). Upgrade the server before, or together with, the clients.

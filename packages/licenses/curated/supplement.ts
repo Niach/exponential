@@ -208,7 +208,7 @@ export const VENDORED: CuratedEntry[] = [
   },
   // VAPP-87: the web app bundles the Exponential UI catalog package
   // (`@exponential_app/eui`, through `@exponential_app/eui-react` on the kitchen
-  // sink route): the vendored A2UI v0.9 schemas and the json-render wording
+  // sink route): the vendored A2UI schemas and the json-render wording
   // now reach a client build, so the two Apache-2.0 sources get their rows
   // (docs/third-party-licences.md, VAPP-85 section). VAPP-90: the desktop
   // app links the Rust core (`eui-core`, which EMBEDS the generated
@@ -222,7 +222,7 @@ export const VENDORED: CuratedEntry[] = [
     title: `A2UI specification schemas (vendored, Exponential UI)`,
     clients: [`web`, `desktop`, `ios`, `android`, ...RUNNERS],
     body: [
-      `The Exponential UI catalog package (packages/exponential-ui, bundled by the web app through the React renderer) carries the A2UI v0.9 specification's JSON schemas, copied byte for byte from https://github.com/google/A2UI (tag v0.9, commit 19919ef4c8ad3185867f70386fa4669284d7714c) into packages/exponential-ui/vendor/a2ui/v0_9/. They are not modified: the basic catalog is mapped onto Exponential UI's core catalog, so Apache-2.0 section 4(b) does not apply. The repository's LICENSE is reproduced below.`,
+      `The Exponential UI catalog package (packages/exponential-ui, bundled by the web app through the React renderer) carries the A2UI 1.0 specification's JSON schemas, basic catalog, conformance cases and protocol document, copied byte for byte from https://github.com/a2ui-project/a2ui (formerly google/A2UI; main at commit 1e9ed04b5585721ac6df8313030f9bfb42ccc6fa) into packages/exponential-ui/vendor/a2ui/v1_0/, and keeps the A2UI v0.9 JSON schemas (https://github.com/google/A2UI, tag v0.9, commit 19919ef4c8ad3185867f70386fa4669284d7714c) in packages/exponential-ui/vendor/a2ui/v0_9/ as the stored-data upgrade's reference. They are not modified: the basic catalog is mapped onto Exponential UI's core catalog, so Apache-2.0 section 4(b) does not apply. The repository's LICENSE is reproduced below.`,
     ],
     reproduce: [
       {

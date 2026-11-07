@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { resolveDynamic, sourceWithParams } from "@exponential_app/eui"
-import { bridgePackage, parseSource } from "@exponential_app/eui"
+import { parseSource } from "@exponential_app/eui"
 import { parseRecordsQuery } from "@exponential_app/eui/host/query"
 import template from "@exp/ui/exponential-ui/templates/working-hours.json"
 import { validateAppPackage } from "@/lib/apps/package"
@@ -10,8 +10,7 @@ import { validateAppPackage } from "@/lib/apps/package"
 // (`/who` = "") the query must stay the viewer's own rows (`mine=1`), with a
 // member picked it must be that member's (`user=<id>`, `mine=0`).
 type Component = { id: string; on?: Record<string, { functionCall: { "@call": string; args: Record<string, unknown> } }> }
-// The template stays format 5 until the flag day; every client runs its upgrade.
-const upgraded = bridgePackage(template) as unknown as { templates: { month: { components: Component[]; data: Record<string, unknown> } } }
+const upgraded = template as unknown as { templates: { month: { components: Component[]; data: Record<string, unknown> } } }
 const components = upgraded.templates.month.components
 const data = upgraded.templates.month.data
 
@@ -39,7 +38,7 @@ describe(`the Working hours template (VAPP-119 / VAPP-153)`, () => {
     expect(rebind(`next`, `press`, ``).month?.key).toBe(`2026-11`)
   })
   it(`declares the typed comment action and resolves its arguments (VAPP-120)`, () => {
-    expect((template as { functions: string[] }).functions).toContain(`exponential.comments.create`)
+    expect((template as { functions: string[] }).functions).toContain(`exponential_comments_create`)
     const call = components.find((c) => c.id === `postComment`)!.on!.press!.functionCall
     expect(call[`@call`]).toBe(`exponential_comments_create`)
     const args = resolveDynamic(call.args, { ...data, draft: { ...(data.draft as object), issues: [`APP-5`], hours: 3, note: `docs` } }) as Record<string, unknown>

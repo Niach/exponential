@@ -1171,6 +1171,8 @@ export type PlanCardQuestion = z.infer<typeof planCardQuestionSchema>
 /** An Exponential UI core surface the agent authored (validated against
  *  the catalog server-side; `root` = a NestedNode). */
 export const cardSurfaceSchema = z.object({
+  /** Round 9 §13: `"1.0"`; absent = a stored 0.9 card (sealed: display only). */
+  version: z.string().optional(),
   root: z.record(z.string(), z.unknown()),
   data: z.record(z.string(), z.unknown()).nullish(),
 })

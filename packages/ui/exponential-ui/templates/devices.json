@@ -1,6 +1,6 @@
 {
   "$comment": "VAPP-91: the Devices page as a declarative package (VAPP-82 format, VAPP-83's template): data, no code. `exp:devices` is the app host's binding resolver over the synced devices (web: the Electric collection; desktop: the IDE's store); it emits {rows, count, online}, each row {id, label, detail, icon, discTone, tone, status}. A row press calls harness.toast (the package allowlist; VAPP-107: `sources` is the same allowlist for bindings, so this package can never follow anything but exp:devices); every host runs it through the same public API. VAPP-102: the header is a row-less `Section` (was the deprecated `Band`); the List keeps binding the rows. VAPP-128: the Section HOLDS the List (one $spacing.sm under the band, the Section's own rhythm) instead of a row-less band beside it in a Stack gap md; its count is bound to `/devices/count` (VAPP-125).",
-  "formatVersion": 5,
+  "formatVersion": 6,
   "id": "exponential.devices",
   "name": "Devices",
   "version": "1.0.0",
@@ -9,7 +9,7 @@
     "glyph": "nav-devices"
   },
   "functions": [
-    "harness.toast"
+    "harness_toast"
   ],
   "sources": [
     "exp:devices"
@@ -36,7 +36,7 @@
           "title": "Devices",
           "icon": "nav-devices",
           "count": {
-            "path": "/devices/count"
+            "@path": "/devices/count"
           },
           "children": [
             "list"
@@ -66,7 +66,7 @@
           },
           "accessibility": {
             "label": {
-              "path": "label"
+              "@path": "label"
             }
           },
           "children": [
@@ -77,10 +77,10 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "harness.toast",
+                "@call": "harness_toast",
                 "args": {
                   "message": {
-                    "path": "label"
+                    "@path": "label"
                   }
                 }
               }
@@ -91,10 +91,10 @@
           "id": "disc",
           "component": "IconDisc",
           "icon": {
-            "path": "icon"
+            "@path": "icon"
           },
           "tone": {
-            "path": "discTone"
+            "@path": "discTone"
           }
         },
         {
@@ -115,7 +115,7 @@
           "id": "label",
           "component": "Text",
           "text": {
-            "path": "label"
+            "@path": "label"
           },
           "lines": 1
         },
@@ -123,7 +123,7 @@
           "id": "detail",
           "component": "Text",
           "text": {
-            "path": "detail"
+            "@path": "detail"
           },
           "variant": "muted",
           "lines": 1
@@ -132,10 +132,10 @@
           "id": "dot",
           "component": "LiveDot",
           "tone": {
-            "path": "tone"
+            "@path": "tone"
           },
           "label": {
-            "path": "status"
+            "@path": "status"
           }
         }
       ]

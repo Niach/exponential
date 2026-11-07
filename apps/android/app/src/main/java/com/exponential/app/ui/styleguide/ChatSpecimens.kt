@@ -527,7 +527,7 @@ fun ChatHeaderSpecimenScreen() {
 
 private val LAUNCH_SURFACE: CardSurface = Json.parseToJsonElement(
     """
-    {"root": {"id": "root", "component": "Stack", "props": {"gap": "md"}, "children": [
+    {"version": "1.0", "root": {"id": "root", "component": "Stack", "props": {"gap": "md"}, "children": [
       {"id": "stat", "component": "StatTile", "props": {"label": "Cold start, Pixel 6a", "value": "740 ms",
         "delta": "−47 %", "tone": "success", "trend": [1400, 1310, 1180, 980, 820, 740]}, "children": []},
       {"id": "actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm"}, "children": [
@@ -538,7 +538,7 @@ private val LAUNCH_SURFACE: CardSurface = Json.parseToJsonElement(
       ]}
     ]}, "data": {}}
     """.trimIndent(),
-).jsonObject.let { CardSurface(it.getValue("root").jsonObject, it["data"] as? JsonObject) }
+).jsonObject.let { CardSurface(it.getValue("root").jsonObject, it["data"] as? JsonObject, "1.0") }
 
 private fun message(id: String, author: String, body: String) =
     SessionTree.ThreadRow.MessageRow(id = id, author = author, authorId = if (author == "user") "u-dana" else null, body = body, queued = false)

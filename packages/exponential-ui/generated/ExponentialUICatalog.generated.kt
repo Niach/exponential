@@ -65,5 +65,5 @@ object ExponentialUICatalog {
     val limitNames: List<String> = listOf("maxComponents", "maxDepth", "maxMessageBytes", "maxTemplateItems", "maxPointerBytes", "maxPointerSegments", "agentFunctionTimeoutMs")
     val limitValues: List<String> = listOf("20000", "48", "4194304", "10000", "1024", "64", "30000")
     val componentLite: List<Boolean> = listOf(true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, false, true, false, false, true, false, false, false, true, true, false, true, true, true, true, false, true, true, true, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, false, true, false, false, false, false, false, true, true, true, false, true, true, true, true, true, true, true, true, false, false, true, false, true, true, true, true, true, true, true, true, false, true, true, true, true, false, false, true, true, true, true, true, false)
-    const val acceptV09: Boolean = true
+    const val acceptV09: Boolean = false
 }

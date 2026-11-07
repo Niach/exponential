@@ -39,8 +39,8 @@ export const MOTION_GALLERY = [`pulse-dot`, `progress-ring`, `typing-dots`, `hea
 const SAMPLE_APPS = [`crm`, `leave-planner`, `standup`, `time-tracker`] as const
 
 const DESCRIPTIONS: Record<string, string> = {
-  "exponential-apps": `Build or change an Exponential app (Apps): the package format (formatVersion 5), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.`,
-  "exponential-genui": `Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: "catalog"} lists the components and their props.`,
+  "exponential-apps": `Build or change an Exponential app (Apps): the package format (formatVersion 6), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.`,
+  "exponential-genui": `Write genUI (A2UI 1.0) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: "catalog"} lists the components and their props.`,
   "exponential-motion": `Animate with Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.`,
 }
 
@@ -177,7 +177,7 @@ function appsSkill(): Files {
     `Components and their props are NOT listed here: read exponential_apps {op: "catalog"} once (only: [names] for just a few), and the \`exponential-ui\` skill for the surface rules. Animations: the \`exponential-motion\` skill.`,
     `## Checklist`,
     [
-      `- \`formatVersion\` is exactly 5; \`sources\` lists every source a binding follows (\`[]\` for none) and \`functions\` every function a press calls.`,
+      `- \`formatVersion\` is exactly 6; \`sources\` lists every source a binding follows (\`[]\` for none) and \`functions\` every function a press calls.`,
       `- Declare every record kind with a schema; pick its \`policy\` (read/create/update/delete: member | author | owners; create never author) before writing screens.`,
       `- A kind's add/edit form or its list of records = ONE \`RecordForm\` / \`RecordTable\` node (\`references/records.md\`, Record macros), never a hand-built Form or Table.`,
       `- Prefer a named query (group, aggregate, running) over summing rows in expressions.`,
@@ -224,7 +224,7 @@ function uiSkill(): Files {
   const body = [
     `# genUI`,
     `> Generated from the genUI prompt and catalog (genUI ${pkg.version}) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.`,
-    `genUI paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an \`exponential_show\` card, an app template and every other surface use this one model.`,
+    `genUI paints A2UI 1.0 surfaces the same on web, desktop, iOS and Android: an \`exponential_show\` card, an app template and every other surface use this one model.`,
     `## Rules`,
     PROMPT_RULES.map((rule) => `- ${rule}`).join(`\n`),
     `## Components`,
@@ -232,7 +232,7 @@ function uiSkill(): Files {
     [...groups].map(([group, names]) => `- ${group}: ${names.join(`, `)}`).join(`\n`),
     `## References (read on demand)`,
     [
-      `- \`references/functions.md\` — the client functions a binding or press calls ({call, args}): validation, formatting, logic.`,
+      `- \`references/functions.md\` — the client functions a binding or press calls ({"@call", args}): validation, formatting, logic.`,
       `- \`references/style.md\` — the Box style keys, conditions and the token groups.`,
       `- \`references/themes.md\` — the built-in themes.`,
     ].join(`\n`),
