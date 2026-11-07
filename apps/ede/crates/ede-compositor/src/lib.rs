@@ -21,6 +21,7 @@ pub mod hotkeys;
 pub mod idle;
 pub mod input;
 pub mod ipc;
+pub mod keysym;
 pub mod layout;
 pub mod lock;
 pub mod logind;

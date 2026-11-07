@@ -48,17 +48,15 @@ pub const PATH: &str = "/org/freedesktop/portal/desktop";
 pub type Connect = Arc<dyn Fn() -> Result<Client, Error> + Send + Sync>;
 
 /// The portal's own grant (#EDE-15): minted once from the root token the
-/// compositor leaves for the shell, holding only `capture`, `input:person`
-/// (RemoteDesktop) and `ui` (global shortcuts); the root connection is
-/// dropped right after.
+/// compositor leaves for the shell ([`Client::mint_env`], #EDE-22), holding
+/// only `capture`, `input:person` (RemoteDesktop) and `ui` (global
+/// shortcuts); the root connection is dropped right after.
 pub fn minted_token() -> Result<ede_protocol::Token, Error> {
-    let mut root = Client::connect_env()?;
-    let grant = root.mint(
+    Client::mint_env(
         ede_protocol::SessionId::new("ede-portal").map_err(|e| Error::Protocol(e.to_string()))?,
         vec![ede_protocol::Capability::Capture, ede_protocol::Capability::InputPerson, ede_protocol::Capability::Ui],
         None,
-    )?;
-    Ok(grant.token)
+    )
 }
 
 pub type Vardict = HashMap<String, OwnedValue>;
