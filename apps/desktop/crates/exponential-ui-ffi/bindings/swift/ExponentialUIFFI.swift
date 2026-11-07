@@ -3202,6 +3202,13 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func takeEvents()  -> [FfiEvent]
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     */
+    func takeFailuresJson()  -> String
+    
     func textStyle(index: UInt32)  -> FfiTextStyle?
     
     /**
@@ -4012,6 +4019,19 @@ open func submitForm(id: String) -> [FfiEvent]  {
 open func takeEvents() -> [FfiEvent]  {
     return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_take_events(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     */
+open func takeFailuresJson() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -9523,6 +9543,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_take_events() != 5811) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_take_failures_json() != 21185) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_text_style() != 3961) {

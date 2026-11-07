@@ -1125,6 +1125,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_submit_form(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_events(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_failures_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_text_style(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_theme(
@@ -1469,6 +1471,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_structure_version(`ptr`
 external fun uniffi_exponential_ui_ffi_fn_method_surface_submit_form(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_take_events(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_text_style(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -6193,6 +6197,13 @@ public interface SurfaceInterface {
      */
     fun `takeEvents`(): List<FfiEvent>
     
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     */
+    fun `takeFailuresJson`(): kotlin.String
+    
     fun `textStyle`(`index`: kotlin.UInt): FfiTextStyle?
     
     /**
@@ -7274,6 +7285,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_take_events(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round 9 §6.8: the reactive failures since the last call, as JSON
+     * `[{code, message, functionCallId?, path?}]`, each once for the
+     * surface's lifetime: the host sends them as `error` messages.
+     */override fun `takeFailuresJson`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(
         it,
         _status)
 }
