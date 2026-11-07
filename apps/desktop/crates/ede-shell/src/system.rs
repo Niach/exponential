@@ -4,7 +4,12 @@
 //! terminal and the screenshot. Everything shells out to tools the
 //! distribution ships; a missing tool is a warning, never a crash.
 
-use std::{path::PathBuf, process::Command};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    process::Command,
+    time::{Duration, Instant},
+};
 
 /// A level the OSD shows.
 #[derive(Debug, Clone, PartialEq)]
@@ -126,8 +131,41 @@ pub fn terminal_command() -> Option<&'static str> {
 
 pub fn launch(command: &str) {
     match Command::new("sh").arg("-c").arg(command).spawn() {
-        Ok(_) => tracing::info!(command, "launched"),
+        Ok(mut child) => {
+            tracing::info!(command, "launched");
+            // #EDE-64: reaped when it ends, never left a zombie of the shell.
+            std::thread::spawn(move || child.wait());
+        }
         Err(e) => tracing::warn!(command, "launch failed: {e}"),
+    }
+}
+
+/// #EDE-64: one launch per app per burst of clicks. An app takes seconds to
+/// map its first window (the Exponential AppImage mounts itself first) and
+/// nothing shows meanwhile, so people click again: five clicks on the
+/// sidebar started five IDEs.
+#[derive(Default)]
+pub struct LaunchGuard {
+    last: HashMap<String, Instant>,
+}
+
+impl LaunchGuard {
+    /// A click within this long after the app's last launch starts nothing.
+    pub const WINDOW: Duration = Duration::from_secs(3);
+
+    /// `true` = launch `app` now (and remember when).
+    pub fn admit(&mut self, app: &str, now: Instant) -> bool {
+        self.last.retain(|_, at| now.saturating_duration_since(*at) < Self::WINDOW);
+        if self.last.contains_key(app) {
+            return false;
+        }
+        self.last.insert(app.to_string(), now);
+        true
+    }
+
+    /// The app's window mapped: the next click is the person's again.
+    pub fn mapped(&mut self, app: &str) {
+        self.last.remove(app);
     }
 }
 
@@ -172,6 +210,18 @@ mod tests {
         assert_eq!(parse_wpctl_volume("nothing"), None);
         assert_eq!(Level { icon: "x", percent: 30, muted: true }.label(), "muted");
         assert_eq!(Level { icon: "x", percent: 30, muted: false }.label(), "30%");
+    }
+
+    #[test]
+    fn a_burst_of_clicks_launches_an_app_once() {
+        let mut guard = LaunchGuard::default();
+        let t0 = Instant::now();
+        let clicks = [0, 700, 1400, 1900, 2500].map(|ms| guard.admit("at.exponential", t0 + Duration::from_millis(ms)));
+        assert_eq!(clicks, [true, false, false, false, false], "the logged burst: five clicks, one IDE");
+        assert!(guard.admit("org.gnome.Calculator", t0 + Duration::from_millis(800)), "another app is its own launch");
+        assert!(guard.admit("at.exponential", t0 + LaunchGuard::WINDOW + Duration::from_millis(1)), "a later click launches again");
+        guard.mapped("at.exponential");
+        assert!(guard.admit("at.exponential", t0 + LaunchGuard::WINDOW + Duration::from_millis(2)), "once its window maps the next click is new");
     }
 
     #[test]
