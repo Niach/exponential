@@ -1,0 +1,1387 @@
+{
+  "$comment": "VAPP-289 (round 9 §14.1): real-shaped stored rows for the a2ui10-migrate tests: 0.9 packages and cards the way agents wrote them (kebab and dotted ids, Motion, Table cells, List templates, on and slots, CEL expr, Form checks, actions, Screens, dotted tool names), rows already at 1.0, sealed rows and broken ones.",
+  "packages": {
+    "fieldVisits": {
+      "formatVersion": 5,
+      "id": "acme.field-visits",
+      "name": "Field visits",
+      "version": "2.3.0",
+      "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
+      "description": "Log customer visits.",
+      "icon": {
+        "glyph": "map"
+      },
+      "sources": [
+        "records:visit",
+        "exp:me"
+      ],
+      "functions": [
+        "records.*",
+        "bind",
+        "set",
+        "actions.*",
+        "harness.toast",
+        "app.navigate",
+        "exponential.issues.*",
+        "tools.crm-hub.*",
+        "tools.crm-hub.contacts.search"
+      ],
+      "records": {
+        "visit": {
+          "title": "Visit",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ]
+          }
+        }
+      },
+      "tools": {
+        "crm-hub": {
+          "kind": "mcp",
+          "title": "CRM hub",
+          "url": "https://crm.acme.test/mcp"
+        }
+      },
+      "actions": {
+        "logVisit": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ]
+          },
+          "steps": [
+            {
+              "require": "size(params.title) > 0",
+              "message": "Name the visit"
+            },
+            {
+              "records.upsert": {
+                "kind": "visit",
+                "data": {
+                  "title": "params.title"
+                }
+              }
+            },
+            {
+              "set": {
+                "path": "/draft/open",
+                "value": false
+              }
+            },
+            {
+              "call": "harness.toast",
+              "args": {
+                "message": "'Logged ' + params.title"
+              }
+            }
+          ]
+        },
+        "dropVisit": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "steps": [
+            {
+              "records.delete": {
+                "id": "params.id"
+              }
+            }
+          ]
+        }
+      },
+      "exposes": [
+        {
+          "name": "file_issue",
+          "title": "File an issue",
+          "description": "File an issue from a visit.",
+          "input": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ]
+          },
+          "access": "write",
+          "run": {
+            "action": "exponential.issues.create",
+            "args": {
+              "title": "${input.title}"
+            }
+          }
+        }
+      ],
+      "screens": [
+        {
+          "template": "visits",
+          "title": "Visits",
+          "icon": "map"
+        },
+        {
+          "template": "detail",
+          "title": "Visit",
+          "nav": false
+        }
+      ],
+      "tests": [
+        {
+          "name": "a sum",
+          "expr": {
+            "expr": "1 + 1"
+          },
+          "expect": 2
+        },
+        {
+          "name": "logs a visit",
+          "action": {
+            "name": "logVisit",
+            "params": {
+              "title": "Vienna"
+            }
+          },
+          "expect": {
+            "calls": [
+              {
+                "name": "harness.toast"
+              }
+            ]
+          }
+        }
+      ],
+      "templates": {
+        "visits": {
+          "data": {
+            "visits": {
+              "rows": [],
+              "count": 0
+            },
+            "draft": {
+              "open": false,
+              "title": ""
+            },
+            "loading": false
+          },
+          "bindings": [
+            {
+              "path": "/visits",
+              "source": "records:visit"
+            },
+            {
+              "path": "/me",
+              "source": "exp:me"
+            }
+          ],
+          "components": [
+            {
+              "id": "root",
+              "component": "Page",
+              "title": "Field visits",
+              "subtitle": {
+                "path": "/visits/count"
+              },
+              "children": [
+                "tool-bar",
+                "visit-table",
+                "visit-list",
+                "new-visit",
+                "load-spinner"
+              ]
+            },
+            {
+              "id": "tool-bar",
+              "component": "Toolbar",
+              "children": [
+                "month-label"
+              ],
+              "slots": {
+                "trailing": "add-visit"
+              }
+            },
+            {
+              "id": "month-label",
+              "component": "Text",
+              "variant": "title",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "expr": "'Visits: ' + string(v.count)",
+                  "vars": {
+                    "v": {
+                      "path": "/visits"
+                    }
+                  },
+                  "default": ""
+                }
+              }
+            },
+            {
+              "id": "add-visit",
+              "component": "Button",
+              "label": "Add",
+              "visible": {
+                "path": "/me/id"
+              },
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "set",
+                    "args": {
+                      "path": "/draft/open",
+                      "value": true
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "visit-table",
+              "component": "Table",
+              "density": "compact",
+              "rowKey": "id",
+              "emptyText": "No visits",
+              "columns": [
+                {
+                  "key": "title",
+                  "label": "Title"
+                },
+                {
+                  "key": "status",
+                  "label": "Status",
+                  "type": "slot",
+                  "slot": "statusCell"
+                }
+              ],
+              "rows": {
+                "path": "/visits/rows"
+              },
+              "slots": {
+                "statusCell": "status-badge"
+              }
+            },
+            {
+              "id": "status-badge",
+              "component": "Badge",
+              "text": {
+                "path": "status"
+              }
+            },
+            {
+              "id": "visit-list",
+              "component": "List",
+              "divided": true,
+              "children": {
+                "componentId": "visit-row",
+                "path": "/visits/rows",
+                "key": "id"
+              }
+            },
+            {
+              "id": "visit-row",
+              "component": "Row",
+              "title": {
+                "path": "title"
+              },
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "app.navigate",
+                    "args": {
+                      "screen": "detail",
+                      "params": {
+                        "id": {
+                          "path": "id"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "new-visit",
+              "component": "Dialog",
+              "title": "New visit",
+              "open": {
+                "path": "/draft/open"
+              },
+              "children": [
+                "visit-form"
+              ]
+            },
+            {
+              "id": "visit-form",
+              "component": "Form",
+              "name": "visit",
+              "children": [
+                "f-title",
+                "f-save"
+              ],
+              "on": {
+                "submit": {
+                  "functionCall": {
+                    "call": "actions.logVisit",
+                    "args": {
+                      "title": {
+                        "path": "/draft/title"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "f-title",
+              "component": "Input",
+              "label": "Title",
+              "name": "title",
+              "value": {
+                "path": "/draft/title"
+              },
+              "checks": [
+                {
+                  "condition": {
+                    "call": "required",
+                    "args": {
+                      "value": {
+                        "path": "/draft/title"
+                      }
+                    }
+                  },
+                  "message": "A title is required"
+                },
+                {
+                  "condition": {
+                    "path": "/draft/title"
+                  },
+                  "message": "Still required"
+                }
+              ]
+            },
+            {
+              "id": "f-save",
+              "component": "Button",
+              "label": "Save",
+              "submit": true
+            },
+            {
+              "id": "load-spinner",
+              "component": "Motion",
+              "size": [
+                48,
+                48
+              ],
+              "duration": 1000,
+              "label": "Loading",
+              "layers": [
+                {
+                  "type": "shape",
+                  "transform": {
+                    "position": [
+                      24,
+                      24
+                    ],
+                    "rotation": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": 0
+                        },
+                        {
+                          "t": 1000,
+                          "v": 360
+                        }
+                      ]
+                    }
+                  },
+                  "shapes": [
+                    {
+                      "type": "ellipse",
+                      "size": [
+                        36,
+                        36
+                      ]
+                    },
+                    {
+                      "type": "trim",
+                      "end": 70
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.primary",
+                      "width": 4
+                    }
+                  ]
+                }
+              ],
+              "visible": {
+                "path": "/loading"
+              }
+            }
+          ]
+        },
+        "detail": {
+          "data": {
+            "visit": {
+              "title": ""
+            }
+          },
+          "components": [
+            {
+              "id": "root",
+              "component": "Page",
+              "title": "Visit",
+              "children": [
+                "detail.body",
+                "ask-crm"
+              ]
+            },
+            {
+              "id": "detail.body",
+              "component": "Text",
+              "text": {
+                "path": "/visit/title"
+              }
+            },
+            {
+              "id": "ask-crm",
+              "component": "Button",
+              "label": "Look up",
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "tools.crm-hub.contacts.search",
+                    "args": {
+                      "q": {
+                        "path": "/visit/title"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "fieldVisitsDraft": {
+      "formatVersion": 5,
+      "id": "acme.field-visits",
+      "name": "Field visits",
+      "version": "2.4.0-draft",
+      "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
+      "description": "Log customer visits.",
+      "icon": {
+        "glyph": "map"
+      },
+      "sources": [
+        "records:visit",
+        "exp:me"
+      ],
+      "functions": [
+        "records.*",
+        "bind",
+        "set",
+        "actions.*",
+        "harness.toast",
+        "app.navigate",
+        "exponential.issues.*",
+        "tools.crm-hub.*",
+        "tools.crm-hub.contacts.search"
+      ],
+      "records": {
+        "visit": {
+          "title": "Visit",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ]
+          }
+        }
+      },
+      "tools": {
+        "crm-hub": {
+          "kind": "mcp",
+          "title": "CRM hub",
+          "url": "https://crm.acme.test/mcp"
+        }
+      },
+      "actions": {
+        "logVisit": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ]
+          },
+          "steps": [
+            {
+              "require": "size(params.title) > 0",
+              "message": "Name the visit"
+            },
+            {
+              "records.upsert": {
+                "kind": "visit",
+                "data": {
+                  "title": "params.title"
+                }
+              }
+            },
+            {
+              "set": {
+                "path": "/draft/open",
+                "value": false
+              }
+            },
+            {
+              "call": "harness.toast",
+              "args": {
+                "message": "'Logged ' + params.title"
+              }
+            }
+          ]
+        },
+        "dropVisit": {
+          "params": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "steps": [
+            {
+              "records.delete": {
+                "id": "params.id"
+              }
+            }
+          ]
+        }
+      },
+      "exposes": [
+        {
+          "name": "file_issue",
+          "title": "File an issue",
+          "description": "File an issue from a visit.",
+          "input": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ]
+          },
+          "access": "write",
+          "run": {
+            "action": "exponential.issues.create",
+            "args": {
+              "title": "${input.title}"
+            }
+          }
+        }
+      ],
+      "screens": [
+        {
+          "template": "visits",
+          "title": "Visits",
+          "icon": "map"
+        },
+        {
+          "template": "detail",
+          "title": "Visit",
+          "nav": false
+        }
+      ],
+      "tests": [
+        {
+          "name": "a sum",
+          "expr": {
+            "expr": "1 + 1"
+          },
+          "expect": 2
+        },
+        {
+          "name": "logs a visit",
+          "action": {
+            "name": "logVisit",
+            "params": {
+              "title": "Vienna"
+            }
+          },
+          "expect": {
+            "calls": [
+              {
+                "name": "harness.toast"
+              }
+            ]
+          }
+        }
+      ],
+      "templates": {
+        "visits": {
+          "data": {
+            "visits": {
+              "rows": [],
+              "count": 0
+            },
+            "draft": {
+              "open": false,
+              "title": ""
+            },
+            "loading": false
+          },
+          "bindings": [
+            {
+              "path": "/visits",
+              "source": "records:visit"
+            },
+            {
+              "path": "/me",
+              "source": "exp:me"
+            }
+          ],
+          "components": [
+            {
+              "id": "root",
+              "component": "Page",
+              "title": "Field visits (draft)",
+              "subtitle": {
+                "path": "/visits/count"
+              },
+              "children": [
+                "tool-bar",
+                "visit-table",
+                "visit-list",
+                "new-visit",
+                "load-spinner"
+              ]
+            },
+            {
+              "id": "tool-bar",
+              "component": "Toolbar",
+              "children": [
+                "month-label"
+              ],
+              "slots": {
+                "trailing": "add-visit"
+              }
+            },
+            {
+              "id": "month-label",
+              "component": "Text",
+              "variant": "title",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "expr": "'Visits: ' + string(v.count)",
+                  "vars": {
+                    "v": {
+                      "path": "/visits"
+                    }
+                  },
+                  "default": ""
+                }
+              }
+            },
+            {
+              "id": "add-visit",
+              "component": "Button",
+              "label": "Add",
+              "visible": {
+                "path": "/me/id"
+              },
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "set",
+                    "args": {
+                      "path": "/draft/open",
+                      "value": true
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "visit-table",
+              "component": "Table",
+              "density": "compact",
+              "rowKey": "id",
+              "emptyText": "No visits",
+              "columns": [
+                {
+                  "key": "title",
+                  "label": "Title"
+                },
+                {
+                  "key": "status",
+                  "label": "Status",
+                  "type": "slot",
+                  "slot": "statusCell"
+                }
+              ],
+              "rows": {
+                "path": "/visits/rows"
+              },
+              "slots": {
+                "statusCell": "status-badge"
+              }
+            },
+            {
+              "id": "status-badge",
+              "component": "Badge",
+              "text": {
+                "path": "status"
+              }
+            },
+            {
+              "id": "visit-list",
+              "component": "List",
+              "divided": true,
+              "children": {
+                "componentId": "visit-row",
+                "path": "/visits/rows",
+                "key": "id"
+              }
+            },
+            {
+              "id": "visit-row",
+              "component": "Row",
+              "title": {
+                "path": "title"
+              },
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "app.navigate",
+                    "args": {
+                      "screen": "detail",
+                      "params": {
+                        "id": {
+                          "path": "id"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "new-visit",
+              "component": "Dialog",
+              "title": "New visit",
+              "open": {
+                "path": "/draft/open"
+              },
+              "children": [
+                "visit-form"
+              ]
+            },
+            {
+              "id": "visit-form",
+              "component": "Form",
+              "name": "visit",
+              "children": [
+                "f-title",
+                "f-save"
+              ],
+              "on": {
+                "submit": {
+                  "functionCall": {
+                    "call": "actions.logVisit",
+                    "args": {
+                      "title": {
+                        "path": "/draft/title"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "f-title",
+              "component": "Input",
+              "label": "Title",
+              "name": "title",
+              "value": {
+                "path": "/draft/title"
+              },
+              "checks": [
+                {
+                  "condition": {
+                    "call": "required",
+                    "args": {
+                      "value": {
+                        "path": "/draft/title"
+                      }
+                    }
+                  },
+                  "message": "A title is required"
+                },
+                {
+                  "condition": {
+                    "path": "/draft/title"
+                  },
+                  "message": "Still required"
+                }
+              ]
+            },
+            {
+              "id": "f-save",
+              "component": "Button",
+              "label": "Save",
+              "submit": true
+            },
+            {
+              "id": "load-spinner",
+              "component": "Motion",
+              "size": [
+                48,
+                48
+              ],
+              "duration": 1000,
+              "label": "Loading",
+              "layers": [
+                {
+                  "type": "shape",
+                  "transform": {
+                    "position": [
+                      24,
+                      24
+                    ],
+                    "rotation": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": 0
+                        },
+                        {
+                          "t": 1000,
+                          "v": 360
+                        }
+                      ]
+                    }
+                  },
+                  "shapes": [
+                    {
+                      "type": "ellipse",
+                      "size": [
+                        36,
+                        36
+                      ]
+                    },
+                    {
+                      "type": "trim",
+                      "end": 70
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.primary",
+                      "width": 4
+                    }
+                  ]
+                }
+              ],
+              "visible": {
+                "path": "/loading"
+              }
+            }
+          ]
+        },
+        "detail": {
+          "data": {
+            "visit": {
+              "title": ""
+            }
+          },
+          "components": [
+            {
+              "id": "root",
+              "component": "Page",
+              "title": "Visit",
+              "children": [
+                "detail.body",
+                "ask-crm"
+              ]
+            },
+            {
+              "id": "detail.body",
+              "component": "Text",
+              "text": {
+                "path": "/visit/title"
+              }
+            },
+            {
+              "id": "ask-crm",
+              "component": "Button",
+              "label": "Look up",
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "tools.crm-hub.contacts.search",
+                    "args": {
+                      "q": {
+                        "path": "/visit/title"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "alreadyV6": {
+      "formatVersion": 6,
+      "id": "acme.hello",
+      "name": "Hello",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "sources": [],
+      "functions": [
+        "records_upsert",
+        "exponential_issues_list"
+      ],
+      "templates": {
+        "main": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "hello_text"
+              ]
+            },
+            {
+              "id": "hello_text",
+              "component": "Text",
+              "text": {
+                "@path": "/name"
+              }
+            }
+          ],
+          "data": {
+            "name": "Ada"
+          }
+        }
+      }
+    },
+    "brokenTemplate": {
+      "formatVersion": 5,
+      "id": "acme.broken",
+      "name": "Broken",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "sources": [],
+      "templates": {
+        "main": {
+          "components": [
+            {
+              "id": "not-root",
+              "component": "Stack"
+            }
+          ]
+        }
+      }
+    },
+    "formatFour": {
+      "formatVersion": 4,
+      "id": "acme.old",
+      "name": "Old",
+      "version": "0.1.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "sources": [],
+      "templates": {
+        "main": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "cards": {
+    "surface": {
+      "kind": "surface",
+      "title": "Launch check",
+      "surface": {
+        "data": {
+          "title": "Tests green",
+          "n": 3,
+          "pick": "a"
+        },
+        "root": {
+          "id": "launch-card",
+          "component": "Stack",
+          "children": [
+            {
+              "id": "top-bar",
+              "component": "Row",
+              "props": {
+                "title": "Launch"
+              },
+              "slots": {
+                "trailing": {
+                  "id": "top.badge",
+                  "component": "Badge",
+                  "props": {
+                    "text": {
+                      "path": "/title"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "launch.row",
+              "component": "Row",
+              "props": {
+                "title": {
+                  "path": "/title"
+                }
+              },
+              "visible": {
+                "path": "/n"
+              }
+            },
+            {
+              "id": "count-label",
+              "component": "Label",
+              "props": {
+                "text": "Picked",
+                "for": "pick-field"
+              }
+            },
+            {
+              "id": "pick-field",
+              "component": "Input",
+              "props": {
+                "label": "Pick",
+                "name": "pick",
+                "value": {
+                  "path": "/pick"
+                },
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/pick"
+                        }
+                      }
+                    },
+                    "message": "Pick one"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ship-it",
+              "component": "Button",
+              "props": {
+                "label": "Ship"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "reply",
+                    "context": {
+                      "text": "Ship",
+                      "n": {
+                        "path": "/n"
+                      }
+                    },
+                    "userMessage": "Ship it"
+                  }
+                }
+              }
+            },
+            {
+              "id": "load-spinner",
+              "component": "Motion",
+              "props": {
+                "size": [
+                  48,
+                  48
+                ],
+                "duration": 1000,
+                "label": "Loading",
+                "layers": [
+                  {
+                    "type": "shape",
+                    "transform": {
+                      "position": [
+                        24,
+                        24
+                      ],
+                      "rotation": {
+                        "keys": [
+                          {
+                            "t": 0,
+                            "v": 0
+                          },
+                          {
+                            "t": 1000,
+                            "v": 360
+                          }
+                        ]
+                      }
+                    },
+                    "shapes": [
+                      {
+                        "type": "ellipse",
+                        "size": [
+                          36,
+                          36
+                        ]
+                      },
+                      {
+                        "type": "trim",
+                        "end": 70
+                      },
+                      {
+                        "type": "stroke",
+                        "color": "$color.primary",
+                        "width": 4
+                      }
+                    ]
+                  }
+                ]
+              },
+              "style": {
+                "width": "48px",
+                "height": "48px"
+              }
+            }
+          ]
+        }
+      },
+      "result": true,
+      "description": "Ready to ship"
+    },
+    "surfaceTable": {
+      "kind": "surface",
+      "surface": {
+        "root": {
+          "id": "results-table",
+          "component": "Table",
+          "props": {
+            "columns": [
+              {
+                "key": "name",
+                "label": "Name"
+              },
+              {
+                "key": "state",
+                "label": "State"
+              }
+            ],
+            "rows": [
+              {
+                "id": "a-1",
+                "name": "web",
+                "state": "ok"
+              }
+            ]
+          }
+        },
+        "data": null
+      },
+      "title": null
+    },
+    "plan": {
+      "kind": "plan",
+      "plan": "## Ship it\n\nShip the web first.",
+      "surface": {
+        "root": {
+          "id": "plan-note",
+          "component": "Text",
+          "props": {
+            "text": {
+              "path": "/note"
+            }
+          }
+        },
+        "data": {
+          "note": "Web first"
+        }
+      },
+      "decision": null,
+      "questions": [
+        {
+          "id": "when",
+          "prompt": "When?",
+          "options": [
+            {
+              "label": "Now"
+            }
+          ]
+        }
+      ]
+    },
+    "question": {
+      "kind": "question",
+      "question": "Which one?",
+      "options": [
+        {
+          "label": "A"
+        }
+      ],
+      "surface": {
+        "root": {
+          "id": "pick-a",
+          "component": "Button",
+          "props": {
+            "label": "A"
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "reply",
+                "context": {
+                  "text": "A"
+                }
+              }
+            }
+          }
+        }
+      },
+      "answer": "A",
+      "surfaceData": {
+        "pick-a": "kept: data keys are never re-keyed"
+      }
+    },
+    "already10": {
+      "kind": "surface",
+      "surface": {
+        "version": "1.0",
+        "root": {
+          "id": "ok",
+          "component": "Text",
+          "props": {
+            "text": {
+              "@path": "/t"
+            }
+          }
+        },
+        "data": {
+          "t": "Hi"
+        }
+      },
+      "title": "Done"
+    },
+    "sealed": {
+      "kind": "surface",
+      "sealed": "v1:3:c2VhbGVk",
+      "result": true
+    },
+    "sealedAsk": {
+      "kind": "ask",
+      "sessionId": "00000000-0000-4000-8000-000000000001",
+      "messageId": "00000000-0000-4000-8000-000000000002",
+      "sealedCard": {
+        "kind": "plan",
+        "sealed": "v1:3:c2VhbGVk"
+      }
+    },
+    "noSurface": {
+      "kind": "plan",
+      "plan": "Nothing inline",
+      "surface": null
+    },
+    "brokenComponent": {
+      "kind": "surface",
+      "surface": {
+        "root": {
+          "id": "bad-node",
+          "component": "NoSuchComponent",
+          "props": {
+            "text": "x"
+          }
+        }
+      }
+    },
+    "brokenVersion": {
+      "kind": "surface",
+      "surface": {
+        "version": "0.8",
+        "root": {
+          "id": "s",
+          "component": "Text",
+          "props": {
+            "text": "x"
+          }
+        }
+      }
+    }
+  },
+  "grants": {
+    "dotted": [
+      "exponential.issues.update",
+      "exponential.mcp_servers.list",
+      "exponential.issues.create"
+    ],
+    "flat": [
+      "exponential_issues_update"
+    ],
+    "mixed": [
+      "exponential.issues.update",
+      "exponential_issues_update",
+      "exponential_issues_create"
+    ]
+  }
+}

@@ -14,6 +14,10 @@ by every renderer through the core), `fixtures/records-query.json` (the
 records query and its value) and `fixtures/host-package.json` (tool consent,
 extension compatibility, canonical JSON, signatures).
 
+> **Format 6 is coming.** Hosts already read it (A2UI 1.0: `@path`, `@call`,
+> flat function names; `docs/round-9-contract.md` §12), but this document and
+> what the server stores stay at format 5 until the flag day (§14.1): write 5.
+
 ## Versions
 
 A package MUST carry `formatVersion`. This document is format version

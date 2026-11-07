@@ -38,7 +38,9 @@ vi.mock(`@tanstack/react-router`, async (importOriginal) => ({
   createFileRoute: () => (options: Record<string, unknown>) => ({ options, useParams: () => params }),
 }))
 
-import { CORE_CATALOG_ID, PACKAGE_FORMAT_VERSION } from "@exponential_app/eui"
+import { SidebarProvider } from "@exp/ui"
+import { CORE_CATALOG_ID, PACKAGE_FORMAT_VERSION, upgradePackageBody09 } from "@exponential_app/eui"
+import fixture from "@/lib/apps/a2ui10-migrate.fixture.json"
 import { AppPreview } from "./app-preview"
 import { AppSurfaceBoundary } from "./app-surface-boundary"
 import { Route as GuestRoute } from "@/routes/s/$token"
@@ -121,6 +123,20 @@ describe(`AppPreview re-opening`, () => {
     await waitFor(() => expect(screen.getByTestId(APPS_TEST_IDS.preview).textContent).toContain(`Second`))
     expect(document.body.textContent).not.toContain(APPS_COPY.needsUpdate)
     expect(reports.mock.calls.flat().join(` `)).not.toContain(`INTEGRITY_ERROR`)
+  })
+})
+
+describe(`AppPreview on a migrated row (round 9 §14.1)`, () => {
+  it(`paints a real-shaped format 6 package, screens included`, async () => {
+    const pkg = upgradePackageBody09(fixture.packages.fieldVisits) as Record<string, unknown>
+    expect(pkg.formatVersion).toBe(6)
+    render(
+      <SidebarProvider>
+        <AppPreview pkg={pkg} />
+      </SidebarProvider>
+    )
+    await waitFor(() => expect(document.body.textContent).toContain(`Field visits`))
+    expect(document.body.textContent).not.toContain(APPS_COPY.needsUpdate)
   })
 })
 
