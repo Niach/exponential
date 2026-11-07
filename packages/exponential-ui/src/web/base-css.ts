@@ -328,7 +328,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-SearchList-search>svg,.xui-Menu-search>svg{width:16px;height:16px;opacity:.6;flex-shrink:0}
 .xui-SearchList-search>input,.xui-Menu-search>input{flex:1 1 auto;min-width:0;height:100%;padding:0;border:0;outline:none;background:transparent;color:inherit;font:inherit}
 .xui-SearchList-count,.xui-Menu-count{flex-shrink:0;font-variant-numeric:tabular-nums}
-.xui-Progress-value{font-variant-numeric:tabular-nums}
+.xui-Progress-value,.xui-Meter-value{font-variant-numeric:tabular-nums}
 .xui-SearchList-body,.xui-Menu-body{display:flex;flex-direction:column;position:relative;flex-shrink:1;min-height:0}
 .xui-SearchList-list,.xui-Menu-list{display:flex;flex-direction:column;flex-shrink:1;min-height:0;overflow-y:auto}
 .xui-SearchList-item{display:flex;flex-direction:row;align-items:center;flex-shrink:0;cursor:pointer;user-select:none;white-space:nowrap}
