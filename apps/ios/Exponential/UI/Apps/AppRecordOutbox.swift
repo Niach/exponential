@@ -33,7 +33,9 @@ struct AppOutboxPendingGlyph: View {
     @State private var label: String?
 
     var body: some View {
-        Group {
+        // A ZStack, not a Group: an empty Group hands its modifiers to no
+        // child, so the task below would never run.
+        ZStack {
             if let label {
                 AppIcon(AppIcons.uiOffline, size: 14)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
