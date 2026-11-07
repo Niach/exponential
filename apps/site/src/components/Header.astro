@@ -122,11 +122,12 @@ const current = (href: string) => (path.startsWith(href) ? `page` : undefined)
   .exp-menu summary::-webkit-details-marker {
     display: none;
   }
-  /* The header's backdrop blur makes it the containing block of a fixed
-     child: the panel hangs from its bottom edge, one screen tall. */
+  /* One screen tall under the bar. The bar sits at the top of the window,
+     so the nav height places it right whether the containing block is the
+     window or the header (its backdrop blur makes it one). */
   .exp-menu nav {
     position: fixed;
-    top: 100%;
+    top: var(--sl-nav-height);
     left: 0;
     right: 0;
     height: calc(100dvh - var(--sl-nav-height));

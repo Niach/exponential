@@ -2,6 +2,7 @@
    (src/pages/{talk,net,pilot,mcp,agent,core,apps}.astro). */
 
 .lib-figure {
+  width: 100%;
   margin-inline: auto;
 }
 
