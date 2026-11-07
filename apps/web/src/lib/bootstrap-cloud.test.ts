@@ -15,6 +15,9 @@ vi.mock(`@/db/connection`, () => ({
 vi.mock(`@/lib/email-enabled`, () => ({ emailEnabled: false }))
 // #VAPP-213: the built-in skills' reconcile has its own real-DB test.
 vi.mock(`@/lib/skills/builtin`, () => ({ reconcileBuiltinSkills: async () => {} }))
+// VAPP-289: the migration has its own real-DB test.
+const migrateA2ui10Once = vi.fn()
+vi.mock(`@/lib/apps/a2ui10-migrate`, () => ({ migrateA2ui10Once: (...args: unknown[]) => migrateA2ui10Once(...args) }))
 
 // bootstrapCloud memoizes its promise in module state — re-import per test.
 async function importModule() {
@@ -96,6 +99,15 @@ describe(`bootstrap-cloud`, () => {
     const mod = await importModule()
     await mod.runBootstrapPass()
     expect(updateWhere).toHaveBeenCalledTimes(1)
+  })
+
+  // VAPP-289: stored grants are flat only after the migration, and the strip
+  // knows flat names alone.
+  it(`runs the A2UI 1.0 migration after the custom SQL, before the grant strip`, async () => {
+    const mod = await importModule()
+    await mod.runBootstrapPass()
+    expect(execute.mock.invocationCallOrder[0]!).toBeLessThan(migrateA2ui10Once.mock.invocationCallOrder[0]!)
+    expect(migrateA2ui10Once.mock.invocationCallOrder[0]!).toBeLessThan(updateWhere.mock.invocationCallOrder[0]!)
   })
 
   it(`returns the same in-flight promise on repeat calls`, async () => {

@@ -42,7 +42,7 @@
           "description": "Your hours per day."
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "hours",
           "name": "Working hours",
           "version": "1.4.0",
@@ -127,7 +127,7 @@
             "description": "Your hours per day."
           },
           "package": {
-            "formatVersion": 5,
+            "formatVersion": 6,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
@@ -181,7 +181,7 @@
           "description": "Your hours per day."
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "hours",
           "name": "Working hours",
           "version": "1.4.0",
@@ -288,7 +288,7 @@
             "description": "Your hours per day."
           },
           "package": {
-            "formatVersion": 5,
+            "formatVersion": 6,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
@@ -383,7 +383,7 @@
           "description": ""
         },
         "package": {
-          "formatVersion": 5,
+          "formatVersion": 6,
           "id": "hours",
           "name": "Working hours",
           "version": "1.4.0",
@@ -437,7 +437,7 @@
             "description": ""
           },
           "package": {
-            "formatVersion": 5,
+            "formatVersion": 6,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
@@ -508,7 +508,7 @@
             "description": "Your hours per day."
           },
           "package": {
-            "formatVersion": 5,
+            "formatVersion": 6,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
@@ -573,7 +573,7 @@
             "description": ""
           },
           "package": {
-            "formatVersion": 5,
+            "formatVersion": 6,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",

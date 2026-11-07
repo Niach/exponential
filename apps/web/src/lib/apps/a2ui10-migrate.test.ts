@@ -6,14 +6,14 @@ import { readFileSync, readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it, vi } from "vitest"
-import { CORE_CATALOG_ID, bridgePackage, cardProblems, cardV10, reduceNested, signPackageFile, validatePackage, verifyPackageFile, type NestedNode, type PackageShare, type RecordKind } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, cardProblems, cardV10, reduceNested, signPackageFile, validatePackage, verifyPackageFile, type NestedNode, type PackageShare, type RecordKind } from "@exponential_app/eui"
 import { declaredActions } from "@exp/domain-contract/app-actions"
 import { APP_PACKAGE_MAX_BYTES } from "@exp/domain-contract/apps"
 import fixture from "./a2ui10-migrate.fixture.json"
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
-const { upgradeGrants, upgradePackageFile, upgradeStoredCard, upgradeStoredPackage } = await import(`@/lib/apps/a2ui10-migrate`)
+const { upgradeGrants, upgradePackageFile, upgradeStagedRows, upgradeStoredCard, upgradeStoredPackage } = await import(`@/lib/apps/a2ui10-migrate`)
 const { APP_CATALOG_IDS, appExtension, appPackageIssues, linkableScreens, migratedPackageIssues } = await import(`@/lib/apps/package`)
 const { guestPackage } = await import(`@/lib/apps/share-links`)
 
@@ -38,6 +38,13 @@ const rewritten = (verdict: { kind: string; value?: unknown; reason?: string }) 
   expect(verdict.reason).toBeUndefined()
   expect(verdict.kind).toBe(`rewrite`)
   return verdict.value as Record<string, unknown>
+}
+
+/** A shipped file as a client reads it: at format 6, or (the signed samples,
+ *  until the pinned signer re-signs them) its upgrade. */
+const atFormat6 = async (body: Record<string, unknown>) => {
+  const verdict = await upgradeStoredPackage(body)
+  return verdict.kind === `current` ? body : rewritten(verdict)
 }
 
 describe(`upgradeStoredPackage`, () => {
@@ -76,7 +83,7 @@ describe(`upgradeStoredPackage`, () => {
 
 describe(`upgradeStoredCard`, () => {
   const load = (card: { surface: unknown }) => {
-    const entry = cardV10(card.surface, false)
+    const entry = cardV10(card.surface)
     if (`error` in entry) throw new Error(entry.error)
     expect(cardProblems(entry.card.root)).toEqual([])
     expect(reduceNested(entry.card.root as NestedNode, { catalogId: CORE_CATALOG_ID }).issues).toEqual([])
@@ -127,9 +134,8 @@ describe(`upgradeGrants`, () => {
 
 describe(`every package the platform ships`, () => {
   for (const path of SHIPPED) {
-    it(`${path} upgrades and loads with the bridge off`, async () => {
-      const verdict = await upgradeStoredPackage(bodyOf(json(path)))
-      const pkg = rewritten(verdict)
+    it(`${path} loads at format 6`, async () => {
+      const pkg = await atFormat6(bodyOf(json(path)))
       expect(pkg.formatVersion).toBe(6)
       expect(migratedPackageIssues(pkg)).toEqual([])
       expect(validatePackage(pkg, APP_CATALOG_IDS)).toEqual([])
@@ -139,7 +145,7 @@ describe(`every package the platform ships`, () => {
 
   for (const path of inDir(`samples/apps`, `.app.json`)) {
     it(`${path} passes the flag-day upsert`, async () => {
-      expect(appPackageIssues(rewritten(await upgradeStoredPackage(bodyOf(json(path)))), false)).toEqual([])
+      expect(appPackageIssues(await atFormat6(bodyOf(json(path))))).toEqual([])
     })
   }
 
@@ -148,15 +154,31 @@ describe(`every package the platform ships`, () => {
   })
 })
 
-describe(`a stored format 6 row, read today (the bridge still on)`, () => {
+describe(`upgradeStagedRows`, () => {
+  it(`upgrades what a team import would write, column by column`, async () => {
+    const rows = [
+      { tableName: `apps`, localId: `a`, row: { id: `a`, package: fixture.packages.fieldVisits, draft_package: null, granted_tools: fixture.grants.dotted } },
+      { tableName: `app_versions`, localId: `v`, row: { id: `v`, package: fixture.packages.fieldVisits } },
+      { tableName: `messages`, localId: `m`, row: { id: `m`, card: fixture.cards.surface } },
+      { tableName: `issues`, localId: `i`, row: { id: `i`, package: `not a package` } },
+    ]
+    const [app, version, message, issue] = await upgradeStagedRows(rows)
+    expect((app!.row.package as { formatVersion: number }).formatVersion).toBe(6)
+    expect(app!.row.granted_tools).toEqual([`exponential_issues_update`, `exponential_mcp_servers_list`, `exponential_issues_create`])
+    expect((version!.row.package as { formatVersion: number }).formatVersion).toBe(6)
+    expect((message!.row.card as { surface: { version: string } }).surface.version).toBe(`1.0`)
+    expect(issue).toEqual(rows[3])
+  })
+})
+
+describe(`a stored format 6 row`, () => {
   const row = async () => rewritten(await upgradeStoredPackage(fixture.packages.fieldVisits))
 
   it(`the server's readers take it as it is`, async () => {
     const pkg = await row()
-    expect(bridgePackage(pkg)).toBe(pkg)
     expect(declaredActions(pkg.functions as string[])).toContain(`exponential_issues_create`)
     expect(linkableScreens(`visits`, pkg).map((s) => s.screen)).toEqual([`visits`])
-    expect(appPackageIssues(pkg, false).map((issue) => issue.path)).toEqual([`/tools`])
+    expect(appPackageIssues(pkg).map((issue) => issue.path)).toEqual([`/tools`])
   })
 
   it(`a share link serves its guest template from it`, async () => {

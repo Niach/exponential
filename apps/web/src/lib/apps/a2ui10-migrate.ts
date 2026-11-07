@@ -1,6 +1,7 @@
 // VAPP-289 (round 9 contract §14.1): the one-shot stored-data migration of the
-// A2UI 1.0 flag day. DORMANT until the flag-day PR runs it: `--dry-run` from
-// `scripts/a2ui10-migrate.ts`, then this module at boot.
+// A2UI 1.0 flag day: a dry run from `scripts/a2ui10-migrate.ts`, then this
+// module at boot (`migrateA2ui10Once`, once per instance: a `data_migrations`
+// row) and at a team import's commit (`upgradeStagedRows`).
 //
 // What moves: `apps.package`, `apps.draft_package`, `app_versions.package` →
 // format 6; `apps.granted_tools` → flat names; every clear card surface in
@@ -19,10 +20,10 @@
 // `conversations.digest` never names a surface, so it does not move.
 
 import { Buffer } from "node:buffer"
-import { sql, type SQL } from "drizzle-orm"
-import { flatAction } from "@exp/domain-contract/app-actions"
+import { eq, sql, type SQL } from "drizzle-orm"
 import { A2UI_VERSION, PACKAGE_FORMAT_VERSION, PACKAGE_FORMAT_VERSION_09, cardV10, signPackageFile, upgradeCard09, upgradePackage09, upgradePackageBody09, verifyPackageFile } from "@exponential_app/eui"
 import type { db as appDb } from "@/db/connection"
+import { dataMigrations } from "@/db/schema"
 import { migratedPackageIssues } from "@/lib/apps/package"
 import { validateCardSurface, type CardSurfaceInput } from "@/lib/sessions/plan"
 import { isSealedCard } from "@/lib/sessions/sealed"
@@ -117,7 +118,7 @@ export function upgradeStoredCard(card: unknown): Verdict {
   if (surface.version === A2UI_VERSION) return { kind: `current` }
   if (surface.version !== undefined) return { kind: `failed`, reason: `unsupported surface version ${JSON.stringify(surface.version)}` }
   const upgraded = upgradeCard09(surface)
-  const entry = cardV10(upgraded, false)
+  const entry = cardV10(upgraded)
   if (`error` in entry) return { kind: `failed`, reason: entry.error }
   try {
     validateCardSurface(upgraded as CardSurfaceInput)
@@ -128,10 +129,12 @@ export function upgradeStoredCard(card: unknown): Verdict {
 }
 
 /** `apps.granted_tools` → flat names, stored order kept. */
+const flatGrant = (name: string): string => (name.startsWith(`exponential.`) ? name.replaceAll(`.`, `_`) : name)
+
 export function upgradeGrants(value: unknown): Verdict {
   if (value === null || value === undefined) return { kind: `empty` }
   if (!Array.isArray(value) || value.some((name) => typeof name !== `string`)) return { kind: `failed`, reason: `granted_tools is a list of names` }
-  const flat = [...new Set((value as string[]).map(flatAction))]
+  const flat = [...new Set((value as string[]).map(flatGrant))]
   return flat.length === value.length && flat.every((name, i) => name === value[i]) ? { kind: `current` } : { kind: `rewrite`, value: flat }
 }
 
@@ -335,7 +338,7 @@ async function migrateTable(client: MigrationDb, spec: TableSpec, options: Migra
   for (const id of conflicted) columns[keyOf(spec, spec.columns[0]!)]!.conflicted.push(id)
 }
 
-/** THE entry: the script's and, from the flag-day PR on, boot's. Dry run
+/** THE entry: the script's and boot's. Dry run
  *  unless `apply`. Throws only when the database does. */
 export async function runA2ui10Migration(client: MigrationDb, options: MigrationOptions): Promise<MigrationReport> {
   const startedAt = new Date().toISOString()
@@ -354,6 +357,50 @@ export async function runA2ui10Migration(client: MigrationDb, options: Migration
     columns,
     electric,
   }
+}
+
+/** The name of this migration's `data_migrations` row. */
+export const A2UI10_MIGRATION = `a2ui10`
+
+/** Boot (§14.1): one run per instance. Replicas take turns on an advisory
+ *  lock; the marker is written when a run finishes, failures included: a
+ *  failed row is in the log and the marker's report, stops nothing, and is
+ *  no worse off than before (the operator re-runs the script for it). A
+ *  database error throws, so the bootstrap pass retries. */
+export async function migrateA2ui10Once(client: MigrationDb): Promise<MigrationReport | null> {
+  return await client.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`data_migration:${A2UI10_MIGRATION}`}))`)
+    const [done] = await tx.select({ name: dataMigrations.name }).from(dataMigrations).where(eq(dataMigrations.name, A2UI10_MIGRATION)).limit(1)
+    if (done) return null
+    const report = await runA2ui10Migration(client, { apply: true })
+    console[report.ok ? `log` : `error`](`[a2ui10-migrate]\n${formatMigrationReport(report)}`)
+    await tx.insert(dataMigrations).values({ name: A2UI10_MIGRATION, report }).onConflictDoNothing()
+    return report
+  })
+}
+
+/** §14.1: a team import writes staged rows straight into `apps`,
+ *  `app_versions` and `messages`, so a Local desktop that shares after the
+ *  flag day lands at 1.0 too. A value that fails stays as it was staged, like
+ *  a row the migration holds back. Pure. */
+export async function upgradeStagedRows<T extends { tableName: string; row: Record<string, unknown> }>(rows: readonly T[]): Promise<T[]> {
+  const plans: Record<string, Record<string, (value: unknown) => Verdict | Promise<Verdict>>> = {
+    apps: { package: upgradeStoredPackage, draft_package: upgradeStoredPackage, granted_tools: upgradeGrants },
+    app_versions: { package: upgradeStoredPackage },
+    messages: { card: upgradeStoredCard },
+  }
+  const out: T[] = []
+  for (const staged of rows) {
+    const row = { ...staged.row }
+    for (const [column, plan] of Object.entries(plans[staged.tableName] ?? {})) {
+      if (!(column in row)) continue
+      const verdict = await plan(row[column])
+      if (verdict.kind === `rewrite`) row[column] = verdict.value
+      else if (verdict.kind === `failed`) console.warn(`[team-import] ${staged.tableName}.${column} stays as staged: ${verdict.reason}`)
+    }
+    out.push({ ...staged, row })
+  }
+  return out
 }
 
 /** The report as the operator reads it. */

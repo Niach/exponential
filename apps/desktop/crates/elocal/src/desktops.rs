@@ -224,6 +224,10 @@ impl LocalDesktop {
                 store.write(table, row)?;
             }
         }
+        // Round 9 §14.1: this store's apps and cards at A2UI 1.0, once.
+        if let Err(error) = crate::a2ui10::upgrade_once(&store, &dir) {
+            log::error!("[elocal] the A2UI 1.0 pass failed for {}: {error}", dir.display());
+        }
         if fresh {
             std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         }

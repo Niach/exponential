@@ -2,9 +2,9 @@ import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
-import { storedAction } from "@exp/domain-contract/app-actions"
 import { GRANTABLE_ACTIONS } from "@/lib/app-grants"
 import { apps } from "@/db/schema"
+import { migrateA2ui10Once } from "@/lib/apps/a2ui10-migrate"
 import { reconcileBuiltinSkills } from "@/lib/skills/builtin"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
@@ -75,9 +75,7 @@ export function isCloudInstance(): boolean {
  *  (lib/app-grants.ts), on every app at once. Idempotent; touches only the
  *  rows that carry one, order of the kept names preserved. */
 export async function stripUngrantableGrants(client: Pick<typeof db, `update`> = db): Promise<void> {
-  // Round 9 §14: the actions are flat, `apps.granted_tools` is dotted until
-  // the flag-day migration: either spelling of a grantable action stays.
-  const keep = sql`${sql.param([...GRANTABLE_ACTIONS, ...GRANTABLE_ACTIONS.map(storedAction)])}::text[]`
+  const keep = sql`${sql.param([...GRANTABLE_ACTIONS])}::text[]`
   await client
     .update(apps)
     .set({
@@ -95,6 +93,9 @@ let bootstrapPromise: Promise<void> | null = null
 // bootstrapCloud() below is the only production caller.
 export async function runBootstrapPass(): Promise<void> {
   await applyCustomSql()
+  // VAPP-289 (round 9 §14.1): one run per instance, cloud and self-host, and
+  // before the grant strip below, which knows flat names alone.
+  await migrateA2ui10Once(db)
   await promoteInitialAdmins()
   // FEED-159: a deploy that made an action owner-only or destructive strips
   // the grants apps still store for it.

@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useRef, type ReactNode } from "react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, cardV10, type NestedNode } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, cardForDisplay, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface, type HostPlugin, type IconMap } from "@exponential_app/eui-react"
 import { SEMANTIC_ICONS, type IconConcept, type IconName } from "@exp/icons"
 import {
@@ -162,10 +162,10 @@ function documentMode(): `light` | `dark` {
   return document.documentElement.classList.contains(`dark`) ? `dark` : `light`
 }
 
-/** Round 9 §14: what a card paints: a stored card without a version is the
- *  0.9 form, shown through the upgrade for good (a sealed one never migrates). */
+/** Round 9 §18.2: what a card paints: a stored card without a version (a
+ *  sealed one never migrates) is shown through `upgradeCard09`, display only. */
 export function paintedCard(surface: CardSurface): CardSurface {
-  const out = cardV10(surface, true)
+  const out = cardForDisplay(surface)
   return `card` in out ? (out.card as CardSurface) : surface
 }
 

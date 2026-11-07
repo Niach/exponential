@@ -72,6 +72,7 @@ export interface PlanQuestionInput {
 }
 
 export interface CardSurfaceInput {
+  version?: string
   root: Record<string, unknown>
   data?: Record<string, unknown>
 }
@@ -288,15 +289,14 @@ export function validateCardSurface(surface: CardSurfaceInput | undefined): Card
   if (typeof root.id !== `string` || typeof root.component !== `string`) {
     throw bad(`surface.root must be a genUI node: {id, component, props?, children?}`)
   }
-  // Round 9 §13: the server keeps what it was given (0.9 until the flag day)
-  // and checks its 1.0 form, what every client paints.
-  const upgraded = cardV10(surface)
-  if (`error` in upgraded) throw bad(`surface: ${upgraded.error}`)
-  const problems = cardProblems(upgraded.card.root)
+  // Round 9 §13: a card is 1.0 (a missing `version` names the fix).
+  const entry = cardV10(surface)
+  if (`error` in entry) throw bad(`surface: ${entry.error}`)
+  const problems = cardProblems(entry.card.root)
   if (problems.length > 0) throw bad(`surface is not valid: ${problems.slice(0, 10).join(`; `)}${problems.length > 10 ? `; and ${problems.length - 10} more` : ``}`)
   let result: ReduceResult
   try {
-    result = reduceNested(upgraded.card.root, { catalogId: CORE_CATALOG_ID })
+    result = reduceNested(entry.card.root, { catalogId: CORE_CATALOG_ID })
   } catch (error) {
     throw bad(`surface.root is not a valid genUI tree: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -315,7 +315,7 @@ export function validateCardSurface(surface: CardSurfaceInput | undefined): Card
   if (motion.length > 0) {
     throw bad(`surface has an invalid Motion: ${motion.slice(0, 5).join(`; `)}${motion.length > 5 ? `; and ${motion.length - 5} more` : ``}`)
   }
-  return { root, data: surface.data ?? null }
+  return { version: entry.card.version, root, data: surface.data ?? null }
 }
 
 type MotionWalkNode = { id?: string; component?: string; props?: Record<string, unknown>; children?: unknown; slots?: Record<string, unknown> }
@@ -413,7 +413,7 @@ export function buildSurfaceCard(input: {
   description?: string
 }): Extract<MessageCard, { kind: `surface` }> {
   const surface = validateCardSurface(input.surface)
-  if (!surface) throw bad(`surface is required: a genUI core tree {root, data?}`)
+  if (!surface) throw bad(`surface is required: a genUI core tree {version: "1.0", root, data?}`)
   const title = input.title?.trim() || null
   if (title && title.length > SURFACE_CARD_TITLE_MAX) {
     throw bad(`title is ${title.length} characters; the cap is ${SURFACE_CARD_TITLE_MAX}`)
