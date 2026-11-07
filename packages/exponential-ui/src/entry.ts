@@ -6,7 +6,7 @@
 // issue. The Rust core's `check_entry` mirrors this function message for
 // message.
 
-import { A2UI_BASIC_CATALOG_ID, A2UI_VERSION, ACCEPT_V09, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, coreCatalog } from "./catalog"
+import { A2UI_BASIC_CATALOG_ID, A2UI_VERSION, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, coreCatalog } from "./catalog"
 import { isDataSchema } from "./dynamic"
 import { INDEX_FUNCTION } from "./functions"
 import { isIdentifier } from "./ids"
@@ -20,18 +20,14 @@ export const ENVELOPE_KEYS: readonly string[] = [`id`, `component`, `catalogId`,
 export const SURFACE_COMPONENT = `Surface`
 export { INDEX_FUNCTION }
 
-/** The 0.9 wire version the bridge recognizes (§1.1 check 3). */
-export const A2UI_VERSION_09 = `v0.9`
-
 /** What §1.1 checks 3–4 decide about a message's `version`. */
-export type Envelope = { kind: `v10` } | { kind: `upgrade` } | { kind: `refused`; reason: string }
+export type Envelope = { kind: `v10` } | { kind: `refused`; reason: string }
 
 /** Round 9 §1.5: the ONE version check every core entry runs (the router,
  *  `SurfaceStore.apply`, cards, packages). */
-export function checkEnvelope(message: Record<string, unknown>, acceptV09: boolean = ACCEPT_V09): Envelope {
+export function checkEnvelope(message: Record<string, unknown>): Envelope {
   const version = message.version
-  if (version === undefined) return acceptV09 ? { kind: `upgrade` } : { kind: `refused`, reason: `version is required` }
-  if (version === A2UI_VERSION_09) return acceptV09 ? { kind: `upgrade` } : { kind: `refused`, reason: `unsupported version ${A2UI_VERSION_09}` }
+  if (version === undefined) return { kind: `refused`, reason: `version is required` }
   if (version === A2UI_VERSION) return { kind: `v10` }
   return { kind: `refused`, reason: `unsupported version ${typeof version === `string` ? version : JSON.stringify(version)}` }
 }

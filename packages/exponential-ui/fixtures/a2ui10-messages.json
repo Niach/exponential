@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-289 (docs/round-9-contract.md §15, the spec of this file is §1, §2, §4, §5.2, §6.9, §7, §10, §13): the A2UI 1.0 wire, replayed by the TS reference (src/a2ui10.test.ts) and the Rust core; Swift and Kotlin through the FFI (suite `a2ui10`). Inputs hand-written; every `expected` filled by `bun run --filter @exponential_app/eui generate` from src/. `ids`: {id, expected: {identifier: isIdentifier(id), mangle: mangle(id)}}. `packages`: installed by name. `flows`: ONE router per flow, created with extensionIds and registering inlineCatalogs, `packages` installed (`installIssues`), then each step {message, trusted?, acceptV09?} goes through route(message, options) and `expected` = the ops, byte for byte; trusted defaults to false, acceptV09 to the generated ACCEPT_V09, bridged steps thread the router's Upgrade09State. `mint`: one router per case, steps {create: id} | {delete: id} (expected = the op names) | {mint: base} (expected = the id). `errors`: errorMessage(code, target, message, path?) key order included. `actions`: actionMessage(input) with the painted id, payload → metadata.extensions.at_exponential_payload. `calls`: callAgentFunctionMessage. `responses`: rendererFunctionResponse(id, result). `capabilities`: rendererCapabilities(extensionIds, {inline?}). `cards`: cardV10(input, acceptV09 default true): {error} or {card, problems: cardProblems(root), issues + root: reduceNested(root) at the core catalog}.",
+  "$comment": "VAPP-289 (docs/round-9-contract.md §15, the spec of this file is §1, §2, §4, §5.2, §6.9, §7, §10, §13): the A2UI 1.0 wire, replayed by the TS reference (src/a2ui10.test.ts) and the Rust core; Swift and Kotlin through the FFI (suite `a2ui10`). Inputs hand-written; every `expected` filled by `bun run --filter @exponential_app/eui generate` from src/. `ids`: {id, expected: {identifier: isIdentifier(id), mangle: mangle(id)}}. `packages`: installed by name. `flows`: ONE router per flow, created with extensionIds and registering inlineCatalogs, `packages` installed (`installIssues`), then each step {message, trusted?} goes through route(message, options) and `expected` = the ops, byte for byte; trusted defaults to false. 0.9 is refused at every entry. `mint`: one router per case, steps {create: id} | {delete: id} (expected = the op names) | {mint: base} (expected = the id). `errors`: errorMessage(code, target, message, path?) key order included. `actions`: actionMessage(input) with the painted id, payload → metadata.extensions.at_exponential_payload. `calls`: callAgentFunctionMessage. `responses`: rendererFunctionResponse(id, result). `capabilities`: rendererCapabilities(extensionIds, {inline?}). `cards`: cardV10(input): {error} or {card, problems: cardProblems(root), issues + root: reduceNested(root) at the core catalog}.",
   "ids": [
     {
       "id": "a",
@@ -268,7 +268,6 @@
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
-          "acceptV09": false,
           "expected": [
             {
               "op": "send",
@@ -291,7 +290,6 @@
               "catalogId": "https://ui.exponential.at/catalogs/core/v1"
             }
           },
-          "acceptV09": false,
           "expected": [
             {
               "op": "send",
@@ -2531,7 +2529,7 @@
       }
     },
     {
-      "name": "§1.1 check 3: the 0.9 bridge",
+      "name": "§1.1 check 3: 0.9 is refused",
       "packages": [
         "acme.old"
       ],
@@ -2547,15 +2545,15 @@
           },
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "o",
-              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
-              "metadata": {
-                "extensions": {
-                  "at_exponential_theme": "neutral"
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "o",
+                  "message": "unsupported version v0.9"
                 }
-              },
-              "theme": "neutral"
+              }
             }
           ]
         },
@@ -2585,32 +2583,15 @@
           },
           "expected": [
             {
-              "op": "components",
-              "surfaceId": "o",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Column",
-                  "children": [
-                    "my_text"
-                  ]
-                },
-                {
-                  "id": "my_text",
-                  "component": "Text",
-                  "text": {
-                    "@call": "concat",
-                    "args": {
-                      "values": [
-                        "## ",
-                        {
-                          "@path": "/t"
-                        }
-                      ]
-                    }
-                  }
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "o",
+                  "message": "unsupported version v0.9"
                 }
-              ]
+              }
             }
           ]
         },
@@ -2623,9 +2604,15 @@
           },
           "expected": [
             {
-              "op": "data",
-              "surfaceId": "o",
-              "path": "/t"
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "o",
+                  "message": "version is required"
+                }
+              }
             }
           ]
         },
@@ -2645,15 +2632,15 @@
           },
           "expected": [
             {
-              "op": "components",
-              "surfaceId": "o",
-              "components": [
-                {
-                  "id": "my_text",
-                  "component": "Text",
-                  "text": "again"
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "o",
+                  "message": "unsupported version v0.9"
                 }
-              ]
+              }
             }
           ]
         },
@@ -2666,8 +2653,15 @@
           },
           "expected": [
             {
-              "op": "delete",
-              "surfaceId": "o"
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "o",
+                  "message": "unsupported version v0.9"
+                }
+              }
             }
           ]
         },
@@ -2682,32 +2676,15 @@
           "trusted": true,
           "expected": [
             {
-              "op": "create",
-              "surfaceId": "q",
-              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
-            },
-            {
-              "op": "components",
-              "surfaceId": "q",
-              "components": [
-                {
-                  "id": "root",
-                  "component": "Button",
-                  "label": {
-                    "@path": "/l"
-                  },
-                  "on": {
-                    "press": {
-                      "functionCall": {
-                        "@call": "harness_toast",
-                        "args": {
-                          "message": "x"
-                        }
-                      }
-                    }
-                  }
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "q",
+                  "message": "unsupported version v0.9"
                 }
-              ]
+              }
             }
           ]
         },
@@ -2728,7 +2705,7 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "q",
-                  "message": "bindDataModel is host-internal"
+                  "message": "unsupported version v0.9"
                 }
               }
             }
@@ -2736,7 +2713,24 @@
         }
       ],
       "installIssues": {
-        "acme.old": []
+        "acme.old": [
+          {
+            "path": "/formatVersion",
+            "message": "format version 5 is no longer read; 6 is required"
+          },
+          {
+            "path": "/templates/main/components/0/on/press/functionCall",
+            "message": "functionCall is a call ({\"@call\": …})"
+          },
+          {
+            "path": "/templates/main/components",
+            "message": "no component has the id root"
+          },
+          {
+            "path": "/templates/main/components/0",
+            "message": "props.label: expected a string"
+          }
+        ]
       }
     },
     {
@@ -3943,109 +3937,7 @@
       }
     },
     {
-      "name": "no version: the 0.9 form, bridged",
-      "input": {
-        "root": {
-          "id": "my-card",
-          "component": "Stack",
-          "children": [
-            {
-              "id": "t",
-              "component": "Text",
-              "props": {
-                "text": {
-                  "path": "/title"
-                }
-              },
-              "visible": {
-                "path": "/show"
-              }
-            }
-          ]
-        },
-        "data": {
-          "title": "x"
-        }
-      },
-      "expected": {
-        "card": {
-          "version": "1.0",
-          "root": {
-            "id": "my_card",
-            "component": "Stack",
-            "children": [
-              {
-                "id": "t",
-                "component": "Text",
-                "props": {
-                  "text": {
-                    "@path": "/title"
-                  }
-                },
-                "visible": {
-                  "@call": "cond",
-                  "args": {
-                    "if": {
-                      "@path": "/show"
-                    },
-                    "then": true,
-                    "else": false
-                  }
-                }
-              }
-            ]
-          },
-          "data": {
-            "title": "x"
-          }
-        },
-        "problems": [],
-        "issues": [],
-        "root": {
-          "id": "my_card",
-          "component": "Box",
-          "props": {},
-          "children": [
-            {
-              "id": "t",
-              "component": "Text",
-              "props": {
-                "text": {
-                  "@path": "/title"
-                }
-              },
-              "children": [],
-              "visible": {
-                "@call": "cond",
-                "args": {
-                  "if": {
-                    "@path": "/show"
-                  },
-                  "then": true,
-                  "else": false
-                }
-              }
-            }
-          ],
-          "style": {
-            "display": "flex",
-            "flexDirection": "column",
-            "flexWrap": "nowrap",
-            "gap": "$spacing.md",
-            "alignItems": "stretch",
-            "justifyContent": "start"
-          },
-          "recipe": {
-            "macro": "Stack",
-            "part": "root",
-            "props": {}
-          }
-        }
-      }
-    },
-    {
-      "name": "no version, the bridge off",
-      "acceptV09": false,
+      "name": "no version: refused, naming the fix",
       "input": {
         "root": {
           "id": "s",

@@ -33,7 +33,7 @@ export const CORE_LITE_CATALOG_ID: string = coreCatalog.liteId
 export const A2UI_BASIC_CATALOG_ID: string = basicMapJson.from
 /** The A2UI wire `version` (round 9: `"1.0"`, generated from catalog/host.json `a2uiVersion`). */
 export const A2UI_VERSION: string = GENERATED_A2UI_VERSION
-/** Round 9 §14: while true, every core entry upgrades A2UI v0.9 input (generated from host.json `transition.acceptV09`). */
+/** Round 9 §14: false since the flag day: every core entry refuses A2UI v0.9 input (generated from host.json `transition.acceptV09`). */
 export const ACCEPT_V09: boolean = GENERATED_ACCEPT_V09
 /** What a client sends as `supportedCatalogIds`. */
 export const SUPPORTED_CATALOG_IDS: readonly string[] = [

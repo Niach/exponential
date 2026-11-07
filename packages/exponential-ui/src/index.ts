@@ -22,8 +22,8 @@ export {
 } from "./catalog"
 export type { CatalogView } from "./catalog"
 export * from "./catalog.generated"
-export { newSurfaceBridge, surfaceUpdates } from "./surface-updates"
-export type { SurfaceBridge, SurfaceRefusal, SurfaceUpdate, SurfaceUpdatesOptions } from "./surface-updates"
+export { surfaceUpdates } from "./surface-updates"
+export type { SurfaceRefusal, SurfaceStream, SurfaceUpdate, SurfaceUpdatesOptions } from "./surface-updates"
 export {
   STYLE_KEYS,
   STYLE_LAYOUT_KEYS,
@@ -59,7 +59,7 @@ export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } f
 export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES, EFFECT_FUNCTIONS, USER_ACTIVATION_FUNCTIONS, RENDERER_ONLY_FUNCTIONS, VALIDATOR_FUNCTIONS, FunctionFailure, catalogFunctionNames, checkResult, evaluateCall, evaluateCheck, fieldChecks, isHostFunctionName, resolveWithFailure, shownResult } from "./dynamic"
 export { allowedCallers, checkArgs, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "./functions"
 export type { AllowedCallers } from "./functions"
-export { A2UI_VERSION_09, ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
+export { ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
 export type { EntryContext, EntryFailure, Envelope } from "./entry"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"
@@ -132,7 +132,7 @@ export type { ComponentA11y } from "./a11y"
 export type { CodeToken } from "./code"
 export { basicMap, mapBasicComponent, mapBasicIcon, BASIC_TRANSFORM_NAMES } from "./basic-map"
 export type { MappedComponent } from "./basic-map"
-export { reduceSurface, reduceNested, cardV10, cardProblems, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
+export { reduceSurface, reduceNested, cardV10, cardForDisplay, cardProblems, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
 export type { ReduceOptions, ReduceResult } from "./reducer"
 export { defineExtension, validateExtension } from "./extension"
 // VAPP-106: NOT here, each its own entry so the root stays what a renderer

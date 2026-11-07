@@ -129,11 +129,7 @@ pub fn a2ui10_cases() -> Vec<Case> {
         }
         let mut result = Ok(());
         for s in list(flow, "steps") {
-            let mut options = RouteOptions::default();
-            options.trusted = s["trusted"] == json!(true);
-            if s["acceptV09"] == json!(false) {
-                options.accept_v09 = false;
-            }
+            let options = RouteOptions { trusted: s["trusted"] == json!(true) };
             let got = Value::Array(router.route(&s["message"], options));
             result = result.and_then(|()| same(&got, &s["expected"]));
         }
@@ -170,7 +166,7 @@ pub fn a2ui10_cases() -> Vec<Case> {
         out.push((format!("mint: {}", c["name"].as_str().unwrap()), result));
     }
     for c in list(&f, "cards") {
-        let got = match eui_core::reducer::card_v10(&c["input"], c.get("acceptV09").and_then(Value::as_bool).unwrap_or(true)) {
+        let got = match eui_core::reducer::card_v10(&c["input"]) {
             Err(error) => json!({"error": error}),
             Ok(card) => {
                 let root: eui_core::NestedNode = serde_json::from_value(card["root"].clone()).unwrap();
@@ -308,11 +304,10 @@ pub fn router_cases() -> Vec<Case> {
         }
         for (i, step) in list(flow, "steps").iter().enumerate() {
             let trusted = step.get("trusted").or(flow.get("trusted")).and_then(Value::as_bool).unwrap_or(false);
-            let accept_v09 = step.get("acceptV09").or(flow.get("acceptV09")).and_then(Value::as_bool).unwrap_or(eui_core::catalog::ACCEPT_V09);
             let got = if let Some(base) = step.get("mint").and_then(Value::as_str) {
                 json!(router.mint_surface_id(base))
             } else {
-                Value::Array(router.route(&step["message"], eui_core::host::RouteOptions { trusted, accept_v09 }))
+                Value::Array(router.route(&step["message"], eui_core::host::RouteOptions { trusted }))
             };
             result = result.and_then(|_| same(&got, &step["expected"]).map_err(|e| format!("step {i}: {e}")));
         }

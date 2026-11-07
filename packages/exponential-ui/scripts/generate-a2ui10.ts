@@ -24,15 +24,14 @@ const json = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
 
 type Any = Record<string, any>
 
-/** One router per flow, as host-router.json: `{name, extensionIds?, inlineCatalogs?, packages?, steps: [{message, trusted?, acceptV09?}]}`. */
+/** One router per flow, as host-router.json: `{name, extensionIds?, inlineCatalogs?, packages?, steps: [{message, trusted?}]}`. */
 export function renderFlow(flow: Any, packages: Record<string, AppPackage>): Any {
   const r = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
   for (const id of flow.inlineCatalogs ?? []) r.registerInlineCatalog(id)
   const installIssues: Record<string, unknown> = {}
   for (const id of flow.packages ?? []) installIssues[id] = r.installPackage(packages[id]!)
   const steps = flow.steps.map((s: Any) => {
-    const options = { ...(s.trusted ? { trusted: true } : {}), ...(s.acceptV09 === false ? { acceptV09: false } : {}) }
-    return { ...s, expected: r.route(s.message, options) }
+    return { ...s, expected: r.route(s.message, s.trusted ? { trusted: true } : {}) }
   })
   return { ...flow, ...(flow.packages ? { installIssues } : {}), steps }
 }
@@ -61,7 +60,7 @@ function renderMessages(f: Any): Any {
     responses: f.responses.map((c: Any) => ({ ...c, expected: rendererFunctionResponse(c.functionCallId, c.result) })),
     capabilities: f.capabilities.map((c: Any) => ({ ...c, expected: rendererCapabilities(c.extensionIds, c.inline ? { inline: c.inline } : {}) })),
     cards: f.cards.map((c: Any) => {
-      const out = cardV10(c.input, c.acceptV09 ?? true)
+      const out = cardV10(c.input)
       if (`error` in out) return { ...c, expected: { error: out.error } }
       const { root, issues } = reduceNested(out.card.root as NestedNode, { catalogId: CORE_CATALOG_ID })
       return { ...c, expected: { card: out.card, problems: cardProblems(out.card.root as NestedNode), issues, root } }
