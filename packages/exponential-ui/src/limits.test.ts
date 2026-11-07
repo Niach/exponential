@@ -35,6 +35,12 @@ describe(`limits (catalog/limits.json)`, () => {
     expect([MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_TEMPLATE_ITEMS, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS]).toEqual([20000, 48, 4194304, 10000, 1024, 64])
     // EXP-1602: eui-motion's Limits::default() (tests/validate.rs checks the Rust side).
     expect(limitsJson.motion).toMatchObject({ maxBytes: 2097152, maxShapes: 5000, maxVertices: 100000, maxSeconds: 120, maxFps: 60, maxPlayingPerSurface: 8 })
+    // VAPP-289 (round 9 §9.3, §6.5): the regex dialect caps and the agent function timeout.
+    expect(limitsJson.regex).toMatchObject({ maxPatternCodePoints: 256, maxValueCodePoints: 4096, maxSteps: 1000000 })
+    expect(LIMITS.agentFunctionTimeoutMs).toBe(30000)
+    expect(limitsJson.issues).toMatchObject({ regexPatternLength: `regex: pattern longer than ${limitsJson.regex.maxPatternCodePoints} code points`, regexSyntax: `regex: {reason} at {offset}`, regexRule: `regex: rule {rule}`, regexTooExpensive: `regex: too expensive` })
+    // LIMITS stays numbers only (the generator emits it into every target).
+    expect(Object.values(LIMITS).every((v) => typeof v === `number`)).toBe(true)
   })
 
   test(`an id listed twice renders once (21 components naming the next twice)`, () => {

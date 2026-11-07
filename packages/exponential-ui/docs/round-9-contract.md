@@ -932,10 +932,13 @@ platform engine is used. The current Rust `simple_regex` and the TS
 
 Order:
 
-1. Pattern longer than **256** code points → EXPRESSION_ERROR
-   `regex: pattern longer than 256 code points`.
-2. Parse in the dialect. A syntax error or a disallowed construct →
-   EXPRESSION_ERROR `regex: <reason> at <code point offset>`.
+1. A pattern that is not a string → EXPRESSION_ERROR
+   `regex: pattern is not a string at 0`. Longer than **256** code
+   points → EXPRESSION_ERROR `regex: pattern longer than 256 code points`.
+2. Parse in the dialect, left to right. The first syntax error or
+   disallowed construct → EXPRESSION_ERROR `regex: <reason> at <code
+   point offset>` (the reasons and offsets: `fixtures/regex.json`
+   `$comment`, `limits.json` `issues.regexReasons`).
 3. Safety check (rules R2–R4 below) → EXPRESSION_ERROR
    `regex: rule <n>`.
 4. `value`: null/absent → `""`; number/boolean → standard text; an object
@@ -943,7 +946,9 @@ Order:
    `{"valid": false}`, no error.
 5. Match, with search semantics: try each start offset in order. At most
    **1,000,000** steps (one step = one attempt of one AST node at one
-   position). Past that → EXPRESSION_ERROR `regex: too expensive`.
+   position; the exact count, which the fixture locks, is in
+   `fixtures/regex.json` `$comment`). Past that → EXPRESSION_ERROR
+   `regex: too expensive`.
 6. → `{"valid": true}` or `{"valid": false}`.
 
 The limits live in `limits.json` `regex`: `maxPatternCodePoints 256`,
@@ -957,13 +962,15 @@ locked by `limits.json` `issues`.
   - `.` (any code point except U+000A, U+000D, U+2028, U+2029);
   - `[…]` / `[^…]` with single code points, ranges `a-z` (start ≤ end, no
     class escape as an endpoint) and the class escapes. `\b` inside a
-    class is U+0008. `-` is literal first or last, or as `\-`;
+    class is U+0008. `-` is literal first or last, as `\-`, or right
+   after a range (`[a-c-e]`, as ECMAScript);
   - `\d \D \w \W \s \S`. `\d` = `[0-9]`, `\w` = `[A-Za-z0-9_]`, `\s` =
     U+0009–U+000D, U+0020, U+00A0, U+1680, U+2000–U+200A, U+2028, U+2029,
     U+202F, U+205F, U+3000, U+FEFF. The upper-case forms are the
     complements over U+0000–U+10FFFF;
-  - `\t \n \v \f \r`, `\0` (not followed by a digit), `\xHH`, `\uHHHH`,
-    `\u{H…}` (≤ 10FFFF);
+  - `\t \n \v \f \r`, `\0` (not followed by a digit), `\xHH`, `\uHHHH`
+    (a lead + trail surrogate pair of `\uHHHH` is one code point, as
+    ECMAScript `u`), `\u{H…}` (≤ 10FFFF);
   - identity escapes of `^ $ \ . * + ? ( ) [ ] { } | /` (and `-` in a
     class).
 - Assertions: `^`, `$` (input start and end only), `\b`, `\B` (ASCII word
@@ -983,8 +990,8 @@ locked by `limits.json` `issues`.
   - legacy octal;
   - inline flags `(?i)`;
   - any other escape;
-  - an unmatched `)` or `]`, or a lone `{` that does not start a valid
-    quantifier.
+  - an unmatched `(`, `)`, `[` or `]`, a lone `{` that does not start a
+    valid quantifier, or a lone `}` (ECMAScript `u` mode refuses it too).
 
 **Safety check** over the AST. Groups (capturing or not) are transparent
 nodes, and assertions and lookaheads are zero-width. Definitions:
@@ -1022,8 +1029,9 @@ The rules:
   Rejects `\d+\s*\d+` and `.*.*`. Accepts `\w+\s+\w+` and
   `^(?=.*\d).{8,}$`.
 
-The rules apply to every node (nested concatenations included) and are
-checked in the order R2, R3, R4, pre-order. The first hit is reported.
+The rules apply to every node (nested concatenations included). A
+pattern breaking several rules reports the LOWEST rule number (R2
+anywhere in the tree before R3, R3 before R4).
 `regex.json` locks the upstream accepted/rejected examples plus one case
 per rule, every syntax refusal and the step cap.
 
