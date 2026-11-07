@@ -123,7 +123,7 @@ impl SurfaceView {
         let surface_id = self.surface.id.clone();
         for e in events {
             match e {
-                OutEvent::Action { name, component_id, event, context, payload } => host.on_action(&ActionEvent { surface_id: surface_id.clone(), event, name, component_id, context, payload }, cx),
+                OutEvent::Action { name, component_id, event, context, payload, user_message } => host.on_action(&ActionEvent { surface_id: surface_id.clone(), event, name, component_id, context, payload, user_message }, cx),
                 OutEvent::OpenUrl { url } => host.open_url(&url, cx),
                 OutEvent::FunctionCall { component_id, name, args } => host.on_function_call(&FunctionCallEvent { surface_id: surface_id.clone(), component_id, name, args }, cx),
                 OutEvent::Input { component_id, name, path, value, commit } => {

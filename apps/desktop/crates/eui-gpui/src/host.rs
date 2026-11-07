@@ -76,6 +76,8 @@ pub struct ActionEvent {
     /// The action's resolved `event.context`.
     pub context: serde_json::Value,
     pub payload: Option<serde_json::Value>,
+    /// Round 9 §1.3: the action's resolved `event.userMessage`.
+    pub user_message: Option<String>,
 }
 
 /// An `on.<event> = {functionCall: {call, args}}` naming a HOST function

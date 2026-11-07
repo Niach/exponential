@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use eui_core::host::{
-    action_message, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
+    action_message_with, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
     action_call_name, navigate_target, run_action, ActionContext, ActionRun, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, RouteOptions, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
     FUNCTION_NOT_FOUND, NAVIGATE_FUNCTION, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
@@ -827,7 +827,7 @@ impl ExponentialHost {
     /// `timestamp` `None` = now (ISO 8601, UTC).
     pub fn action(&mut self, event: &ActionEvent, timestamp: Option<&str>) -> Value {
         let ts = timestamp.map(str::to_string).unwrap_or_else(now_iso);
-        let message = action_message(&event.surface_id, &event.component_id, &event.name, event.context.clone(), event.payload.clone(), &ts);
+        let message = action_message_with(&event.surface_id, &event.component_id, &event.name, event.context.clone(), event.payload.clone(), &ts, event.user_message.as_deref());
         self.send(message.clone());
         message
     }
