@@ -14,6 +14,7 @@ import {
   mergeGate,
   mergeGateText,
   type PrChecksState,
+  type PrChecksUnknown,
 } from "./pr-checks"
 
 // EXP-1610: the TS reference replays fixtures/pr-checks.json.
@@ -47,8 +48,8 @@ describe(`pr-checks fixture`, () => {
   it.each(fixture.gateText)(`gate text`, ({ number, verdict, expected }) => {
     expect(mergeGateText(number, verdict as never)).toBe(expected)
   })
-  it.each(fixture.brief)(`brief`, ({ state, checks, expected }) => {
-    expect(checksBrief(state as PrChecksState, checks)).toEqual(expected)
+  it.each(fixture.brief)(`brief`, ({ state, checks, unknown, expected }) => {
+    expect(checksBrief(state as PrChecksState, checks, unknown as PrChecksUnknown | undefined)).toEqual(expected)
   })
 })
 
