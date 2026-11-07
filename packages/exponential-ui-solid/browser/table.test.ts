@@ -114,7 +114,7 @@ describe(`Table`, () => {
   })
 
   it(`multiple: row checkboxes, the select-all header (indeterminate → all → none), a bound selected`, async () => {
-    const node = { id: `t`, component: `Table`, props: { ...members, selectable: `multiple`, selected: { path: `/sel` } }, on: { select: { event: { name: `selected`, context: { bound: { path: `/sel` } } } } } }
+    const node = { id: `t`, component: `Table`, props: { ...members, selectable: `multiple`, selected: { "@path": `/sel` } }, on: { select: { event: { name: `selected`, context: { bound: { "@path": `/sel` } } } } } }
     const state = (page: Page) => page.evaluate(() => ({ head: document.querySelector(`[data-xui-id="t.checkbox.header"]`)!.getAttribute(`aria-checked`), rows: Array.from(document.querySelectorAll(`[role="checkbox"]`)).map((c) => c.getAttribute(`data-state`)), live: document.querySelector(`[aria-live="polite"].xui-sr-only`)?.textContent ?? null }))
     const out = await both(treeView(node, { sel: [`b`] }), async (page) => {
       const seen: unknown[] = [await state(page)]
@@ -142,7 +142,7 @@ describe(`Table`, () => {
 
 describe(`ChipInput keys`, () => {
   it(`Enter and a comma add, duplicates refuse, Backspace focuses then removes, chip arrows, suggestions ↓ + Enter, Escape`, async () => {
-    const node = { id: `c`, component: `ChipInput`, props: { label: `Labels`, values: { path: `/labels` }, suggestions: [{ label: `bug`, value: `bug` }, { label: `bugfix`, value: `bugfix` }, { label: `design`, value: `design` }], max: 5 }, on: { add: { event: { name: `added` } }, remove: { event: { name: `removed` } }, change: { event: { name: `changed`, context: { all: { path: `/labels` } } } } } }
+    const node = { id: `c`, component: `ChipInput`, props: { label: `Labels`, values: { "@path": `/labels` }, suggestions: [{ label: `bug`, value: `bug` }, { label: `bugfix`, value: `bugfix` }, { label: `design`, value: `design` }], max: 5 }, on: { add: { event: { name: `added` } }, remove: { event: { name: `removed` } }, change: { event: { name: `changed`, context: { all: { "@path": `/labels` } } } } } }
     const chips = (page: Page) => page.evaluate(() => ({ chips: Array.from(document.querySelectorAll(`[data-chip]`)).map((c) => c.textContent), text: document.querySelector<HTMLInputElement>(`[data-xui-id="c"] input`)!.value, focus: document.activeElement?.getAttribute(`data-xui-id`) ?? document.activeElement?.tagName ?? null, expanded: document.querySelector(`[data-xui-id="c"] input`)!.getAttribute(`aria-expanded`), options: Array.from(document.querySelectorAll(`[role="option"]`)).map((o) => `${o.textContent}:${o.getAttribute(`aria-selected`)}`) }))
     const out = await both(treeView(node, { labels: [`ios`] }), async (page) => {
       const input = `[data-xui-id="c"] input`
@@ -231,7 +231,7 @@ describe(`FileUpload`, () => {
 describe(`SearchList keys`, () => {
   it(`typing filters (top row preselected, the count), ↑/↓ clamp, Enter picks, Tab picks, hover moves, the debounced search`, async () => {
     const items = Array.from({ length: 12 }, (_, i) => ({ label: `Issue ${i}`, value: `v${i}`, identifier: `EXP-${i}`, disabled: i === 3 }))
-    const node = { id: `s`, component: `SearchList`, props: { items, value: { path: `/v` }, maxRows: 4 }, on: { select: { event: { name: `picked`, context: { bound: { path: `/v` } } } }, search: { event: { name: `searched` } } } }
+    const node = { id: `s`, component: `SearchList`, props: { items, value: { "@path": `/v` }, maxRows: 4 }, on: { select: { event: { name: `picked`, context: { bound: { "@path": `/v` } } } }, search: { event: { name: `searched` } } } }
     const state = (page: Page) => page.evaluate(() => ({ active: document.querySelector(`[data-active="true"]`)?.getAttribute(`data-xui-id`) ?? null, desc: document.querySelector(`[role="combobox"]`)!.getAttribute(`aria-activedescendant`) === document.querySelector(`[data-active="true"]`)?.id, count: document.querySelector(`[role="status"]`)?.textContent ?? null, rows: document.querySelectorAll(`[role="option"]`).length, checked: document.querySelector(`.xui-SearchList-check`)?.getAttribute(`data-xui-id`) ?? null, fade: Boolean(document.querySelector(`.xui-SearchList-fade`)), scroll: Math.round(document.querySelector<HTMLElement>(`[role="listbox"]`)!.scrollTop) }))
     const out = await both(treeView(node, { v: `` }), async (page) => {
       const seen: unknown[] = [await state(page)]
