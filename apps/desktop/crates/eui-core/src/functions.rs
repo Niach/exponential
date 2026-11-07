@@ -29,8 +29,6 @@ pub const INDEX_FUNCTION: &str = "@index";
 
 /// The 1.0 basic catalog id (§9.1).
 pub const BASIC_CATALOG_ID_10: &str = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json";
-/// The two 0.9 basic ids (refused as UNSUPPORTED_CATALOG unless upgraded).
-pub const BASIC_CATALOG_IDS_09: &[&str] = &["https://a2ui.org/specification/v0_9/basic_catalog.json", "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"];
 
 /// Is `id` the basic catalog (the generated id, or the 1.0 id)?
 pub fn is_basic_catalog(id: &str) -> bool {
