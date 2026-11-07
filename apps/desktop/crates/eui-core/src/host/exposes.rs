@@ -35,7 +35,7 @@ pub const EXPOSE_READ_RECORD_OPS: &[&str] = &["list", "get"];
 pub const EXPOSE_READ_OP_WORDS: &[&str] = &["list", "get", "show", "catalog", "activity", "files"];
 pub const EXPOSE_DESTRUCTIVE_WORDS: &[&str] = &["delete", "merge", "close", "end", "remove", "trash"];
 /// `package.exposes.actionPattern`.
-pub const EXPOSE_ACTION_PATTERN: &str = "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$";
+pub const EXPOSE_ACTION_PATTERN: &str = "^[a-z][a-z0-9]*(_[a-z0-9]+)+$";
 
 /// One problem with a binding: the eMCP error `code`, the binding's `index`
 /// (`None` = the list) and the package issue.
@@ -117,7 +117,7 @@ fn words(name: &str) -> Vec<String> {
 /// An action reads when the last word of its name is a read word; a verb
 /// writes.
 pub fn expose_action_access(action: &str) -> &'static str {
-    let last = words(action.rsplit('.').next().unwrap_or("")).pop();
+    let last = words(action).pop();
     if last.is_some_and(|w| EXPOSE_READ_OP_WORDS.contains(&w.as_str())) {
         "read"
     } else {
@@ -135,10 +135,14 @@ fn is_expose_name(name: &str) -> bool {
     b.first().is_some_and(u8::is_ascii_lowercase) && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
 }
 
-/// [`EXPOSE_ACTION_PATTERN`].
+/// [`EXPOSE_ACTION_PATTERN`] (round 9 §12: a flat host function name whose
+/// first `_`-word + `_` is a reserved host prefix).
 fn is_action_name(name: &str) -> bool {
-    let parts: Vec<&str> = name.split('.').collect();
-    parts.len() >= 2 && parts.iter().all(|p| is_expose_name(p))
+    let parts: Vec<&str> = name.split('_').collect();
+    parts.len() >= 2
+        && parts[0].bytes().next().is_some_and(|b| b.is_ascii_lowercase())
+        && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
+        && crate::cel::HOST_FUNCTION_PREFIXES.contains(&format!("{}_", parts[0]).as_str())
 }
 
 fn utf16_len(s: &str) -> usize {

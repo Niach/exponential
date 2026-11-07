@@ -334,7 +334,7 @@ fn upsert_action(kind: &str, fields: &[Value], record_id: Option<&Value>, path: 
         form["close"] = json!(close);
     }
     args.insert("form".into(), form);
-    json!({"functionCall": {"call": "records.upsert", "args": args}})
+    json!({"functionCall": {"call": "records_upsert", "args": args}})
 }
 
 /// True when a template uses a record macro.
@@ -424,7 +424,7 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
             set_on(&mut node, "delete", set(&format!("{base}/delete"), json!({"open": true, "id": {"path": "id"}})));
             set_on(&mut node, "submit", upsert_action(&kind_name, &fields, Some(&json!({"path": format!("{draft}/id")})), &draft, Some(format!("{base}/editor/open").as_str())));
             set_on(&mut node, "cancel", set(&format!("{base}/editor/open"), json!(false)));
-            set_on(&mut node, "confirm", json!({"functionCall": {"call": "records.delete", "args": {"id": {"path": format!("{base}/delete/id")}}}}));
+            set_on(&mut node, "confirm", json!({"functionCall": {"call": "records_delete", "args": {"id": {"path": format!("{base}/delete/id")}}}}));
             set_on(&mut node, "cancelDelete", set(&format!("{base}/delete/open"), json!(false)));
         } else {
             node.insert("add".into(), json!(false));
@@ -477,10 +477,10 @@ pub fn record_macro_issues(pkg: &Map<String, Value>) -> Vec<(String, String)> {
             }
             let at = format!("/templates/{id}/components/{i}");
             let writes = if component == "RecordForm" { c.get("readOnly") != Some(&Value::Bool(true)) } else { c.get("editable") != Some(&Value::Bool(false)) };
-            if writes && !allows("records.upsert") {
+            if writes && !allows("records_upsert") {
                 issues.push((at.clone(), format!("{component} writes with records.upsert: list it in functions")));
             }
-            if component == "RecordTable" && writes && !allows("records.delete") {
+            if component == "RecordTable" && writes && !allows("records_delete") {
                 issues.push((at.clone(), "RecordTable deletes with records.delete: list it in functions".into()));
             }
             if component == "RecordTable" {

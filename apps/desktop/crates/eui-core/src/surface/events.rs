@@ -16,11 +16,6 @@ fn js(v: &Value) -> String {
     crate::json::to_js_string(v)
 }
 
-/// A check's resolved condition fails it (`failingChecks`: undefined,
-/// null, false, "").
-pub(crate) fn check_fails(v: Option<&Value>) -> bool {
-    matches!(v, None | Some(Value::Null) | Some(Value::Bool(false))) || v.and_then(Value::as_str) == Some("")
-}
 
 /// The index suffix of a part id (`<owner>.item.3` → 3).
 fn suffix_index(id: &str) -> Option<usize> {

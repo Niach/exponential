@@ -47,11 +47,11 @@ impl FunctionEffect {
 }
 
 /// The functions that write (records, the surface data model).
-pub const WRITE_FUNCTIONS: &[&str] = &["set", "records.upsert", "records.delete", "records.batch"];
+pub const WRITE_FUNCTIONS: &[&str] = &["set", "records_upsert", "records_delete", "records_batch"];
 /// The built-in host functions; every name under a host prefix is one too.
-pub const HOST_FUNCTIONS: &[&str] = &["openUrl", "bind", "app.navigate"];
+pub const HOST_FUNCTIONS: &[&str] = &["openUrl", "bind", "app_navigate", "app_toast"];
 // VAPP-271: every Engine capability (catalog/host.json `package.capabilities.scopes` names) is a host function too.
-pub const HOST_FUNCTION_PREFIXES: &[&str] = &["actions.", "harness.", "exponential.", "tools.", "upstream.", "camera.", "clipboard.", "files.", "http.", "location.", "notifications.", "photos.", "print.", "share."];
+pub const HOST_FUNCTION_PREFIXES: &[&str] = &["actions_", "harness_", "exponential_", "tools_", "upstream_", "camera_", "clipboard_", "files_", "http_", "location_", "notifications_", "photos_", "print_", "share_", "app_"];
 
 /// The effect of a function by name: the signature table's (every
 /// expression function, every bind-time function) is `pure`.

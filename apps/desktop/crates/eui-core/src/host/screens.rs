@@ -23,7 +23,7 @@ pub const MAX_SCREEN_TITLE: usize = 32;
 /// An exposed screen's description's most characters (code points).
 pub const MAX_EXPOSED_DESCRIPTION: usize = 200;
 /// The host function (and action call) that opens a screen; always allowed.
-pub const NAVIGATE_FUNCTION: &str = "app.navigate";
+pub const NAVIGATE_FUNCTION: &str = "app_navigate";
 /// The template data key a screen's params land under (`/params/*`).
 pub const SCREEN_PARAMS_KEY: &str = "params";
 

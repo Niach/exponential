@@ -749,3 +749,17 @@ pub fn preorder(root: &UiNode) -> Vec<String> {
     root.walk(&mut |n| out.push(n.id.clone()));
     out
 }
+
+/// Round 9 §13 / §1.5: a card surface (`{version, root, data}`) at 1.0:
+/// a card without `version` is the 0.9 form, upgraded while `accept_v09`
+/// (`upgradeCard09`) and refused after; any other version is refused.
+pub fn card_v10(card: &Value, accept_v09: bool) -> Result<Value, String> {
+    let Some(o) = card.as_object() else { return Err("a card is a JSON object".into()) };
+    match o.get("version") {
+        None if accept_v09 => Ok(crate::upgrade09::upgrade_card09(card)),
+        None => Err("version is required: write \"version\": \"1.0\"".into()),
+        Some(Value::String(v)) if v == crate::catalog::A2UI_VERSION => Ok(card.clone()),
+        Some(Value::String(v)) => Err(format!("unsupported version {v}")),
+        Some(other) => Err(format!("unsupported version {}", serde_json::to_string(other).unwrap_or_default())),
+    }
+}

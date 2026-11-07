@@ -19,7 +19,7 @@ use crate::types::UiNode;
 pub const READ_ONLY_FIELDS: &[&str] = crate::layout_tree::FORM_FIELDS;
 
 /// The call prefixes that write at app access `read`.
-pub const READ_ONLY_WRITE_PREFIXES: &[&str] = &["records.", "actions."];
+pub const READ_ONLY_WRITE_PREFIXES: &[&str] = &["records_", "actions_"];
 
 /// Does this function name write (`records.*`, `actions.*`)?
 pub fn call_writes(name: &str) -> bool {

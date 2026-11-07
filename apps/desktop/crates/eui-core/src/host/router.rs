@@ -312,6 +312,16 @@ impl HostRouter {
     /// Install a declarative package: its templates become `applyTemplate`
     /// targets. Returns the validation issues (installed only when none).
     pub fn install_package(&mut self, pkg: &Value) -> Vec<PackageIssue> {
+        // Round 9 §12/§14: a format-5 package is upgraded while the bridge is on.
+        let upgraded;
+        let pkg = match upgrade_package(pkg) {
+            Ok(Some(p)) => {
+                upgraded = p;
+                &upgraded
+            }
+            Ok(None) => pkg,
+            Err(issue) => return vec![issue],
+        };
         let issues = validate_package_with(pkg, &self.supported_catalog_ids(), self.extensions.as_deref());
         if issues.is_empty() {
             let id = pkg["id"].as_str().unwrap_or("").to_string();
@@ -694,4 +704,20 @@ fn components_ops(sid: &str, kind: &str, components: &[Value], default_catalog: 
         ops.push(json!({"op": "components", "surfaceId": sid, "components": accepted}));
     }
     ops
+}
+
+/// Round 9 §12: a `formatVersion` 5 package through `upgrade_package09`
+/// while `ACCEPT_V09` holds: `Ok(Some(v6))`; `Ok(None)` = not a v5 file (or
+/// the bridge is off: validation refuses it); `Err` = its signature does
+/// not verify.
+pub fn upgrade_package(pkg: &Value) -> Result<Option<Value>, PackageIssue> {
+    let v5 = pkg.get("formatVersion").and_then(Value::as_f64) == Some(f64::from(super::package::PACKAGE_FORMAT_VERSION_09));
+    if !v5 || !ACCEPT_V09 {
+        return Ok(None);
+    }
+    let up = crate::upgrade09::upgrade_package09(pkg, crate::upgrade09::structural_verification);
+    match up.package {
+        Some(p) => Ok(Some(p)),
+        None => Err(PackageIssue { path: "/signature".into(), message: format!("the package signature is {}", up.status) }),
+    }
 }

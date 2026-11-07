@@ -20,7 +20,9 @@ use crate::types::ExtensionDef;
 /// (catalog/host.json `package.formatVersion`; docs/package-format.md). A
 /// package names it, and it is exactly this one: no older format is read
 /// (eApps keeps no backwards compatibility).
-pub const PACKAGE_FORMAT_VERSION: u32 = 5;
+pub const PACKAGE_FORMAT_VERSION: u32 = 6;
+/// Round 9 §12: the format `upgrade09` reads while `ACCEPT_V09` holds.
+pub const PACKAGE_FORMAT_VERSION_09: u32 = 5;
 /// `package.extensions.versionPattern`.
 pub const EXTENSION_VERSION_PATTERN: &str = "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$";
 
@@ -157,7 +159,7 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
             issues.push(issue("/formatVersion", format!("format version {} is newer than this host ({PACKAGE_FORMAT_VERSION})", crate::json::number_to_string(v))))
         }
         Some(Some(v)) if v < f64::from(PACKAGE_FORMAT_VERSION) => {
-            issues.push(issue("/formatVersion", format!("format version {} is no longer read: write {PACKAGE_FORMAT_VERSION}", crate::json::number_to_string(v))))
+            issues.push(issue("/formatVersion", format!("format version {} is no longer read; {PACKAGE_FORMAT_VERSION} is required", crate::json::number_to_string(v))))
         }
         Some(Some(_)) => {}
     }
@@ -186,7 +188,13 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                     None => issues.push(issue(format!("{at}/components"), "components is a non-empty array")),
                     Some(components) => {
                         let mut ids: HashSet<&str> = HashSet::new();
+                        let basic = p.get("catalogId").and_then(Value::as_str).is_some_and(crate::functions::is_basic_catalog);
                         for (i, c) in components.iter().enumerate() {
+                            // Round 9 §12: the §5.2 entry check is an install issue.
+                            if let Some((below, message)) = super::router::check_entry(c, basic) {
+                                issues.push(issue(format!("{at}/components/{i}{below}"), message));
+                                continue;
+                            }
                             let id = c.as_object().filter(|o| o.get("component").is_some_and(Value::is_string)).and_then(|o| o.get("id")).and_then(Value::as_str);
                             match id {
                                 None => issues.push(issue(format!("{at}/components/{i}"), "a component needs an id and a component")),
@@ -200,6 +208,9 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                             issues.push(issue(format!("{at}/components"), "no component has the id root"));
                         }
                     }
+                }
+                if template.get("data").is_some_and(|d| !d.is_object()) {
+                    issues.push(issue(format!("{at}/data"), "data is an object"));
                 }
                 if let Some(bindings) = template.get("bindings") {
                     match bindings.as_array() {
