@@ -312,6 +312,13 @@ class PickerContractTest {
      * The selection language EXP-1021 asked for on the MULTI arm: a picked row
      * reads as the row's own highlight, never a leading circle.
      */
+    /** #EXP-1715: the composer's search-list submenus mark a multi pick with the trailing check. */
+    @Test
+    fun composerSubmenusMarkAMultiPickWithTheTrailingCheck() {
+        assertEquals(PickerMark.Check, PickerDefaults.mark(PickerMode.Multi, PickerChecked.All, checkMarks = true))
+        assertEquals(PickerMark.None, PickerDefaults.mark(PickerMode.Multi, PickerChecked.None, checkMarks = true))
+    }
+
     @Test
     fun multiModeMarksPickedRowsByTheHighlightColourNeverACircle() {
         assertEquals(PickerMark.WashAndStroke, PickerDefaults.mark(PickerMode.Multi, PickerChecked.All))

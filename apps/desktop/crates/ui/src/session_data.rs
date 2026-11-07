@@ -119,12 +119,58 @@ pub(crate) fn ensure_assistant(team_id: &str, cx: &mut App) {
     .detach();
 }
 
-/// S-3: the viewer's own Assistant in `team_id` (synced row), if any.
+/// #EXP-1714: the synced teams' ids (`collections().teams_sorted()`; a
+/// member's hidden personal team never syncs), what `agents_in_team` tells a
+/// global Assistant by.
+pub(crate) fn synced_team_ids(cx: &App) -> Vec<String> {
+    Store::try_global(cx)
+        .map(|store| store.collections().teams_sorted(cx).into_iter().map(|team| team.id).collect())
+        .unwrap_or_default()
+}
+
+/// #EXP-1714: whether a team-scoped session list shows `session`: the team's
+/// own, plus the viewer's own sessions in a team that does not sync (their
+/// personal team: the global Assistant's conversation). Nothing counts as
+/// personal before the teams sync.
+pub(crate) fn in_team_or_personal(session: &SessionRow, team_id: &str, team_ids: &[String], me: Option<&str>) -> bool {
+    match session.team_id.as_deref() {
+        Some(team) if team == team_id => true,
+        Some(team) => {
+            !team_ids.is_empty()
+                && me.is_some()
+                && session.user_id.as_deref() == me
+                && !team_ids.iter().any(|id| id == team)
+        }
+        None => false,
+    }
+}
+
+/// #EXP-1714 (`domain::agent_settings::agents_in_team`): the agent rows
+/// `team_id` lists: its own, plus the viewer's global Assistant while the
+/// team holds no Assistant of theirs.
+pub(crate) fn team_agent_defs(team_id: &str, cx: &App) -> Vec<domain::rows::AgentDefRow> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let team_ids = synced_team_ids(cx);
+    let team_ids: Vec<&str> = team_ids.iter().map(String::as_str).collect();
+    let agents = store.collections().agents.read(cx);
+    domain::agent_settings::agents_in_team(agents.iter(), team_id, &team_ids, me.as_deref())
+        .into_iter()
+        .cloned()
+        .collect()
+}
+
+/// S-3: the viewer's own Assistant as `team_id` lists it (#EXP-1714: the
+/// team's own row, else the global one), if synced.
 pub(crate) fn my_assistant(team_id: &str, cx: &App) -> Option<domain::rows::AgentDefRow> {
     let store = Store::try_global(cx)?;
     let me = signed_in_user(cx);
+    let team_ids = synced_team_ids(cx);
+    let team_ids: Vec<&str> = team_ids.iter().map(String::as_str).collect();
     let agents = store.collections().agents.read(cx);
-    domain::agent_settings::my_assistant(agents.iter(), team_id, me.as_deref()).cloned()
+    domain::agent_settings::my_assistant(agents.iter(), team_id, &team_ids, me.as_deref()).cloned()
 }
 
 /// NEW-2: one synced agent DEFINITION (`agents` shape).
@@ -827,7 +873,9 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
     // An agent's spinner / needs-you dot is the viewer's conversation only:
     // the threads it spawns are their own roots (the Threads entry lights
     // for them).
-    list_agents(&agents, &rows, Some(team_id), me.as_deref())
+    let team_ids = synced_team_ids(cx);
+    let team_ids: Vec<&str> = team_ids.iter().map(String::as_str).collect();
+    list_agents(&agents, &rows, Some(team_id), &team_ids, me.as_deref())
 }
 
 /// The store state one [`thread_lists`] answer derives from.
@@ -935,7 +983,7 @@ pub(crate) struct ChatsModel {
 #[derive(Clone, PartialEq, Eq)]
 struct ChatsKey {
     team_id: String,
-    revisions: [u64; 7],
+    revisions: [u64; 8],
     /// The time labels move with the local hour (today → Yesterday).
     hour: i64,
 }
@@ -962,6 +1010,8 @@ pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
             collections.session_reads.read(cx).revision(),
             collections.pull_requests.read(cx).revision(),
             collections.agents.read(cx).revision(),
+            // #EXP-1714: the synced teams tell a global Assistant apart.
+            collections.teams.read(cx).revision(),
         ],
         hour: now_ms() / 3_600_000,
     };
@@ -980,10 +1030,11 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
     let collections = Store::global(cx).collections();
     let me = crate::queries::active_account(cx).map(|account| account.user_id);
     let agents = agents_in_team(team_id, cx);
+    let team_ids = synced_team_ids(cx);
     let sessions = collections.sessions.read(cx);
     let team_sessions: Vec<&SessionRow> = sessions
         .iter()
-        .filter(|session| session.team_id.as_deref() == Some(team_id))
+        .filter(|session| in_team_or_personal(session, team_id, &team_ids, me.as_deref()))
         .collect();
     // Only the ROOT conversations (the list's roots + my agent chats) count.
     let roots: HashSet<&str> = groups

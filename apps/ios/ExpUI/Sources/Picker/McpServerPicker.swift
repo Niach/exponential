@@ -69,5 +69,6 @@ public struct McpServerPicker<Trigger: View>: View {
             sheetIdentifier: "mcp-server-picker",
             trigger: trigger
         )
+        .pickerCheckMarks()
     }
 }

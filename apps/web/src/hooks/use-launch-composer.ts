@@ -11,7 +11,8 @@ import {
 import type { z } from "zod"
 import type { Board, Issue, SyncedPrompt } from "@/db/schema"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
-import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
+import { useTeamBoards, useTeamById, useTeamMemberships } from "@/hooks/use-team-data"
+import type { ComposerTeamsBinding } from "@/components/launch-dialog/composer-plus-menu"
 import { useTeamRepos } from "@/hooks/use-team-repos"
 import { usePrompts } from "@/hooks/use-prompts"
 import {
@@ -21,7 +22,8 @@ import {
   subjectAfterPick,
   type ComposerAgentRowState,
 } from "@exp/domain-contract/composer-agent-row"
-import { agentCollection, issueCollection, sessionCollection } from "@/lib/collections"
+import { issueCollection, sessionCollection } from "@/lib/collections"
+import { useTeamAgentRows } from "@/hooks/use-agent-row"
 import {
   chatRepoOptions,
   defaultChatRepoId,
@@ -89,6 +91,8 @@ export interface ComposerAgent {
   sortOrder: number
   role: string | null
   ownerId: string
+  /** #EXP-1714: the global Assistant's is the viewer's personal team. */
+  teamId?: string
 }
 
 export type LaunchSubject =
@@ -143,6 +147,8 @@ export function buildSendInput(args: {
   agentId?: string | null
   /** EXP-1686: the forwarded issues' identifiers (a to-agent send's refs). */
   issueIdentifiers?: readonly string[]
+  /** #EXP-1715: the Assistant's Teams pick (undefined = not the Assistant). */
+  scopeTeamIds?: readonly string[] | null
 }): SessionsSendInput {
   const { options, subject } = args
   const text = args.text.trim()
@@ -159,6 +165,9 @@ export function buildSendInput(args: {
       ...(body.trim() ? { text: body } : {}),
       ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
       ...(subject?.kind === `issues` ? { issueIds: [...subject.ids] } : {}),
+      ...(args.scopeTeamIds !== undefined
+        ? { scopeTeamIds: args.scopeTeamIds === null ? null : [...args.scopeTeamIds] }
+        : {}),
     }
   }
   return {
@@ -245,6 +254,8 @@ export interface LaunchComposerModel {
   recipient: ComposerAgent | null
   /** A circle's tap (an agent id or `TEMPORARY_PICK`). */
   pickRecipient: (id: string) => void
+  /** #EXP-1715: the Teams pick while the recipient is the viewer's Assistant. */
+  teams: ComposerTeamsBinding | null
 
   text: string
   setText: (text: string) => void
@@ -335,15 +346,9 @@ export function useLaunchComposer({
       : (prompts.find((prompt) => prompt.id === subject.id) ?? null)
   // S-3: the agent row (composer-home.json `agentRow`): the viewer's
   // Assistant first and preselected, the team agents, Temporary session.
-  const { data: agentRows } = useLiveQuery(
-    (query) =>
-      withAgentRow
-        ? query
-            .from({ agents: agentCollection })
-            .where(({ agents }) => inArray(agents.teamId, [teamId]))
-        : undefined,
-    [withAgentRow, teamId]
-  )
+  // #EXP-1714: the team's agents + the viewer's global Assistant.
+  const teamAgents = useTeamAgentRows(withAgentRow ? [teamId] : [], me)
+  const agentRows = withAgentRow ? teamAgents : null
   const [picked, setPicked] = useState<string | null>(null)
   const agentRow = useMemo(
     () =>
@@ -357,6 +362,18 @@ export function useLaunchComposer({
     [withAgentRow, agentRows, me, picked]
   )
   const recipient = agentRow?.agent ?? null
+  // #EXP-1715 (composer-menu.json `teamsPick`): a message to the viewer's
+  // Assistant carries the turn's teams (null = every team).
+  const { myTeams } = useTeamMemberships(me ?? undefined)
+  const pickTeams = useMemo(
+    () => myTeams.map((team) => ({ id: team.id, name: team.name, iconUrl: team.iconUrl ?? null })),
+    [myTeams]
+  )
+  const [teamsPicked, setTeamsPicked] = useState<string[] | null>(null)
+  const toAssistant = recipient !== null && recipient.role === `assistant` && recipient.ownerId === me
+  const teams: ComposerTeamsBinding | null = toAssistant
+    ? { teams: pickTeams, picked: teamsPicked, onChange: setTeamsPicked }
+    : null
   const pickRecipient = useCallback((id: string) => {
     setPicked(id)
     // EXP-1450 (`agentRow.pickCases`): a pick NEVER drops the issue chips (a
@@ -596,7 +613,8 @@ export function useLaunchComposer({
       try {
         for (const image of current) {
           if (image.uploadedId) continue
-          const uploaded = await uploadTeamSessionImageFile(teamId, image.file)
+          // #EXP-1714: into the Assistant's own (personal) team, where its chat claims them.
+          const uploaded = await uploadTeamSessionImageFile(recipient?.teamId ?? teamId, image.file)
           current = markPendingImageUploaded(current, image.url, uploaded.id, uploaded.filename)
           // The live strip, not the snapshot: a pick added or removed
           // meanwhile keeps its edit (composer-send.json).
@@ -620,6 +638,7 @@ export function useLaunchComposer({
         repoId,
         agentId: recipient?.id ?? null,
         issueIdentifiers: checkedIssues.map((issue) => issue.identifier),
+        ...(teams ? { scopeTeamIds: teams.picked } : {}),
       })
       let result: { sessionId: string; txid: number }
       try {
@@ -675,6 +694,7 @@ export function useLaunchComposer({
     agentRow,
     recipient,
     pickRecipient,
+    teams,
     text,
     setText,
     images,
@@ -710,6 +730,7 @@ interface ComposerAgentSource {
   sortOrder?: number | null
   role?: string | null
   ownerId: string
+  teamId?: string
 }
 
 function toComposerAgent(row: ComposerAgentSource): ComposerAgent {
@@ -721,5 +742,6 @@ function toComposerAgent(row: ComposerAgentSource): ComposerAgent {
     sortOrder: row.sortOrder ?? 0,
     role: row.role ?? null,
     ownerId: row.ownerId,
+    ...(row.teamId ? { teamId: row.teamId } : {}),
   }
 }

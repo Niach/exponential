@@ -935,7 +935,7 @@ pub(crate) fn take_dev_composer_menu(dialog: bool) -> bool {
 fn dev_composer_menu_wanted(value: Option<&str>, dialog: bool) -> bool {
     match value {
         Some("dialog-implement-issue") => dialog,
-        Some("implement-issue" | "temporary") => !dialog,
+        Some("implement-issue" | "temporary" | "teams") => !dialog,
         _ => false,
     }
 }
@@ -948,6 +948,14 @@ pub(crate) fn dev_composer_menu_temporary() -> bool {
     *TEMPORARY.get_or_init(|| {
         matches!(std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref(), Some("temporary" | "skills"))
     })
+}
+
+/// #EXP-1715 — `EXP_DEV_COMPOSER_MENU=teams`: Home's "+" opens once with
+/// Teams › open (the agent row on the viewer's Assistant, the default), the
+/// `composer-teams-menu` capture. Read once.
+pub(crate) fn dev_composer_menu_teams() -> bool {
+    static TEAMS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TEAMS.get_or_init(|| std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some("teams"))
 }
 
 /// #EXP-1660 — `EXP_DEV_COMPOSER_MENU=skills`: Home starts on Temporary

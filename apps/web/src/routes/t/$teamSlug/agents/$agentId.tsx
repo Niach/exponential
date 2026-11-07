@@ -1,6 +1,6 @@
 import { agentChatSubtitle } from "@exp/domain-contract/session-tree"
 import { workModelLabel } from "@exp/domain-contract/work-card"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
   BoardGlyph,
@@ -28,9 +28,9 @@ import {
 } from "@/components/thread/thread-screen"
 import { AgentHeaderMenu } from "@/components/thread/chat-menu"
 import { CallButton, useVoiceCall, useVoiceCallAvailability, VoiceCallOverlay } from "@/components/voice-call"
-import { useAgentRow } from "@/hooks/use-agent-row"
+import { useAgentRow, useMyAgentConversation } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
-import { useSessionThread, useTeamSessions } from "@/hooks/use-session-tree"
+import { useSessionThread } from "@/hooks/use-session-tree"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
@@ -78,18 +78,11 @@ function AgentChannelPage() {
   const { data: authSession } = useSession()
   const me = authSession?.user?.id ?? null
   const { agent: agentRow, isReady } = useAgentRow(agentId)
+  // #EXP-1714: the viewer's Assistant opens from any team (the global one
+  // lives in their personal team); a team agent only in its own.
   const agent =
-    agentRow && agentRow.teamId === team?.id && (!isAssistant(agentRow) || agentRow.ownerId === me)
-      ? agentRow
-      : null
-  const { rows: teamSessions } = useTeamSessions(team?.id)
-  const conversation = useMemo(
-    () =>
-      teamSessions.find(
-        (row) => row.agentId === agentId && row.userId === me && row.parentId === null
-      ) ?? null,
-    [teamSessions, agentId, me]
-  )
+    agentRow && (isAssistant(agentRow) ? agentRow.ownerId === me : agentRow.teamId === team?.id) ? agentRow : null
+  const conversation = useMyAgentConversation(agentId, me)
   const thread = useSessionThread(
     conversation?.id ?? null,
     search.tab === `session` ? (search.session ?? null) : null
@@ -219,7 +212,8 @@ function AgentChannelPage() {
   // same composer (its first send opens the conversation).
   const composer = permissions.isMember ? (
     <SessionComposer
-      teamId={team.id}
+      teamId={agent.teamId}
+      browseTeamId={team.id}
       sessionId={null}
       agentId={agent.id}
       surface="agent"

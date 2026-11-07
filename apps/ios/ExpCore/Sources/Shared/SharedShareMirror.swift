@@ -70,6 +70,10 @@ extension MirroredAgent: AgentRoleOrdered {
     public var agentSortOrder: Double { sortOrder }
 }
 
+extension MirroredAgent: AgentTeamScoped {
+    public var agentTeamId: String { teamId }
+}
+
 public struct MirroredChat: Codable, Sendable, Equatable, Identifiable {
     public let title: String
     public let updatedAt: String

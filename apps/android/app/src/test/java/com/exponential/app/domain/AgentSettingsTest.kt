@@ -368,4 +368,37 @@ class AgentSettingsTest {
             )
         }
     }
+
+    @Test
+    fun `assistant teamAgentsCases (EXP-1714)`() {
+        val cases = assistant.getValue("teamAgentsCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val agents = case.getValue("agents").jsonArray.map { it.jsonObject }
+            val listed = AgentSettings.Assistant.agentsInTeam(
+                agents,
+                case.str("teamId")!!,
+                case.getValue("teamIds").jsonArray.map { it.jsonPrimitive.content },
+                case.str("me"),
+            ) { AgentSettings.Assistant.TeamAgentLike(it.str("teamId")!!, it.str("role"), it.str("ownerId")) }
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                listed.map { it.str("id") },
+            )
+        }
+    }
+
+    @Test
+    fun `the personal team browses the active team and stays the viewer's (EXP-1714)`() {
+        val a = AgentSettings.Assistant
+        assertEquals("t-a", a.browseTeam("t-a", listOf("t-a", "t-b"), "t-b"))
+        assertEquals("t-b", a.browseTeam("p-me", listOf("t-a", "t-b"), "t-b"))
+        assertEquals("p-me", a.browseTeam("p-me", emptyList(), "t-b"))
+        assertEquals(null, a.browseTeam(null, listOf("t-a"), "t-b"))
+        assertTrue(a.inTeamOrPersonal("t-a", "u-x", "t-a", listOf("t-a"), "u-me"))
+        assertTrue(a.inTeamOrPersonal("p-me", "u-me", "t-a", listOf("t-a"), "u-me"))
+        assertTrue(!a.inTeamOrPersonal("p-x", "u-x", "t-a", listOf("t-a"), "u-me"))
+        assertTrue(!a.inTeamOrPersonal("t-b", "u-me", "t-a", listOf("t-a", "t-b"), "u-me"))
+    }
 }

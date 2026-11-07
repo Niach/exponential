@@ -28,6 +28,9 @@ public enum ComposerMenu {
         /// #EXP-1434: the team's prompts as THE search list (the `/` menu's
         /// rows); a pick = the `/` pick.
         case prompts
+        /// #EXP-1715: the Assistant's Teams pick (`teamsPick`), the multi
+        /// picker over the viewer's teams.
+        case teams
         /// S-3 runner submenus over THE existing pickers.
         case device
         case account
@@ -51,6 +54,7 @@ public enum ComposerMenu {
     /// One fixture `conditions` key.
     public enum Condition: String, Equatable, Sendable, CaseIterable {
         case temporary, device, account, model, repositories, subagentModel, ultracode, mcp, skills, computerUse, prompts
+        case assistant, teams
     }
 
     /// When a conditional row shows (fixture `conditions`).
@@ -81,6 +85,11 @@ public enum ComposerMenu {
         public var computerUse: Bool
         /// #EXP-1434: the team has at least one prompt (the `/` menu lists it).
         public var prompts: Bool
+        /// #EXP-1715: the message goes to the viewer's Assistant (launch:
+        /// the agent row picks it; agent: its chat).
+        public var assistant: Bool
+        /// #EXP-1715: the viewer belongs to more than one team.
+        public var teams: Bool
 
         public init(
             temporary: Bool = false,
@@ -93,7 +102,9 @@ public enum ComposerMenu {
             mcp: Bool = false,
             skills: Bool = false,
             computerUse: Bool = false,
-            prompts: Bool = false
+            prompts: Bool = false,
+            assistant: Bool = false,
+            teams: Bool = false
         ) {
             self.temporary = temporary
             self.device = device
@@ -106,6 +117,8 @@ public enum ComposerMenu {
             self.skills = skills
             self.computerUse = computerUse
             self.prompts = prompts
+            self.assistant = assistant
+            self.teams = teams
         }
 
         public func holds(_ condition: Condition) -> Bool {
@@ -121,6 +134,8 @@ public enum ComposerMenu {
             case .skills: skills
             case .computerUse: computerUse
             case .prompts: prompts
+            case .assistant: assistant
+            case .teams: teams
             }
         }
     }
@@ -153,6 +168,7 @@ public enum ComposerMenu {
         Row(id: .addFile, kind: .item, label: "Photo or file", codexLabel: nil, icon: "ui-attach", surfaces: everywhere, when: []),
         Row(id: .implementIssue, kind: .submenu, label: "Issue", codexLabel: nil, icon: "editor-issue-ref", surfaces: everywhere, when: []),
         Row(id: .prompts, kind: .submenu, label: "Prompts", codexLabel: nil, icon: "coding-command", surfaces: everywhere, when: [.prompts]),
+        Row(id: .teams, kind: .submenu, label: "Teams", codexLabel: nil, icon: "ui-team", surfaces: [.launch, .agent], when: [.assistant, .teams]),
         nil,
         Row(id: .device, kind: .submenu, label: "Device", codexLabel: nil, icon: "nav-devices", surfaces: everywhere, when: [.device]),
         Row(id: .account, kind: .submenu, label: "Account", codexLabel: nil, icon: "settings-account", surfaces: everywhere, when: [.account]),
@@ -229,6 +245,67 @@ public enum ComposerMenu {
         }
         while out.last == .separator { out.removeLast() }
         return out
+    }
+
+    // MARK: - Teams pick (#EXP-1715, `teamsPick`)
+
+    /// One team the Teams pick lists (the team switcher's order: by name).
+    public struct PickTeam: Equatable, Sendable, Identifiable {
+        public let id: String
+        public let name: String
+        public let iconUrl: String?
+
+        public init(id: String, name: String, iconUrl: String? = nil) {
+            self.id = id
+            self.name = name
+            self.iconUrl = iconUrl
+        }
+    }
+
+    public enum TeamsPickCopy {
+        public static let all = "All teams"
+        public static let many = "{n} teams"
+    }
+
+    /// The teams the pick lists, in the team switcher's order (by name).
+    public static func pickTeams(_ teams: [PickTeam]) -> [PickTeam] {
+        teams.sorted { $0.name.lowercased() < $1.name.lowercased() }
+    }
+
+    /// `teamsPick.valueCases`: the Teams row's value: every team (nothing
+    /// picked, or all of them) = "All teams", one = its name, else
+    /// "{n} teams"; a picked team the viewer left no longer counts.
+    public static func teamsPickValue(_ picked: [String]?, teams: [PickTeam]) -> String {
+        let chosen = picked.map { ids in teams.filter { ids.contains($0.id) } } ?? teams
+        if chosen.isEmpty || chosen.count == teams.count { return TeamsPickCopy.all }
+        if chosen.count == 1 { return chosen[0].name }
+        return TeamsPickCopy.many.replacingOccurrences(of: "{n}", with: String(chosen.count))
+    }
+
+    /// The teams a pick holds (nil = every team), in the teams' order.
+    public static func pickedTeamIds(_ picked: [String]?, teams: [PickTeam]) -> [String] {
+        teams.filter { team in picked.map { $0.contains(team.id) } ?? true }.map(\.id)
+    }
+
+    /// A changed set back to the stored pick: every team (or none) = nil.
+    public static func nextTeamsPick(_ next: [String], teams: [PickTeam]) -> [String]? {
+        let kept = teams.filter { next.contains($0.id) }.map(\.id)
+        if kept.isEmpty || kept.count == teams.count { return nil }
+        return kept
+    }
+
+    /// The teams riding as chips: the pick while it is a SUBSET, else none.
+    public static func teamsPickChips(_ picked: [String]?, teams: [PickTeam]) -> [PickTeam] {
+        guard let picked else { return [] }
+        let chosen = teams.filter { picked.contains($0.id) }
+        return chosen.count == teams.count ? [] : chosen
+    }
+
+    /// Removing a chip unchecks its team; the last one = every team again.
+    public static func removingTeamChip(_ id: String, picked: [String]?, teams: [PickTeam]) -> [String]? {
+        let chosen = teamsPickChips(picked, teams: teams).map(\.id)
+        let rest = chosen.filter { $0 != id }
+        return rest.isEmpty ? nil : nextTeamsPick(rest, teams: teams)
     }
 
     /// The Implement submenu's footer button once something is picked.

@@ -342,6 +342,58 @@ final class AgentSettingsTests: XCTestCase {
         }
     }
 
+    /// #EXP-1714: `assistant.teamAgentsCases`.
+    func testAgentsInTeamReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try assistantBlock()["teamAgentsCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let agents = try XCTUnwrap(testCase["agents"] as? [[String: Any]]).map { row in
+                AgentLike(
+                    id: try XCTUnwrap(row["id"] as? String),
+                    teamId: try XCTUnwrap(row["teamId"] as? String),
+                    name: row["id"] as? String ?? "",
+                    icon: nil,
+                    color: nil,
+                    sortOrder: 0,
+                    role: row["role"] as? String,
+                    ownerId: row["ownerId"] as? String
+                )
+            }
+            XCTAssertEqual(
+                AgentSettings.agentsInTeam(
+                    agents,
+                    teamId: try XCTUnwrap(testCase["teamId"] as? String),
+                    teamIds: try XCTUnwrap(testCase["teamIds"] as? [String]),
+                    me: testCase["me"] as? String
+                ).map(\.id),
+                testCase["expected"] as? [String],
+                name
+            )
+        }
+    }
+
+    /// #EXP-1714: my rows of an unsynced (personal) team show in every team.
+    func testInTeamOrPersonal() {
+        let synced: Set<String> = ["t-a", "t-b"]
+        func shows(_ team: String, _ user: String?, in current: String = "t-a", me: String? = "u-me") -> Bool {
+            AgentSettings.inTeamOrPersonal(teamId: team, userId: user, team: current, teamIds: synced, me: me)
+        }
+        XCTAssertTrue(shows("t-a", "u-x"), "the team's own rows")
+        XCTAssertFalse(shows("t-b", "u-me"), "another synced team's rows stay there")
+        XCTAssertTrue(shows("p-me", "u-me"), "my personal team's rows show in every team")
+        XCTAssertFalse(shows("p-x", "u-x"), "another member's unsynced rows never")
+        XCTAssertFalse(shows("p-me", "u-me", me: nil), "no viewer, no personal rows")
+    }
+
+    /// #EXP-1714: a composer's lookups fall back to the active team.
+    func testLookupTeamId() {
+        XCTAssertEqual(AgentSettings.lookupTeamId("t-b", teamIds: ["t-a", "t-b"], activeTeamId: "t-a"), "t-b")
+        XCTAssertEqual(AgentSettings.lookupTeamId("p-me", teamIds: ["t-a", "t-b"], activeTeamId: "t-a"), "t-a")
+        XCTAssertEqual(AgentSettings.lookupTeamId("p-me", teamIds: [], activeTeamId: "t-a"), "p-me")
+        XCTAssertEqual(AgentSettings.lookupTeamId(nil, teamIds: ["t-a"], activeTeamId: "t-a"), "t-a")
+    }
+
     func testOrderedAgentsReplaysEveryCase() throws {
         let cases = try XCTUnwrap(try assistantBlock()["orderCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

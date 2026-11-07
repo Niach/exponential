@@ -375,6 +375,65 @@ public enum AgentSettings {
     public static func orderedAgents<T: AgentRoleOrdered>(_ agents: [T], me: String?) -> [T] {
         AgentOrdering.orderedAgents(agents, me: me)
     }
+
+    /// #EXP-1714 (`assistant.teamAgentsCases`): the agents a team lists
+    /// (`AgentOrdering.agentsInTeam`): its own rows plus the viewer's global
+    /// Assistant while the team holds no Assistant of theirs.
+    public static func agentsInTeam<T: AgentTeamScoped>(
+        _ agents: [T], teamId: String, teamIds: [String], me: String?
+    ) -> [T] {
+        AgentOrdering.agentsInTeam(agents, teamId: teamId, teamIds: teamIds, me: me)
+    }
+
+    /// #EXP-1714: `AgentRow`s are `listAgents(teamId: nil)` output, where an
+    /// Assistant row is already the viewer's own (another member's never
+    /// lists).
+    public static func agentsInTeam(_ rows: [AgentRow], teamId: String?, teamIds: [String]) -> [AgentRow] {
+        guard let teamId else { return [] }
+        return AgentOrdering.agentsInTeam(
+            rows, teamId: teamId, teamIds: teamIds,
+            teamOf: \.teamId, isMyAssistant: \.assistant
+        )
+    }
+
+    /// #EXP-1714: does a team-scoped list (needs-you, the chats list, their
+    /// digests) show this row in `team`? Its own team's rows, plus the
+    /// VIEWER'S own rows whose team is none of the synced `teamIds` (the
+    /// global Assistant's conversation lives in a personal team that never
+    /// syncs).
+    public static func inTeamOrPersonal(
+        teamId rowTeamId: String, userId: String?, team: String, teamIds: Set<String>, me: String?
+    ) -> Bool {
+        if rowTeamId == team { return true }
+        guard let me, userId == me else { return false }
+        return !teamIds.contains(rowTeamId)
+    }
+
+    /// #EXP-1714: the team a composer's `/` prompts, `#` issue search and
+    /// `@` mentions read: the agent's / session's own team while it is a
+    /// synced one, else the ACTIVE team (the global Assistant's personal team
+    /// never syncs). Uploads and sends keep the own team. No synced teams
+    /// known yet = the own team.
+    public static func lookupTeamId(_ teamId: String?, teamIds: [String], activeTeamId: String?) -> String? {
+        guard let teamId else { return activeTeamId }
+        if teamIds.isEmpty || teamIds.contains(teamId) { return teamId }
+        return activeTeamId ?? teamId
+    }
+
+    /// #EXP-1714: is this agent the viewer's own Assistant (wherever it
+    /// lives: its team may be the personal one, never synced)?
+    public static func isMyAssistant(_ agent: AgentDefinitionEntity?, me: String?) -> Bool {
+        guard let agent, let me else { return false }
+        return isAssistant(role: agent.role) && agent.ownerId == me
+    }
+}
+
+extension AgentDefinitionEntity: AgentTeamScoped {
+    public var agentTeamId: String { teamId }
+}
+
+extension AgentLike: AgentTeamScoped {
+    public var agentTeamId: String { teamId }
 }
 
 extension AgentDefinitionEntity: AgentRoleOrdered {

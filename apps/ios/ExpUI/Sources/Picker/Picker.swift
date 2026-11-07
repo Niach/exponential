@@ -681,7 +681,30 @@ private struct PickerSheetIdentifier: ViewModifier {
 /// The sheet: the ONE shell, a pinned filter field, and the rows. Nothing
 /// between the shell and the rows — that is the rule, and it is visible here
 /// as the absence of a container.
+/// The composer "+" menu's search-list submenus (composer-menu.json: MCP
+/// servers, Skills, Teams) mark a MULTI pick with the trailing check, as
+/// web, the IDE and Android draw those rows; every other multi picker keeps
+/// the row's own highlight. Set with `.pickerCheckMarks()`.
+private struct PickerCheckMarksKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+public extension EnvironmentValues {
+    var pickerCheckMarks: Bool {
+        get { self[PickerCheckMarksKey.self] }
+        set { self[PickerCheckMarksKey.self] = newValue }
+    }
+}
+
+public extension View {
+    /// The trailing check for a multi pick (the composer's submenus).
+    func pickerCheckMarks(_ on: Bool = true) -> some View {
+        environment(\.pickerCheckMarks, on)
+    }
+}
+
 private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
+    @Environment(\.pickerCheckMarks) private var checkMarks
     let items: [PickerItem<Value>]
     let mode: PickerMode
     let value: Set<Value>
@@ -806,7 +829,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                         checked: item.checkedState(in: value),
                         // The mark is the MODE's, never the row's or the
                         // caller's: check in single, highlight in multi.
-                        style: GlassPickerTokens.selectionStyle(for: mode),
+                        style: checkMarks ? .check : GlassPickerTokens.selectionStyle(for: mode),
                         mark: renderMark?(item),
                         content: renderItem?(item)
                     ) {

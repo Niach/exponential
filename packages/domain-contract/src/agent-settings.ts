@@ -208,3 +208,28 @@ export function orderedAgents<T extends AgentRoleLike & { name: string; sortOrde
     return a.name.localeCompare(b.name)
   })
 }
+
+export interface TeamAgentLike {
+  id: string
+  teamId: string
+  role?: string | null
+  ownerId: string
+}
+
+/** #EXP-1714 (`assistant.teamAgentsCases`): the agents a team lists: its
+ *  own rows (input order), plus the viewer's global Assistant (its team is
+ *  none of `teamIds`, the synced teams: a personal team never syncs) while
+ *  the team holds no Assistant of theirs. `visibleAgent` still applies. */
+export function agentsInTeam<T extends TeamAgentLike>(
+  agents: readonly T[],
+  teamId: string,
+  teamIds: readonly string[],
+  me: string | null | undefined
+): T[] {
+  const own = agents.filter((agent) => agent.teamId === teamId)
+  if (own.some((agent) => isAssistant(agent) && agent.ownerId === me)) return own
+  const global = agents.find(
+    (agent) => isAssistant(agent) && agent.ownerId === me && !teamIds.includes(agent.teamId)
+  )
+  return global ? [global, ...own] : own
+}

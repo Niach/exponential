@@ -138,7 +138,8 @@ describe(`desktop attribution`, () => {
     // EXP-1557: `search-list`'s desktop shot drives the `chat` screen (the
     // composer's `#` list), so the composer claims it too; EXP-1558 adds
     // `composer-slash-menu` (its `/` menu) the same way, and EXP-1659
-    // `composer-skills-menu` (its + menu's Skills submenu).
+    // `composer-skills-menu` (its + menu's Skills submenu), #EXP-1715
+    // `composer-teams-menu` (its Teams submenu).
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
       `agent-home`,
@@ -152,6 +153,7 @@ describe(`desktop attribution`, () => {
       `composer-menu`,
       `composer-skills-menu`,
       `composer-slash-menu`,
+      `composer-teams-menu`,
       `search-list`,
     ])
   })

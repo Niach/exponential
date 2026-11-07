@@ -6075,6 +6075,39 @@
       }
     },
     {
+      "id": "composer-teams-menu",
+      "group": "coding",
+      "title": "Composer + menu › Teams",
+      "blurb": "#EXP-1715: the Assistant's Teams pick (composer-menu.json row `teams`, `teamsPick`): the teams the viewer belongs to as multi picker rows (team mark + name), nothing picked = every team; a narrowed pick rides as the composer's removable team chips and the row reads its value.",
+      "order": 87,
+      "web": {
+        "route": "/t/$teamSlug/agent",
+        "anchor": {
+          "testId": "agent-composer-menu",
+          "timeoutMs": 20000
+        },
+        "recipe": "openComposerTeamsMenu",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_COMPOSER_MENU": "teams"
+        }
+      },
+      "notes": {
+        "ios": "#EXP-1715: no styleguide capture wired yet (the Teams page needs a demo user in more than one team; the seed has one).",
+        "android": "#EXP-1715: no styleguide capture wired yet (the Teams page needs a demo user in more than one team; the seed has one).",
+        "web": "`openComposerTeamsMenu`: the agent row keeps the viewer's Assistant, + › Teams opens (to the side at md+, a pushed page on phones) and the last team is unchecked, so two of three stay picked and their chips show. Needs a demo user in more than one team.",
+        "desktop": "#EXP-1715: `EXP_DEV_COMPOSER_MENU=teams` opens Home's + with Teams › open (the agent row on the viewer's Assistant), once the Teams row shows (the viewer in more than one team)."
+      }
+    },
+    {
       "id": "composer-skills-menu",
       "group": "coding",
       "title": "Composer + menu › Skills",

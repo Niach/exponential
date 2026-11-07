@@ -470,7 +470,16 @@ class TeamTabViewModel @Inject constructor(
                 } else {
                     val teamFlow = if (teamId == null) kotlinx.coroutines.flow.flowOf(null) else db.teamDao().observeById(teamId)
                     val members = if (teamId == null) kotlinx.coroutines.flow.flowOf(emptyList()) else db.teamMemberDao().observeByTeam(teamId)
-                    val agents = if (teamId == null) kotlinx.coroutines.flow.flowOf(emptyList()) else db.agentDefinitionDao().observeByTeam(teamId)
+                    // #EXP-1714: the team's agents + the viewer's global Assistant.
+                    val agents = if (teamId == null) {
+                        kotlinx.coroutines.flow.flowOf(emptyList())
+                    } else {
+                        kotlinx.coroutines.flow.combine(db.agentDefinitionDao().observeAll(), db.teamDao().observeAll()) { rows, teams ->
+                            com.exponential.app.domain.AgentSettings.Assistant.agentsInTeam(rows, teamId, teams.map { it.id }, me) {
+                                com.exponential.app.domain.AgentSettings.Assistant.TeamAgentLike(it.teamId, it.role, it.ownerId)
+                            }
+                        }
+                    }
                     val notifications = if (me == null) kotlinx.coroutines.flow.flowOf(emptyList()) else db.notificationDao().observeByUser(me)
                     kotlinx.coroutines.flow.combine(
                         teamFlow,

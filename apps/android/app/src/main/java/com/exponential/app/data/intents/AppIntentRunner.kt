@@ -77,6 +77,7 @@ class AppIntentRunner @Inject constructor(
             emptyList(),
             team,
             me,
+            db.teamDao().observeAll().first().map { it.id },
         )
         val agents = listed.mapIndexed { index, a ->
             AppIntents.Agent(

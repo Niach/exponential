@@ -50,9 +50,12 @@ fn input(team_id: &str, now: i64, cx: &App) -> NeedsYouInput {
     let collections = store.collections();
     let sessions = collections.sessions.read(cx);
     let agents = collections.agents.read(cx);
+    // #EXP-1714: plus the viewer's personal-team sessions (their global
+    // Assistant's conversation).
+    let team_ids = crate::session_data::synced_team_ids(cx);
     let team: Vec<NeedsYouSessionInput> = sessions
         .iter()
-        .filter(|session| session.team_id.as_deref() == Some(team_id))
+        .filter(|session| crate::session_data::in_team_or_personal(session, team_id, &team_ids, me.as_deref()))
         .map(|session| NeedsYouSessionInput {
             id: session.id.clone(),
             root_id: session.root_id_or_self().to_string(),

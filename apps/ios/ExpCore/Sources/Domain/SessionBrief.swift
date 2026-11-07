@@ -16,14 +16,16 @@ public enum SessionBrief {
     /// The wire input of a send to an agent, before sealing (chats.json START
     /// CODING): an empty text is omitted, never `""`.
     public static func agentForwardInput(
-        agentId: String, text: String?, attachmentIds: [String], issueIds: [String], identifiers: [String]
+        agentId: String, text: String?, attachmentIds: [String], issueIds: [String], identifiers: [String],
+        scope: TeamsScope? = nil
     ) -> SessionsSendInput {
         let body = agentForwardText(text ?? "", identifiers: identifiers)
         return .agent(
             agentId: agentId,
             text: body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : body,
             attachmentIds: attachmentIds.isEmpty ? nil : attachmentIds,
-            issueIds: issueIds.isEmpty ? nil : issueIds
+            issueIds: issueIds.isEmpty ? nil : issueIds,
+            scope: scope
         )
     }
 }

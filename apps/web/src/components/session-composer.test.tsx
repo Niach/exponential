@@ -34,6 +34,9 @@ const mocks = vi.hoisted(() => ({
   // #EXP-1535: THE session account switch (its own tests pin the rules).
   accountSwitch: null as unknown,
   switchTo: vi.fn(),
+  // #EXP-1715: the agent behind the root + the viewer's teams.
+  agent: null as unknown,
+  teams: [] as { id: string; name: string; iconUrl: string | null }[],
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -80,7 +83,10 @@ vi.mock(`@/hooks/use-mcp-servers`, () => ({
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamById: () => ({ slug: `acme` }),
+  useTeamMemberships: () => ({ memberships: [], myTeams: mocks.teams }),
 }))
+vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: { user: { id: `u1` } } }) }))
+vi.mock(`@/hooks/use-agent-row`, () => ({ useAgentRow: () => ({ agent: mocks.agent, isReady: true }) }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useSessionRow: () => ({ row: mocks.row, isReady: true }),
   useSessionMessages: () => mocks.messages,
@@ -192,6 +198,8 @@ beforeEach(() => {
   mocks.dismissReplies.mockReset()
   mocks.promptGet.mockReset()
   mocks.prompts = []
+  mocks.agent = null
+  mocks.teams = []
 })
 
 describe(`SessionComposer / menu (NEW-2)`, () => {
@@ -258,6 +266,42 @@ describe(`SessionComposer / menu (NEW-2)`, () => {
     await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
     expect(mocks.send.mock.calls[0]![0]).toMatchObject({ sessionId: `s1`, text: `Ship it` })
     expect(mocks.send.mock.calls[0]![0]).not.toHaveProperty(`aside`)
+  })
+})
+
+// #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
+// chat carries its Teams pick on every send (null = every team), seeded from
+// the conversation root; any other chat never sends one.
+describe(`SessionComposer Teams pick (#EXP-1715)`, () => {
+  it(`the Assistant's chat sends its stored pick; another chat sends none`, async () => {
+    mocks.send.mockResolvedValue({ txid: 1 })
+    mocks.teams = [
+      { id: `t1`, name: `Acme`, iconUrl: null },
+      { id: `t2`, name: `Feedback`, iconUrl: null },
+    ]
+    mocks.agent = { id: `a1`, role: `assistant`, ownerId: `u1` }
+    mocks.row = sessionRow({ agentId: `a1`, scopeTeamIds: [`t2`] } as never)
+    const field = renderComposer()
+    expect(screen.getByTestId(`agent-composer-chip-team-t2`)).toBeTruthy()
+    type(field, `Only Feedback`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    expect(mocks.send.mock.calls[0]![0]).toMatchObject({ sessionId: `s1`, scopeTeamIds: [`t2`] })
+  })
+
+  it(`a team agent's chat never carries a pick`, async () => {
+    mocks.send.mockResolvedValue({ txid: 1 })
+    mocks.teams = [
+      { id: `t1`, name: `Acme`, iconUrl: null },
+      { id: `t2`, name: `Feedback`, iconUrl: null },
+    ]
+    mocks.agent = { id: `a2`, role: `agent`, ownerId: `u1` }
+    mocks.row = sessionRow({ agentId: `a2` })
+    const field = renderComposer()
+    type(field, `Hi`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    expect(mocks.send.mock.calls[0]![0]).not.toHaveProperty(`scopeTeamIds`)
   })
 })
 

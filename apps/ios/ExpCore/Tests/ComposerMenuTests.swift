@@ -42,7 +42,8 @@ final class ComposerMenuTests: XCTestCase {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let surface = try XCTUnwrap(ComposerMenu.Surface(rawValue: try XCTUnwrap(testCase["surface"] as? String)), name)
             let c = try XCTUnwrap(testCase["conditions"] as? [String: Bool], name)
-            XCTAssertEqual(Set(c.keys), Set(ComposerMenu.Condition.allCases.map(\.rawValue)), name)
+            // #EXP-1715: a case names the conditions it sets (absent = false).
+            XCTAssertTrue(Set(c.keys).isSubset(of: Set(ComposerMenu.Condition.allCases.map(\.rawValue))), name)
             let layout = ComposerMenu.composerMenuLayout(ComposerMenu.Conditions(
                 temporary: c["temporary"] ?? false,
                 device: c["device"] ?? false,
@@ -54,7 +55,9 @@ final class ComposerMenuTests: XCTestCase {
                 mcp: c["mcp"] ?? false,
                 skills: c["skills"] ?? false,
                 computerUse: c["computerUse"] ?? false,
-                prompts: c["prompts"] ?? false
+                prompts: c["prompts"] ?? false,
+                assistant: c["assistant"] ?? false,
+                teams: c["teams"] ?? false
             ), surface: surface)
             XCTAssertEqual(wire(layout), testCase["expected"] as? [String], name)
         }
@@ -70,7 +73,8 @@ final class ComposerMenuTests: XCTestCase {
         // Separators sit where the fixture puts them.
         let layout = ComposerMenu.composerMenuLayout(ComposerMenu.Conditions(
             temporary: true, device: true, account: true, model: true, repositories: true,
-            subagentModel: true, ultracode: true, mcp: true, skills: true, computerUse: true, prompts: true
+            subagentModel: true, ultracode: true, mcp: true, skills: true, computerUse: true, prompts: true,
+            assistant: true, teams: true
         ), surface: .launch)
         XCTAssertEqual(wire(layout), all.map { ($0["id"] as? String) ?? "-" })
         let rows = all.filter { $0["kind"] as? String != "separator" }
@@ -115,6 +119,48 @@ final class ComposerMenuTests: XCTestCase {
         XCTAssertNil(try fixture()["suggestions"])
         XCTAssertEqual(ComposerMenu.submenuRowHeight, (try fixture()["submenuRowHeight"] as? NSNumber)?.doubleValue)
         XCTAssertEqual(ComposerMenu.submenuMaxRows, try fixture()["submenuMaxRows"] as? Int)
+    }
+
+    /// #EXP-1715: `teamsPick.valueCases` and its copy.
+    func testTeamsPickValueReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try fixture()["teamsPick"] as? [String: Any])
+        let copy = try XCTUnwrap(block["copy"] as? [String: String])
+        XCTAssertEqual(ComposerMenu.TeamsPickCopy.all, copy["all"])
+        XCTAssertEqual(ComposerMenu.TeamsPickCopy.many, copy["many"])
+        let cases = try XCTUnwrap(block["valueCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let teams = try XCTUnwrap(testCase["teams"] as? [[String: String]]).map {
+                ComposerMenu.PickTeam(id: $0["id"] ?? "", name: $0["name"] ?? "")
+            }
+            XCTAssertEqual(
+                ComposerMenu.teamsPickValue(testCase["picked"] as? [String], teams: teams),
+                testCase["expected"] as? String,
+                name
+            )
+        }
+    }
+
+    /// #EXP-1715: every team (or none) stores as nil; chips only on a subset.
+    func testTeamsPickNextAndChips() {
+        let teams = [
+            ComposerMenu.PickTeam(id: "t1", name: "Acme"),
+            ComposerMenu.PickTeam(id: "t2", name: "Feedback"),
+            ComposerMenu.PickTeam(id: "t3", name: "Ops"),
+        ]
+        XCTAssertNil(ComposerMenu.nextTeamsPick(["t3", "t1", "t2"], teams: teams))
+        XCTAssertNil(ComposerMenu.nextTeamsPick([], teams: teams))
+        XCTAssertEqual(ComposerMenu.nextTeamsPick(["t3", "t1"], teams: teams), ["t1", "t3"])
+        XCTAssertEqual(ComposerMenu.pickedTeamIds(nil, teams: teams), ["t1", "t2", "t3"])
+        XCTAssertEqual(ComposerMenu.teamsPickChips(nil, teams: teams), [])
+        XCTAssertEqual(ComposerMenu.teamsPickChips(["t2"], teams: teams).map(\.id), ["t2"])
+        XCTAssertEqual(ComposerMenu.removingTeamChip("t1", picked: ["t1", "t3"], teams: teams), ["t3"])
+        XCTAssertNil(ComposerMenu.removingTeamChip("t2", picked: ["t2"], teams: teams))
+        XCTAssertEqual(
+            ComposerMenu.pickTeams([.init(id: "b", name: "ops"), .init(id: "a", name: "Acme")]).map(\.id),
+            ["a", "b"]
+        )
     }
 
     func testImplementButtonLabel() throws {

@@ -86,9 +86,13 @@ struct ShareFlowView: View {
         switch directShareId.flatMap(ShareTargets.parseDirectShareId) {
         case let .agent(id)?:
             for (accountId, mirror) in mirrors {
+                // #EXP-1714: the viewer's global Assistant has no synced
+                // home team: it opens in the account's current team.
                 guard let agent = mirror.agents.first(where: { $0.id == id }),
                       AgentOrdering.visibleAgent(agent, me: mirror.userId),
-                      let home = teams.first(where: { $0.accountId == accountId && $0.teamId == agent.teamId }) else { continue }
+                      let home = teams.first(where: { $0.accountId == accountId && $0.teamId == agent.teamId })
+                      ?? (team?.accountId == accountId ? team : nil)
+                      ?? teams.first(where: { $0.accountId == accountId }) else { continue }
                 team = home
                 route = .compose(pick: id)
             }
@@ -111,7 +115,14 @@ struct ShareFlowView: View {
 
     private var agents: [MirroredAgent] {
         guard let team, let mirror else { return [] }
-        let inTeam = mirror.agents.filter { $0.teamId == team.teamId }
+        // #EXP-1714: the viewer's global Assistant (its team never syncs)
+        // lists in every team.
+        let inTeam = AgentOrdering.agentsInTeam(
+            mirror.agents,
+            teamId: team.teamId,
+            teamIds: teams.filter { $0.accountId == team.accountId }.map(\.teamId),
+            me: mirror.userId
+        )
         return ShareTargets.shareTargets(agents: inTeam, me: mirror.userId).agents
     }
 

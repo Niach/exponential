@@ -261,6 +261,8 @@ struct ThreadComposerPlusMenu: View {
     /// menu's order) and its pick (the host inserts the body at the caret).
     var prompts: [SlashPrompt] = []
     var onPickPrompt: (SlashPrompt) -> Void = { _ in }
+    /// #EXP-1715: the Teams page (the viewer's Assistant chat only).
+    var teams: ComposerTeamsBinding?
     var addFileEnabled = true
     /// A hand-off row (Photo or file): the host closes the sheet and opens
     /// what it names.
@@ -335,6 +337,8 @@ struct ThreadComposerPlusMenu: View {
             }
         case .prompts:
             ComposerPromptsList(prompts: prompts, onPick: onPickPrompt)
+        case .teams:
+            if let teams { TeamsPickPage(binding: teams) }
         default:
             if let teamId {
                 ThreadIssueSearchList(teamId: teamId, onPick: onPickIssue)
@@ -373,6 +377,7 @@ struct ThreadComposerPlusMenu: View {
         switch id {
         case .model: modelValue.map(LaunchVocabulary.modelLabel)
         case .account: account?.current?.email
+        case .teams: teams?.value
         default: nil
         }
     }

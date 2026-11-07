@@ -95,6 +95,7 @@ const PINNED_RECIPES = [
   `typeIssueRef`,
   `openComposerMenuTemporary`,
   `openComposerSkillsMenu`,
+  `openComposerTeamsMenu`,
   `openComposerAddFile`,
   `openShareTargets`,
   `typeSlashInComposer`,

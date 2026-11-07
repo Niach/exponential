@@ -238,7 +238,8 @@ struct TeamTabView: View {
                 boards: try BoardEntity.filter(Column("team_id") == teamId).fetchCount(db),
                 // S-3: the agents the viewer sees (their own Assistant + the
                 // team agents; another member's Assistant never counts).
-                agents: try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+                // #EXP-1714: the viewer's global Assistant counts in every team.
+                agents: try SessionQueries.teamAgents(db: db, teamId: teamId, me: userId)
                     .filter { AgentSettings.visibleAgent($0, me: userId) }.count,
                 isOwner: try userId.map { userId in
                     try TeamMemberEntity

@@ -53,6 +53,25 @@ public struct SessionLaunchOptions: Sendable, Equatable {
     }
 }
 
+/// #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams pick
+/// a send carries as `scopeTeamIds`: every team (an explicit JSON null) or
+/// the picked teams. Absent (nil on the case) = not the Assistant: the key
+/// is never sent.
+public enum TeamsScope: Sendable, Equatable {
+    case allTeams
+    case teams([String])
+
+    /// The stored pick (nil = every team) as a scope.
+    public init(_ picked: [String]?) {
+        self = picked.map(TeamsScope.teams) ?? .allTeams
+    }
+
+    public var picked: [String]? {
+        if case let .teams(ids) = self { return ids }
+        return nil
+    }
+}
+
 /// The forms of `sessions.send`. `teamId` is the ACTIVE team (phones:
 /// the current board's team).
 public enum SessionsSendInput: Sendable, Equatable {
@@ -73,7 +92,11 @@ public enum SessionsSendInput: Sendable, Equatable {
     /// session with it (created on first use; it runs on the agent's own
     /// device, so no runner picks). Needs text or files. EXP-1450:
     /// `issueIds` = the composer's issue chips, forwarded onto it.
-    case agent(agentId: String, text: String? = nil, attachmentIds: [String]? = nil, issueIds: [String]? = nil)
+    /// #EXP-1715: `scope` = the Assistant's Teams pick (nil = not sent).
+    case agent(
+        agentId: String, text: String? = nil, attachmentIds: [String]? = nil, issueIds: [String]? = nil,
+        scope: TeamsScope? = nil
+    )
     /// VAPP-110: a message to an APP — into the caller's own EDITOR session
     /// with it (created on first use on `deviceId`, else the caller's default
     /// device; an ended one continues). Needs text or files.
@@ -87,7 +110,9 @@ public enum SessionsSendInput: Sendable, Equatable {
     )
     /// A message into an existing session (resumes it when idle; an ended
     /// thread revives server-side, the same row). Needs text or files.
-    case message(sessionId: String, text: String? = nil, attachmentIds: [String]? = nil)
+    /// #EXP-1715: `scope` = the Assistant's Teams pick, into its
+    /// conversation root only (nil = not sent).
+    case message(sessionId: String, text: String? = nil, attachmentIds: [String]? = nil, scope: TeamsScope? = nil)
     /// EXP-849: the mid-session account SWITCH — `{sessionId, account}`, no
     /// text. The server moves the synced `sessions.account`; the host device
     /// resumes the SAME row on that login between turns.
@@ -99,16 +124,26 @@ public enum SessionsSendInput: Sendable, Equatable {
 }
 
 // Synthesized-style encodeIfPresent per field: every nil is OMITTED, never
-// `null` (the router's fields are `.optional()`, not `.nullable()`).
+// `null` (the router's fields are `.optional()`, not `.nullable()`), save
+// #EXP-1715's `scopeTeamIds` (null = every team).
 extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
         case cli, account, model, effort, computerUse, ultracode, subagentModel, mcpServerIds, skillIds
-        case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId
+        case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId, scopeTeamIds
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
+        // #EXP-1715: every team = an explicit null (the ONE null this form
+        // sends); absent = not the Assistant.
+        func encodeScope(_ scope: TeamsScope?) throws {
+            switch scope {
+            case nil: break
+            case .allTeams: try c.encodeNil(forKey: .scopeTeamIds)
+            case let .teams(ids): try c.encode(ids, forKey: .scopeTeamIds)
+            }
+        }
         func encodeOptions(_ options: SessionLaunchOptions) throws {
             try c.encodeIfPresent(options.cli, forKey: .cli)
             try c.encodeIfPresent(options.account, forKey: .account)
@@ -131,11 +166,12 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
             try c.encodeIfPresent(promptId, forKey: .promptId)
             try c.encodeIfPresent(repositoryId, forKey: .repositoryId)
-        case let .agent(agentId, text, attachmentIds, issueIds):
+        case let .agent(agentId, text, attachmentIds, issueIds, scope):
             try c.encode(agentId, forKey: .agentId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
+            try encodeScope(scope)
         case let .app(appId, deviceId, text, attachmentIds):
             try c.encode(appId, forKey: .appId)
             try c.encodeIfPresent(deviceId, forKey: .deviceId)
@@ -146,10 +182,11 @@ extension SessionsSendInput: Encodable {
             try c.encode(deviceId, forKey: .deviceId)
             try encodeOptions(options)
             try c.encodeIfPresent(text, forKey: .text)
-        case let .message(sessionId, text, attachmentIds):
+        case let .message(sessionId, text, attachmentIds, scope):
             try c.encode(sessionId, forKey: .sessionId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
+            try encodeScope(scope)
         case let .switchAccount(sessionId, account):
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(account, forKey: .account)

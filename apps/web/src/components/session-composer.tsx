@@ -30,7 +30,11 @@ import {
   ComposerInlineTools,
   type ComposerInlineToolsHandle,
 } from "@/components/composer-inline-tools"
-import { ComposerOptionsMenu } from "@/components/launch-dialog/composer-plus-menu"
+import { ComposerOptionsMenu, type ComposerTeamsBinding } from "@/components/launch-dialog/composer-plus-menu"
+import { TeamPickChips } from "@/components/launch-dialog/team-pick"
+import { useSession } from "@/hooks/use-session"
+import { useAgentRow } from "@/hooks/use-agent-row"
+import { useTeamMemberships } from "@/hooks/use-team-data"
 import { useSessionAccountSwitch } from "@/components/session-account-switch"
 import type { ComposerMenuSurface } from "@/components/launch-dialog/composer-menu"
 import {
@@ -168,6 +172,36 @@ function useComposerSession(sessionId: string | null) {
   }
 }
 
+/** #EXP-1715: the Teams pick of a composer talking to the viewer's
+ *  Assistant (its conversation `row`, or `agentId` before it exists);
+ *  null anywhere else. */
+function useAssistantTeamsPick(
+  row: { id: string; parentId: string | null; agentId: string | null; scopeTeamIds?: string[] | null } | null,
+  agentId: string | undefined
+): ComposerTeamsBinding | null {
+  const { data: auth } = useSession()
+  const me = auth?.user?.id
+  const { agent } = useAgentRow(row ? (row.parentId === null ? row.agentId : null) : (agentId ?? null))
+  const { myTeams } = useTeamMemberships(me)
+  const assistant = agent !== null && agent.role === `assistant` && agent.ownerId === me
+  const stored = row?.scopeTeamIds ?? null
+  const [picked, setPicked] = useState<string[] | null>(stored)
+  // A pick made elsewhere (another client) re-seeds it.
+  const storedKey = stored?.join(`,`) ?? null
+  useEffect(() => setPicked(stored), [storedKey])
+  const teams = useMemo(
+    () => myTeams.map((team) => ({ id: team.id, name: team.name, iconUrl: team.iconUrl ?? null })),
+    [myTeams]
+  )
+  return assistant ? { teams, picked, onChange: setPicked } : null
+}
+
+function teamsPickChips(pick: ComposerTeamsBinding | null): boolean {
+  if (!pick || pick.picked === null) return false
+  const count = pick.teams.filter((team) => pick.picked!.includes(team.id)).length
+  return count > 0 && count < pick.teams.length
+}
+
 interface PendingFile {
   key: string
   file: File
@@ -191,6 +225,7 @@ export function SessionComposerReplies({ sessionId }: { sessionId: string }) {
 
 export function SessionComposer({
   teamId,
+  browseTeamId,
   sessionId,
   agentId,
   appId,
@@ -209,6 +244,9 @@ export function SessionComposer({
   autoFocus = false,
 }: {
   teamId: string
+  /** #EXP-1714: the team the `/` prompts come from when it is not the
+   *  conversation's (the global Assistant's lives in the personal team). */
+  browseTeamId?: string
   /** The session messaged; null = an agent chat with no conversation yet
    *  (the send opens it: `sessions.send({agentId})`). */
   sessionId: string | null
@@ -298,7 +336,10 @@ export function SessionComposer({
   // team's prompts; the CLI's own injected commands are never offered.
   const catalogAgent = steerAgentId(row?.cli, config !== null)
   const commands = useMemo(() => steerCommandsFor(catalogAgent), [catalogAgent])
-  const { prompts } = usePrompts(teamId)
+  const { prompts } = usePrompts(browseTeamId ?? teamId)
+  // #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
+  // Teams pick, seeded from its conversation root (null = every team).
+  const teamsPick = useAssistantTeamsPick(row, agentId)
   // A picked prompt's body (`prompts.get`, the only body path) REPLACES the
   // `/name` draft the menu was open on, to be edited and sent.
   const pickPrompt = (prompt: { id: string; name: string }) => {
@@ -418,6 +459,7 @@ export function SessionComposer({
         ...(sessionId ? { sessionId } : appId ? { appId, deviceId } : { agentId }),
         text: sentText.trim() || undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+        ...(teamsPick ? { scopeTeamIds: teamsPick.picked === null ? null : [...teamsPick.picked] } : {}),
       })
       for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
       clearSent()
@@ -494,8 +536,9 @@ export function SessionComposer({
       <Composer
         opaque={opaque}
         strip={
-          files.length > 0 ? (
-            <div className="flex flex-wrap gap-2 px-3 pt-3">
+          files.length > 0 || teamsPickChips(teamsPick) ? (
+            <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
+              {teamsPick && <TeamPickChips {...teamsPick} disabled={sending} />}
               {files.map((entry) =>
                 entry.previewUrl ? (
                   <AttachmentThumb
@@ -552,6 +595,7 @@ export function SessionComposer({
                   ),
               }}
               prompts={{ prompts, onPick: insertPrompt }}
+              teams={teamsPick ?? undefined}
               onAttach={(choice) => toolsRef.current?.attach(choice)}
               rowsDisabled={row !== null && ended}
               highlighted={files.length > 0}

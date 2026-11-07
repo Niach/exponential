@@ -170,6 +170,18 @@ where
     Ok(value_to_id_list(&value))
 }
 
+/// #EXP-1715: a nullable `uuid[]` cell (`sessions.scope_team_ids`): null,
+/// absent, empty or garbage = `None`, else the ids ([`tolerant_id_list`]'s
+/// wire forms).
+pub fn tolerant_opt_id_list<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    let ids = value_to_id_list(&value);
+    Ok((!ids.is_empty()).then_some(ids))
+}
+
 fn value_to_id_list(value: &Value) -> Vec<String> {
     let clean = |raw: &str| {
         let id = raw.trim().trim_matches('"').trim();

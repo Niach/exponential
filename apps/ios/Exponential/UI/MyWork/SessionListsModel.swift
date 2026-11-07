@@ -55,6 +55,10 @@ final class SessionListsModel {
     /// #FEED-191: `NeedsYou.rows`' input off the same rows, by team (its ages
     /// follow the clock, so the fold runs in the view).
     private(set) var needsYouInputs: [String: NeedsYouInput] = [:]
+    /// #EXP-1714: the synced teams' ids and the viewer: their own rows of an
+    /// unsynced (personal) team show in every team (`inTeamOrPersonal`).
+    private(set) var syncedTeamIds: Set<String> = []
+    private(set) var viewerId: String?
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var boundAccountId: String?
@@ -86,7 +90,9 @@ final class SessionListsModel {
     }
 
     func chatsNeedYou(teamId: String?) -> Bool {
-        groups.contains { $0.key == .needsYou && $0.rows.contains { teamId == nil || $0.teamId == teamId } }
+        groups.contains { group in
+            group.key == .needsYou && group.rows.contains { row in teamId.map { shows(row, in: $0) } ?? true }
+        }
     }
 
     /// #EXP-1388 (`dotCases`): an archived chat never lights the dot.
@@ -98,15 +104,38 @@ final class SessionListsModel {
     func teamGroups(_ teamId: String?) -> [ThreadsListGroup] {
         guard let teamId else { return groups }
         return groups.compactMap { group in
-            let rows = group.rows.filter { $0.teamId == teamId }
+            let rows = group.rows.filter { shows($0, in: teamId) }
             return rows.isEmpty ? nil : ThreadsListGroup(key: group.key, title: group.title, rows: rows)
         }
     }
 
+    /// #EXP-1714: a row of `teamId`, or the viewer's own row of an unsynced
+    /// (personal) team.
+    private func shows(_ row: ThreadsListRow, in teamId: String) -> Bool {
+        AgentSettings.inTeamOrPersonal(
+            teamId: row.teamId, userId: rootStarter[row.rootId], team: teamId,
+            teamIds: syncedTeamIds, me: viewerId
+        )
+    }
+
     /// #FEED-191 (needs-you.json): every plan, question and ready PR waiting on
-    /// the viewer in this team, newest first.
+    /// the viewer in this team, newest first. #EXP-1714: plus the viewer's own
+    /// sessions of an unsynced (personal) team.
     func needsYou(teamId: String?, me: String?, now: Date) -> [NeedsYou.Row] {
-        guard let teamId, let input = needsYouInputs[teamId] else { return [] }
+        guard let teamId else { return [] }
+        var input = needsYouInputs[teamId] ?? NeedsYouInput()
+        for (key, other) in needsYouInputs where key != teamId && !syncedTeamIds.isEmpty {
+            let mine = other.sessions.filter {
+                AgentSettings.inTeamOrPersonal(
+                    teamId: key, userId: $0.userId, team: teamId, teamIds: syncedTeamIds, me: me
+                )
+            }
+            guard !mine.isEmpty else { continue }
+            let ids = Set(mine.map(\.id))
+            input.sessions += mine
+            input.messages += other.messages.filter { ids.contains($0.sessionId) }
+            input.pullRequests += other.pullRequests.filter { ids.contains($0.rootSessionId ?? "") }
+        }
         return NeedsYou.rows(
             now: now.timeIntervalSince1970 * 1000,
             me: me,
@@ -161,6 +190,8 @@ final class SessionListsModel {
         rootStatus = [:]
         rootStarter = [:]
         needsYouInputs = [:]
+        syncedTeamIds = []
+        viewerId = nil
         loaded = false
     }
 
@@ -199,6 +230,8 @@ final class SessionListsModel {
         var rootStatus: [String: String]
         var rootStarter: [String: String]
         var needsYouInputs: [String: NeedsYouInput]
+        var syncedTeamIds: Set<String>
+        var viewerId: String?
     }
 
     private func apply(_ derived: Derived) {
@@ -218,6 +251,8 @@ final class SessionListsModel {
         rootStatus = derived.rootStatus
         rootStarter = derived.rootStarter
         needsYouInputs = derived.needsYouInputs
+        syncedTeamIds = derived.syncedTeamIds
+        viewerId = derived.viewerId
         loaded = true
     }
 
@@ -366,7 +401,10 @@ final class SessionListsModel {
                 rows.sessions.filter { $0.parentId == nil }.map { ($0.id, $0.userId) },
                 uniquingKeysWith: { a, _ in a }
             ),
-            needsYouInputs: needsYouInputs(rows)
+            needsYouInputs: needsYouInputs(rows),
+            // #EXP-1714: `mergeModes` is keyed by every synced `teams` row.
+            syncedTeamIds: Set(rows.mergeModes.keys),
+            viewerId: userId
         )
     }
 

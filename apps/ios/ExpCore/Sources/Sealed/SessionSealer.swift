@@ -71,11 +71,11 @@ public final class SessionSealer: @unchecked Sendable {
         return read(accountId) { db -> SealRoot? in
             var root: SessionEntity?
             switch input {
-            case let .message(sessionId, _, _), let .child(sessionId, _, _, _):
+            case let .message(sessionId, _, _, _), let .child(sessionId, _, _, _):
                 if let session = try SessionEntity.fetchOne(db, key: sessionId) {
                     root = try SessionEntity.fetchOne(db, key: session.rootId)
                 }
-            case let .agent(agentId, _, _, _):
+            case let .agent(agentId, _, _, _, _):
                 guard let me else { return nil }
                 root = try SessionEntity.fetchOne(db, sql: """
                     SELECT * FROM "sessions" WHERE "agent_id" = ? AND "user_id" = ? AND "parent_id" IS NULL

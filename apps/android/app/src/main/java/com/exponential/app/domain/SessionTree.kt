@@ -1494,14 +1494,23 @@ object SessionTree {
         sessions: List<Session>,
         teamId: String?,
         me: String?,
+        teamIds: Collection<String>? = null,
     ): List<AgentRow> {
         val mine = HashMap<String, Session>()
         for (s in sessions) {
             val agentId = s.agentId
             if (s.parentId == null && !agentId.isNullOrEmpty() && s.userId == me) mine[agentId] = s
         }
-        return agents
-            .filter { teamId == null || it.teamId == teamId }
+        // #EXP-1714: with the synced teams known, the team also lists the
+        // viewer's global Assistant (`AgentSettings.Assistant.agentsInTeam`).
+        val inTeam = when {
+            teamId == null -> agents
+            teamIds == null -> agents.filter { it.teamId == teamId }
+            else -> AgentSettings.Assistant.agentsInTeam(agents, teamId, teamIds, me) {
+                AgentSettings.Assistant.TeamAgentLike(it.teamId, it.role, it.ownerId)
+            }
+        }
+        return inTeam
             // S-3: another member's Assistant is never listed
             // (agent-settings.json `assistant.visibleCases`); the viewer's own
             // comes first.

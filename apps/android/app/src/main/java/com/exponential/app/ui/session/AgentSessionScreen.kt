@@ -4904,6 +4904,8 @@ internal fun SessionComposer(
             },
         )
     }
+    // #EXP-1715: the viewer's Assistant's Teams pick (its row + chips).
+    val teamsPickState by viewModel.teamsPick.collectAsStateWithLifecycle()
     val plusMenu = SessionComposerMenu(
         agent = composerAgent,
         effort = picks.effort ?: session?.effort.orEmpty(),
@@ -4935,6 +4937,9 @@ internal fun SessionComposer(
         prompts = promptRows,
         onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
         account = composerAccount,
+        teams = teamsPickState?.let { state ->
+            com.exponential.app.ui.agent.TeamsPickBinding(state.teams, state.picked, viewModel::setTeamsPick)
+        },
     )
 
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
@@ -5527,6 +5532,8 @@ internal data class SessionComposerMenu(
     /** #EXP-1535: Account ›, while the session's device is online and the
      *  viewer steers it; null = no row. */
     val account: SessionComposerAccount? = null,
+    /** #EXP-1715: the viewer's Assistant's Teams pick; null = no row, no chips. */
+    val teams: com.exponential.app.ui.agent.TeamsPickBinding? = null,
 )
 
 /**
@@ -5618,6 +5625,8 @@ private fun ExpandedSteerComposer(
         opaque = true,
         modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
         strip = {
+            // #EXP-1715: the Assistant's picked teams (a subset only).
+            menu.teams?.let { com.exponential.app.ui.agent.TeamPickChips(it, enabled = !sending) }
             PendingAttachmentStrip(
                 items = pendingImages,
                 enabled = !sending,
@@ -5719,6 +5728,8 @@ private fun ExpandedSteerComposer(
                     account = menu.account != null,
                     model = model != null && (modelPickable || modelSwitches),
                     prompts = menu.prompts.isNotEmpty(),
+                    assistant = menu.teams != null,
+                    teams = (menu.teams?.teams?.size ?: 0) > 1,
                 ),
             ),
             codex = menu.agent == "codex",
@@ -5760,8 +5771,9 @@ private fun ExpandedSteerComposer(
                     account.options.firstOrNull { it.key == account.value }?.email
                 },
                 ComposerMenuRowId.Model to model?.let(::modelLabel),
+                ComposerMenuRowId.Teams to menu.teams?.value,
             ),
-            pages = mapOf(
+            pages = com.exponential.app.ui.agent.teamsPagePlus(menu.teams, mapOf(
                 // #EXP-1434: the `/` menu's pick, from the "+".
                 ComposerMenuRowId.Prompts to { close ->
                     com.exponential.app.ui.agent.ComposerPromptsPage(
@@ -5794,7 +5806,7 @@ private fun ExpandedSteerComposer(
                         onOpenChange = { open -> if (!open) close() },
                     )
                 },
-            ),
+            )),
         )
     }
 }

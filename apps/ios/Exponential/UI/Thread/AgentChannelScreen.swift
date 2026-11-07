@@ -127,7 +127,8 @@ private struct AgentChannelEmpty: View {
                 sessionId: "",
                 placeholder: "Message \(agent.name)",
                 agentId: agent.id,
-                teamId: agent.teamId
+                teamId: agent.teamId,
+                agentRow: agent
             )
         }
         .workHeaderBand {

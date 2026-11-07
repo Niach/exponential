@@ -6,6 +6,7 @@ import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -61,8 +62,19 @@ data class SessionsSendInput(
     /** The `#IDENT` issue refs of the text, resolved by the writer. */
     val refIssueIds: List<String>? = null,
     val seal: SealInput? = null,
+    /**
+     * #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
+     * Teams pick, on EVERY send to it and never for another agent. A JSON
+     * array of team ids, or [JsonNull] = every team (sent as an explicit
+     * `null`); a Kotlin null = omitted. Build it with [scope].
+     */
+    val scopeTeamIds: JsonElement? = null,
 ) {
     companion object {
+        /** #EXP-1715: the wire of a Teams pick (null = every team). */
+        fun scope(picked: List<String>?): JsonElement =
+            picked?.let { ids -> JsonArray(ids.map(::JsonPrimitive)) } ?: JsonNull
+
         /**
          * A NEW thread root in [teamId] (the ACTIVE team) on [deviceId]: text,
          * issues or a saved prompt ([promptId]) — at least one of them.
@@ -115,11 +127,14 @@ data class SessionsSendInput(
             attachmentIds: List<String>? = null,
             /** EXP-1450: the composer's issue chips, forwarded onto the DM. */
             issueIds: List<String>? = null,
+            /** #EXP-1715: the Assistant's Teams pick ([scope]); null = omitted. */
+            scopeTeamIds: JsonElement? = null,
         ): SessionsSendInput = SessionsSendInput(
             agentId = agentId,
             text = text?.takeIf { it.isNotBlank() },
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
             issueIds = issueIds?.takeIf { it.isNotEmpty() },
+            scopeTeamIds = scopeTeamIds,
         )
 
         /**
@@ -154,10 +169,13 @@ data class SessionsSendInput(
             sessionId: String,
             text: String,
             attachmentIds: List<String>? = null,
+            /** #EXP-1715: the Assistant's Teams pick ([scope]); null = omitted. */
+            scopeTeamIds: JsonElement? = null,
         ): SessionsSendInput = SessionsSendInput(
             sessionId = sessionId,
             text = text,
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
+            scopeTeamIds = scopeTeamIds,
         )
 
         /**

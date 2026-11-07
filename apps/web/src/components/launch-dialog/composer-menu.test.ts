@@ -4,6 +4,7 @@ import searchList from "@exp/domain-contract/fixtures/search-list.json"
 import icons from "@exp/icons/icons.json"
 import { contract } from "@exp/domain-contract"
 import {
+  teamsPickValue,
   COMPOSER_FILE_CHOICES,
   COMPOSER_MENU_TEST_IDS,
   composerFileChoiceTestId,
@@ -35,7 +36,7 @@ describe(`composerMenuLayout`, () => {
     it(testCase.name, () => {
       const layout = composerMenuLayout(
         testCase.surface as ComposerMenuSurface,
-        testCase.conditions as ComposerMenuConditions
+        testCase.conditions as Partial<ComposerMenuConditions>
       )
       expect(
         layout.map((entry) => (entry.kind === `separator` ? `-` : entry.id))
@@ -57,6 +58,8 @@ describe(`composerMenuLayout`, () => {
       skills: true,
       computerUse: true,
       prompts: true,
+      assistant: true,
+      teams: true,
     })
     expect(all.filter((e) => e.kind !== `separator`)).toHaveLength(
       fixture.rows.filter((r) => r.kind !== `separator`).length
@@ -107,6 +110,14 @@ describe(`implementButtonLabel`, () => {
   for (const testCase of fixture.implementLabels) {
     it(`${testCase.count} → ${testCase.expected}`, () => {
       expect(implementButtonLabel(testCase.count)).toBe(testCase.expected)
+    })
+  }
+})
+
+describe(`teamsPickValue (#EXP-1715)`, () => {
+  for (const testCase of fixture.teamsPick.valueCases) {
+    it(testCase.name, () => {
+      expect(teamsPickValue(testCase.picked, testCase.teams)).toBe(testCase.expected)
     })
   }
 })

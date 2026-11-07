@@ -1,5 +1,6 @@
 package com.exponential.app.ui.agent
 
+import com.exponential.app.data.browseTeamIdFlow
 import com.exponential.app.data.routeTeamIdFlow
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
@@ -65,6 +66,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -141,11 +143,14 @@ internal fun agentForwardInput(
     attachmentIds: List<String>,
     issueIds: List<String>?,
     identifierOf: Map<String, String>,
+    /** #EXP-1715: the Assistant's Teams pick wire ([SessionsSendInput.scope]); null = not the Assistant. */
+    scopeTeamIds: kotlinx.serialization.json.JsonElement? = null,
 ): SessionsSendInput = SessionsSendInput.toAgent(
     agentId = agentId,
     text = SessionBrief.agentForwardText(text.orEmpty(), issueIds.orEmpty().mapNotNull(identifierOf::get)),
     attachmentIds = attachmentIds,
     issueIds = issueIds,
+    scopeTeamIds = scopeTeamIds,
 )
 
 /** The subject after [control] changed ([pick] = the agent row's tap). */
@@ -241,6 +246,13 @@ class AgentComposerViewModel @Inject constructor(
      */
     val teamId: StateFlow<String?> =
         routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
+
+    /** #EXP-1714: the team the `#` issues, `@` members and skills read —
+     *  [teamId] unless that is the unsynced personal team (a resumed global
+     *  Assistant thread), then the selected team. Uploads/starts keep [teamId]. */
+    private val browseTeamId: StateFlow<String?> =
+        browseTeamIdFlow(dbFlow, teamId, selection.selectedId)
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
 
     // ── The shared launch rails ─────────────────────────────────────────────
@@ -516,7 +528,7 @@ class AgentComposerViewModel @Inject constructor(
      * typed `#APP-3` renders as (the AgentSessionViewModel shape, status
      * glyph precomputed).
      */
-    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = teamId
+    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = browseTeamId
         .flatMapLatest { teamId ->
             if (teamId == null) {
                 flowOf(emptyList())
@@ -547,7 +559,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
         val accountId = auth.activeAccountId.value ?: return emptyList()
-        val team = teamId.value ?: return emptyList()
+        val team = browseTeamId.value ?: return emptyList()
         return try {
             issuesApi.search(accountId, team, query).map(::issueRefTarget)
         } catch (e: CancellationException) {
@@ -558,7 +570,7 @@ class AgentComposerViewModel @Inject constructor(
     }
 
     /** The team's members — the `@` vocabulary (stored as the plain `@email`). */
-    val mentionMembers: StateFlow<List<MentionMember>> = teamId
+    val mentionMembers: StateFlow<List<MentionMember>> = browseTeamId
         .flatMapLatest { teamId ->
             if (teamId == null) {
                 flowOf(emptyList())
@@ -661,6 +673,21 @@ class AgentComposerViewModel @Inject constructor(
      *  the send as `issueIds`. */
     private val _recipient = MutableStateFlow<String?>(null)
     val recipient: StateFlow<String?> = _recipient
+
+    // ── #EXP-1715: the Assistant's Teams pick (composer-menu.json `teamsPick`)
+    private val _teamsPick = MutableStateFlow<List<String>?>(null)
+    /** The pick while the recipient is the viewer's Assistant; null = every team. */
+    val teamsPick: StateFlow<List<String>?> = _teamsPick
+
+    fun setTeamsPick(next: List<String>?) {
+        _teamsPick.value = next
+    }
+
+    /** The viewer's synced teams, the pick's rows (the switcher's order). */
+    val pickTeams: StateFlow<List<PickTeam>> =
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.TeamEntity>()) { it.teamDao().observeAll() }
+            .map(::pickTeams)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The row's resolved agent (null = Temporary session). Never touches
      *  the subject: a late agents snapshot must not drop a seeded prompt. */
@@ -994,14 +1021,22 @@ class AgentComposerViewModel @Inject constructor(
      * (the delegate's `startedSessionId`) and clears the draft.
      */
     private fun submitToAgent(agentId: String, issueIds: List<String>?) {
-        val teamId = teamId.value ?: return
+        val composerTeamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
         val draftText = _draft.value
         val images = _images.value
         val subject = _subject.value
+        val me = auth.userId.value
+        val teamsPicked = _teamsPick.value
         store.launchDetached {
             _sending.value = true
             try {
+                // #EXP-1715: the viewer's Assistant carries the turn's teams
+                // (null = every team) and, #EXP-1714, takes the files into its
+                // own (personal) team, where its chat claims them.
+                val agent = holder.database(forAccountId = accountId).agentDefinitionDao().observeById(agentId).first()
+                val assistant = agent != null && agent.isAssistant && agent.ownerId == me
+                val teamId = if (assistant) agent!!.teamId.ifEmpty { composerTeamId } else composerTeamId
                 val sent = try {
                     uploadPending(accountId, teamId, images)
                 } catch (t: Throwable) {
@@ -1025,6 +1060,7 @@ class AgentComposerViewModel @Inject constructor(
                         attachmentIds = sent.mapNotNull { it.uploadedId },
                         issueIds = issueIds,
                         identifierOf = forwarded.associate { it.id to it.identifier },
+                        scopeTeamIds = if (assistant) SessionsSendInput.scope(teamsPicked) else null,
                     ),
                 ) != null
                 if (accepted) settleSentDraft(draftText, sent, subject)

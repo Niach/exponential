@@ -1,6 +1,8 @@
 import { useMemo } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
-import { agentCollection } from "@/lib/collections"
+import { and, eq, useLiveQuery } from "@tanstack/react-db"
+import { agentsInTeam } from "@exp/domain-contract/agent-settings"
+import { agentCollection, sessionCollection, teamCollection } from "@/lib/collections"
+import type { SessionRow } from "@/lib/session-tree"
 import type { SyncedAgent } from "@/components/team/agents-section"
 
 // NEW-2: one synced `agents` definition row (Settings → Agents, the agent's
@@ -38,4 +40,39 @@ export function useAgentRows(teamId: string | null | undefined): SyncedAgent[] {
 export function useAllAgentRows(): SyncedAgent[] {
   const { data } = useLiveQuery((query) => query.from({ agents: agentCollection }))
   return useMemo(() => (data ?? []) as SyncedAgent[], [data])
+}
+
+/** #EXP-1714 (agent-settings.json `assistant.teamAgentsCases`): the agents
+ *  `teamIds` list: each team's own rows plus the viewer's global Assistant
+ *  (its team is none of the synced teams: a personal team never syncs). */
+export function useTeamAgentRows(teamIds: readonly string[], me: string | null | undefined): SyncedAgent[] {
+  const all = useAllAgentRows()
+  const { data: teams } = useLiveQuery((query) => query.from({ teams: teamCollection }))
+  const key = teamIds.join(`,`)
+  return useMemo(() => {
+    const synced = (teams ?? []).map((team) => team.id)
+    const seen = new Set<string>()
+    return teamIds
+      .flatMap((teamId) => agentsInTeam(all, teamId, synced, me))
+      .filter((agent) => !seen.has(agent.id) && Boolean(seen.add(agent.id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [all, teams, key, me])
+}
+
+/** The viewer's conversation with an agent (its root: `agentId`, theirs),
+ *  in ANY team: #EXP-1714, the global Assistant's lives in the personal team. */
+export function useMyAgentConversation(agentId: string | null | undefined, me: string | null | undefined): SessionRow | null {
+  const { data } = useLiveQuery(
+    (query) =>
+      agentId && me
+        ? query
+            .from({ sessions: sessionCollection })
+            .where(({ sessions }) => and(eq(sessions.agentId, agentId), eq(sessions.userId, me)))
+        : undefined,
+    [agentId ?? null, me ?? null]
+  )
+  return useMemo(
+    () => ((data ?? []) as SessionRow[]).find((row) => row.parentId === null) ?? null,
+    [data]
+  )
 }

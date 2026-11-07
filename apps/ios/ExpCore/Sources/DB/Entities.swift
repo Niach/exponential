@@ -460,6 +460,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// #VAPP-229: the app whose exposed tool started it ("via <app>",
     /// via-app.json). NOT `appId` (the app an EDITOR session edits).
     public let viaAppId: String?
+    /// #EXP-1715/#EXP-1720: the Assistant conversation ROOT's Teams pick
+    /// (`sessions.scope_team_ids`, uuid[] on the wire, JSON text here);
+    /// nil = every team.
+    public let scopeTeamIds: [String]?
 
     public init(
         id: String,
@@ -498,8 +502,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         sealPublicKey: String? = nil,
         sealEpoch: Int? = nil,
         sealedTitle: String? = nil,
-        viaAppId: String? = nil
+        viaAppId: String? = nil,
+        scopeTeamIds: [String]? = nil
     ) {
+        self.scopeTeamIds = scopeTeamIds
         self.sealPublicKey = sealPublicKey
         self.sealEpoch = sealEpoch
         self.sealedTitle = sealedTitle
@@ -573,6 +579,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case sealEpoch = "seal_epoch"
         case sealedTitle = "sealed_title"
         case viaAppId = "via_app_id"
+        case scopeTeamIds = "scope_team_ids"
     }
 }
 
@@ -628,6 +635,11 @@ extension SessionEntity: Codable {
         sealedTitle = try c.decodeIfPresent(String.self, forKey: .sealedTitle)
         // #VAPP-229: absent on a pre-rotation snapshot.
         viaAppId = try? c.decodeIfPresent(String.self, forKey: .viaAppId)
+        // #EXP-1715: `{a,b}` off the wire, JSON text out of GRDB; null, or
+        // absent on a pre-v102 row / an older server = every team.
+        scopeTeamIds = (try? c.decodeNil(forKey: .scopeTeamIds)) == false
+            ? c.decodeWireStringList(forKey: .scopeTeamIds)
+            : nil
     }
 }
 

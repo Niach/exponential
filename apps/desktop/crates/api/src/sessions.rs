@@ -119,6 +119,11 @@ pub struct SendInput {
     /// the plaintext `name` stays neutral or absent).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sealed_name: Option<String>,
+    /// #EXP-1715 (composer-menu.json `teamsPick`): a turn to the viewer's
+    /// Assistant carries its Teams pick; `Some(None)` = every team (sent as
+    /// null), `None` = omitted (any other recipient).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_team_ids: Option<Option<Vec<String>>>,
 }
 
 /// EXP-1458 `sessions.send` `seal`: the new tree's key, wrapped for every

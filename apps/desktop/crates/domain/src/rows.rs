@@ -29,7 +29,7 @@ use crate::enums::{IssuePriority, IssueStatus};
 pub use crate::sealed::SealState;
 use crate::hydrate::{
     tolerant_bool_or_false, tolerant_i64, tolerant_id_list, tolerant_opt_bool, tolerant_opt_f64,
-    tolerant_opt_i64, tolerant_opt_json,
+    tolerant_opt_i64, tolerant_opt_id_list, tolerant_opt_json,
 };
 
 /// `teams` shape row. Teams are always private — the shape carries
@@ -823,6 +823,11 @@ pub struct SessionRow {
     /// read through [`crate::session_results`].
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub guide: Option<serde_json::Value>,
+    /// #EXP-1715 / #EXP-1720: the Assistant conversation root's Teams pick
+    /// (composer-menu.json `teamsPick`); `None` = every team (null, absent,
+    /// empty or unparsable alike).
+    #[serde(default, deserialize_with = "tolerant_opt_id_list")]
+    pub scope_team_ids: Option<Vec<String>>,
     /// #VAPP-229: the app whose tool started it (NOT [`Self::app_id`], an
     /// editor session's app) — the session view reads `via <app>`.
     #[serde(default)]

@@ -10,6 +10,7 @@ import { resolveSessionDevice } from "@/lib/session-device"
 import { useNow } from "@/hooks/use-now"
 import { useTeamById } from "@/hooks/use-team-data"
 import { useAgents, useDigestMessages, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
+import { useTeamAgentRows } from "@/hooks/use-agent-row"
 import { sessionTarget } from "@/lib/session-back"
 import type { Device } from "@/db/schema"
 import { prMergeState, type PullRequestRow, type SessionRow } from "@/lib/session-tree"
@@ -48,9 +49,13 @@ export function useNeedsYou(
   me: string | null | undefined,
   owner = false
 ): { rows: NeedsYouListRow[]; isReady: boolean } {
-  const { rows: sessions, isReady: sessionsReady } = useTeamSessions(teamId ?? undefined)
+  // #EXP-1714: the team's sessions + the viewer's global Assistant's (its
+  // conversation lives in their personal team, never a synced team).
+  const teamAgents = useTeamAgentRows(teamId ? [teamId] : [], me)
+  const personal = teamAgents.find((agent) => agent.teamId !== teamId)?.teamId ?? null
+  const teamIds = useMemo(() => (teamId ? (personal ? [teamId, personal] : [teamId]) : []), [teamId, personal])
+  const { rows: sessions, isReady: sessionsReady } = useTeamSessions(teamIds)
   const { agents } = useAgents(teamId ?? undefined, me)
-  const teamIds = useMemo(() => (teamId ? [teamId] : []), [teamId])
   const { messages, isReady: digestsReady } = useDigestMessages({ teamIds })
   const { all: pullRequests } = useTeamPullRequestsByRoot(teamId ?? undefined)
   const now = useNow(60_000).getTime()

@@ -271,6 +271,15 @@ fun AgentScreen(
     // the issue chips forwarded).
     val recipientId by viewModel.recipient.collectAsStateWithLifecycle()
     val recipientAgent = recipientId?.let { picked -> agents.firstOrNull { it.agentId == picked } }
+    // #EXP-1715 (composer-menu.json `teamsPick`): a message to the viewer's
+    // Assistant carries the turn's teams (null = every team).
+    val pickTeamRows by viewModel.pickTeams.collectAsStateWithLifecycle()
+    val teamsPicked by viewModel.teamsPick.collectAsStateWithLifecycle()
+    val teamsPick = if (recipientAgent?.assistant == true) {
+        TeamsPickBinding(pickTeamRows, teamsPicked, viewModel::setTeamsPick)
+    } else {
+        null
+    }
     // NEW-2: the picked saved prompt's synced row (its chip).
     val selectedAction = actionSubject?.let { picked ->
         actionsState.actions?.firstOrNull { it.id == picked.id }
@@ -721,6 +730,7 @@ fun AgentScreen(
                             submitLabel = submitLabel,
                             canSubmit = canSubmit,
                             onSubmit = { viewModel.submit(resumeCandidate != null) },
+                            teams = teamsPick,
                         )
                       }
                     }
@@ -822,6 +832,8 @@ fun AgentScreen(
                     skills = skills.isNotEmpty(),
                     computerUse = device?.canToggleComputerUse == true,
                     prompts = teamPrompts.isNotEmpty(),
+                    assistant = teamsPick != null,
+                    teams = (teamsPick?.teams?.size ?: 0) > 1,
                 ),
             ),
             codex = launch.agent == "codex",
@@ -868,13 +880,14 @@ fun AgentScreen(
             },
             values = mapOf(
                 ComposerMenuRowId.Skills to skillsMenuValue(skillIds.size),
+                ComposerMenuRowId.Teams to teamsPick?.value,
                 ComposerMenuRowId.Device to device?.let(::deviceOptionLabel),
                 ComposerMenuRowId.Account to account?.toPickerAccount()?.email,
                 ComposerMenuRowId.Model to modelLabel(launch.model),
                 ComposerMenuRowId.Repository to teamRepos.firstOrNull { it.id == chatRepoId }?.fullName,
             ),
             // S-3: THE existing pickers' rows, inline in the pushed page.
-            pages = mapOf(
+            pages = teamsPagePlus(teamsPick, mapOf(
                 // #EXP-1434: the `/` menu's pick: the prompt becomes the
                 // new session's subject.
                 ComposerMenuRowId.Prompts to { close ->
@@ -941,7 +954,7 @@ fun AgentScreen(
                         onOpenChange = { open -> if (!open) close() },
                     )
                 },
-            ),
+            )),
         )
     }
     if (effortPickerOpen) {

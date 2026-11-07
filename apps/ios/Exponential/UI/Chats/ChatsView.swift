@@ -143,9 +143,12 @@ struct ChatsView: View {
     }
 
     /// The active team's agents in `listAgents` order (the viewer's
-    /// Assistant first; another member's never).
+    /// Assistant first; another member's never). #EXP-1714: the viewer's
+    /// global Assistant (its team never syncs) lists in every team.
     private var teamAgents: [AgentRow] {
-        lists.agents.filter { $0.teamId == teamState.activeTeamId }
+        AgentSettings.agentsInTeam(
+            lists.agents, teamId: teamState.activeTeamId, teamIds: teamState.teams.map(\.id)
+        )
     }
 
     /// S-3: the AGENTS section pinned on top (`agentChatRows`).

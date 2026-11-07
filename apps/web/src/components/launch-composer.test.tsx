@@ -127,6 +127,7 @@ function fakeLaunch(): LaunchOptions {
 function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposerModel {
   return {
     teamId: `t1`,
+    teams: null,
     subject: null,
     selectedPrompt: null,
     prompts: [teamPrompt(`pr-1`, `Triage`), teamPrompt(`pr-2`, `Release train`)],

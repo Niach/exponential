@@ -79,7 +79,9 @@ import androidx.room.TypeConverters
     //      [MIGRATION_117_118]; only the app_records shape refetches.
     // v119 (#EXP-1710): pull_requests.merge_* + teams.merge_mode (the merge
     //      train), explicit [MIGRATION_118_119]; only those two shapes refetch.
-    version = 119,
+    // v120 (#EXP-1715): sessions.scope_team_ids (the Assistant's Teams pick),
+    //      explicit [MIGRATION_119_120]; only the sessions shape refetches.
+    version = 120,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

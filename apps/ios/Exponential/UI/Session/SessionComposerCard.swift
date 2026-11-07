@@ -300,6 +300,12 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(fieldIdentifier ?? "session-composer-field")
         } strip: {
+            // #EXP-1715: the Assistant's picked teams (a subset only).
+            if let teams = controls?.teams {
+                TeamsPickChips(binding: teams, disabled: draft.steerSending)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+            }
             if draft.hasPendingAttachments {
                 PendingAttachmentStrip(
                     items: PendingStripItem.steer(images: draft.pendingImages, files: draft.pendingFiles)
@@ -395,6 +401,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                 controls.onPickPrompt(prompt)
                 attach.plusMenu = false
             },
+            teams: controls.teams,
             addFileEnabled: !draft.attachFull && !draft.steerSending,
             onPick: { row in
                 plusPick = row

@@ -76,7 +76,7 @@ class ShareTargetPickerViewModel @Inject constructor(
         selection.selectedId,
         auth.userId,
     ) { teams, agents, teamId, me ->
-        val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), teamId, me)
+        val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), teamId, me, teams.map { it.id })
         val row = com.exponential.app.ui.agent.composerAgentRowState(listed, me, null)
         ShareToState(
             teams = teams,

@@ -349,5 +349,30 @@ object AgentSettings {
                         .thenBy { row(it).sortOrder }
                         .thenComparator { a, b -> compareNames(row(a).name, row(b).name) },
                 )
+
+        data class TeamAgentLike(val teamId: String, val role: String?, val ownerId: String?)
+
+        /** #EXP-1714 (`teamAgentsCases`): the agents a team lists = its own rows
+         *  (input order) + the viewer's global Assistant (its team is none of the
+         *  synced `teamIds`, i.e. their personal team) while the team holds no
+         *  Assistant row of theirs. */
+        fun <T> agentsInTeam(agents: List<T>, teamId: String, teamIds: Collection<String>, me: String?, row: (T) -> TeamAgentLike): List<T> {
+            val own = agents.filter { row(it).teamId == teamId }
+            if (own.any { row(it).let { r -> isAssistant(r.role) && r.ownerId == me } }) return own
+            val global = agents.firstOrNull { row(it).let { r -> isAssistant(r.role) && r.ownerId == me && r.teamId !in teamIds } }
+            return if (global != null) listOf(global) + own else own
+        }
+
+        /** #EXP-1714: the team a composer BROWSES (`/` prompts, `#` issues,
+         *  `@` members): its own team when that is a synced team, else the
+         *  active one (the global Assistant's personal team never syncs).
+         *  Uploads and sends keep the own team. No synced teams yet = own. */
+        fun browseTeam(own: String?, teamIds: Collection<String>, active: String?): String? =
+            if (own != null && teamIds.isNotEmpty() && own !in teamIds) active else own
+
+        /** #EXP-1714: a team-scoped session list also keeps the viewer's own
+         *  sessions that sit in no synced team (their personal team). */
+        fun inTeamOrPersonal(sessionTeamId: String, userId: String?, teamId: String, teamIds: Collection<String>, me: String?): Boolean =
+            sessionTeamId == teamId || (me != null && userId == me && teamIds.isNotEmpty() && sessionTeamId !in teamIds)
     }
 }

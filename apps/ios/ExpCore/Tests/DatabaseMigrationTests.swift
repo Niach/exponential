@@ -144,7 +144,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
-             "v100_app_record_share_name", "v101_merge_train"]
+             "v100_app_record_share_name", "v101_merge_train",
+             "v102_session_scope_team_ids"]
         )
     }
 
@@ -210,7 +211,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
-             "v100_app_record_share_name", "v101_merge_train"]
+             "v100_app_record_share_name", "v101_merge_train",
+             "v102_session_scope_team_ids"]
         )
     }
 
@@ -748,7 +750,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
-             "v100_app_record_share_name", "v101_merge_train"]
+             "v100_app_record_share_name", "v101_merge_train",
+             "v102_session_scope_team_ids"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -862,7 +865,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
-             "v100_app_record_share_name", "v101_merge_train"]
+             "v100_app_record_share_name", "v101_merge_train",
+             "v102_session_scope_team_ids"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1908,7 +1912,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
              "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
              "agent_instructions_at", "started_by_agent_id", "background",
-             "seal_public_key", "seal_epoch", "sealed_title", "via_app_id"]
+             "seal_public_key", "seal_epoch", "sealed_title", "via_app_id", "scope_team_ids"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
@@ -4271,6 +4275,59 @@ final class DatabaseMigrationTests: XCTestCase {
     // #EXP-1710: v101 adds the merge train's `pull_requests` columns and
     // `teams.merge_mode` (existing rows = checks / auto), resetting the
     // pull-requests and teams cursors; wire rows round-trip.
+    // #EXP-1715: v102 adds `sessions.scope_team_ids`, resetting ONLY the
+    // sessions cursor; a wire row's `{a,b}` round-trips through the store,
+    // null and absent read as every team (nil).
+    func testSessionScopeTeamIdsAdded() throws {
+        let pool = try makePool("exp1715-scope-team-ids")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v101_merge_train")
+        try pool.write { db in
+            for shape in ["sessions", "messages"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "sessions").contains("scope_team_ids"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v102_session_scope_team_ids"))
+        XCTAssertTrue(try columnNames(pool, "sessions").contains("scope_team_ids"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["sessions"])
+        }
+        let picked = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-1","team_id":"p","user_id":"u","device_id":"d","scope_team_ids":"{t-1,t-2}",
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertEqual(picked.scopeTeamIds, ["t-1", "t-2"])
+        let every = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-2","team_id":"p","user_id":"u","device_id":"d","scope_team_ids":null,
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertNil(every.scopeTeamIds)
+        let legacy = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-3","team_id":"p","user_id":"u","device_id":"d","created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertNil(legacy.scopeTeamIds)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.write { db in
+            try picked.save(db)
+            try every.save(db)
+        }
+        try pool.read { db in
+            XCTAssertEqual(try SessionEntity.fetchOne(db, key: "s-1")?.scopeTeamIds, ["t-1", "t-2"])
+            XCTAssertNil(try SessionEntity.fetchOne(db, key: "s-2")?.scopeTeamIds)
+        }
+    }
+
     func testMergeTrainColumnsAdded() throws {
         let pool = try makePool("exp1710-merge-train")
         let migrator = DatabaseManager.makeMigrator()
