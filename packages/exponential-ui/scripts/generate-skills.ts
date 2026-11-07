@@ -181,7 +181,7 @@ function appsSkill(): Files {
       `- Declare every record kind with a schema; pick its \`policy\` (read/create/update/delete: member | author | owners; create never author) before writing screens.`,
       `- A kind's add/edit form or its list of records = ONE \`RecordForm\` / \`RecordTable\` node (\`references/records.md\`, Record macros), never a hand-built Form or Table.`,
       `- Prefer a named query (group, aggregate, running) over summing rows in expressions.`,
-      `- A field not in \`required\` may be missing: guard it (\`has(r.f)\`, \`orElse(r.f, d)\`), else the upsert is refused at that path. Every \`{"@call": "expr"}\` has a \`default\`.`,
+      `- A field not in \`required\` may be missing: guard it (\`has(r.f)\`, \`orElse(r.f, d)\`), else the upsert is refused at that path. Every \`{call: "expr"}\` has a \`default\`.`,
       `- Writes that must land together are one action; check inputs with \`require\` steps.`,
       `- Add a test for every expression, query and action: a failing test refuses the upsert as \`/tests/<i>\`.`,
       `- A spreadsheet to import: \`references/import.md\` (map, dry run, ask, then write in batches).`,

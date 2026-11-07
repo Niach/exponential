@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { resolveDynamic, sourceWithParams } from "@exponential_app/eui"
-import { parseSource } from "@exponential_app/eui"
+import { bridgePackage, parseSource } from "@exponential_app/eui"
 import { parseRecordsQuery } from "@exponential_app/eui/host/query"
 import template from "@exp/ui/exponential-ui/templates/working-hours.json"
 import { validateAppPackage } from "@/lib/apps/package"
@@ -9,13 +9,15 @@ import { validateAppPackage } from "@/lib/apps/package"
 // and member picker re-bind the entries through `bind`; with nobody picked
 // (`/who` = "") the query must stay the viewer's own rows (`mine=1`), with a
 // member picked it must be that member's (`user=<id>`, `mine=0`).
-type Component = { id: string; on?: Record<string, { functionCall: { call: string; args: Record<string, unknown> } }> }
-const components = (template as { templates: { month: { components: Component[] } } }).templates.month.components
-const data = (template as { templates: { month: { data: Record<string, unknown> } } }).templates.month.data
+type Component = { id: string; on?: Record<string, { functionCall: { "@call": string; args: Record<string, unknown> } }> }
+// The template stays format 5 until the flag day; every client runs its upgrade.
+const upgraded = bridgePackage(template) as unknown as { templates: { month: { components: Component[]; data: Record<string, unknown> } } }
+const components = upgraded.templates.month.components
+const data = upgraded.templates.month.data
 
 function rebind(id: string, event: string, who: string) {
   const call = components.find((c) => c.id === id)!.on![event]!.functionCall
-  expect(call.call).toBe(`bind`)
+  expect(call[`@call`]).toBe(`bind`)
   const args = resolveDynamic(call.args, { ...data, who, entries: { ...(data.entries as object), month: { key: `2026-10`, prev: `2026-09`, next: `2026-11` } } }) as { source: string; params: Record<string, unknown> }
   const source = parseSource(sourceWithParams(args.source, args.params))!
   expect(source.scheme).toBe(`records`)
@@ -39,7 +41,7 @@ describe(`the Working hours template (VAPP-119 / VAPP-153)`, () => {
   it(`declares the typed comment action and resolves its arguments (VAPP-120)`, () => {
     expect((template as { functions: string[] }).functions).toContain(`exponential.comments.create`)
     const call = components.find((c) => c.id === `postComment`)!.on!.press!.functionCall
-    expect(call.call).toBe(`exponential.comments.create`)
+    expect(call[`@call`]).toBe(`exponential_comments_create`)
     const args = resolveDynamic(call.args, { ...data, draft: { ...(data.draft as object), issues: [`APP-5`], hours: 3, note: `docs` } }) as Record<string, unknown>
     expect(args).toEqual({ issueId: `APP-5`, body: `Logged 3 h: docs` })
   })
