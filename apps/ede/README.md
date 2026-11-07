@@ -655,7 +655,7 @@ to go. The contract is `packages/ede` (#EDE-8): its fixtures are the spec and
 {
   "surface": {"layer": "top", "anchor": ["top", "left", "right"], "size": {"height": 40}, "exclusiveZone": 40},
   "root": {"id": "panel", "component": "Box", "style": {"display": "flex"},
-           "children": [{"id": "clock", "component": "Text", "props": {"text": {"path": "/time"}}}]},
+           "children": [{"id": "clock", "component": "Text", "props": {"text": {"@path": "/time"}}}]},
   "data": {"time": "12:00"}
 }
 ```

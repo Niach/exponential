@@ -193,7 +193,7 @@ final class RunnerKitTests: XCTestCase {
         XCTAssertNil(s.failure)
         let installed = painter.last("install")!.1
         XCTAssertEqual(templateRoot(installed, "albums"), "Stack", "compact = the Tabs shell")
-        XCTAssertTrue(installed.contains("runner-tabs") && !installed.contains(#""component":"Sidebar""#))
+        XCTAssertTrue(installed.contains("runner_tabs") && !installed.contains(#""component":"Sidebar""#))
         XCTAssertTrue(installed.contains("runner.permissions"), "an ask scope = the Permissions entry")
         XCTAssertEqual(painter.opened, ["albums"], "launch opens the first navigation screen")
         // Wider than md: re-install the Sidebar shell and re-apply the open screen.
@@ -201,7 +201,7 @@ final class RunnerKitTests: XCTestCase {
         s.settle()
         let wide = painter.last("install")!.1
         XCTAssertTrue(wide.contains(#""component":"Sidebar""#), "wide = the Sidebar shell")
-        XCTAssertTrue(wide.contains("runner-scroll") && !wide.contains("runner-tabs"))
+        XCTAssertTrue(wide.contains("runner_scroll") && !wide.contains("runner_tabs"))
         XCTAssertEqual(painter.opened, ["albums", "albums"])
         // A package without screens gets one: the plain launch opens it.
         var bare = samplePackage

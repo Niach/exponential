@@ -159,7 +159,7 @@ fn the_flat_form_and_data_build_a_surface() {
         "surface": {"size": {"width": 320, "height": 200}},
         "components": [
             {"id": "root", "component": "Box", "children": ["title"]},
-            {"id": "title", "component": "Text", "text": {"path": "/title"}}
+            {"id": "title", "component": "Text", "text": {"@path": "/title"}}
         ],
         "data": {"title": "Files"}
     });
