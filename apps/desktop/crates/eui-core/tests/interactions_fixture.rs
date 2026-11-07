@@ -113,7 +113,7 @@ fn check_cases_fail_and_pass_like_the_reference() {
     }
 }
 
-fn states(s: &Surface, id: &str) -> Vec<String> {
+fn states(s: &mut Surface, id: &str) -> Vec<String> {
     s.nodes().into_iter().find(|n| n.id == id).map(|n| n.states.clone()).unwrap_or_default()
 }
 
@@ -155,7 +155,7 @@ fn check_severities_show_one_message_and_only_an_error_blocks() {
                 assert_eq!(part.states, vec![state.to_string()], "{name}: part state");
             }
         }
-        assert_eq!(json!(states(&s, "x.field").contains(&"invalid".to_string())), c["invalid"], "{name}: field invalid");
+        assert_eq!(json!(states(&mut s, "x.field").contains(&"invalid".to_string())), c["invalid"], "{name}: field invalid");
     }
 }
 

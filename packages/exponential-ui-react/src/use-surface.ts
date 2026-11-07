@@ -67,9 +67,9 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
   const catalogId = options.catalogId ?? CORE_CATALOG_ID
   // The latest extensions, read when the store reduces.
   const latest = useRef(extensions)
-  const made = useRef<{ store: SurfaceStore; start: { catalogId: string; nested: NestedNode | null; data: DataModel } } | null>(null)
+  const made = useRef<{ store: SurfaceStore; start: { catalogId: string; nested: NestedNode | null; data: Record<string, unknown> } } | null>(null)
   if (made.current?.store.surfaceId !== surfaceId) {
-    const start = made.current?.start ?? { catalogId, nested: options.initial ?? null, data: options.data ?? {} }
+    const start = made.current?.start ?? { catalogId, nested: options.initial ?? null, data: (options.data ?? {}) as Record<string, unknown> }
     made.current = { start, store: new SurfaceStore(surfaceId, start.catalogId, () => latest.current, { nested: start.nested ?? undefined, data: start.data }) }
   }
   const { store, start } = made.current
@@ -79,6 +79,7 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
   }
   useSyncExternalStore(
     useCallback((notify: () => void) => store.subscribe(notify), [store]),
+    () => store.version,
     () => store.version
   )
 

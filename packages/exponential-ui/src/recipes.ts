@@ -7,6 +7,7 @@
 import recipesJson from "../catalog/recipes.json" with { type: "json" }
 import { catalogView } from "./catalog"
 import type { CatalogView } from "./catalog"
+import type { RecipeQuery } from "./theme-types"
 import type { ExtensionDef, MacroChild, MacroDef } from "./types"
 
 export const RECIPE_STATES: readonly string[] = recipesJson.states

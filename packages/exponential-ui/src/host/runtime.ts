@@ -4,13 +4,13 @@
 // renderer (React: `@exponential_app/eui-react` `<HostSurface>`) paints a
 // store and hands its interactions back through `dispatch`.
 
-import { evaluateCall, writePointer } from "../dynamic"
+import { evaluateCall } from "../dynamic"
 import type { Failure, RouteAnswer, RoutedCall } from "../dynamic"
 import { declaredFunction } from "../functions"
 import { tryLoadTheme } from "../theme"
 import type { ResolvedTheme } from "../theme-types"
 import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
-import type { ExtensionDef, FlatComponent, ReduceIssue, UiNode } from "../types"
+import type { ExtensionDef, FlatComponent } from "../types"
 import { RENDER_FAILED, actionMessage, callAgentFunctionMessage, errorMessage, rendererFunctionResponse } from "./contract"
 import type { ClientMessage, HostOp } from "./contract"
 import { availableExtensions, rendererCapabilities } from "./package"

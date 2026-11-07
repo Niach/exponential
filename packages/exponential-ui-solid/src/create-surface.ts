@@ -64,7 +64,7 @@ export interface SurfaceState {
 export function createSurface(options: CreateSurfaceOptions = {}): SurfaceState {
   const surfaceId = options.surfaceId ?? `main`
   const extensions = options.extensions ?? []
-  const start = { catalogId: options.catalogId ?? CORE_CATALOG_ID, nested: options.initial ?? null, data: options.data ?? {} }
+  const start = { catalogId: options.catalogId ?? CORE_CATALOG_ID, nested: options.initial ?? null, data: (options.data ?? {}) as Record<string, unknown> }
   const store = new SurfaceStore(surfaceId, start.catalogId, () => extensions, { nested: start.nested ?? undefined, data: start.data })
   // The tree and the data are separate signals: a data write never touches
   // what reads the tree (and the store never re-reduces for it).

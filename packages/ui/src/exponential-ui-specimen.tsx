@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react"
 import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
 import specimens from "@exponential_app/eui/fixtures/specimens.json"
-import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
+import { ExponentialSurface, FormContext, useSurface, type FormContextValue } from "@exponential_app/eui-react"
 import { planCardHost } from "./plan-card"
 
 // VAPP-162: ONE Exponential UI specimen (`@exponential_app/eui`
@@ -42,6 +42,37 @@ export function ExponentialUiSpecimen({
   return (
     <div data-slot="exponential-ui-specimen" data-specimen={id}>
       <ExponentialSurface surface={surface} host={host} theme={DEFAULT_THEME_ID} mode={mode} />
+    </div>
+  )
+}
+
+/** Round 9 §6.6: one Input per check severity, its message showing (the
+ *  `attempts` of a refused submit reveal a field's checks at first paint). */
+const FIELD_STATES: NestedNode = {
+  id: `field-states`,
+  component: `Stack`,
+  props: { gap: `md` },
+  children: [
+    [`email`, `Email`, `ada@`, `/error`],
+    [`password`, `Password`, `hunter2`, `/warning`],
+    [`nickname`, `Nickname`, `ada`, `/info`],
+  ].map(([id, label, value, path]) => ({ id: id!, component: `Input`, props: { label, name: id, value, validateOn: `submit`, checks: [{ condition: { "@path": path } }] } })),
+} as NestedNode
+const FIELD_STATE_DATA = {
+  error: { valid: false, severity: `error`, message: `Not an email` },
+  warning: { valid: false, severity: `warning`, message: `Weak: add a few more characters` },
+  info: { valid: false, severity: `info`, message: `Shown on your profile` },
+}
+const SHOWN_CHECKS: FormContextValue = { register: () => () => {}, submit: () => {}, changed: () => {}, disabled: false, busy: false, attempts: 1 }
+
+export function ExponentialUiFieldStates({ mode = `dark` }: { mode?: `light` | `dark` }) {
+  const surface = useSurface({ surfaceId: `sg-field-states`, catalogId: CORE_CATALOG_ID, initial: FIELD_STATES, data: FIELD_STATE_DATA })
+  const host = useMemo(() => planCardHost(), [])
+  return (
+    <div data-slot="exponential-ui-specimen" data-specimen="field-states">
+      <FormContext.Provider value={SHOWN_CHECKS}>
+        <ExponentialSurface surface={surface} host={host} theme={DEFAULT_THEME_ID} mode={mode} />
+      </FormContext.Provider>
     </div>
   )
 }
