@@ -127,6 +127,20 @@ fn shell_sidebar_frames() {
         }
         let shot = cx.capture_screenshot(window).expect("the frame");
         shot.save(std::path::Path::new(&dir).join("ide-sidebar.png")).expect("the PNG");
+        crate::ui_prefs::set_rail(true);
+        cx.update(|cx| cx.refresh_windows());
+        cx.update(|cx| {
+            let rail = handle.entity(cx).expect("the rail");
+            let region = rail.read(cx).region();
+            region.update(cx, |region, cx| region.show(sample(), None, cx));
+        });
+        for _ in 0..3 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(std::path::Path::new(&dir).join("ide-rail.png")).expect("the PNG");
+        crate::ui_prefs::set_rail(false);
     }
     let mut times: Vec<f64> = (0..120).map(|_| draw(window, &mut cx)).collect();
     times.sort_by(f64::total_cmp);
