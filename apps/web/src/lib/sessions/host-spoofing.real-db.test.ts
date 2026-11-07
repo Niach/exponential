@@ -826,6 +826,9 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
   async function only0213(deviceId: string) {
     let after: unknown
     await inRollback(async (tx) => {
+      // The backfill walks every row; another file's cleanup deleting a user
+      // meanwhile must not fail this rollback's foreign key.
+      await tx.execute(sql`SET LOCAL session_replication_role = replica`)
       for (const statement of migration(`0213_feed165_device_first_seen_earliest_evidence.sql`)) await tx.execute(sql.raw(statement))
       after = await firstSeenIn(tx, deviceId)
     })
