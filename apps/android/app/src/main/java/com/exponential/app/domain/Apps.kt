@@ -581,12 +581,13 @@ object Apps {
 
     /** The absolute `files` path of the FIRST FileUpload (component order)
      *  named [name] (its `name`, else its id); null when it has no absolute
-     *  `{path}` binding (`targetCases`). */
+     *  `{"@path"}` binding (`targetCases`, which still carry the plain `path` key). */
     fun appUploadTarget(components: List<JsonValue>, name: String): String? {
         val upload = components.firstOrNull { c ->
             c["component"]?.string == "FileUpload" && (c["name"]?.let { it as? JsonValue.Str }?.v ?: c["id"]?.string) == name
         } ?: return null
-        val path = (upload["files"] as? JsonValue.Obj)?.v?.get("path")?.string ?: return null
+        val files = (upload["files"] as? JsonValue.Obj)?.v ?: return null
+        val path = (files["@path"] ?: files["path"])?.string ?: return null
         return path.takeIf { it.startsWith("/") }
     }
 

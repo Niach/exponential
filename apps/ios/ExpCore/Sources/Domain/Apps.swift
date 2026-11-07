@@ -366,7 +366,8 @@ public enum Apps {
 
     /// The absolute `files` path of the FIRST FileUpload (component order)
     /// named `name` (its `name`, else its id); nil when it has no absolute
-    /// `{path}` binding (TS `appUploadTarget`, `targetCases`).
+    /// `{"@path"}` binding (TS `appUploadTarget`, `targetCases`, which still
+    /// carry the plain `path` key).
     public static func appUploadTarget(_ components: [CardJSON], name: String) -> String? {
         let upload = components.first { component in
             guard let object = component.objectValue, object["component"] == .string("FileUpload") else { return false }
@@ -376,7 +377,8 @@ public enum Apps {
             }()
             return named == .string(name)
         }
-        guard case let .string(path)? = upload?.objectValue?["files"]?.objectValue?["path"], path.hasPrefix("/") else {
+        let files = upload?.objectValue?["files"]?.objectValue
+        guard case let .string(path)? = files?["@path"] ?? files?["path"], path.hasPrefix("/") else {
             return nil
         }
         return path
