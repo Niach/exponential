@@ -108,6 +108,81 @@ fn list<'a>(f: &'a Value, key: &str) -> &'a Vec<Value> {
     f[key].as_array().unwrap_or_else(|| panic!("{key}"))
 }
 
+/// Suite `a2ui10`: `a2ui10-messages.json` (the wire, §1–§2, §5.2, §6.9, §13).
+pub fn a2ui10_cases() -> Vec<Case> {
+    use eui_core::host::{action_message_with, error_message_to, ErrorTarget, RouteOptions};
+    let f = fixture("a2ui10-messages.json");
+    let names = |v: &Value| -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect()).unwrap_or_default() };
+    let mut out: Vec<Case> = Vec::new();
+    for c in list(&f, "ids") {
+        let id = c["id"].as_str().unwrap();
+        let got = json!({"identifier": eui_core::ident::is_identifier(id), "mangle": eui_core::ident::mangle(id)});
+        out.push((format!("id {id}"), same(&got, &c["expected"])));
+    }
+    for flow in list(&f, "flows") {
+        let mut router = HostRouter::new(&names(&flow["extensionIds"]));
+        for id in names(&flow["inlineCatalogs"]) {
+            router.register_inline_catalog(&id);
+        }
+        for id in names(&flow["packages"]) {
+            router.install_package(&f["packages"][&id]);
+        }
+        let mut result = Ok(());
+        for s in list(flow, "steps") {
+            let mut options = RouteOptions::default();
+            options.trusted = s["trusted"] == json!(true);
+            if s["acceptV09"] == json!(false) {
+                options.accept_v09 = false;
+            }
+            let got = Value::Array(router.route(&s["message"], options));
+            result = result.and_then(|()| same(&got, &s["expected"]));
+        }
+        out.push((format!("flow: {}", flow["name"].as_str().unwrap()), result));
+    }
+    for c in list(&f, "errors") {
+        let target = match c["target"].get("functionCallId").and_then(Value::as_str) {
+            Some(id) => ErrorTarget::FunctionCall(id),
+            None => ErrorTarget::Surface(c["target"]["surfaceId"].as_str().unwrap()),
+        };
+        let got = error_message_to(c["code"].as_str().unwrap(), target, c["message"].as_str().unwrap(), c.get("path").and_then(Value::as_str));
+        out.push((format!("error: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+    }
+    for c in list(&f, "actions") {
+        let i = &c["input"];
+        let s = |k: &str| i[k].as_str().unwrap();
+        let got = action_message_with(s("surfaceId"), s("sourceComponentId"), s("name"), i["context"].clone(), i.get("payload").cloned(), s("timestamp"), i.get("userMessage").and_then(Value::as_str));
+        out.push((format!("action: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+    }
+    for c in list(&f, "mint") {
+        let mut r = HostRouter::new::<&str>(&[]);
+        let mut result = Ok(());
+        for s in list(c, "steps") {
+            let names = |ops: Vec<Value>| Value::Array(ops.iter().map(|o| o["op"].clone()).collect());
+            let got = if let Some(id) = s.get("create") {
+                names(r.route(&json!({"version": "1.0", "createSurface": {"surfaceId": id, "catalogId": eui_core::CORE_CATALOG_ID}}), RouteOptions::default()))
+            } else if let Some(id) = s.get("delete") {
+                names(r.route(&json!({"version": "1.0", "deleteSurface": {"surfaceId": id}}), RouteOptions::default()))
+            } else {
+                json!(r.mint_surface_id(s["mint"].as_str().unwrap()))
+            };
+            result = result.and_then(|()| same(&got, &s["expected"]));
+        }
+        out.push((format!("mint: {}", c["name"].as_str().unwrap()), result));
+    }
+    for c in list(&f, "cards") {
+        let got = match eui_core::reducer::card_v10(&c["input"], c.get("acceptV09").and_then(Value::as_bool).unwrap_or(true)) {
+            Err(error) => json!({"error": error}),
+            Ok(card) => {
+                let root: eui_core::NestedNode = serde_json::from_value(card["root"].clone()).unwrap();
+                let r = eui_core::reducer::reduce_nested(&root, &eui_core::reducer::ReduceOptions::new(eui_core::CORE_CATALOG_ID));
+                json!({"card": card, "problems": eui_core::reducer::card_problems(&card["root"]), "issues": r.issues, "root": r.root})
+            }
+        };
+        out.push((format!("card: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+    }
+    out
+}
+
 /// `host-transport.json`: jsonl, sse, mcp, mcpAction.
 pub fn transport_cases() -> Vec<Case> {
     let f = fixture("host-transport.json");

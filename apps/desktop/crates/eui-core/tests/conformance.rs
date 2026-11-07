@@ -350,6 +350,7 @@ fn suite(id: &str) -> Vec<Case> {
         "replay" => replay_suite(),
         "host-transport" => support::transport_cases(),
         "host-policy" => support::policy_cases(),
+        "a2ui10" => support::a2ui10_cases(),
         "host-router" => support::router_cases(),
         "bind" => support::round2::bind_cases(),
         "style-conditions" => support::round2::style_condition_cases(),
