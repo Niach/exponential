@@ -17,8 +17,8 @@ import SwiftUI
 ///   editor slot: ChannelMessageRow rows, cards answering in place, THE
 ///   composer). No session yet = the same pane, empty (`copy.chatEmpty`),
 ///   whose composer's first send is `sessions.send({appId, text, deviceId})`
-///   on my default (else first online) device; none online = the composer
-///   disabled with `copy.noDevice`.
+///   on EDITOR DEVICE (#FEED-204, `AppEditorModel.settleDevice`); none online
+///   = the composer disabled with `copy.noDevice`.
 /// * Preview = the app host rendering `Apps.shownVersion`'s package's first
 ///   template (`AppPreview`; eApps V1 #VAPP-210: the head while my editor
 ///   session is live or nothing is published, else the published one); a
@@ -281,7 +281,10 @@ struct AppEditorScreen: View {
     // MARK: - Chrome
 
     private func slot(_ app: AppListEntry) -> ThreadEditorSlot {
-        ThreadEditorSlot(title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app), trailing: menuButton(app))
+        ThreadEditorSlot(
+            title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app), trailing: menuButton(app),
+            device: model.deviceMenu, appMove: model.deviceAppMove
+        )
     }
 
     /// VAPP-177: the header's trailing `…` round button (`app-editor-menu`),
@@ -394,6 +397,8 @@ struct AppEditorScreen: View {
             AppFirstMessageComposer(
                 draft: firstDraft,
                 deviceId: model.deviceId,
+                deviceMenu: model.deviceMenu,
+                teamId: app.teamId,
                 isDraftApp: draft
             )
         }
@@ -1612,6 +1617,10 @@ private struct AppFirstMessageComposer: View {
     /// The editor's first-send draft (shared with a draft app's starters).
     let draft: AppFirstMessageDraft?
     let deviceId: String?
+    /// #FEED-204: the "+" Device row (apps.json EDITOR DEVICE).
+    let deviceMenu: SessionComposerFooter.DeviceMenu
+    /// The team whose issues the "+" Issue page searches.
+    let teamId: String?
     /// VAPP-176: a DRAFT app: `copy.draftPlaceholder`, opened focused.
     var isDraftApp = false
 
@@ -1642,7 +1651,7 @@ private struct AppFirstMessageComposer: View {
                     SessionComposerCard(
                         draft: draft,
                         placeholder: placeholder,
-                        controls: nil,
+                        controls: controls,
                         attach: $attach,
                         sendEnabled: deviceId != nil && !draft.steerSending,
                         onSend: { Task { await draft.sendDraft() } },
@@ -1675,6 +1684,22 @@ private struct AppFirstMessageComposer: View {
             draft?.deviceId = deviceId
             focusDraftApp()
         }
+    }
+
+    /// #FEED-204: THE "+" sheet before the session exists: nothing to
+    /// configure yet (no agent = no Model row, no usage = no ring), so Photo
+    /// or file, Issue and Device.
+    private var controls: SessionComposerFooter.Controls {
+        SessionComposerFooter.Controls(
+            modelValue: nil,
+            agent: "",
+            onPickModel: { _ in },
+            usageFraction: nil,
+            usageSeverity: AgentUsagePresentation.severity(Double?.none),
+            onUsage: {},
+            teamId: teamId,
+            device: deviceMenu
+        )
     }
 
     /// VAPP-176: a draft app's composer opens FOCUSED, once, as soon as it

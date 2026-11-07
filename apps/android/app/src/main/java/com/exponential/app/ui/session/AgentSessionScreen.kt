@@ -4780,6 +4780,8 @@ internal fun SessionComposer(
     dock: (@Composable (SessionDock) -> Unit)? = null,
     /** S-3: the composer's surface (an agent chat = `agent`). */
     surface: com.exponential.app.domain.ComposerMenuSurface = com.exponential.app.domain.ComposerMenuSurface.Session,
+    /** #FEED-204: an app editor's Device › row; null = every other composer. */
+    deviceMenu: SessionComposerDevice? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -4932,6 +4934,7 @@ internal fun SessionComposer(
         // An ENDED session takes no configure: the rows read-only (the server
         // refuses `This session has ended`). S-3: no Plan switch.
         readOnly = sessionEnded,
+        device = deviceMenu,
         onConfigure = viewModel::configure,
         surface = surface,
         prompts = promptRows,
@@ -5522,6 +5525,8 @@ internal data class SessionComposerMenu(
     val issues: List<IssueOption>,
     /** An ended session: the option rows are read-only. */
     val readOnly: Boolean,
+    /** #FEED-204: an app editor's Device ›; null = no row. */
+    val device: SessionComposerDevice? = null,
     val onConfigure: (AgentSessionViewModel.ConfigurePicks) -> Unit,
     /** S-3: which composer this is (composer-menu.json `surfaces`). */
     val surface: com.exponential.app.domain.ComposerMenuSurface = com.exponential.app.domain.ComposerMenuSurface.Session,
@@ -5535,6 +5540,21 @@ internal data class SessionComposerMenu(
     /** #EXP-1715: the viewer's Assistant's Teams pick; null = no row, no chips. */
     val teams: com.exponential.app.ui.agent.TeamsPickBinding? = null,
 )
+
+/**
+ * #FEED-204 (apps.json EDITOR DEVICE): an app editor's Device › = THE device
+ * picker's rows, the value = the device's name; [locked] on a live root: the
+ * row reads, disabled.
+ */
+@Immutable
+internal data class SessionComposerDevice(
+    val devices: List<DevicePickerDevice>,
+    val value: String?,
+    val locked: Boolean,
+    val onPick: (String) -> Unit,
+) {
+    val label: String? get() = devices.firstOrNull { it.id == value }?.name
+}
 
 /**
  * #EXP-1535: the session composer's Account › = THE AccountPicker rows over
@@ -5722,8 +5742,9 @@ private fun ExpandedSteerComposer(
             layout = com.exponential.app.domain.ComposerMenu.composerMenuLayout(
                 menu.surface,
                 // S-3: a session / an agent chat changes its model only (on a
-                // model-switching agent); never its device or login here.
+                // model-switching agent); its device only in an app editor.
                 ComposerMenuConditions(
+                    device = menu.device != null,
                     // #EXP-1535: the login its NEXT turn runs on.
                     account = menu.account != null,
                     model = model != null && (modelPickable || modelSwitches),
@@ -5736,6 +5757,7 @@ private fun ExpandedSteerComposer(
             effortValue = null,
             effortEnabled = false,
             rowsReadOnly = menu.readOnly,
+            deviceEnabled = menu.device?.locked != true,
             subagentsValue = null,
             ultracode = menu.ultracode,
             mcpValue = null,
@@ -5767,6 +5789,7 @@ private fun ExpandedSteerComposer(
                 )
             },
             values = mapOf(
+                ComposerMenuRowId.Device to menu.device?.label,
                 ComposerMenuRowId.Account to menu.account?.let { account ->
                     account.options.firstOrNull { it.key == account.value }?.email
                 },
@@ -5782,6 +5805,16 @@ private fun ExpandedSteerComposer(
                             menu.onPickPrompt(prompt)
                             close()
                         },
+                    )
+                },
+                // #FEED-204: THE device picker's rows (the launch composer's).
+                ComposerMenuRowId.Device to { close ->
+                    DevicePicker(
+                        devices = menu.device?.devices.orEmpty(),
+                        value = menu.device?.value,
+                        onChange = { id -> menu.device?.onPick?.invoke(id) },
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
                     )
                 },
                 // #EXP-1535: THE account picker's rows (the launch

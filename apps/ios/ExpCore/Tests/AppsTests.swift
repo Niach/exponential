@@ -234,6 +234,31 @@ final class AppsTests: XCTestCase {
     }
 
     // #VAPP-220: `automationRow` replays `automationRowCases`.
+    // #FEED-204: `editorDevice` replays `editorDeviceCases`.
+    func testEditorDeviceCases() throws {
+        for item in try cases("editorDeviceCases") {
+            let root = item["root"] as? [String: Any]
+            let candidates = try XCTUnwrap(item["candidates"] as? [[String: Any]]).map {
+                (deviceId: $0["deviceId"] as? String ?? "", isDefault: $0["isDefault"] as? Bool ?? false)
+            }
+            let expected = try XCTUnwrap(item["expected"] as? [String: Any])
+            XCTAssertEqual(
+                Apps.editorDevice(
+                    rootStatus: root?["status"] as? String,
+                    rootDeviceId: root?["deviceId"] as? String,
+                    candidates: candidates,
+                    remembered: item["remembered"] as? String
+                ),
+                Apps.EditorDeviceChoice(
+                    deviceId: expected["deviceId"] as? String,
+                    locked: expected["locked"] as? Bool ?? false,
+                    move: expected["move"] as? Bool ?? false
+                ),
+                item["name"] as? String ?? ""
+            )
+        }
+    }
+
     func testAutomationRowCases() throws {
         let block = try XCTUnwrap(try fixture()["automationRowCases"] as? [String: Any])
         let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
