@@ -8,7 +8,6 @@
 :root:not([data-has-sidebar]) {
   --sl-content-width: 75rem;
   --exp-rhythm: clamp(5rem, 10vw, 8rem);
-  --exp-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 body {
   overflow-x: clip;
@@ -58,36 +57,6 @@ body {
   margin-inline: auto;
 }
 
-/* ─── Motion: the headline rise and the scroll reveal ─── */
-@keyframes exp-rise {
-  from {
-    opacity: 0;
-    transform: translateY(0.6em);
-  }
-}
-@keyframes exp-reveal {
-  from {
-    opacity: 0;
-    transform: translateY(2rem) scale(0.985);
-  }
-}
-@supports (animation-timeline: view()) {
-  .exp-reveal {
-    animation: exp-reveal linear both;
-    animation-timeline: view();
-    animation-range: entry 0% entry 60%;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  :root:not([data-has-sidebar]) .hero h1,
-  :root:not([data-has-sidebar]) .hero .tagline,
-  :root:not([data-has-sidebar]) .hero .actions,
-  .exp-reveal,
-  .exp-cta-motif path {
-    animation: none !important;
-  }
-}
-
 /* ─── Sections ─── */
 .exp-landing {
   display: flex;
@@ -114,7 +83,8 @@ body {
 }
 .exp-feature h2,
 .exp-section h2,
-.exp-band-head h2 {
+.exp-band-head h2,
+.exp-faq h2 {
   margin: 0;
   font-size: clamp(1.75rem, 1rem + 2.4vw, 2.75rem);
   font-weight: 600;
@@ -130,6 +100,45 @@ body {
   line-height: 1.55;
   color: var(--sl-color-gray-2);
   max-width: 34rem;
+}
+.exp-band-first {
+  padding-top: 0;
+}
+.exp-band-first::before {
+  display: none;
+}
+/* Questions: the title beside the accordion. */
+.exp-faq {
+  display: grid;
+  gap: 2rem;
+}
+@media (min-width: 60rem) {
+  .exp-faq {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 4rem;
+  }
+}
+/* Product pages: every h2 opens a band. */
+:root:not([data-has-sidebar]) .sl-markdown-content > h2 {
+  position: relative;
+  margin-top: var(--exp-rhythm);
+  padding-top: var(--exp-rhythm);
+  font-size: clamp(1.75rem, 1rem + 2.4vw, 2.75rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+:root:not([data-has-sidebar]) .sl-markdown-content > h2::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 100vw;
+  translate: -50% 0;
+  border-top: 1px solid var(--sl-color-hairline-light);
+}
+:root:not([data-has-sidebar]) .sl-markdown-content > h2 + * {
+  margin-top: 2.5rem;
 }
 .exp-band-head {
   display: flex;
@@ -181,13 +190,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-}
-.exp-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  margin-top: 1.5rem;
 }
 
 /* ─── The hero's live surface ─── */
@@ -332,60 +334,6 @@ body {
   width: 34%;
 }
 
-/* ─── The closing band ─── */
-.exp-cta {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-block: clamp(6rem, 14vw, 11rem);
-  text-align: center;
-  isolation: isolate;
-}
-.exp-cta h2 {
-  margin: 0;
-  font-size: clamp(2.5rem, 1rem + 6vw, 5.5rem);
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -0.05em;
-  color: var(--sl-color-white);
-}
-.exp-cta .exp-actions {
-  justify-content: center;
-  margin-top: 2.25rem;
-}
-.exp-cta-motif {
-  position: absolute;
-  inset: 0 50%;
-  width: 100vw;
-  height: 100%;
-  translate: -50% 0;
-  z-index: -1;
-  pointer-events: none;
-}
-.exp-cta-motif path {
-  fill: none;
-  stroke: oklch(1 0 0 / 9%);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-  stroke-dasharray: 1;
-}
-@supports (animation-timeline: view()) {
-  .exp-cta-motif path {
-    animation: exp-draw linear both;
-    animation-timeline: view();
-    animation-range: entry 10% cover 50%;
-  }
-}
-@keyframes exp-draw {
-  from {
-    stroke-dashoffset: 1;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
 /* ─── Libraries (the SDK pages' link grid) ─── */
 .exp-lib-grid {
   display: grid;
@@ -473,7 +421,8 @@ body {
   justify-content: center;
 }
 .exp-fine {
-  margin: 1.25rem 0 0;
+  margin: 1.5rem 0 0;
+  text-align: center;
   font-size: var(--sl-text-sm);
   color: var(--sl-color-gray-3);
 }

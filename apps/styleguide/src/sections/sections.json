@@ -111,7 +111,9 @@
         "sealed-locked",
         "results-tab",
         "needs-you",
-        "ede-panel"
+        "ede-panel",
+        "site-mega-menu",
+        "site-cta-band"
       ]
     },
     {
@@ -212,6 +214,8 @@
     "sealed-locked": "EXP-1459",
     "results-tab": "FEED-191",
     "needs-you": "FEED-191",
-    "ede-panel": "EDE-42"
+    "ede-panel": "EDE-42",
+    "site-mega-menu": "EXP-1740",
+    "site-cta-band": "EXP-1740"
   }
 }

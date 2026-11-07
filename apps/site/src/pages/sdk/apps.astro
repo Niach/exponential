@@ -10,6 +10,7 @@ import Diagram from "../../components/libraries/Diagram.astro"
 import Figure from "../../components/libraries/Figure.astro"
 import { APPS_EXECUTORS, APPS_FLOW, APPS_PARTS } from "../../components/libraries/trees.ts"
 import PlatformShots from "../../components/PlatformShots.astro"
+import EuiSurface from "../../components/eui/EuiSurface.tsx"
 import "../../styles/libraries-other.css"
 
 /* Hours, trimmed to what reads at a glance. */
@@ -27,6 +28,17 @@ const PACKAGE = `{
   "functions": ["records.*"],
   "exposes": [{ "name": "log_hours", … }]
 }`
+
+/* How it works, as genUI's Stepper. */
+const STEPS = {
+  id: `steps`,
+  component: `Stepper`,
+  props: {
+    orientation: `vertical`,
+    current: 3,
+    steps: [{ label: `Describe it` }, { label: `Preview it on every screen` }, { label: `Publish it to the team` }, { label: `Your agents use it too` }],
+  },
+}
 ---
 
 <StarlightPage
@@ -65,6 +77,9 @@ const PACKAGE = `{
   <h2>Your agents use it too</h2>
   <Figure src="/eapps/mcp-consent.webp" alt="Claude Code asks to use the team's apps: Off, Read only or Full per app, and the upstreams each needs" width={1240} height={1568} max="28rem" />
 
-  <h2>Describe it, an agent builds it</h2>
-  <Figure src="/shots/app-draft/web.webp" alt="A new app's editor: the chat with the agent beside the live preview" width={1800} height={1200} />
+  <h2>How it works</h2>
+  <div class="lib-steps not-content">
+    <EuiSurface id="steps" tree={STEPS} />
+    <Figure src="/shots/app-draft/web.webp" alt="A new app's editor: the chat with the agent beside the live preview" width={1800} height={1200} />
+  </div>
 </StarlightPage>

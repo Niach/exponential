@@ -11,8 +11,17 @@
   gap: 0.75rem;
   align-items: start;
 }
-.lib-pair .exp-figure {
-  margin: 0;
+/* How it works: the steps beside the picture. */
+.lib-steps {
+  display: grid;
+  gap: 2rem;
+  align-items: center;
+}
+@media (min-width: 60rem) {
+  .lib-steps {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 4rem;
+  }
 }
 
 .lib-diagram {

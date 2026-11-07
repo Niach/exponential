@@ -3,27 +3,13 @@
    line, the two ways in, over the exponential curve motif (hairlines that
    draw in as the band scrolls into view). */
 import { LinkButton } from "@astrojs/starlight/components"
+import { CTA_BOX, CTA_CURVES } from "./cta-curves.ts"
 import { LINKS } from "./links.ts"
-
-/* Eight curves y = e^(kx), one per k, from the bottom-left corner up the
-   right edge, sampled into SVG paths on a 1440 x 480 box. */
-const W = 1440
-const H = 480
-const CURVES = Array.from({ length: 8 }, (_, i) => {
-  const k = 2.4 + i * 0.55
-  const top = 1 / Math.exp(k)
-  const points = Array.from({ length: 49 }, (_, s) => {
-    const x = s / 48
-    const y = (Math.exp(k * x) * top - top) / (1 - top)
-    return `${(x * W).toFixed(1)},${(H - y * (H - 24 - i * 18)).toFixed(1)}`
-  })
-  return `M${points.join(`L`)}`
-})
 ---
 
 <section class="exp-cta not-content" aria-labelledby="exp-cta-title">
-  <svg class="exp-cta-motif" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
-    {CURVES.map((d) => <path d={d} pathLength="1" />)}
+  <svg class="exp-cta-motif" viewBox={`0 0 ${CTA_BOX.width} ${CTA_BOX.height}`} preserveAspectRatio="none" aria-hidden="true">
+    {CTA_CURVES.map((d) => <path d={d} pathLength="1" />)}
   </svg>
   <h2 id="exp-cta-title">Build your first app.</h2>
   <div class="exp-actions">

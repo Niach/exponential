@@ -49,7 +49,7 @@ export const MENUS: NavMenu[] = [
   {
     label: `SDK`,
     items: SDK,
-    featured: { label: `genUI`, href: `/sdk/genui/`, src: `/shots/exponential-ui-demo/web.webp`, alt: `An agent's interface painted by genUI` },
+    featured: { label: `genUI`, href: `/sdk/genui/`, src: `/eapps/admin-console.webp`, alt: `An admin console painted by genUI` },
   },
 ]
 

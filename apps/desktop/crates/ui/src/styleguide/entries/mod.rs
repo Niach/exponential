@@ -113,6 +113,8 @@ pub(crate) mod entity_chip;
 pub(crate) mod results_tab;
 pub(crate) mod needs_you;
 pub(crate) mod ede_panel;
+pub(crate) mod site_cta_band;
+pub(crate) mod site_mega_menu;
 // #EXP-1645: the team mark + the Team image row.
 pub(crate) mod team_avatar;
 
@@ -239,4 +241,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: results_tab::ID, owner: results_tab::OWNER, render: results_tab::render },
     Entry { id: needs_you::ID, owner: needs_you::OWNER, render: needs_you::render },
     Entry { id: ede_panel::ID, owner: ede_panel::OWNER, render: ede_panel::render },
+    Entry { id: site_mega_menu::ID, owner: site_mega_menu::OWNER, render: site_mega_menu::render },
+    Entry { id: site_cta_band::ID, owner: site_cta_band::OWNER, render: site_cta_band::render },
 ];
