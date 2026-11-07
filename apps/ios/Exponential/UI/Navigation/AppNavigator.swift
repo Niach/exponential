@@ -1128,13 +1128,21 @@ struct MainNavigator: View {
 }
 
 /// A banner above the screen: everything under it, its navigation bars too,
-/// lays out below it.
+/// lays out below it. The banner coming or going moves the navigation stack,
+/// but UIKit leaves the stacked pages' safe areas where they were until each
+/// page's next layout pass: a page that changes nothing then (an app's run
+/// view, the Apps list) kept the old top inset under a shorter one, an empty
+/// band between its header and its page. So every page lays out again.
 private struct TopBannerStack<Banner: View>: ViewModifier {
     @ViewBuilder let banner: () -> Banner
 
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
             banner()
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                    // After this pass has moved the stack.
+                    DispatchQueue.main.async { UIViewController.relayoutWindowControllers() }
+                }
             content.frame(maxHeight: .infinity)
         }
     }
