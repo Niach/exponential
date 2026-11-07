@@ -1,12 +1,15 @@
 # EXP-1364: two exp-linux runners on the Mint (.github/runners/README.md). Two,
-# each capped, on purpose: the Mint is Danny's desktop, four made it lag.
+# each capped and at idle CPU priority: the Mint is Danny's desktop.
 # `docker compose up -d --build` from this directory; RUNNER_TOKEN only on the
 # first start (the registration lives on in the runner-config volumes).
 x-runner: &runner
   build: .
   restart: unless-stopped
-  # Leaves the desktop responsive: a job never gets more than RUNNER_CPUS, per
-  # runner (the Mint: 8 + 8 of its 32 cores).
+  # Leaves the desktop responsive by PRIORITY, not by a small cap: the
+  # runners live in expci.slice (CPUWeight=idle, install it first), so the
+  # desktop session always wins a core and CI takes the idle ones. The cap only
+  # keeps two jobs from starving each other (the Mint: 12 + 12 of its 32).
+  cgroup_parent: expci.slice
   cpus: ${RUNNER_CPUS:-6}
   environment: &env
     REPO_URL: https://github.com/Niach/exponential
