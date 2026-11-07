@@ -51,7 +51,7 @@ type PackageIssue = { path: string; message: string }
 /** Every rule a stored package must pass, in order: the shape and bytes, the
  *  SDK's validator (`sdk` = its issue list), then the app hosts' own rules
  *  (the first one wins, like the throwing form always did). */
-function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[] } {
+function checkPackage(pkg: unknown, acceptV09: boolean = ACCEPT_V09): { sdk: PackageIssue[]; rules: PackageIssue[] } {
   const none = { sdk: [], rules: [] }
   if (!pkg || typeof pkg !== `object` || Array.isArray(pkg)) {
     return { ...none, rules: [{ path: `/`, message: `package must be an object {id, name, version, catalogId, templates}` }] }
@@ -62,12 +62,12 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   }
   // Round 9 §14: a stored package syncs to every client, and a released one
   // reads format 5 alone.
-  if (ACCEPT_V09 && (pkg as { formatVersion?: unknown }).formatVersion === PACKAGE_FORMAT_VERSION) {
+  if (acceptV09 && (pkg as { formatVersion?: unknown }).formatVersion === PACKAGE_FORMAT_VERSION) {
     return { ...none, rules: [{ path: `/formatVersion`, message: `format ${PACKAGE_FORMAT_VERSION} is not stored yet: write formatVersion ${PACKAGE_FORMAT_VERSION_09}` }] }
   }
   // Round 9 §12: format 5 is what the server stores until the flag day; every
   // check reads its upgraded form, what every client runs.
-  const upgraded = bridgePackage(pkg)
+  const upgraded = acceptV09 ? bridgePackage(pkg) : pkg
   const sdk = validatePackage(upgraded, APP_CATALOG_IDS, APP_EXTENSIONS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
   if (sdk.length > 0) return { ...none, sdk }
   const valid = upgraded as AppPackage
@@ -200,9 +200,25 @@ export function upstreamIssues(pkg: AppPackage, teamServers: readonly string[], 
 
 /** VAPP-121: everything wrong with a package as `{path, message}` rows (the
  *  import step lists them inline); empty = valid. */
-export function appPackageIssues(pkg: unknown): PackageIssue[] {
-  const { sdk, rules } = checkPackage(pkg)
+export function appPackageIssues(pkg: unknown, acceptV09: boolean = ACCEPT_V09): PackageIssue[] {
+  const { sdk, rules } = checkPackage(pkg, acceptV09)
   return [...sdk, ...rules]
+}
+
+/** Round 9 §14: what the stored-data migration asks of an upgraded package:
+ *  what every client's load checks (the SDK's validator, no 0.9 bridge) and
+ *  the contract's caps. The upsert rules stay out: a stored package that a
+ *  later rule would refuse still runs, and format 5 stops loading on the flag
+ *  day. */
+export function migratedPackageIssues(pkg: unknown): PackageIssue[] {
+  const bytes = packageBytes(pkg)
+  if (bytes > APP_PACKAGE_MAX_BYTES) return [{ path: `/`, message: `the upgraded package is ${bytes} bytes; the cap is ${APP_PACKAGE_MAX_BYTES}` }]
+  const issues = validatePackage(pkg, APP_CATALOG_IDS, APP_EXTENSIONS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
+  if (issues.length > 0) return issues
+  for (const [id, template] of Object.entries((pkg as AppPackage).templates)) {
+    if (template.components.length > APP_TEMPLATE_MAX_COMPONENTS) issues.push({ path: `/templates/${id}/components`, message: `template ${id} has ${template.components.length} components; the cap is ${APP_TEMPLATE_MAX_COMPONENTS}` })
+  }
+  return issues
 }
 
 /** The package, validated: a JSON object within the caps the SDK's validator

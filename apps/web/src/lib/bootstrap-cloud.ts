@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
+import { storedAction } from "@exp/domain-contract/app-actions"
 import { GRANTABLE_ACTIONS } from "@/lib/app-grants"
 import { apps } from "@/db/schema"
 import { reconcileBuiltinSkills } from "@/lib/skills/builtin"
@@ -73,9 +74,11 @@ export function isCloudInstance(): boolean {
 /** FEED-159: drops every stored app grant that is not grantable any more
  *  (lib/app-grants.ts), on every app at once. Idempotent; touches only the
  *  rows that carry one, order of the kept names preserved. */
-export async function stripUngrantableGrants(): Promise<void> {
-  const keep = sql`${sql.param([...GRANTABLE_ACTIONS])}::text[]`
-  await db
+export async function stripUngrantableGrants(client: Pick<typeof db, `update`> = db): Promise<void> {
+  // Round 9 §14: the actions are flat, `apps.granted_tools` is dotted until
+  // the flag-day migration: either spelling of a grantable action stays.
+  const keep = sql`${sql.param([...GRANTABLE_ACTIONS, ...GRANTABLE_ACTIONS.map(storedAction)])}::text[]`
+  await client
     .update(apps)
     .set({
       grantedTools: sql`COALESCE((SELECT jsonb_agg(t.name ORDER BY t.ord) FROM jsonb_array_elements_text(${apps.grantedTools}) WITH ORDINALITY AS t(name, ord) WHERE t.name = ANY(${keep})), '[]'::jsonb)`,

@@ -1283,13 +1283,54 @@ A card surface stays the NESTED form `{root, data}` and gains a version:
 3. **Flag day D** (one held draft PR, merged only with Danny's OK):
    - The server and the `exponential_show` tool text emit 1.0.
    - `transition.acceptV09: false`: each entry refuses 0.9 with INVALID_MESSAGE (§1.1 check 3). Cards answer BAD_REQUEST, and packages give the install issue of §12.
-   - The migration (`apps/web/scripts/a2ui10-migrate.ts`: one-shot, idempotent, skips 1.0 data, has a dry-run count mode) rewrites stored data with `upgrade09`. Order: backup, then staging, then prod.
+   - The migration (`apps/web/scripts/a2ui10-migrate.ts`, logic in `lib/apps/a2ui10-migrate.ts`: one-shot, idempotent, skips 1.0 data, dry run by default) rewrites stored data with `upgrade09`. Order: backup, then staging, then prod. The list, re-checked against `packages/db-schema` (§18.8):
      - `apps.package`, `apps.draft_package`, `app_versions.package` (→ formatVersion 6);
-     - `apps.granted_tools` (flat names);
-     - every unsealed stored `exponential_show` card surface in `messages`.
+     - `apps.granted_tools` (flat names, through `flatAction`);
+     - `messages.card`: every clear card with a `surface` object, of ANY kind (`surface`, `plan`, `question`) → `version: "1.0"`. `{sealed}` and an `ask`'s `sealedCard` are skipped and counted.
    - The shepherd bumps `CLIENT_MIN_VERSION_*` (Coolify env; `selfhost/.env.example` in the PR) to the first release that reads 1.0.
    - `upgrade09` stays in the migration script. Clients keep only `upgradeCard09`, and only to DISPLAY a stored card that has no `version: "1.0"` (sealed cards the server cannot rewrite). Nothing is ever emitted in 0.9.
    - `vendor/a2ui/v0_9/` stays vendored as upgrade09's reference.
+
+**Audited, no rewrite.** Each of these was read for a surface, a package, a function name or a dotted grant:
+
+| column | why it stays |
+|---|---|
+| `conversations.digest` | copies a card's `kind`, `question`, `plan`, `title`, never `surface`; a sealed card is copied whole and stays sealed. The digest of a rewritten card is unchanged, so the trigger writes nothing |
+| `apps.mcp_disabled_tools`, `apps.automation_state`, `app_hooks.name` | `exposes[].name` and automation names: `^[a-z][a-z0-9_]*$`, not function names, and not renamed by `upgrade09` |
+| `app_share_links`, `app_share_submissions` | a share NAME, a token and an audit. No frozen template or query: the guest package is built from the published `apps.package` on each read |
+| `app_upstream_bindings.upstream`, `mcp_grants`, `app_access` | `upstreams` is unchanged by format 6; ids and levels only |
+| `app_records.data`, `app_record_events` | the app's own data; data keys are never re-keyed, and no component renders a surface out of a record |
+| `sessions.guide`, `sessions.blocked`, `agents.triggers`, `issue_events.payload`, `issue_drafts`, `pins`, `notifications`, `device_commands.payload`, `widget_configs.form_config` | none holds a surface, a package or a function name (`agents.triggers` = a cron or an event name) |
+| `events.payload`, `mcp_device_calls.args` | free JSON an emitter chose to publish, or a short-lived call's arguments; nothing renders them as eUI |
+| `import_rows.row` (`imports`) | a Local desktop's staged `apps`, `app_versions` and `messages` rows, live for at most 24 h. Not walked: `imports.commit` must upgrade them instead (below), which also covers a Local desktop that shares after the flag day |
+| `mcp_calls.tool` | the audit keeps the name as called |
+| `mcp_servers.scopes` | scope ids stay dotted (§12) |
+| `prompts.body`, `skills.body`, `agents.instructions`, `teams.agent_prompt`, `messages.body` | free text, never parsed. A person's text teaching `{"path": …}` stays; an agent following it gets the BAD_REQUEST that names the fix. Built-in skills reconcile on boot from the shipped set |
+
+**How a run behaves.** `runA2ui10Migration(db, {apply})` walks each table by primary key, 200 rows a batch. A batch is read outside any transaction, then written in one with a compare-and-swap per row (`md5` of the row's migrated columns as read). A row changed since is read again, up to three rounds, then reported as `conflicted`. It is safe beside a live server and after a crash. A row with a failing column stays whole (its good columns count as `heldBack`). An upgraded value must pass what a client's load passes with the bridge off, and the caps: a package `migratedPackageIssues` (the SDK validator, `packageMaxBytes`, components per template), a card `cardV10(…, false)` + `validateCardSurface`. The report holds per-column counts, every failed row id with its reason, and the Electric total. `--apply` exits non-zero on a failed or conflicted row.
+
+**What Electric re-sends.** `exponential.preserve_timestamps` is set in each write transaction, so `updated_at` does not move and a row's delta is the rewritten column alone, no snapshot and no shape rotation:
+
+| column | shape | size per row |
+|---|---|---|
+| `apps.package`, `apps.draft_package`, `apps.granted_tools` | `apps`, every member | at most `packageMaxBytes` (128 KB) ×2, plus the names; an open app repaints from the new package |
+| `messages.card` | `messages`: natives receive every visible rewritten card; web on demand, only for a chat that is open | at most 64 KB, typically under 1 KB |
+| `app_versions.package` | behind the allowlist | nothing |
+| `conversations.digest` | | nothing |
+
+The dry run's `electric` block is the exact figure for an instance.
+
+**Boot (the flag-day PR wires it, this phase does not).** An operator runs `bun scripts/a2ui10-migrate.ts --report dry.json` on the target first and reads the failures. The same module then runs in `runBootstrapPass`, on self-host and cloud alike, before the server listens, after `applyCustomSql`, under a Postgres advisory lock so that replicas take turns. A marker row (a one-row `data_migrations` entry the flag-day PR adds) skips it from then on. The marker is written when a run finishes, failures included: a failed row is reported in the log and the marker's report, does not stop the boot, and is no worse off than before (a sealed-style display for a card, the install issue for a package); the operator re-runs the script for it. Rows a still-running old replica writes after the marker are 0.9: the deploy runs the script once more when the rollout ends. `INSTALL.md` and `selfhost/` wording land in that PR.
+
+**The flag-day PR must also** (found while auditing):
+
+- store flat grants: drop `storedAction` from `apps.update` and from `stripUngrantableGrants`;
+- keep a card's version: `validateCardSurface` returns `{root, data}` and `cardSurfaceInput` / `cardSurfaceSchema` have no `version`, so a 1.0 card stored without it would be read as 0.9 and upgraded twice;
+- move the bundled format 5 packages to 6: `packages/ui/exponential-ui/templates/*.json` (`devices.json` is `include_str!`'d by the desktop), `apps/runner/*`, `apps/desktop/crates/ui/src/app_screen.test-package.json`, the skills' examples;
+- re-sign `samples/apps/*.app.json`: `EXP_APP_TEMPLATES_SEED=… bun scripts/a2ui10-migrate.ts --apply --files ../../samples/apps/*.app.json` (they are `{package, author, signature}` files, which `upgradePackageBody09` leaves alone; the script reads `.package`, and without the seed it writes nothing);
+- upgrade at `imports.commit`: a team import writes staged rows straight into `apps`, `app_versions` and `messages`, so it runs `upgradeStoredPackage`, `upgradeGrants` and `upgradeStoredCard` on them (they are pure and exported);
+- decide the Local desktops: `crates/elocal`'s store holds `apps` and messages this migration never sees, and format 5 stops loading there too, so the desktop needs its own pass over `upgrade09` (the Rust mirror) when it opens a store;
+- rewrite `docs/package-format.md` to format 6 (§12).
 
 In the repo, drafts, samples (`samples/exponential-ui`, the site playground, `eval/fixtures`, `eval/baseline-1181`, guides, skills) and fixtures are re-keyed `user-card` → `user_card` in phase A.
 
@@ -1556,5 +1597,5 @@ Each file is sha256-pinned in `vendor/a2ui/README.md` and
 5. **Pure functions** are `rendererOrAgent` (our choice).
 6. **The Markdown inline profile look** is drafted on web with pictures before the painters port it (phase B).
 7. **The agent function timeout** is 30 s.
-8. **The migration's table list** is re-checked against `packages/db-schema` in phase C before the script is written.
+8. **The migration's table list** was re-checked against `packages/db-schema` in phase C: §14.1.
 9. **XID tables** are pinned to Unicode 17.0.0. Fixture ids stay inside identifiers that every engine agrees on.
