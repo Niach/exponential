@@ -16,7 +16,7 @@ use eui_core::host::{RecordRow, RecordsDelta};
 use serde_json::Value;
 
 use crate::instance::{outbox_row, overlay};
-use crate::outbox::{outbox_outcome, outbox_pending_label, outbox_prune, outbox_request, outbox_verb, OutboxEntry, OutboxOutcome, OutboxState};
+use crate::outbox::{outbox_new_id_count, outbox_outcome, outbox_pending_label, outbox_prune, outbox_request, outbox_verb, outbox_writes, OutboxCall, OutboxEntry, OutboxOutcome, OutboxState};
 use crate::providers::{Clock, Failure, Pushed, RecordEvent, RecordStore, Subscription, SyncTransport, WriteAck, WriteBatch};
 
 /// Where an account's entries persist, oldest first. A row that no longer
@@ -34,6 +34,16 @@ pub trait SyncedListener: Send + Sync {
     fn changed(&self) {}
     /// A replay nobody awaits was refused: the failed-action toast.
     fn refused(&self, _entry: &OutboxEntry, _verb: &str, _pushed: &Pushed) {}
+}
+
+/// The outbox call of a host function; `None` = not a record write.
+pub fn record_call(function: &str) -> Option<OutboxCall> {
+    match function {
+        "records_upsert" => Some(OutboxCall::Upsert),
+        "records_delete" => Some(OutboxCall::Delete),
+        "records_batch" => Some(OutboxCall::Batch),
+        _ => None,
+    }
 }
 
 /// A host call's answer.
@@ -130,6 +140,21 @@ impl SyncedRecordStore {
 
     fn synced(&self, app: &str) -> Vec<RecordRow> {
         self.rows.read().unwrap_or_else(|e| e.into_inner()).apps.get(app).cloned().unwrap_or_default()
+    }
+
+    /// A host call's entry: client ids for its write and every create, the
+    /// writes as `outboxWrites` reads `args`.
+    pub fn entry(&self, app: &str, call: OutboxCall, args: &Value) -> OutboxEntry {
+        let new_ids: Vec<String> = (0..outbox_new_id_count(call, args)).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+        OutboxEntry {
+            write_id: uuid::Uuid::new_v4().to_string(),
+            app_id: app.to_string(),
+            call,
+            writes: outbox_writes(call, args, &new_ids),
+            at: self.clock.now(),
+            state: OutboxState::Pending,
+            acked_at: None,
+        }
     }
 
     /// Persist a host call's entry. Alone and `online`, it replays now and
