@@ -1,23 +1,18 @@
 //! VAPP-110 — the team's apps for the IDE (fixtures/apps.json). VAPP-242:
 //! no Apps list page on desktop (wide); the sidebar's APPS group lists the
 //! apps (a row RUNS the app, [`Screen::AppRun`]) and its `+` opens THE NEW
-//! MENU ([`new_menu_button`]: New app = a draft and its editor at once,
+//! MENU (`apps/ede/ui/sidebar.json`: New app = a draft and its editor at once,
 //! [`new_app`]; Import… = the import dialog). Here: the entries (the team's
 //! synced apps, by name), the version pill, the delete prompt.
 
-use crate::controls::{PointerMenu, PointerMenuButtonExt as _};
-use gpui::{App, ClickEvent, IntoElement, ParentElement, SharedString, Styled, Window};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    ActiveTheme as _, Icon, Sizable as _,
-};
+use gpui::{App, IntoElement, ParentElement, SharedString, Styled, Window};
+use gpui_component::{ActiveTheme as _, Icon};
 use sync::Store;
 
 use domain::apps::{sort_apps, AppListLike, APPS};
 use domain::prompts::{Action, Prompt, Role};
 use domain::rows::AppRow;
 
-use crate::icons::registry;
 use crate::navigation::Screen;
 
 /// One list entry: a synced app.
@@ -246,38 +241,6 @@ pub(crate) fn confirm_delete(
     crate::native_dialog::open_alert(window, cx, spec);
 }
 
-/// VAPP-242 (apps.json THE NEW MENU, testId `newMenu`): the apps `+`
-/// opening THE existing menu with `run.newMenu` in order: New app (ui-add)
-/// = a draft and its editor, Import… (ui-file) = the import dialog.
-pub(crate) fn new_menu_button(team_id: String) -> PointerMenu<Button> {
-    Button::new(SharedString::from(APPS.test_ids.new_menu.clone()))
-        .ghost()
-        .cursor_pointer()
-        .xsmall()
-        .icon(registry::UI_ADD)
-        .tooltip(APPS.copy.new_app.clone())
-        .pointer_menu(move |mut menu, _window, _cx| {
-            for key in &APPS.run.new_menu {
-                let team_id = team_id.clone();
-                menu = match key.as_str() {
-                    "newApp" => menu.item(
-                        crate::controls::pointer_label_item(APPS.copy.new_app.clone(), false)
-                            .icon(Icon::new(registry::UI_ADD))
-                            .on_click(move |_: &ClickEvent, window, cx| new_app(team_id.clone(), window, cx)),
-                    ),
-                    "import" => menu.item(
-                        crate::controls::pointer_label_item(APPS.copy.import.clone(), false)
-                            .icon(Icon::new(registry::UI_FILE))
-                            .on_click(move |_: &ClickEvent, window, cx| {
-                                crate::app_import_dialog::open(window, cx, team_id.clone())
-                            }),
-                    ),
-                    _ => menu,
-                };
-            }
-            menu
-        })
-}
 
 /// Whether the viewer manages `entry`: its creator, or a team owner.
 pub(crate) fn can_manage(entry: &AppEntry, me: Option<&str>, owner: bool) -> bool {

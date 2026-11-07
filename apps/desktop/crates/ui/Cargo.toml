@@ -99,6 +99,11 @@ gpui-markdown-editor = { path = "../gpui-markdown-editor" }
 # kitchen-sink dev screen paints the core catalog through `SurfaceView`.
 eui-core = { path = "../eui-core" }
 eui-gpui = { path = "../eui-gpui" }
+# #EXP-1725: the IDE's regions are the shell documents (ide = shell + uicore).
+uicore-data = { path = "../uicore-data" }
+uicore-docs = { path = "../uicore-docs" }
+uicore-gpui = { path = "../uicore-gpui" }
+uicore-model = { path = "../uicore-model" }
 
 [dev-dependencies]
 # markdown/image_paste.rs one-shot HTTP fixture server.

@@ -314,6 +314,7 @@ impl SurfaceView {
 
     pub(crate) fn hover(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
         if self.set_interaction(id, |s| s.hover = hovered) {
+            self.host.on_hover(id, hovered, cx);
             cx.notify();
         }
     }

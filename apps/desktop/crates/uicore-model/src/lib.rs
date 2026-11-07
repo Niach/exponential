@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod ide;
 pub mod layout;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

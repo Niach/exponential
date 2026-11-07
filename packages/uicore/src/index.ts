@@ -3,3 +3,4 @@
 // uicore-model crate replays the same fixtures in Rust for the IDE and eDE.
 export * from "./shell"
 export * from "./layout"
+export * from "./ide"

@@ -964,7 +964,7 @@ impl SurfaceView {
             ("Markdown", _) => self.paint_markdown(&lcx, index, window, cx),
             ("Button" | "Toggle", _) => natives::button(&lcx, &n.component, window),
             ("Link", _) => natives::link(&lcx),
-            ("Icon", _) => natives::icon(&lcx),
+            ("Icon", _) => natives::icon(&lcx, cx),
             ("Avatar", _) => natives::avatar(&lcx),
             ("Image", _) => natives::image(&lcx, self.image_surround(n), window, cx),
             // An exiting layer paints nothing live (the view is the open tree's).

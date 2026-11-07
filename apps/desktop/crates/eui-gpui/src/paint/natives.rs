@@ -582,7 +582,7 @@ pub fn link(cx: &LeafCx) -> AnyElement {
 
 /// An `Icon` leaf (its style's rotation turns the glyph: the Collapsible
 /// chevron).
-pub fn icon(cx: &LeafCx) -> AnyElement {
+pub fn icon(cx: &LeafCx, app: &gpui::App) -> AnyElement {
     let (_, _, w, h) = cx.inner();
     let name = if cx.str("name").is_empty() { "ui-icon-placeholder" } else { cx.str("name") };
     // The glyph is the theme's Icon/root recipe size (`size: sm` →
@@ -593,6 +593,9 @@ pub fn icon(cx: &LeafCx) -> AnyElement {
     // 100%}`): the FileUpload dropzone icon is `$control.iconLg`.
     let fills = matches!((cx.node.owner_component.as_deref(), cx.node.part.as_deref()), (Some("FileUpload"), Some("icon")));
     let size = if fills { w.min(h).max(1.0) } else { (px_prop(&recipe, "width").or_else(|| px_prop(&recipe, "height")).unwrap_or(f32::INFINITY) * cx.scale).min(w.min(h)).max(1.0) };
+    if let Some(own) = cx.host.icon_element(name, size, cx.ink, app) {
+        return cx.content().flex().items_center().justify_center().child(own).into_any_element();
+    }
     let rotate = cx.style.transform.rotate;
     let glyph = if rotate.abs() > 0.01 { icons::concept_rotated(cx.host, name, size, cx.ink, rotate.to_radians()) } else { icons::concept_mirrored(cx.host, name, size, cx.ink, cx.rtl) };
     cx.content().flex().items_center().justify_center().child(glyph).into_any_element()
