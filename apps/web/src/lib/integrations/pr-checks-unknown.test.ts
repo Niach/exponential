@@ -14,7 +14,7 @@ const store = vi.hoisted(() => ({
     installationId: 7,
   },
   token: `tok` as string | null,
-  isChecks: (_table: unknown) => false,
+  isChecks: (_table: unknown): boolean => false,
 }))
 function chain(rows: unknown[]) {
   const link: Record<string, unknown> = {
