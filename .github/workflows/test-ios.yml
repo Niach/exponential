@@ -124,15 +124,16 @@ jobs:
         if: inputs.compile_only && runner.environment == 'self-hosted'
         working-directory: ${{ github.workspace }}
         run: |
-          key="$(git rev-parse HEAD:apps/desktop/crates/exponential-ui-ffi HEAD:apps/desktop/crates/exponential-net-ffi | git hash-object --stdin)"
+          key="$(git rev-parse HEAD:apps/desktop/crates/exponential-ui-ffi HEAD:apps/desktop/crates/exponential-net-ffi HEAD:apps/desktop/crates/eengine HEAD:apps/desktop/crates/eengine-ffi | git hash-object --stdin)"
           store="$HOME/.cache/exp-ios-xcframeworks/$key"
           echo "store=$store" >> "$GITHUB_OUTPUT"
           if [ ! -d "$store" ]; then echo "hit=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           touch "$store"
-          mkdir -p packages/exponential-ui-swift/Binaries apps/desktop/crates/exponential-net-ffi/out/push
+          mkdir -p packages/exponential-ui-swift/Binaries apps/desktop/crates/exponential-net-ffi/out/push apps/desktop/crates/eengine-ffi/out
           cp -R "$store/ExponentialUIFFI.xcframework" packages/exponential-ui-swift/Binaries/
           cp -R "$store/ExponentialNetFFI.xcframework" apps/desktop/crates/exponential-net-ffi/out/
           cp -R "$store/ExponentialNetPush.xcframework" apps/desktop/crates/exponential-net-ffi/out/push/
+          cp -R "$store/ExponentialEngineFFI.xcframework" apps/desktop/crates/eengine-ffi/out/
           echo "hit=true" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         if: steps.xcf.outputs.hit != 'true'
@@ -151,6 +152,16 @@ jobs:
         env:
           EXPONENTIAL_UI_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      # #VAPP-272: the Engine holds the apps' record outbox (Project.swift
+      # links it only when built).
+      - name: Build the Engine xcframework
+        if: steps.xcf.outputs.hit != 'true'
+        working-directory: ${{ github.workspace }}
+        env:
+          EENGINE_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
+          # No bundled sqlite: the app's is the system's (GRDB).
+          EENGINE_FFI_FEATURES: ""
+        run: bash apps/desktop/crates/eengine-ffi/build-ios.sh
       # EXP-1435: the push-only eNet facade the Notification Service Extension
       # opens sealed pushes with (Project.swift links it only when it exists,
       # like eUI); without it ExpPushTests skip the push-seal fixture. The
@@ -191,7 +202,8 @@ jobs:
           tmp="$(mktemp -d "$root/.tmp.XXXXXX")"
           cp -R packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework \
             apps/desktop/crates/exponential-net-ffi/out/ExponentialNetFFI.xcframework \
-            apps/desktop/crates/exponential-net-ffi/out/push/ExponentialNetPush.xcframework "$tmp/"
+            apps/desktop/crates/exponential-net-ffi/out/push/ExponentialNetPush.xcframework \
+            apps/desktop/crates/eengine-ffi/out/ExponentialEngineFFI.xcframework "$tmp/"
           # The other Mac instance may have saved this key meanwhile: then drop ours.
           if [ -e "$STORE" ]; then rm -rf "$tmp"; else mv "$tmp" "$STORE"; fi
           find "$root" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +

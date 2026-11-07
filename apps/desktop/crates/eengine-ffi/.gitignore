@@ -8,3 +8,6 @@ android/local.properties
 .build/
 .swiftpm/
 Package.resolved
+# Tuist's project for this package (apps/ios links it).
+Derived/
+*.xcodeproj
