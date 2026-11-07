@@ -12191,6 +12191,7 @@ dependencies = [
  "comrak",
  "dirs",
  "domain",
+ "eengine",
  "emcp",
  "enet-core",
  "engine",
