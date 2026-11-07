@@ -86,6 +86,8 @@ fun AppRunScreen(
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 AppGlyph(entry.icon, entry.color, size = 20.dp)
                                 Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                // VAPP-235: pending offline record writes (the outbox).
+                                AppOutboxPendingGlyph(entry.id)
                             }
                         }
                     },
