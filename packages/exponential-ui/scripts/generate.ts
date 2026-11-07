@@ -662,6 +662,13 @@ const text = (id: string, value: string, variant = `body`): NestedNode => ({ id,
 const button = (id: string, label: string, variant = `default`): NestedNode => ({ id, component: `Button`, props: { label, variant } })
 const row = (id: string, title: string, meta: string, depth = 0): NestedNode => ({ id, component: `Row`, props: { title, meta, pressable: true, ...(depth ? { depth } : {}) } })
 const card = (id: string, title: string, description: string): NestedNode => ({ id, component: `Card`, props: { title, description } })
+/** The one child a Window specimen frames: a padded column that fills the body. */
+const windowBody = (id: string): NestedNode => ({
+  id,
+  component: `Box`,
+  style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm`, padding: `$spacing.xl`, flexGrow: 1, alignItems: `flex-start` },
+  children: [text(`${id}-title`, `Release 0.18`, `label`), text(`${id}-text`, `4 steps · 2 done`, `muted`), button(`${id}-open`, `Open board`, `outline`)],
+})
 
 /** What a specimen puts inside a container instead of the cases' generic
  *  `Child` (a component missing here keeps the case's children as they are). */
@@ -674,6 +681,7 @@ const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   ],
   Grid: [1, 2, 3, 4, 5, 6].map((n) => card(`g${n}`, `Cell ${n}`, `Grid item`)),
   Card: [text(`t`, `3 open issues · 2 in review`), button(`b`, `Open board`, `outline`)],
+  Window: [windowBody(`body`)],
   List: [text(`l1`, `Inbox`), text(`l2`, `Drafts`), text(`l3`, `Archive`)],
   // Round 3: a Section of nested rows shows the elbow, the tee and a pass-through.
   Section: [row(`r1`, `Release 0.18`, `4 steps`), row(`r2`, `Build the macOS app`, `done`, 1), row(`r3`, `Notarize`, `running`, 2), row(`r4`, `Upload the dmg`, `queued`, 2), row(`r5`, `Publish the release notes`, `queued`, 1), row(`r6`, `Release 0.17`, `3 steps`)],
@@ -876,6 +884,7 @@ const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => 
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  Window: [{ label: `no title`, node: { id: `untitled`, component: `Window`, props: {}, style: { height: 160 }, children: [windowBody(`untitled-body`)] } }],
   // Round 8 (docs/round-8-contract.md): the download row, a bar with only
   // its trailing text, the collapsed Stepper, the mixed Checkbox.
   Progress: [
@@ -1050,6 +1059,7 @@ const SPECIMEN_WRAP: Record<string, Record<string, unknown>> = {
 const SPECIMEN_STYLES: Record<string, Record<string, unknown>> = {
   Resizable: { height: 160 },
   ScrollArea: { height: 160 },
+  Window: { height: 200 },
   SplitView: { height: 160 },
 }
 

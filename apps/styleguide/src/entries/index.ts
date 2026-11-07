@@ -84,6 +84,7 @@ import { entry as recordForm } from "./record-form.tsx"
 import { entry as recordTable } from "./record-table.tsx"
 import { entry as settingsRow } from "./settings-row.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
+import { entry as windowFrame } from "./window.tsx"
 import { entry as zoomableImage } from "./zoomable-image.tsx"
 import { entry as motion } from "./motion.tsx"
 import { entry as canvas } from "./canvas.tsx"
@@ -131,6 +132,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   outline,
   tree,
   mosaic,
+  windowFrame,
   zoomableImage,
   motion,
   canvas,
