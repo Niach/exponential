@@ -755,11 +755,11 @@ fn resolve_in(value: &Value, ctx: &ResolveContext) -> Option<Value> {
         Value::Object(map) => {
             let mut out = Map::new();
             for (k, v) in map {
-                // Round 9 §3.3: `@@x` → `@x`; a refused `@x` key is dropped
-                // (the entry check refuses it before it gets here).
-                let Some(key) = crate::expr::literal_key(k) else { continue };
+                // Round 9 §3.3: `@@x` → `@x`. A single `@` key stays: the
+                // entry check refused it in a dynamic position, and a style
+                // holds `@media …` conditions.
                 if let Some(r) = resolve_in(v, ctx) {
-                    out.insert(key.into_owned(), r);
+                    out.insert(k.strip_prefix('@').filter(|t| t.starts_with('@')).unwrap_or(k).to_string(), r);
                 }
             }
             Some(Value::Object(out))
