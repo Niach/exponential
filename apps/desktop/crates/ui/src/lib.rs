@@ -248,10 +248,13 @@ mod window_hooks;
 mod x11_dialog_type;
 pub mod window_size;
 mod shell;
+mod shell_regions;
 #[cfg(test)]
 mod alert_gallery;
 #[cfg(test)]
 mod transcript_bench;
+#[cfg(test)]
+mod shell_bench;
 
 pub use actions::*;
 pub use icons::ExpIcon;

@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sidebar (#EDE-44): the IDE's left column as a top layer surface on the left edge, 272 px (the shell re-opens it at 56 px as the icon rail when /shell/rail is set: Sidebar's rail mode draws every Row as a tile with a tooltip). Top: the desktop/team switcher (#EDE-56: its sections, Local desktops first then one per connected account with its teams, from /shell/switcher/sections; New local desktop, Share as a team, Connect Exponential), the inbox, search and new buttons, the rail toggle. Nav: Needs you, Chats (they open the Exponential app). Sections: Pinned (the taskbar's pins), Workspaces (badges with the window counts), Active (sessions, when there are any). Bottom-left: the Exponential start button (the start menu, start-menu.json anchored here) and the chat button (chat.json). The host functions: ede_rail, ede_sidebar, ede_pin/unpin, ede_taskbar, ede_workspace, ede_start_menu, ede_chat, ede_launch, ede_switcher.",
+  "$comment": "Exponential Desktop's factory sidebar (#EDE-44): the IDE's left column as a top layer surface on the left edge, 272 px (the shell re-opens it at 56 px as the icon rail when /shell/rail is set: Sidebar's rail mode draws every Row as a tile with a tooltip). Top: the desktop/team switcher (#EDE-56: its sections, Local desktops first then one per connected account with its teams, from /shell/switcher/sections; New local desktop, Share as a team, Connect Exponential), the inbox, search and new buttons, the rail toggle. Nav: Needs you, Chats (they open the Exponential app). Sections: Pinned (the taskbar's pins), Workspaces (badges with the window counts), Active (sessions, when there are any). Bottom-left: the Exponential start button (the start menu, start-menu.json anchored here) and the chat button (chat.json). The host functions: ede_rail, ede_sidebar, ede_pin/unpin, ede_taskbar, ede_workspace, ede_start_menu, ede_chat, ede_launch, ede_switcher. The IDE mounts this document too (#EXP-1725): it prunes what it draws itself and fills the ide_* lists from /shell/ide (packages/uicore/fixtures/ide-sidebar.json); eDE never feeds that path, so they stay hidden here.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -542,6 +542,102 @@
                     }
                   }
                 ]
+              },
+              {
+                "id": "ide_nav",
+                "component": "List",
+                "props": {
+                  "gap": "none"
+                },
+                "template": {
+                  "component": "ide_nav_row",
+                  "path": "/shell/ide/nav",
+                  "key": "id"
+                },
+                "children": [
+                  {
+                    "id": "ide_nav_row",
+                    "component": "Row",
+                    "props": {
+                      "title": {
+                        "@path": "title"
+                      },
+                      "icon": {
+                        "@path": "icon"
+                      },
+                      "density": "compact",
+                      "pressable": true,
+                      "selected": {
+                        "@path": "selected"
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "ide_open",
+                          "context": {
+                            "kind": "nav",
+                            "id": {
+                              "@path": "id"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "slots": {
+                      "trailing": {
+                        "id": "ide_nav_trailing",
+                        "component": "Stack",
+                        "props": {
+                          "direction": "horizontal",
+                          "gap": "none",
+                          "align": "center"
+                        },
+                        "children": [
+                          {
+                            "id": "ide_nav_dot",
+                            "component": "Icon",
+                            "props": {
+                              "name": {
+                                "@path": "dotIcon"
+                              },
+                              "size": "sm"
+                            },
+                            "visible": {
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "dotIcon"
+                                },
+                                "then": true,
+                                "else": false
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "visible": {
+                  "@call": "not",
+                  "args": {
+                    "value": {
+                      "@call": "eq",
+                      "args": {
+                        "a": {
+                          "@call": "len",
+                          "args": {
+                            "value": {
+                              "@path": "/shell/ide/nav"
+                            }
+                          }
+                        },
+                        "b": 0
+                      }
+                    }
+                  }
+                }
               },
               {
                 "id": "scroll",
@@ -1172,6 +1268,925 @@
                                   "args": {
                                     "value": {
                                       "@path": "/shell/sessions"
+                                    }
+                                  }
+                                },
+                                "b": 0
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "ide_pins",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs"
+                        },
+                        "children": [
+                          {
+                            "id": "ide_pins_head",
+                            "component": "Box",
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "height": 24,
+                              "paddingLeft": "$spacing.xs"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_pins_label",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Pinned",
+                                  "variant": "caption"
+                                },
+                                "style": {
+                                  "flexGrow": 1,
+                                  "color": "$color.mutedForeground"
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "id": "ide_pins_list",
+                            "component": "List",
+                            "props": {
+                              "gap": "none"
+                            },
+                            "template": {
+                              "component": "ide_pin_row",
+                              "path": "/shell/ide/pins",
+                              "key": "id"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_pin_row",
+                                "component": "Row",
+                                "props": {
+                                  "title": {
+                                    "@path": "title"
+                                  },
+                                  "identifier": {
+                                    "@path": "identifier"
+                                  },
+                                  "density": "compact",
+                                  "pressable": true,
+                                  "selected": {
+                                    "@path": "selected"
+                                  }
+                                },
+                                "on": {
+                                  "press": {
+                                    "event": {
+                                      "name": "ide_open",
+                                      "context": {
+                                        "kind": "pin",
+                                        "id": {
+                                          "@path": "id"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "slots": {
+                                  "trailing": {
+                                    "id": "ide_pin_unpin",
+                                    "component": "Button",
+                                    "props": {
+                                      "icon": "ui-unpin",
+                                      "variant": "ghost",
+                                      "size": "icon",
+                                      "label": "Unpin"
+                                    },
+                                    "style": {
+                                      "width": 20,
+                                      "height": 20
+                                    },
+                                    "visible": {
+                                      "@call": "cond",
+                                      "args": {
+                                        "if": {
+                                          "@path": "hover"
+                                        },
+                                        "then": true,
+                                        "else": false
+                                      }
+                                    },
+                                    "on": {
+                                      "press": {
+                                        "event": {
+                                          "name": "ide_unpin",
+                                          "context": {
+                                            "id": {
+                                              "@path": "id"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "visible": {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@call": "eq",
+                              "args": {
+                                "a": {
+                                  "@call": "len",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/shell/ide/pins"
+                                    }
+                                  }
+                                },
+                                "b": 0
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "ide_agents",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs"
+                        },
+                        "children": [
+                          {
+                            "id": "ide_agents_head",
+                            "component": "Box",
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "height": 24,
+                              "paddingLeft": "$spacing.xs"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_agents_label",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Agents",
+                                  "variant": "caption"
+                                },
+                                "style": {
+                                  "flexGrow": 1,
+                                  "color": "$color.mutedForeground"
+                                }
+                              },
+                              {
+                                "id": "ide_agent_add",
+                                "component": "Button",
+                                "props": {
+                                  "icon": "ui-add",
+                                  "variant": "ghost",
+                                  "size": "icon",
+                                  "label": "New agent"
+                                },
+                                "style": {
+                                  "width": 20,
+                                  "height": 20
+                                },
+                                "on": {
+                                  "press": {
+                                    "event": {
+                                      "name": "ide_add",
+                                      "context": {
+                                        "kind": "agent"
+                                      }
+                                    }
+                                  }
+                                },
+                                "visible": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "/shell/ide/agents/add"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "id": "ide_agents_list",
+                            "component": "List",
+                            "props": {
+                              "gap": "none"
+                            },
+                            "template": {
+                              "component": "ide_agent_row",
+                              "path": "/shell/ide/agents/rows",
+                              "key": "id"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_agent_row",
+                                "component": "Row",
+                                "props": {
+                                  "title": {
+                                    "@path": "title"
+                                  },
+                                  "icon": {
+                                    "@path": "icon"
+                                  },
+                                  "density": "compact",
+                                  "pressable": true,
+                                  "selected": {
+                                    "@path": "selected"
+                                  }
+                                },
+                                "on": {
+                                  "press": {
+                                    "event": {
+                                      "name": "ide_open",
+                                      "context": {
+                                        "kind": "agent",
+                                        "id": {
+                                          "@path": "id"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "slots": {
+                                  "trailing": {
+                                    "id": "ide_agent_trailing",
+                                    "component": "Stack",
+                                    "props": {
+                                      "direction": "horizontal",
+                                      "gap": "none",
+                                      "align": "center"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "ide_agent_dot",
+                                        "component": "Icon",
+                                        "props": {
+                                          "name": {
+                                            "@path": "dotIcon"
+                                          },
+                                          "size": "sm"
+                                        },
+                                        "visible": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "dotIcon"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "id": "ide_agent_gear",
+                                        "component": "Button",
+                                        "props": {
+                                          "icon": "nav-settings",
+                                          "variant": "ghost",
+                                          "size": "icon",
+                                          "label": "Agent settings"
+                                        },
+                                        "style": {
+                                          "width": 20,
+                                          "height": 20
+                                        },
+                                        "visible": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "hover"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        },
+                                        "on": {
+                                          "press": {
+                                            "event": {
+                                              "name": "ide_gear",
+                                              "context": {
+                                                "kind": "agent",
+                                                "id": {
+                                                  "@path": "id"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "visible": {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@call": "eq",
+                              "args": {
+                                "a": {
+                                  "@call": "len",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/shell/ide/nav"
+                                    }
+                                  }
+                                },
+                                "b": 0
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "ide_apps",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs"
+                        },
+                        "children": [
+                          {
+                            "id": "ide_apps_head",
+                            "component": "Box",
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "height": 24,
+                              "paddingLeft": "$spacing.xs"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_apps_label",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Apps",
+                                  "variant": "caption"
+                                },
+                                "style": {
+                                  "flexGrow": 1,
+                                  "color": "$color.mutedForeground"
+                                }
+                              },
+                              {
+                                "id": "ide_app_add",
+                                "component": "Button",
+                                "props": {
+                                  "icon": "ui-add",
+                                  "variant": "ghost",
+                                  "size": "icon",
+                                  "label": "New app"
+                                },
+                                "style": {
+                                  "width": 20,
+                                  "height": 20
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "id": "ide_app_menu",
+                            "component": "Menu",
+                            "props": {
+                              "anchor": "ide_app_add",
+                              "side": "bottom",
+                              "align": "start",
+                              "items": [
+                                {
+                                  "label": "New app",
+                                  "value": "newApp",
+                                  "icon": "ui-add"
+                                },
+                                {
+                                  "label": "Import…",
+                                  "value": "import",
+                                  "icon": "ui-file"
+                                }
+                              ]
+                            },
+                            "on": {
+                              "select": {
+                                "event": {
+                                  "name": "ide_add"
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "ide_apps_list",
+                            "component": "List",
+                            "props": {
+                              "gap": "none"
+                            },
+                            "template": {
+                              "component": "ide_app_row",
+                              "path": "/shell/ide/apps/rows",
+                              "key": "id"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_app_row",
+                                "component": "Row",
+                                "props": {
+                                  "title": {
+                                    "@path": "title"
+                                  },
+                                  "icon": {
+                                    "@path": "icon"
+                                  },
+                                  "density": "compact",
+                                  "pressable": true,
+                                  "selected": {
+                                    "@path": "selected"
+                                  }
+                                },
+                                "on": {
+                                  "press": {
+                                    "event": {
+                                      "name": "ide_open",
+                                      "context": {
+                                        "kind": "app",
+                                        "id": {
+                                          "@path": "id"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "slots": {
+                                  "trailing": {
+                                    "id": "ide_app_trailing",
+                                    "component": "Stack",
+                                    "props": {
+                                      "direction": "horizontal",
+                                      "gap": "none",
+                                      "align": "center"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "ide_app_dot",
+                                        "component": "Icon",
+                                        "props": {
+                                          "name": {
+                                            "@path": "dotIcon"
+                                          },
+                                          "size": "sm"
+                                        },
+                                        "visible": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "dotIcon"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "id": "ide_app_gear",
+                                        "component": "Button",
+                                        "props": {
+                                          "icon": "nav-settings",
+                                          "variant": "ghost",
+                                          "size": "icon",
+                                          "label": "App settings"
+                                        },
+                                        "style": {
+                                          "width": 20,
+                                          "height": 20
+                                        },
+                                        "visible": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "hover"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        },
+                                        "on": {
+                                          "press": {
+                                            "event": {
+                                              "name": "ide_gear",
+                                              "context": {
+                                                "kind": "app",
+                                                "id": {
+                                                  "@path": "id"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "visible": {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@call": "eq",
+                              "args": {
+                                "a": {
+                                  "@call": "len",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/shell/ide/nav"
+                                    }
+                                  }
+                                },
+                                "b": 0
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "ide_boards",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs"
+                        },
+                        "children": [
+                          {
+                            "id": "ide_boards_head",
+                            "component": "Box",
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "height": 24,
+                              "paddingLeft": "$spacing.xs"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_boards_label",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Boards",
+                                  "variant": "caption"
+                                },
+                                "style": {
+                                  "flexGrow": 1,
+                                  "color": "$color.mutedForeground"
+                                }
+                              },
+                              {
+                                "id": "ide_board_add",
+                                "component": "Button",
+                                "props": {
+                                  "icon": "ui-add",
+                                  "variant": "ghost",
+                                  "size": "icon",
+                                  "label": "Create board"
+                                },
+                                "style": {
+                                  "width": 20,
+                                  "height": 20
+                                },
+                                "on": {
+                                  "press": {
+                                    "event": {
+                                      "name": "ide_add",
+                                      "context": {
+                                        "kind": "board"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "id": "ide_boards_list",
+                            "component": "List",
+                            "props": {
+                              "gap": "none"
+                            },
+                            "template": {
+                              "component": "ide_board_row",
+                              "path": "/shell/ide/boards/rows",
+                              "key": "id"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_board_row",
+                                "component": "Row",
+                                "props": {
+                                  "title": {
+                                    "@path": "title"
+                                  },
+                                  "icon": {
+                                    "@path": "icon"
+                                  },
+                                  "density": "compact",
+                                  "pressable": true,
+                                  "selected": {
+                                    "@path": "selected"
+                                  }
+                                },
+                                "on": {
+                                  "press": {
+                                    "event": {
+                                      "name": "ide_open",
+                                      "context": {
+                                        "kind": "board",
+                                        "id": {
+                                          "@path": "id"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "slots": {
+                                  "trailing": {
+                                    "id": "ide_board_trailing",
+                                    "component": "Stack",
+                                    "props": {
+                                      "direction": "horizontal",
+                                      "gap": "none",
+                                      "align": "center"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "ide_board_dot",
+                                        "component": "Icon",
+                                        "props": {
+                                          "name": {
+                                            "@path": "dotIcon"
+                                          },
+                                          "size": "sm"
+                                        },
+                                        "visible": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "dotIcon"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "id": "ide_board_gear",
+                                        "component": "Button",
+                                        "props": {
+                                          "icon": "nav-settings",
+                                          "variant": "ghost",
+                                          "size": "icon",
+                                          "label": "Board settings"
+                                        },
+                                        "style": {
+                                          "width": 20,
+                                          "height": 20
+                                        },
+                                        "visible": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "hover"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        },
+                                        "on": {
+                                          "press": {
+                                            "event": {
+                                              "name": "ide_gear",
+                                              "context": {
+                                                "kind": "board",
+                                                "id": {
+                                                  "@path": "id"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "id": "ide_boards_empty",
+                            "component": "Text",
+                            "props": {
+                              "text": {
+                                "@path": "/shell/ide/boards/emptyText"
+                              },
+                              "variant": "muted"
+                            },
+                            "style": {
+                              "paddingLeft": "$spacing.xs"
+                            },
+                            "visible": {
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "/shell/ide/boards/empty"
+                                },
+                                "then": true,
+                                "else": false
+                              }
+                            }
+                          }
+                        ],
+                        "visible": {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@call": "eq",
+                              "args": {
+                                "a": {
+                                  "@call": "len",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/shell/ide/nav"
+                                    }
+                                  }
+                                },
+                                "b": 0
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "ide_active",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs"
+                        },
+                        "children": [
+                          {
+                            "id": "ide_active_head",
+                            "component": "Box",
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "height": 24,
+                              "paddingLeft": "$spacing.xs"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_active_label",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Active",
+                                  "variant": "caption"
+                                },
+                                "style": {
+                                  "flexGrow": 1,
+                                  "color": "$color.mutedForeground"
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "id": "ide_active_list",
+                            "component": "List",
+                            "props": {
+                              "gap": "none"
+                            },
+                            "template": {
+                              "component": "ide_active_row",
+                              "path": "/shell/ide/active",
+                              "key": "id"
+                            },
+                            "children": [
+                              {
+                                "id": "ide_active_row",
+                                "component": "Row",
+                                "props": {
+                                  "title": {
+                                    "@path": "title"
+                                  },
+                                  "icon": {
+                                    "@path": "icon"
+                                  },
+                                  "density": "compact",
+                                  "pressable": true,
+                                  "selected": {
+                                    "@path": "selected"
+                                  }
+                                },
+                                "on": {
+                                  "press": {
+                                    "event": {
+                                      "name": "ide_open",
+                                      "context": {
+                                        "kind": "active",
+                                        "id": {
+                                          "@path": "id"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "slots": {
+                                  "trailing": {
+                                    "id": "ide_active_trailing",
+                                    "component": "Stack",
+                                    "props": {
+                                      "direction": "horizontal",
+                                      "gap": "xs",
+                                      "align": "center"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "ide_active_unread",
+                                        "component": "Icon",
+                                        "props": {
+                                          "name": {
+                                            "@path": "unreadIcon"
+                                          },
+                                          "size": "sm"
+                                        },
+                                        "visible": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "unreadIcon"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "id": "ide_active_device",
+                                        "component": "Icon",
+                                        "props": {
+                                          "name": {
+                                            "@path": "deviceIcon"
+                                          },
+                                          "size": "sm"
+                                        },
+                                        "visible": {
+                                          "@call": "cond",
+                                          "args": {
+                                            "if": {
+                                              "@path": "deviceIcon"
+                                            },
+                                            "then": true,
+                                            "else": false
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "visible": {
+                          "@call": "not",
+                          "args": {
+                            "value": {
+                              "@call": "eq",
+                              "args": {
+                                "a": {
+                                  "@call": "len",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/shell/ide/active"
                                     }
                                   }
                                 },

@@ -30,6 +30,22 @@ pub fn document(doc: &uicore_docs::Doc) -> Document {
     parsed
 }
 
+/// Drops the nodes a host draws itself or has no use for.
+pub fn without(doc: &mut Document, ids: &[&str]) {
+    fn prune(node: &mut eui_core::types::NestedNode, ids: &[&str]) {
+        if let Some(children) = &mut node.children {
+            children.retain(|c| !ids.contains(&c.id.as_str()));
+            children.iter_mut().for_each(|c| prune(c, ids));
+        }
+        if let Some(slots) = &mut node.slots {
+            slots.values_mut().for_each(|c| prune(c, ids));
+        }
+    }
+    if let Body::Nested(tree) = &mut doc.body {
+        prune(tree, ids);
+    }
+}
+
 /// The theme a host window draws its regions in: the regions sit on the
 /// host's one ground, so the Sidebar paints no fill of its own.
 pub fn theme(base: &ResolvedTheme) -> Arc<ResolvedTheme> {
@@ -42,7 +58,7 @@ pub fn theme(base: &ResolvedTheme) -> Arc<ResolvedTheme> {
 pub fn mount(doc: &Document, feed: &Feed, theme: Arc<ResolvedTheme>, host: Rc<dyn HostPlugin>, mode: Mode, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
     let (doc, feed) = (doc.clone(), feed.clone());
     cx.new(|cx| {
-        let settings = SurfaceSettings { locale: "en-US".into(), mode: ModeSetting::Dark, hosted_popups: true, ..SurfaceSettings::default() };
+        let settings = SurfaceSettings { locale: "en-US".into(), mode: ModeSetting::Dark, ..SurfaceSettings::default() };
         let mut view = SurfaceView::new(SurfaceViewOptions { surface_id: doc.name.clone(), theme: Some(theme), mode, host, settings: Some(settings), ..Default::default() }, window, cx);
         view.record_bounds(true);
         crate::load(&mut view, &doc, &feed, cx);
