@@ -563,6 +563,14 @@
   "grantCases": [
     {
       "granted": [
+        "exponential.issues.update"
+      ],
+      "name": "exponential_issues_update",
+      "expected": true,
+      "$why": "round 9 §14: a grant stored dotted counts until the flag-day migration rewrites it"
+    },
+    {
+      "granted": [
         "exponential_issues_update"
       ],
       "name": "exponential_issues_update",
@@ -801,6 +809,17 @@
     }
   ],
   "declaredCases": [
+    {
+      "functions": [
+        "exponential.comments.create",
+        "exponential.boards.get"
+      ],
+      "expected": [
+        "exponential_boards_get",
+        "exponential_comments_create"
+      ],
+      "$why": "round 9 §14: a stored dotted function list"
+    },
     {
       "functions": [
         "exponential_comments_create",

@@ -36,7 +36,7 @@ fun AppConsentSpecimenScreen() {
             FunctionCallInfo(
                 surfaceId = "working-hours",
                 componentId = "postComment",
-                name = "exponential.comments.create",
+                name = "exponential_comments_create",
                 args = linkedMapOf(
                     // The stored package's order (JSONB: the shorter key first), as web shows it.
                     "body" to JsonValue.Str("Logged 8 h: docs, admin"),

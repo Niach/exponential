@@ -60,7 +60,6 @@ use eui_core::host::{FunctionPolicy, MediaOptions, ParsedSource, UrlPolicy};
 use eui_core::measure::LeafRequest;
 use eui_core::surface::PlacedNode;
 use eui_core::theme::{Mode, ResolvedTheme};
-use eui_core::upgrade09::rename09;
 use eui_gpui::extension::{ExtensionPainter, PaintContext};
 use eui_gpui::host::HostPlugin;
 use eui_gpui::runtime::{
@@ -1066,20 +1065,7 @@ fn action_fn(target: domain::app_actions::ActionTarget, app_id: Option<String>) 
 pub(crate) fn call_granted(name: &str, args: &Value, granted: &[String]) -> bool {
     let empty = serde_json::Map::new();
     let args = args.as_object().unwrap_or(&empty);
-    let name = action_name(name);
     domain::app_actions::parse_action_name(name).is_some() && domain::app_actions::grant_allows(granted, name, args)
-}
-
-/// Round 9 §6.3: a call's flat name (`exponential_issues_update_status`) →
-/// the name `domain::app_actions` keys and stored grants use until the flag
-/// day. The domain contract parses only through its own table, never by
-/// splitting on `_`; once its names are flat this is the identity.
-fn action_name(name: &str) -> &str {
-    static NAMES: LazyLock<HashMap<String, &'static str>> = LazyLock::new(|| {
-        let aliases = domain::app_actions::APP_ACTION_ALIASES.keys();
-        domain::app_actions::APP_ACTIONS.iter().chain(aliases).map(|n| (rename09(n), n.as_str())).collect()
-    });
-    NAMES.get(name).copied().unwrap_or(name)
 }
 
 /// The hosting app's live `granted_tools` (no scope / no row = none).
@@ -1140,7 +1126,7 @@ pub(crate) fn consent_words(call: &FunctionCallInfo) -> ConsentWords {
     // VAPP-120: a typed action is worded for its operation (the contract's rows).
     let empty = serde_json::Map::new();
     let given = call.args.as_object().unwrap_or(&empty);
-    if let Some(typed) = domain::app_actions::action_consent(action_name(&call.name), given) {
+    if let Some(typed) = domain::app_actions::action_consent(&call.name, given) {
         return ConsentWords {
             tool: typed.tool,
             args: typed.args,
@@ -2005,7 +1991,7 @@ impl IdeHost {
         let aliases = domain::app_actions::APP_ACTION_ALIASES.keys();
         for name in domain::app_actions::APP_ACTIONS.iter().chain(aliases) {
             if let Some(target) = domain::app_actions::parse_action_name(name) {
-                functions.insert(rename09(name), action_fn(target, claim_app.clone()));
+                functions.insert(name.clone(), action_fn(target, claim_app.clone()));
             }
         }
         // VAPP-198: under Run as only the toast runs.

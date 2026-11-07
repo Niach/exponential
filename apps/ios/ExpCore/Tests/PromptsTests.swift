@@ -164,7 +164,7 @@ final class PromptsTests: XCTestCase {
     func testDestructiveTool() {
         XCTAssertTrue(Prompts.destructiveTool("exponential_issues", op: "delete"))
         XCTAssertTrue(Prompts.destructiveTool("exponential_pr", op: "merge"))
-        XCTAssertTrue(Prompts.destructiveTool("harness.trash"))
+        XCTAssertTrue(Prompts.destructiveTool("harness_trash"))
         XCTAssertFalse(Prompts.destructiveTool("exponential_issues", op: "get"))
         XCTAssertFalse(Prompts.destructiveTool("exponential_sessions_send", op: "endless"))
         XCTAssertEqual(

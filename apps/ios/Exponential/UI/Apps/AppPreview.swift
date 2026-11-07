@@ -20,7 +20,7 @@ import ExponentialUI
 /// `ui-icon-placeholder`, and its title), the shown one selected. The shown
 /// screen = eUI `Screens.resolve` of `screen` (the requested one, else the
 /// first); a tab tap requests that screen with its own params, the
-/// package's `app.navigate` the call's screen + params (in memory). A new
+/// package's `app_navigate` the call's screen + params (in memory). A new
 /// screen = a fresh surface opening its template with `{params}`.
 ///
 /// #VAPP-251 (apps.json A PACKAGE THAT NO LONGER VALIDATES): a package the
@@ -49,7 +49,7 @@ struct AppPreview: View {
     /// through the package's migrations, copies only); nil = as stored.
     var migrateFrom: String? = nil
     /// VAPP-218: the requested screen (the editor's state; a tab tap and
-    /// `app.navigate` write it), nil = the first.
+    /// `app_navigate` write it), nil = the first.
     var screen: Binding<Apps.ScreenRequest?> = .constant(nil)
     /// VAPP-242: false = THE RUN VIEW: the surface fills the content area
     /// edge to edge (no frame radius, ground or hairline; `preview.padding`
@@ -247,7 +247,7 @@ private struct AppPackageSurface: View {
     let shown: Apps.ScreenRequest?
     /// The height the surface's overlay layers size against.
     let viewportHeight: CGFloat
-    /// VAPP-218: the package's `app.navigate` (the request it names).
+    /// VAPP-218: the package's `app_navigate` (the request it names).
     let onNavigate: (Apps.ScreenRequest) -> Void
     /// #VAPP-251: the host holds no surface after the apply.
     let onRefused: () -> Void

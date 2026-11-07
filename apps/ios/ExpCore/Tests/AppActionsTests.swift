@@ -154,14 +154,14 @@ final class AppActionsTests: XCTestCase {
     }
 
     func testTheNamesOpWinsOverAForgedOpInTheArgs() {
-        // Review of #1222: a granted `exponential.issues.get` can never run a delete.
-        let get = AppActions.parseActionName("exponential.issues.get")
+        // Review of #1222: a granted `exponential_issues_get` can never run a delete.
+        let get = AppActions.parseActionName("exponential_issues_get")
         XCTAssertEqual(
             AppActions.arguments(["op": "delete", "id": "APP-5"], op: get?.op) { $0 },
             ["op": "get", "id": "APP-5"]
         )
         XCTAssertEqual(AppActions.arguments(["id": "APP-5"], op: get?.op) { $0 }, ["id": "APP-5", "op": "get"])
-        let send = AppActions.parseActionName("exponential.sessions.send")
+        let send = AppActions.parseActionName("exponential_sessions_send")
         XCTAssertNil(send?.op)
         XCTAssertEqual(AppActions.arguments(["text": "hi"], op: send?.op) { $0 }, ["text": "hi"])
         XCTAssertEqual(
@@ -171,19 +171,19 @@ final class AppActionsTests: XCTestCase {
     }
 
     func testActionTitle() {
-        XCTAssertEqual(AppActions.actionTitle("exponential.issues.update_status"), "Set issue status")
-        XCTAssertEqual(AppActions.actionTitle("exponential.sessions.send"), "Send to session")
-        XCTAssertEqual(AppActions.actionTitle("harness.toast"), "harness.toast")
+        XCTAssertEqual(AppActions.actionTitle("exponential_issues_update_status"), "Set issue status")
+        XCTAssertEqual(AppActions.actionTitle("exponential_sessions_send"), "Send to session")
+        XCTAssertEqual(AppActions.actionTitle("harness_toast"), "harness_toast")
     }
 
     func testConsentPromptKeepsTheGenericActionsWithTheTitle() throws {
-        let consent = try XCTUnwrap(AppActions.actionConsent("exponential.issues.delete", args: [(key: "id", value: .string("APP-5"))]))
+        let consent = try XCTUnwrap(AppActions.actionConsent("exponential_issues_delete", args: [(key: "id", value: .string("APP-5"))]))
         let prompt = Prompts.exponentialUiConsent(tool: consent.tool, destructive: consent.destructive, title: consent.title)
         let generic = Prompts.exponentialUiConsent(tool: consent.tool, destructive: true)
         XCTAssertEqual(prompt.title, "Allow this surface to delete issue APP-5?")
         XCTAssertEqual(prompt.actions, generic.actions)
         XCTAssertEqual(prompt.focus, generic.focus)
         XCTAssertEqual(prompt.body, generic.body)
-        XCTAssertEqual(Prompts.exponentialUiConsent(tool: "harness.mcp", destructive: false, title: nil), Prompts.exponentialUiConsent(tool: "harness.mcp", destructive: false))
+        XCTAssertEqual(Prompts.exponentialUiConsent(tool: "harness_mcp", destructive: false, title: nil), Prompts.exponentialUiConsent(tool: "harness_mcp", destructive: false))
     }
 }

@@ -638,7 +638,7 @@ internal fun AppPackageSurface(
         readOnly = readOnly,
         upstreams = upstreams,
         migrateFrom = migrateFrom,
-        // VAPP-218: `app.navigate` replaces the request (screen + params).
+        // VAPP-218: `app_navigate` replaces the request (screen + params).
         navigate = if (screens.isEmpty()) null else navigateToScreen,
     )
     // A new screen = a fresh surface (the template change's rule).

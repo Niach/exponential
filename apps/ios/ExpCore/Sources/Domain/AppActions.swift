@@ -3,32 +3,125 @@ import Foundation
 // VAPP-120: typed host ACTIONS, the iOS mirror of the TS reference
 // `packages/domain-contract/src/app-actions.ts` (fixtures/app-actions.json is
 // the spec; web `app-actions.ts`, desktop `domain::app_actions`, Android
-// `AppActions.kt` replay the same cases): which `exponential.<noun>.<op>`
+// `AppActions.kt` replay the same cases): which `exponential_<noun>_<op>`
 // functions exist, what a name resolves to, what a package declares, what an
 // app's grants allow, and the consent card's words.
 public enum AppActions {
-    public static let prefix = "exponential."
+    public static let prefix = "exponential_"
 
     /// Every function name, sorted (the fixture's `functions`).
     public static let all: [String] = [
-        "exponential.agents.get", "exponential.agents.list",
-        "exponential.apps.catalog", "exponential.apps.delete", "exponential.apps.get", "exponential.apps.handoff", "exponential.apps.list", "exponential.apps.records_delete", "exponential.apps.records_list", "exponential.apps.records_upsert", "exponential.apps.upsert",
-        "exponential.attachments.delete", "exponential.attachments.get", "exponential.attachments.list", "exponential.attachments.upload",
-        "exponential.boards.create", "exponential.boards.delete", "exponential.boards.get", "exponential.boards.list", "exponential.boards.set_repository", "exponential.boards.update",
-        "exponential.comments.create", "exponential.comments.delete", "exponential.comments.list", "exponential.comments.update",
-        "exponential.devices.account_login", "exponential.devices.list",
-        "exponential.events.emit", "exponential.events.list",
-        "exponential.issues.activity", "exponential.issues.create", "exponential.issues.delete", "exponential.issues.get", "exponential.issues.labels_add", "exponential.issues.labels_remove", "exponential.issues.list", "exponential.issues.relations_add", "exponential.issues.relations_remove", "exponential.issues.show", "exponential.issues.subscribe", "exponential.issues.unsubscribe", "exponential.issues.update", "exponential.issues.update_status",
-        "exponential.labels.create", "exponential.labels.delete", "exponential.labels.get", "exponential.labels.list", "exponential.labels.update",
-        "exponential.mcp_servers.create", "exponential.mcp_servers.delete", "exponential.mcp_servers.list",
-        "exponential.notifications.list", "exponential.notifications.mark_read",
-        "exponential.people.add", "exponential.people.invites_create", "exponential.people.invites_list", "exponential.people.invites_revoke", "exponential.people.list",
-        "exponential.pr.close", "exponential.pr.files", "exponential.pr.merge", "exponential.pr.open", "exponential.pr.retarget", "exponential.pr.unlink", "exponential.pr.update",
-        "exponential.prompts.create", "exponential.prompts.delete", "exponential.prompts.get", "exponential.prompts.list", "exponential.prompts.update",
-        "exponential.repositories.create", "exponential.repositories.list",
-        "exponential.sessions.end", "exponential.sessions.get", "exponential.sessions.link", "exponential.sessions.list", "exponential.sessions.send", "exponential.sessions.unlink",
-        "exponential.statuses.create", "exponential.statuses.delete", "exponential.statuses.list", "exponential.statuses.update",
-        "exponential.teams.create", "exponential.teams.get", "exponential.teams.list", "exponential.teams.update",
+        "exponential_agents_get", "exponential_agents_list",
+        "exponential_apps_catalog", "exponential_apps_delete", "exponential_apps_get", "exponential_apps_handoff", "exponential_apps_list", "exponential_apps_records_delete", "exponential_apps_records_list", "exponential_apps_records_upsert", "exponential_apps_upsert",
+        "exponential_attachments_delete", "exponential_attachments_get", "exponential_attachments_list", "exponential_attachments_upload",
+        "exponential_boards_create", "exponential_boards_delete", "exponential_boards_get", "exponential_boards_list", "exponential_boards_set_repository", "exponential_boards_update",
+        "exponential_comments_create", "exponential_comments_delete", "exponential_comments_list", "exponential_comments_update",
+        "exponential_devices_account_login", "exponential_devices_list",
+        "exponential_events_emit", "exponential_events_list",
+        "exponential_issues_activity", "exponential_issues_create", "exponential_issues_delete", "exponential_issues_get", "exponential_issues_labels_add", "exponential_issues_labels_remove", "exponential_issues_list", "exponential_issues_relations_add", "exponential_issues_relations_remove", "exponential_issues_show", "exponential_issues_subscribe", "exponential_issues_unsubscribe", "exponential_issues_update", "exponential_issues_update_status",
+        "exponential_labels_create", "exponential_labels_delete", "exponential_labels_get", "exponential_labels_list", "exponential_labels_update",
+        "exponential_mcp_servers_create", "exponential_mcp_servers_delete", "exponential_mcp_servers_list",
+        "exponential_notifications_list", "exponential_notifications_mark_read",
+        "exponential_people_add", "exponential_people_invites_create", "exponential_people_invites_list", "exponential_people_invites_revoke", "exponential_people_list",
+        "exponential_pr_close", "exponential_pr_files", "exponential_pr_merge", "exponential_pr_open", "exponential_pr_retarget", "exponential_pr_unlink", "exponential_pr_update",
+        "exponential_prompts_create", "exponential_prompts_delete", "exponential_prompts_get", "exponential_prompts_list", "exponential_prompts_update",
+        "exponential_repositories_create", "exponential_repositories_list",
+        "exponential_sessions_end", "exponential_sessions_get", "exponential_sessions_link", "exponential_sessions_list",
+        "exponential_sessions_send",
+        "exponential_sessions_unlink",
+        "exponential_statuses_create", "exponential_statuses_delete", "exponential_statuses_list", "exponential_statuses_update",
+        "exponential_teams_create", "exponential_teams_get", "exponential_teams_list", "exponential_teams_update",
+    ]
+
+    /// The fixture's `tools`: what each function runs. An `exponential_*` name
+    /// parses ONLY through this table, never by splitting on `_` (round 9 §6.3).
+    private static let tools: [String: ActionTarget] = [
+        "exponential_agents_get": ActionTarget(tool: "exponential_agents", op: "get"),
+        "exponential_agents_list": ActionTarget(tool: "exponential_agents", op: "list"),
+        "exponential_apps_catalog": ActionTarget(tool: "exponential_apps", op: "catalog"),
+        "exponential_apps_delete": ActionTarget(tool: "exponential_apps", op: "delete"),
+        "exponential_apps_get": ActionTarget(tool: "exponential_apps", op: "get"),
+        "exponential_apps_handoff": ActionTarget(tool: "exponential_apps", op: "handoff"),
+        "exponential_apps_list": ActionTarget(tool: "exponential_apps", op: "list"),
+        "exponential_apps_records_delete": ActionTarget(tool: "exponential_apps", op: "records_delete"),
+        "exponential_apps_records_list": ActionTarget(tool: "exponential_apps", op: "records_list"),
+        "exponential_apps_records_upsert": ActionTarget(tool: "exponential_apps", op: "records_upsert"),
+        "exponential_apps_upsert": ActionTarget(tool: "exponential_apps", op: "upsert"),
+        "exponential_attachments_delete": ActionTarget(tool: "exponential_attachments", op: "delete"),
+        "exponential_attachments_get": ActionTarget(tool: "exponential_attachments", op: "get"),
+        "exponential_attachments_list": ActionTarget(tool: "exponential_attachments", op: "list"),
+        "exponential_attachments_upload": ActionTarget(tool: "exponential_attachments", op: "upload"),
+        "exponential_boards_create": ActionTarget(tool: "exponential_boards", op: "create"),
+        "exponential_boards_delete": ActionTarget(tool: "exponential_boards", op: "delete"),
+        "exponential_boards_get": ActionTarget(tool: "exponential_boards", op: "get"),
+        "exponential_boards_list": ActionTarget(tool: "exponential_boards", op: "list"),
+        "exponential_boards_set_repository": ActionTarget(tool: "exponential_boards", op: "set_repository"),
+        "exponential_boards_update": ActionTarget(tool: "exponential_boards", op: "update"),
+        "exponential_comments_create": ActionTarget(tool: "exponential_comments", op: "create"),
+        "exponential_comments_delete": ActionTarget(tool: "exponential_comments", op: "delete"),
+        "exponential_comments_list": ActionTarget(tool: "exponential_comments", op: "list"),
+        "exponential_comments_update": ActionTarget(tool: "exponential_comments", op: "update"),
+        "exponential_devices_account_login": ActionTarget(tool: "exponential_devices", op: "account_login"),
+        "exponential_devices_list": ActionTarget(tool: "exponential_devices", op: "list"),
+        "exponential_events_emit": ActionTarget(tool: "exponential_events", op: "emit"),
+        "exponential_events_list": ActionTarget(tool: "exponential_events", op: "list"),
+        "exponential_issues_activity": ActionTarget(tool: "exponential_issues", op: "activity"),
+        "exponential_issues_create": ActionTarget(tool: "exponential_issues", op: "create"),
+        "exponential_issues_delete": ActionTarget(tool: "exponential_issues", op: "delete"),
+        "exponential_issues_get": ActionTarget(tool: "exponential_issues", op: "get"),
+        "exponential_issues_labels_add": ActionTarget(tool: "exponential_issues", op: "labels_add"),
+        "exponential_issues_labels_remove": ActionTarget(tool: "exponential_issues", op: "labels_remove"),
+        "exponential_issues_list": ActionTarget(tool: "exponential_issues", op: "list"),
+        "exponential_issues_relations_add": ActionTarget(tool: "exponential_issues", op: "relations_add"),
+        "exponential_issues_relations_remove": ActionTarget(tool: "exponential_issues", op: "relations_remove"),
+        "exponential_issues_show": ActionTarget(tool: "exponential_issues", op: "show"),
+        "exponential_issues_subscribe": ActionTarget(tool: "exponential_issues", op: "subscribe"),
+        "exponential_issues_unsubscribe": ActionTarget(tool: "exponential_issues", op: "unsubscribe"),
+        "exponential_issues_update": ActionTarget(tool: "exponential_issues", op: "update"),
+        "exponential_issues_update_status": ActionTarget(tool: "exponential_issues", op: "update_status"),
+        "exponential_labels_create": ActionTarget(tool: "exponential_labels", op: "create"),
+        "exponential_labels_delete": ActionTarget(tool: "exponential_labels", op: "delete"),
+        "exponential_labels_get": ActionTarget(tool: "exponential_labels", op: "get"),
+        "exponential_labels_list": ActionTarget(tool: "exponential_labels", op: "list"),
+        "exponential_labels_update": ActionTarget(tool: "exponential_labels", op: "update"),
+        "exponential_mcp_servers_create": ActionTarget(tool: "exponential_mcp_servers", op: "create"),
+        "exponential_mcp_servers_delete": ActionTarget(tool: "exponential_mcp_servers", op: "delete"),
+        "exponential_mcp_servers_list": ActionTarget(tool: "exponential_mcp_servers", op: "list"),
+        "exponential_notifications_list": ActionTarget(tool: "exponential_notifications", op: "list"),
+        "exponential_notifications_mark_read": ActionTarget(tool: "exponential_notifications", op: "mark_read"),
+        "exponential_people_add": ActionTarget(tool: "exponential_people", op: "add"),
+        "exponential_people_invites_create": ActionTarget(tool: "exponential_people", op: "invites_create"),
+        "exponential_people_invites_list": ActionTarget(tool: "exponential_people", op: "invites_list"),
+        "exponential_people_invites_revoke": ActionTarget(tool: "exponential_people", op: "invites_revoke"),
+        "exponential_people_list": ActionTarget(tool: "exponential_people", op: "list"),
+        "exponential_pr_close": ActionTarget(tool: "exponential_pr", op: "close"),
+        "exponential_pr_files": ActionTarget(tool: "exponential_pr", op: "files"),
+        "exponential_pr_merge": ActionTarget(tool: "exponential_pr", op: "merge"),
+        "exponential_pr_open": ActionTarget(tool: "exponential_pr", op: "open"),
+        "exponential_pr_retarget": ActionTarget(tool: "exponential_pr", op: "retarget"),
+        "exponential_pr_unlink": ActionTarget(tool: "exponential_pr", op: "unlink"),
+        "exponential_pr_update": ActionTarget(tool: "exponential_pr", op: "update"),
+        "exponential_prompts_create": ActionTarget(tool: "exponential_prompts", op: "create"),
+        "exponential_prompts_delete": ActionTarget(tool: "exponential_prompts", op: "delete"),
+        "exponential_prompts_get": ActionTarget(tool: "exponential_prompts", op: "get"),
+        "exponential_prompts_list": ActionTarget(tool: "exponential_prompts", op: "list"),
+        "exponential_prompts_update": ActionTarget(tool: "exponential_prompts", op: "update"),
+        "exponential_repositories_create": ActionTarget(tool: "exponential_repositories", op: "create"),
+        "exponential_repositories_list": ActionTarget(tool: "exponential_repositories", op: "list"),
+        "exponential_sessions_end": ActionTarget(tool: "exponential_sessions", op: "end"),
+        "exponential_sessions_get": ActionTarget(tool: "exponential_sessions", op: "get"),
+        "exponential_sessions_link": ActionTarget(tool: "exponential_sessions", op: "link"),
+        "exponential_sessions_list": ActionTarget(tool: "exponential_sessions", op: "list"),
+        "exponential_sessions_send": ActionTarget(tool: "exponential_sessions_send", op: nil),
+        "exponential_sessions_unlink": ActionTarget(tool: "exponential_sessions", op: "unlink"),
+        "exponential_statuses_create": ActionTarget(tool: "exponential_statuses", op: "create"),
+        "exponential_statuses_delete": ActionTarget(tool: "exponential_statuses", op: "delete"),
+        "exponential_statuses_list": ActionTarget(tool: "exponential_statuses", op: "list"),
+        "exponential_statuses_update": ActionTarget(tool: "exponential_statuses", op: "update"),
+        "exponential_teams_create": ActionTarget(tool: "exponential_teams", op: "create"),
+        "exponential_teams_get": ActionTarget(tool: "exponential_teams", op: "get"),
+        "exponential_teams_list": ActionTarget(tool: "exponential_teams", op: "list"),
+        "exponential_teams_update": ActionTarget(tool: "exponential_teams", op: "update"),
     ]
 
     /// EXP-1657: the names from before the `team_config` split (old → new;
@@ -36,31 +129,39 @@ public enum AppActions {
     /// a published package keeps working; never listed in `all` or a
     /// declared list.
     public static let aliases: [String: String] = [
-        "exponential.team_config.agents_list": "exponential.agents.list",
-        "exponential.team_config.labels_create": "exponential.labels.create",
-        "exponential.team_config.labels_delete": "exponential.labels.delete",
-        "exponential.team_config.labels_get": "exponential.labels.get",
-        "exponential.team_config.labels_list": "exponential.labels.list",
-        "exponential.team_config.labels_update": "exponential.labels.update",
-        "exponential.team_config.mcp_servers_add": "exponential.mcp_servers.create",
-        "exponential.team_config.mcp_servers_list": "exponential.mcp_servers.list",
-        "exponential.team_config.mcp_servers_remove": "exponential.mcp_servers.delete",
-        "exponential.team_config.prompts_create": "exponential.prompts.create",
-        "exponential.team_config.prompts_delete": "exponential.prompts.delete",
-        "exponential.team_config.prompts_get": "exponential.prompts.get",
-        "exponential.team_config.prompts_list": "exponential.prompts.list",
-        "exponential.team_config.prompts_update": "exponential.prompts.update",
-        "exponential.team_config.repositories_add": "exponential.repositories.create",
-        "exponential.team_config.repositories_list": "exponential.repositories.list",
-        "exponential.team_config.statuses_create": "exponential.statuses.create",
-        "exponential.team_config.statuses_delete": "exponential.statuses.delete",
-        "exponential.team_config.statuses_list": "exponential.statuses.list",
-        "exponential.team_config.statuses_update": "exponential.statuses.update",
+        "exponential_team_config_agents_list": "exponential_agents_list",
+        "exponential_team_config_labels_create": "exponential_labels_create",
+        "exponential_team_config_labels_delete": "exponential_labels_delete",
+        "exponential_team_config_labels_get": "exponential_labels_get",
+        "exponential_team_config_labels_list": "exponential_labels_list",
+        "exponential_team_config_labels_update": "exponential_labels_update",
+        "exponential_team_config_mcp_servers_add": "exponential_mcp_servers_create",
+        "exponential_team_config_mcp_servers_list": "exponential_mcp_servers_list",
+        "exponential_team_config_mcp_servers_remove": "exponential_mcp_servers_delete",
+        "exponential_team_config_prompts_create": "exponential_prompts_create",
+        "exponential_team_config_prompts_delete": "exponential_prompts_delete",
+        "exponential_team_config_prompts_get": "exponential_prompts_get",
+        "exponential_team_config_prompts_list": "exponential_prompts_list",
+        "exponential_team_config_prompts_update": "exponential_prompts_update",
+        "exponential_team_config_repositories_add": "exponential_repositories_create",
+        "exponential_team_config_repositories_list": "exponential_repositories_list",
+        "exponential_team_config_statuses_create": "exponential_statuses_create",
+        "exponential_team_config_statuses_delete": "exponential_statuses_delete",
+        "exponential_team_config_statuses_list": "exponential_statuses_list",
+        "exponential_team_config_statuses_update": "exponential_statuses_update",
     ]
+
+    /// Round 9 §14: a stored name from before the flat names (a grant, a v5
+    /// package's `functions`): `exponential.issues.update` is
+    /// `exponential_issues_update` until the flag-day migration rewrites it.
+    public static func flatAction(_ name: String) -> String {
+        name.hasPrefix("exponential.") ? name.replacingOccurrences(of: ".", with: "_") : name
+    }
 
     /// The name an action is judged by: an alias's new name, else the name.
     public static func canonicalAction(_ name: String) -> String {
-        aliases[name] ?? name
+        let flat = flatAction(name)
+        return aliases[flat] ?? flat
     }
 
     /// The `copy.tools` strings (the editor's Settings Tools group; VAPP-177:
@@ -87,8 +188,8 @@ public enum AppActions {
     static let destructiveWords: Set<String> = ["delete", "merge", "close", "end", "remove", "trash"]
 
     /// The fixture's `destructiveArgs`: an arg that makes a grantable
-    /// action's call destructive (`sessions.send` + `stop` = stop-run).
-    static let destructiveArgs: [String: [String]] = ["exponential.sessions.send": ["stop"]]
+    /// action's call destructive (`exponential_sessions_send` + `stop` = stop-run).
+    static let destructiveArgs: [String: [String]] = ["exponential_sessions_send": ["stop"]]
 
     /// A destructive CALL: a destructive action, or a grantable one whose
     /// args carry a `destructiveArgs` key (present and not false/null).
@@ -112,9 +213,9 @@ public enum AppActions {
     /// list): the non-destructive operations the server runs for a team
     /// owner only (members, invites, MCP servers, prompts, team settings).
     static let ownerActions: Set<String> = [
-        "exponential.people.add", "exponential.people.invites_create", "exponential.people.invites_revoke",
-        "exponential.mcp_servers.create", "exponential.prompts.create", "exponential.prompts.update",
-        "exponential.teams.update",
+        "exponential_people_add", "exponential_people_invites_create", "exponential_people_invites_revoke",
+        "exponential_mcp_servers_create", "exponential_prompts_create", "exponential_prompts_update",
+        "exponential_teams_update",
     ]
 
     /// An owner-only operation: never grantable; always asks (the plain
@@ -129,13 +230,6 @@ public enum AppActions {
         parseActionName(name) != nil && !actionDestructive(name) && !actionOwnerOnly(name)
     }
 
-    /// The verb tools: a function that maps to a whole tool, no op.
-    private static let verbTools: [String: String] = [
-        "exponential.sessions.send": "exponential_sessions_send",
-    ]
-
-    private static let offered: Set<String> = Set(all)
-
     public struct ActionTarget: Equatable, Sendable {
         /// The MCP tool (`exponential_issues`).
         public let tool: String
@@ -148,16 +242,11 @@ public enum AppActions {
         }
     }
 
-    /// `exponential.issues.update_status` → the tool and op it runs (an
+    /// `exponential_issues_update_status` → the tool and op it runs (an
     /// alias → its new name's); nil for anything that is not an offered
     /// action.
     public static func parseActionName(_ name: String) -> ActionTarget? {
-        let name = canonicalAction(name)
-        guard offered.contains(name) else { return nil }
-        if let tool = verbTools[name] { return ActionTarget(tool: tool, op: nil) }
-        let parts = name.dropFirst(prefix.count).split(separator: ".", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return nil }
-        return ActionTarget(tool: "exponential_\(parts[0])", op: parts[1])
+        tools[canonicalAction(name)]
     }
 
     /// VAPP-107's pattern rule: an exact name or a `prefix*`.
@@ -169,7 +258,7 @@ public enum AppActions {
     /// over the aliases too: an alias declares its NEW name), in the
     /// fixture's order; anything that is not an offered action is dropped.
     public static func declaredActions(_ functions: [String]) -> [String] {
-        let named = { (name: String) in functions.contains { matches($0, name) } }
+        let named = { (name: String) in functions.contains { matches(flatAction($0), name) } }
         let viaAlias = Set(aliases.filter { named($0.key) }.values)
         return all.filter { named($0) || viaAlias.contains($0) }
     }

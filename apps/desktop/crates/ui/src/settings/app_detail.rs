@@ -23,7 +23,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, APP_ACTIONS_COPY};
+use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, flat_action, APP_ACTIONS_COPY};
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
@@ -91,9 +91,10 @@ pub(crate) fn declared_tools(package: Option<&serde_json::Value>) -> Vec<String>
 }
 
 /// VAPP-120: the whole grant list after one switch (the web's `toggleTool`):
-/// on = appended once, off = removed.
+/// on = appended once, off = removed. Round 9 §14: a grant stored dotted
+/// goes back under its flat name.
 pub(crate) fn toggled_grants(granted: &[String], name: &str, on: bool) -> Vec<String> {
-    let mut next: Vec<String> = granted.iter().filter(|g| g.as_str() != name).cloned().collect();
+    let mut next: Vec<String> = granted.iter().map(|g| flat_action(g)).filter(|g| g != name).collect();
     if on {
         next.push(name.to_string());
     }
@@ -651,7 +652,7 @@ impl AppDetailPane {
             let rows = declared
                 .into_iter()
                 .map(|name| {
-                    let checked = row.granted_tools.iter().any(|g| g == &name);
+                    let checked = row.granted_tools.iter().any(|g| flat_action(g) == name);
                     let busy = self.tool_busy.as_deref() == Some(name.as_str());
                     let toggle = name.clone();
                     crate::surface::glass_row_shell()
@@ -888,34 +889,37 @@ mod tests {
     #[test]
     fn the_tools_group_lists_the_declared_actions() {
         // VAPP-120: patterns expand, non-actions drop, the contract's order.
-        let package = json!({"functions": ["harness.toast", "exponential.issues.update_status", "exponential.comments.create"]});
+        let package = json!({"functions": ["harness_toast", "exponential_issues_update_status", "exponential_comments_create"]});
         assert_eq!(
             declared_tools(Some(&package)),
-            vec!["exponential.comments.create".to_string(), "exponential.issues.update_status".to_string()]
+            vec!["exponential_comments_create".to_string(), "exponential_issues_update_status".to_string()]
         );
         assert!(declared_tools(None).is_empty());
         assert!(declared_tools(Some(&json!({"functions": "nope"}))).is_empty());
-        assert_eq!(action_title("exponential.issues.update_status"), "Set issue status");
+        assert_eq!(action_title("exponential_issues_update_status"), "Set issue status");
         assert!(!APP_ACTIONS_COPY.none.is_empty());
     }
 
     #[test]
     fn a_switch_writes_the_whole_grant_list() {
-        let granted = vec!["exponential.comments.create".to_string()];
+        let granted = vec!["exponential_comments_create".to_string()];
         assert_eq!(
-            toggled_grants(&granted, "exponential.issues.update", true),
-            vec!["exponential.comments.create".to_string(), "exponential.issues.update".to_string()]
+            toggled_grants(&granted, "exponential_issues_update", true),
+            vec!["exponential_comments_create".to_string(), "exponential_issues_update".to_string()]
         );
-        assert_eq!(toggled_grants(&granted, "exponential.comments.create", true), granted);
-        assert!(toggled_grants(&granted, "exponential.comments.create", false).is_empty());
+        assert_eq!(toggled_grants(&granted, "exponential_comments_create", true), granted);
+        assert!(toggled_grants(&granted, "exponential_comments_create", false).is_empty());
+        let dotted = vec!["exponential.comments.create".to_string()];
+        assert_eq!(toggled_grants(&dotted, "exponential_issues_update", true), vec!["exponential_comments_create".to_string(), "exponential_issues_update".to_string()]);
+        assert!(toggled_grants(&dotted, "exponential_comments_create", false).is_empty());
     }
 
     #[test]
     fn the_app_row_reads_its_grants_tolerantly() {
-        let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": ["exponential.issues.update"]})).unwrap();
-        assert_eq!(row.granted_tools, vec!["exponential.issues.update".to_string()]);
+        let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": ["exponential_issues_update"]})).unwrap();
+        assert_eq!(row.granted_tools, vec!["exponential_issues_update".to_string()]);
         let text: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": "[\"exponential.issues.get\"]"})).unwrap();
-        assert_eq!(text.granted_tools, vec!["exponential.issues.get".to_string()]);
+        assert_eq!(text.granted_tools, vec!["exponential_issues_get".to_string()]);
         for garbage in [json!(null), json!(7), json!({"x": 1})] {
             let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": garbage})).unwrap();
             assert!(row.granted_tools.is_empty());
