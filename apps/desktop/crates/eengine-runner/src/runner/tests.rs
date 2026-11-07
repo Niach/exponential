@@ -30,7 +30,7 @@ fn package() -> Value {
         "name": "Album",
         "version": "1.0.0",
         "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-        "functions": ["records.*", "app.navigate", "photos.pick"],
+        "functions": ["records.*", "app_navigate", "photos_pick"],
         "sources": ["records:*"],
         "records": {"note": {"title": "Note", "schema": {"type": "object", "properties": {"text": {"type": "string"}}}}},
         "capabilities": [{"id": "photos.read", "why": "Pick the photos for an album."}],
@@ -77,7 +77,7 @@ fn a_launch_installs_the_shell_and_opens_the_first_screen() {
     let Paint::Install(shell) = &paints[0] else { panic!("the shell first: {paints:?}") };
     let components = shell["templates"]["albums"]["components"].as_array().unwrap();
     assert!(components.iter().any(|c| c["component"] == "Sidebar"), "the wide shell: {components:?}");
-    assert!(components.iter().any(|c| c["id"] == "runner-page"));
+    assert!(components.iter().any(|c| c["id"] == "runner_page"));
     let opens = messages(&paints);
     assert_eq!(opens[0], &open_message("acme.album", "albums", &Map::new()));
     assert!(paints.contains(&Paint::Live(true)));
@@ -132,12 +132,12 @@ fn navigation_and_a_refused_link() {
 fn records_write_and_resolve() {
     let mut r = runner(&package());
     r.launch(Vec::new());
-    let Dispatch::Done(result) = r.dispatch("records.upsert", &json!({"kind": "note", "data": {"text": "hi"}})) else { panic!("records answer here") };
-    let (answer, _) = r.finish(1, "records.upsert", &Value::Null, result);
+    let Dispatch::Done(result) = r.dispatch("records_upsert", &json!({"kind": "note", "data": {"text": "hi"}})) else { panic!("records answer here") };
+    let (answer, _) = r.finish(1, "records_upsert", &Value::Null, result);
     assert!(answer.unwrap().is_ok());
     let value = r.records("records:note").unwrap();
     assert_eq!(value.to_string().matches("\"hi\"").count(), 1, "{value}");
-    assert_eq!(new_ids("records.batch", &json!({"writes": [{"kind": "a"}, {"id": "x", "kind": "a"}]})).len(), 1);
+    assert_eq!(new_ids("records_batch", &json!({"writes": [{"kind": "a"}, {"id": "x", "kind": "a"}]})).len(), 1);
 }
 
 #[test]
@@ -145,8 +145,8 @@ fn an_ask_paints_consent_and_its_answer_settles_the_call() {
     let mut r = runner(&package());
     r.launch(Vec::new());
     let args = json!({});
-    let Dispatch::Broker(broker) = r.dispatch("photos.pick", &args) else { panic!("a capability goes to the broker") };
-    let (answer, paints) = r.finish(7, "photos.pick", &args, brokered(broker.call(CallFrom::Ui, None, "photos.pick", &args)));
+    let Dispatch::Broker(broker) = r.dispatch("photos_pick", &args) else { panic!("a capability goes to the broker") };
+    let (answer, paints) = r.finish(7, "photos_pick", &args, brokered(broker.call(CallFrom::Ui, None, "photos_pick", &args)));
     assert_eq!(answer, None, "it waits for the person");
     let m = messages(&paints);
     assert_eq!(surface_of(m[0]), Some(CONSENT));
@@ -210,7 +210,7 @@ fn a_surface_painted_again_gets_a_minted_id() {
 #[test]
 fn the_functions_a_package_reaches() {
     let names = function_names(&package());
-    for n in ["records.upsert", "records.delete", "records.batch", "photos.get", "photos.list", "photos.pick"] {
+    for n in ["records_upsert", "records_delete", "records_batch", "photos_get", "photos_list", "photos_pick"] {
         assert!(names.contains(&n.to_string()), "{n}: {names:?}");
     }
 }
@@ -318,26 +318,26 @@ fn the_photobook_sample_picks_photos_and_exports_a_pdf() {
     assert_eq!(messages(&paints)[0]["applyTemplate"]["templateId"], "albums");
 
     // newAlbum
-    let Dispatch::Done(result) = r.dispatch("records.upsert", &json!({"kind": "album", "data": {"title": "Summer 2026"}})) else { panic!() };
-    let album = r.finish(1, "records.upsert", &Value::Null, result).0.unwrap().unwrap();
+    let Dispatch::Done(result) = r.dispatch("records_upsert", &json!({"kind": "album", "data": {"title": "Summer 2026"}})) else { panic!() };
+    let album = r.finish(1, "records_upsert", &Value::Null, result).0.unwrap().unwrap();
     let album = album["record"]["id"].as_str().or_else(|| album["id"].as_str()).map(str::to_string).unwrap_or_else(|| panic!("an album id: {album}"));
 
     // addPage: photos.pick {limit: 4} → fileIds in the BlobStore → the page.
-    let (picked, asked) = allowed(&mut r, 2, "photos.pick", &json!({"limit": 4}));
+    let (picked, asked) = allowed(&mut r, 2, "photos_pick", &json!({"limit": 4}));
     assert!(asked, "photos.read asks");
-    let ids: Vec<String> = picked["photos"].as_array().unwrap_or_else(|| panic!("picked: {picked}")).iter().map(|p| p["fileId"].as_str().expect("a fileId").to_string()).collect();
+    let ids: Vec<String> = picked["photos"].as_array().unwrap_or_else(|| panic!("picked: {picked}")).iter().map(|p| p["fileId"].as_str().unwrap_or_else(|| panic!("a fileId: {picked}")).to_string()).collect();
     assert_eq!(ids.len(), 2);
     for id in &ids {
         assert_eq!(blobs.get(r.app_id(), id).unwrap(), Some(jpg.clone()));
     }
-    let Dispatch::Done(result) = r.dispatch("records.upsert", &json!({"kind": "page", "data": {"album": album, "photos": ids, "caption": "At the lake"}})) else { panic!() };
-    r.finish(3, "records.upsert", &Value::Null, result).0.unwrap().unwrap();
+    let Dispatch::Done(result) = r.dispatch("records_upsert", &json!({"kind": "page", "data": {"album": album, "photos": ids, "caption": "At the lake"}})) else { panic!() };
+    r.finish(3, "records_upsert", &Value::Null, result).0.unwrap().unwrap();
     let pages = r.records(&format!("records:page?album={album}")).unwrap();
     assert_eq!(pages["count"], 1, "{pages}");
 
     // exportPdf: print.pdf → a PDF in the BlobStore.
     let blocks = json!([{"heading": "Summer 2026"}, {"image": ids[0]}, {"image": ids[1]}, {"text": "At the lake"}, {"pageBreak": true}]);
-    let (pdf, _) = allowed(&mut r, 4, "print.pdf", &json!({"title": "Summer 2026", "blocks": blocks}));
+    let (pdf, _) = allowed(&mut r, 4, "print_pdf", &json!({"title": "Summer 2026", "blocks": blocks}));
     let pdf_id = pdf["file"]["fileId"].as_str().unwrap_or_else(|| panic!("a PDF fileId: {pdf}"));
     assert_eq!(pdf["file"]["name"], "Summer 2026.pdf");
     let bytes = blobs.get(r.app_id(), pdf_id).unwrap().expect("the PDF in the BlobStore");

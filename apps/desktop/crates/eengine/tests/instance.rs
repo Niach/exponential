@@ -49,7 +49,7 @@ fn package() -> Value {
         "name": "Album",
         "version": "1.0.0",
         "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-        "functions": ["records.*", "app.navigate", "photos.pick"],
+        "functions": ["records.*", "app_navigate", "photos_pick"],
         "sources": ["records:*"],
         "records": {"note": {"title": "Note", "schema": {"type": "object", "properties": {"text": {"type": "string"}}}, "policy": {"update": "author", "delete": "owners"}}},
         "capabilities": [{"id": "photos.read", "why": "Pick the photos for an album."}],
@@ -89,18 +89,18 @@ fn a_local_instance_runs_its_lifecycle_and_writes_through() {
     assert!(effects.contains(&Effect::Flush));
     assert_eq!(windows.0.lock().unwrap().last().unwrap().0, "albums");
 
-    let created = app.call("records.upsert", &json!({"kind": "note", "data": {"text": "hi"}}), &["n1".to_string()]);
+    let created = app.call("records_upsert", &json!({"kind": "note", "data": {"text": "hi"}}), &["n1".to_string()]);
     assert_eq!(created, CallResult::Value(json!({"id": "n1"})));
     let rows = store.rows("acme.album").unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].author_id.as_deref(), Some("d-1"), "local identity = me");
     assert_eq!(app.records_value("records:note").unwrap()["count"], json!(1));
     // Local identity collapses `owners` to me.
-    assert_eq!(app.call("records.delete", &json!({"id": "n1"}), &[]), CallResult::Value(Value::Null));
+    assert_eq!(app.call("records_delete", &json!({"id": "n1"}), &[]), CallResult::Value(Value::Null));
     assert!(store.rows("acme.album").unwrap().is_empty());
 
     // app.navigate opens a declared screen; terminate persists it; a relaunch restores it.
-    assert_eq!(app.call("app.navigate", &json!({"screen": "page"}), &[]), CallResult::Value(Value::Null));
+    assert_eq!(app.call("app_navigate", &json!({"screen": "page"}), &[]), CallResult::Value(Value::Null));
     app.event(&LifecycleEvent::Terminate);
     assert!(vault.read(&screen_key("acme.album")).unwrap().contains("page"));
     app.event(&LifecycleEvent::Launch);
@@ -140,19 +140,19 @@ fn capability_calls_go_through_the_broker() {
     let vault: Arc<dyn Vault> = Arc::new(MemoryVault::default());
     let mut app = AppInstance::load(config(Arc::new(MemoryRecordStore::new()), vault.clone(), windows, None), &package()).unwrap();
     app.event(&LifecycleEvent::Launch);
-    let (verdict, sheet) = match app.call("photos.pick", &json!({}), &[]) {
+    let (verdict, sheet) = match app.call("photos_pick", &json!({}), &[]) {
         CallResult::Ask(v, sheet) => (v, sheet),
         other => panic!("{other:?}"),
     };
     assert_eq!(sheet.components[0]["title"], json!("Allow Album to access your photos?"));
-    match app.answer_consent("photos.pick", &json!({}), &verdict, ConsentAnswer::Allow) {
+    match app.answer_consent("photos_pick", &json!({}), &verdict, ConsentAnswer::Allow) {
         // VAPP-271: app UI reads the structuredContent.
         CallResult::Value(v) => assert_eq!(v, json!({"photos": []})),
         other => panic!("{other:?}"),
     }
     assert!(vault.read("eengine/grants/acme.album").unwrap().contains("\"photos.read\":\"granted\""));
-    assert!(matches!(app.call("photos.pick", &json!({}), &[]), CallResult::Value(_)), "granted: no second sheet");
-    match app.call("photos.pick", &json!({"limit": 0}), &[]) {
+    assert!(matches!(app.call("photos_pick", &json!({}), &[]), CallResult::Value(_)), "granted: no second sheet");
+    match app.call("photos_pick", &json!({"limit": 0}), &[]) {
         // An isError result is a refusal.
         CallResult::Refused(f) => assert_eq!((f.code.as_str(), f.message.as_str()), ("failed", "invalidParams: /limit minimum")),
         other => panic!("{other:?}"),
@@ -161,10 +161,10 @@ fn capability_calls_go_through_the_broker() {
     assert_eq!(app.set_grant(GrantVia::Agent, true, "photos.read", None), Err("onlyConsentUi"));
     assert_eq!(app.set_grant(GrantVia::ConsentUi, false, "photos.read", None), Err("noGesture"));
     assert_eq!(app.set_grant(GrantVia::ConsentUi, true, "photos.read", None), Ok(()));
-    assert!(matches!(app.call("photos.pick", &json!({}), &[]), CallResult::Ask(..)), "revoked: asks again");
+    assert!(matches!(app.call("photos_pick", &json!({}), &[]), CallResult::Ask(..)), "revoked: asks again");
     assert_eq!(app.set_grant(GrantVia::ConsentUi, true, "photos.read", Some(GrantValue::Denied)), Ok(()));
     assert_eq!(app.permissions_sheet()[1]["checked"], json!(false));
-    match app.call("camera.capture", &json!({}), &[]) {
+    match app.call("camera_capture", &json!({}), &[]) {
         CallResult::Refused(f) => assert_eq!(f.message, "notDeclared"),
         other => panic!("{other:?}"),
     }
@@ -185,7 +185,7 @@ fn a_synced_instance_queues_and_flushes() {
     let windows = Arc::new(Windows::default());
     let mut app = AppInstance::load(config(Arc::new(MemoryRecordStore::new()), Arc::new(MemoryVault::default()), windows, Some(sync.clone())), &package()).unwrap();
     app.event(&LifecycleEvent::Launch);
-    app.call("records.upsert", &json!({"kind": "note", "data": {"text": "hi"}}), &["n1".to_string()]);
+    app.call("records_upsert", &json!({"kind": "note", "data": {"text": "hi"}}), &["n1".to_string()]);
     assert_eq!(*sync.0.lock().unwrap(), vec!["upsert".to_string()]);
     // Acked, not yet reflected by the store: it keeps overlaying.
     assert_eq!(app.records_value("records:note").unwrap()["count"], json!(1));

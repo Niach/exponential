@@ -248,7 +248,7 @@ fn context_screens() -> Vec<String> {
 }
 
 fn bridge(case: &Value, blobs: &Blobs, tool: &str, arguments: &Value) -> (Value, CallOutcome, bool) {
-    let (capability, tool) = tool.split_once('.').unwrap();
+    let (capability, tool) = tool.split_once('_').unwrap();
     let native = Native { name: capability.into(), tool: tool.into(), case: case.clone(), called: Mutex::new(false) };
     let screens = context_screens();
     let cx = BridgeContext { app: CAPABILITIES["v1"]["context"]["app"].as_str().unwrap(), screens: &screens, blobs };
@@ -264,7 +264,7 @@ fn the_v1_tools_are_catalog_tools() {
     sorted.sort();
     assert_eq!(names, sorted, "tools are sorted by name");
     for t in TOOLS.iter() {
-        let (capability, tool) = t.name.split_once('.').unwrap();
+        let (capability, tool) = t.name.split_once('_').unwrap();
         let def = eengine::broker::capability_def(capability).unwrap_or_else(|| panic!("{}", t.name));
         assert!(def.scopes.iter().any(|s| s.tools.iter().any(|x| x == tool)), "{} is a catalog tool", t.name);
         assert_eq!(t.native_output_schema.is_some(), t.runs == eengine::tools::Runs::Native, "{}", t.name);
@@ -274,7 +274,7 @@ fn the_v1_tools_are_catalog_tools() {
 #[test]
 fn validate_cases() {
     for c in cases(&CAPABILITIES, "validateCases") {
-        let (capability, tool) = c["tool"].as_str().unwrap().split_once('.').unwrap();
+        let (capability, tool) = c["tool"].as_str().unwrap().split_once('_').unwrap();
         let got = match validate_arguments(tool_def(capability, tool).unwrap(), &c["arguments"]) {
             Ok(arguments) => json!({"arguments": arguments}),
             Err(error) => json!({"error": error}),
@@ -347,7 +347,7 @@ fn pdf_cases() {
         let name = &c["name"];
         let blobs = Blobs::seeded(c);
         let case = json!({"name": name, "native": null});
-        let (result, outcome, called) = bridge(&case, &blobs, "print.pdf", &c["arguments"]);
+        let (result, outcome, called) = bridge(&case, &blobs, "print_pdf", &c["arguments"]);
         assert!(!called, "{name}: print.pdf makes no native call");
         let expected = &c["expected"];
         if let Some(text) = expected.get("isError").and_then(Value::as_str) {

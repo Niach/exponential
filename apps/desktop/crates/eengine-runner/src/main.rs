@@ -164,13 +164,13 @@ impl Ctx {
             Inbound::Navigate { screen, params } => {
                 let args = json!({"screen": screen, "params": params});
                 let result = match self.runner.borrow_mut().as_mut() {
-                    Some(r) => match r.dispatch("app.navigate", &args) {
+                    Some(r) => match r.dispatch("app_navigate", &args) {
                         Dispatch::Done(result) => result,
                         Dispatch::Broker(_) => return,
                     },
                     None => return,
                 };
-                self.finish(0, "app.navigate", &args, result)
+                self.finish(0, "app_navigate", &args, result)
             }
             Inbound::Link(link) => {
                 self.front(cx);

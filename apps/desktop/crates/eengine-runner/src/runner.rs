@@ -17,7 +17,6 @@ use eengine::{
 use serde_json::{json, Map, Value};
 
 use crate::events::{refused_link_copy, RunnerEvent};
-use eui_core::upgrade09::{upgrade_components09, Upgrade09State};
 
 /// The surfaces a runner layers, bottom to top (runner.json SURFACES).
 pub const APP: &str = "app";
@@ -42,11 +41,8 @@ pub enum Paint {
 }
 
 /// A surface made of `components` (+ its data), replacing any earlier one.
-/// The Engine's sheets are still 0.9 components (`packages/eengine` is not
-/// flat yet): they go through `upgrade09` so the host's entry check reads 1.0.
 pub fn surface_messages(surface_id: &str, components: &[Value], data: Option<&Value>) -> Vec<Value> {
     let catalog = json!(eui_core::catalog::CORE_CATALOG_ID);
-    let (components, _) = upgrade_components09(&Value::Array(components.to_vec()), Some(&catalog), &Upgrade09State::default(), surface_id);
     let mut out = vec![
         json!({"version": VERSION, "createSurface": {"surfaceId": surface_id, "catalogId": catalog}}),
         json!({"version": VERSION, "updateComponents": {"surfaceId": surface_id, "components": components}}),
@@ -311,7 +307,7 @@ impl Runner {
     pub fn runner_event(&mut self, event: RunnerEvent) -> (Vec<Paint>, Option<(PendingAsk, ConsentAnswer)>) {
         match event {
             RunnerEvent::Navigate { screen } => {
-                let result = self.instance.call("app.navigate", &json!({"screen": screen}), &[]);
+                let result = self.instance.call("app_navigate", &json!({"screen": screen}), &[]);
                 let mut out = self.opened();
                 if let CallResult::Refused(f) = result {
                     out.extend(toast_paints(&f.message));
@@ -338,10 +334,10 @@ impl Runner {
         }
     }
 
-    /// Where an app's function call goes: `records.*` and `app.navigate`
+    /// Where an app's function call goes: `records_*` and `app_navigate`
     /// here (fresh uuids for the creates), a capability to the broker.
     pub fn dispatch(&mut self, name: &str, args: &Value) -> Dispatch {
-        if name.starts_with("records.") || name == "app.navigate" {
+        if name.starts_with("records_") || name == "app_navigate" {
             Dispatch::Done(self.instance.call(name, args, &new_ids(name, args)))
         } else {
             Dispatch::Broker(self.instance.broker().clone())
@@ -389,8 +385,8 @@ fn form_name(form: FormFactor) -> &'static str {
 /// One uuid per write a call may create (the Engine takes them in order).
 pub fn new_ids(name: &str, args: &Value) -> Vec<String> {
     let count = match name {
-        "records.upsert" => usize::from(args.get("id").is_none()),
-        "records.batch" => args.get("writes").and_then(Value::as_array).map_or(0, |w| w.iter().filter(|w| w.get("id").is_none()).count()),
+        "records_upsert" => usize::from(args.get("id").is_none()),
+        "records_batch" => args.get("writes").and_then(Value::as_array).map_or(0, |w| w.iter().filter(|w| w.get("id").is_none()).count()),
         _ => 0,
     };
     (0..count).map(|_| uuid::Uuid::new_v4().to_string()).collect()
@@ -399,11 +395,11 @@ pub fn new_ids(name: &str, args: &Value) -> Vec<String> {
 /// The function names the painter registers for a package: the records
 /// calls and every app-facing tool of each declared capability.
 pub fn function_names(pkg: &Value) -> Vec<String> {
-    let mut names: Vec<String> = ["records.upsert", "records.delete", "records.batch"].map(String::from).to_vec();
+    let mut names: Vec<String> = ["records_upsert", "records_delete", "records_batch"].map(String::from).to_vec();
     for entry in eengine::ManifestEntry::of_package(pkg) {
         if let Some((cap, scope)) = eengine::broker::scope_def(&entry.id) {
             for tool in &scope.tools {
-                let name = format!("{}.{tool}", cap.name);
+                let name = format!("{}_{tool}", cap.name);
                 if !names.contains(&name) {
                     names.push(name);
                 }

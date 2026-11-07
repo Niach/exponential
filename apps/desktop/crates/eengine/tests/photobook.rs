@@ -111,9 +111,7 @@ fn photobook() -> Book {
 impl Book {
     /// One host function call from the UI; an ask is answered `allow`.
     fn call(&mut self, name: &str, args: &Value) -> Result<Value, String> {
-        // Round 9 §6.3: genUI calls flat names; `<capability>_<tool>` splits at its first `_`.
-        let name = &if name.contains('.') { name.to_string() } else { name.replacen('_', ".", 1) };
-        let creates = if name == "records.batch" { args["writes"].as_array().map_or(0, |w| w.iter().filter(|w| w["op"] != "delete" && !w["id"].is_string()).count()) } else { 0 };
+        let creates = if name == "records_batch" { args["writes"].as_array().map_or(0, |w| w.iter().filter(|w| w["op"] != "delete" && !w["id"].is_string()).count()) } else { 0 };
         let ids: Vec<String> = (0..creates).map(|_| {
             self.ids += 1;
             format!("r{}", self.ids)
@@ -130,7 +128,7 @@ impl Book {
 
     /// A press of `actions.<name>`: the host's loop (eui-gpui `run_package_action`).
     fn press(&mut self, action: &str, params: Value, data: &mut Value) -> Result<(), String> {
-        let pkg = eengine::package::package_of(&serde_json::from_str::<Value>(FILE).unwrap()).clone();
+        let pkg = eui_core::upgrade09::upgrade_package_body09(eengine::package::package_of(&serde_json::from_str::<Value>(FILE).unwrap()));
         let pkg = eui_core::upgrade09::upgrade_package_body09(&pkg);
         let snapshot = data.clone();
         let mut results = Map::new();
@@ -145,7 +143,7 @@ impl Book {
             }
         };
         if !plan["writes"].as_array().unwrap().is_empty() {
-            self.call("records.batch", &json!({"writes": plan["writes"]}))?;
+            self.call("records_batch", &json!({"writes": plan["writes"]}))?;
         }
         for set in plan["sets"].as_array().unwrap() {
             *data.pointer_mut(set["path"].as_str().unwrap()).unwrap_or_else(|| panic!("{set}")) = set["value"].clone();
@@ -164,7 +162,7 @@ impl Book {
 #[test]
 fn an_album_from_picked_photos_its_pdf_then_save_and_share() {
     let mut b = photobook();
-    let pkg = eengine::package::package_of(&serde_json::from_str::<Value>(FILE).unwrap()).clone();
+    let pkg = eui_core::upgrade09::upgrade_package_body09(eengine::package::package_of(&serde_json::from_str::<Value>(FILE).unwrap()));
     assert_eq!(pkg["catalogId"], "https://ui.exponential.at/catalogs/core/v1");
 
     // Albums: New album.
@@ -206,9 +204,9 @@ fn an_album_from_picked_photos_its_pdf_then_save_and_share() {
 
     // Save and Share the produced file.
     let data64 = eengine::tools::base64_encode(&bytes);
-    assert_eq!(b.call("files.save", &json!({"fileId": pdf["fileId"], "name": pdf["name"]})).unwrap(), json!({"saved": true}));
+    assert_eq!(b.call("files_save", &json!({"fileId": pdf["fileId"], "name": pdf["name"]})).unwrap(), json!({"saved": true}));
     assert_eq!(b.files.lock().unwrap().clone(), vec![("save".to_string(), json!({"name": "Summer 2026.pdf", "mimeType": "application/pdf", "data": data64}))]);
-    assert_eq!(b.call("share.send", &json!({"fileId": pdf["fileId"], "name": pdf["name"], "mimeType": "application/pdf"})).unwrap(), json!({"shared": true}));
+    assert_eq!(b.call("share_send", &json!({"fileId": pdf["fileId"], "name": pdf["name"], "mimeType": "application/pdf"})).unwrap(), json!({"shared": true}));
     assert_eq!(b.share.lock().unwrap()[0].1["file"]["data"], json!(data64));
 
     // No network: no http call; print.pdf runs in the Engine.
