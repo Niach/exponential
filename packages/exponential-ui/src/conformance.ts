@@ -19,6 +19,7 @@ import overlayFixture from "../fixtures/overlay-geometry.json" with { type: "jso
 import transportFixture from "../fixtures/host-transport.json" with { type: "json" }
 import policyFixture from "../fixtures/host-policy.json" with { type: "json" }
 import routerFixture from "../fixtures/host-router.json" with { type: "json" }
+import a2ui10Fixture from "../fixtures/a2ui10-messages.json" with { type: "json" }
 import bindFixture from "../fixtures/bind-time.json" with { type: "json" }
 import conditionsFixture from "../fixtures/style-conditions.json" with { type: "json" }
 import codeFixture from "../fixtures/code-tokens.json" with { type: "json" }
@@ -72,6 +73,7 @@ const BUNDLED: Record<string, unknown> = {
   "host-transport.json": transportFixture,
   "host-policy.json": policyFixture,
   "host-router.json": routerFixture,
+  "a2ui10-messages.json": a2ui10Fixture,
   "bind-time.json": bindFixture,
   "style-conditions.json": conditionsFixture,
   "code-tokens.json": codeFixture,
@@ -94,7 +96,7 @@ export function conformanceManifest(fixture: (name: string) => unknown = (name) 
   const extensionFixture = f(`catalog-extension.json`), resolvedFixture = f(`theme-resolved.json`), recipesFixture = f(`theme-recipes.json`)
   const extendsFixture = f(`theme-extends.json`), invalidFixture = f(`theme-invalid.json`), controlFixture = f(`control-geometry.json`)
   const layoutFixture = f(`layout-geometry.json`), overlayFixture = f(`overlay-geometry.json`)
-  const transportFixture = f(`host-transport.json`), policyFixture = f(`host-policy.json`), routerFixture = f(`host-router.json`)
+  const transportFixture = f(`host-transport.json`), policyFixture = f(`host-policy.json`), routerFixture = f(`host-router.json`), a2ui10 = f(`a2ui10-messages.json`)
   const bindF = f(`bind-time.json`), conditionsF = f(`style-conditions.json`), codeF = f(`code-tokens.json`), formatF = f(`format.json`), itemsF = f(`template-items.json`)
   const directionF = f(`text-direction.json`), resizableF = f(`resizable.json`), listF = f(`virtual-list.json`), animationsF = f(`animations.json`)
   const pointerF = f(`pointer.json`), readOnlyF = f(`read-only.json`)
@@ -116,6 +118,8 @@ export function conformanceManifest(fixture: (name: string) => unknown = (name) 
     { id: `host-transport`, files: [`fixtures/host-transport.json`], unit: `case`, cases: n(transportFixture.jsonl) + n(transportFixture.sse) + n(transportFixture.mcp) + n(transportFixture.mcpAction), check: `Feed the chunks through ONE decoder (JSONL / SSE), or decode the MCP result, or build the MCP action call: messages + issues equal \`expected\`.` },
     { id: `host-policy`, files: [`fixtures/host-policy.json`], unit: `case`, cases: n(policyFixture.functions) + n(policyFixture.combine) + n(policyFixture.urls) + n(policyFixture.media) + n(policyFixture.sources) + n(policyFixture.sourceParams) + n(policyFixture.negotiation), check: `Decide the function / combine / url, build the media request, parse the source, append the bind action's params to a source, negotiate the catalog ids: each equals \`expected\`.` },
     { id: `host-router`, files: [`fixtures/host-router.json`], unit: `package, screen or flow`, cases: n(routerFixture.validation) + n(routerFixture.records) + n(routerFixture.screens) + n(routerFixture.navigate) + n(routerFixture.crossApp) + n(routerFixture.flows), check: `Validate each package; validate each record against its kind's schema; resolve each screen (\`resolveScreen\`) and navigate target (\`navigateTarget\`, VAPP-218); decide each link from another app (\`crossAppTarget\`, #EXP-1674); for each flow build ONE router with \`extensionIds\`, install \`packages\` (issues = \`installIssues\`), route every step: the ops equal \`expected\`.` },
+    // Round 9 §15: the A2UI 1.0 wire.
+    { id: `a2ui10`, files: [`fixtures/a2ui10-messages.json`], unit: `flow or case`, cases: n(a2ui10.ids) + n(a2ui10.flows) + n(a2ui10.mint) + n(a2ui10.errors) + n(a2ui10.actions) + n(a2ui10.cards), check: `Route every flow's steps on one router ({trusted, acceptV09}): the ops byte for byte; ids, mint, errors, actions and cards equal the fixture.` },
     // Round 1 fixtures every renderer already replays, now counted (round 2).
     { id: `bind`, files: [`fixtures/bind-time.json`], unit: `case`, cases: n(bindF.cases) + n(bindF.extra), check: `Expand the input; for every dataset run the bind pass: the bound tree, every \`set\` press and the per-row slot cells equal the fixture (reducer \`issues\` too for \`extra\`).` },
     { id: `style-conditions`, files: [`fixtures/style-conditions.json`], unit: `case`, cases: n(conditionsF.cases), check: `Flatten the style for every context: equal to \`expected\` (key order irrelevant).` },

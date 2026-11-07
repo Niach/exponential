@@ -11,6 +11,7 @@
     "cancel": "Cancel",
     "carousel": "Carousel",
     "chartSummary": "Chart of {series}, values from {min} to {max}",
+    "checkFailed": "Invalid value",
     "choose": "Choose",
     "clear": "Clear",
     "close": "Close",

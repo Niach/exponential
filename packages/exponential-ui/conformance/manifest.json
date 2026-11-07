@@ -140,6 +140,15 @@
       "check": "Validate each package; validate each record against its kind's schema; resolve each screen (`resolveScreen`) and navigate target (`navigateTarget`, VAPP-218); decide each link from another app (`crossAppTarget`, #EXP-1674); for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {
+      "id": "a2ui10",
+      "files": [
+        "fixtures/a2ui10-messages.json"
+      ],
+      "unit": "flow or case",
+      "cases": 51,
+      "check": "Route every flow's steps on one router ({trusted, acceptV09}): the ops byte for byte; ids, mint, errors, actions and cards equal the fixture."
+    },
+    {
       "id": "bind",
       "files": [
         "fixtures/bind-time.json"

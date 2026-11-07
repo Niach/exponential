@@ -21,7 +21,12 @@ import {
   SseDecoder,
   UNKNOWN_COMPONENT,
   builtinTheme,
+  actionMessage,
+  cardV10,
   checkGeometry,
+  errorMessage,
+  isIdentifier,
+  mangle,
   rendererCapabilities,
   combineDecisions,
   decideFunction,
@@ -316,6 +321,33 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         }
         return out
       }
+      // Round 9 §15: the A2UI 1.0 wire.
+      const w = fixture(`a2ui10-messages.json`)
+      for (const c of w.ids) record(`a2ui10`, `id ${c.id}`, () => isIdentifier(c.id) === c.expected.identifier && mangle(c.id) === c.expected.mangle)
+      for (const flow of w.flows as { name: string; extensionIds?: string[]; inlineCatalogs?: string[]; packages?: string[]; steps: { message: unknown; trusted?: boolean; acceptV09?: boolean; expected: unknown }[] }[])
+        record(`a2ui10`, `flow: ${flow.name}`, () => {
+          const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
+          for (const id of flow.inlineCatalogs ?? []) router.registerInlineCatalog(id)
+          for (const id of flow.packages ?? []) router.installPackage(w.packages[id])
+          for (const [i, s] of flow.steps.entries()) if (canon(router.route(s.message, { trusted: s.trusted, ...(s.acceptV09 === false ? { acceptV09: false } : {}) })) !== canon(s.expected)) return `step ${i}`
+          return true
+        })
+      for (const c of w.mint as { name: string; steps: { create?: string; delete?: string; mint?: string; expected: unknown }[] }[])
+        record(`a2ui10`, `mint: ${c.name}`, () => {
+          const router = new HostRouter()
+          for (const [i, s] of c.steps.entries()) {
+            const got = s.mint !== undefined ? router.mintSurfaceId(s.mint) : router.route({ version: `1.0`, ...(s.create !== undefined ? { createSurface: { surfaceId: s.create, catalogId: CORE_CATALOG_ID } } : { deleteSurface: { surfaceId: s.delete } }) }).map((op) => op.op)
+            if (canon(got) !== canon(s.expected)) return `step ${i}`
+          }
+          return true
+        })
+      for (const c of w.errors) record(`a2ui10`, `error: ${c.name}`, () => canon(errorMessage(c.code, c.target, c.message, c.path)) === canon(c.expected))
+      for (const c of w.actions) record(`a2ui10`, `action: ${c.name}`, () => canon(actionMessage(c.input)) === canon(c.expected))
+      for (const c of w.cards)
+        record(`a2ui10`, `card: ${c.name}`, () => {
+          const out = cardV10(c.input, c.acceptV09 ?? true)
+          return `error` in out ? out.error === c.expected.error : canon(out.card) === canon(c.expected.card)
+        })
       const t = fixture(`host-transport.json`)
       for (const c of t.jsonl) record(`host-transport`, `jsonl: ${c.name}`, () => canon(feed(new JsonlDecoder(), c.chunks)) === canon(c.expected))
       for (const c of t.sse) record(`host-transport`, `sse: ${c.name}`, () => canon(feed(new SseDecoder(), c.chunks)) === canon(c.expected))
