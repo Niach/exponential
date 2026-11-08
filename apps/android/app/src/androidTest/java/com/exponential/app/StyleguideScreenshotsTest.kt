@@ -163,7 +163,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_chat-screen · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card · sg_session-xref ·
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_settings-skills · sg_settings-skill ·
  *   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
@@ -252,8 +252,6 @@ class StyleguideScreenshotsTest {
             "sg_record-form-field-states",
             // EXP-1635: the share flow's two steps + the + menu's sub-choice.
             "sg_share-targets", "sg_share-composer", "sg_composer-add-file",
-            // S-3: THE inter-session link line.
-            "sg_session-xref",
             // EXP-1553: THE PR row (a tree, a stack, an unlinked PR).
             "sg_pr-row",
             // Session 20b7fdc2: THE session row (web's `session-row` island).
@@ -1893,11 +1891,6 @@ class StyleguideScreenshotsTest {
         // surface) and the answered multi question — by the real ChatAskCard.
         showChatCards(ChatCardsKind.PlanCard)
         flow.screenshot("sg_plan-card")
-
-        // --- sg_session-xref: THE inter-session link (S-3) in its four
-        // kinds, by the real SessionXref.
-        showChatCards(ChatCardsKind.SessionXref)
-        flow.screenshot("sg_session-xref")
 
         // --- sg_pr-row (EXP-1553): THE PR row in its two shapes (a tree with
         // guides, a stack on its rail to master) + an unlinked PR — web's

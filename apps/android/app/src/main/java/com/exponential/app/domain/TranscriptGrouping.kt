@@ -40,8 +40,11 @@ object TranscriptGrouping {
         val sessionId: String,
         val title: String,
         val agentId: String?,
-        /** The session that started it (session-chat.json `origin`), else null. */
+        /** The session that started it (session-chat.json `origin`, from the
+         *  synced rows), else null. */
         val originSessionId: String?,
+        /** The items begin at the conversation's first message (fixture absent = true). */
+        val fromStart: Boolean = true,
     )
 
     data class Named(val id: String, val name: String)
@@ -100,7 +103,7 @@ object TranscriptGrouping {
         } else {
             Sender(SenderKind.Session, chat.sessionId, chat.title, null)
         }
-        var originPending = !chat.originSessionId.isNullOrEmpty()
+        var originPending = !chat.originSessionId.isNullOrEmpty() && chat.fromStart
 
         val out = ArrayList<RowLayout>(input.items.size)
         var prevKey: String? = null
@@ -117,26 +120,27 @@ object TranscriptGrouping {
                 val own = item.authorKind == "user" && !input.viewerId.isNullOrEmpty() &&
                     item.authorId == input.viewerId
                 val cross = fromSession(item.authorSessionId)
+                // The origin: the conversation's first message, unless it names
+                // its own sender; no later row.
+                val origin = if (originPending && cross == null) fromSession(chat.originSessionId) else null
+                originPending = false
                 if (cross != null) {
                     side = Side.Other
                     sender = cross
+                } else if (origin != null) {
+                    side = Side.Other
+                    sender = origin
                 } else if (own) {
                     side = Side.Own
                 } else {
                     side = Side.Other
-                    val origin = if (originPending && item.authorSessionId.isNullOrEmpty()) {
-                        fromSession(chat.originSessionId)
-                    } else null
-                    sender = when {
-                        origin != null -> origin
-                        item.authorKind == "user" -> {
-                            val id = item.authorId ?: ""
-                            Sender(SenderKind.Member, id, members[id] ?: Copy.FORMER_MEMBER, null)
-                        }
-                        else -> ownAgent
+                    sender = if (item.authorKind == "user") {
+                        val id = item.authorId ?: ""
+                        Sender(SenderKind.Member, id, members[id] ?: Copy.FORMER_MEMBER, null)
+                    } else {
+                        ownAgent
                     }
                 }
-                if (!own && item.authorSessionId.isNullOrEmpty()) originPending = false
             }
             val key = when (side) {
                 Side.Full -> null

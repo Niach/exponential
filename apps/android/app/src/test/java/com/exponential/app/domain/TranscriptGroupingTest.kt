@@ -52,6 +52,7 @@ class TranscriptGroupingTest {
                 title = chat.str("title")!!,
                 agentId = chat.str("agentId"),
                 originSessionId = chat.str("originSessionId"),
+                fromStart = chat["fromStart"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.boolean ?: true,
             ),
             members = o.getValue("members").jsonArray.map {
                 TranscriptGrouping.Named(it.jsonObject.str("id")!!, it.jsonObject.str("name")!!)

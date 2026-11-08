@@ -1037,10 +1037,6 @@ fun ChatConversation(
     // chats.json: a row ARRIVES when its id was not in the transcript the
     // screen first painted (history, a reopen or a scroll never animate).
     val arrivals = rememberLiveArrivals(rootId, shown)
-    // #EXP-1736 (transcript-grouping.json): who sent each row, the groups.
-    val layouts = remember(shown, chat, origin, viewerId, rootId, meta) {
-        chatTranscriptLayout(shown, chat ?: TranscriptGrouping.Chat(rootId, "", null, null), origin, viewerId, meta)
-    }
     // chats.json FOLLOW + JUMP (#EXP-1383): the chat opens at the newest row
     // and follows new rows while the reader sits within `followSlack` of the
     // bottom; a drag further up stops following and shows THE jump-to-bottom
@@ -1058,6 +1054,13 @@ fun ChatConversation(
     var loadedSteps by rememberSaveable(rootId) { mutableStateOf(0) }
     val waitingIndexes = remember(shown) { transcriptWaitingIndexes(shown) }
     val windowStart = Chats.transcriptWindowStart(shown.size, waitingIndexes, pinnedStart, loadedSteps)
+    // #EXP-1736 (transcript-grouping.json): who sent each row, the groups.
+    // ONE origin rule (data first): the view's origin takes the first
+    // message while the window holds the conversation's start.
+    val fromStart = windowStart == 0
+    val layouts = remember(shown, chat, origin, fromStart, viewerId, rootId, meta) {
+        chatTranscriptLayout(shown, chat ?: TranscriptGrouping.Chat(rootId, "", null, null), origin, fromStart, viewerId, meta)
+    }
     val painted = remember(shown, windowStart) { if (windowStart == 0) shown else shown.subList(windowStart, shown.size) }
     val header = if (windowStart > 0) 1 else 0
     val itemCount = header + painted.size + (if (tail != null) 1 else 0)
@@ -1339,6 +1342,7 @@ internal fun chatTranscriptLayout(
     rows: List<SessionTree.SessionChatRow>,
     chat: TranscriptGrouping.Chat,
     origin: SessionTree.SessionXref?,
+    fromStart: Boolean,
     viewerId: String?,
     meta: (SessionTree.SessionChatRow.MessageRow) -> ChatRowMeta?,
 ): Map<String, TranscriptGrouping.RowLayout> {
@@ -1380,7 +1384,7 @@ internal fun chatTranscriptLayout(
     val layouts = TranscriptGrouping.transcriptLayout(
         TranscriptGrouping.Input(
             viewerId = viewerId,
-            chat = chat.copy(originSessionId = origin?.sessionId),
+            chat = chat.copy(originSessionId = origin?.sessionId, fromStart = fromStart),
             members = members.map { (id, name) -> TranscriptGrouping.Named(id, name) },
             agents = chat.agentId?.let { listOf(TranscriptGrouping.Named(it, chat.title)) }.orEmpty(),
             sessions = sessions.values.toList(),

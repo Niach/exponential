@@ -38,7 +38,6 @@ import com.exponential.app.ui.session.ScriptCardView
 import com.exponential.app.ui.session.WorkCardView
 import com.exponential.app.ui.chat.SessionCard
 import com.exponential.app.ui.components.SessionRow
-import com.exponential.app.ui.components.SessionXref
 import com.exponential.app.ui.components.PrList
 import com.exponential.app.ui.components.PrListRow
 import com.exponential.app.ui.components.SectionHeader
@@ -61,8 +60,6 @@ enum class ChatCardsKind(val testId: String) {
     Suggestions("chat-suggestions-screen"),
     /** EXP-1280: THE rich plan / question card (plan-card.json, shot sg_plan-card). */
     PlanCard("plan-card-screen"),
-    /** S-3: THE inter-session link line in its four kinds (shot sg_session-xref). */
-    SessionXref("session-xref-screen"),
     /** EXP-1553: THE PR row (web's `pr-row` entry, shot sg_pr-row). */
     PrRow("pr-row-specimen"),
     /** Session 20b7fdc2: THE session row (web's `session-row` entry, shot sg_session-row). */
@@ -99,7 +96,6 @@ fun ChatCardsScreen(kind: ChatCardsKind) {
                     ChatCardsKind.Comment -> CommentCardSpecimens()
                     ChatCardsKind.Suggestions -> SuggestionsSpecimens()
                     ChatCardsKind.PlanCard -> PlanCardSpecimens()
-                    ChatCardsKind.SessionXref -> SessionXrefSpecimens()
                     ChatCardsKind.PrRow -> PrRowSpecimens()
                     ChatCardsKind.SessionRow -> SessionRowSpecimens()
                     ChatCardsKind.PrChecks -> PrChecksSpecimens()
@@ -116,30 +112,6 @@ private fun Caption(text: String) {
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
     )
-}
-
-/** S-3 (styleguide entry `session-xref`), EXP-1553: web's
- *  `SessionXrefSpecimen` row for row, four compact rows, no captions: the
- *  agent's conversation (its mark) and plain sessions (the session glyph). */
-@Composable
-private fun SessionXrefSpecimens() {
-    val agent = com.exponential.app.data.db.AgentDefinitionEntity(
-        id = "sg-agent",
-        teamId = "t-team-1",
-        name = "Triage",
-        icon = "bot",
-        color = "#8b5cf6",
-    )
-    androidx.compose.runtime.CompositionLocalProvider(
-        com.exponential.app.ui.components.LocalAgentMarks provides mapOf(agent.id to agent),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SessionXref(SessionTree.SessionXref("message", "sg-xref-message", "Triage", "sg-agent"), onOpen = {})
-            SessionXref(SessionTree.SessionXref("report", "sg-xref-report", "Fix the sign-in redirect", null), onOpen = {})
-            SessionXref(SessionTree.SessionXref("started", "sg-xref-started", "Triage", "sg-agent"), onOpen = {})
-            SessionXref(SessionTree.SessionXref("reported", "sg-xref-reported", "Ship the login flow", null), onOpen = {})
-        }
-    }
 }
 
 /** #EXP-1611 (styleguide entry `pr-checks`), #EXP-1710: THE header merge

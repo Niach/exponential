@@ -695,11 +695,10 @@ private fun RunFaceContent(
     // rows off the account DB (the viewer id scopes notifications).
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     // #EXP-1736 (transcript-grouping.json): the raw feed's senders.
-    val feedSenders = remember(session?.id, session?.title, session?.agentId, sessionHeader?.sessionName, currentUserId, origin, onOpenOrigin) {
+    val feedSenders = remember(session?.id, session?.title, session?.agentId, sessionHeader?.sessionName, origin, onOpenOrigin) {
         session?.let { row ->
             val link = origin
             FeedSenders(
-                viewerId = currentUserId,
                 chat = TranscriptGrouping.Chat(
                     sessionId = row.id,
                     title = sessionHeader?.sessionName ?: row.title.orEmpty(),
@@ -1741,14 +1740,14 @@ private fun ActivityFeed(
     }
     // #EXP-1736 (transcript-grouping.json): the main stream's senders and
     // groups; the EXP-787 ladder keeps the gaps except between two bubbles.
-    // The parent's prompt = the feed's first one, once nothing earlier waits
-    // on the device.
-    val deviceHoldsEarlier = onCanLoadEarlier()
-    val feedLayouts = remember(rows, sessionCards, senders, agent, feed, deviceHoldsEarlier, workflowIds) {
+    // ONE origin rule (data first): the feed's first prompt is the origin's
+    // while the window holds the feed's start (nothing earlier on the device).
+    val fromStart = windowStart == 0 && !onCanLoadEarlier()
+    val feedLayouts = remember(rows, sessionCards, senders, agent, fromStart, workflowIds) {
         if (senders == null) {
             emptyMap()
         } else {
-            feedTranscriptLayout(rows, sessionCards, senders, agent, firstPromptId = if (deviceHoldsEarlier) null else firstPromptId(feed), workflowIds = workflowIds)
+            feedTranscriptLayout(rows, sessionCards, senders, agent, fromStart = fromStart, workflowIds = workflowIds)
         }
     }
     // Cards whose tool row this window does not hold (see the tail items).
@@ -1925,17 +1924,32 @@ private fun ActivityFeed(
                     // edits fold into ONE edited-files card, exactly as they
                     // do in the main transcript.
                     val laneRows = projectLaneRows(focused.items, workflowIds)
+                    // #EXP-1736: the same grouping as the main stream, the
+                    // subagent as the chat's own sender.
+                    val laneLayouts = laneTranscriptLayout(laneRows, focused)
                     itemsIndexed(
                         laneRows,
                         key = { _, laneRow -> laneRow.id },
                         contentType = { _, laneRow -> laneRow.contentType },
                     ) { index, laneRow ->
+                        val laneLayout = laneLayouts[laneRow.id]
+                        val layout = laneLayout?.layout
                         // The same ladder as the main feed, over the rows a
-                        // subagent's conversation is made of.
+                        // subagent's conversation is made of; two bubbles in
+                        // a row take the group's gaps.
                         TranscriptRow(
-                            transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass),
+                            if (laneLayout?.groupGap == true) {
+                                layout?.gap?.dp ?: 0.dp
+                            } else {
+                                transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass).dp
+                            },
                         ) {
-                            LaneRow(laneRow, liveItemId = liveRowId, live = live)
+                            TranscriptBubbleRow(
+                                layout = layout?.copy(gap = 0),
+                                avatar = { layout?.sender?.let { SenderAvatar(it) } },
+                            ) {
+                                LaneRow(laneRow, liveItemId = liveRowId, live = live, author = layout.authorLine())
+                            }
                         }
                     }
                 }
@@ -2208,10 +2222,10 @@ private fun ActivityFeed(
 }
 
 /** #EXP-1736 (transcript-grouping.json): who the raw feed's senders are:
- *  the viewer, this session (its title, its agent), who started it and how
- *  a cross-session bubble opens its session (null = inert). */
+ *  this session (its title, its agent), who started it (the S-3 origin, from
+ *  the synced rows) and how a cross-session bubble opens its session (null =
+ *  inert). */
 internal data class FeedSenders(
-    val viewerId: String?,
     val chat: TranscriptGrouping.Chat,
     val origin: SessionTree.SessionXref?,
     val onOpen: ((sessionId: String) -> Unit)?,
@@ -2221,16 +2235,16 @@ internal data class FeedSenders(
  *  both bubbles (the group's gaps replace the EXP-787 ladder there). */
 internal data class FeedRowLayout(val layout: TranscriptGrouping.RowLayout, val groupGap: Boolean)
 
-/** The id of the feed's first main-thread prompt (the one a parent session
- *  started this session with, when one did). */
-internal fun firstPromptId(feed: List<AgentFeedItem>): Long? =
-    feed.firstOrNull { it is AgentFeedItem.UserMessage && it.subagentId == null }?.id
+/** The raw feed's viewer: every typed prompt there is the viewer's own
+ *  turn (web `FEED_VIEWER`). */
+internal const val FEED_VIEWER = "feed-viewer"
 
 /**
  * #EXP-1736: the raw feed's rows as transcript items: narration = the
  * agent's message, a prompt = the viewer's own unless it parses as another
  * session's input ([TranscriptGrouping.crossSessionInput]: that session's
- * message; [firstPromptId] = the origin's prompt), thoughts / tool calls /
+ * message; with [fromStart] the first one is the origin's: the fixture's
+ * ONE origin rule over [FeedSenders.origin]), thoughts / tool calls /
  * edits / subagent lines = the agent's trace, every other row and every
  * session card = full.
  */
@@ -2239,7 +2253,8 @@ internal fun feedTranscriptLayout(
     cards: SessionCardSlots,
     senders: FeedSenders,
     agent: String?,
-    firstPromptId: Long?,
+    /** The rows begin at the feed's very first item (nothing earlier to load). */
+    fromStart: Boolean,
     /** EXP-850 (S3): a `Workflow` call draws as its card (a full row). */
     workflowIds: Set<String> = emptySet(),
 ): Map<Long, FeedRowLayout> {
@@ -2273,14 +2288,12 @@ internal fun feedTranscriptLayout(
                             TranscriptGrouping.SessionRef(cross.sessionId, cross.name, null)
                         }
                     }
-                    val from = cross?.sessionId
-                        ?: senders.origin?.sessionId?.takeIf { feedItem.id == firstPromptId }
                     TranscriptGrouping.Item(
                         id,
                         TranscriptGrouping.ItemKind.Message,
                         authorKind = "user",
-                        authorId = senders.viewerId,
-                        authorSessionId = from,
+                        authorId = FEED_VIEWER,
+                        authorSessionId = cross?.sessionId,
                     )
                 }
                 is AgentFeedItem.Tool -> TranscriptGrouping.Item(
@@ -2297,9 +2310,69 @@ internal fun feedTranscriptLayout(
     }
     val layouts = TranscriptGrouping.transcriptLayout(
         TranscriptGrouping.Input(
-            viewerId = senders.viewerId,
-            chat = senders.chat.copy(originSessionId = null),
+            viewerId = FEED_VIEWER,
+            chat = senders.chat.copy(originSessionId = senders.origin?.sessionId, fromStart = fromStart),
             sessions = sessions.values.toList(),
+            items = items,
+        ),
+    )
+    val out = HashMap<Long, FeedRowLayout>(rows.size)
+    var prev: String? = null
+    val byRow = rows.associateBy { "row:${it.id}" }
+    for (layout in layouts) {
+        val row = byRow[layout.id]
+        if (row != null) {
+            out[row.id] = FeedRowLayout(layout, groupGap = layout.id in bubbleIds && prev != null && prev in bubbleIds)
+        }
+        prev = layout.id
+    }
+    return out
+}
+
+/**
+ * #EXP-1736: a subagent's own tab as transcript items, the subagent as the
+ * chat's own sender (its label, the session avatar): its prose = its
+ * bubbles, the turns addressed to it = the viewer's own, its calls and
+ * thoughts its trace, anything else full. No origin: the tab is no
+ * conversation another session started.
+ */
+internal fun laneTranscriptLayout(
+    rows: List<AgentFeedRow>,
+    run: AgentFeedRow.SubagentRun,
+): Map<Long, FeedRowLayout> {
+    val bubbleIds = HashSet<String>()
+    val items = rows.map { row ->
+        val id = "row:${row.id}"
+        when (row) {
+            is AgentFeedRow.Edits, is AgentFeedRow.ExpRun, is AgentFeedRow.ToolRun ->
+                TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+            is AgentFeedRow.Single -> when (val feedItem = row.item) {
+                is AgentFeedItem.Narration -> if (feedItem.text.isNotBlank()) {
+                    bubbleIds += id
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "agent")
+                } else {
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+                }
+                is AgentFeedItem.UserMessage -> {
+                    bubbleIds += id
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "user", authorId = FEED_VIEWER)
+                }
+                is AgentFeedItem.Tool, is AgentFeedItem.Thought ->
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+                else -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+            }
+            else -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+        }
+    }
+    val layouts = TranscriptGrouping.transcriptLayout(
+        TranscriptGrouping.Input(
+            viewerId = FEED_VIEWER,
+            chat = TranscriptGrouping.Chat(
+                sessionId = "subagent:${run.subagentId}",
+                title = run.label,
+                agentId = null,
+                originSessionId = null,
+            ),
             items = items,
         ),
     )
@@ -2506,11 +2579,14 @@ private fun AgentTabChip(
     )
 }
 
-// A subagent's prose in its own lane — a small glyph + plain full-width
-// selectable text (the main stream's prose is THE bubble since #EXP-1736).
+// #EXP-1736: a subagent's prose in its own tab = THE message bubble on the
+// incoming side, under the subagent's avatar + name ([laneTranscriptLayout]),
+// like the main stream's prose.
 @Composable
 private fun NarrationBubble(
     text: String,
+    /** The bubble's name line (the group's first bubble only). */
+    author: String? = null,
     /** Inside a subagent group, where the surrounding rows keep their own
      *  compact rhythm — the feed's rows get theirs from the gap ladder
      *  (EXP-787), so a top-level bubble carries no outer padding. */
@@ -2518,23 +2594,15 @@ private fun NarrationBubble(
 ) {
     // MarkdownView renders nothing for blank input.
     if (text.isBlank()) return
-    // EXP-1676: the run view's row on every form factor (web `NarrationBubble`).
     // EXP-440: GFM; EXP-430 bare URLs stay tappable.
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier)
-            .testTag("session-agent-narration"),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    MessageBubble(
+        own = false,
+        time = null,
+        author = author,
+        modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
+        testTag = "session-agent-narration",
     ) {
-        Icon(
-            ExpIcons.codingAssistant,
-            contentDescription = null,
-            modifier = Modifier.size(13.dp).padding(top = 1.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        MarkdownView(text, softBreaksAsNewlines = true, modifier = Modifier.weight(1f))
+        MarkdownView(text, softBreaksAsNewlines = true)
     }
 }
 
@@ -4400,11 +4468,18 @@ private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
  * never reach here.
  */
 @Composable
-private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, live: Boolean, nested: Boolean = false) {
+private fun LaneRow(
+    row: AgentFeedRow,
+    liveItemId: Long?,
+    live: Boolean,
+    nested: Boolean = false,
+    /** #EXP-1736: the bubble's name line ([laneTranscriptLayout]). */
+    author: String? = null,
+) {
     when (row) {
         is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
         is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items, nested = nested)
-        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested)
+        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested, author = author)
         else -> Unit
     }
 }
@@ -4414,10 +4489,10 @@ private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, live: Boolean, nested:
 // renders nothing rather than breaking the feed. `live` = the RUN still
 // lives: an ended session's open reasoning never shimmers (main-site rule).
 @Composable
-private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false) {
+private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false, author: String? = null) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
-        is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
+        is AgentFeedItem.Narration -> NarrationBubble(item.text, author = author, nested = nested)
         is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
         is AgentFeedItem.Thought -> ThoughtRow(item, running = live && !item.ended)
