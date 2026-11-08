@@ -14,6 +14,14 @@ import { askHiddenText, askText, BUS_COPY, privateText, REPORT_FALLBACK } from "
 import { BACKGROUND_STUCK_MINUTES, silentMinutes } from "./watchdog"
 import { PLAIN_IN_SEALED_TREE_MESSAGE, START_NEEDS_WORK } from "./send"
 import {
+  SUBAGENT_FAILED_BARE,
+  SUBAGENT_NO_CHILDREN,
+  SUBAGENT_NO_KEY,
+  subagentEndText,
+  subagentFailedText,
+  subagentRedirectText,
+} from "./subagent"
+import {
   PRIVATE_PR_LEAD,
   PRIVATE_REPLY_LEAD,
   PRIVATE_REPORT_LEAD,
@@ -84,6 +92,13 @@ describe(`eagent spec: the server's copy`, () => {
   it(`plaintext into a sealed tree (#FEED-185)`, () => {
     expect(rules.copy.plainInSealedTree).toBe(PLAIN_IN_SEALED_TREE_MESSAGE)
   })
+  it(`subagents (#EXP-1731)`, () => {
+    expect(spec.fill(rules.copy.subagentRedirect, { id: `s1`, parentId: `r1` })).toBe(subagentRedirectText(`s1`, `r1`))
+    expect(rules.copy.subagentNoChildren).toBe(SUBAGENT_NO_CHILDREN)
+    expect(rules.copy.subagentNoKey).toBe(SUBAGENT_NO_KEY)
+    expect(spec.fill(rules.copy.subagentFailed, { summary: `API Error: 529` })).toBe(subagentFailedText(`API Error: 529`))
+    expect(rules.copy.subagentFailedBare).toBe(SUBAGENT_FAILED_BARE)
+  })
   it(`private leads`, () => {
     expect(rules.copy.privateReplyLead).toBe(PRIVATE_REPLY_LEAD)
     expect(rules.copy.privateReportLead).toBe(PRIVATE_REPORT_LEAD)
@@ -134,6 +149,13 @@ describe(`eagent spec: the server's pure rules replay the fixtures`, () => {
       expect(agentReuseRefusal(root, entry.children, new Date(entry.now), entry.awaitsCaller ?? false)).toBe(entry.expected)
     })
   }
+  it(`a subagent's last line`, () => {
+    expect(subagentEndText(`Found 3 call sites.`, false)).toBe(`Found 3 call sites.`)
+    expect(subagentEndText(` API Error: 529 overloaded `, true)).toBe(`Failed: API Error: 529 overloaded`)
+    expect(subagentEndText(null, true)).toBe(`Failed.`)
+    expect(subagentEndText(`  `, false)).toBe(``)
+    expect(subagentEndText(undefined, false)).toBe(``)
+  })
   for (const entry of watchdog.silentCases) {
     it(`silent minutes ${entry.alive} → ${entry.expected}`, () => {
       expect(silentMinutes(entry.alive ?? NaN, new Date(entry.now))).toBe(entry.expected)

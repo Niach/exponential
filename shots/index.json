@@ -1732,6 +1732,22 @@
         "sha256": "246029398ce5203b2a52650cd4791286a1b6628f775c1cd078e5b3da9c279a6c"
       }
     },
+    "composer-teams-menu": {
+      "web": {
+        "file": "shots/composer-teams-menu/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 36804,
+        "sha256": "68984696bdc3ac077fbf7f53b535035ecc26cb70e1846988c2d4687b25d22c57"
+      },
+      "web-mobile": {
+        "file": "shots/composer-teams-menu/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 8592,
+        "sha256": "79ab4d4d236559547b6354d3a79a92074be8ceba22d24efe0fa54a15f4839f0d"
+      }
+    },
     "device-attention": {
       "android": {
         "file": "shots/device-attention/android.webp",

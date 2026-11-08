@@ -86,7 +86,10 @@ const LISTENER = {
 }
 
 /** The sessions a transition of `child` reaches: its parent (whatever its
- *  status) and every LIVE watcher, parent first, each once. */
+ *  status) and every LIVE watcher, parent first, each once. #EXP-1731
+ *  (eagent subagents.json): a CLI SUBAGENT's parent is the CLI process that
+ *  ran it and has every line in-band: never a listener (no wake-up per
+ *  subagent turn, not even its end report); its watchers still hear it. */
 export async function busListeners(
   tx: Tx,
   child: Pick<Session, `id` | `parentId`>
@@ -96,10 +99,16 @@ export async function busListeners(
     ne(sessions.id, child.id),
     sql`${sessions.wakeOn} @> ${JSON.stringify([child.id])}::jsonb`
   )!
+  const parentRow = child.parentId
+    ? and(
+        eq(sessions.id, child.parentId),
+        sql`NOT EXISTS (SELECT 1 FROM sessions sub WHERE sub.id = ${child.id} AND sub.subagent_key IS NOT NULL)`
+      )!
+    : null
   const rows = await tx
     .select(LISTENER)
     .from(sessions)
-    .where(child.parentId ? or(eq(sessions.id, child.parentId), watching) : watching)
+    .where(parentRow ? or(parentRow, watching) : watching)
   const parent = rows.find((row) => row.id === child.parentId)
   const rest = rows
     .filter((row) => row.id !== child.parentId)
