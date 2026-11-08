@@ -1839,10 +1839,12 @@ object SessionTree {
         return parents
     }
 
-    /** #EXP-1730: the rows keyed by their own `messages.session_id`; a row
-     *  without one (a dm/channel message) is left out, input order kept. */
+    /** #EXP-1730: the rows keyed by their own `messages.session_id`
+     *  ([MessageSession.keyMessagesBySession]); a row without one (a
+     *  dm/channel message) is left out, input order kept. */
     fun messages(rows: List<MessageEntity>): List<Message> =
-        rows.mapNotNull { row -> row.sessionId?.takeIf { it.isNotEmpty() }?.let { message(row, it) } }
+        MessageSession.keyMessagesBySession(rows) { it.sessionId }
+            .map { (row, sessionId) -> message(row, sessionId) }
 
     /** [sessionId] = the session the row belongs to (resolved by [messages]
      *  or by a DAO query scoped to that session). */
