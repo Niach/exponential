@@ -5,7 +5,6 @@
 use std::time::{Duration, Instant};
 
 use smithay::{
-    delegate_idle_inhibit, delegate_idle_notify,
     reexports::{
         calloop::{
             timer::{TimeoutAction, Timer},
@@ -104,7 +103,6 @@ impl IdleNotifierHandler for Ede {
         &mut self.idle_notifier
     }
 }
-delegate_idle_notify!(Ede);
 
 impl IdleInhibitHandler for Ede {
     fn inhibit(&mut self, surface: WlSurface) {
@@ -121,4 +119,3 @@ impl IdleInhibitHandler for Ede {
         self.idle_notifier.set_is_inhibited(inhibited);
     }
 }
-delegate_idle_inhibit!(Ede);
