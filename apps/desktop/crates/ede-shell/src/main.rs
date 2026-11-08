@@ -62,6 +62,7 @@
 //! `EDE_SHELL_RAIL=1` starts with the sidebar as the icon rail.
 
 mod accounts;
+mod chat;
 mod engine;
 mod issues;
 mod assets;
@@ -231,6 +232,10 @@ struct Shell {
     pending_pick: Option<String>,
     /// #EDE-58: the chat on the current Local desktop (its agent runs).
     chat_local: Option<local_runs::LocalChat>,
+    /// #EDE-65 lane I: the agent picked on the chat's home.
+    chat_agent: Option<String>,
+    /// The chat document's literal composer props (placeholder, busy) as drawn.
+    chat_composer: Value,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
     engine: Option<engine::SharedEngine>,
     /// #EDE-64: the apps launched in the last seconds.
@@ -686,9 +691,20 @@ impl HostPlugin for Host {
             }
             "ede_chat" => {
                 let args = args.clone();
-                cx.defer(move |cx| match args.get("action").and_then(Value::as_str) {
-                    Some("send") => chat_send(&shell, args.get("text").and_then(Value::as_str).unwrap_or(""), cx),
-                    _ => chat_toggle(&shell, cx),
+                cx.defer(move |cx| {
+                    let arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+                    match args.get("action").and_then(Value::as_str) {
+                        Some("send") => chat_send(&shell, &arg("text"), cx),
+                        Some("answer") => chat_answer(&shell, &arg("answer"), cx),
+                        Some("pick") => {
+                            shell.borrow_mut().chat_agent = Some(arg("agentId"));
+                            chatting_changed(&shell, cx);
+                        }
+                        Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
+                        Some("new") => chat_open(&shell, None, cx),
+                        Some("stop") => {}
+                        _ => chat_toggle(&shell, cx),
+                    }
                 });
             }
             "ede_workspace" => {
@@ -1250,6 +1266,12 @@ fn layer_header(doc: &Document, (out_w, out_h): (u32, u32), rail: bool) -> Surfa
         if anchor.contains(&ede_ui::surface::Edge::Top) && anchor.contains(&ede_ui::surface::Edge::Bottom) {
             size.height = Some(out_h.max(1));
         }
+        // #EDE-65 lane I: the chat fills the panel like a maximised window.
+        if doc.name == "chat" {
+            let (w, h) = engine::window_max((out_w, out_h), rail);
+            size.width = Some(w);
+            size.height = Some(h);
+        }
         if doc.name == "sidebar" {
             size.width = Some(sidebar);
             if *exclusive_zone > 0 {
@@ -1296,6 +1318,7 @@ fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
         (header_for(&s, doc), s.feed.clone())
     };
     let mut doc = doc.clone();
+    patch_chat(&shell.borrow(), &mut doc);
     size_root(&mut doc, &header);
     doc.surface = header;
     shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx);
@@ -1532,29 +1555,65 @@ fn chat_local(shell: &SharedShell) -> bool {
     true
 }
 
-/// `/chatting` into the views: the local conversation, or the app's Assistant.
+/// `/chatting` into the views (#EDE-65 lane I): the chat model of the
+/// current conversation: the desktop's own agent on a Local desktop; on a
+/// team, until the shell syncs its sessions, the home with the Assistant.
 fn chatting_changed(shell: &SharedShell, cx: &mut App) {
-    if std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0") {
-        // The goldens: the sample conversation on a Local desktop, the app's on a team.
-        let feed = if on_local(shell) { local_runs::demo_feed() } else { remote_feed(&shell.borrow()) };
-        shell.borrow_mut().feed.set("/chatting", feed);
-        refresh(shell, cx);
-        return;
-    }
-    let feed = if chat_local(shell) { shell.borrow().chat_local.as_ref().map(|c| c.feed()) } else { None }.unwrap_or_else(|| remote_feed(&shell.borrow()));
-    shell.borrow_mut().feed.set("/chatting", feed);
+    let demo = std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0");
+    let local = !demo && chat_local(shell);
+    let (mut input, no_cli) = {
+        let s = shell.borrow();
+        match (demo, s.chat_local.as_ref().filter(|_| local)) {
+            (true, _) if on_local(shell) => (local_runs::demo_input(), false),
+            (false, Some(chat)) => (chat.input(), chat.agent.is_empty()),
+            _ => (local_runs::assistant_home(), false),
+        }
+    };
+    input.agent_id = shell.borrow().chat_agent.clone().or(input.agent_id);
+    let view = uicore_model::chat::chat_view(&input);
+    let mut value = serde_json::to_value(&view).unwrap_or_default();
+    value["noCli"] = json!(no_cli);
+    shell.borrow_mut().feed.set("/chatting", value);
+    chat_composer(shell, &view.composer, cx);
     refresh(shell, cx);
 }
 
-/// `/chatting` on a team: the team and the account it is connected through.
-fn remote_feed(shell: &Shell) -> Value {
-    let current = &shell.model.switcher.current;
-    let connection = accounts::connection_json(current, &shell.workspaces.signed_in());
-    let team = if current.kind == uicore_model::SwitcherKind::Team { current.name.as_str() } else { "" };
-    local_runs::remote_feed(team, connection["account"].as_str().unwrap_or_default())
+/// The conversation composer's placeholder and busy are literal props
+/// (genUI binds only a Composer's value): set by id, redrawn on a change.
+fn chat_composer(shell: &SharedShell, composer: &uicore_model::chat::ChatComposer, cx: &mut App) {
+    let props = json!({"placeholder": composer.placeholder, "busy": composer.busy});
+    if shell.borrow().chat_composer == props {
+        return;
+    }
+    shell.borrow_mut().chat_composer = props;
+    if !shell.borrow().surfaces.is_open("chat") {
+        return;
+    }
+    let Some(mut doc) = document(&shell.borrow(), "chat") else { return };
+    patch_chat(&shell.borrow(), &mut doc);
+    let header = header_for(&shell.borrow(), &doc);
+    size_root(&mut doc, &header);
+    doc.surface = header;
+    let feed = shell.borrow().feed.clone();
+    shell.borrow_mut().surfaces.redraw(&doc, &feed, cx);
 }
 
-/// The composer's text to the desktop's agent (#EDE-58).
+/// The chat model's composer (`/chatting/composer`) into the chat
+/// document's literal props.
+fn patch_chat(shell: &Shell, doc: &mut Document) {
+    if doc.name != "chat" {
+        return;
+    }
+    let Some(composer) = shell.feed.get("/chatting").map(|c| &c["composer"]) else { return };
+    for prop in ["placeholder", "busy"] {
+        if let Some(value) = composer.get(prop) {
+            uicore_gpui::inline::set_prop(doc, "chat_composer", prop, value.clone());
+        }
+    }
+}
+
+/// The composer's text to the desktop's agent (#EDE-58); on a team the app
+/// takes it until the shell talks to the team's sessions.
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     if !chat_local(shell) {
         launch_app(shell, "at.exponential");
@@ -1564,7 +1623,35 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     if let Err(e) = sent {
         tracing::warn!("chat send: {e}");
     }
-    // The draft is the document's: hand it an empty one, then let it own it again.
+    chat_clear_draft(shell, cx);
+}
+
+/// A question's option: the answer to the chat's agent.
+fn chat_answer(shell: &SharedShell, label: &str, cx: &mut App) {
+    if !chat_local(shell) || label.trim().is_empty() {
+        return;
+    }
+    if let Some(Err(e)) = shell.borrow_mut().chat_local.as_mut().map(|c| c.answer(label)) {
+        tracing::warn!("chat answer: {e}");
+    }
+    chatting_changed(shell, cx);
+}
+
+/// A card's or a rail chat's session (`None` = New chat: the home).
+fn chat_open(shell: &SharedShell, session_id: Option<&str>, cx: &mut App) {
+    if chat_local(shell) {
+        if let Some(chat) = shell.borrow_mut().chat_local.as_mut() {
+            match session_id.filter(|id| !id.is_empty()) {
+                Some(id) => chat.open(id),
+                None => chat.new_chat(),
+            }
+        }
+    }
+    chatting_changed(shell, cx);
+}
+
+/// The draft is the document's: hand it an empty one, then let it own it again.
+fn chat_clear_draft(shell: &SharedShell, cx: &mut App) {
     shell.borrow_mut().feed.set("/chat", json!({"draft": ""}));
     chatting_changed(shell, cx);
     shell.borrow_mut().feed.remove("/chat");
@@ -2151,7 +2238,9 @@ fn main() {
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
-        feed.set("/chatting", if demo { local_runs::demo_feed() } else { local_runs::remote_feed("", "") });
+        // The goldens: the sample conversation (a demo starts on a Local desktop).
+        let chat = if demo { local_runs::demo_input() } else { local_runs::assistant_home() };
+        feed.set("/chatting", serde_json::to_value(uicore_model::chat::chat_view(&chat)).unwrap_or_default());
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
             feed.set("/notifications", json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}));
@@ -2236,6 +2325,8 @@ fn main() {
             // #EDE-65: the team picked last, once its account's teams are listed.
             pending_pick: saved_team,
             chat_local: None,
+            chat_agent: None,
+            chat_composer: Value::Null,
             engine: None,
             launches: system::LaunchGuard::default(),
             engine_apps: Vec::new(),

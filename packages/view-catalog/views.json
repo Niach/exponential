@@ -8447,7 +8447,7 @@
       "id": "ede-chat",
       "group": "ede",
       "title": "Exponential Desktop · chat",
-      "blurb": "The chat button's surface (apps/ede/ui/chat.json): on a Local desktop the desktop's own agent (#EDE-58: the person's CLI over ACP, the conversation as Markdown, the composer sends into it); on a team the Assistant lives in the Exponential app and the text goes there.",
+      "blurb": "THE agent chat (apps/ede/ui/chat.json, #EDE-65 lane I): the chat button opens it filling the panel, drawn like the IDE's agent chat from the shared chat model (packages/uicore/fixtures/chat.json): the Assistant's home (agent row + composer) or a conversation (a person's bubble right, the agent's left, divider pills, cards, questions, the composer). On a Local desktop the desktop's own agent (#EDE-58); on a team the app takes the text until the shell syncs the team's sessions.",
       "order": 10,
       "ede": {
         "size": "1280x720",

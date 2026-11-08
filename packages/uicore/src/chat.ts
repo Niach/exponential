@@ -1,6 +1,6 @@
 // #EDE-65 lane I: what the shared chat document binds, a pure projection of
 // one conversation the host already resolved. `fixtures/chat.json` is the
-// spec; the document (`docs/chat.json`) binds the result under /chat/view.
+// spec; the document (`docs/chat.json`) binds the result under /chatting.
 import fixture from "../fixtures/chat.json" with { type: "json" }
 
 export interface ChatAgentInput {
@@ -12,6 +12,11 @@ export interface ChatAgentInput {
 export interface ChatOptionInput {
   label: string
   description: string | null
+}
+
+/** An option as the document draws it: its row's id rides along (a template cannot read its parent). */
+export interface ChatOption extends ChatOptionInput {
+  messageId: string
 }
 
 export type ChatRowInput =
@@ -33,6 +38,8 @@ export interface ChatInput {
   draft: string
   sending: boolean
   busy: boolean
+  /** The host's composer has the `/` menu (the IDE); eDE until it does not. */
+  slashCommands: boolean
   rows: ChatRowInput[]
 }
 
@@ -49,7 +56,7 @@ export interface ChatRow {
   title: string
   text: string
   target: string | null
-  options: ChatOptionInput[]
+  options: ChatOption[]
   custom: boolean
   multi: boolean
   waiting: boolean
@@ -113,7 +120,7 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
         ...blank(input.id, `question`),
         icon: COPY.questionIcon,
         title: input.question,
-        options: input.options,
+        options: input.options.map((o) => ({ ...o, messageId: input.id })),
         custom: input.custom,
         multi: input.multi,
         waiting: input.waiting,
@@ -138,7 +145,7 @@ export function chatView(input: ChatInput): ChatView {
     rows,
     empty: rows.length === 0,
     composer: {
-      placeholder: home ? COPY.homePlaceholder : COPY.placeholder,
+      placeholder: home ? COPY.homePlaceholder : input.slashCommands ? COPY.placeholder : COPY.messagePlaceholder.replace(`{name}`, input.title),
       canSend: input.draft.trim() !== `` && !input.sending && (!home || picked !== null),
       busy: input.busy,
     },
