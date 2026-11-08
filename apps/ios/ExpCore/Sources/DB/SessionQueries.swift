@@ -94,16 +94,13 @@ public enum SessionQueries {
 
     // MARK: - Conversation
 
-    /// NEW-8: every message keyed to the session of its conversation
-    /// (contract `message-conversation.json`): the INNER join holds back a
-    /// message whose conversation has not synced, a dm/channel conversation
-    /// (`session_id` NULL) keys nothing, and the row's own legacy session is
-    /// never read. Observations tracking it wait on BOTH shapes.
+    /// #EXP-1730: every message keyed to its own session
+    /// (`messages.session_id`): a dm/channel row (no session) keys nothing,
+    /// and `conversations` is never read.
     public static let keyedMessagesSQL = """
-        SELECT "messages".*, "conversations"."session_id" AS "conversation_session_id"
+        SELECT "messages".*
         FROM "messages"
-        JOIN "conversations" ON "conversations"."id" = "messages"."conversation_id"
-        WHERE "conversations"."session_id" IS NOT NULL AND "conversations"."session_id" <> ''
+        WHERE "messages"."session_id" IS NOT NULL AND "messages"."session_id" <> ''
         """
 
     /// A root's conversation (every session of its tree), oldest first.
@@ -125,22 +122,22 @@ public enum SessionQueries {
             """, arguments: StatementArguments(ids))
     }
 
-    /// #EXP-1464: the question / plan card messages of `sessionIds` (their
-    /// conversations'), oldest first.
+    /// #EXP-1464: the question / plan card messages of `sessionIds`, oldest
+    /// first.
     public static func cardMessages(db: Database, sessionIds: [String]) throws -> [SessionMessage] {
         guard !sessionIds.isEmpty else { return [] }
         let marks = Array(repeating: "?", count: sessionIds.count).joined(separator: ", ")
         return try SessionMessage.fetchAll(db, sql: """
-            \(keyedMessagesSQL) AND "conversations"."session_id" IN (\(marks))
+            \(keyedMessagesSQL) AND "messages"."session_id" IN (\(marks))
                 AND json_valid("messages"."card") AND json_extract("messages"."card", '$.kind') IN ('question', 'plan')
             ORDER BY "messages"."created_at" ASC, "messages"."id" ASC
             """, arguments: StatementArguments(sessionIds))
     }
 
-    /// One session's own messages (its conversation's), oldest first.
+    /// One session's own messages, oldest first.
     public static func messages(db: Database, sessionId: String) throws -> [SessionMessage] {
         try SessionMessage.fetchAll(db, sql: """
-            \(keyedMessagesSQL) AND "conversations"."session_id" = ?
+            \(keyedMessagesSQL) AND "messages"."session_id" = ?
             ORDER BY "messages"."created_at" ASC, "messages"."id" ASC
             """, arguments: [sessionId])
     }

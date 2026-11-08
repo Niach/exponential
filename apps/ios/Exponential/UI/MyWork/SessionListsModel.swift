@@ -4,8 +4,8 @@ import Foundation
 import GRDB
 
 /// EXP-1291: the session tree as the phone's LISTS read it — ONE observation
-/// of the synced `sessions` / `session_issues` / `conversations` (their
-/// digests, never `messages`) / `pull_requests` rows, owned by
+/// of the synced `sessions` (their digests, never `messages`) /
+/// `session_issues` / `pull_requests` rows, owned by
 /// the navigator for its whole lifetime and handed down through the
 /// environment, so the Threads tab, its dot, Home's Running band and the
 /// board switcher's per-team dots never disagree. Every rule is ExpCore's
@@ -268,19 +268,14 @@ final class SessionListsModel {
             ? []
             : try IssueEntity.filter(issueIds.contains(Column("id"))).fetchAll(db)
         // Thread e4a04d22 (chats.json LIST DATA): the lists never read a
-        // transcript — each conversation's server-kept digest, turned back
-        // into messages (`Chats.digestMessages`, `digestCases`), stands in
-        // for them, so this observation tracks `conversations`, never
-        // `messages`.
-        let rootIds = Dictionary(sessions.map { ($0.id, $0.rootId) }, uniquingKeysWith: { first, _ in first })
-        let digestMessages = try Row.fetchAll(db, sql: """
-            SELECT "session_id", "digest" FROM "conversations"
-            WHERE "session_id" IS NOT NULL AND "session_id" <> ''
-            """)
-            .flatMap { row -> [TreeMessage] in
-                let sessionId: String = row["session_id"]
-                return Chats.digestMessages(sessionId: sessionId, digest: row["digest"] as String?, rootId: rootIds[sessionId])
-            }
+        // transcript — each session's server-kept digest (#EXP-1730:
+        // `sessions.digest`), turned back into messages
+        // (`Chats.digestMessages`, `digestCases`), stands in for them, so
+        // this observation never tracks `messages`.
+        let digestMessages = sessions.flatMap { session -> [TreeMessage] in
+            guard let digest = session.digest else { return [] }
+            return Chats.digestMessages(sessionId: session.id, digest: digest, rootId: session.rootId)
+        }
         return Rows(
             sessions: sessions.map { TreeSession(sessionRow: $0) },
             sessionIssues: links.map { TreeSessionIssue(sessionIssueRow: $0) },
