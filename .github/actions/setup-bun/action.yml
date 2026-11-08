@@ -2,8 +2,8 @@ name: setup-bun
 description: >-
   Bun on the runner, outage-proof: oven-sh/setup-bun first; when its download
   from github.com fails (the 2026-11-08 release-download 504s blocked every
-  PR's gate), the same Bun from npm's registry (the `bun` package carries the
-  platform binary), into the job's temp dir and onto PATH.
+  PR's gate), the same Bun from npm's registry (`@oven/bun-<platform>`, sha512-checked
+  against the registry, fetched with curl: no npm needed), onto PATH.
 
 inputs:
   bun-version:
@@ -24,15 +24,25 @@ runs:
         VERSION: ${{ inputs.bun-version }}
       run: |
         set -euo pipefail
-        echo "::warning::setup-bun's download failed; installing bun@${VERSION:-latest} from npm"
-        prefix="$RUNNER_TEMP/bun-npm"
-        for attempt in 1 2 3; do
-          npm install --global --no-audit --no-fund --prefix "$prefix" "bun@${VERSION:-latest}" && break
-          [ "$attempt" = 3 ] && exit 1
-          sleep $((attempt * 10))
-        done
-        # POSIX npm links into <prefix>/bin, Windows into <prefix> itself.
-        echo "$prefix/bin" >> "$GITHUB_PATH"
-        echo "$prefix" >> "$GITHUB_PATH"
+        # Bun's platform package straight from npm's registry, checked against
+        # the registry's sha512: no npm needed (self-hosted runners lack it).
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) pkg=linux-x64 ;; Linux-ARM64) pkg=linux-aarch64 ;;
+          macOS-X64) pkg=darwin-x64 ;; macOS-ARM64) pkg=darwin-aarch64 ;;
+          Windows-X64) pkg=windows-x64 ;; Windows-ARM64) pkg=windows-aarch64 ;;
+          *) echo "::error::no Bun package for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+        meta="$(curl -fsSL --retry 5 --retry-all-errors "https://registry.npmjs.org/@oven/bun-$pkg/${VERSION:-latest}")"
+        read -r tarball integrity < <(node -e 'const d=JSON.parse(process.argv[1]);console.log(d.dist.tarball,d.dist.integrity)' "$meta" 2>/dev/null ||
+          python3 -c 'import json,sys;d=json.loads(sys.argv[1])["dist"];print(d["tarball"],d["integrity"])' "$meta")
+        echo "::warning::setup-bun's download failed; installing ${tarball##*/} from npm's registry"
+        dir="$RUNNER_TEMP/bun-npm"
+        mkdir -p "$dir"
+        curl -fsSL --retry 5 --retry-all-errors -o "$dir/bun.tgz" "$tarball"
+        got="sha512-$(openssl dgst -sha512 -binary "$dir/bun.tgz" | openssl base64 -A)"
+        [ "$got" = "$integrity" ] || { echo "::error::${tarball##*/}: integrity $got, registry says $integrity"; exit 1; }
+        tar xzf "$dir/bun.tgz" -C "$dir"
+        chmod +x "$dir"/package/bin/bun* || true
+        echo "$dir/package/bin" >> "$GITHUB_PATH"
     - shell: bash
       run: bun --version
