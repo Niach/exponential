@@ -85,6 +85,7 @@ mod tests {
                 window: &mut Window,
                 cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Demo").entered();
                 render(window, cx)
             }
         }

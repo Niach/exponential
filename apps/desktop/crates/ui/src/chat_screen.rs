@@ -2516,6 +2516,7 @@ impl Focusable for ChatScreenView {
 
 impl Render for ChatScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ChatScreenView").entered();
         self.sync_team(window, cx);
         self.ensure_launch(window, cx);
         self.sync_placeholder(window, cx);

@@ -411,6 +411,7 @@ fn widget_snippet(public_key: &str, origin: &str) -> String {
 
 impl Render for WidgetPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "WidgetPane").entered();
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 gpui_component::Icon::new(crate::icons::registry::UI_TEAM),

@@ -681,6 +681,7 @@ impl McpServerDialogView {
 
 impl Render for McpServerDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "McpServerDialogView").entered();
         let draft = self.draft(cx);
         let http = draft.is_http();
         let validation = validate(&draft);

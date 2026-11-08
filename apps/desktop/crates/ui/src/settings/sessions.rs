@@ -107,6 +107,7 @@ impl SessionsPane {
 
 impl Render for SessionsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SessionsPane").entered();
         self.ensure_loaded(cx);
         let current = self.days;
         let value_color = cx.theme().foreground.opacity(0.7);

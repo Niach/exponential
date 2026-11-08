@@ -508,6 +508,7 @@ impl StoragePane {
 
 impl Render for StoragePane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "StoragePane").entered();
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 gpui_component::Icon::new(crate::icons::registry::UI_TEAM),

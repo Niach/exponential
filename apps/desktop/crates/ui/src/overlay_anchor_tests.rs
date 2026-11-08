@@ -47,6 +47,7 @@ fn menu_row() -> PopupMenuItem {
 
 impl Render for Scene {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Scene").entered();
         let row: gpui::AnyElement = match self.kind {
             Kind::ContextMenu => div()
                 .id("source")

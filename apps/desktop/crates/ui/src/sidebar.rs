@@ -891,6 +891,7 @@ impl RailView {
 
 impl Render for RailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "RailView").entered();
         // Keep the git lifecycle live regardless of which tool window is
         // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
@@ -1121,6 +1122,7 @@ impl ListPanel {
 
 impl Render for ListPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ListPanel").entered();
         let body = match resolved_screen(&self.nav, cx) {
             Some(Screen::BoardIssues { board_id }) => {
                 let board_id = (!board_id.is_empty())

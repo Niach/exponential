@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-desktop-diagnostics",
+    date: "2026-11-09",
+    title: "Send diagnostics, your choice",
+    summary: "The desktop app and the CLI send crash and performance diagnostics through our own servers, with your user id only; turn it off in Settings → Account → Privacy.",
+    body: r#"- **Diagnostics**: the desktop app and the `exponential` CLI send crash reports and performance traces, so we can find what makes the app slow. They only ever go through our own servers, carry your user id and nothing else, and are deleted after 30 days.
+- **Send diagnostics**: switch it off in Settings → Account → Privacy; for the CLI, set `EXP_DIAGNOSTICS=0` or run `exponential diagnostics off`."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_232: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-install-claude-code-in-the-app",
     date: "2026-11-08",
     title: "Install Claude Code from the app",
@@ -3131,6 +3142,7 @@ struct WhatsNewView;
 
 impl Render for WhatsNewView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "WhatsNewView").entered();
         v_flex()
             .w_full()
             .gap_1()

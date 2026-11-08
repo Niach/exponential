@@ -1086,6 +1086,7 @@ impl SurfaceView {
 
     /// One layout pass: states in, layout, caches refreshed.
     pub(crate) fn pass(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let _span = tracing::trace_span!("eui.layout").entered();
         self.pass_lifted = self.layers_lifted();
         let visible_h = if self.pass_lifted {
             self.window_size.1
@@ -1882,6 +1883,7 @@ impl Element for SurfaceElement {
 
 impl Render for SurfaceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("eui.render").entered();
         SurfaceElement { view: cx.entity() }
     }
 }

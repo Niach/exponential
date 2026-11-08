@@ -665,6 +665,7 @@ impl NotificationsPrefsPane {
 
 impl Render for NotificationsPrefsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "NotificationsPrefsPane").entered();
         self.ensure_loaded(cx);
         div().w_full().min_w_0().child(self.view.clone())
     }

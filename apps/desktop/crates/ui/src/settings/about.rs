@@ -217,6 +217,7 @@ impl AboutPane {
 
 impl Render for AboutPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AboutPane").entered();
         v_flex()
             .gap_6()
             .child(self.render_about(cx))

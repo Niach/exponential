@@ -225,6 +225,7 @@ struct NeverUndocked;
 
 impl Render for NeverUndocked {
     fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "NeverUndocked").entered();
         div()
     }
 }
@@ -2575,6 +2576,7 @@ impl ScreensPanel {
 
 impl Render for ScreensPanel {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ScreensPanel").entered();
         let screen = resolved_screen(&self.nav, cx);
 
         self.fire_dev_dialog(window, cx);
@@ -3109,6 +3111,7 @@ mod tests {
                 _window: &mut Window,
                 _cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "PanelProbe").entered();
                 // A settings list's real shapes (the retired Actions page's
                 // rows, machines.rs), with production-like text. The action rows
                 // mirror `render_action_row` (EXP-618): full-width, a
@@ -3269,6 +3272,7 @@ mod tests {
                 _window: &mut Window,
                 _cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Split").entered();
                 use gpui_component::resizable::{h_resizable, resizable_panel};
                 div().size_full().child(
                     h_resizable("center-split")

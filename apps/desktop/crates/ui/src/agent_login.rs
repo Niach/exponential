@@ -1731,6 +1731,7 @@ fn device_logins(device_id: &str, agent: CodingAgent, cx: &App) -> Vec<coding::A
 
 impl Render for LoginDialogView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "LoginDialogView").entered();
         let theme = cx.theme();
         let muted = theme.muted_foreground;
         let foreground = theme.foreground;
@@ -1947,6 +1948,7 @@ impl AddAccountDialogView {
 
 impl Render for AddAccountDialogView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AddAccountDialogView").entered();
         let muted = cx.theme().muted_foreground;
         // EXP-909: the machine is the one the row belongs to. It dropping off
         // the list mid-dialog (offline, the daemon stopped) is the only empty

@@ -283,6 +283,7 @@ impl SidebarRegion {
 
 impl Render for SidebarRegion {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SidebarRegion").entered();
         uicore_gpui::inline::region(&self.view)
     }
 }
@@ -563,6 +564,7 @@ fn with_panel(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut crate::scre
 
 impl Render for TabBarRegion {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "TabBarRegion").entered();
         self.refresh(window, cx);
         let region = cx.weak_entity();
         let menu_region = region.clone();
@@ -789,6 +791,7 @@ impl HeaderRegion {
 
 impl Render for HeaderRegion {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "HeaderRegion").entered();
         div().w_full().child(self.view.clone())
     }
 }

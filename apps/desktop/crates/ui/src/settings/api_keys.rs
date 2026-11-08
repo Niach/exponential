@@ -651,6 +651,7 @@ impl ApiKeysPane {
 
 impl Render for ApiKeysPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ApiKeysPane").entered();
         self.ensure_loaded(cx);
 
         // EXP-720: the header pair are Sm pills like every other pane's

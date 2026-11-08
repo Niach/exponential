@@ -319,6 +319,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
         ctx.account.email,
         ctx.account.instance_url
     );
+    // #LOGS-2: the server's monitoring config (cached for the next start).
+    observability::connect(&ctx.account.instance_url, Some(&ctx.account.user_id));
 
     // EXP-746: ONE registry decision for every end this process issues.
     // Installed before any session can launch (first caller wins,

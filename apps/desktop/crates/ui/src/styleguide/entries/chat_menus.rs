@@ -58,6 +58,7 @@ impl MenusDemo {
 
 impl Render for MenusDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MenusDemo").entered();
         let muted = cx.theme().muted_foreground;
         div().flex().flex_wrap().items_start().gap_8().children(self.menus.iter().map(|(caption, menu)| {
             div()
