@@ -46,6 +46,8 @@ pub struct ChatInput {
     pub draft: String,
     pub sending: bool,
     pub busy: bool,
+    /// The host's composer has the `/` menu (the IDE); eDE until it does not.
+    pub slash_commands: bool,
     pub rows: Vec<ChatRowInput>,
 }
 
@@ -221,7 +223,13 @@ pub fn chat_view(input: &ChatInput) -> ChatView {
         empty: rows.is_empty(),
         rows,
         composer: ChatComposer {
-            placeholder: copy(if home { "homePlaceholder" } else { "placeholder" }),
+            placeholder: if home {
+                copy("homePlaceholder")
+            } else if input.slash_commands {
+                copy("placeholder")
+            } else {
+                copy("messagePlaceholder").replace("{name}", &input.title)
+            },
             can_send: !input.draft.trim().is_empty() && !input.sending && (!home || picked.is_some()),
             busy: input.busy,
         },

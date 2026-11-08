@@ -33,6 +33,8 @@ export interface ChatInput {
   draft: string
   sending: boolean
   busy: boolean
+  /** The host's composer has the `/` menu (the IDE); eDE until it does not. */
+  slashCommands: boolean
   rows: ChatRowInput[]
 }
 
@@ -138,7 +140,7 @@ export function chatView(input: ChatInput): ChatView {
     rows,
     empty: rows.length === 0,
     composer: {
-      placeholder: home ? COPY.homePlaceholder : COPY.placeholder,
+      placeholder: home ? COPY.homePlaceholder : input.slashCommands ? COPY.placeholder : COPY.messagePlaceholder.replace(`{name}`, input.title),
       canSend: input.draft.trim() !== `` && !input.sending && (!home || picked !== null),
       busy: input.busy,
     },
