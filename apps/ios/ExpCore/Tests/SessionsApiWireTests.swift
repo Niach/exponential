@@ -225,6 +225,26 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertTrue(cleared["agentId"] is NSNull)
     }
 
+    // #EXP-1735 `agents.setLeadAssistant`: the team and the member, an
+    // explicit null clearing it; `agents.lead` answers a member or null.
+    func testSetLeadAssistantSendsAnExplicitNull() throws {
+        let set = try json(SetLeadAssistantInput(teamId: "t-1", userId: "u-1"))
+        XCTAssertEqual(set.keys.sorted(), ["teamId", "userId"])
+        XCTAssertEqual(set["userId"] as? String, "u-1")
+        let cleared = try json(SetLeadAssistantInput(teamId: "t-1", userId: nil))
+        XCTAssertEqual(cleared.keys.sorted(), ["teamId", "userId"])
+        XCTAssertTrue(cleared["userId"] is NSNull)
+    }
+
+    func testLeadDecodesAMemberOrNull() throws {
+        let some = try JSONDecoder().decode(
+            TeamLeadResult.self, from: Data(#"{"lead":{"agentId":"ag-1","userId":"u-1"}}"#.utf8)
+        )
+        XCTAssertEqual(some.lead, TeamLead(agentId: "ag-1", userId: "u-1"))
+        let none = try JSONDecoder().decode(TeamLeadResult.self, from: Data(#"{"lead":null}"#.utf8))
+        XCTAssertNil(none.lead)
+    }
+
     // `agents.update`: omit keeps, an explicit null clears (`account` /
     // `model` only), and an empty trigger array still travels.
     func testUpdateAgentOmitVersusNull() throws {
