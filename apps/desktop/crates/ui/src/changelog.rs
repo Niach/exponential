@@ -46,6 +46,12 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-install-claude-code-in-the-app",
+    date: "2026-11-08",
+    title: "Install Claude Code from the app",
+    summary: "When Claude Code is missing, Install in the desktop app runs Anthropic's own installer for you; then sign in as usual.",
+    body: r#"- **Install Claude Code from the app**: on a device without Claude Code, Install in the device checklist runs Anthropic's official installer right there, instead of opening the docs. Sign in next, like always: Exponential never touches your login.
+- **Update installs it too**: asking a device without Claude Code to update installs it the same way."#,
     id: "2026-11-08-search-by-creator",
     date: "2026-11-08",
     title: "Search by creator, boards in one list",
