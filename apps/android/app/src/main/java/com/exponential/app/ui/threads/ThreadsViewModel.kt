@@ -109,26 +109,24 @@ class ThreadsViewModel @Inject constructor(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { it.map(SessionTree::issue) },
-        // #EXP-1380 / thread e4a04d22: the ACTIVE team's conversation
-        // DIGESTS, never its messages — every list row, preview, unread count
-        // and bubble ring reads the server-kept digest turned back into
-        // messages (`Chats.digestMessages`, chats.json `digestCases`), so no
-        // transcript loads here and a new message re-reads one row.
+        // #EXP-1380 / thread e4a04d22: the ACTIVE team's session DIGESTS
+        // (#EXP-1730: `sessions.digest`), never its messages — every list
+        // row, preview, unread count and bubble ring reads the server-kept
+        // digest turned back into messages (`Chats.digestMessages`,
+        // chats.json `digestCases`), so no transcript loads here and a new
+        // message re-reads one row.
         // #EXP-1714: plus the personal team's (the viewer's Assistant chat):
-        // only its owner syncs it, so any conversation outside the synced teams is theirs.
+        // only its owner syncs it, so any session outside the synced teams is theirs.
         activeTeam.flatMapLatest { team ->
             if (team == null) {
-                dbFlow.scopedQuery(emptyList()) { it.conversationDao().observeAll() }
+                sessionRows
             } else {
-                combine(dbFlow.scopedQuery(emptyList()) { it.conversationDao().observeAll() }, syncedTeamIds) { rows, ids ->
+                combine(sessionRows, syncedTeamIds) { rows, ids ->
                     rows.filter { it.teamId == team || (ids.isNotEmpty() && it.teamId !in ids) }
                 }
             }
         }.map { rows ->
-            rows.flatMap { row ->
-                val session = row.sessionId ?: return@flatMap emptyList()
-                Chats.digestMessages(session, Chats.parseDigest(row.digest))
-            }
+            rows.flatMap { row -> Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
         },
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).
         dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
