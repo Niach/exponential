@@ -5,7 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.20.0 (2026-11-08)
+
 - FEED-200: `swipe_lock(dx, dy)`, `swipe_offset(index, count, offset, width, rtl)`, `swipe_settle(index, count, offset, velocity, width, rtl)`, `swipe_blocks(component, direction?, overflow_x?)`: the pager's pure rules for the Swift and Kotlin painters (and FEED-201's app-screen pager).
+
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).

@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.20.0 (2026-11-08)
+
 - Chart `valueFormat` (ticks, tooltip, value labels, summary) and `rows` + `categoryField` + series `field` (#FEED-205).
 - The icon list follows the app (#EXP-1733): `nav-threads` is now `nav-chats`, `thread-results` is now `chat-results`.
 - Popover, Menu (press and context) and Tooltip close once their anchor scrolls, moves or leaves the tree (#EXP-1739, `watchAnchor`).

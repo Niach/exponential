@@ -5,7 +5,7 @@ description: "Build or change an Exponential app (Apps): the package format (for
 
 # Exponential apps
 
-> Generated from the Apps docs (genUI 0.19.1) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from the Apps docs (genUI 0.20.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
 An Exponential app is **data, never code**: a declarative package (manifest, genUI templates, bindings, record kinds, a function allowlist, `exposes`, `upstreams`) stored per team, versioned in the DB, and painted by the same genUI renderers on web, desktop, iOS and Android, as well as Spezl and eDE.
 

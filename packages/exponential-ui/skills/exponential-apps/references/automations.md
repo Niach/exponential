@@ -1,6 +1,6 @@
 # Automations: schedule, record, event and webhook triggers; agent hand-off
 
-> Generated from docs/spec/apps.md §7.1-§7.3 (genUI 0.19.1) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from docs/spec/apps.md §7.1-§7.3 (genUI 0.20.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ### 7.1 Triggers
 
