@@ -4,18 +4,15 @@
 //! (see [`crate::protected`]).
 
 use smithay::{
-    delegate_input_method_manager,
+    backend::input::{Event, InputEvent, KeyboardKeyEvent},
     desktop::{PopupKind, PopupManager},
-    reexports::{
-        wayland_protocols::wp::text_input::zv3::server::zwp_text_input_v3::{self, ZwpTextInputV3},
-        wayland_protocols_misc::zwp_virtual_keyboard_v1::server::zwp_virtual_keyboard_v1::{self, ZwpVirtualKeyboardV1},
-        wayland_server::{protocol::wl_surface::WlSurface, Client, DataInit, Dispatch, DisplayHandle},
-    },
-    utils::{Logical, Rectangle},
+    input::keyboard::XkbConfig,
+    reexports::wayland_server::protocol::wl_surface::WlSurface,
+    utils::{Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
-        input_method::{InputMethodHandler, PopupSurface},
-        text_input::{TextInputManagerState, TextInputUserData},
-        virtual_keyboard::{VirtualKeyboardManagerState, VirtualKeyboardUserData},
+        input_method::{InputMethodHandler, InputMethodSeat, PopupSurface},
+        text_input::{TextInputActivation, TextInputSeat},
+        virtual_keyboard::{VirtualKeyboardBackend, VirtualKeyboardDevice, VirtualKeyboardHandler, VirtualKeyboardSpecialEvent},
     },
 };
 
@@ -40,64 +37,92 @@ impl InputMethodHandler for Ede {
         self.window_for_surface(parent).and_then(|w| self.space.element_geometry(&w)).unwrap_or_default()
     }
 }
-delegate_input_method_manager!(Ede);
 
 // text-input-v3 through smithay, except that a protected surface (or the
 // lock screen) never turns the input method on: the IME neither sees its
-// text nor commits into it.
-impl Dispatch<ZwpTextInputV3, TextInputUserData> for Ede {
-    fn request(
-        state: &mut Self,
-        client: &Client,
-        resource: &ZwpTextInputV3,
-        request: zwp_text_input_v3::Request,
-        data: &TextInputUserData,
-        dh: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
-    ) {
-        if !matches!(request, zwp_text_input_v3::Request::Destroy) && state.keyboard_focus_protected() {
+// text nor commits into it. smithay drops text-input requests from a client
+// whose surface is not the text-input focus, so a protected keyboard focus
+// takes that focus away (see `focus_changed`).
+impl TextInputActivation for Ede {}
+
+impl Ede {
+    pub(crate) fn keep_text_input_off_protected(&mut self, focused: Option<&WlSurface>) {
+        if !(self.is_locked() || focused.is_some_and(|s| self.is_protected_surface(s))) {
             return;
         }
-        <TextInputManagerState as Dispatch<ZwpTextInputV3, TextInputUserData, Self>>::request(state, client, resource, request, data, dh, data_init);
+        let text_input = self.seat.text_input();
+        if self.seat.input_method().has_instance() || text_input.compositor_input_method() {
+            text_input.leave();
+        }
+        text_input.set_focus(None);
     }
 
-    fn destroyed(state: &mut Self, client: smithay::reexports::wayland_server::backend::ClientId, resource: &ZwpTextInputV3, data: &TextInputUserData) {
-        <TextInputManagerState as Dispatch<ZwpTextInputV3, TextInputUserData, Self>>::destroyed(state, client, resource, data);
+    /// A real key goes under the configured keymap again after a virtual
+    /// keyboard swapped in its own.
+    pub(crate) fn restore_seat_keymap(&mut self) {
+        if self.virtual_keymap.take().is_none() {
+            return;
+        }
+        let kb = self.config.keyboard.clone();
+        let xkb = XkbConfig { layout: &kb.layout, variant: &kb.variant, options: Some(kb.options.clone()).filter(|o| !o.is_empty()), ..Default::default() };
+        if let Err(e) = self.seat.get_keyboard().unwrap().set_xkb_config(self, xkb) {
+            tracing::warn!("keyboard layout {:?} not restored: {e:?}", kb.layout);
+        }
+    }
+
+    /// The device's keycodes only mean anything under its own keymap (none =
+    /// it uses the seat's).
+    fn use_virtual_keymap(&mut self, device: &VirtualKeyboardDevice) {
+        match device.keymap() {
+            Some(keymap) if self.virtual_keymap != Some(device.source()) => {
+                let keyboard = self.seat.get_keyboard().unwrap();
+                match keyboard.set_keymap_from_keymap_file(self, keymap) {
+                    Ok(()) => self.virtual_keymap = Some(device.source()),
+                    Err(e) => tracing::warn!("virtual keyboard keymap: {e:?}"),
+                }
+            }
+            Some(_) => {}
+            None => self.restore_seat_keymap(),
+        }
     }
 }
 
-// The virtual keyboard types into whatever has focus, so its keys stop at
-// protected surfaces and the lock screen (a keymap upload still goes
-// through).
-impl Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData<Ede>> for Ede {
-    fn request(
-        state: &mut Self,
-        client: &Client,
-        resource: &ZwpVirtualKeyboardV1,
-        request: zwp_virtual_keyboard_v1::Request,
-        data: &VirtualKeyboardUserData<Ede>,
-        dh: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
-    ) {
-        let types = matches!(request, zwp_virtual_keyboard_v1::Request::Key { .. } | zwp_virtual_keyboard_v1::Request::Modifiers { .. });
-        if types && state.keyboard_focus_protected() {
-            return;
+// The virtual keyboard types straight into whatever has focus (no compositor
+// bindings, no input-method grab, not person activity), so its keys stop at
+// protected surfaces and the lock screen.
+impl VirtualKeyboardHandler for Ede {
+    fn process_virtual_keyboard_event(&mut self, event: InputEvent<VirtualKeyboardBackend>) {
+        let keyboard = self.seat.get_keyboard().unwrap();
+        match event {
+            InputEvent::Keyboard { event } => {
+                if self.keyboard_focus_protected() {
+                    return;
+                }
+                let device = event.device();
+                self.use_virtual_keymap(&device);
+                let (code, state) = (event.key_code(), event.state());
+                let Some(((), mods_changed)) = keyboard.input_intercept(device.source(), self, code, state, |_, _, _| ()) else { return };
+                keyboard.input_forward_bypassing_grab(self, code, state, SERIAL_COUNTER.next_serial(), event.time(), mods_changed);
+            }
+            InputEvent::Special(VirtualKeyboardSpecialEvent::Modifiers { device, mods_depressed, mods_latched, mods_locked, group }) => {
+                if self.keyboard_focus_protected() {
+                    return;
+                }
+                self.use_virtual_keymap(&device);
+                keyboard.with_xkb_state(self, |mut xkb| xkb.set_modifier_mask(mods_depressed, mods_latched, mods_locked, group));
+            }
+            InputEvent::Special(VirtualKeyboardSpecialEvent::KeymapChanged { device }) => {
+                if self.virtual_keymap == Some(device.source()) {
+                    self.virtual_keymap = None;
+                }
+            }
+            InputEvent::DeviceRemoved { device } => {
+                keyboard.release_source(self, device.source());
+                if self.virtual_keymap == Some(device.source()) {
+                    self.restore_seat_keymap();
+                }
+            }
+            _ => {}
         }
-        <VirtualKeyboardManagerState as Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData<Ede>, Self>>::request(
-            state, client, resource, request, data, dh, data_init,
-        );
     }
 }
-
-smithay::reexports::wayland_server::delegate_global_dispatch!(Ede: [
-    smithay::reexports::wayland_protocols::wp::text_input::zv3::server::zwp_text_input_manager_v3::ZwpTextInputManagerV3: ()
-] => TextInputManagerState);
-smithay::reexports::wayland_server::delegate_dispatch!(Ede: [
-    smithay::reexports::wayland_protocols::wp::text_input::zv3::server::zwp_text_input_manager_v3::ZwpTextInputManagerV3: ()
-] => TextInputManagerState);
-smithay::reexports::wayland_server::delegate_global_dispatch!(Ede: [
-    smithay::reexports::wayland_protocols_misc::zwp_virtual_keyboard_v1::server::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerGlobalData
-] => VirtualKeyboardManagerState);
-smithay::reexports::wayland_server::delegate_dispatch!(Ede: [
-    smithay::reexports::wayland_protocols_misc::zwp_virtual_keyboard_v1::server::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1: ()
-] => VirtualKeyboardManagerState);

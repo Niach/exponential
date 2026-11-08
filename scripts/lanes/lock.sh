@@ -1,7 +1,7 @@
 # EXP-1393: the device and heavy-build lane locks, ONE implementation.
 #
 # A lock is a directory (`mkdir` is atomic) holding an `owner` file whose
-# first word names the holder: "<owner> <epoch>". Work only after your own
+# first word names the holder: "<owner> <epoch> <pid> <host>". Work only after your own
 # take_lock returned; release only what you own. release_lock REFUSES (exit 1,
 # the lock stays) when the owner file names someone else, so one lane's
 # cleanup can never free another lane's device.
@@ -11,6 +11,12 @@
 #
 # Lane locks (lane_lock_dir): ios = the simulator, android = the emulator,
 # heavy = one heavy build or perf run at a time.
+#
+# The pid is LANE_LOCK_PID (lane.sh sets its own, alive for the whole run).
+# A waiter on the SAME host takes over a lock whose pid is gone (a session
+# ended mid-run, EXP-1393 follow-up). A lock without a pid (taken by hand
+# without LANE_LOCK_PID, or by an older lock.sh) is never taken over: set
+# LANE_LOCK_PID to a process that lives as long as you hold the lock.
 
 LANE_LOCK_STALE_SECONDS=${LANE_LOCK_STALE_SECONDS:-300}
 LANE_LOCK_POLL_SECONDS=${LANE_LOCK_POLL_SECONDS:-30}
@@ -37,7 +43,10 @@ lock_owner() {
 take_lock() {
   [ -n "${1:-}" ] && [ -n "${2:-}" ] || { echo "take_lock: usage: take_lock <dir> <owner>" >&2; return 2; }
   lock_owner_ok "$2" || return 2
-  while ! { mkdir "$1" 2>/dev/null && (set -C; echo "$2 $(date +%s)" > "$1/owner") 2>/dev/null; }; do
+  while ! { mkdir "$1" 2>/dev/null && (set -C; echo "$2 $(date +%s) ${LANE_LOCK_PID:--} $(lane_lock_host)" > "$1/owner") 2>/dev/null; }; do
+    if lock_holder_dead "$1"; then
+      lock_take_over "$1" && continue
+    fi
     if [ -d "$1" ] && [ ! -e "$1/owner" ]; then
       # GNU stat first: its `-f` is filesystem mode, not BSD's format flag.
       # No mtime = not stale: a failed stat never reclaims.
@@ -49,6 +58,39 @@ take_lock() {
     echo "take_lock: $1 busy ($(lock_owner "$1")), waiting" >&2
     sleep "$LANE_LOCK_POLL_SECONDS"
   done
+}
+
+lane_lock_host() {
+  hostname 2>/dev/null | cut -d. -f1
+}
+
+# True when <dir>'s owner file names a pid on this host and no such process
+# exists. No pid, another host or an unreadable file = alive (never taken).
+lock_holder_dead() {
+  # cut, not `set -- $line`: zsh does not word-split an unquoted variable.
+  [ -r "$1/owner" ] || return 1
+  _lane_pid=$(cut -d' ' -f3 "$1/owner" 2>/dev/null)
+  _lane_host=$(cut -d' ' -f4 "$1/owner" 2>/dev/null)
+  case "$_lane_pid" in '' | *[!0-9]*) return 1 ;; esac
+  [ -n "$_lane_host" ] && [ "$_lane_host" = "$(lane_lock_host)" ] || return 1
+  ! ps -p "$_lane_pid" >/dev/null 2>&1
+}
+
+# Removes a dead holder's <dir> under a short takeover mutex, re-checking
+# inside it so two waiters never both remove (one could remove the other's
+# fresh lock). A mutex older than 60 s (its taker died inside) is reclaimed.
+lock_take_over() {
+  _lane_seen=$(cat "$1/owner" 2>/dev/null) || return 1
+  if ! mkdir "$1.takeover" 2>/dev/null; then
+    mtime=$(stat -c %Y "$1.takeover" 2>/dev/null || stat -f %m "$1.takeover" 2>/dev/null) || mtime=
+    [ -n "$mtime" ] && [ $(( $(date +%s) - mtime )) -gt 60 ] && rmdir "$1.takeover" 2>/dev/null
+    return 1
+  fi
+  if [ "$(cat "$1/owner" 2>/dev/null)" = "$_lane_seen" ] && lock_holder_dead "$1"; then
+    echo "take_lock: taking over $1 from '$(echo "$_lane_seen" | cut -d' ' -f1)' (pid $(echo "$_lane_seen" | cut -d' ' -f3) is gone)" >&2
+    rm -rf "$1"
+  fi
+  rmdir "$1.takeover"
 }
 
 # An owner is one word: lock_owner reads the first word back.
