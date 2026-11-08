@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-ios-crash-reports",
+    date: "2026-11-09",
+    title: "Crash reports from iPhone",
+    summary: "The iPhone app sends crash, hang and performance diagnostics only through our own servers; turn it off with Send diagnostics in Settings → Account → Privacy.",
+    body: r#"- **Crash and hang reports**: the iPhone app reports crashes, freezes and slow screens so we can fix them, sent only through our own servers and deleted after 30 days.
+- **Only your user id**: reports carry no email, name or IP, and passwords, tokens and cookies are removed before anything leaves your phone.
+- **Send diagnostics**: on by default, turn it off in Settings → Account → Privacy."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_232: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-install-claude-code-in-the-app",
     date: "2026-11-08",
     title: "Install Claude Code from the app",
