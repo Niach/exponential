@@ -65,6 +65,7 @@ import { db } from "@/db/connection"
 import { answeredMessageFiles, forwardMessageFiles } from "@/lib/sessions/forward-attachments"
 import {
   agents,
+  apps,
   prompts,
   skills,
   attachments,
@@ -4389,7 +4390,14 @@ export function registerExponentialTools(
         const agent = await loadAgentForUser(user.id, id)
         if (!access.full) assertTeamFullyGranted(access, agent.teamId)
         const { triggerState: _state, ...rest } = agent
-        return ok(rest)
+        // #EXP-1730: its root session (phase A: your conversation with it)
+        // and the app it builds, if any.
+        const [[root], [app]] = await Promise.all([
+          db.select({ id: sessions.id }).from(sessions)
+            .where(and(eq(sessions.agentId, id), eq(sessions.userId, user.id), isNull(sessions.parentId))).limit(1),
+          db.select({ slug: apps.slug }).from(apps).where(and(eq(apps.agentId, id), isNull(apps.deletedAt))).limit(1),
+        ])
+        return ok({ ...rest, rootSessionId: root?.id ?? null, appSlug: app?.slug ?? null })
       } catch (e) {
         return err(e)
       }
