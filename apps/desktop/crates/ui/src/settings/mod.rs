@@ -48,7 +48,7 @@ pub(crate) mod app_mcp;
 mod new_agent;
 mod agents;
 mod agents_index;
-mod api_keys;
+pub(crate) mod api_keys;
 pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
 // and the "Resend invite" window that hosts a prefilled copy of it.
