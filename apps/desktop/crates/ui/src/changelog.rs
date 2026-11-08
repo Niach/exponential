@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-exponential-desktop-diagnostics",
+    date: "2026-11-09",
+    title: "Exponential Desktop diagnostics, through our servers",
+    summary: "Exponential Desktop sends crash and performance diagnostics only through Exponential's own servers, with your user id only; turn it off with Send diagnostics in Settings → About.",
+    body: r#"- **Diagnostics through our servers**: Exponential Desktop reports crashes, errors and slow frames only through your Exponential server, never straight to a third party. Reports carry your user id and nothing else about you (no email, name or IP address), and are deleted after 30 days.
+- **Send diagnostics**: Settings → About has a switch to turn it off, or start with `EXP_DIAGNOSTICS=0`.
+- **Settings stick again**: settings like the keyboard layout are no longer ignored after you pick a theme."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_232: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-install-claude-code-in-the-app",
     date: "2026-11-08",
     title: "Install Claude Code from the app",
