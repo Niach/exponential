@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -147,7 +147,7 @@ jobs:
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -209,7 +209,7 @@ jobs:
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -305,7 +305,7 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-gpui.json
         run: cargo test --locked -p eui-gpui
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - name: Size (host facade + cargo bloat, VAPP-106; a budget exists per host OS)
         if: ${{ !inputs.conformance_only }}
         run: |
@@ -373,7 +373,7 @@ jobs:
           # Conformance only: `swift test` links the macOS slice alone (one LTO build, not five).
           EXPONENTIAL_UI_APPLE_TARGETS: ${{ inputs.conformance_only && 'aarch64-apple-darwin' || '' }}
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - name: Size gate (xcframework slices, VAPP-106)
         if: ${{ !inputs.conformance_only }}
         # EXP-1371: the MacBook and GitHub's macos-26 link different sizes;
@@ -472,7 +472,7 @@ jobs:
           xcodebuild build -project KitchenSink.xcodeproj -scheme KitchenSink \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" \
             -derivedDataPath "$RUNNER_TEMP/dd-sink" CODE_SIGNING_ALLOWED=NO | tail -20
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - name: Bench (SwiftUI, iPhone Simulator, release)
         env:
           EXPONENTIAL_UI_BENCH_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-macos-26' || 'macbook' }}
@@ -526,7 +526,7 @@ jobs:
           ABIS: x86_64
           SKIP_BINDINGS: '1'
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - name: Size gate (the x86_64 .so, VAPP-106; the arm ABIs gate in release-eui.yml)
         run: bun packages/exponential-ui/release/size.ts android --check
       - name: Gradle cache
@@ -549,7 +549,7 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           ./gradlew :ui-compose:assembleDebugAndroidTest --no-daemon
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - name: Instrumented tests + bench (emulator, API 34)
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -626,7 +626,7 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           ./gradlew :ui-compose:testDebugUnitTest :ui-compose-primitives:testDebugUnitTest --no-daemon
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - name: Guide (Compose) from a fresh project
         if: ${{ !inputs.conformance_only }}
         run: bun packages/exponential-ui/guides/check.ts compose
@@ -679,7 +679,7 @@ jobs:
             echo "::error::$job ended $result"; exit 1
           done
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
@@ -704,7 +704,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
