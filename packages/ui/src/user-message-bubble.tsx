@@ -1,7 +1,17 @@
 import type { ReactNode } from "react"
+import type { TranscriptRowLayout, TranscriptSender } from "@exp/domain-contract/transcript-grouping"
+import { TRANSCRIPT_COPY, TRANSCRIPT_LAYOUT } from "@exp/domain-contract/transcript-grouping"
 import { AttachmentFileLink } from "./attachment-thumb"
 import { cn } from "./cn"
+import { conceptIcon } from "./icons.generated"
+import { UserAvatar, type UserAvatarAgent, type UserAvatarUser } from "./user-avatar"
 
+// #EXP-1736 (transcript-grouping.json): THE message bubble ×4, every chat a
+// group chat. `side="out"` = the viewer's own (right, no avatar, no name);
+// `side="in"` = anyone else's, its sender's name on the group's first bubble
+// (a cross-session sender's ends in `›` and the whole bubble opens that
+// session). `TranscriptRow` frames a row: the sender's avatar column, the
+// gap above it. Before EXP-1736:
 // EXP-1245: the run OWNER's own message in the Run face's chat of turns:
 // right-aligned, at most 70% of the column, the neutral glass bubble the
 // transcript's human turn wears, an optional image thumb under the text and
@@ -33,69 +43,124 @@ export function userMessageCaption(input: {
   return parts.join(` · `)
 }
 
-export function UserMessageBubble({
+const SessionIcon = conceptIcon(`coding-assistant`)
+
+/** The bubble's width cap: phones `maxWidth.phone`, md+ `maxWidth.wide`
+ *  (Tailwind needs the literal classes). */
+const BUBBLE_WIDTH = `max-w-[78%] md:max-w-[62%]`
+
+export function MessageBubble({
+  side = `out`,
   text,
   renderText,
+  children,
   imageSrc,
   files,
+  author,
+  onPress,
+  time,
   caption,
   action,
-  time,
-  variant = `transcript`,
+  variant = `chat`,
   className,
 }: {
-  /** Chat 58cb32df (chats.json TRANSCRIPT): `chat` = the phones' chat
-   *  bubble, at most 80% of the column with its `time` bottom-right inside. */
-  variant?: `transcript` | `chat`
-  /** The `chat` bubble's `HH:mm`. */
-  time?: string | null
-  text: string
+  /** `out` = the viewer's own (right), `in` = anyone else's (left). */
+  side?: `in` | `out`
+  text?: string
   /** The app's text renderer (links, pills); plain pre-wrapped prose without. */
   renderText?: (text: string) => ReactNode
+  /** Rich content in place of `text` (the session feed's folded prose). */
+  children?: ReactNode
   /** The first image the message carried, drawn as a thumb. */
   imageSrc?: string | null
-  /** Wave D: the files the message carried, as a comment's file
-   *  chips (glyph + name, opening the attachment). */
+  /** Wave D: the files the message carried, as file chips. */
   files?: readonly { name: string; url: string }[]
+  /** `in` only: the sender's name line (the group's first bubble). */
+  author?: string | null
+  /** `in` only: a cross-session sender: the whole bubble opens it. */
+  onPress?: () => void
+  /** The bubble's `HH:mm`, bottom-right inside. */
+  time?: string | null
+  /** Under the bubble (`queued`). */
   caption?: string | null
   /** EXP-1317: a trailing control on the caption line (a queued row's X). */
   action?: ReactNode
+  /** @deprecated #EXP-1736: one bubble everywhere; kept for old call sites. */
+  variant?: `transcript` | `chat`
   className?: string
 }) {
+  void variant
+  const out = side === `out`
+  const name = !out && author ? author : null
+  const inner = (
+    <>
+      {name ? (
+        <div data-slot="message-bubble-author" className="mb-0.5 truncate text-xs font-medium text-muted-foreground">
+          {name}
+        </div>
+      ) : null}
+      {children ?? (text !== undefined ? renderText ? renderText(text) : <p className="whitespace-pre-wrap">{text}</p> : null)}
+      {imageSrc ? (
+        <img
+          src={imageSrc}
+          alt=""
+          loading="lazy"
+          data-slot="user-message-thumb"
+          className="mt-2 h-20 w-auto rounded-md border border-glass-stroke-card object-cover"
+        />
+      ) : null}
+      {files && files.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {files.map((file) => (
+            <AttachmentFileLink key={file.url} href={file.url} name={file.name} />
+          ))}
+        </div>
+      ) : null}
+      {time ? (
+        <div data-slot="user-message-time" className="mt-1 text-right text-[0.6875rem] text-muted-foreground tabular-nums">
+          {time}
+        </div>
+      ) : null}
+    </>
+  )
+  const bubbleClass = cn(
+    `min-w-0 rounded-2xl border px-3 py-2 text-sm`,
+    BUBBLE_WIDTH,
+    out
+      ? `border-glass-stroke-strong bg-glass-active text-foreground/90`
+      : `border-glass-stroke-card bg-glass-card-opaque text-foreground`
+  )
   return (
     <div
-      data-testid="user-message-bubble"
-      className={cn(`flex flex-col items-end gap-1`, className)}
+      data-testid={out ? `user-message-bubble` : `chat-bubble`}
+      data-side={side}
+      className={cn(`flex w-full flex-col gap-1`, out ? `items-end` : `items-start`, className)}
     >
-      <div
-        className={cn(
-          `min-w-0 border border-glass-stroke-strong bg-glass-active text-sm text-foreground/90`,
-          variant === `chat` ? `max-w-[80%] rounded-2xl px-3.5 py-2.5` : `max-w-[70%] rounded-xl px-3 py-2`
-        )}
-      >
-        {renderText ? renderText(text) : <p className="whitespace-pre-wrap">{text}</p>}
-        {imageSrc ? (
-          <img
-            src={imageSrc}
-            alt=""
-            loading="lazy"
-            data-slot="user-message-thumb"
-            className="mt-2 h-20 w-auto rounded-md border border-glass-stroke-card object-cover"
-          />
-        ) : null}
-        {files && files.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {files.map((file) => (
-              <AttachmentFileLink key={file.url} href={file.url} name={file.name} />
-            ))}
-          </div>
-        ) : null}
-        {variant === `chat` && time ? (
-          <div data-slot="user-message-time" className="mt-1 text-right text-[0.6875rem] text-muted-foreground tabular-nums">
-            {time}
-          </div>
-        ) : null}
-      </div>
+      {!out && onPress ? (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={name ?? undefined}
+          data-slot="message-bubble-link"
+          className={cn(bubbleClass, `cursor-pointer text-left outline-none hover:border-glass-stroke-strong focus-visible:border-glass-stroke-strong`)}
+          onClick={(event) => {
+            // A link inside the text keeps its own press.
+            if ((event.target as HTMLElement).closest(`a,button`)) return
+            onPress()
+          }}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return
+            if (event.key === `Enter` || event.key === ` `) {
+              event.preventDefault()
+              onPress()
+            }
+          }}
+        >
+          {inner}
+        </div>
+      ) : (
+        <div className={bubbleClass}>{inner}</div>
+      )}
       {caption || action ? (
         <div className="flex items-center gap-1">
           {caption ? (
@@ -106,6 +171,77 @@ export function UserMessageBubble({
           {action}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** The viewer's own bubble (`MessageBubble side="out"`). */
+export function UserMessageBubble(props: Omit<Parameters<typeof MessageBubble>[0], `side` | `author` | `onPress`>) {
+  return <MessageBubble {...props} side="out" />
+}
+
+/** A sender's name line: a cross-session sender's ends in `›`. */
+export function transcriptSenderName(sender: TranscriptSender | null | undefined): string | null {
+  if (!sender) return null
+  return sender.link ? `${sender.name} ${TRANSCRIPT_COPY.linkChevron}` : sender.name
+}
+
+/** THE Avatar of a sender at its default 32: a member's initials in their
+ *  hue, an agent's mark, a session's glyph on the muted disc. */
+export function SenderAvatar({
+  sender,
+  user = null,
+  agent = null,
+}: {
+  sender: TranscriptSender
+  user?: UserAvatarUser | null
+  agent?: UserAvatarAgent | null
+}) {
+  if (sender.kind === `member`) return <UserAvatar user={user ?? { id: sender.id, name: sender.name }} size={32} />
+  if (sender.kind === `agent` && agent) return <UserAvatar user={null} agent={agent} size={32} />
+  return (
+    <span
+      data-slot="session-avatar"
+      className="relative flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+    >
+      <SessionIcon className="size-4" />
+    </span>
+  )
+}
+
+/** One transcript row: the gap above it, then `own` right, `full` across,
+ *  `other` under its sender's avatar column (the avatar on the group's
+ *  first row, top-aligned; the same space below it). */
+export function TranscriptRow({
+  layout,
+  avatar,
+  children,
+  className,
+}: {
+  layout: Pick<TranscriptRowLayout, `side` | `avatar` | `gap`> | null | undefined
+  avatar?: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  const style = layout && layout.gap > 0 ? { paddingTop: layout.gap } : undefined
+  if (!layout || layout.side !== `other`) {
+    return (
+      <div data-slot="transcript-row" data-side={layout?.side ?? `full`} className={cn(`flex min-w-0 flex-col`, className)} style={style}>
+        {children}
+      </div>
+    )
+  }
+  return (
+    <div
+      data-slot="transcript-row"
+      data-side="other"
+      className={cn(`flex min-w-0 items-start`, className)}
+      style={{ ...style, gap: TRANSCRIPT_LAYOUT.avatarGap }}
+    >
+      <div className="flex size-8 shrink-0 items-start" aria-hidden={layout.avatar ? undefined : true}>
+        {layout.avatar ? avatar : null}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col items-start">{children}</div>
     </div>
   )
 }

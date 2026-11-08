@@ -365,7 +365,7 @@ const TRANSCRIPT_ROWS: SessionChatRow[] = [
     type: `message`,
     id: `m3`,
     author: `user`,
-    authorId: `u-dana`,
+    authorId: `u-alex`,
     body: `Anything new overnight?`,
     queued: false,
     authorSessionId: null,
@@ -381,10 +381,33 @@ const TRANSCRIPT_ROWS: SessionChatRow[] = [
     authorSessionId: null,
     xref: null,
   },
+  {
+    type: `message`,
+    id: `m5`,
+    author: `agent`,
+    authorId: null,
+    body: `Started a session to fix it.`,
+    queued: false,
+    authorSessionId: null,
+    xref: null,
+  },
+  {
+    type: `report`,
+    id: `x1`,
+    sessionId: `c-fix`,
+    text: `Report from Fix the sign-in redirect`,
+    summary: `Done: the redirect keeps the return URL now. PR #412 is open, checks are green.`,
+    xref: { kind: `report`, sessionId: `c-fix`, name: `Fix the sign-in redirect`, agentId: null },
+  },
   { type: `divider`, id: `d2`, kind: `new`, at: `2026-10-24T09:30:00` },
 ]
 
-const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m4: `09:03` }
+const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m4: `09:03`, m5: `09:03` }
+
+/** #EXP-1736: the specimens' chat (a plain session) and its people. */
+const SPECIMEN_CHAT = { sessionId: `r`, title: `Reduce cold start`, agentId: null }
+const SPECIMEN_VIEWER = `u-alex`
+const specimenMember = (id: string) => (id === `u-dana` ? { id, name: `Dana Reyes` } : null)
 
 function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
   return (
@@ -393,8 +416,9 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
       layout={layout}
       renderText={paragraph}
       attachmentSrc={() => ``}
-      // #EXP-1553: each person's line carries ITS OWN time (m3 = 09:02, as desktop).
-      messageCaption={(row) => `Dana Reyes · ${TIMES[row.id] ?? ``}`}
+      chat={SPECIMEN_CHAT}
+      viewerId={SPECIMEN_VIEWER}
+      member={specimenMember}
       messageTime={(row) => TIMES[row.id] ?? null}
       onSurfaceReply={() => {}}
       arrived={() => false}
@@ -420,11 +444,11 @@ export function ChatTranscriptSpecimen({ single = false }: { single?: boolean })
     <TooltipProvider>
       <div data-testid="chat-transcript-specimen" className="flex flex-wrap items-start gap-6">
         <div className="w-[22rem] max-w-full rounded-3xl border border-glass-stroke-card bg-background p-4">
-          <div className="mb-3 text-xs text-muted-foreground">Phone (bubbles)</div>
+          <div className="mb-3 text-xs text-muted-foreground">Phone</div>
           <Transcript layout="bubbles" />
         </div>
         <div className="w-[32rem] max-w-full">
-          <div className="mb-3 text-xs text-muted-foreground">Web wide (transcript)</div>
+          <div className="mb-3 text-xs text-muted-foreground">Web wide</div>
           <Transcript layout="transcript" />
         </div>
         <div className="w-[24rem]">
@@ -483,8 +507,9 @@ function LockedTranscript({ layout }: { layout: `transcript` | `bubbles` }) {
       layout={layout}
       renderText={paragraph}
       attachmentSrc={() => ``}
-      // #EXP-1553: each person's line carries ITS OWN time (m3 = 09:02, as desktop).
-      messageCaption={(row) => `Dana Reyes · ${TIMES[row.id.replace(`l-`, ``)] ?? ``}`}
+      chat={SPECIMEN_CHAT}
+      viewerId={SPECIMEN_VIEWER}
+      member={specimenMember}
       messageTime={(row) => TIMES[row.id.replace(`l-`, ``)] ?? null}
       onSurfaceReply={() => {}}
       arrived={() => false}
@@ -499,11 +524,11 @@ export function SealedLockedSpecimen() {
         {/* EXP-1676: a phone draws what the native phones draw: its own bubbles
             and the rows, no board around them. */}
         <div className="w-[22rem] max-w-full rounded-3xl border border-glass-stroke-card bg-background p-4 max-md:w-full max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0">
-          <div className="mb-3 text-xs text-muted-foreground max-md:hidden">Phone (bubbles)</div>
+          <div className="mb-3 text-xs text-muted-foreground max-md:hidden">Phone</div>
           <LockedTranscript layout="bubbles" />
         </div>
         <div className="w-[32rem] max-w-full max-md:hidden">
-          <div className="mb-3 text-xs text-muted-foreground">Web wide (transcript)</div>
+          <div className="mb-3 text-xs text-muted-foreground">Web wide</div>
           <LockedTranscript layout="transcript" />
         </div>
         <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:w-full max-md:rounded-none max-md:bg-transparent max-md:p-0">

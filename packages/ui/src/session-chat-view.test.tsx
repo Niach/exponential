@@ -131,7 +131,6 @@ describe(`ChatConversation`, () => {
         <ChatConversation
           rows={rows}
           renderText={(text) => <p>{text}</p>}
-          messageCaption={(row) => (row.queued ? `queued` : null)}
           attachmentSrc={(id) => `/api/attachments/${id}`}
           onOpenSession={onOpenSession}
           onAnswer={onAnswer}
@@ -143,28 +142,49 @@ describe(`ChatConversation`, () => {
     return { ...view, onAnswer, onDecide, onOpenSession }
   }
 
-  it(`#EXP-1553: a person's bubble (chatMode bubbles) carries its time inside, no name; a transcript keeps the caption`, () => {
-    const user: SessionChatRow = {
-      type: `message`,
-      id: `u1`,
-      author: `user`,
-      authorId: `u1`,
-      body: `Anything new overnight?`,
-      queued: false,
-      authorSessionId: null,
-      xref: null,
-    } as SessionChatRow
-    const over = { messageCaption: () => `Dana Reyes · 09:02`, messageTime: () => `09:02` }
-    const bubbles = renderRows([user], { ...over, layout: `bubbles` })
-    const bubble = bubbles.getByTestId(`user-message-bubble`)
-    expect(bubble.querySelector(`[data-slot="user-message-time"]`)!.textContent).toBe(`09:02`)
-    expect(bubble.querySelector(`[data-slot="user-message-caption"]`)).toBeNull()
-    expect(bubble.textContent).not.toContain(`Dana Reyes`)
-    bubbles.unmount()
-    const transcript = renderRows([user], { ...over, layout: `transcript` })
-    const line = transcript.getByTestId(`user-message-bubble`)
-    expect(line.querySelector(`[data-slot="user-message-caption"]`)!.textContent).toBe(`Dana Reyes · 09:02`)
-    expect(line.querySelector(`[data-slot="user-message-time"]`)).toBeNull()
+  it(`#EXP-1736: one bubble everywhere: the viewer's own right with its time, no name; others under an avatar + name, grouped`, () => {
+    const msg = (id: string, author: `user` | `agent`, authorId: string | null, extra: Partial<SessionChatRow> = {}) =>
+      ({
+        type: `message`,
+        id,
+        author,
+        authorId,
+        body: `text ${id}`,
+        queued: false,
+        authorSessionId: null,
+        xref: null,
+        ...extra,
+      }) as SessionChatRow
+    const onOpenXref = vi.fn()
+    const view = renderRows(
+      [
+        msg(`a`, `user`, `me`),
+        msg(`b`, `user`, `dana`),
+        msg(`c`, `agent`, null),
+        msg(`d`, `agent`, null),
+        msg(`e`, `agent`, null, {
+          authorSessionId: `child`,
+          xref: { kind: `message`, sessionId: `child`, name: `Fix it`, agentId: null },
+        } as Partial<SessionChatRow>),
+      ],
+      {
+        viewerId: `me`,
+        chat: { sessionId: `root`, title: `Cold start`, agentId: null },
+        member: (id: string) => (id === `dana` ? { id, name: `Dana Reyes` } : null),
+        messageTime: () => `09:02`,
+        onOpenXref,
+      }
+    )
+    const own = view.getByTestId(`user-message-bubble`)
+    expect(own.querySelector(`[data-slot="user-message-time"]`)!.textContent).toBe(`09:02`)
+    expect(own.querySelector(`[data-slot="message-bubble-author"]`)).toBeNull()
+    const names = [...document.querySelectorAll(`[data-slot="message-bubble-author"]`)].map((el) => el.textContent)
+    expect(names).toEqual([`Dana Reyes`, `Cold start`, `Fix it ›`])
+    const rows = [...document.querySelectorAll(`[data-slot="transcript-row"]`)] as HTMLElement[]
+    expect(rows.map((row) => row.dataset.side)).toEqual([`own`, `other`, `other`, `other`, `other`])
+    expect(rows.map((row) => row.style.paddingTop)).toEqual([``, `12px`, `12px`, `3px`, `12px`])
+    fireEvent.click(view.getByRole(`button`, { name: `Fix it ›` }))
+    expect(onOpenXref).toHaveBeenCalledWith(`child`)
   })
 
   it(`renders every row kind and answers in the card`, () => {
@@ -256,7 +276,8 @@ describe(`ChatConversation`, () => {
     fireEvent.click(screen.getByTestId(`chat-event`))
     expect(onOpenXref).toHaveBeenCalledWith(`s3`)
     expect(screen.getByText(`Session ended`).closest(`button`)).toBeNull()
-    fireEvent.click(screen.getByTestId(`chat-xref`))
+    // #EXP-1736: a report is its child's bubble, the whole bubble opens it.
+    fireEvent.click(screen.getByRole(`button`, { name: `Ship ›` }))
     expect(onOpenXref).toHaveBeenCalledWith(`s4`)
   })
 
@@ -291,7 +312,7 @@ describe(`ChatConversation`, () => {
         surface: { root: { id: `root`, component: `Text`, props: { text: `740 ms` } } },
       },
     ]
-    renderRows(rows, { layout: `bubbles`, messageTime: () => `21:02` })
+    renderRows(rows, { viewerId: `x`, messageTime: () => `21:02` })
     const dividers = screen.getAllByTestId(`transcript-divider`)
     expect(dividers.map((el) => el.getAttribute(`data-kind`))).toEqual([`compact`, `new`])
     expect(dividers[0]!.textContent).toMatch(/^Conversation compacted · \d\d:\d\d$/)
@@ -740,11 +761,10 @@ describe(`ChatConversation EXP-1323`, () => {
     expect(conversation.lastElementChild?.getAttribute(`data-testid`)).toBe(`live-tail`)
   })
 
-  it(`a report is one xref line opening the child, the summary not repeated`, () => {
+  it(`#EXP-1736: a report is the child's bubble (its summary), named with a ›, opening the child`, () => {
     const { onOpenSession } = renderCase(rowsOf(DISPATCHER))
-    const report = document.querySelector(`[data-slot="chat-xref"][data-kind="report"]`)!
-    expect(report.getAttribute(`aria-label`)).toBe(`Report from Lazy-load product images`)
-    expect(screen.queryByText(`Lazy-loading is in; PR #12 is open.`)).toBeNull()
+    const report = screen.getByRole(`button`, { name: `Lazy-load product images ›` })
+    expect(report.textContent).toContain(`Lazy-loading is in; PR #12 is open.`)
     fireEvent.click(report)
     expect(onOpenSession).toHaveBeenCalledWith(`c2`)
   })
@@ -1024,7 +1044,7 @@ describe(`ChatConversation EXP-1280 rich cards`, () => {
 const XREF = fixture.cases.find((entry) => entry.name.startsWith(`S-3: inter-session links`))!
 
 describe(`ChatConversation S-3 xrefs`, () => {
-  it(`paints the origin first, a message's link above its bubble, the report as its line`, () => {
+  it(`#EXP-1736: the origin's prompt, another session's message and the report are that session's bubbles`, () => {
     const view = buildSessionChat(XREF.input as unknown as Input)
     const onOpenXref = vi.fn()
     const onOpenSession = vi.fn()
@@ -1033,6 +1053,7 @@ describe(`ChatConversation S-3 xrefs`, () => {
         <ChatConversation
           rows={view.rows}
           origin={view.origin}
+          chat={{ sessionId: view.rootId, title: view.title, agentId: null }}
           renderText={(text) => <p>{text}</p>}
           attachmentSrc={(id) => `/api/attachments/${id}`}
           onOpenSession={onOpenSession}
@@ -1041,22 +1062,14 @@ describe(`ChatConversation S-3 xrefs`, () => {
         />
       </TooltipProvider>
     )
-    const links = screen.getAllByTestId(`chat-xref`)
-    expect(links.map((link) => link.getAttribute(`data-kind`))).toEqual([
-      `started`,
-      `message`,
-      `message`,
-      `report`,
-    ])
-    expect(links[0]!.getAttribute(`aria-label`)).toBe(`Started by Big Brother`)
-    // The agent's mark through the root's startedByAgentId; a child's own
-    // tree (no agent) also reads through its root.
-    expect(links[0]!.querySelector(`[data-slot="agent-avatar"]`)).not.toBeNull()
-    const childLine = links[2]!
-    expect(childLine.getAttribute(`aria-label`)).toBe(`Message from Batch 2`)
-    expect(childLine.parentElement!.textContent).toContain(`Half the tests pass.`)
-    expect(screen.queryByText(`Batch 2 is in; PR #12 is open.`)).toBeNull()
-    fireEvent.click(links[3]!)
+    // No link rows any more: the bubbles carry the sender.
+    expect(screen.queryAllByTestId(`chat-xref`)).toHaveLength(0)
+    const links = screen.getAllByRole(`button`).filter((el) => el.dataset.slot === `message-bubble-link`)
+    expect(links.map((link) => link.getAttribute(`aria-label`))).toContain(`Batch 2 ›`)
+    // The agent's mark leads an agent sender's group.
+    expect(document.querySelector(`[data-slot="agent-avatar"]`)).not.toBeNull()
+    const child = links.find((link) => link.getAttribute(`aria-label`) === `Batch 2 ›`)!
+    fireEvent.click(child)
     expect(onOpenXref).toHaveBeenCalledWith(`c1`)
     expect(onOpenSession).not.toHaveBeenCalled()
   })

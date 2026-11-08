@@ -92,8 +92,19 @@ import {
   ScriptCard,
   STARTING_COPY,
   SkeletonRows,
+  MessageBubble,
+  SenderAvatar,
+  TranscriptRow,
+  transcriptSenderName,
   type WorkCardLaneTarget,
 } from "@exp/ui"
+import {
+  crossSessionInput,
+  transcriptLayout,
+  type TranscriptItem,
+  type TranscriptRowLayout,
+} from "@exp/domain-contract/transcript-grouping"
+import { useXrefAgent } from "@/hooks/use-session-nav"
 import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -155,7 +166,7 @@ import {
 } from "@/lib/agent-feed"
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { useSessionMessages } from "@/hooks/use-session-tree"
+import { useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { useOpenPlan } from "@/hooks/use-open-plan"
 import { renderChatText } from "@/components/chat/chat-markdown"
@@ -205,7 +216,6 @@ import { STEER_ENET_NO_FEED_IDLE, steerNoFeedAway, steerNoFeedState } from "@exp
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
-const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const DeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
@@ -305,9 +315,12 @@ export function AgentSessionView({
   header,
   composer,
   composerFloats = false,
+  onOpenSession,
 }: {
   /** The synced `sessions` row (any node of a tree). */
   session: SessionRow
+  /** #EXP-1736: a cross-session bubble was pressed (the host's back stack). */
+  onOpenSession?: (sessionId: string) => void
   /** The route's header (back to the chat, the title, Stop). */
   header?: ReactNode
   /** The reply box under the feed (`SessionComposer`). */
@@ -387,6 +400,21 @@ export function AgentSessionView({
   const rows = useMemo(
     () => groupFeedRows(feed, windowStart),
     [feed, windowStart]
+  )
+  // #EXP-1736 (transcript-grouping.json): ONE transcript: the agent's prose
+  // and the session inputs are bubbles under their sender's avatar + name
+  // (the session itself, its agent, a parent or child), the work rows sit
+  // in the agent's column, the cards across.
+  const sessionCardModel = useSessionCard(session)
+  const xrefAgent = useXrefAgent()
+  const feedLayouts = useMemo(
+    () =>
+      feedTranscriptLayout(rows, {
+        sessionId: session.id,
+        title: sessionCardModel?.name ?? session.title ?? ``,
+        agentId: session.agentId ?? null,
+      }),
+    [rows, session.id, sessionCardModel?.name, session.title, session.agentId]
   )
   /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
    *  off the synced `messages` (`isToolPostedCard`): the relay holds no
@@ -600,14 +628,26 @@ export function AgentSessionView({
       index === 0 ? null : rowClass(list[index - 1]),
       rowClass(row)
     )
+    // #EXP-1736: the sender's column; two bubbles in a row take the
+    // grouping's gap, everything else keeps the ladder (EXP-787).
+    const layout = feedLayouts.get(feedRowKey(row))
+    const bubbles = index > 0 && isBubbleRow(row) && isBubbleRow(list[index - 1]!)
+    const sender = layout?.sender ?? null
     const wrap = (content: ReactNode) => (
-      <div
+      <TranscriptRow
         key={row.kind === `single` ? row.item.id : row.id}
-        className={gap}
+        layout={layout ? { ...layout, gap: bubbles ? layout.gap : 0 } : null}
+        avatar={
+          sender ? (
+            <SenderAvatar sender={sender} agent={sender.kind === `agent` ? xrefAgent(sender.id) : null} />
+          ) : null
+        }
+        className={bubbles ? undefined : gap}
       >
         {content}
-      </div>
+      </TranscriptRow>
     )
+    const bubbleName = layout?.name ? transcriptSenderName(sender) : null
     // EXP-916: a run of consecutive edits IS the edited-files card.
     if (row.kind === `edits`) {
       return wrap(
@@ -673,7 +713,7 @@ export function AgentSessionView({
     switch (item.kind) {
       case `narration`:
         // EXP-1676: the run view's row on every form factor.
-        return wrap(<NarrationBubble text={item.text} />)
+        return wrap(<NarrationBubble text={item.text} author={bubbleName} />)
       case `thought`:
         // EXP-1324: the reasoning line; still open only while the run lives.
         return wrap(
@@ -718,12 +758,17 @@ export function AgentSessionView({
         }
         // EXP-724: a steered slash command renders as a compact pill.
         const command = parseSteerCommand(item.text, agentCommands)
+        if (command) return wrap(<CommandRow name={command.command.name} args={command.args} />)
+        // #EXP-1736: another session's input = that session's bubble.
+        const cross = crossSessionInput(item.text)
+        const link = cross ? sender?.link ?? null : null
         return wrap(
-          command ? (
-            <CommandRow name={command.command.name} args={command.args} />
-          ) : (
-            <UserMessageBubble text={item.text} />
-          )
+          <UserMessageBubble
+            text={cross ? cross.body : item.text}
+            side={cross ? `in` : `out`}
+            author={bubbleName}
+            onPress={link && onOpenSession ? () => onOpenSession(link) : undefined}
+          />
         )
       }
       case `compaction`:
@@ -1061,6 +1106,73 @@ function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[
 }
 
 /** The feed item ids a transcript row draws. */
+/** A raw feed row as the transcript sees it (#EXP-1736). */
+type FeedRowLike = { kind: string; id?: string | number; item?: { id: number; kind: string; text?: string; workflowId?: string | null } }
+
+/** The key a feed row's layout is stored under. */
+function feedRowKey(row: FeedRowLike): string {
+  return row.kind === `single` ? `i${row.item!.id}` : `r${String(row.id)}`
+}
+
+/** The feed rows that paint as a bubble: the agent's prose, a session input. */
+function isBubbleRow(row: FeedRowLike): boolean {
+  if (row.kind !== `single`) return false
+  const item = row.item!
+  if (item.kind === `narration`) return true
+  return item.kind === `user_message` && !commandDivider(item.text ?? ``)
+}
+
+/** The viewer stands in for whoever typed into the raw feed (it carries no
+ *  author): a typed turn is the viewer's own. */
+const FEED_VIEWER = `viewer`
+
+/** #EXP-1736 (transcript-grouping.json): the raw feed's rows as transcript
+ *  items: prose and session inputs are messages, the work rows the agent's
+ *  trace, the rest full rows. */
+export function feedTranscriptLayout(
+  rows: readonly FeedRowLike[],
+  chat: { sessionId: string; title: string; agentId: string | null }
+): Map<string, TranscriptRowLayout> {
+  const sessions = new Map<string, { id: string; title: string; agentId: string | null }>()
+  const items: TranscriptItem[] = rows.map((row) => {
+    const id = feedRowKey(row)
+    if (row.kind === `toolRun` || row.kind === `expRun` || row.kind === `edits` || row.kind === `subagent`) {
+      return { id, kind: `trace` }
+    }
+    if (row.kind !== `single`) return { id, kind: `full` }
+    const item = row.item!
+    switch (item.kind) {
+      case `narration`:
+        return { id, kind: `message`, authorKind: `agent` }
+      case `user_message`: {
+        if (commandDivider(item.text ?? ``)) return { id, kind: `full` }
+        const cross = crossSessionInput(item.text ?? ``)
+        if (cross) {
+          sessions.set(cross.sessionId, { id: cross.sessionId, title: cross.name, agentId: null })
+          return { id, kind: `message`, authorKind: `agent`, authorSessionId: cross.sessionId }
+        }
+        return { id, kind: `message`, authorKind: `user`, authorId: FEED_VIEWER }
+      }
+      case `thought`:
+      case `subagent`:
+        return { id, kind: `trace` }
+      case `tool`:
+        return { id, kind: item.workflowId ? `full` : `trace` }
+      default:
+        return { id, kind: `full` }
+    }
+  })
+  const layouts = transcriptLayout({
+    viewerId: FEED_VIEWER,
+    chat: { ...chat, originSessionId: null },
+    members: [],
+    agents: [],
+    sessions: [...sessions.values()],
+    items,
+  })
+  return new Map(layouts.map((layout) => [layout.id, layout]))
+}
+
 function rowItemIds(row: { kind: string; item?: { id: number }; items?: readonly { id: number }[] }): number[] {
   if (row.item) return [row.item.id]
   return row.items ? row.items.map((item) => item.id) : []
@@ -1475,22 +1587,22 @@ function LaneRows({
 // markdown of unchanged text is the one cost worth avoiding here.
 export const NarrationBubble = memo(function NarrationBubble({
   text,
+  author = null,
 }: {
   text: string
+  /** #EXP-1736: the sender's name (the group's first bubble). */
+  author?: string | null
 }) {
   // #VAPP-258: a live turn's prose paints as a growing prefix.
   const streaming = useContext(TranscriptStreamingContext)
   return (
-    // EXP-696: no bubble, matching the natives (EXP-274) — a small assistant
-    // glyph and the agent's prose running the full width of the feed.
-    <div className="flex items-start gap-2">
-      <CodingAssistantIcon className="mt-1.5 size-3 shrink-0 text-muted-foreground/60" />
-      <div
-        className={cn(`min-w-0 flex-1 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}
-      >
+    // #EXP-1736: THE message bubble on every client (was a bare paragraph
+    // here, a bubble on iOS).
+    <MessageBubble side="in" author={author}>
+      <div className={cn(`min-w-0 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}>
         <FeedText text={text} ariaLabel="Agent message" hardBreaks streaming={streaming} />
       </div>
-    </div>
+    </MessageBubble>
   )
 })
 
@@ -1597,8 +1709,15 @@ function MarkerText({
  *  below it. */
 const UserMessageBubble = memo(function UserMessageBubble({
   text,
+  side = `out`,
+  author = null,
+  onPress,
 }: {
   text: string
+  /** #EXP-1736: `in` = another session's input (its bubble, its name). */
+  side?: `in` | `out`
+  author?: string | null
+  onPress?: () => void
 }) {
   const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
   const hasImages = attachmentIds.length > 0
@@ -1616,16 +1735,11 @@ const UserMessageBubble = memo(function UserMessageBubble({
     if (index >= 1 && index <= attachmentIds.length) setPreview(index - 1)
   }
   return (
-    <div className="flex justify-end pl-8">
-      {/* EXP-696: the natives' neutral glass bubble, not a primary tint —
-          slightly brighter than the assistant's glass sections so the
-          sender's own turn reads apart from the feed. */}
-      <div
-        className={cn(
-          `min-w-0 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-2 text-foreground/90`,
-          TRANSCRIPT_BODY_TEXT
-        )}
-      >
+    <>
+      {/* #EXP-1736: THE message bubble (EXP-696's neutral glass for the
+          viewer's own turn). */}
+      <MessageBubble side={side} author={author} onPress={onPress}>
+      <div className={TRANSCRIPT_BODY_TEXT}>
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}
         <div
@@ -1685,6 +1799,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
           </div>
         )}
       </div>
+      </MessageBubble>
       {preview !== null && attachmentIds[preview] && (
         <ImagePreviewDialog
           open
@@ -1695,7 +1810,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
           label={`Image ${preview + 1}`}
         />
       )}
-    </div>
+    </>
   )
 })
 

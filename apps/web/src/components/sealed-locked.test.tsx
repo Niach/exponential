@@ -21,7 +21,6 @@ function transcript(layout: `transcript` | `bubbles`) {
         layout={layout}
         renderText={(text) => text}
         attachmentSrc={() => ``}
-        messageCaption={() => `Dana · 21:02`}
         messageTime={() => `21:02`}
         arrived={() => false}
       />

@@ -52,7 +52,7 @@ import {
   ChatConversation,
   toast,
   useIsMobile,
-  userMessageCaption,
+  userMessageTime,
   type DevicePickerDevice,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
@@ -537,12 +537,13 @@ export function AppEditor({
         rows={channelRows}
         renderText={renderChatText}
         attachmentSrc={attachmentSrc}
-        messageCaption={(row) =>
-          userMessageCaption({
-            name: row.authorId ? users.find((user) => user.id === row.authorId)?.name : null,
-            at: messageAt(row.id),
-          })
-        }
+        chat={{ sessionId: root.id, title: app.name, agentId: null }}
+        member={(id) => (users as User[]).find((user) => user.id === id) ?? null}
+        viewerId={me ?? null}
+        messageTime={(row) => {
+          const at = messageAt(row.id)
+          return at ? userMessageTime(at) : null
+        }}
         onOpenSession={(sessionId) => {
           const target = teamSessions.find((row) => row.id === sessionId)
           if (target) openSession(target)

@@ -6,7 +6,6 @@ import {
   Button,
   conceptIcon,
   FloatingComposer,
-  SessionXref,
   useIsMobile,
   CHAT_COLUMN_CLASS,
   WORK_GUTTER_CLASS,
@@ -20,8 +19,7 @@ import {
   useSessionChat,
 } from "@/hooks/use-session-tree"
 import { useAgentRow } from "@/hooks/use-agent-row"
-import { useSessionNav, useXrefAgent } from "@/hooks/use-session-nav"
-import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
+import { useSessionNav } from "@/hooks/use-session-nav"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
@@ -44,30 +42,6 @@ import { cn } from "@/lib/utils"
 
 const BackIcon = conceptIcon(`ui-back`)
 const PopIcon = conceptIcon(`ui-chevron-left`)
-
-/** S-3: who started the session on show (`SessionChatView.origin`) as
- *  THE xref line on top of its raw work. */
-export function SessionOrigin({
-  origin,
-  onOpen,
-  className,
-}: {
-  origin: SessionXrefModel | null | undefined
-  onOpen?: (sessionId: string) => void
-  className?: string
-}) {
-  const xrefAgent = useXrefAgent()
-  if (!origin) return null
-  return (
-    <div className={cn(CHAT_COLUMN_CLASS, WORK_GUTTER_CLASS, `flex shrink-0 pt-3 pb-1`, className)}>
-      <SessionXref
-        xref={origin}
-        agent={origin.agentId ? xrefAgent(origin.agentId) : null}
-        onOpen={onOpen}
-      />
-    </div>
-  )
-}
 
 /** VAPP-229 (via-app.json): a session an app's tool started reads one
  *  muted line `via <app>` in its view's header (none without one). */
@@ -133,27 +107,17 @@ export function InPlaceSession({
   row,
   topInset = 0,
   floating = false,
-  origin = null,
   onOpenXref,
 }: {
   row: SessionRow
   /** Phones: the overlay header band's height. */
   topInset?: number
   floating?: boolean
-  /** S-3: who started it (the chat view's `origin` with it in focus). */
-  origin?: SessionXrefModel | null
+  /** #EXP-1736: a cross-session bubble opens that session (the back stack). */
   onOpenXref?: (sessionId: string) => void
 }) {
   useOpenedSessionRead(row.id)
   let header: ReactNode = topInset ? <div aria-hidden className="shrink-0" style={{ height: topInset }} /> : undefined
-  if (origin) {
-    header = (
-      <>
-        {header}
-        <SessionOrigin origin={origin} onOpen={onOpenXref} />
-      </>
-    )
-  }
   if (row.viaAppId) {
     header = (
       <>
@@ -169,6 +133,7 @@ export function InPlaceSession({
         session={row}
         header={header}
         composerFloats={floating}
+        onOpenSession={onOpenXref}
         composer={
           floating ? (
             <FloatingComposer
@@ -256,7 +221,6 @@ export function SessionScreen({
           {name}
         </h1>
       </div>
-      {view?.origin ? <SessionOrigin origin={view.origin} onOpen={nav.open} className="px-0" /> : null}
       <SessionViaApp viaAppId={row.viaAppId} className="px-0" />
     </div>
   )
@@ -265,6 +229,7 @@ export function SessionScreen({
     <AgentSessionView
       session={row}
       header={header}
+      onOpenSession={nav.open}
       // EXP-1316: phones reply through THE floating composer capsule.
       composerFloats={isMobile}
       composer={

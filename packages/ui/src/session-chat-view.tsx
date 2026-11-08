@@ -85,15 +85,19 @@ import { SelectionCheck } from "./combobox-core"
 import { issueSearchItems } from "./picker/issue-picker"
 import { PickerMenuRows } from "./picker/picker-menu-rows"
 import { SessionRow, SessionRowDevice } from "./session-row"
-import { SessionXref } from "./session-xref"
-import type { UserAvatarAgent } from "./user-avatar"
+import type { UserAvatarAgent, UserAvatarUser } from "./user-avatar"
 import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
 import { StripChip, type StripChipBoxProps } from "./strip-chip"
 import { treeGuides } from "./tree-guides"
 import { ICON_COMPONENTS, conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
-import { UserMessageBubble } from "./user-message-bubble"
-import { CHAT_BUBBLE_ENTER_CLASS, ChatBubble, SurfaceCard, TranscriptDivider, useLiveArrivals } from "./surface-card"
+import { MessageBubble, SenderAvatar, TranscriptRow, transcriptSenderName } from "./user-message-bubble"
+import { CHAT_BUBBLE_ENTER_CLASS, SurfaceCard, TranscriptDivider, useLiveArrivals } from "./surface-card"
+import {
+  transcriptLayout,
+  type TranscriptItem,
+  type TranscriptRowLayout,
+} from "@exp/domain-contract/transcript-grouping"
 import { Spinner } from "./feedback"
 import { SkeletonRows } from "./skeleton"
 import { StableRow } from "./transcript-window"
@@ -778,8 +782,12 @@ export interface ChatConversationProps {
   rows: readonly SessionChatRow[]
   /** The app's GFM renderer (agent text, a person's bubble, a plan). */
   renderText: (text: string) => ReactNode
-  /** A person's bubble caption (`name · time`, `queued`). */
-  messageCaption?: (row: Extract<SessionChatRow, { type: `message` }>) => string | null
+  /** #EXP-1736 (transcript-grouping.json): the conversation's OWN sender
+   *  (its session, title and agent): the agent's bubbles wear the agent's
+   *  mark, else the session's title + glyph. */
+  chat?: { sessionId: string; title: string; agentId: string | null } | null
+  /** #EXP-1736: a member's name + picture (their bubbles' avatar + name). */
+  member?: (userId: string) => UserAvatarUser | null
   attachmentSrc: (attachmentId: string) => string
   /** A session card was tapped (its raw view). */
   onOpenSession?: (sessionId: string) => void
@@ -796,8 +804,8 @@ export interface ChatConversationProps {
    *  host's data; `undefined` = still loading, null = none); absent = a
    *  Needs you card opens like any other. */
   WaitingCard?: ComponentType<{ sessionId: string; children: (row: WaitingCardRow | null | undefined) => ReactNode }>
-  /** S-3: who started the viewed session (`SessionChatView.origin`): its
-   *  header line on top of the rows. */
+  /** S-3: who started the viewed session (`SessionChatView.origin`): #EXP-1736
+   *  its prompt reads as that session's bubble. */
   origin?: SessionXrefModel | null
   /** A question card's answer: the picks / the typed free text + the
    *  surface's data (absent = read-only). */
@@ -842,6 +850,74 @@ export interface ChatConversationProps {
   className?: string
 }
 
+/** #EXP-1736 (transcript-grouping.json): the conversation's rows as the
+ *  transcript's items: messages and reports carry a sender, subagent lines
+ *  are the agent's trace, every card is a full row; a docked row that
+ *  left the conversation drops out. */
+export function chatTranscriptLayout(
+  rows: readonly SessionChatRow[],
+  options: {
+    chat?: { sessionId: string; title: string; agentId: string | null } | null
+    origin?: SessionXrefModel | null
+    viewerId?: string | null
+    member?: (userId: string) => UserAvatarUser | null
+    docked?: ReadonlySet<string>
+  }
+): Map<string, TranscriptRowLayout> {
+  const sessions = new Map<string, { id: string; title: string; agentId: string | null }>()
+  const addXref = (xref: SessionXrefModel | null | undefined) => {
+    if (xref) sessions.set(xref.sessionId, { id: xref.sessionId, title: xref.name, agentId: xref.agentId })
+  }
+  addXref(options.origin)
+  const members = new Map<string, string>()
+  const items: TranscriptItem[] = []
+  for (const row of rows) {
+    if (options.docked?.has(row.id) && row.type !== `plan` && row.type !== `question`) continue
+    if (row.type === `message`) {
+      addXref(row.xref)
+      if (row.author === `user` && row.authorId && !members.has(row.authorId)) {
+        const name = options.member?.(row.authorId)?.name
+        if (name) members.set(row.authorId, name)
+      }
+      items.push({
+        id: row.id,
+        kind: `message`,
+        authorKind: row.author,
+        authorId: row.authorId,
+        authorSessionId: row.authorSessionId,
+      })
+    } else if (row.type === `report`) {
+      addXref(row.xref)
+      items.push({ id: row.id, kind: `message`, authorKind: `agent`, authorId: null, authorSessionId: row.sessionId })
+    } else {
+      items.push({ id: row.id, kind: row.type === `subagent` ? `trace` : `full` })
+    }
+  }
+  const chat = options.chat ?? { sessionId: ``, title: ``, agentId: null }
+  const layouts = transcriptLayout({
+    viewerId: options.viewerId ?? null,
+    chat: { ...chat, originSessionId: options.origin?.sessionId ?? null },
+    members: [...members].map(([id, name]) => ({ id, name })),
+    agents: chat.agentId ? [{ id: chat.agentId, name: chat.title }] : [],
+    sessions: [...sessions.values()],
+    items,
+  })
+  return new Map(layouts.map((layout) => [layout.id, layout]))
+}
+
+/** A row's layout as one comparable value (`StableRow`'s deps). */
+function layoutKey(layout: TranscriptRowLayout | undefined): string {
+  if (!layout) return ``
+  const sender = layout.sender
+  return [
+    layout.side,
+    layout.avatar,
+    layout.name,
+    layout.gap,
+    sender ? `${sender.kind}:${sender.id}:${sender.name}:${sender.link ?? ``}` : ``,
+  ].join(`|`)
+}
+
 /** #EXP-1464: the card an expanded session row opens. */
 export type WaitingCardRow = Extract<SessionChatRow, { type: `question` | `plan` }>
 
@@ -862,7 +938,8 @@ export function ChatConversation(props: ChatConversationProps) {
   const {
     rows,
     renderText,
-    messageCaption,
+    chat,
+    member,
     attachmentSrc,
     onOpenSession,
     onOpenXref,
@@ -927,71 +1004,91 @@ export function ChatConversation(props: ChatConversationProps) {
     }
     return action
   }
-  const xrefLine = (xref: SessionXrefModel, key?: string, open = canOpenXref) => (
-    <SessionXref
-      key={key}
-      xref={xref}
-      agent={xref.agentId ? (latest.current.xrefAgent?.(xref.agentId) ?? null) : null}
-      onOpen={open ? openXref : undefined}
-    />
+  // #EXP-1736 (transcript-grouping.json): who sent each row, the groups.
+  const layouts = useMemo(
+    () => chatTranscriptLayout(rows, { chat, origin, viewerId, member, docked }),
+    [rows, chat, origin, viewerId, member, docked]
   )
   const renderRow = (row: SessionChatRow): ReactNode => {
     const body = renderRowBody(row)
-    // S-3: another session's line heads its bubble with its link.
-    if (row.type === `message` && row.xref && body) {
-      return (
-        <div key={row.id} data-slot="chat-xref-row" className="flex min-w-0 flex-col gap-1">
-          {xrefLine(row.xref)}
-          {body}
-        </div>
-      )
-    }
-    return body
+    if (body === null) return null
+    const layout = layouts.get(row.id)
+    const sender = layout?.sender ?? null
+    const avatar = sender ? (
+      <SenderAvatar
+        sender={sender}
+        user={sender.kind === `member` ? (latest.current.member?.(sender.id) ?? null) : null}
+        agent={sender.kind === `agent` ? (latest.current.xrefAgent?.(sender.id) ?? null) : null}
+      />
+    ) : null
+    return (
+      <TranscriptRow key={row.id} layout={layout} avatar={avatar}>
+        {body}
+      </TranscriptRow>
+    )
   }
   const renderRowBody = (row: SessionChatRow): ReactNode => {
     // FEED-140: a waiting plan / question never leaves the conversation.
     if (docked?.has(row.id) && row.type !== `plan` && row.type !== `question`) return null
     const enter = bubbles && isLive(row.id) ? CHAT_BUBBLE_ENTER_CLASS : undefined
     switch (row.type) {
-      case `message`:
-        if (row.author === `user`) {
+      case `message`: {
+        const layout = layouts.get(row.id)
+        if (layout?.side === `full`) {
+          return (
+            <div key={row.id} data-slot="chat-system" className="text-xs text-muted-foreground">
+              {row.body}
+            </div>
+          )
+        }
+        const time = messageTime?.(row) ?? null
+        if (layout?.side === `own`) {
           const own = row.queued && onUnqueue && viewerId && row.authorId === viewerId
           return (
-            <UserMessageBubble
+            <MessageBubble
               key={row.id}
+              side="out"
               text={row.body}
               renderText={renderText}
-              variant={bubbles ? `chat` : `transcript`}
-              time={bubbles ? (messageTime?.(row) ?? null) : null}
-              caption={bubbles ? (row.queued ? `queued` : null) : (messageCaption?.(row) ?? null)}
+              time={time}
+              caption={row.queued ? `queued` : null}
               action={own ? <UnqueueButton onClick={() => latest.current.onUnqueue?.(row.id)} /> : undefined}
               className={enter}
             />
           )
         }
-        if (row.author === `system`) {
-          return (
-            <div
-              key={row.id}
-              data-slot="chat-system"
-              className="text-xs text-muted-foreground"
-            >
-              {row.body}
-            </div>
-          )
-        }
-        if (bubbles) {
-          return (
-            <ChatBubble key={row.id} time={messageTime?.(row) ?? null} className={enter}>
-              {renderText(row.body)}
-            </ChatBubble>
-          )
-        }
+        const link = layout?.sender?.link ?? null
         return (
-          <div key={row.id} data-slot="chat-agent" className="text-sm text-foreground">
-            {renderText(row.body)}
-          </div>
+          <MessageBubble
+            key={row.id}
+            side="in"
+            text={row.body}
+            renderText={renderText}
+            author={layout?.name ? transcriptSenderName(layout.sender) : null}
+            onPress={link && canOpenXref ? () => openXref(link) : undefined}
+            time={time}
+            caption={row.queued ? `queued` : null}
+            className={enter}
+          />
         )
+      }
+      case `report`: {
+        // #EXP-1736: a child's report = its bubble (the summary), named
+        // `<child> ›`, opening it.
+        const layout = layouts.get(row.id)
+        const open = actionOf(row).action !== `none`
+        return (
+          <MessageBubble
+            key={row.id}
+            side="in"
+            text={row.summary || row.text}
+            renderText={renderText}
+            author={layout?.name ? transcriptSenderName(layout.sender) : null}
+            onPress={open ? () => openXref(row.sessionId) : undefined}
+            className={enter}
+          />
+        )
+      }
       case `divider`:
         return <TranscriptDivider key={row.id} kind={row.kind} at={row.at} className={enter} />
       case `locked`:
@@ -1170,9 +1267,6 @@ export function ChatConversation(props: ChatConversationProps) {
           </button>
         )
       }
-      case `report`:
-        // S-3: a report IS its link line (`Report from <session> ›`).
-        return xrefLine(row.xref, row.id, actionOf(row).action !== `none`)
       case `suggestions`:
         return (
           <ChatSuggestionsCard
@@ -1202,9 +1296,8 @@ export function ChatConversation(props: ChatConversationProps) {
     <div
       data-testid="chat-conversation"
       data-layout={layout}
-      className={cn(`flex flex-col`, bubbles ? `gap-2.5` : `gap-4`, className)}
+      className={cn(`flex flex-col`, className)}
     >
-      {origin ? xrefLine(origin) : null}
       {rows.map((row) => (
         <StableRow
           key={row.id}
@@ -1220,7 +1313,7 @@ export function ChatConversation(props: ChatConversationProps) {
             row.type === `session` ? waitingCardInline(rows, row.card.sessionId) : false,
             row.type === `session` && expanded.has(row.id) ? pending : null,
             WaitingCard ?? null,
-            row.type === `message` ? (messageCaption?.(row) ?? null) : null,
+            layoutKey(layouts.get(row.id)),
             row.type === `message` ? (messageTime?.(row) ?? null) : null,
             viewerId ?? null,
             !onUnqueue,
@@ -1230,6 +1323,7 @@ export function ChatConversation(props: ChatConversationProps) {
             !onOpenSession,
             !onOpenXref,
             row.type === `message` || row.type === `report` ? xrefAgent : null,
+            member ?? null,
             !onSurfaceReply,
             renderText,
             attachmentSrc,

@@ -1,6 +1,6 @@
 import fixture from "@exp/domain-contract/fixtures/session-chat.json"
 import { buildSessionChat, type ComposerReplies as ComposerRepliesModel } from "@exp/domain-contract/session-tree"
-import { ChatConversation, TooltipProvider, userMessageCaption } from "@exp/ui"
+import { ChatConversation, TooltipProvider, userMessageTime } from "@exp/ui"
 
 import { ComposerSpecimen } from "./composer-specimen.tsx"
 import type { StyleguideEntry } from "./types.ts"
@@ -61,10 +61,10 @@ function Case({ index }: { index: number }) {
       rows={view.rows}
       renderText={paragraph}
       attachmentSrc={() => SHOT}
-      messageCaption={(row) => {
-        const caption = userMessageCaption({ name: `Alex Carter`, at: AT })
-        return row.queued ? `${caption} · queued` : caption
-      }}
+      chat={{ sessionId: view.rootId, title: view.title, agentId: null }}
+      origin={view.origin}
+      member={(id) => ({ id, name: `Alex Carter` })}
+      messageTime={() => userMessageTime(AT)}
       onOpenSession={() => {}}
       onAnswer={() => {}}
       onDecide={() => {}}

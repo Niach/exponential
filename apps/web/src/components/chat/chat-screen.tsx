@@ -25,7 +25,6 @@ import {
   type WaitingCardRow,
   ChatTabs,
   useIsMobile,
-  userMessageCaption,
   userMessageTime,
   type MenuSessionProps,
   type ChatStripIssue,
@@ -57,6 +56,7 @@ import { ChatHeaderTitle } from "@/components/chat/chat-header"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { BackStackButton, InPlaceSession } from "@/components/chat/session-body"
 import { useSessionNav, useXrefAgent } from "@/hooks/use-session-nav"
+import { useAgentRow } from "@/hooks/use-agent-row"
 import { backSearch } from "@/lib/session-back"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
 import { primeTabEnter, TAB_BODY_TOUCH_CLASS, useFaceSwipe } from "@/hooks/use-face-swipe"
@@ -515,7 +515,6 @@ export function ChatScreen({
         row={sessionInPlace}
         topInset={topInset}
         floating={isMobile}
-        origin={view.origin}
         onOpenXref={nav.open}
       />
     )
@@ -849,6 +848,15 @@ function ConversationBody({
     [messages]
   )
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
+  // #EXP-1736 (transcript-grouping.json): the conversation's own sender
+  // (an agent's chat = the agent's name; else the chat's title) and its
+  // members' names.
+  const { agent: agentRow } = useAgentRow(root.agentId)
+  const chatSender = useMemo(
+    () => ({ sessionId: root.id, title: (root.agentId ? agentRow?.name : null) ?? view.title, agentId: root.agentId ?? null }),
+    [root.id, root.agentId, agentRow?.name, view.title]
+  )
+  const memberOf = useCallback((id: string) => usersById.get(id) ?? null, [usersById])
   const { answer, pending } = useAnswerMessage()
   const unqueue = useUnqueueMessage()
   const { data: session } = useSession()
@@ -936,14 +944,8 @@ function ConversationBody({
             rows={transcript.rows}
             renderText={renderChatText}
             attachmentSrc={attachmentSrc}
-            messageCaption={(row) => {
-              const message = messagesById.get(row.id)
-              const caption = userMessageCaption({
-                name: row.authorId ? usersById.get(row.authorId)?.name : null,
-                at: message ? new Date(message.createdAt) : null,
-              })
-              return row.queued ? [caption, `queued`].filter(Boolean).join(` · `) : caption
-            }}
+            chat={chatSender}
+            member={memberOf}
             onOpenSession={onOpenSession}
             onOpenXref={onOpenXref}
             xrefAgent={xrefAgent}
