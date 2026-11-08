@@ -501,7 +501,7 @@ pub const SHAPES: [ShapeSpec; 34] = [
         // rows; `card` jsonb). `consumed_at` NULL on a person's row = queued
         // (the device's pickup reads this shape). Scoping columns
         // (`shared`, `owner_id`) stay server-side. #EXP-1730: a row lives
-        // in its session (`session_id`, `domain::message_conversation::
+        // in its session (`session_id`, `domain::message_session::
         // message_session`); `conversation_id` is synced, never read.
         columns: &[
             "id",

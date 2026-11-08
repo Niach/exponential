@@ -216,7 +216,7 @@ impl TalkHost for ExponentialHost {
                     body: row.body.as_deref(),
                     has_card: row.card.as_ref().is_some_and(|card| !card.is_null()),
                     author_session_id: row.author_session_id.as_deref(),
-                    session_id: domain::message_conversation::message_session(row),
+                    session_id: domain::message_session::message_session(row),
                     created_at: row.created_at.as_deref(),
                 },
             });

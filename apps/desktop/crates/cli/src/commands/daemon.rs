@@ -3432,11 +3432,11 @@ pub(crate) fn read_shape_rows<T: serde::de::DeserializeOwned>(
 }
 
 /// #EXP-1730: every synced message that lives in a session, keyed by its
-/// own `session_id` (`domain::message_conversation::session_messages`); a
+/// own `session_id` (`domain::message_session::key_messages_by_session`); a
 /// session-less dm/channel row is held back.
 pub(crate) fn read_keyed_messages(store: &sync::store::ShapeStore) -> Vec<MessageRow> {
     let messages = read_shape_rows::<MessageRow>(store, "messages");
-    domain::message_conversation::session_messages(&messages)
+    domain::message_session::key_messages_by_session(&messages)
 }
 
 /// One column of one issue, point-read by primary key (§5.8).

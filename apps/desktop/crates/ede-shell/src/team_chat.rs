@@ -118,7 +118,7 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     let tree: Vec<&SessionRow> = rows.account.sessions.iter().filter(|s| s.root_id_or_self() == root.root_id_or_self()).collect();
     let in_tree = |m: &&MessageRow| m.root_id.as_deref().is_none_or(|r| r == root.id);
     // #EXP-1730: a message names its own session (`session_id`).
-    let keyed = domain::message_conversation::session_messages(rows.messages.iter().filter(in_tree));
+    let keyed = domain::message_session::key_messages_by_session(rows.messages.iter().filter(in_tree));
     let message_refs: Vec<&MessageRow> = keyed.iter().collect();
     let session_issues: Vec<_> = rows.account.session_issues.iter().collect();
     let issues: Vec<domain::session_tree::TreeIssue> = rows.account.issues.iter().map(domain::session_tree::TreeIssue::from_issue).collect();

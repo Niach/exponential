@@ -438,8 +438,8 @@ pub(crate) fn keyed_messages(cx: &App, keep: impl Fn(&str, &MessageRow) -> bool)
         return Vec::new();
     };
     let messages = store.collections().messages.read(cx);
-    domain::message_conversation::session_messages(messages.iter().filter(|message| {
-        domain::message_conversation::message_session(message).is_some_and(|session_id| keep(session_id, message))
+    domain::message_session::key_messages_by_session(messages.iter().filter(|message| {
+        domain::message_session::message_session(message).is_some_and(|session_id| keep(session_id, message))
     }))
 }
 
@@ -668,7 +668,7 @@ fn thread_view(
     // session's first prompt.
     let (mut picked, mut first): (Vec<&MessageRow>, HashMap<&str, (i64, &MessageRow)>) = (Vec::new(), HashMap::new());
     for message in all_messages.iter() {
-        let Some(owner) = domain::message_conversation::message_session(message) else {
+        let Some(owner) = domain::message_session::message_session(message) else {
             continue;
         };
         let in_tree = owner == root_id || tree_ids.contains(owner);
@@ -707,7 +707,7 @@ fn thread_view(
         .filter(|origin| picked_ids.insert(origin.id.as_str()))
         .collect();
     picked.extend(origins);
-    let keyed: Vec<MessageRow> = domain::message_conversation::session_messages(picked);
+    let keyed: Vec<MessageRow> = domain::message_session::key_messages_by_session(picked);
     let messages: Vec<&MessageRow> = keyed.iter().collect();
     // VAPP-110: the tree's plain messages re-homed onto the root (cards stay
     // where they are: a continuation's own session card is not a message).
@@ -1115,7 +1115,7 @@ pub(crate) fn unread_marker(session_id: &str, whole_tree: bool, cx: &App) -> Opt
     let sessions = collections.sessions.read(cx);
     // #EXP-1730: a message's session is its own `session_id`.
     let in_scope = |message: &MessageRow| {
-        domain::message_conversation::message_session(message).is_some_and(|owner| {
+        domain::message_session::message_session(message).is_some_and(|owner| {
             owner == session_id
                 || (whole_tree
                     && sessions.get(owner).is_some_and(|session| session.root_id_or_self() == session_id))

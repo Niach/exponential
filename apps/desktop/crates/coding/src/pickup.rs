@@ -323,7 +323,7 @@ pub struct PickupInput<'a> {
     /// Every visible `sessions` row.
     pub sessions: &'a [SessionRow],
     /// Every visible `messages` row that lives in a session (#EXP-1730: its
-    /// own `session_id`, `domain::message_conversation::session_messages`).
+    /// own `session_id`, `domain::message_session::key_messages_by_session`).
     pub messages: &'a [MessageRow],
     /// Sessions with an engine attached in this process.
     pub live: &'a HashMap<String, LiveView>,
