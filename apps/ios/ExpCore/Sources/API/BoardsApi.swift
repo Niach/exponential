@@ -222,3 +222,95 @@ public final class BoardsApi: Sendable {
         )
     }
 }
+
+/// #NEW-37: an archived or trashed board, as `boards.listArchived` /
+/// `boards.listDeleted` return it (owner-only reads: both states are out of
+/// every synced shape, EXP-500). Dates are ISO strings (no transformer).
+public struct PutAwayBoard: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    public let color: String?
+    public let icon: String?
+    public let repositoryId: String?
+    public let archivedAt: String?
+    public let purgeAt: String?
+
+    public init(
+        id: String,
+        name: String,
+        color: String? = nil,
+        icon: String? = nil,
+        repositoryId: String? = nil,
+        archivedAt: String? = nil,
+        purgeAt: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.color = color
+        self.icon = icon
+        self.repositoryId = repositoryId
+        self.archivedAt = archivedAt
+        self.purgeAt = purgeAt
+    }
+}
+
+private struct TeamIdInput: Encodable, Sendable {
+    let teamId: String
+}
+
+private struct BoardIdInput: Encodable, Sendable {
+    let boardId: String
+}
+
+public extension BoardsApi {
+    /// `boards.listArchived` (owner-only).
+    func listArchived(accountId: String, teamId: String) async throws -> [PutAwayBoard] {
+        try await trpc.query(accountId: accountId, path: "boards.listArchived", input: TeamIdInput(teamId: teamId))
+    }
+
+    /// `boards.listDeleted` (owner-only): the 48h trash, each with its `purgeAt`.
+    func listDeleted(accountId: String, teamId: String) async throws -> [PutAwayBoard] {
+        try await trpc.query(accountId: accountId, path: "boards.listDeleted", input: TeamIdInput(teamId: teamId))
+    }
+
+    /// `boards.unarchive` (owner-only).
+    func unarchive(accountId: String, boardId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "boards.unarchive", input: BoardIdInput(boardId: boardId))
+    }
+
+    /// `boards.restore` (owner-only): out of the trash before the purge.
+    func restore(accountId: String, boardId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "boards.restore", input: BoardIdInput(boardId: boardId))
+    }
+}
+
+/// #NEW-37 (settings-nav.json `boards`): the Archived / Trash rows' captions ×4
+/// (web `formatArchivedOn` / `formatPurgeCountdown`, desktop `all_boards.rs`).
+public enum PutAwayBoardCaption {
+    /// "Archived Jul 1, 2026"; bare "Archived" without a timestamp.
+    public static func archived(_ archivedAt: String?) -> String {
+        guard let date = parse(archivedAt) else { return "Archived" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "MMM d, yyyy"
+        return "Archived \(formatter.string(from: date))"
+    }
+
+    /// "Purges in ~Nh" (hours rounded up), "Purging soon" once due, "Purges
+    /// soon" without a timestamp.
+    public static func purge(_ purgeAt: String?, now: Date = Date()) -> String {
+        guard let date = parse(purgeAt) else { return "Purges soon" }
+        let ms = (date.timeIntervalSince(now) * 1000).rounded()
+        if ms <= 0 { return "Purging soon" }
+        let hours = Int((ms / 3_600_000).rounded(.up))
+        return "Purges in ~\(hours)h"
+    }
+
+    private static func parse(_ raw: String?) -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+    }
+}
