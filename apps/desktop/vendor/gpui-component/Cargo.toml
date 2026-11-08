@@ -15,6 +15,9 @@ doctest = false
 
 [features]
 decimal = ["dep:rust_decimal"]
+# Exponential patch (#EXP-1739): a dependent's headless tests can mount `Root`
+# on a test window (no platform hit-test forwarder to install).
+test-support = ["gpui/test-support"]
 inspector = ["gpui_macros/inspector", "gpui/inspector", "gpui-base/inspector"]
 tree-sitter = ["dep:tree-sitter", "dep:tree-sitter-json"]
 

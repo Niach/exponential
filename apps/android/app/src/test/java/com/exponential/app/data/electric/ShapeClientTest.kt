@@ -336,6 +336,38 @@ class ShapeClientTest {
         assertEquals("-1", requests[1].parameters["offset"])
     }
 
+    /**
+     * A first snapshot (no cursor row) replaces the table: rows a previous run
+     * applied without ever storing their cursor (killed between the batch and
+     * the offset write, or an older build that never kept this shape's
+     * cursor) would otherwise outlive their deletion on the server forever:
+     * a reseeded editor session's old conversation showed every message twice.
+     */
+    @Test
+    fun aFirstSnapshotWithoutACursorReplacesTheTable() = runBlocking {
+        val dao = FakeOffsetDao()
+        val batches = CopyOnWriteArrayList<List<ShapeMessage<Row>>>()
+        val shapeClient = client(
+            dao = dao,
+            onMessages = { batches.add(it) },
+            handler = { respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders()) },
+        )
+        val job = launch { shapeClient.run() }
+        withTimeout(10_000) {
+            while (batches.flatten().none { it is ShapeMessage.Insert }) {
+                kotlinx.coroutines.delay(20)
+            }
+        }
+        job.cancel()
+        job.join()
+
+        assertEquals(ShapeMessage.MustRefetch, batches.first().first())
+        assertTrue(batches.first().any { it is ShapeMessage.Insert })
+        // Only the snapshot wipes: once the cursor is stored, later polls never do.
+        assertTrue(batches.drop(1).flatten().none { it is ShapeMessage.MustRefetch })
+        assertEquals("h1", dao.map["rows"]?.handle)
+    }
+
     @Test
     fun kickInterruptsABackoffWaitAndResetsIt() = runBlocking {
         val dao = FakeOffsetDao()

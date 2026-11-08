@@ -3,23 +3,53 @@
 //! ordered by its place on screen, so a sweep runs across every Markdown leaf
 //! of every surface in the window and the host's copy yields the whole range
 //! in reading order. [`crate::host::HostPlugin::markdown_window_selection`].
+//!
+//! #EXP-1739: a chip or an inline code span is a run of non-breaking spaces
+//! under its own box, so the unit copies through [`super::markdown::copy_text`]
+//! (the chip's label), never the placeholder: a selection inside a code span
+//! was all whitespace, which the layer drops, and Copy came back empty.
+
+use std::cell::RefCell;
+use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{point, AnyElement, App, Bounds, ElementId, Hsla, IntoElement, Pixels, SharedString, Subscription, TextLayout, Window};
 use gpui_base::{TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
 
-/// The unit's element, its shaped text and the highlight colour.
+/// The unit's element, its shaped text, its chips' byte ranges with their
+/// labels and the highlight colour.
 pub struct SelectableUnit {
     id: ElementId,
     child: AnyElement,
     layout: TextLayout,
     text: SharedString,
+    chips: Vec<(Range<usize>, String)>,
     highlight: Hsla,
 }
 
 impl SelectableUnit {
     pub fn new(id: impl Into<SharedString>, child: AnyElement, layout: TextLayout, text: SharedString, highlight: Hsla) -> Self {
-        Self { id: ElementId::Name(id.into()), child, layout, text, highlight }
+        Self { id: ElementId::Name(id.into()), child, layout, text, chips: Vec::new(), highlight }
     }
+
+    /// The inline chips (and code spans) in `text`: copy gives their labels.
+    pub fn chips(mut self, chips: Vec<(Range<usize>, String)>) -> Self {
+        self.chips = chips;
+        self
+    }
+}
+
+/// What the unit's copy reads: the last painted text, chips and selected range.
+#[derive(Default)]
+pub struct Painted {
+    text: SharedString,
+    chips: Vec<(Range<usize>, String)>,
+    range: Option<Range<usize>>,
+}
+
+/// The copy text of `painted`'s selected range (chips as their labels).
+fn painted_copy(painted: &Painted) -> String {
+    painted.range.clone().map(|range| super::markdown::copy_text(&painted.text, range, &painted.chips)).unwrap_or_default()
 }
 
 /// Stable document order from geometry: top to bottom, then left to right,
@@ -32,6 +62,7 @@ fn document_order(bounds: &Bounds<Pixels>) -> u64 {
 
 struct UnitState {
     selection: TextSelectionHandle,
+    painted: Rc<RefCell<Painted>>,
     _refresh: Subscription,
 }
 
@@ -78,7 +109,7 @@ impl IntoElement for SelectableUnit {
 
 impl gpui::Element for SelectableUnit {
     type RequestLayoutState = ();
-    type PrepaintState = TextSelectionHandle;
+    type PrepaintState = (TextSelectionHandle, Rc<RefCell<Painted>>);
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -92,28 +123,35 @@ impl gpui::Element for SelectableUnit {
         (self.child.request_layout(window, cx), ())
     }
 
-    fn prepaint(&mut self, id: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) -> TextSelectionHandle {
+    fn prepaint(&mut self, id: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) -> Self::PrepaintState {
         self.child.prepaint(window, cx);
-        let selection = window.with_element_state::<UnitState, _>(id.expect("a SelectableUnit has an id"), |retained, window| {
+        let (selection, painted) = window.with_element_state::<UnitState, _>(id.expect("a SelectableUnit has an id"), |retained, window| {
             let state = retained.unwrap_or_else(|| {
                 let selection = TextSelectionHandle::new(self.text.clone(), cx);
                 let refresh = selection.refresh_window_on_change(window, cx);
-                UnitState { selection, _refresh: refresh }
+                let painted = Rc::new(RefCell::new(Painted::default()));
+                let copied = painted.clone();
+                selection.copy_with(move |_| painted_copy(&copied.borrow()), cx);
+                UnitState { selection, painted, _refresh: refresh }
             });
-            (state.selection.clone(), state)
+            ((state.selection.clone(), state.painted.clone()), state)
         });
+        // #EXP-1739: the text is what a menu opened on it follows.
+        gpui_component::overlay_anchor::report_anchor("overlay-anchor", bounds, window, cx);
         let hitbox = window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal);
         selection.register(TextSelectionRegistration::new(hitbox, bounds).with_document_order(document_order(&bounds)).with_text_bounds(vec![bounds]), window, cx);
-        selection
+        (selection, painted)
     }
 
-    fn paint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), selection: &mut TextSelectionHandle, window: &mut Window, cx: &mut App) {
+    fn paint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), (selection, painted): &mut Self::PrepaintState, window: &mut Window, cx: &mut App) {
         let projection = selection.update_runs(&[TextSelectionRun::new(self.text.clone(), self.layout.clone(), bounds).with_document_order(0)], cx);
-        if let Some(Some(range)) = projection.ranges().first() {
-            for segment in range_boxes(&self.layout, range.clone()) {
+        let range = projection.ranges().first().cloned().flatten();
+        if let Some(range) = range.clone() {
+            for segment in range_boxes(&self.layout, range) {
                 window.paint_quad(gpui::fill(segment, self.highlight));
             }
         }
+        *painted.borrow_mut() = Painted { text: self.text.clone(), chips: std::mem::take(&mut self.chips), range };
         self.child.paint(window, cx);
     }
 }

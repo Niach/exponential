@@ -33,8 +33,9 @@
 //!   `exponential-session` before the compositor starts so its cursor matches;
 //! - `~/.icons/default/index.theme` (the cursor for X11 clients).
 //!
-//! `org.gnome.desktop.interface` (gsettings) gets the same names, the
-//! previous values kept in `$XDG_STATE_HOME/exponential-desktop/theme-before.json` for
+//! `org.gnome.desktop.interface` (gsettings) gets the same names and
+//! `org.gnome.desktop.wm.preferences button-layout` GTK's own title bar
+//! buttons ([`DECORATION_LAYOUT`]), the previous values kept in `$XDG_STATE_HOME/exponential-desktop/theme-before.json` for
 //! `remove`: libadwaita apps and the GTK portal read it where no eDE portal
 //! answers (#EDE-15 answers `color-scheme` itself).
 
@@ -343,12 +344,24 @@ pub struct Plan {
     pub choice: Choice,
     pub files: Vec<File>,
     pub env: Vec<(String, String)>,
+    /// `key` = `org.gnome.desktop.interface`'s, `schema:key` another schema's.
     pub gsettings: Vec<(String, String)>,
+}
+
+/// GTK's own title bar buttons (client-side decorations): the IDE's window
+/// controls, minimize, maximize, close (#EDE-65). On Wayland GTK reads this
+/// gsetting over `settings.ini`, and GNOME's default shows close only.
+pub const DECORATION_LAYOUT: &str = ":minimize,maximize,close";
+const BUTTON_LAYOUT: &str = "org.gnome.desktop.wm.preferences:button-layout";
+
+/// The schema and the key of a [`Plan::gsettings`] entry.
+fn schema_key(key: &str) -> (&str, &str) {
+    key.split_once(':').unwrap_or((GSETTINGS_SCHEMA, key))
 }
 
 fn gtk_settings_ini(choice: &Choice) -> String {
     format!(
-        "# {MARKER}\n[Settings]\ngtk-theme-name={}\ngtk-application-prefer-dark-theme=1\ngtk-icon-theme-name={}\ngtk-cursor-theme-name={}\ngtk-cursor-theme-size={}\ngtk-font-name={} {}\ngtk-decoration-layout=:maximize,close\n",
+        "# {MARKER}\n[Settings]\ngtk-theme-name={}\ngtk-application-prefer-dark-theme=1\ngtk-icon-theme-name={}\ngtk-cursor-theme-name={}\ngtk-cursor-theme-size={}\ngtk-font-name={} {}\ngtk-decoration-layout={DECORATION_LAYOUT}\n",
         choice.gtk, choice.icons, choice.cursor, choice.cursor_size, choice.font, choice.font_size
     )
 }
@@ -534,6 +547,7 @@ impl Plan {
             ("cursor-size".to_string(), choice.cursor_size.to_string()),
             ("font-name".to_string(), format!("{} {}", choice.font, choice.font_size)),
             ("monospace-font-name".to_string(), format!("{} {}", choice.monospace, choice.font_size)),
+            (BUTTON_LAYOUT.to_string(), DECORATION_LAYOUT.to_string()),
         ];
         Plan { choice, files, env, gsettings }
     }
@@ -579,16 +593,23 @@ pub fn apply(paths: &Paths, plan: &Plan, options: Options) -> Result<Vec<PathBuf
     let _ = Command::new("systemctl").args(["--user", "set-environment"]).args(&assignments).status();
     let _ = Command::new("dbus-update-activation-environment").arg("--systemd").args(&assignments).status();
     if on_path("gsettings") {
+        // The person's values, once per key: a key a later version adds
+        // is recorded on its first apply.
         let before = paths.before();
-        if !before.exists() {
-            let mut previous = BTreeMap::new();
-            for (key, _) in &plan.gsettings {
-                if let Ok(out) = Command::new("gsettings").args(["get", GSETTINGS_SCHEMA, key]).output() {
-                    if out.status.success() {
-                        previous.insert(key.clone(), String::from_utf8_lossy(&out.stdout).trim().to_string());
-                    }
+        let mut previous: BTreeMap<String, String> = fs::read_to_string(&before).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let known = previous.len();
+        for (key, _) in &plan.gsettings {
+            if previous.contains_key(key) {
+                continue;
+            }
+            let (schema, name) = schema_key(key);
+            if let Ok(out) = Command::new("gsettings").args(["get", schema, name]).output() {
+                if out.status.success() {
+                    previous.insert(key.clone(), String::from_utf8_lossy(&out.stdout).trim().to_string());
                 }
             }
+        }
+        if !before.exists() || previous.len() != known {
             if let Some(dir) = before.parent() {
                 let _ = fs::create_dir_all(dir);
             }
@@ -596,7 +617,8 @@ pub fn apply(paths: &Paths, plan: &Plan, options: Options) -> Result<Vec<PathBuf
         }
         for (key, value) in &plan.gsettings {
             let literal = if value.chars().all(|c| c.is_ascii_digit()) { value.clone() } else { format!("'{value}'") };
-            let _ = Command::new("gsettings").args(["set", GSETTINGS_SCHEMA, key, &literal]).status();
+            let (schema, name) = schema_key(key);
+            let _ = Command::new("gsettings").args(["set", schema, name, &literal]).status();
         }
     }
     Ok(written)
@@ -637,7 +659,8 @@ pub fn remove(paths: &Paths, plan: &Plan, options: Options) -> Result<Vec<PathBu
     if let Ok(text) = fs::read_to_string(&before) {
         if let Ok(previous) = serde_json::from_str::<BTreeMap<String, String>>(&text) {
             for (key, literal) in previous {
-                let _ = Command::new("gsettings").args(["set", GSETTINGS_SCHEMA, &key, &literal]).status();
+                let (schema, name) = schema_key(&key);
+                let _ = Command::new("gsettings").args(["set", schema, name, &literal]).status();
             }
         }
         let _ = fs::remove_file(&before);
@@ -728,6 +751,12 @@ mod tests {
             assert!(f.text.lines().next().unwrap().contains(MARKER), "{} is marked", f.path.display());
         }
         assert_eq!(plan.gsettings[0], ("color-scheme".to_string(), "prefer-dark".to_string()));
+        // GTK's own title bars get the IDE's controls (#EDE-65).
+        assert!(text("gtk-4.0/settings.ini").contains("gtk-decoration-layout=:minimize,maximize,close\n"));
+        let layout = plan.gsettings.iter().find(|(k, _)| k.ends_with("button-layout")).unwrap();
+        assert_eq!(schema_key(&layout.0), ("org.gnome.desktop.wm.preferences", "button-layout"));
+        assert_eq!(layout.1, ":minimize,maximize,close");
+        assert_eq!(schema_key("color-scheme"), ("org.gnome.desktop.interface", "color-scheme"));
     }
 
     #[test]

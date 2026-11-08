@@ -23,6 +23,8 @@ struct ActiveMenu {
     menu: Entity<PopupMenu>,
     position: Point<Pixels>,
     _subscription: Subscription,
+    /// #EXP-1739: closes the menu when what it was opened on moves or goes.
+    _anchor: Option<crate::overlay_anchor::AnchorGuard>,
 }
 
 impl FallbackMenuOverlay {
@@ -51,10 +53,20 @@ impl FallbackMenuOverlay {
         });
         menu.focus_handle(cx).focus(window, cx);
 
+        // #EXP-1739: the menu follows what it was opened on (the text under
+        // the pointer); with nothing under it there is nothing to follow.
+        let anchor = crate::overlay_anchor::anchor_at(position, window, cx).and_then(|anchor| {
+            let menu = menu.downgrade();
+            crate::overlay_anchor::watch_anchor(anchor, window, cx, move |window, cx| {
+                let _ = menu.update(cx, |menu, cx| menu.close(window, cx));
+            })
+        });
+
         self.active = Some(ActiveMenu {
             menu,
             position,
             _subscription: subscription,
+            _anchor: anchor,
         });
         cx.notify();
     }
