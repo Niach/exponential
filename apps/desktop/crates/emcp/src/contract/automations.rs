@@ -265,7 +265,7 @@ pub fn validate_automations(list: &Value, ctx: &ExposeContext) -> Vec<ExposeErro
         if !templates_valid(run, kind) {
             fail("template");
         }
-        if run["action"].as_str().is_some_and(|a| a.starts_with("exponential.apps.")) {
+        if run["action"].as_str().is_some_and(|a| a.starts_with("exponential_apps_")) {
             fail("chain");
             continue;
         }
