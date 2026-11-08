@@ -31,9 +31,19 @@ fn root(cx: &App) -> Option<PathBuf> {
     Some(cx.try_global::<AuthContext>()?.data_dir.join("desktops"))
 }
 
+/// #EXP-1741: Local desktops are Exponential Desktop's alone. The IDE has
+/// them only as eDE's background app (it follows eDE's switcher onto one,
+/// #EDE-65); on macOS, Windows and other Linux desktops it has none.
+pub(crate) fn available() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktops| desktops.split(':').any(|d| d == "Exponential"))
+}
+
 fn ensure(cx: &mut App) -> bool {
     if cx.has_global::<LocalDesktops>() {
         return true;
+    }
+    if !available() {
+        return false;
     }
     let Some(root) = root(cx) else { return false };
     // #EDE-65: the machine's one index, eDE's desktops from before imported once.
@@ -234,6 +244,28 @@ pub(crate) fn leave(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1741: off Exponential Desktop the IDE opens no Local desktop,
+    /// whatever an earlier build saved: startup, the switcher and the
+    /// links find none, so the signed-in account is where it starts.
+    #[gpui::test]
+    fn off_ede_there_is_no_local_desktop(cx: &mut gpui::TestAppContext) {
+        if available() {
+            return;
+        }
+        crate::ui_prefs::set_on_local_desktop(true);
+        cx.update(|cx| {
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+            assert!(entries(cx).is_empty());
+            assert!(!enter_current(cx));
+            assert!(!knows("any", cx));
+            assert!(!create(cx));
+            assert!(Store::global(cx).session(cx).account_id().is_none());
+        });
+        crate::ui_prefs::set_on_local_desktop(false);
+        let _ = cx.add_window_view(|_, _| gpui::Empty);
+    }
 
     /// The whole seam: the store's team and board reach the collections,
     /// the client writes through the executor, the write's delta comes back
