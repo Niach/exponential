@@ -16,12 +16,12 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.54.2",
+    "@playwright/test": "^1.64.0",
     "@resvg/resvg-js": "^2.6.2",
     "@types/bun": "latest",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "playwright": "^1.54.2",
+    "playwright": "^1.64.0",
     "satori": "^0.26.0",
     "sharp": "^0.35.5",
     "typescript": "^5.7.2"
