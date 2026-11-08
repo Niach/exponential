@@ -1,6 +1,6 @@
 {
-  "id": "a6aeffd2-c4ac-4be8-b221-38f9b244b85a",
-  "prevId": "9f14464a-171e-452f-b6b6-f5cd1d9b7545",
+  "id": "0aa9c219-2726-4bfd-a2dc-238352b87286",
+  "prevId": "e512acac-99d5-425c-9770-18cad9927643",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -89,13 +89,6 @@
           "type": "varchar(64)",
           "primaryKey": false,
           "notNull": false
-        },
-        "defaults": {
-          "name": "defaults",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "skill_ids": {
           "name": "skill_ids",
@@ -1767,12 +1760,6 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamp with time zone",
@@ -1831,22 +1818,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "uniq_apps_agent": {
-          "name": "uniq_apps_agent",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "agent_id IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1882,19 +1853,6 @@
           "tableTo": "users",
           "columnsFrom": [
             "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "apps_agent_id_agents_id_fk": {
-          "name": "apps_agent_id_agents_id_fk",
-          "tableFrom": "apps",
-          "tableTo": "agents",
-          "columnsFrom": [
-            "agent_id"
           ],
           "columnsTo": [
             "id"
@@ -2047,12 +2005,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2069,22 +2021,6 @@
         }
       },
       "indexes": {
-        "idx_attachments_session": {
-          "name": "idx_attachments_session",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "session_id IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "idx_attachments_app": {
           "name": "idx_attachments_app",
           "columns": [
@@ -2293,19 +2229,6 @@
           "tableTo": "apps",
           "columnsFrom": [
             "app_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "attachments_session_id_sessions_id_fk": {
-          "name": "attachments_session_id_sessions_id_fk",
-          "tableFrom": "attachments",
-          "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
           ],
           "columnsTo": [
             "id"
@@ -8784,12 +8707,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "root_id": {
           "name": "root_id",
           "type": "uuid",
@@ -8982,27 +8899,6 @@
           "method": "btree",
           "with": {}
         },
-        "idx_messages_session_created": {
-          "name": "idx_messages_session_created",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "idx_messages_root": {
           "name": "idx_messages_root",
           "columns": [
@@ -9110,19 +9006,6 @@
           "tableTo": "conversations",
           "columnsFrom": [
             "conversation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "messages_session_id_sessions_id_fk": {
-          "name": "messages_session_id_sessions_id_fk",
-          "tableFrom": "messages",
-          "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
           ],
           "columnsTo": [
             "id"
@@ -11610,15 +11493,15 @@
           "primaryKey": false,
           "notNull": false
         },
-        "digest": {
-          "name": "digest",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "scope_team_ids": {
           "name": "scope_team_ids",
           "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "subagent_key": {
+          "name": "subagent_key",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -11638,6 +11521,28 @@
         }
       },
       "indexes": {
+        "uniq_sessions_subagent_key": {
+          "name": "uniq_sessions_subagent_key",
+          "columns": [
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "subagent_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "subagent_key IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "uniq_sessions_agent_conversation": {
           "name": "uniq_sessions_agent_conversation",
           "columns": [
@@ -12748,12 +12653,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "lead_assistant_id": {
-          "name": "lead_assistant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -12825,19 +12724,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "teams_lead_assistant_id_agents_id_fk": {
-          "name": "teams_lead_assistant_id_agents_id_fk",
-          "tableFrom": "teams",
-          "tableTo": "agents",
-          "columnsFrom": [
-            "lead_assistant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -13055,20 +12941,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
-        },
-        "speak_replies": {
-          "name": "speak_replies",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "push_to_talk": {
-          "name": "push_to_talk",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "ptt_shortcut": {
           "name": "ptt_shortcut",
