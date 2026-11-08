@@ -39,6 +39,14 @@ vi.mock(`@/lib/steer`, async (importOriginal) => ({
   relayPostKill: async () => ({ delivered: false }),
   relayPostInterrupt: async () => ({ delivered: false }),
 }))
+// The merge train's tick picks every repository with a live PR in the WHOLE
+// database, whatever `now` says (merge-train.json; its own real-db suite
+// covers it): here it walked every parallel suite's repositories, each pass
+// under their advisory lock, past this suite's 5 s timeouts.
+vi.mock(`@/lib/merge-train/worker`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/merge-train/worker")>()),
+  runMergeTrainTick: async () => 0,
+}))
 // The scheduler's metrics are not under test.
 vi.mock(`@/lib/metrics/registry`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/metrics/registry")>()),
