@@ -1640,8 +1640,8 @@
         "file": "shots/composer-menu/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 25566,
-        "sha256": "b4bc578d6b221ab5cfb5312f78b23ac960598d786501d9963bd6dda0d2a76388"
+        "bytes": 21032,
+        "sha256": "a9762808e36e9a64ccd60962be42eea7e093726f36d8ed215ea36fa25354237b"
       },
       "desktop": {
         "file": "shots/composer-menu/desktop.webp",
@@ -5443,8 +5443,8 @@
         "file": "shots/machine-settings/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 26890,
-        "sha256": "f19c2b83a65ea127d8fddefb2262bd29cee9144e81ccda4b70119a8e57e30a31"
+        "bytes": 22956,
+        "sha256": "dd0ad75e08e263e405e7ff0e8dba3e9a8c082aef794a8d387b95fc91de852840"
       },
       "desktop": {
         "file": "shots/machine-settings/desktop.webp",
