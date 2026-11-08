@@ -40,12 +40,13 @@ let package = Package(
         // usage was the read-only comment display, and its optimized opaque-
         // Body metadata hard-crashed the iOS 27 runtime. Comments render via
         // the in-house block editor (read-only mode) instead.
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.12.0"),
         // cmark-gfm / cmark-gfm-extensions used to arrive transitively via
         // swift-markdown-ui; the block editor's GFM parser links them directly,
         // so declare the source package explicitly now that markdown-ui is gone.
-        .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.7.1"),
-        .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "11.0.0"),
+        .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.9.0"),
+        // Capped below 13: Firebase 13 needs a newer Xcode than CI runs.
+        .package(url: "https://github.com/firebase/firebase-ios-sdk.git", "12.19.0"..<"13.0.0"),
         // The Exponential UI SDK (packages/exponential-ui-swift), a LOCAL path
         // package: its `ExponentialUIPrimitives` product needs no Rust
         // toolchain; the painter `ExponentialUI` (EXP-1280: the plan card's
