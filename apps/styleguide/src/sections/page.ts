@@ -174,6 +174,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   outline: `Lists & rows`,
   tree: `Lists & rows`,
   mosaic: `Surfaces`,
+  window: `Surfaces`,
   [`zoomable-image`]: `Surfaces`,
   motion: `Feedback`,
   [`box-hover`]: `Inputs & pickers`,
@@ -195,6 +196,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`results-tab`]: `Surfaces`,
   [`needs-you`]: `Lists & rows`,
   [`ede-panel`]: `Surfaces`,
+  [`site-mega-menu`]: `Surfaces`,
+  [`site-cta-band`]: `Surfaces`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */
