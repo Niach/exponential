@@ -7,7 +7,6 @@
 
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
-    delegate_dmabuf,
     reexports::{calloop::Interest, wayland_server::Resource},
     wayland::{
         compositor::{add_blocker, add_pre_commit_hook, with_states, BufferAssignment, CompositorHandler, SurfaceAttributes},
@@ -31,7 +30,6 @@ impl DmabufHandler for Ede {
         }
     }
 }
-delegate_dmabuf!(Ede);
 
 #[cfg(feature = "udev")]
 impl smithay::wayland::drm_syncobj::DrmSyncobjHandler for Ede {
@@ -39,8 +37,6 @@ impl smithay::wayland::drm_syncobj::DrmSyncobjHandler for Ede {
         self.syncobj_state.as_mut()
     }
 }
-#[cfg(feature = "udev")]
-smithay::delegate_drm_syncobj!(Ede);
 
 /// A commit carrying a dmabuf waits until the GPU finished writing it: the
 /// syncobj acquire point if the client set one, else the dmabuf's implicit
