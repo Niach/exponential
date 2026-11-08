@@ -120,13 +120,12 @@ export function withinOtherOverlay(own: Element | null | undefined, target: Even
 export function watchAnchor(get: () => Element | null | undefined, onLost: () => void): () => void {
   const first = get()
   if (!first || typeof window === `undefined`) return () => {}
-  let opened = first.getBoundingClientRect()
   // A web font still loading lays text out in its fallback first: the swap
   // re-lays the page out without anything having moved (the core lays out
   // with its fonts already loaded), so the box the anchor ends up in once the
-  // fonts settle is the one it opened at.
-  const fonts = (document as Document & { fonts?: FontFaceSet }).fonts
-  let settling = fonts?.status === `loading`
+  // fonts settle is the one it opened at (none yet = re-measure next frame).
+  const loading = () => (document as Document & { fonts?: FontFaceSet }).fonts?.status === `loading`
+  let opened = loading() ? undefined : first.getBoundingClientRect()
   let done = false
   let frame = 0
   const lose = () => {
@@ -140,16 +139,11 @@ export function watchAnchor(get: () => Element | null | undefined, onLost: () =>
     if (el && (target === document || target === window || (target instanceof Node && target !== el && target.contains(el)))) lose()
   }
   const tick = () => {
-    const el = get()
     // Gone, or another element took its place (the same place is not the same anchor).
-    if (!el || !el.isConnected || el !== first) return lose()
-    const rect = el.getBoundingClientRect()
-    // Re-measured on the first frame after the fonts finished, too.
-    const loading = fonts?.status === `loading`
-    if (settling || loading) {
-      opened = rect
-      settling = loading
-    } else if (Math.abs(rect.x - opened.x) >= 0.5 || Math.abs(rect.y - opened.y) >= 0.5) return lose()
+    if (get() !== first || !first.isConnected) return lose()
+    const rect = first.getBoundingClientRect()
+    opened = loading() ? undefined : (opened ?? rect)
+    if (opened && (Math.abs(rect.x - opened.x) >= 0.5 || Math.abs(rect.y - opened.y) >= 0.5)) return lose()
     frame = requestAnimationFrame(tick)
   }
   const stop = () => {
@@ -157,7 +151,8 @@ export function watchAnchor(get: () => Element | null | undefined, onLost: () =>
     cancelAnimationFrame(frame)
     window.removeEventListener(`scroll`, scrolled, true)
   }
-  window.addEventListener(`scroll`, scrolled, { capture: true, passive: true })
+  // Capture only: a scroll is never cancelable, so `passive` changes nothing.
+  window.addEventListener(`scroll`, scrolled, true)
   frame = requestAnimationFrame(tick)
   return stop
 }
