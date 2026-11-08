@@ -168,6 +168,7 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
         rows.push(nav("needs-you", "nav-needs-you", screen == "needs-you", Some(input.needs_you.to_string()), None));
     }
     rows.push(nav("threads", "nav-threads", screen == "threads", None, input.threads_dot));
+    rows.push(nav("devices", "nav-devices", screen == "devices", None, None));
     if input.drafts > 0 || screen == "drafts" {
         rows.push(nav("drafts", "nav-drafts", screen == "drafts", Some(input.drafts.to_string()), None));
     }
