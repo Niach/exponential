@@ -1630,6 +1630,11 @@ fn load_settings_string(cx: &App, key: &str) -> Option<String> {
 /// lock) lets a superseded snapshot skip instead of clobbering the newest.
 /// `team_id: None` leaves the team key untouched;
 /// `board_id: None` REMOVES the board key (team switch reset).
+/// #EDE-65: the team the next window opens on (a deep link with no window).
+pub(crate) fn remember_team(cx: &mut App, team_id: String) {
+    persist_nav_state(cx, Some(team_id), None);
+}
+
 fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<String>) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);

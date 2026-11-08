@@ -92,6 +92,22 @@ struct HoverReporting: ViewModifier {
     }
 }
 
+/// #EDE-65: the pointer entering a Box fires its `on.hover` (like a
+/// Motion's `MotionDriver.hover`); touch has no hover.
+struct BoxHoverFiring: ViewModifier {
+    let id: String
+    let model: SurfaceModel
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on {
+            content.onHover { model.boxHover(id: id, $0) }
+        } else {
+            content
+        }
+    }
+}
+
 /// `cursor` (contract §2): a hint pointer platforms honour; touch ignores
 /// it. macOS pushes the matching `NSCursor` while the pointer is over the
 /// box.

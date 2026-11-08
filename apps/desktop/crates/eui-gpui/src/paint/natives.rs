@@ -861,19 +861,13 @@ pub fn image(cx: &LeafCx, around: ImageSurround, held: Option<(&gpui::SharedStri
         f @ ("contain" | "fill" | "none" | "scaleDown") => f,
         _ => "cover",
     };
-    let fit = match fit_name {
-        "contain" => ObjectFit::Contain,
-        "fill" => ObjectFit::Fill,
-        "none" => ObjectFit::None,
-        "scaleDown" => ObjectFit::ScaleDown,
-        _ => ObjectFit::Cover,
-    };
     let focal = (cx.num("focalX").unwrap_or(0.5) as f32, cx.num("focalY").unwrap_or(0.5) as f32);
-    let centred = (focal.0 - 0.5).abs() < 1e-3 && (focal.1 - 0.5).abs() < 1e-3;
-    if !centred && fit_name != "fill" {
-        // gpui's `object_fit` always centres: paint the decoded image at its
-        // focal bounds, the leaf's rounded corners clipping it.
-        return match render_image(&source, window, app) {
+    // Every fit paints the decoded image at its focal bounds itself, the
+    // leaf's rounded corners clipping it: gpui's `object_fit` always centres,
+    // and its `img` takes the picture's aspect ratio into its own layout, so
+    // a portrait picture in a wide box grew past the box and the box showed
+    // only its top (#EDE-66: the taskbar previews' thumbnails).
+    match render_image(&source, window, app) {
             Some(Ok(data)) => {
                 let radii = cx.radii;
                 let fit_name = fit_name.to_string();
@@ -892,12 +886,7 @@ pub fn image(cx: &LeafCx, around: ImageSurround, held: Option<(&gpui::SharedStri
                 .into_any_element()
             }
             _ => rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx, around)).into_any_element(),
-        };
     }
-    let (fa, fb) = (ImageFallback::of(cx, around), ImageFallback::of(cx, around));
-    rounded(div().size_full().overflow_hidden(), cx.radii)
-        .child(rounded(img(source).size_full().object_fit(fit), cx.radii).with_fallback(move || fa.element()).with_loading(move || fb.element()))
-        .into_any_element()
 }
 
 /// `m:ss` / `h:mm:ss`.
@@ -1600,6 +1589,9 @@ mod tests {
         assert_eq!(focal_bounds("none", (0.0, 0.0, 100.0, 100.0), (40.0, 20.0), (0.0, 0.0)), (0.0, 0.0, 40.0, 20.0));
         assert_eq!(focal_bounds("scaleDown", (0.0, 0.0, 100.0, 100.0), (40.0, 20.0), (1.0, 1.0)), (60.0, 80.0, 40.0, 20.0));
         assert_eq!(focal_bounds("fill", (0.0, 0.0, 100.0, 100.0), (40.0, 20.0), (1.0, 1.0)), (0.0, 0.0, 100.0, 100.0));
+        // #EDE-66: a centred portrait thumbnail (68×110) in the taskbar's
+        // 192×110 box stays inside it, the whole window visible.
+        assert_eq!(focal_bounds("contain", (0.0, 0.0, 192.0, 110.0), (68.0, 110.0), (0.5, 0.5)), (62.0, 0.0, 68.0, 110.0));
     }
 
     /// #EDE-65: a changed `src` keeps the last picture until its own lands.

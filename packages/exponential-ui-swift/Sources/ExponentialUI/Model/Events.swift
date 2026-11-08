@@ -205,6 +205,16 @@ extension SurfaceModel {
         setInteraction(id) { $0.hover = hovered }
     }
 
+    /// #EDE-65: the pointer entered a Box: its `on.hover` fires, exactly
+    /// like a Motion's (no payload); leaving fires nothing. Pressable or
+    /// not; nothing without a handler.
+    public func boxHover(id: String, _ inside: Bool) {
+        guard inside, let i = byId[id], let n = node(i), n.component == "Box", n.part == nil else { return }
+        pointerSeen()
+        guard let events = try? surface.event(index: UInt32(i), name: "hover", payloadJson: nil), !events.isEmpty else { return }
+        dispatch(events)
+    }
+
     /// A drag with files over a FileUpload drop zone (`dragover`).
     public func setDragover(id: String, _ over: Bool) {
         setInteraction(id) { $0.dragover = over }

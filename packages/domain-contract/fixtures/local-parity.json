@@ -1,5 +1,5 @@
 {
-  "$comment": "#EDE-55 LOCAL PARITY (Local desktops, #EDE-54): the rules a LOCAL DESKTOP replays without a server. A Local desktop is one team in its own SQLite store (the IDE's synced-shape layout, every column TEXT, the same 34 tables), authoritative and offline; elocal's executor answers the tRPC procedures the clients call (`procedures.local`, the exact wire names) over that store, and refuses every other one with `procedures.refusal` (HTTP 501 on the Transport, so a client shows it as a plain refusal, never a sign-in). IDENTITY: the person at the machine is the one member and owner; their user id is minted once per desktop, their email is `<login>@<identity.emailDomain>` (`identity.cases`: lowercase, runs of anything but a-z 0-9 . _ - become one dash, trimmed, empty = local), which is what mentions and the team import rewrite. SEED (`seed.cases`, ids from the caller's id source in order): a new desktop holds its team row (id = the desktop id, slug = `seed.slugPrefix` + the first 8 characters of the desktop id), the identity's user row and owner membership, the contract's builtin statuses (`issueStatusDefaults`, in order) and one board (`seed.board`). ISSUES: numbers count per board from 1 (`issues.numberCases`: the next = max + 1), the identifier is `<prefix>-<number>` (`issues.identifierCases`), the status anchor follows the row's category (`issues.anchorByCategory`, the server's CATEGORY_ANCHOR) and `issues.create.cases` give the whole created row (status from `statusId`, else from the anchor `status`, else the builtin backlog; the assignee = the input's, else the identity (the sole member rule); creator = the identity; priority none; sort_order = the number; source user; created and updated = now); `issues.update.cases` apply a patch (a key present = set, null = cleared, a status by id dual-writes the anchor). COMMENTS (`comments.cases`): author = the identity, audience team, source user, one level deep: a reply to a reply lands under the top comment. SESSIONS (`sessions.send.cases`): a send without a session makes a ROOT session (status queued until a local agent run takes it, #EDE-58; device = the desktop's device id; title = the name, else the text's first line cut at 80), its conversation (kind session) and the person's message (author user); a send into a session adds only the message; `issueIds` link through session_issues (source user). AGENTS (`agents.assistant`): `ensureAssistant` makes the identity's one assistant row (name Assistant, role assistant, device = the desktop's) and answers it again after. Everything else a procedure writes keeps the server's column names; a local id is a uuid the client mints.",
+  "$comment": "#EDE-55 LOCAL PARITY (Local desktops, #EDE-54): the rules a LOCAL DESKTOP replays without a server. A Local desktop is one team in its own SQLite store (the IDE's synced-shape layout, every column TEXT, the same 34 tables), authoritative and offline; elocal's executor answers the tRPC procedures the clients call (`procedures.local`, the exact wire names) over that store, and refuses every other one with `procedures.refusal` (HTTP 501 on the Transport, so a client shows it as a plain refusal, never a sign-in). IDENTITY: the person at the machine is the one member and owner; their user id is minted once per desktop, their email is `<login>@<identity.emailDomain>` (`identity.cases`: lowercase, runs of anything but a-z 0-9 . _ - become one dash, trimmed, empty = local), which is what mentions and the team import rewrite. SEED (`seed.cases`, ids from the caller's id source in order): a new desktop holds its team row (id = the desktop id, slug = `seed.slugPrefix` + the first 8 characters of the desktop id), the identity's user row and owner membership, the contract's builtin statuses (`issueStatusDefaults`, in order) and one board (`seed.board`). ISSUES: numbers count per board from 1 (`issues.numberCases`: the next = max + 1), the identifier is `<prefix>-<number>` (`issues.identifierCases`), the status anchor follows the row's category (`issues.anchorByCategory`, the server's CATEGORY_ANCHOR) and `issues.create.cases` give the whole created row (status from `statusId`, else from the anchor `status`, else the builtin backlog; the assignee = the input's, else the identity (the sole member rule); creator = the identity; priority none; sort_order = the number; source user; created and updated = now); `issues.update.cases` apply a patch (a key present = set, null = cleared, a status by id dual-writes the anchor). COMMENTS (`comments.cases`): author = the identity, audience team, source user, one level deep: a reply to a reply lands under the top comment. SESSIONS (`sessions.send.cases`): a send without a session makes a ROOT session (status queued until a local agent run takes it, #EDE-58; device = the desktop's device id; title = the name, else the text's first line cut at 80), its conversation (kind session) and the person's message (author user); a send into a session adds only the message; `issueIds` link through session_issues (source user). AGENTS (`agents.assistant`): `ensureAssistant` makes the identity's one assistant row (name Assistant, role assistant, device = the desktop's) and answers it again after. Everything else a procedure writes keeps the server's column names; a local id is a uuid the client mints. REPOSITORIES (#EXP-1727): a Local desktop links git working copies on the machine (`repositories.linkFolder {path, boardId?}`: the folder's name, the branch its HEAD names, the board pointed at it; `repositories.listLocal`; `repositories.forIssue` = the issue's board's linked folder or null). They live in the desktop's sidecar, never in a shape, and nothing clones or fetches: the folder is the clone.",
   "procedures": {
     "refusal": "{procedure} is not available on a Local desktop",
     "local": [
@@ -63,7 +63,10 @@
       "apps.records.upsert",
       "apps.records.delete",
       "apps.records.batch",
-      "apps.records.history"
+      "apps.records.history",
+      "repositories.linkFolder",
+      "repositories.listLocal",
+      "repositories.forIssue"
     ],
     "cases": [
       {
@@ -85,6 +88,16 @@
         "procedure": "pullRequests.merge",
         "local": false,
         "error": "pullRequests.merge is not available on a Local desktop"
+      },
+      {
+        "procedure": "repositories.linkFolder",
+        "local": true,
+        "error": null
+      },
+      {
+        "procedure": "repositories.installationToken",
+        "local": false,
+        "error": "repositories.installationToken is not available on a Local desktop"
       }
     ]
   },

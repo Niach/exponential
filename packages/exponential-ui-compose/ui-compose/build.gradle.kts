@@ -41,6 +41,7 @@ val buildUiFfi = tasks.register<Exec>("buildUiFfi") {
     inputs.property("abis", System.getenv("ABIS") ?: "")
     outputs.dir(File(ffiCrate, "out/jniLibs"))
     onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
+        if (System.getenv("ENET_SKIP_NATIVE") == "1") return@onlyIf false
         if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Exponential UI .so")
         System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
     }

@@ -1429,6 +1429,7 @@ impl SurfaceView {
             }
             world.cache.ids.push(SharedString::from(n.id.clone()));
             world.cache.hover_styled.push(false);
+            world.cache.hover_fires.push(false);
             world.cache.nodes.push(n);
             world.frames.push(*frame);
             world.styles.push(styles.get(slot).cloned().unwrap_or_default());
