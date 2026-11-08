@@ -24,7 +24,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `dock::band / dock_card / sheet`,
       file: `apps/desktop/crates/ui/src/dock.rs`,
-      note: `the pile = domain::stack::stack_layout (shared with toast.rs); the sheet = a window layer; hosts: steer_viewer.rs render_session_dock, session_chat.rs root_dock`,
+      note: `the pile = domain::stack::stack_layout (shared with toast.rs); the sheet = a window layer; hosts: steer_viewer.rs render_session_dock (the root's session view is the Chat tab, #EXP-1732)`,
     },
     ios: {
       state: `ok`,
