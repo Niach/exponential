@@ -191,6 +191,10 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
             open_session_deep_link(link, cx);
             continue;
         }
+        if let Some(team_id) = parse_new_issue_deep_link(&url) {
+            open_new_issue_deep_link(team_id, cx);
+            continue;
+        }
         log::info!("[ui] open-urls: unhandled URL {url}");
     }
 }
@@ -284,6 +288,36 @@ fn open_session_deep_link(link: SessionDeepLink, cx: &mut App) {
         let screen = crate::navigation::session_screen_for(&root_id, cx);
         crate::navigation::navigate(window, cx, screen);
     });
+}
+
+/// #EDE-65 `exponential://new-issue[/<team id>]` → `Some(team)`: eDE's
+/// new-issue button (`None` = the window's own team).
+pub(crate) fn parse_new_issue_deep_link(url: &str) -> Option<Option<String>> {
+    let prefix = format!("{}://new-issue", api::login::OAUTH_CALLBACK_SCHEME);
+    let rest = url.strip_prefix(prefix.as_str())?;
+    if !(rest.is_empty() || rest.starts_with(['/', '?', '#'])) {
+        return None;
+    }
+    let team = rest.trim_start_matches('/').split(['?', '#']).next().unwrap_or_default().trim_end_matches('/');
+    Some((!team.is_empty()).then(|| team.to_string()))
+}
+
+/// A new issue on the team's board (the window's active one), as the
+/// sidebar's new button opens it.
+fn open_new_issue_deep_link(team_id: Option<String>, cx: &mut App) {
+    let team_id = team_id.filter(|id| Store::global(cx).collections().teams.read(cx).get(id).is_some());
+    if let Some(window) = crate::navigation::active_or_primary_window(cx) {
+        let _ = window.update(cx, |_, window, cx| {
+            if let Some(team) = team_id {
+                crate::navigation::switch_team(window, cx, team);
+            }
+            let nav = crate::navigation::nav_for_window(window, cx);
+            match crate::navigation::active_board_id(&nav, cx) {
+                Some(board) => crate::issue_draft_screen::open_new_from_rail(window, cx, board),
+                None => log::info!("[ui] open-urls: new-issue deep link with no board — ignored"),
+            }
+        });
+    }
 }
 
 /// The window switches to the team (a resident app without a window opens
@@ -618,6 +652,18 @@ mod tests {
         assert_eq!(parse_session_deep_link("exponential://team/t1"), None);
         assert!(api::login::parse_oauth_callback("exponential://session/s1?opens=card&message=m1").is_none());
         assert_eq!(parse_team_deep_link("exponential://session/s1"), None);
+    }
+
+    /// #EDE-65: eDE's new-issue button sends `exponential://new-issue[/<team>]`.
+    #[test]
+    fn the_new_issue_link_parses() {
+        assert_eq!(parse_new_issue_deep_link("exponential://new-issue"), Some(None));
+        assert_eq!(parse_new_issue_deep_link("exponential://new-issue/t1"), Some(Some("t1".into())));
+        assert_eq!(parse_new_issue_deep_link("exponential://new-issues"), None);
+        assert_eq!(parse_new_issue_deep_link("exponential://team/t1"), None);
+        assert!(api::login::parse_oauth_callback("exponential://new-issue/t1").is_none());
+        assert_eq!(parse_team_deep_link("exponential://new-issue/t1"), None);
+        assert_eq!(parse_issue_deep_link("exponential://new-issue/t1"), None);
     }
 
     #[test]

@@ -8237,7 +8237,7 @@
       "id": "ede-panel",
       "group": "ede",
       "title": "Exponential Desktop · shell",
-      "blurb": "The IDE look (#EDE-42): the ground (apps/ede/ui/ground.json, the rounded panel the focused window sits on), the 272 px sidebar (sidebar.json: the desktop/team switcher, inbox, search and new, Needs you + Chats, Pinned and Workspaces, the Exponential start button and the chat button bottom-left) and Mint's taskbar (taskbar.json: icon-only grouped buttons with the sample windows, the applets, the bell and the clock) on the headless compositor's 1280×720 output.",
+      "blurb": "The IDE look (#EDE-42, #EDE-65): the ground (apps/ede/ui/ground.json, the rounded panel the focused window sits on), the sidebar as the IDE's 56 px icon rail for good, black like the IDE's (sidebar.json: only the chats, each the agent's mark with its needs-you, busy or unread dot; the sample chats in the golden) and Mint's taskbar along the whole bottom edge (taskbar.json: the Exponential start button, the chat button and the new-issue button bottom-left, icon-only grouped buttons with the sample windows, the applets, the bell and the clock) on the headless compositor's 1280×720 output.",
       "order": 1,
       "ede": {
         "size": "1280x720",
@@ -8255,7 +8255,7 @@
       "id": "ede-panel-menu",
       "group": "ede",
       "title": "Exponential Desktop · start menu",
-      "blurb": "The factory start menu (apps/ede/ui/start-menu.json), Mint's layout: the person with the favourites and lock / log out / power, the categories, the app rows (sample entries in the golden) and the search box, open as the sidebar's popup surface, an xdg_popup above the Exponential start button, with the keyboard.",
+      "blurb": "The factory start menu (apps/ede/ui/start-menu.json), Mint's layout: the person with the favourites and lock / log out / power, the categories, the app rows (sample entries in the golden) and the search box, open as the taskbar's popup surface, an xdg_popup above the Exponential start button bottom-left, with the keyboard.",
       "order": 2,
       "ede": {
         "size": "1280x720",
@@ -8419,27 +8419,6 @@
           "EDE_SHELL_SETTINGS_PAGE": "local-general,switcher"
         },
         "settleMs": 2500
-      },
-      "notes": {
-        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
-        "web-mobile": "Exponential Desktop only.",
-        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
-        "ios": "Exponential Desktop only.",
-        "android": "Exponential Desktop only."
-      }
-    },
-    {
-      "id": "ede-rail",
-      "group": "ede",
-      "title": "Exponential Desktop · icon rail",
-      "blurb": "The sidebar folded to the 56 px icon rail (sidebar.json with /shell/rail: Sidebar's rail mode draws every row as a tile with a tooltip; the ground's panel follows), the taskbar unchanged.",
-      "order": 9,
-      "ede": {
-        "size": "1280x720",
-        "env": {
-          "EDE_SHELL_RAIL": "1"
-        },
-        "settleMs": 2000
       },
       "notes": {
         "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
