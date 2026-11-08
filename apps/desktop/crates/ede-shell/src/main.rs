@@ -178,6 +178,17 @@ impl Notifications {
 /// What the hosted-popups hook reports: a document's hosted layers.
 type HostedReport = (String, Vec<Layer>);
 
+/// The last of each surface's hosted-popup reports, in arrival order of
+/// those last ones.
+fn latest_reports(reports: impl IntoIterator<Item = HostedReport>) -> Vec<HostedReport> {
+    let mut out: Vec<HostedReport> = Vec::new();
+    for (document, layers) in reports {
+        out.retain(|(d, _)| d != &document);
+        out.push((document, layers));
+    }
+    out
+}
+
 /// The shell's state, shared by the host plugin and the main loop.
 struct Shell {
     options: Options,
@@ -2212,7 +2223,10 @@ fn main() {
                     }
                     dirty = true;
                 }
-                while let Ok((document, layers)) = hosted_rx.try_recv() {
+                // The latest report per surface only (#EDE-65): a hover Popover
+                // reports itself empty, then again once its data is in; the
+                // window opens at the second size instead of the first.
+                for (document, layers) in latest_reports(hosted_rx.try_iter()) {
                     cx.update(|cx| s.borrow_mut().surfaces.sync_hosted(&document, &layers, cx));
                 }
                 // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
@@ -2363,6 +2377,24 @@ mod function_names {
             }
         }
         assert!(checked > 40, "the headers were read ({checked})");
+    }
+}
+
+#[cfg(test)]
+mod hosted_reports {
+    use super::*;
+
+    /// #EDE-65: the taskbar's hover previews report themselves empty (50 px)
+    /// and again with their windows in one tick; the popup opens once, at
+    /// the second size.
+    #[test]
+    fn only_each_surfaces_last_report_counts() {
+        let layer = |owner: &str| serde_json::from_value::<Layer>(json!({"layer": 1, "kind": "popover", "owner": owner, "root": 0, "position": "anchored", "class": "overlay", "frames": []})).unwrap();
+        let reports = vec![("taskbar".to_string(), vec![layer("empty")]), ("sidebar".to_string(), vec![]), ("taskbar".to_string(), vec![layer("filled")])];
+        let latest = latest_reports(reports);
+        assert_eq!(latest.len(), 2);
+        assert_eq!(latest[0].0, "sidebar");
+        assert_eq!((latest[1].0.as_str(), latest[1].1[0].owner.as_str()), ("taskbar", "filled"));
     }
 }
 
