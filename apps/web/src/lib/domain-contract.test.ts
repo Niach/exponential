@@ -207,15 +207,9 @@ describe(`domain-contract parity`, () => {
   it(`device agent defaults match the contract`, () => {
     expect(DEVICE_AGENT_DEFAULTS).toEqual({
       model: contract.deviceAgentDefaults.model,
-      subagentModel: contract.deviceAgentDefaults.subagentModel,
-      threadModel: contract.deviceAgentDefaults.threadModel,
     })
-    // Every model is explicit (owner 2026-10-15): no blank default.
-    expect(DEVICE_AGENT_DEFAULTS).toEqual({
-      model: `fable`,
-      subagentModel: `opus`,
-      threadModel: `haiku`,
-    })
+    // #EXP-1734: opus everywhere, explicit (no blank default).
+    expect(DEVICE_AGENT_DEFAULTS).toEqual({ model: `opus` })
   })
 
   // EXP-1291: the session tree's vocabulary + sessions.send's caps.

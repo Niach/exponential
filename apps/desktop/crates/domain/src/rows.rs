@@ -755,7 +755,7 @@ pub struct SessionRow {
     #[serde(default)]
     pub effort: Option<String>,
     /// EXP-1583: claude only, the launch's subagent model; `None` = the
-    /// device's default.
+    /// session's own model (#EXP-1734: no device-level subagent default).
     #[serde(default)]
     pub subagent_model: Option<String>,
     #[serde(default, deserialize_with = "tolerant_bool_or_false")]

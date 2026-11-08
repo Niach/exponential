@@ -63,7 +63,6 @@ import {
   agentSeed,
   agentSupportsAccountRotation,
   type AgentLaunchDefaults,
-  agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import {
@@ -75,7 +74,7 @@ import {
 import {
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,
-  subagentModelChoices,
+  modelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 
@@ -101,10 +100,6 @@ const DEFAULTS_DEBOUNCE_MS = 1_000
 
 interface AgentDraft {
   model: string
-  /** EXP-981: claude only; always explicit. */
-  subagentModel?: string
-  /** The dispatcher root's model (threads + team agents). */
-  threadModel?: string
   effort: string
   ultracode: boolean
   /** EXP-1005: claude only; absent on the row = ON (the device default). */
@@ -468,8 +463,6 @@ export function DeviceSettingsDialog({
       string,
       {
         model?: string
-        subagentModel?: string
-        threadModel?: string
         effort?: string
         ultracode?: boolean
         autoRotateAccounts?: boolean
@@ -478,11 +471,6 @@ export function DeviceSettingsDialog({
     for (const [agent, value] of Object.entries(snapshot.drafts)) {
       agents[agent] = {
         model: value.model,
-        // EXP-981: claude only.
-        ...(agentSupportsSubagentModel(agent) && value.subagentModel
-          ? { subagentModel: value.subagentModel }
-          : {}),
-        ...(value.threadModel ? { threadModel: value.threadModel } : {}),
         effort: value.effort,
         ...(agentSupportsUltracode(agent) ? { ultracode: value.ultracode } : {}),
         // S-3: no per-device plan default (a save drops a stored one).
@@ -911,7 +899,7 @@ export function DeviceSettingsDialog({
                   mobileTitle="Computer use model"
                   value={computerUseModel}
                   onChange={pickComputerUseModel}
-                  models={subagentModelChoices()}
+                  models={modelChoices(`claude`)}
                 />
                 {/* NEW-59: the display agents drive (work-screen.json). */}
                 <Picker
@@ -942,14 +930,6 @@ export function DeviceSettingsDialog({
               onAgentChange={setAgentTab}
               model={draft.model}
               onModelChange={(value) => patchDraft({ model: value })}
-              threadModel={draft.threadModel ?? ``}
-              onThreadModelChange={(value) =>
-                patchDraft({ threadModel: value })
-              }
-              subagentModel={draft.subagentModel ?? ``}
-              onSubagentModelChange={(value) =>
-                patchDraft({ subagentModel: value })
-              }
               effortValue={
                 draft.effort === `` ? CLI_DEFAULT_EFFORT : draft.effort
               }

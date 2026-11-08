@@ -40,25 +40,25 @@ final class LaunchOptionsStateTests: XCTestCase {
     func testFreshStateIsASendableClaudeLaunch() {
         let state = LaunchOptionsState()
         XCTAssertEqual(state.agent, "claude")
-        XCTAssertEqual(state.model, DomainContract.codingModelValues.first)
-        XCTAssertEqual(state.buildOptions().model, "fable")
+        XCTAssertEqual(state.model, DomainContract.deviceAgentDefaultsModel)
+        XCTAssertEqual(state.buildOptions().model, "opus")
     }
 
     func testSeedWithoutADeviceKeepsAValidModel() {
         let state = LaunchOptionsState()
         state.seed(from: nil)
-        XCTAssertEqual(state.model, "fable")
-        XCTAssertEqual(state.buildOptions().model, "fable")
+        XCTAssertEqual(state.model, "opus")
+        XCTAssertEqual(state.buildOptions().model, "opus")
     }
 
     func testSeedTakesTheMachinesAdvertisedModel() {
         let state = LaunchOptionsState()
-        state.seed(from: device(id: "mac", claudeModel: "opus"))
-        XCTAssertEqual(state.model, "opus")
+        state.seed(from: device(id: "mac", claudeModel: "sonnet"))
+        XCTAssertEqual(state.model, "sonnet")
         // An advertised value outside today's contract falls back, never
         // blank (another login, so nothing carries over from the first box).
         state.seed(from: device(id: "other", claudeEmail: "else@x.test", claudeModel: "future-model"))
-        XCTAssertEqual(state.model, "fable")
+        XCTAssertEqual(state.model, "opus")
     }
 
     func testCarryOverKeepsTheLoginAndClampsTheModel() {
@@ -66,16 +66,16 @@ final class LaunchOptionsStateTests: XCTestCase {
         let mac = device(id: "mac")
         state.seed(from: mac)
         state.selectAccount(state.accountOptions(on: mac)[0], device: mac)
-        state.model = "opus"
+        state.model = "haiku"
         // Same login on the next machine (EXP-1278): the pick carries over.
         let laptop = device(id: "laptop", claudeModel: "sonnet")
         state.seed(from: laptop)
         XCTAssertEqual(state.account, "laptop-p")
-        XCTAssertEqual(state.model, "opus")
+        XCTAssertEqual(state.model, "haiku")
         // A blank that slipped in (an unseeded state) is repaired on the way.
         state.model = ""
         state.seed(from: device(id: "third"))
-        XCTAssertEqual(state.model, "fable")
+        XCTAssertEqual(state.model, "opus")
     }
 
     func testSameAgentAccountPickNeverBlanksTheModel() {
@@ -83,16 +83,16 @@ final class LaunchOptionsStateTests: XCTestCase {
         let mac = device(id: "mac")
         // The agent is already claude, so `selectAgent` early-returns.
         state.selectAccount(state.accountOptions(on: mac)[0], device: mac)
-        XCTAssertEqual(state.model, "fable")
-        XCTAssertEqual(state.buildOptions().model, "fable")
+        XCTAssertEqual(state.model, "opus")
+        XCTAssertEqual(state.buildOptions().model, "opus")
     }
 
     func testWireNeverCarriesABlankClaudeModel() {
         let state = LaunchOptionsState()
         state.model = ""
-        XCTAssertEqual(state.buildOptions().model, "fable")
+        XCTAssertEqual(state.buildOptions().model, "opus")
         state.model = "not-a-model"
-        XCTAssertEqual(state.buildOptions().model, "fable")
+        XCTAssertEqual(state.buildOptions().model, "opus")
     }
 
     func testCodexSeedsItsExplicitContractDefault() {
@@ -129,9 +129,6 @@ final class LaunchOptionsStateTests: XCTestCase {
         XCTAssertEqual(claude.cli, "claude")
         // S-3: plan mode left the launch keys (and the type).
         XCTAssertEqual(claude.ultracode, true)
-        // EXP-1583: the subagent model rides for claude, seeded from the
-        // contract default until the machine advertises one.
-        XCTAssertEqual(claude.subagentModel, DomainContract.deviceAgentDefaultsSubagentModel)
         XCTAssertNil(claude.mcpServerIds)
         XCTAssertNil(claude.skillIds)
         XCTAssertNil(claude.computerUse)
@@ -144,27 +141,22 @@ final class LaunchOptionsStateTests: XCTestCase {
         let codex = state.buildOptions()
         XCTAssertEqual(codex.cli, "codex")
         XCTAssertNil(codex.ultracode)
-        XCTAssertNil(codex.subagentModel)
         XCTAssertEqual(codex.mcpServerIds, ["m-1"])
         XCTAssertEqual(codex.skillIds, ["s-1"])
         XCTAssertEqual(codex.computerUse, false)
     }
 
-    // EXP-1583: the machine's claude `subagentModel` seeds the pick; an
-    // unknown one falls back to the contract default.
-    func testSubagentModelSeedsFromTheMachine() {
-        let state = LaunchOptionsState()
-        let mac = SteerDevice(
-            deviceId: "mac",
-            deviceLabel: "mac",
-            agents: ["claude"],
-            launchDefaults: DeviceLaunchDefaults(
-                agents: ["claude": AgentLaunchDefaults(model: "fable", subagentModel: "sonnet")]
-            )
+    // #EXP-1734: opus is the one claude default, and a machine row still
+    // carrying the retired subagent/thread models decodes and seeds as before.
+    func testOpusIsTheDefaultAndOldModelKeysAreIgnored() throws {
+        XCTAssertEqual(LaunchOptionsState().model, "opus")
+        let defaults = try JSONDecoder().decode(
+            DeviceLaunchDefaults.self,
+            from: Data(#"{"agents":{"claude":{"model":"sonnet","subagentModel":"haiku","threadModel":"haiku"}}}"#.utf8)
         )
-        state.seed(from: mac)
-        XCTAssertEqual(state.subagentModel, "sonnet")
-        XCTAssertEqual(state.buildOptions().subagentModel, "sonnet")
-        XCTAssertEqual(LaunchOptionsState.seedSubagentModel("gpt-5"), DomainContract.deviceAgentDefaultsSubagentModel)
+        let state = LaunchOptionsState()
+        state.seed(from: SteerDevice(deviceId: "mac", deviceLabel: "mac", agents: ["claude"], launchDefaults: defaults))
+        XCTAssertEqual(state.model, "sonnet")
+        XCTAssertEqual(state.buildOptions().model, "sonnet")
     }
 }

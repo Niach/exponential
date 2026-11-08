@@ -100,8 +100,6 @@ function fakeModel(): LaunchComposerModel {
     switchAgent: vi.fn(),
     model: `opus`,
     setModel: vi.fn(),
-    subagentModel: ``,
-    setSubagentModel: vi.fn(),
     effortValue: `cli-default`,
     setEffortValue: vi.fn(),
     ultracode: false,

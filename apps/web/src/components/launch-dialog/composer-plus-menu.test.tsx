@@ -16,7 +16,6 @@ vi.mock(`@/components/launch-dialog/launch-options-pane`, () => ({
   CLI_DEFAULT_EFFORT: `default`,
   effortLabel: (value: string) => value,
   modelChoices: () => [],
-  subagentModelChoices: () => [],
 }))
 vi.mock(`@/components/launch-dialog/mcp-server-picker`, () => ({ McpServerMenuRows: () => null }))
 vi.mock(`@/components/launch-dialog/skill-picker`, () => ({ SkillSearchList: () => null }))

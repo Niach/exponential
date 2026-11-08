@@ -6,7 +6,7 @@ import SwiftUI
 /// sheet of the same rows web's dropdown draws
 /// (`ComposerMenu.composerMenuLayout(_, surface: .launch)`, fixture-locked
 /// ×4): Photo or file · Issue › | Device › · Account › · Model › ·
-/// Repository › | Effort › · Subagents › · Ultracode | MCP servers › ·
+/// Repository › | Effort › · Ultracode | MCP servers › ·
 /// Computer use. The "+" is the composer's ONLY tool (no options line under
 /// the card). The runner submenus (Device, Account, Model, Repository) and
 /// Issue PUSH their page inside this sheet over THE existing pickers' rows,
@@ -37,8 +37,6 @@ struct ComposerPlusMenu: View {
 
     private var launch: LaunchOptionsState { model.launch }
 
-    /// EXP-1583: Subagents shows on a Temporary session whose agent takes a
-    /// subagent model (claude), like Ultracode.
     private var conditions: ComposerMenu.Conditions {
         let temporary = model.agentId == nil
         return ComposerMenu.Conditions(
@@ -47,7 +45,6 @@ struct ComposerPlusMenu: View {
             account: temporary && model.device != nil,
             model: temporary,
             repositories: model.repos.count > 1,
-            subagentModel: temporary && LaunchVocabulary.supportsSubagentModel(launch.agent),
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
             skills: !skills.isEmpty,
@@ -139,7 +136,7 @@ struct ComposerPlusMenu: View {
     /// The rows whose submenu is a page of this sheet (the rest hand off).
     static func pushes(_ id: ComposerMenu.RowId) -> Bool {
         switch id {
-        case .implementIssue, .prompts, .teams, .device, .account, .model, .subagents, .repository: true
+        case .implementIssue, .prompts, .teams, .device, .account, .model, .repository: true
         default: false
         }
     }
@@ -178,14 +175,6 @@ struct ComposerPlusMenu: View {
                 mode: .single,
                 value: [launch.model],
                 onChange: { picked in picked.first.map { launch.model = $0 } }
-            )
-        case .subagents:
-            // EXP-1583: THE Model page's rows, over claude's models.
-            GlassPickerContent(
-                items: ModelPicker<EmptyView>.items(agent: "claude"),
-                mode: .single,
-                value: [launch.subagentModel],
-                onChange: { picked in picked.first.map { launch.subagentModel = $0 } }
             )
         case .repository:
             let rows = model.repos.map { RepositoryPickerRow(id: $0.id, fullName: $0.fullName, isPrivate: $0.isPrivate) }
@@ -241,8 +230,6 @@ struct ComposerPlusMenu: View {
             }()
         case .model:
             LaunchVocabulary.modelLabel(launch.model)
-        case .subagents:
-            LaunchVocabulary.modelLabel(launch.subagentModel)
         case .repository:
             model.repos.first { $0.id == model.chatRepoId }?.fullName
         case .effort:

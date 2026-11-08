@@ -22,40 +22,33 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
         let claude = try XCTUnwrap((object["agents"] as? [String: Any])?["claude"] as? [String: Any])
         XCTAssertEqual(claude["model"] as? String, "opus")
         XCTAssertNil(claude.index(forKey: "effort"))
-        XCTAssertNil(claude.index(forKey: "subagentModel"))
-        XCTAssertNil(claude.index(forKey: "threadModel"))
     }
 
-    /// 2026-10-15: the dispatcher root's per-agent `threadModel` rides like
-    /// `subagentModel` (only when set) and decodes off the synced row; every
-    /// model is explicit, the contract names the defaults.
-    func testThreadModelRidesPerAgentAndDecodes() throws {
+    /// #EXP-1734: no thread or subagent model rides any more; a synced row
+    /// an old device wrote with them still decodes (the keys are ignored);
+    /// opus is the one claude default.
+    func testRetiredModelKeysNeverRideAndOldRowsStillDecode() throws {
         let object = try json(DeviceLaunchDefaultsInput(agents: [
-            "claude": AgentLaunchDefaultsInput(model: "fable", subagentModel: "opus", threadModel: "haiku"),
-            "codex": AgentLaunchDefaultsInput(model: "gpt-5.6-sol", threadModel: "gpt-5.6-luna"),
+            "claude": AgentLaunchDefaultsInput(model: "fable"),
+            "codex": AgentLaunchDefaultsInput(model: "gpt-5.6-sol"),
         ]))
         let agents = try XCTUnwrap(object["agents"] as? [String: Any])
         let claude = try XCTUnwrap(agents["claude"] as? [String: Any])
-        XCTAssertEqual(claude["threadModel"] as? String, "haiku")
-        XCTAssertEqual(claude["subagentModel"] as? String, "opus")
-        let codex = try XCTUnwrap(agents["codex"] as? [String: Any])
-        XCTAssertEqual(codex["threadModel"] as? String, "gpt-5.6-luna")
+        XCTAssertEqual(Set(claude.keys), ["model"])
 
         let row = try JSONDecoder().decode(
             DeviceLaunchDefaults.self,
-            from: Data(#"{"agents":{"claude":{"model":"opus","threadModel":"sonnet"},"codex":{"model":"gpt-5.6-sol"}}}"#.utf8)
+            from: Data(#"{"agents":{"claude":{"model":"sonnet","threadModel":"haiku","subagentModel":"opus"},"codex":{"model":"gpt-5.6-sol","threadModel":"gpt-5.6-luna"}}}"#.utf8)
         )
-        XCTAssertEqual(row.agents?["claude"]?.threadModel, "sonnet")
-        XCTAssertNil(row.agents?["codex"]?.threadModel)
+        XCTAssertEqual(row.agents?["claude"]?.model, "sonnet")
+        XCTAssertEqual(row.agents?["codex"]?.model, "gpt-5.6-sol")
 
         XCTAssertEqual(DomainContract.codingModelValues, ["fable", "opus", "sonnet", "haiku"])
         XCTAssertEqual(LaunchVocabulary.modelValues(for: "claude"), DomainContract.codingModelValues)
         XCTAssertEqual(LaunchVocabulary.modelValues(for: "codex"), DomainContract.codexModelValues)
         XCTAssertFalse(LaunchVocabulary.modelValues(for: "codex").contains(LaunchVocabulary.cliDefault))
-        XCTAssertEqual(LaunchVocabulary.defaultThreadModel(for: "claude"), "haiku")
-        XCTAssertEqual(LaunchVocabulary.defaultThreadModel(for: "codex"), "gpt-5.6-luna")
+        XCTAssertEqual(LaunchVocabulary.defaultModel(for: "claude"), "opus")
         XCTAssertEqual(LaunchVocabulary.defaultModel(for: "codex"), "gpt-5.6-sol")
-        XCTAssertEqual(DomainContract.deviceAgentDefaultsSubagentModel, "opus")
     }
 
     /// EXP-1082 §6: the desktop-owned auto-rotate toggle is ECHOED, never

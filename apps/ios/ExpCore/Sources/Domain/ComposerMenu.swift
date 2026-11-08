@@ -37,7 +37,6 @@ public enum ComposerMenu {
         case model
         case repository
         case effort
-        case subagents
         case ultracode
         case mcpServers = "mcp-servers"
         /// #EXP-1661: the team's skills as a multi picker (skills.json `menuRow`).
@@ -53,7 +52,7 @@ public enum ComposerMenu {
 
     /// One fixture `conditions` key.
     public enum Condition: String, Equatable, Sendable, CaseIterable {
-        case temporary, device, account, model, repositories, subagentModel, ultracode, mcp, skills, computerUse, prompts
+        case temporary, device, account, model, repositories, ultracode, mcp, skills, computerUse, prompts
         case assistant, teams
     }
 
@@ -73,8 +72,6 @@ public enum ComposerMenu {
         public var model: Bool
         /// The team has more than one repository.
         public var repositories: Bool
-        /// The picked agent takes a subagent model (claude).
-        public var subagentModel: Bool
         /// The picked agent supports ultracode (claude).
         public var ultracode: Bool
         /// The team has at least one MCP server.
@@ -97,7 +94,6 @@ public enum ComposerMenu {
             account: Bool = false,
             model: Bool = false,
             repositories: Bool = false,
-            subagentModel: Bool = false,
             ultracode: Bool = false,
             mcp: Bool = false,
             skills: Bool = false,
@@ -111,7 +107,6 @@ public enum ComposerMenu {
             self.account = account
             self.model = model
             self.repositories = repositories
-            self.subagentModel = subagentModel
             self.ultracode = ultracode
             self.mcp = mcp
             self.skills = skills
@@ -128,7 +123,6 @@ public enum ComposerMenu {
             case .account: account
             case .model: model
             case .repositories: repositories
-            case .subagentModel: subagentModel
             case .ultracode: ultracode
             case .mcp: mcp
             case .skills: skills
@@ -176,7 +170,6 @@ public enum ComposerMenu {
         Row(id: .repository, kind: .submenu, label: "Repository", codexLabel: nil, icon: "settings-repositories", surfaces: [.launch], when: [.temporary, .repositories]),
         nil,
         Row(id: .effort, kind: .submenu, label: "Effort", codexLabel: "Reasoning", icon: "ui-estimate", surfaces: [.launch], when: [.temporary]),
-        Row(id: .subagents, kind: .submenu, label: "Subagents", codexLabel: nil, icon: "coding-subagent", surfaces: [.launch], when: [.temporary, .subagentModel]),
         Row(id: .ultracode, kind: .toggle, label: "Ultracode", codexLabel: nil, icon: "action-default", surfaces: [.launch], when: [.temporary, .ultracode]),
         nil,
         Row(id: .mcpServers, kind: .submenu, label: "MCP servers", codexLabel: nil, icon: "ui-mcp", surfaces: [.launch], when: [.temporary, .mcp]),

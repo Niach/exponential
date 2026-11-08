@@ -106,7 +106,6 @@ class DraftStartTest {
             mcpServerIds = set("mcpServerIds"),
             computerUse = bool("computerUse"),
             ultracode = bool("ultracode"),
-            subagentModel = string("subagentModel"),
             resume = bool("resume") ?: false,
         )
     }

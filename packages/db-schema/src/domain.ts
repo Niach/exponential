@@ -981,12 +981,10 @@ export function formatDateForMutation(date: Date | null | undefined) {
 }
 
 /** EXP-1029: a device's agent defaults as ONE flattened view — the shape the
- *  settings UI edits (EXP-1020). `model` / `subagentModel` are the last used
- *  agent's launch defaults, stored in `DeviceLaunchDefaults.agents[agent]`. */
+ *  settings UI edits (EXP-1020). `model` is the last used agent's launch
+ *  default, stored in `DeviceLaunchDefaults.agents[agent]`. */
 export interface DeviceAgentDefaults {
   model: string
-  subagentModel: string
-  threadModel: string
 }
 
 /** Contract `deviceAgentDefaults`, hand-mirrored (drift-tested): what a
@@ -994,9 +992,7 @@ export interface DeviceAgentDefaults {
  *  install defaults (`coding::settings`, wired to the SAME contract
  *  constants). Every model is explicit: no blank = "CLI default". */
 export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
-  model: `fable`,
-  subagentModel: `opus`,
-  threadModel: `haiku`,
+  model: `opus`,
 }
 
 // ── Threads v2 (EXP-1291): ONE session tree ─────────────────────────────────
