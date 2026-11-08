@@ -202,13 +202,18 @@ fn and(a: Value, b: Value) -> Value {
 }
 
 /// The colours and metrics the document writes in: the IDE's glass chrome
-/// (`surface::glass_group_rows`, `glass_toggle_row`, `glass_picker_row`).
+/// (`surface::glass_group_rows`, `glass_toggle_row`, `glass_picker_row`) in
+/// px. gpui's sizes are rems and the IDE's root sets the rem to the theme's
+/// font size, so `px_4` / `text_sm` are read through [`Ink::rem`]; a gpui
+/// text line is `phi` × its size ([`LINE`]).
 struct Ink {
+    rem: f32,
     foreground: String,
     hint: String,
     value: String,
     muted: String,
     muted_glyph: String,
+    primary: String,
     fill_row: String,
     stroke_row: String,
     fill_card: String,
@@ -218,16 +223,24 @@ struct Ink {
     radius_md: f32,
 }
 
+/// gpui's default line height (`phi()`), relative to the font size.
+const LINE: f32 = 1.618_034;
+/// gpui `text_sm` / `text_xs`, in rems.
+const SM: f32 = 0.875;
+const XS: f32 = 0.75;
+
 impl Ink {
     fn of(cx: &App) -> Self {
         let chrome = crate::controls::ide_chrome();
         let theme = cx.theme();
         Self {
+            rem: f32::from(theme.font_size),
             foreground: hex(theme.foreground),
             hint: hex(theme.foreground.opacity(0.5)),
             value: hex(theme.foreground.opacity(0.7)),
             muted: hex(theme.muted_foreground),
             muted_glyph: hex(theme.muted_foreground.opacity(0.6)),
+            primary: hex(theme.primary),
             fill_row: hex(chrome.fill_row),
             stroke_row: hex(chrome.stroke_row),
             fill_card: hex(chrome.fill_card),
@@ -238,10 +251,15 @@ impl Ink {
         }
     }
 
-    /// `text_sm` / `text_xs` (gpui: 14/20, 12/16).
-    fn text(&self, id: &str, text: Value, size: f32, color: &str) -> Value {
-        let line = if size >= 14. { 20. } else { 16. };
-        json!({"id": id, "component": "Text", "props": {"text": text}, "style": {"fontSize": size, "lineHeight": line, "color": color}})
+    /// `rems` in px.
+    fn r(&self, rems: f32) -> f32 {
+        self.rem * rems
+    }
+
+    /// A text run at `rems` (`SM`, `XS`) in gpui's line height.
+    fn text(&self, id: &str, text: Value, rems: f32, color: &str) -> Value {
+        let size = self.r(rems);
+        json!({"id": id, "component": "Text", "props": {"text": text}, "style": {"fontSize": size, "lineHeight": size * LINE, "color": color}})
     }
 
     /// `glass_group`: the radius-12 `fill_row` block.
@@ -254,18 +272,18 @@ impl Ink {
         json!({"id": id, "component": "Box", "visible": visible, "style": {"height": 1, "flexShrink": 0, "backgroundColor": self.stroke_row}})
     }
 
-    /// `glass_row_shell`: 16/12 padding, centred, gap 12. A disabled row
+    /// `glass_row_shell`: `px_4` / `py_3`, centred, `gap_3`. A disabled row
     /// dims WHOLE (EXP-1557), so each row is drawn twice and `dim` picks.
     fn shell(&self, id: &str, dim: bool, visible: Value, children: Vec<Value>) -> Value {
-        json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 12, "paddingHorizontal": 16, "paddingVertical": 12, "opacity": if dim { 0.5 } else { 1.0 }}, "children": children})
+        json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": self.r(0.75), "paddingHorizontal": self.r(1.), "paddingVertical": self.r(0.75), "opacity": if dim { 0.5 } else { 1.0 }}, "children": children})
     }
 
-    /// The label column: the label over its muted hint.
+    /// The label column (`gap_0p5`): the label over its muted hint.
     fn label_column(&self, id: &str, label: Value, hint: Value, grow: bool) -> Value {
-        let mut hint = self.text(&format!("{id}_hint"), hint, 12., &self.hint);
+        let mut hint = self.text(&format!("{id}_hint"), hint, XS, &self.hint);
         hint["style"]["maxWidth"] = json!(eui_gpui::controls::ROW_DESCRIPTION_MAX_W);
-        json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 2, "minWidth": 0, "flexGrow": if grow { 1 } else { 0 }, "flexShrink": 1},
-            "children": [self.text(&format!("{id}_label"), label, 14., &self.foreground), hint]})
+        json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": self.r(0.125), "minWidth": 0, "flexGrow": if grow { 1 } else { 0 }, "flexShrink": 1},
+            "children": [self.text(&format!("{id}_label"), label, SM, &self.foreground), hint]})
     }
 }
 
@@ -280,37 +298,47 @@ fn toggle_row(ink: &Ink, dim: bool) -> Value {
     ])
 }
 
-/// A picker row (`glass_picker_row`): the value at 70% with its chevron,
-/// opening the single-select menu.
+/// A picker row (`glass_picker_row`): the value at 70% with its chevron
+/// (a small ghost `Button`: `text_sm`, `gap_1`, a `size_4` glyph), opening
+/// the single-select menu.
+#[allow(clippy::too_many_arguments)]
 fn picker_row(ink: &Ink, id: &str, dim: bool, visible: Value, label: &str, hint: &str, value: Value, action: &str, items: Vec<Value>) -> Value {
+    let glyph = ink.r(1.);
     let trigger = json!({"id": format!("{id}_trigger"), "component": "Box", "props": {"pressable": !dim},
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 4, "cursor": "pointer"},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25), "cursor": "pointer"},
         "children": [
-            ink.text(&format!("{id}_value"), value, 14., &ink.value),
-            {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right", "size": "sm"}, "style": {"color": ink.value}},
+            ink.text(&format!("{id}_value"), value, SM, &ink.value),
+            {"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value}},
         ]});
-    let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 200},
-        "children": [if dim { trigger } else {
-            json!({"id": format!("{id}_menu"), "component": "Menu", "props": {"items": items, "align": "end"}, "on": {"select": {"event": {"name": action}}}, "children": [trigger]})
-        }]});
+    let control = if dim {
+        trigger
+    } else {
+        json!({"id": format!("{id}_menu"), "component": "Menu", "props": {"items": items, "align": "end"}, "on": {"select": {"event": {"name": action}}}, "children": [trigger]})
+    };
+    let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 200}, "children": [control]});
     ink.shell(id, dim, visible, vec![ink.label_column(&format!("{id}_text"), json!(label), json!(hint), false), control])
 }
 
 /// The pane's tree.
 fn document(ink: &Ink) -> Value {
-    let code = |id: &str, name: &str| json!({"id": id, "component": "Box", "style": {"borderRadius": 4, "paddingHorizontal": 4, "backgroundColor": ink.code},
-        "children": [{"id": format!("{id}_text"), "component": "Text", "props": {"text": name}, "style": {"fontSize": 12, "lineHeight": 16, "fontFamily": theme::terminal::FONT_FAMILY, "color": ink.foreground}}]});
+    // `no_transport_alert`: the sentence word by word (`gap_x 4`), the env
+    // names as `text_xs` mono chips (`px_1`, radius 4, `muted`).
+    let code = |id: &str, name: &str| {
+        let mut text = ink.text(&format!("{id}_text"), json!(name), XS, &ink.foreground);
+        text["style"]["fontFamily"] = json!(theme::terminal::FONT_FAMILY);
+        json!({"id": id, "component": "Box", "style": {"borderRadius": 4, "paddingHorizontal": ink.r(0.25), "backgroundColor": ink.code}, "children": [text]})
+    };
     let words = |id: &str, text: &str| -> Vec<Value> {
-        text.split(' ').enumerate().map(|(ix, word)| ink.text(&format!("{id}_{ix}"), json!(word), 14., &ink.foreground)).collect()
+        text.split(' ').enumerate().map(|(ix, word)| ink.text(&format!("{id}_{ix}"), json!(word), SM, &ink.foreground)).collect()
     };
     let mut line = words("alert_lead", "Email sending is not configured on this server. Set");
     line.push(code("alert_ses", "AWS_SES_REGION"));
-    line.push(ink.text("alert_or", json!("or"), 14., &ink.foreground));
+    line.push(ink.text("alert_or", json!("or"), SM, &ink.foreground));
     line.push(code("alert_smtp", "SMTP_HOST"));
     line.extend(words("alert_tail", "to enable it."));
-    // `controls::alert(Default)`: the card fill and stroke, 12/8 padding.
+    // `controls::alert(Default)`: the card fill and stroke, `px_3` / `py_2`.
     let alert = json!({"id": "alert", "component": "Box", "visible": path("/pane/noTransport"),
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": 12, "paddingHorizontal": 12, "paddingVertical": 8, "borderRadius": ink.radius_md, "borderWidth": 1, "borderColor": ink.stroke_card, "backgroundColor": ink.fill_card},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "borderWidth": 1, "borderColor": ink.stroke_card, "backgroundColor": ink.fill_card},
         "children": [{"id": "alert_line", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "columnGap": 4, "flexGrow": 1, "minWidth": 0}, "children": line}]});
 
     let rows = ink.group("rows", vec![json!({"id": "rows_list", "component": "List", "props": {"gap": "none"},
@@ -319,13 +347,17 @@ fn document(ink: &Ink) -> Value {
             "children": [ink.divider("row_divider", not(path("first"))), toggle_row(ink, false), toggle_row(ink, true)]}]})]);
 
     let skeleton = json!({"id": "skeleton", "component": "Skeleton", "visible": path("/pane/loading"), "props": {"rows": crate::feedback::SKELETON_ROWS, "rowHeight": super::SETTINGS_ROW_H}});
-    // `action_error::load_failed_state`: the list empty state + Retry.
+    // `action_error::load_failed_state`: `controls::empty_state_list` (a
+    // 20px muted glyph over the `text_sm` title, `gap_1p5`, `px_3` / `py_6`)
+    // with the `text_xs` primary Retry link under it.
+    let mut retry = ink.text("failed_retry_text", json!(crate::feedback::RETRY), XS, &ink.primary);
+    retry["style"]["cursor"] = json!("pointer");
     let failed = json!({"id": "failed", "component": "Box", "visible": path("/pane/failed"),
-        "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "gap": 6, "paddingHorizontal": 12, "paddingVertical": 24, "width": "100%"},
+        "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(1.5), "width": "100%"},
         "children": [
-            {"id": "failed_icon", "component": "Icon", "props": {"name": "settings-notifications", "size": "default"}, "style": {"color": ink.muted_glyph}},
-            ink.text("failed_title", json!(NO_PREFERENCES), 14., &ink.muted),
-            {"id": "failed_retry", "component": "Button", "props": {"label": crate::feedback::RETRY, "variant": "link", "size": "sm"}, "on": {"press": {"event": {"name": "retry"}}}},
+            {"id": "failed_icon", "component": "Icon", "props": {"name": "settings-notifications"}, "style": {"width": 20, "height": 20, "color": ink.muted_glyph}},
+            ink.text("failed_title", json!(NO_PREFERENCES), SM, &ink.muted),
+            {"id": "failed_retry", "component": "Box", "props": {"pressable": true}, "on": {"press": {"event": {"name": "retry"}}}, "children": [retry]},
         ]});
 
     let digest_items: Vec<Value> = DIGESTS.iter().map(|(value, label)| json!({"label": label, "value": value, "kind": "checkbox", "checked": eq(path("/pane/digest/value"), json!(value))})).collect();
@@ -337,8 +369,19 @@ fn document(ink: &Ink) -> Value {
     let mut digest = ink.group("digest", vec![delivery(false), delivery(true), ink.divider("hour_divider", daily.clone()), send_time(false), send_time(true)]);
     digest["visible"] = path("/pane/ready");
 
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 8, "width": "100%"},
+    // `settings::section`: `gap_2`.
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
         "children": [alert, rows, skeleton, failed, digest]})
+}
+
+/// The theme the pane paints in: the Exponential theme, its Switch the
+/// IDE's own (`controls::web_switch`, 36×20, painted natively), not the
+/// theme's 32px track, until the two agree (#EXP-1629 follow-up).
+fn pane_theme() -> Option<std::sync::Arc<eui_core::theme::ResolvedTheme>> {
+    let mut theme = (*eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID)?).clone();
+    let rule = eui_core::theme::RecipeRule { when: None, style: serde_json::from_value(json!({"width": 36, "height": 20, "native": true})).ok()? };
+    theme.recipes.entry("Switch".into()).or_default().entry("track".into()).or_default().push(rule);
+    Some(std::sync::Arc::new(theme))
 }
 
 /// The IDE's toasts for a failed write.
@@ -466,7 +509,7 @@ impl NotificationsPrefsPane {
         let host: Rc<dyn HostPlugin> = Rc::new(BindingHost::new(&binding, inner));
         let options = SurfaceViewOptions {
             surface_id: "settings-notifications".into(),
-            theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
+            theme: pane_theme(),
             mode: eui_core::theme::Mode::Dark,
             host,
             settings: Some(eui_core::surface::SurfaceSettings { mode: eui_core::theme::ModeSetting::Dark, reduced_motion: theme::motion::reduce_motion(), ..Default::default() }),
@@ -656,6 +699,8 @@ mod tests {
     #[test]
     fn the_document_parses() {
         let ink = Ink {
+            rem: 14.,
+            primary: "#fafafaff".into(),
             foreground: "#ffffffff".into(),
             hint: "#ffffff80".into(),
             value: "#ffffffb3".into(),

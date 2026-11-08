@@ -48,14 +48,19 @@ fn shoot(name: &str, load: ShotLoad) {
         let hub = CodingHub::global(cx);
         hub.update(cx, |hub, _| hub.settings.os_notifications = true);
     });
+    // Under gpui-component's Root, as in the app: its rem (the theme's font
+    // size) and Inter are what the IDE's rows are measured in.
+    let mut frame = None;
     let handle = cx
         .open_window(size(px(PANE.0), px(PANE.1)), |window: &mut Window, cx| {
             let pane = cx.new(|cx| NotificationsPrefsPane::for_shots(window, cx));
-            cx.new(|_| Frame { pane })
+            let view = cx.new(|_| Frame { pane });
+            frame = Some(view.clone());
+            cx.new(|cx| gpui_component::Root::new(view, window, cx))
         })
         .expect("a headless window");
     let window: gpui::AnyWindowHandle = handle.into();
-    let frame = cx.update(|cx| handle.entity(cx).expect("the frame"));
+    let frame = frame.expect("the frame");
     cx.update(|cx| {
         let pane = frame.read(cx).pane.clone();
         pane.update(cx, |pane, cx| pane.show(load, cx));
