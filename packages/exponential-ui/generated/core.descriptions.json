@@ -85,6 +85,20 @@
         "description": "Your account summary"
       }
     },
+    "Window": {
+      "props": {
+        "title": {
+          "description": "The centred caption in the chrome bar."
+        },
+        "style": {
+          "description": "Extra Box styles merged over the window's own."
+        }
+      },
+      "description": "A window frame: a chrome bar with three dots and an optional caption over one child that fills the body.",
+      "example": {
+        "title": "exponential.at"
+      }
+    },
     "Separator": {
       "props": {
         "orientation": {

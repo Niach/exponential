@@ -1,10 +1,39 @@
 ---
-/* Pricing: the three plans, the comparison, the start. */
+/* Pricing: the plans (genUI, a billing switch), the comparison as a genUI
+   Table, the questions as a genUI Accordion. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
-import { Icon, LinkButton } from "@astrojs/starlight/components"
-import { LINKS } from "../components/landing/links.ts"
-import { COMPARISON, EVERY_PLAN_INCLUDES, PLANS } from "../components/landing/plans.ts"
+import EuiSurface from "../components/eui/EuiSurface.tsx"
+import PricingPlans from "../components/landing/PricingPlans.tsx"
+import { COMPARISON, EVERY_PLAN_INCLUDES } from "../components/landing/plans.ts"
 import { PRICING_PRODUCT, seoHead } from "../components/landing/seo.ts"
+
+const TABLE = {
+  id: `compare`,
+  component: `Table`,
+  props: {
+    columns: [
+      { key: `label`, label: `` },
+      { key: `exponential`, label: `Exponential` },
+      { key: `linear`, label: `Linear` },
+    ],
+    rows: COMPARISON.map((row, i) => ({ id: `c${i}`, ...row })),
+    rowKey: `id`,
+  },
+}
+
+const FAQ = [
+  { q: `Is there a free plan?`, a: `Yes: three seats with the full product, for as long as you like.` },
+  { q: `What does Team cost?`, a: `€12 per seat a month billed yearly, €15 billed monthly. Everything is included.` },
+  { q: `Do agents cost extra?`, a: `Agents run on your own machine with your own Claude or Codex subscription. We bill seats only.` },
+  { q: `Can we self-host?`, a: `Yes, free for everyone, with one docker compose. The source is Apache-2.0.` },
+  { q: `Do you offer SSO, an SLA or a DPA?`, a: `Yes, with Enterprise Support. Write to us from the contact page.` },
+]
+const ACCORDION = {
+  id: `faq`,
+  component: `Accordion`,
+  props: { items: FAQ.map((f, i) => ({ title: f.q, value: `q${i}` })), value: { "@path": `/open` } },
+  children: FAQ.map((f, i) => ({ id: `faq_a${i}`, component: `Text`, props: { text: f.a, variant: `muted` } })),
+}
 ---
 
 <StarlightPage
@@ -17,70 +46,21 @@ import { PRICING_PRODUCT, seoHead } from "../components/landing/seo.ts"
   }}
 >
   <div class="exp-landing">
-    <section class="exp-section not-content" id="plans">
-      <div class="exp-plans">
-        {
-          PLANS.map((plan) => (
-            <div class:list={[`exp-plan`, { "is-highlight": plan.highlight }]}>
-              <div>
-                <h3>{plan.name}</h3>
-                <div class="exp-plan-price">
-                  <span class="exp-plan-amount">{plan.amount}</span>
-                  <span>{plan.cadence}</span>
-                  {plan.monthly && <span>· {plan.monthly}</span>}
-                </div>
-              </div>
-              <ul>
-                {plan.features.map((f) => (
-                  <li>
-                    <Icon name="approve-check" size="1rem" />
-                    {f}
-                  </li>
-                ))}
-                {plan.caveat && (
-                  <li class="is-caveat">
-                    <Icon name="warning" size="1rem" />
-                    {plan.caveat}
-                  </li>
-                )}
-              </ul>
-              <LinkButton href={plan.cta.href} variant={plan.highlight ? `primary` : `secondary`}>
-                {plan.cta.label}
-              </LinkButton>
-            </div>
-          ))
-        }
-      </div>
+    <section class="exp-band exp-band-first not-content" id="plans">
+      <PricingPlans client:visible />
       <p class="exp-fine">{EVERY_PLAN_INCLUDES}</p>
-      <p class="exp-fine">Need SSO, SLA or DPA? <a href="/contact/">Talk to us about Enterprise Support</a>.</p>
     </section>
 
-    <section class="exp-section not-content" id="compare">
-      <h2>Exponential and Linear</h2>
-      <table class="exp-compare">
-        <thead>
-          <tr><th></th><th>Exponential</th><th>Linear</th></tr>
-        </thead>
-        <tbody>
-          {
-            COMPARISON.map((row) => (
-              <tr>
-                <th scope="row">{row.label}</th>
-                <td>{row.exponential}</td>
-                <td>{row.linear}</td>
-              </tr>
-            ))
-          }
-        </tbody>
-      </table>
-    </section>
-
-    <section class="exp-section exp-price-line not-content">
-      <h2>Start free today</h2>
-      <div class="exp-actions">
-        <LinkButton href={LINKS.app.login} icon="right-arrow">Sign up free</LinkButton>
-        <LinkButton href="/download/" variant="minimal">Download</LinkButton>
+    <section class="exp-band not-content" id="compare">
+      <div class="exp-band-head">
+        <h2>Exponential and Linear</h2>
       </div>
+      <div class="exp-reveal"><EuiSurface id="compare" tree={TABLE} /></div>
+    </section>
+
+    <section class="exp-band exp-faq not-content" id="faq">
+      <h2>Questions</h2>
+      <EuiSurface client:visible id="faq" tree={ACCORDION} data={{ open: `q0` }} />
     </section>
   </div>
 </StarlightPage>
