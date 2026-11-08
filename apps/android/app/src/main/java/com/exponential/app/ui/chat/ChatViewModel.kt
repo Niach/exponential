@@ -43,7 +43,6 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.InboxRoute
-import com.exponential.app.domain.ChatRowAction
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
@@ -364,7 +363,6 @@ class ChatViewModel @Inject constructor(
         )
     }
 
-            .flowOn(Dispatchers.Default)
     private val allIssues = dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }
 
     /** EXP-1334: the `parent` relations a linked sub-issue folds by. */
