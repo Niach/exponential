@@ -843,7 +843,7 @@ dependencies = [
 
 [[package]]
 name = "ede-compositor"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "bitflags 2.13.2",
  "ede-protocol",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ctl"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "ede-protocol",
  "png 0.17.16",
@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "ede-portal"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "blocking",
  "ede-compositor",
@@ -899,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.14.142"
+version = "0.14.143"
 dependencies = [
  "ecore",
  "serde",
@@ -908,7 +908,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "ede-protocol",
  "emcp",
@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "ede-session"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "ede-theme",
  "libc",
@@ -934,7 +934,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "serde_json",
  "tempfile",
@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "eui-core",
  "libc",

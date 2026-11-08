@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-search-by-creator",
+    date: "2026-11-08",
+    title: "Search by creator, boards in one list",
+    summary: "Issue search finds who created an issue with by:<name>, Settings → Boards lists live, archived and trashed boards together, every session runs on Opus, and the desktop app's corner is the Assistant.",
+    body: r#"- **Search by creator**: issue search matches who created an issue, like `by:dana`, on the web, desktop, iPhone and Android.
+- **Settings → Boards**: live, archived and trashed boards are one list.
+- **Opus everywhere**: every session runs on Opus, so the thread and subagent model settings are gone.
+- **The Assistant in the corner**: the desktop app's corner opens the Assistant, + opens the composer, and the Computer button sits beside the Assistant and the gear.
+- **Exponential Desktop chat**: the composer takes @ and # mentions and : emoji, like the desktop app.
+- **Screen readers**: every desktop button, row, tab and card has a name and role."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_229: ChangelogEntry = ChangelogEntry {
     id: "2026-11-08-app-editor-says-why",
     date: "2026-11-08",
     title: "The app editor says why nothing starts",
