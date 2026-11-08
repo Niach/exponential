@@ -39,7 +39,7 @@ import { SkillSearchList, type SkillPickerRow } from "@/components/launch-dialog
 import { TeamPickSearchList, type PickTeam } from "@/components/launch-dialog/team-pick"
 import { skillsMenuValue } from "@exp/domain-contract/skills"
 import { healthBadgeLabel } from "@/lib/agent-usage"
-import { accountOptionKey } from "@/lib/accounts/account-option"
+import { accountOptionKey, type AccountOption } from "@/lib/accounts/account-option"
 import { ISSUE_SEARCH_NO_RESULTS, ISSUE_SEARCH_PLACEHOLDER } from "@/lib/issue-search"
 import { filterSlashPrompts, promptSlashName, type SlashPrompt } from "@/lib/steer-commands"
 import {
@@ -127,6 +127,20 @@ export interface ComposerRunnerBinding {
     repositories: readonly RepositoryPickerRow[]
     onChange: (repositoryId: string) => void
   }
+}
+
+/** EXP-872: a device's logins as THE account picker's rows (brand mark +
+ *  email, the agent implied by the pick); the launch composer's Account ›
+ *  and an app editor's (#EXP-1729) alike. */
+export function accountPickerOptions(options: readonly AccountOption[]): AccountPickerOption[] {
+  return options.map((option) => ({
+    key: accountOptionKey(option),
+    agent: option.agent,
+    email: option.email,
+    // EXP-849: health beats everything else in the row.
+    hint: healthBadgeLabel(option.health) ?? undefined,
+    limits: option.limits,
+  }))
 }
 
 /** Issue ›: the launch's implement subject, or (a session, an agent chat)
@@ -679,14 +693,7 @@ export function ComposerPlusMenu({
       // implied by the pick.
       account: {
         value: launch.accountKey ?? null,
-        options: launch.accountOptions.map((option) => ({
-          key: accountOptionKey(option),
-          agent: option.agent,
-          email: option.email,
-          // EXP-849: health beats everything else in the row.
-          hint: healthBadgeLabel(option.health) ?? undefined,
-          limits: option.limits,
-        })),
+        options: accountPickerOptions(launch.accountOptions),
         onChange: launch.setAccountKey,
       },
       // Every model is explicit (owner 2026-10-15): THE contract list.

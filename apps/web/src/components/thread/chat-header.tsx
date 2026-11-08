@@ -15,6 +15,14 @@ const HEADER_DISC_CLASS = `!size-10 [&>svg]:size-5! [&>[data-slot=run-mark-badge
 
 export { AgentHeaderTitle, CHAT_HEADER_AGENT_SUBTITLE } from "@exp/ui"
 
+/** The subtitle's tones: `needs input` amber, `working…` foreground, else
+ *  muted (#EXP-1729: the app editor's `editorHeader` tones alike). */
+export const CHAT_HEADER_TONE_CLASS = {
+  attention: `text-yellow-400`,
+  active: `text-foreground`,
+  muted: `text-muted-foreground`,
+} as const
+
 /** A chat's phone header title: the lead disc, the title, the state word
  *  (`needs input` amber / `working…` foreground) · the device. */
 export function ChatHeaderTitle({
@@ -39,7 +47,7 @@ export function ChatHeaderTitle({
   needsYouWord: string
 }) {
   const word = needsYou ? needsYouWord : busy ? CHATS_COPY.preview.working : null
-  const tone = needsYou ? `text-yellow-400` : busy ? `text-foreground` : `text-muted-foreground`
+  const tone = CHAT_HEADER_TONE_CLASS[needsYou ? `attention` : busy ? `active` : `muted`]
   const parts = [word, device].filter(Boolean).join(` · `)
   return (
     <PhoneHeaderTitle
@@ -50,7 +58,7 @@ export function ChatHeaderTitle({
           {trailing}
         </span>
       }
-      subtitle={parts ? <span className={cn(word ? tone : `text-muted-foreground`)}>{parts}</span> : null}
+      subtitle={parts ? <span className={cn(word ? tone : CHAT_HEADER_TONE_CLASS.muted)}>{parts}</span> : null}
     />
   )
 }
