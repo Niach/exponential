@@ -298,7 +298,7 @@ pub mod setup {
         let mode = if case.mode == "light" { Mode::Light } else { Mode::Dark };
         let locale = manifest["locale"].as_str().unwrap_or("en-US").to_string();
         let settings = SurfaceSettings { locale, mode: if mode == Mode::Light { ModeSetting::Light } else { ModeSetting::Dark }, ..SurfaceSettings::default() };
-        SurfaceViewOptions { surface_id: "conformance".into(), theme, mode, host, width: Some(case.width), settings: Some(settings), ..Default::default() }
+        SurfaceViewOptions { surface_id: "conformance".into(), theme, mode, host, width: Some(case.width), settings: Some(settings), pixel_snap: false, ..Default::default() } // the web compares fractional frames
     }
 
     /// Load the case's tree + data into a fresh view.

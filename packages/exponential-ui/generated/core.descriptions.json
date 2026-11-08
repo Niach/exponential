@@ -77,6 +77,9 @@
         },
         "style": {
           "description": "Extra Box styles merged over the card's own."
+        },
+        "pressable": {
+          "description": "A press target firing `press` (an `on.press` implies it)."
         }
       },
       "description": "A bordered card with an optional title and description, for grouped content, not page headers.",
@@ -1723,6 +1726,9 @@
         },
         "trend": {
           "description": "Recent values (sparkline)."
+        },
+        "pressable": {
+          "description": "A press target firing `press` (an `on.press` implies it)."
         }
       },
       "description": "A dashboard tile: label, big value, toned change, trend sparkline.",

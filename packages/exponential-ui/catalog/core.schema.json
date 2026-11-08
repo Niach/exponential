@@ -578,8 +578,16 @@
           "$ref": "#/$defs/Style",
           "description": "Extra Box styles merged over the card's own."
         },
+        "pressable": {
+          "type": "boolean",
+          "description": "A press target firing `press` (an `on.press` implies it).",
+          "default": false
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
+        },
+        "on": {
+          "$ref": "#/$defs/On_Card"
         },
         "visible": {
           "$ref": "common_types.json#/$defs/DynamicBoolean"
@@ -594,7 +602,10 @@
             "kind": "macro",
             "group": "layout",
             "lite": true,
-            "children": "many"
+            "children": "many",
+            "events": [
+              "press"
+            ]
           }
         }
       }
@@ -10036,6 +10047,14 @@
           ],
           "description": "Recent values (sparkline)."
         },
+        "pressable": {
+          "type": "boolean",
+          "description": "A press target firing `press` (an `on.press` implies it).",
+          "default": false
+        },
+        "on": {
+          "$ref": "#/$defs/On_StatTile"
+        },
         "style": {
           "$ref": "#/$defs/Style"
         },
@@ -10055,7 +10074,10 @@
             "kind": "macro",
             "group": "data",
             "lite": true,
-            "children": "none"
+            "children": "none",
+            "events": [
+              "press"
+            ]
           }
         }
       }
@@ -26394,6 +26416,15 @@
       },
       "additionalProperties": false
     },
+    "On_Card": {
+      "type": "object",
+      "properties": {
+        "press": {
+          "$ref": "#/$defs/EuiAction"
+        }
+      },
+      "additionalProperties": false
+    },
     "Slots_List": {
       "type": "object",
       "properties": {
@@ -26831,6 +26862,15 @@
           "$ref": "#/$defs/EuiAction"
         },
         "rowPress": {
+          "$ref": "#/$defs/EuiAction"
+        }
+      },
+      "additionalProperties": false
+    },
+    "On_StatTile": {
+      "type": "object",
+      "properties": {
+        "press": {
           "$ref": "#/$defs/EuiAction"
         }
       },

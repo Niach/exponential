@@ -8996,7 +8996,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -9434,7 +9436,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -9447,7 +9451,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -9486,7 +9492,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -9922,7 +9930,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -9938,7 +9948,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -9973,7 +9985,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -10409,7 +10423,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -10425,7 +10441,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -10458,7 +10476,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -10893,7 +10913,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -10909,7 +10931,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -10967,7 +10991,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -11415,7 +11441,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -11428,7 +11456,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -11465,7 +11495,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -11901,7 +11933,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -11917,7 +11951,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -11952,7 +11988,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -12372,7 +12410,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -12388,7 +12428,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -12421,7 +12463,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -12841,7 +12885,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -12857,7 +12903,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -12917,7 +12965,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -13502,7 +13552,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -13515,7 +13567,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -13554,7 +13608,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -13935,7 +13991,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -13951,7 +14009,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -13986,7 +14046,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -14367,7 +14429,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -14383,7 +14447,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -14416,7 +14482,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -14842,7 +14910,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -14858,7 +14928,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -14916,7 +14988,9 @@
           {
             "id": "plan.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "plan.card.body",
@@ -15352,7 +15426,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -15365,7 +15441,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -15402,7 +15480,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -15838,7 +15918,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -15854,7 +15936,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -15889,7 +15973,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -16325,7 +16411,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -16341,7 +16429,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -16374,7 +16464,9 @@
               {
                 "id": "plan.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "plan.card.body",
@@ -16810,7 +16902,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -16826,7 +16920,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45176,7 +45272,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -45299,7 +45397,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45312,7 +45412,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -45349,7 +45451,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -45470,7 +45574,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -45486,7 +45592,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45519,7 +45627,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -45640,7 +45750,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -45656,7 +45768,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45687,7 +45801,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -45807,7 +45923,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -45823,7 +45941,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -45875,7 +45995,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -45998,7 +46120,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46011,7 +46135,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -46046,7 +46172,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -46167,7 +46295,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -46183,7 +46313,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46216,7 +46348,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -46337,7 +46471,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -46353,7 +46489,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46384,7 +46522,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -46504,7 +46644,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -46520,7 +46662,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46573,7 +46717,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -46706,7 +46852,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46719,7 +46867,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -46754,7 +46904,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -46875,7 +47027,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -46891,7 +47045,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -46924,7 +47080,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47030,7 +47188,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47046,7 +47206,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47077,7 +47239,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47183,7 +47347,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47199,7 +47365,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47252,7 +47420,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -47375,7 +47545,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47388,7 +47560,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -47423,7 +47597,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47544,7 +47720,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47560,7 +47738,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47593,7 +47773,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47714,7 +47896,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47730,7 +47914,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47761,7 +47947,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -47881,7 +48069,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -47897,7 +48087,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -47943,7 +48135,9 @@
           {
             "id": "stat-tile.card",
             "component": "Box",
-            "props": {},
+            "props": {
+              "pressable": false
+            },
             "children": [
               {
                 "id": "stat-tile.card.body",
@@ -48069,7 +48263,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "body",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -48082,7 +48278,9 @@
             "recipe": {
               "macro": "Card",
               "part": "root",
-              "props": {}
+              "props": {
+                "pressable": false
+              }
             },
             "accessibility": {
               "role": "group"
@@ -48124,7 +48322,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -48245,7 +48445,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -48261,7 +48463,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -48294,7 +48498,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -48408,7 +48614,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -48424,7 +48632,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],
@@ -48455,7 +48665,9 @@
               {
                 "id": "stat-tile.card",
                 "component": "Box",
-                "props": {},
+                "props": {
+                  "pressable": false
+                },
                 "children": [
                   {
                     "id": "stat-tile.card.body",
@@ -48540,7 +48752,9 @@
                     "recipe": {
                       "macro": "Card",
                       "part": "body",
-                      "props": {}
+                      "props": {
+                        "pressable": false
+                      }
                     }
                   }
                 ],
@@ -48556,7 +48770,9 @@
                 "recipe": {
                   "macro": "Card",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "pressable": false
+                  }
                 }
               }
             ],

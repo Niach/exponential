@@ -1420,7 +1420,9 @@ fn a_wheel_over_the_anchors_container_closes_its_popover(cx: &mut TestAppContext
 #[gpui::test]
 fn a_box_fires_hover_on_entering(cx: &mut TestAppContext) {
     let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
-    let fx = &f["boxHover"];
+    // #FEED-201: `tilePress` (StatTile and Card presses) has the same shape.
+    for key in ["boxHover", "tilePress"] {
+    let fx = &f[key];
     for c in fx["cases"].as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
         let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [fx["surface"].clone()]}), false);
@@ -1442,5 +1444,6 @@ fn a_box_fires_hover_on_entering(cx: &mut TestAppContext) {
         }
         let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
         assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}");
+    }
     }
 }

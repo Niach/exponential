@@ -2471,8 +2471,8 @@
         "file": "shots/exponential-ui-card/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 18186,
-        "sha256": "4395fef0d9f4858ffa1f99af8659a4a1fe94185779253ccd2bc00f6adbcb9b3e"
+        "bytes": 23492,
+        "sha256": "a6ffc622b57f3252d017bc76fed41512702eb0845edbdb740c672ec8a6221ca5"
       },
       "web": {
         "file": "shots/exponential-ui-card/web.webp",
@@ -4577,8 +4577,8 @@
         "file": "shots/exponential-ui-stat-tile/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 15946,
-        "sha256": "f8f00e75c70f3187bf349111f1b22cc13fb5a80f276408fe9113cb23f355f115"
+        "bytes": 19174,
+        "sha256": "04dce5c6a45d1563a18ba65d961948ecb510feb5b259998abc0d0c0f2e99dcda"
       },
       "web": {
         "file": "shots/exponential-ui-stat-tile/web.webp",
@@ -6513,6 +6513,13 @@
       }
     },
     "settings-agents": {
+      "android": {
+        "file": "shots/settings-agents/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 27684,
+        "sha256": "4bfbaec0f22c520af01ed2071d82319e7fe487c349f26eed5e2910a3dda2061b"
+      },
       "desktop": {
         "file": "shots/settings-agents/desktop.webp",
         "width": 1800,
@@ -6520,19 +6527,26 @@
         "bytes": 36206,
         "sha256": "e51902970501bd090a34f9679641e43e5fe401fb22e9ea343016fda29bdfc483"
       },
+      "ios": {
+        "file": "shots/settings-agents/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 26100,
+        "sha256": "424c18b9bb35f567c55ecbeddddb5901bff4e6174e9917ce3431eccc9019d1b7"
+      },
       "web": {
         "file": "shots/settings-agents/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 39100,
-        "sha256": "8f155303c2378c1aef0bac69d163590489c07f2ff5d507a93d8169a03bbdb2dc"
+        "bytes": 38154,
+        "sha256": "a04197b03090b0dd59f6a982ef357c6681ff1b914a5c58bdf11cb61aef7d54c9"
       },
       "web-mobile": {
         "file": "shots/settings-agents/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 29510,
-        "sha256": "418f602ffcc3896dcdb11d11c36015f55a07d7a81faba1a0daf8163325781e87"
+        "bytes": 29086,
+        "sha256": "08bb3e4f9e9c8e55df3996785661c31027836cb4f23b047b5520f85b703aef89"
       }
     },
     "settings-api-keys": {

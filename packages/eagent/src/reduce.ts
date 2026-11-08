@@ -77,6 +77,26 @@ export function treeTeams(state: HubState, row: Pick<HubSession, `rootId` | `tea
   return [...new Set([root.teamId, ...((root as HubSession).scopeTeamIds ?? [])])]
 }
 
+/** #EXP-1735: the team LEAD Assistant `row` reports to, or null. `row` works in a team whose lead is another
+ *  member's Assistant than the one acting for its tree (the Assistant's children and the threads it started);
+ *  never the Assistant's own conversation root, never a team agent's tree, never the lead's own work. */
+export function leadOf(state: HubState, row: Pick<HubSession, `id` | `rootId` | `teamId`>): string | null {
+  const leadId = state.leads?.[row.teamId]
+  if (!leadId || state.agents[leadId]?.role !== `assistant`) return null
+  const root = state.sessions[row.rootId]
+  const acting = root ? treeAgentId(root) : null
+  if (!acting || acting === leadId || state.agents[acting]?.role !== `assistant`) return null
+  if (row.id === root!.id && root!.agentId === acting) return null
+  return leadId
+}
+
+/** #EXP-1735: the lead's conversation (its root session) a transition of `child` also reaches, or null. */
+function leadListener(state: HubState, child: HubSession): HubSession | null {
+  const leadId = leadOf(state, child)
+  const conversation = leadId ? state.sessions[state.agents[leadId]!.rootSessionId] : undefined
+  return conversation && isLive(conversation) && conversation.id !== child.id ? conversation : null
+}
+
 /** A reader of `listener` may not see `origin` (a private session mirrored into a shared one or another member's). */
 export const askHidden = (
   listener: Pick<HubSession, `shared` | `userId`>,
@@ -196,11 +216,17 @@ function deliver(
     skip?: (listener: HubSession) => boolean
     /** Sealed to the child's tree: in-tree listeners get a byte copy, other trees their `copies[rootId]`, else `hidden`. */
     sealed?: { inTree?: Line; copies?: Record<string, string> }
+    /** #EXP-1735: the team lead's conversation hears it too (after the others, once). */
+    lead?: boolean
   }
 ) {
   // #EXP-1731: a subagent's parent is the CLI process that ran it and has every line in-band: the bus never posts
   // into it (no wake-up per subagent turn, not even its end report). Its watchers still hear it.
-  const all = busListeners(ctx.state, child).filter((listener) => !(isSubagent(child) && listener.id === child.parentId))
+  const subagent = isSubagent(child)
+  const all = busListeners(ctx.state, child).filter((listener) => !(subagent && listener.id === child.parentId))
+  // #EXP-1735: the team lead hears it too (once); a subagent's lines stay inside its parent's tree.
+  const lead = message.lead && !subagent ? leadListener(ctx.state, child) : null
+  if (lead && !all.some((listener) => listener.id === lead.id)) all.push(lead)
   const listeners = message.skip ? all.filter((listener) => !message.skip!(listener)) : all
   for (const listener of listeners) {
     const plain: Line = { body: message.body, card: message.card }
@@ -289,6 +315,7 @@ function busAsk(ctx: Ctx, child: HubSession, messageId: string, card: QuestionCa
     card: mirror,
     hidden: { body: askHiddenText(child.id, card), card: mirror },
     waking: true,
+    lead: true,
   })
 }
 
@@ -314,6 +341,7 @@ function busReport(ctx: Ctx, child: HubSession, summary: string | null, summaryS
       card: { kind: `report`, sessionId: child.id, summary: copy.privateReportLead, final: true },
     },
     waking: true,
+    lead: true,
   })
   for (const row of Object.values(ctx.state.sessions)) row.wakeOn = row.wakeOn.filter((id) => id !== child.id)
 }
@@ -972,13 +1000,17 @@ function tick(ctx: Ctx): StepResult {
 function treesMoved(ctx: Ctx, agentId: string, since: number): boolean {
   const agent = ctx.state.agents[agentId]!
   // #EXP-1720: an Assistant's chats span its conversation's teams.
-  const conversation = ctx.state.sessions[agent.conversationId]
+  const conversation = ctx.state.sessions[agent.rootSessionId]
   const teams = agent.role === `assistant` && conversation ? treeTeams(ctx.state, conversation) : [agent.teamId]
   const rows = Object.values(ctx.state.sessions).filter((row) => teams.includes(row.teamId))
   const moved = (row: HubSession) => row.lastActivityAt !== null && row.lastActivityAt > since
   if (agent.role === `assistant`) {
     // An Assistant watches all its member's chats; its own conversation's turns are not news, its children are.
-    return rows.some((row) => row.userId === agent.ownerId && (row.agentId !== agent.id || row.id !== row.rootId) && moved(row))
+    // #EXP-1735: a team's lead also watches the work that reports to it.
+    return (
+      rows.some((row) => row.userId === agent.ownerId && (row.agentId !== agent.id || row.id !== row.rootId) && moved(row)) ||
+      Object.values(ctx.state.sessions).some((row) => moved(row) && leadOf(ctx.state, row) === agent.id)
+    )
   }
   const roots = new Set(
     rows.filter((row) => row.id === row.rootId && (row.startedByAgentId === agentId || row.agentId === agentId)).map((row) => row.id)
@@ -1006,7 +1038,7 @@ function schedule(ctx: Ctx, data: ScheduleData): StepResult {
   const body = due
     .map((d) => scheduleText(d.cron, d.tz ?? null, ctx.now - d.at > rules.trigger.caughtUpAfterMinutes * MIN))
     .join(`\n`)
-  const conversation = session(ctx.state, agent!.conversationId)
+  const conversation = session(ctx.state, agent!.rootSessionId)
   // Never stacks: an unread tick takes the newer text; a read one nobody answered is re-armed; else a new card.
   const tick = ctx.state.messages
     .filter(
@@ -1061,7 +1093,7 @@ function emitted(ctx: Ctx, data: EmittedData, eventId: string): StepResult {
     if (agent.teamId !== teamId || agent.id === emitter) continue
     for (const trigger of agent.triggers) {
       if (trigger.kind !== `event` || trigger.enabled === false || trigger.name !== name) continue
-      const conversation = session(ctx.state, agent.conversationId)
+      const conversation = session(ctx.state, agent.rootSessionId)
       post(ctx, conversation.id, {
         authorKind: `user`,
         authorSessionId: null,
@@ -1160,10 +1192,12 @@ export function hydrate(given: {
   sessions?: Array<Partial<HubSession> & { id: string }>
   messages?: Array<Partial<HubMessage> & { id: string; sessionId: string }>
   devices?: Array<Partial<{ lastSeenAt: number; liveSessionIds: string[] | null }> & { id: string }>
-  agents?: Array<Partial<import("./model").HubAgent> & { id: string; ownerId: string; conversationId: string }>
+  agents?: Array<Partial<import("./model").HubAgent> & { id: string; ownerId: string; rootSessionId: string }>
+  /** #EXP-1735: teamId → its lead Assistant. */
+  leads?: Record<string, string>
 }): HubState {
   const d = rules.defaults
-  const state: HubState = { seq: 0, sessions: {}, messages: [], devices: {}, agents: {} }
+  const state: HubState = { seq: 0, sessions: {}, messages: [], devices: {}, agents: {}, leads: { ...(given.leads ?? {}) } }
   const rows = given.sessions ?? []
   const byId = new Map(rows.map((row) => [row.id, row]))
   const place = (row: Partial<HubSession> & { id: string }): { rootId: string; depth: number } => {
