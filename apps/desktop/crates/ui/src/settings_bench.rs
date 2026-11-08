@@ -4,13 +4,14 @@
 //! `EXP_SETTINGS_SHOTS=<dir> cargo test -p ui --release -- --ignored settings_ --nocapture`.
 use std::collections::HashMap;
 
-use gpui::{div, prelude::*, px, size, Entity, Window};
+use gpui::{div, prelude::*, px, size, AnyView, Window};
 use gpui_component::ActiveTheme as _;
 
 use api::notifications::EmailPrefs;
 
 use crate::coding_flow::CodingHub;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
+use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -18,7 +19,7 @@ use crate::transcript_bench::draw;
 const PANE: (f32, f32) = (760., 1240.);
 
 struct Frame {
-    pane: Entity<NotificationsPrefsPane>,
+    pane: AnyView,
 }
 
 impl Render for Frame {
@@ -39,6 +40,11 @@ fn prefs(transport: bool, email: bool, daily: bool) -> EmailPrefs {
 }
 
 fn shoot(name: &str, load: ShotLoad) {
+    shoot_pane(name, NotificationsPrefsPane::for_shots, move |pane, cx| pane.show(load, cx));
+}
+
+/// One pane in one state: built, shown, drawn and saved (and diffed).
+fn shoot_pane<P: Render + 'static>(name: &str, build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, show: impl FnOnce(&mut P, &mut gpui::Context<P>) + 'static) {
     let Some(dir) = std::env::var_os("EXP_SETTINGS_SHOTS") else { return };
     let mut cx = headless();
     cx.update(|cx| {
@@ -53,18 +59,15 @@ fn shoot(name: &str, load: ShotLoad) {
     let mut frame = None;
     let handle = cx
         .open_window(size(px(PANE.0), px(PANE.1)), |window: &mut Window, cx| {
-            let pane = cx.new(|cx| NotificationsPrefsPane::for_shots(window, cx));
-            let view = cx.new(|_| Frame { pane });
-            frame = Some(view.clone());
+            let pane = cx.new(|cx| build(window, cx));
+            let view = cx.new(|_| Frame { pane: pane.clone().into() });
+            frame = Some(pane);
             cx.new(|cx| gpui_component::Root::new(view, window, cx))
         })
         .expect("a headless window");
     let window: gpui::AnyWindowHandle = handle.into();
     let frame = frame.expect("the frame");
-    cx.update(|cx| {
-        let pane = frame.read(cx).pane.clone();
-        pane.update(cx, |pane, cx| pane.show(load, cx));
-    });
+    cx.update(|cx| frame.update(cx, |pane, cx| show(pane, cx)));
     for _ in 0..6 {
         draw(window, &mut cx);
         cx.run_until_parked();
@@ -117,4 +120,52 @@ fn settings_notifications_hourly_email_off() {
 #[ignore]
 fn settings_notifications_failed() {
     shoot("notifications-failed", ShotLoad::Failed);
+}
+
+/// A Storage list from JSON (the rows the pictures show).
+fn storage_list(rows: serde_json::Value, total: i64) -> api::attachments::AttachmentsListForTeamOutput {
+    serde_json::from_value(serde_json::json!({"attachments": rows, "totalBytes": total, "draftBytes": 0})).expect("a storage list")
+}
+
+fn storage_rows() -> serde_json::Value {
+    let row = |id: &str, name: &str, kind: &str, bytes: i64, image: bool, referenced: bool, uploader: Option<&str>| {
+        serde_json::json!({"id": id, "issueId": format!("issue-{id}"), "boardId": "board", "uploaderId": uploader, "filename": name, "contentType": kind, "sizeBytes": bytes, "createdAt": "2026-07-01", "isImage": image, "referenced": referenced})
+    };
+    serde_json::json!([
+        row("a1", "screenshot-of-the-settings-pane-after-the-move.png", "image/png", 412_877, true, false, None),
+        row("a2", "design-notes.pdf", "application/pdf", 1_048_576, false, true, Some("user-x")),
+        row("a3", "walkthrough.mp4", "video/mp4", 23_456_789, false, true, None),
+        row("a4", "archive.zip", "application/zip", 2_048, false, false, None),
+    ])
+}
+
+fn storage(name: &str, load: impl FnOnce() -> StorageLoad + 'static) {
+    shoot_pane(name, StoragePane::for_shots, move |pane, cx| pane.show(load(), cx));
+}
+
+#[test]
+#[ignore]
+fn settings_storage_rows() {
+    storage("storage-rows", || StorageLoad::Ready(storage_list(storage_rows(), 24_920_290), None));
+}
+
+#[test]
+#[ignore]
+fn settings_storage_meter() {
+    storage("storage-meter", || {
+        let plan = serde_json::from_value(serde_json::json!({"plan": "pro", "limits": {"storageMb": 1024.0}, "usage": {"storageMb": 23.8}})).expect("a plan");
+        StorageLoad::Ready(storage_list(storage_rows(), 24_920_290), Some(plan))
+    });
+}
+
+#[test]
+#[ignore]
+fn settings_storage_empty() {
+    storage("storage-empty", || StorageLoad::Ready(storage_list(serde_json::json!([]), 0), None));
+}
+
+#[test]
+#[ignore]
+fn settings_storage_failed() {
+    storage("storage-failed", || StorageLoad::Failed);
 }

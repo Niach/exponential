@@ -35,6 +35,8 @@
 //! pane beside it is gone with the helpdesk.
 
 mod about;
+// #EXP-1629: what the panes' eUI documents share.
+mod doc;
 mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
@@ -75,7 +77,7 @@ pub(crate) mod skills;
 mod board_detail;
 pub(crate) mod repositories;
 mod sessions;
-mod storage;
+pub(crate) mod storage;
 pub(crate) mod team_general;
 mod tools;
 mod widget;
@@ -762,7 +764,7 @@ impl SettingsView {
         let issues = cx.new(|cx| IssuesPane::new(nav.clone(), cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
-        let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
+        let storage = cx.new(|cx| StoragePane::new(nav.clone(), window, cx));
         let archived_boards = cx.new(|cx| ArchivedBoardsPane::new(nav.clone(), cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
