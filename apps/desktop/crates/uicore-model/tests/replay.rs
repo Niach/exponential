@@ -69,6 +69,10 @@ fn every_selector_case_replays() {
                     let (apps, favourites) = apps_of(&f, case);
                     json!(start_menu_categories(&apps, &favourites))
                 }
+                "startMenuIssues" => {
+                    let issues: Vec<StartMenuIssue> = serde_json::from_value(case["args"].get("issues").unwrap_or(&f["issues"]).clone()).unwrap();
+                    json!(start_menu_issues(&state, &issues))
+                }
                 other => panic!("unknown selector {other}"),
             };
             assert_eq!(got, case["expected"], "{selector}: {name}");

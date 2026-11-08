@@ -41,7 +41,8 @@
 //! `ede_taskbar {app}` (Mint's click), `ede_taskbar_scroll {app, direction}`,
 //! `ede_previews {app|null}` (the hover previews), `ede_start_menu {open?,
 //! query?, category?}`, `ede_chat` (toggle), `ede_workspace {index}`,
-//! `ede_sidebar {section}` (fold a section); #EDE-56: `ede_switcher {action:
+//! `ede_sidebar {section}` (fold a section); #EDE-65: `ede_issue
+//! {identifier}` (a start-menu issue, opened in the Exponential app); #EDE-56: `ede_switcher {action:
 //! pick|new|share|connect, kind?, id?}` (the Local desktops and the connected
 //! accounts' teams, `/shell/switcher/sections`), `ede_connect {action:
 //! start|code|open|cancel, instance?}` (Connect Exponential: `/connecting`,
@@ -62,6 +63,7 @@
 
 mod accounts;
 mod engine;
+mod issues;
 mod assets;
 mod connect;
 mod dbus;
@@ -239,6 +241,11 @@ struct Shell {
     launchable: Arc<Vec<apps::App>>,
     /// #VAPP-273: the connected team's synced store, when the current entry is a team.
     team_stores: Option<Arc<engine::synced::TeamStores>>,
+    /// #EDE-65: the start menu's issue pool (built when the menu opens),
+    /// the hits for the current query and the debounce's generation.
+    issue_index: Arc<Vec<issues::Indexed>>,
+    issue_hits: Vec<uicore_model::StartMenuIssue>,
+    issue_search: u64,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -660,12 +667,22 @@ impl HostPlugin for Host {
                         dispatch(&shell, if open { ShellEvent::StartMenuOpen } else { ShellEvent::StartMenuClose }, cx);
                     }
                     if let Some(query) = args.get("query").and_then(Value::as_str) {
-                        dispatch(&shell, ShellEvent::StartMenuQuery { query: query.into() }, cx);
+                        start_menu_query(&shell, query.into(), cx);
                     }
                     if let Some(category) = args.get("category").and_then(Value::as_str) {
                         dispatch(&shell, ShellEvent::StartMenuCategory { category: category.into() }, cx);
                     }
                 });
+            }
+            // #EDE-65: a start-menu issue opens in the Exponential app (until the shell shows issues).
+            "ede_issue" => {
+                if let Some(identifier) = args.get("identifier").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| {
+                        close(&shell, "start-menu", cx);
+                        dispatch(&shell, ShellEvent::StartMenuClose, cx);
+                        ide_open(&shell, Some(&issues::issue_deep_link(&identifier)));
+                    });
+                }
             }
             "ede_chat" => {
                 let args = args.clone();
@@ -706,7 +723,7 @@ impl HostPlugin for Host {
                 }
                 refresh(&shell, cx);
             }),
-            Some("/shell/startMenu/query") => cx.defer(move |cx| dispatch(&shell, ShellEvent::StartMenuQuery { query }, cx)),
+            Some("/shell/startMenu/query") => cx.defer(move |cx| start_menu_query(&shell, query, cx)),
             _ => {}
         }
     }
@@ -733,8 +750,8 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_exec = if demo || which("nemo") { "nemo".to_string() } else { "xdg-open .".to_string() };
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
-        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
-        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
+        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
+        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
     ]
 }
 
@@ -994,6 +1011,32 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
     engine_boot(shell, cx);
 }
 
+/// The Exponential app on `link` (its single-instance socket), else started.
+fn ide_open(shell: &SharedShell, link: Option<&str>) {
+    if shell.borrow().workspaces.demo() {
+        tracing::info!(?link, "demo: no hand-off");
+        return;
+    }
+    if link.is_some_and(accounts::ide_send) {
+        return;
+    }
+    // A cold start keeps the link: the entry's Exec takes it as `%U` (its
+    // single-instance boot feeds command-line `exponential://` args in).
+    let command = app_entry(&shell.borrow(), "at.exponential").map(|a| ide_command(a, link));
+    match command {
+        Some(command) => system::launch(&command),
+        None => tracing::warn!("no at.exponential desktop entry to launch"),
+    }
+}
+
+/// The Exponential app's launch command, opening `link` when there is one.
+fn ide_command(app: &apps::App, link: Option<&str>) -> String {
+    match (app.exec_url.as_deref(), link) {
+        (Some(exec), Some(link)) => apps::exec_with_url(exec, link),
+        _ => app.exec.clone(),
+    }
+}
+
 /// The Exponential app's ids: one IDE per person, a hand-off target.
 const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"];
 
@@ -1112,6 +1155,7 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
         uicore_model::start_menu_apps(&state, &shell.menu_apps, &shell.model.taskbar.pinned).into_iter().map(|e| json!({"id": e.id, "name": e.name, "icon": app_icon(shell, &e.id)})).collect()
     };
     value["startMenu"]["favourites"] = Value::Array(favourites);
+    value["startMenu"]["issues"] = json!(uicore_model::start_menu_issues(&shell.model, &shell.issue_hits));
     value
 }
 
@@ -1536,9 +1580,65 @@ fn start_menu_toggle(shell: &SharedShell, cx: &mut App) {
         s.feed.set("/apps", Value::Array(filtered));
     }
     dispatch(shell, ShellEvent::StartMenuOpen, cx);
+    issues_reindex(shell, cx);
     toggle_popup(shell, name, cx);
     refresh(shell, cx);
     shell.borrow().surfaces.focus_component(name, "search", cx);
+}
+
+/// #EDE-65: the start menu's query: the apps at once, the issues once the
+/// keys rest (the debounce) and ranked off the main loop.
+const ISSUE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
+
+fn start_menu_query(shell: &SharedShell, query: String, cx: &mut App) {
+    dispatch(shell, ShellEvent::StartMenuQuery { query }, cx);
+    issues_search(shell, cx);
+}
+
+fn issues_search(shell: &SharedShell, cx: &mut App) {
+    let generation = {
+        let mut s = shell.borrow_mut();
+        s.issue_search += 1;
+        if s.model.start_menu.query.trim().is_empty() {
+            s.issue_hits.clear();
+            return;
+        }
+        s.issue_search
+    };
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(ISSUE_SEARCH_DEBOUNCE).await;
+        let Some((index, query)) = ({
+            let s = shell.borrow();
+            (s.issue_search == generation).then(|| (s.issue_index.clone(), s.model.start_menu.query.clone()))
+        }) else {
+            return;
+        };
+        let hits = cx.background_executor().spawn(async move { issues::search(&index, &query) }).await;
+        if shell.borrow().issue_search != generation {
+            return;
+        }
+        shell.borrow_mut().issue_hits = hits;
+        cx.update(|cx| model_changed(&shell, cx));
+    })
+    .detach();
+}
+
+/// #EDE-65: the issue pool, read again each time the menu opens (the
+/// stores' SQLite off the main loop); a query typed meanwhile ranks after.
+fn issues_reindex(shell: &SharedShell, cx: &mut App) {
+    let sources = shell.borrow().workspaces.issue_sources();
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let index = match sources {
+            Some(sources) => cx.background_executor().spawn(async move { issues::build(sources) }).await,
+            None => issues::demo_index(),
+        };
+        tracing::debug!(issues = index.len(), "start menu issue pool");
+        shell.borrow_mut().issue_index = Arc::new(index);
+        cx.update(|cx| issues_search(&shell, cx));
+    })
+    .detach();
 }
 
 /// Opens an on-demand layer document by name, if it is not open.
@@ -2134,6 +2234,9 @@ fn main() {
             engine_apps: Vec::new(),
             launchable: Arc::new(Vec::new()),
             team_stores: None,
+            issue_index: Arc::new(Vec::new()),
+            issue_hits: Vec::new(),
+            issue_search: 0,
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
@@ -2473,5 +2576,42 @@ mod start_menu_document {
         assert!(!doc.to_string().contains("/shell/ide/"), "the IDE's rows stay in its sidebar");
         let (f, args) = call(node(root, "settings").expect("the Settings button"));
         assert_eq!((f, args["name"].as_str()), ("ede_open_document", Some("settings")));
+    }
+
+    /// #EDE-65: the search lists Apps, then Issues (each opening in the app).
+    #[test]
+    fn the_start_menu_lists_apps_then_issues() {
+        let doc: Value = serde_json::from_str(uicore_docs::doc("start-menu").expect("the start menu").source).unwrap();
+        assert!(doc["surface"]["functions"].as_array().unwrap().iter().any(|f| f == "ede_issue"));
+        let scroll = node(&doc["root"], "apps_scroll").expect("the results");
+        let order: Vec<&str> = scroll["children"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
+        assert_eq!(order, ["apps_label", "apps", "app", "issues_label", "issues", "issue", "no_apps"]);
+        assert_eq!(node(scroll, "issues").unwrap()["template"]["path"], "/shell/startMenu/issues");
+        let (f, args) = call(node(scroll, "issue").unwrap());
+        assert_eq!((f, &args["identifier"]), ("ede_issue", &serde_json::json!({"@path": "identifier"})));
+    }
+}
+
+#[cfg(test)]
+mod ide_launch {
+    use super::*;
+
+    /// #EDE-65: a cold start hands the item's link over on the command line.
+    #[test]
+    fn a_cold_start_passes_the_link_as_the_entrys_url() {
+        let app = apps::App {
+            id: "at.exponential.desktop".into(),
+            name: "Exponential".into(),
+            comment: String::new(),
+            exec: "/opt/Exponential/exponential-desktop".into(),
+            exec_url: Some("/opt/Exponential/exponential-desktop %U".into()),
+            icon: None,
+            keywords: String::new(),
+            categories: vec![],
+        };
+        assert_eq!(ide_command(&app, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop 'exponential://issue/ACME-12'");
+        assert_eq!(ide_command(&app, None), "/opt/Exponential/exponential-desktop");
+        let no_urls = apps::App { exec_url: None, ..app };
+        assert_eq!(ide_command(&no_urls, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop");
     }
 }
