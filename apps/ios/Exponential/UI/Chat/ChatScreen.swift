@@ -191,7 +191,12 @@ struct ChatScreen: View {
         SessionScreen.kind(agentId: rows.root.agentId, appId: rows.root.appId, assistant: rows.agent?.isAssistant == true)
     }
 
-    private func items(_ view: SessionChatView) -> ChatTreeItems { ChatTreeItems(tabs: view.tabs) }
+    /// #EXP-1732: the tree's issues and sessions (the RAW tree, never the
+    /// view's visible chips; an agent's chat has none).
+    private func items(_ view: SessionChatView) -> ChatTreeItems {
+        guard let rows else { return ChatTreeItems(tabs: view.tabs) }
+        return ChatTreeItems(rows: rows, now: Date())
+    }
 
     /// THE screen value: the tabs with their counts, the active tab, the
     /// gear and the layout (phones are never wide).
@@ -821,7 +826,7 @@ struct ChatScreen: View {
         rows: ChatRows, view: SessionChatView
     ) -> (model: AgentSessionModel, sessionName: String?)? {
         let names = Dictionary(
-            ChatTreeItems(tabs: view.tabs).sessions.map { ($0.sessionId, $0.name) },
+            items(view).sessions.map { ($0.sessionId, $0.name) },
             uniquingKeysWith: { first, _ in first }
         )
         let now = Date()

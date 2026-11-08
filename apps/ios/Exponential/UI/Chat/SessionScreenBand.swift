@@ -46,6 +46,86 @@ struct ChatTreeItems: Equatable {
         self.issues = issues
         self.sessions = sessions
     }
+
+    /// #EXP-1732 (session-screen.json COUNTS): THE screen's Issues and
+    /// Sessions from the RAW tree, every kind alike (an agent's chat too,
+    /// whose view folds no chips): every session UNDER the root (all
+    /// descendants, never the root; subagents included), depth from
+    /// `parentId` (0 = a direct child), siblings in creation order; every
+    /// issue of the tree (`rows.issues`), a sub-issue right after its
+    /// nearest linked ancestor.
+    init(rows: ChatRows, now: Date) {
+        let rootId = rows.root.id
+        let tree = rows.sessions.filter { $0.rootId == rootId && $0.id != rootId }
+        let treeIds = Set(tree.map(\.id))
+        let ordered = tree.sorted { a, b in a.createdAt != b.createdAt ? a.createdAt < b.createdAt : a.id < b.id }
+        sessions = Self.forest(
+            ordered,
+            id: \.id,
+            parent: { session in session.parentId.flatMap { $0 != rootId && treeIds.contains($0) ? $0 : nil } }
+        ).map { session, depth in
+            let tree = TreeSession(sessionRow: session)
+            return Session(
+                sessionId: session.id,
+                name: SessionTree.sessionCard(tree, title: session.title ?? "", now: now).name,
+                markState: SessionTree.sessionTabMarkState(tree),
+                depth: depth
+            )
+        }
+        let issueIds = Set(rows.issues.map(\.id))
+        issues = Self.forest(
+            rows.issues,
+            id: \.id,
+            parent: { issue in
+                // The nearest LINKED ancestor (walking past unlinked ones).
+                var seen = Set<String>()
+                var parent = rows.issueParents[issue.id]
+                while let current = parent, !seen.contains(current) {
+                    if issueIds.contains(current) { return current }
+                    seen.insert(current)
+                    parent = rows.issueParents[current]
+                }
+                return nil
+            }
+        ).map { issue, depth in
+            Issue(issueId: issue.id, identifier: issue.identifier ?? "", depth: depth)
+        }
+    }
+
+    /// Depth-first over a forest: each top-level item (no parent in the set)
+    /// in input order, its children right after it, `depth` 0 = top level.
+    private static func forest<T>(
+        _ items: [T], id: (T) -> String, parent: (T) -> String?
+    ) -> [(T, Int)] {
+        let keyed = items.map { (key: id($0), parent: parent($0), item: $0) }
+        var children: [String: [Int]] = [:]
+        var tops: [Int] = []
+        for (index, entry) in keyed.enumerated() {
+            if let parentId = entry.parent {
+                children[parentId, default: []].append(index)
+            } else {
+                tops.append(index)
+            }
+        }
+        var out: [(T, Int)] = []
+        var visited = Set<Int>()
+        // Iterative depth-first walk (an explicit stack, children in order).
+        var stack: [(index: Int, depth: Int)] = []
+        let starts = tops + keyed.indices.filter { !tops.contains($0) }
+        for start in starts where !visited.contains(start) {
+            stack.append((start, 0))
+            while let next = stack.popLast() {
+                let index = next.index, depth = next.depth
+                guard !visited.contains(index) else { continue }
+                visited.insert(index)
+                out.append((keyed[index].item, depth))
+                for child in (children[keyed[index].key] ?? []).reversed() where !visited.contains(child) {
+                    stack.append((child, depth + 1))
+                }
+            }
+        }
+        return out
+    }
 }
 
 /// #EXP-1732: THE header tabs under the chat header, on every kind: THE
