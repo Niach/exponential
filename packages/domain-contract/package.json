@@ -43,6 +43,7 @@
     "./inbox-route": "./src/inbox-route.ts",
     "./thread-row-action": "./src/thread-row-action.ts",
     "./message-conversation": "./src/message-conversation.ts",
+    "./message-session": "./src/message-session.ts",
     "./guide-viewer": "./src/guide-viewer.ts",
     "./agent-settings": "./src/agent-settings.ts",
     "./schedule-picker": "./src/schedule-picker.ts",
