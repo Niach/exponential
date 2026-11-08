@@ -97,9 +97,80 @@ fn chat_row(row: &SessionThreadRow, messages: &HashMap<&str, &MessageRow>, name:
     })
 }
 
+/// The agent CLI a session's `cli` names for the `/` menu (the IDE's
+/// `agent_of`): `codex`, else `claude` (an absent or unknown one too).
+pub fn session_agent(cli: Option<&str>) -> &'static str {
+    match cli.map(str::trim) {
+        Some(id) if id.eq_ignore_ascii_case("codex") => "codex",
+        _ => "claude",
+    }
+}
+
+/// The team's prompts in their order (sort order, then name), the menu's
+/// second group.
+pub fn ordered_prompts(mut prompts: Vec<domain::rows::PromptRow>) -> Vec<domain::rows::PromptRow> {
+    prompts.sort_by(|a, b| a.sort_order.unwrap_or(0.0).partial_cmp(&b.sort_order.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.name.cmp(&b.name)));
+    prompts
+}
+
+/// THE `/` menu (`domain::slash_menu`, the IDE's rules) as `/chatMenu`
+/// binds it: open while the draft is a bare command token with matches:
+/// the builtins of `cli` (`None` = no session yet: none), then the team's
+/// prompts (NEW-2: icon + name; a pick loads its body into the composer).
+pub fn slash_menu(draft: &str, cli: Option<&str>, prompts: &[domain::rows::PromptRow]) -> serde_json::Value {
+    let Some(query) = domain::slash_menu::slash_query(draft) else { return serde_json::json!({"open": false, "rows": []}) };
+    let mut rows: Vec<serde_json::Value> = cli
+        .map(|cli| domain::slash_menu::menu_matches(draft, cli))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| serde_json::json!({"key": format!("command:{}", c.name), "command": format!("/{}", c.name), "description": c.description, "hint": c.arg_hint, "icon": null, "insert": domain::slash_menu::insertion(c.name, c.arg_hint), "prompt": ""}))
+        .collect();
+    let named: Vec<&domain::rows::PromptRow> = prompts.iter().filter(|p| p.name.as_deref().is_some_and(|n| !n.trim().is_empty())).collect();
+    rows.extend(domain::slash_menu::filter_prompts(&named, |p| p.name.as_deref().unwrap_or_default(), query).into_iter().map(|p| {
+        serde_json::json!({"key": format!("prompt:{}", p.id), "command": "", "description": p.name, "hint": "", "icon": p.icon.clone().filter(|i| !i.is_empty()).unwrap_or_else(|| PROMPT_ICON.into()), "insert": "", "prompt": p.id})
+    }));
+    serde_json::json!({"open": !rows.is_empty(), "rows": rows})
+}
+
+/// The goldens' team prompts.
+pub fn demo_prompts() -> Vec<domain::rows::PromptRow> {
+    [("p1", "Release notes", "rocket"), ("p2", "Triage the inbox", "")]
+        .into_iter()
+        .map(|(id, name, icon)| serde_json::from_value(serde_json::json!({"id": id, "name": name, "icon": icon})).expect("a prompt row"))
+        .collect()
+}
+
+/// A prompt without a curated icon (the IDE's generic prompt glyph).
+const PROMPT_ICON: &str = "action-default";
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_team_s_prompts_follow_the_builtins_by_their_slash_name() {
+        let prompt = |id: &str, name: &str, order: f64| -> domain::rows::PromptRow { serde_json::from_value(serde_json::json!({"id": id, "name": name, "sort_order": order})).unwrap() };
+        let prompts = ordered_prompts(vec![prompt("p2", "Release notes", 2.0), prompt("p1", "Fix flaky tests", 1.0)]);
+        let menu = slash_menu("/", Some("claude"), &prompts);
+        let rows = menu["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), domain::contract::STEER_COMMAND_NAMES.len() + 2);
+        assert_eq!((rows[rows.len() - 2]["description"].as_str(), rows[rows.len() - 2]["prompt"].as_str()), (Some("Fix flaky tests"), Some("p1")));
+        let home = slash_menu("/rel", None, &prompts);
+        assert_eq!(home["rows"].as_array().unwrap().len(), 1, "the home lists prompts alone");
+        assert_eq!(home["rows"][0]["icon"], PROMPT_ICON);
+    }
+
+    #[test]
+    fn the_slash_menu_lists_the_session_cli_s_builtins_while_the_draft_is_a_command() {
+        let menu = slash_menu("/co", Some("claude"), &[]);
+        assert_eq!(menu["open"], true);
+        assert_eq!(menu["rows"][0]["command"], "/compact");
+        assert_eq!(menu["rows"][0]["insert"], "/compact ");
+        assert_eq!(slash_menu("/co ", Some("claude"), &[])["open"], false, "a space closes it");
+        assert_eq!(slash_menu("/", None, &[])["open"], false, "the home has no builtins");
+        assert_eq!(session_agent(Some("Codex")), "codex");
+        assert_eq!(session_agent(None), "claude");
+    }
     use domain::chats::DividerKind;
 
     fn message(id: &str, at: &str) -> MessageRow {

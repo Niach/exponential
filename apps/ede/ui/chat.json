@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (a person's bubble right, the agent's bubble left or plain prose in a transcript, muted lines, divider pills, cards that open their session, questions whose options answer, pictures) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. /chat/draft is the composer's text, owned by the document. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.",
+  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (a person's bubble right, the agent's bubble left or plain prose in a transcript, muted lines, divider pills, cards that open their session, questions whose options answer, pictures) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). /chat/draft is the composer's text, owned by the document. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -240,6 +240,80 @@
                 ]
               },
               {
+                "id": "chat_home_slash",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "padding": 4,
+                  "borderRadius": 12,
+                  "borderWidth": 1,
+                  "borderColor": "$color.border",
+                  "backgroundColor": "$color.popover"
+                },
+                "children": [
+                  {
+                    "id": "chat_home_slash_rows",
+                    "component": "List",
+                    "props": {
+                      "gap": "none"
+                    },
+                    "template": {
+                      "component": "chat_home_slash_row",
+                      "path": "/chatMenu/rows",
+                      "key": "key"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "chat_home_slash_row",
+                    "component": "Row",
+                    "props": {
+                      "identifier": {
+                        "@path": "command"
+                      },
+                      "title": {
+                        "@path": "description"
+                      },
+                      "meta": {
+                        "@path": "hint"
+                      },
+                      "icon": {
+                        "@path": "icon"
+                      },
+                      "density": "compact",
+                      "pressable": true
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_chat",
+                          "args": {
+                            "action": "slash",
+                            "insert": {
+                              "@path": "insert"
+                            },
+                            "prompt": {
+                              "@path": "prompt"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "/chatMenu/open"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                }
+              },
+              {
                 "id": "chat_no_cli",
                 "component": "EmptyState",
                 "props": {
@@ -274,6 +348,17 @@
                       "@call": "ede_chat",
                       "args": {
                         "action": "send",
+                        "text": {
+                          "@path": "/chat/draft"
+                        }
+                      }
+                    }
+                  },
+                  "change": {
+                    "functionCall": {
+                      "@call": "ede_chat",
+                      "args": {
+                        "action": "draft",
                         "text": {
                           "@path": "/chat/draft"
                         }
@@ -1094,6 +1179,7 @@
               "display": "flex",
               "flexDirection": "column",
               "alignItems": "stretch",
+              "gap": 8,
               "width": "100%",
               "maxWidth": 996,
               "alignSelf": "center",
@@ -1102,6 +1188,80 @@
               "paddingBottom": 16
             },
             "children": [
+              {
+                "id": "chat_slash",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "padding": 4,
+                  "borderRadius": 12,
+                  "borderWidth": 1,
+                  "borderColor": "$color.border",
+                  "backgroundColor": "$color.popover"
+                },
+                "children": [
+                  {
+                    "id": "chat_slash_rows",
+                    "component": "List",
+                    "props": {
+                      "gap": "none"
+                    },
+                    "template": {
+                      "component": "chat_slash_row",
+                      "path": "/chatMenu/rows",
+                      "key": "key"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "chat_slash_row",
+                    "component": "Row",
+                    "props": {
+                      "identifier": {
+                        "@path": "command"
+                      },
+                      "title": {
+                        "@path": "description"
+                      },
+                      "meta": {
+                        "@path": "hint"
+                      },
+                      "icon": {
+                        "@path": "icon"
+                      },
+                      "density": "compact",
+                      "pressable": true
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_chat",
+                          "args": {
+                            "action": "slash",
+                            "insert": {
+                              "@path": "insert"
+                            },
+                            "prompt": {
+                              "@path": "prompt"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "/chatMenu/open"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                }
+              },
               {
                 "id": "chat_composer",
                 "component": "Composer",
@@ -1131,6 +1291,17 @@
                         "action": "stop"
                       }
                     }
+                  },
+                  "change": {
+                    "functionCall": {
+                      "@call": "ede_chat",
+                      "args": {
+                        "action": "draft",
+                        "text": {
+                          "@path": "/chat/draft"
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -1152,6 +1323,10 @@
   "data": {
     "chat": {
       "draft": ""
+    },
+    "chatMenu": {
+      "open": false,
+      "rows": []
     },
     "chatting": {
       "noCli": false,

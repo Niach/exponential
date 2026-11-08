@@ -1909,8 +1909,8 @@
         "file": "shots/ede-chat/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 15082,
-        "sha256": "4e59bef16cb5e04ba5497dda9b39c75cec1efa1eca851193e0f2a7c475a5509d"
+        "bytes": 15038,
+        "sha256": "b2f6cb9a8ac341036229235a6406b52c4a942daf364207a4b2ced05be8bc2a03"
       }
     },
     "ede-connect": {

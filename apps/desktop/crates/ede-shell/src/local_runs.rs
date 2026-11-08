@@ -144,6 +144,18 @@ impl LocalChat {
         self.send(label)
     }
 
+    /// The open session's `cli` (#EDE-65 J5), else the CLI the runs use.
+    pub fn session_cli(&self) -> Option<String> {
+        let session = self.session_id.as_ref()?;
+        let row = self.desktop.store.row("sessions", session).ok().flatten();
+        row.and_then(|r| r.get("cli").and_then(Value::as_str).map(str::to_string)).filter(|c| !c.is_empty()).or_else(|| (!self.agent.is_empty()).then(|| self.agent.clone()))
+    }
+
+    /// The desktop's prompts (its store's `prompts`, #EDE-65 J).
+    pub fn prompts(&self) -> Vec<domain::rows::PromptRow> {
+        self.desktop.store.rows("prompts").unwrap_or_default().into_iter().filter_map(|row| serde_json::from_value(Value::Object(row)).ok()).collect()
+    }
+
     /// New chat: the next send starts a session.
     pub fn new_chat(&mut self) {
         self.session_id = None;
@@ -179,6 +191,8 @@ pub fn assistant_home() -> ChatInput {
         bubbles: true,
         agents: vec![ChatAgentInput { id: ASSISTANT_ID.into(), name: ASSISTANT.into(), icon: ASSISTANT_ICON.into() }],
         agent_id: Some(ASSISTANT_ID.into()),
+        // eDE's composer has THE `/` menu.
+        slash_commands: true,
         ..Default::default()
     }
 }
@@ -229,6 +243,6 @@ mod tests {
         let demo = chat_view(&super::demo_input());
         assert_eq!(demo.face, ChatFace::Conversation);
         assert_eq!(demo.rows.len(), 4);
-        assert_eq!(demo.composer.placeholder, "Message Assistant", "eDE has no / menu yet");
+        assert_eq!(demo.composer.placeholder, "Type / for commands", "eDE's composer has the / menu");
     }
 }
