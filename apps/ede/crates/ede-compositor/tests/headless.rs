@@ -295,6 +295,38 @@ fn a_top_layer_stays_above_the_windows_under_it() {
     assert_eq!(frame.at(939, 599), GREEN);
 }
 
+/// #EDE-65: a click on a shell layer over a window (an Alt-Tab tile, with
+/// Alt still held) is the layer's: the window under it is neither focused
+/// nor dragged by Alt+drag.
+#[test]
+fn an_alt_click_on_a_layer_over_a_window_leaves_the_window_alone() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let under = c.toplevel("under");
+    c.draw(&under, 1000, 600, RED);
+    let focused = c.toplevel("focused");
+    c.draw(&focused, 300, 200, BLUE);
+    wait_for(&mut c, |_| windows(&h).len() == 2);
+    let focus_title = || h.with(|ede| ede.space.elements().find(|w| w.toplevel().is_some_and(|t| t.with_pending_state(|s| s.states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated)))).and_then(|w| smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| s.data_map.get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>().unwrap().lock().unwrap().title.clone())));
+    assert_eq!(focus_title().as_deref(), Some("focused"));
+    let before = windows(&h);
+
+    let switcher = c.layer("switcher", Anchor::empty(), (600, 200), 0);
+    c.draw_layer(&switcher, GREEN);
+    wait_for(&mut c, |_| h.capture(0).at(640, 400) == GREEN);
+    key(&h, KEY_LEFTALT, KeyState::Pressed);
+    h.with(|ede| {
+        ede.pointer_motion_to((500.0, 400.0).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_motion_to((700.0, 450.0).into(), 2);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 3);
+    });
+    key(&h, KEY_LEFTALT, KeyState::Released);
+    c.roundtrip();
+    assert_eq!(focus_title().as_deref(), Some("focused"), "the window under the layer took the focus");
+    assert_eq!(windows(&h), before, "an Alt+drag started on the window under the layer");
+}
+
 /// #EDE-48: the IDE look. With the default `[windows] panel_margin` (10)
 /// the work area is the output minus the panel's zone, inset on every
 /// side: maximize, Super+Left and a new window all keep off the frame.

@@ -5399,7 +5399,7 @@
                             },
                             "template": {
                               "component": "workspace_row",
-                              "path": "/shell/sidebar/workspaces",
+                              "path": "/shell/workspaces/rows",
                               "key": "index"
                             },
                             "children": []

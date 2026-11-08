@@ -18,8 +18,12 @@ previews) with the applets and the clock at the right end; the sidebar nav is
 Needs you + Chats (no Assistant entry); bottom-left = the Exponential start
 button and a chat button; Settings = one window with a sidebar nav (This
 device, Personal, Team); Files launches Nemo; Version history is a start-menu
-app entry. The IDE's sidebar never folds (EXP-723); eDE's folds into the
-56 px rail (`rail.toggle`) and folds its sections (`sidebar.toggle`).
+app entry. The IDE's sidebar never folds (EXP-723). #EDE-65 (Danny's
+decisions, superseding rows 3 to 9 where they differ): eDE's sidebar is the
+IDE's 56 px icon rail for good, black like the IDE's (no Sidebar fill), and
+lists only the chats (`chats` in `shell.json`), each the agent's mark with its
+dot; no switcher, inbox, search, nav or sections there; the taskbar spans the
+bottom edge and starts with the start, chat and new-issue buttons.
 
 Colour tokens both sides read from `packages/design-tokens` (`glass`):
 `FILL_PANEL` white 10/255, `FILL_CARD` 15, `FILL_ACTIVE` 28, `FILL_ROW` 15,
@@ -31,7 +35,7 @@ Colour tokens both sides read from `packages/design-tokens` (`glass`):
 |---|---|---|---|---|---|---|---|
 | 1 | Ground gradient (`shell.rs` `background_gradient`) | the wallpaper behind every window; the sidebar and the taskbar are panels over it | Box (`$color.background`) | 180° from `BACKGROUND_TOP` mixed 60 % to `BACKGROUND_BOTTOM` (≈ rgb 12,12,15) to rgb 17,17,20; alpha 0.96 with a blurred backdrop, else 1 | the compositor's Tier A ground from the same tokens, alpha 1, a wallpaper when set | close | a desktop shows a wallpaper, not a gradient; the panels keep `FILL_PANEL` over it |
 | 2 | Rounded content card (`shell.rs` `PANEL_MARGIN`, `surface.rs` `PANEL_BORDER`) | no card on the desktop (apps are windows with Tier A frames); its numbers frame every eDE panel (start menu, previews, button menu, Settings window) | Box (`radius`, `border`), Popover | radius 12 (`radius::LG`), margin 10 (top 0 under the band, bottom 6 with the session bar), border 1 `STROKE_CARD`, fill `FILL_PANEL`, inner radius 11 | `panelRadius` 12, `panelMargin` 10, border 1 `STROKE_CARD`, fill `FILL_PANEL` | same | by decision no content card; every panel carries the card's frame |
-| 3 | Sidebar column (`sidebar.rs`, `resize_edge::panel_width`) | the sidebar document, a left layer surface | Sidebar (`width`, `rail`) | 272 (drag 272…560, 8 px handle), never folds | `sidebarWidth` 272, `railWidth` 56 (`rail.toggle`), no drag | close | eDE adds the icon rail and drops the drag handle |
+| 3 | Sidebar column (`sidebar.rs`, `resize_edge::panel_width`) | the sidebar document, a left layer surface | Sidebar (`width`, `rail`) | 272 (drag 272…560, 8 px handle), never folds | `railWidth` 56 for good (#EDE-65), no drag | close | eDE's sidebar is the IDE's icon rail, never the 272 column |
 | 4 | Header: team switcher (`render_left_column_header`) | the desktop/team switcher (`switcher.current`, `switcher.entries`) | Button (ghost), Avatar, Text, Icon, Menu (`hostedPopups`) | ghost button h 40, avatar 28, name `text_sm` semibold, xsmall chevron, live dot at -2/-2; menu = teams + New team + Join team | same button and avatar; menu = Local + the teams (`switcher.set`) | close | the local desktop is the first entry; New team and Join team live in the Exponential app |
 | 5 | Header: inbox (`InboxButton`) | the inbox button | Button (icon), Badge (dot) | `web_icon_sm` 32, unread dot top 4 / right 4 | 32, same dot | same | |
 | 6 | Header: search | the search button | Button (icon, ghost) | 32 circle | 32 | same | |
@@ -89,7 +93,7 @@ Mint's icon-only `taskbar.json`). The IDE's Local desktops are `elocal`
 | Taskbar: applets + clock (right end) | the host's data (`/time`, tray, notifications) | Button (icon) ×n, Text, Popover | applet 32 |
 | Workspace badges | `workspaceBadges`, `workspace.switched` | Segmented (rail), Badge (count) | row 28 |
 | Sidebar section Workspaces | `sidebar.workspacesOpen` | Section (`collapsible`), Row, Badge | label 24, rows 28 |
-| Alt-Tab switcher | `altTab.*`, `altTabOrder` | Box, Image, Text (`switcher.json` today) | 760 × 196 overlay |
+| Alt-Tab switcher | `altTab.*`, `altTabOrder` | Box, Image, Text (`switcher.json` today) | overlay sized to its tiles (208 px each), 204 high |
 | Start menu (Mint's three columns: favourites + places + power, categories, apps; search at the bottom) | `startMenuApps`, `startMenuCategories`, `startMenu.query`, `startMenu.category` | Grid, List, Row (`icon`, `title`, `subtitle`), Input, Button, Separator | 760 × 620 |
 | Settings window (#EDE-47) | `settings.json`: the nav This device / Personal / Team beside the page | Sidebar, Section, Row, SettingsRow, Switch, Select, Slider, DatePicker (`inline`), EmptyState, Popover | 1080 × 680 centred on the output, nav 272, back row 40, rows 28, labels 24 |
 

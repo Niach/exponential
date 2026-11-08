@@ -12,6 +12,8 @@ eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overla
 ede-ui = { path = "../../../ede/crates/ede-ui" }
 uicore-data = { path = "../uicore-data" }
 uicore-docs = { path = "../uicore-docs" }
+# #EDE-65: the rail glyphs' tokens and the Claude mark's brand colour, as the IDE paints them.
+theme = { path = "../theme" }
 gpui.workspace = true
 serde_json = "1"
 tracing = "0.1"

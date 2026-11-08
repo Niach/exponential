@@ -30,12 +30,9 @@ interface Region {
 const IDE = 1.25
 const REGIONS: Region[] = [
   { name: `The frame: black ground, the rounded content panel`, ide: { view: `agent-home`, crop: [0, 0, 1800, 1126] }, ede: { view: `ede-panel`, crop: [0, 0, 1280, 720] } },
-  { name: `The sidebar column (272 px)`, ide: { view: `agent-home`, crop: [0, 0, 272 * IDE, 1126] }, ede: { view: `ede-panel`, crop: [0, 0, 272, 720] } },
-  { name: `The sidebar header: switcher, inbox, search, new`, ide: { view: `agent-home`, crop: [0, 50, 272 * IDE, 60] }, ede: { view: `ede-panel`, crop: [0, 4, 272, 48] } },
-  { name: `Nav rows and sections`, ide: { view: `agent-home`, crop: [0, 125, 272 * IDE, 420] }, ede: { view: `ede-panel`, crop: [0, 56, 272, 270] } },
-  { name: `The bottom-left corner`, ide: { view: `agent-home`, crop: [0, 1040, 272 * IDE, 86] }, ede: { view: `ede-panel`, crop: [0, 664, 272, 56] } },
-  { name: `The icon rail (eDE only; the IDE's sidebar never folds)`, ide: { view: `agent-home`, crop: [0, 0, 56 * IDE, 1126] }, ede: { view: `ede-rail`, crop: [0, 0, 56, 720] } },
-  { name: `The work tabs band (IDE) vs Mint's taskbar (eDE, by decision)`, ide: { view: `agent-home`, crop: [340, 0, 1460, 55] }, ede: { view: `ede-panel`, crop: [272, 672, 1008, 48] } },
+  { name: `The icon rail (56 px, eDE's sidebar for good, #EDE-65): the chats`, ide: { view: `agent-home`, crop: [0, 0, 56 * IDE, 1126] }, ede: { view: `ede-panel`, crop: [0, 0, 56, 672] } },
+  { name: `The bottom-left corner: start, chat, new issue`, ide: { view: `agent-home`, crop: [0, 1040, 272 * IDE, 86] }, ede: { view: `ede-panel`, crop: [0, 672, 160, 48] } },
+  { name: `The work tabs band (IDE) vs Mint's taskbar (eDE, by decision)`, ide: { view: `agent-home`, crop: [340, 0, 1460, 55] }, ede: { view: `ede-panel`, crop: [0, 672, 1280, 48] } },
   { name: `Alt-Tab: the IDE has none; eDE's switcher`, ide: { view: `agent-home`, crop: [340, 0, 1460, 1126] }, ede: { view: `ede-switcher`, crop: [255, 278, 770, 206] } },
   { name: `Settings navigation`, ide: { view: `settings-general`, crop: [0, 0, 400, 1126] }, ede: { view: `ede-settings`, crop: [160, 60, 960, 640] } },
 ]
