@@ -20,6 +20,7 @@
 import { join } from "node:path"
 
 const WAIT_MS = Number.parseInt(process.env.SMOKE_WAIT_MS || ``) || 90_000
+const STOP_MS = 5_000
 
 type Probe = { path: string; check: (res: Response, body: string) => string | null }
 
@@ -107,9 +108,27 @@ async function main() {
       console.error(`[smoke-server] ${failed} of ${PROBES.length} probes failed on ${base}`)
       process.exitCode = 1
     }
+    if (server) await stopsPromptly(server)
   } finally {
-    server?.kill()
+    server?.kill(`SIGKILL`)
   }
+}
+
+// The image runs bun as PID 1, which has no default SIGTERM action: only
+// server-bun.ts's handler makes `docker stop` end before its SIGKILL.
+async function stopsPromptly(server: Bun.Subprocess) {
+  const started = Date.now()
+  server.kill(`SIGTERM`)
+  const exited = await Promise.race([
+    server.exited.then(() => true),
+    Bun.sleep(STOP_MS).then(() => false),
+  ])
+  if (!exited) {
+    console.error(`[smoke-server] FAIL SIGTERM: still running after ${STOP_MS / 1000}s`)
+    process.exitCode = 1
+    return
+  }
+  console.log(`[smoke-server] ok   SIGTERM (exited in ${Date.now() - started}ms)`)
 }
 
 main().catch((e) => {
