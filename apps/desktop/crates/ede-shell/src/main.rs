@@ -45,7 +45,8 @@
 //! `ede_previews {app|null}` (the hover previews), `ede_start_menu {open?,
 //! query?, category?}`, `ede_chat` (toggle), `ede_workspace {index}`,
 //! `ede_sidebar {section}` (fold a section); #EDE-65: `ede_issue
-//! {identifier}` (a start-menu issue, opened in the Exponential app); #EDE-56: `ede_switcher {action:
+//! {identifier, source, sourceId}` (a start-menu issue, opened in the
+//! Exponential app on its team or Local desktop); #EDE-56: `ede_switcher {action:
 //! pick|new|share|connect, kind?, id?}` (the Local desktops and the connected
 //! accounts' teams, `/shell/switcher/sections`), `ede_connect {action:
 //! start|code|open|cancel, instance?}` (Connect Exponential: `/connecting`,
@@ -785,11 +786,17 @@ impl HostPlugin for Host {
                 });
             }
             // #EDE-65: a start-menu issue opens in the Exponential app (until the shell shows issues).
+            // #EDE-65 J4: on another team or Local desktop, the switcher (and so the app) goes there first.
             "ede_issue" => {
                 if let Some(identifier) = args.get("identifier").and_then(Value::as_str).map(String::from) {
+                    let source = issues::issue_source(&args);
                     cx.defer(move |cx| {
                         close(&shell, "start-menu", cx);
                         dispatch(&shell, ShellEvent::StartMenuClose, cx);
+                        let current = shell.borrow().model.switcher.current.clone();
+                        if let Some((kind, id)) = source.filter(|(kind, id)| !(current.kind == *kind && current.id == *id)) {
+                            switcher_picked(&shell, kind, &id, cx);
+                        }
                         ide_open(&shell, Some(&issues::issue_deep_link(&identifier)));
                     });
                 }
