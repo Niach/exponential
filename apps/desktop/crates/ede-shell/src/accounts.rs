@@ -1,5 +1,5 @@
 //! The switcher's entries (#EDE-56): the Local desktops of this machine
-//! (elocal's `desktops.json` under the shell's config directory) and, for
+//! (elocal's `desktops.json`, the machine's one index shared with the IDE, #EDE-65) and, for
 //! every signed-in Exponential account (the IDE's `accounts.json` and token
 //! store, shared), its teams. The teams come from the account's `teams`
 //! shape, synced by the sync crate into the shell's OWN per-account store
@@ -31,9 +31,19 @@ pub struct Workspaces {
 const SHAPES: &[&str] = &["teams", "team_members", "apps", "app_records", "boards", "issues"];
 
 impl Workspaces {
-    /// Opens the desktops index under `config_dir` and the shared accounts.
+    /// Opens the machine's Local desktops index (the IDE's, #EDE-65: eDE's
+    /// own under `config_dir` imported once; the goldens keep theirs under
+    /// `config_dir`) and the shared accounts.
     pub fn open(config_dir: &Path, demo: bool) -> Result<Self, String> {
-        let desktops = elocal::Desktops::open(config_dir).map_err(|e| format!("desktops.json: {e}"))?;
+        let desktops = if demo {
+            elocal::Desktops::open(config_dir).map_err(|e| format!("desktops.json: {e}"))?
+        } else {
+            let (desktops, imported) = elocal::Desktops::open_importing(elocal::machine_root(), Some(config_dir)).map_err(|e| format!("desktops.json: {e}"))?;
+            if !imported.ids.is_empty() || !imported.kept.is_empty() {
+                tracing::info!(imported = ?imported.ids, kept = ?imported.kept, replaced = ?imported.replaced, root = %desktops.root().display(), "the Local desktops joined the machine's index");
+            }
+            desktops
+        };
         let auth = api::AuthStore::load(api::default_data_dir());
         let data_dir = std::env::var_os("XDG_DATA_HOME")
             .filter(|v| !v.is_empty())
