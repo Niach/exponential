@@ -541,8 +541,7 @@ internal fun effortValuesFor(agent: String): List<String> = when (agent) {
 }
 
 /**
- * THE model vocabulary of every model pick (launch, thread, subagent,
- * computer use, the session's `/model`): the agent's own models, contract
+ * THE model vocabulary of every model pick (launch, computer use, the session's `/model`): the agent's own models, contract
  * order. No "Default" / "CLI default" entry: every model is explicit.
  */
 internal fun modelOptionsFor(agent: String): List<String> = modelValuesFor(agent)
@@ -551,12 +550,6 @@ internal fun modelOptionsFor(agent: String): List<String> = modelValuesFor(agent
 internal fun defaultModelFor(agent: String): String = when (agent) {
     "codex" -> DomainContract.deviceAgentDefaultsCodexModel
     else -> DomainContract.deviceAgentDefaultsModel
-}
-
-/** The dispatcher root's default model (`deviceAgentDefaults.threadModel` / `codexThreadModel`). */
-internal fun defaultThreadModelFor(agent: String): String = when (agent) {
-    "codex" -> DomainContract.deviceAgentDefaultsCodexThreadModel
-    else -> DomainContract.deviceAgentDefaultsThreadModel
 }
 
 /** A stored model clamped to [agent]'s vocabulary, else [fallback]. */
@@ -569,22 +562,6 @@ internal fun seedModel(stored: String?, agent: String, fallback: String): String
  * `agentSupportsAccountRotation`, iOS `LaunchVocabulary.supportsAccountRotation`.
  */
 internal fun supportsAccountRotation(agent: String): Boolean = agent == DEFAULT_AGENT
-
-/**
- * EXP-981: only claude spawns subagents, so only claude takes a subagent
- * model. Hidden for every other agent exactly like Ultracode is.
- */
-internal fun supportsSubagentModel(agent: String): Boolean = agent == DEFAULT_AGENT
-
-/** The Subagent-model vocabulary (EXP-981): claude's models, no Default entry. */
-internal fun subagentModelOptions(): List<String> = modelOptionsFor(DEFAULT_AGENT)
-
-internal fun subagentModelLabel(value: String): String = modelLabel(value)
-
-internal const val SUBAGENT_MODEL_LABEL = "Subagent model"
-
-/** The dispatcher root's model row (threads + team agents), per agent. */
-internal const val THREAD_MODEL_LABEL = "Chat model"
 
 /**
  * EXP-1236: the Computer use model vocabulary = THE claude model list. A

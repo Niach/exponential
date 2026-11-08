@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   agentSeed,
-  agentSupportsSubagentModel,
   agentSupportsUltracode,
   DEFAULT_LAUNCH_AGENT,
   loadMcpServerPick,
@@ -72,10 +71,6 @@ export interface LaunchOptions {
   switchAgent: (next: string) => void
   model: string
   setModel: (model: string) => void
-  /** EXP-981: claude only — the model the run's subagents get. `""` = the
-   * CLI's own default, and then it never reaches the start payload. */
-  subagentModel: string
-  setSubagentModel: (model: string) => void
   effortValue: string
   setEffortValue: (effort: string) => void
   ultracode: boolean
@@ -147,7 +142,6 @@ export function useLaunchOptions({
 }): LaunchOptions {
   const [agent, setAgent] = useState<string>(DEFAULT_LAUNCH_AGENT)
   const [model, setModel] = useState(``)
-  const [subagentModel, setSubagentModel] = useState(``)
   const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
   const [ultracode, setUltracode] = useState(false)
   // EXP-1249: the person's explicit per-run flip, null = untouched (the run
@@ -198,7 +192,6 @@ export function useLaunchOptions({
     const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
     setAgent(DEFAULT_LAUNCH_AGENT)
     setModel(seed.model)
-    setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(CLI_DEFAULT_EFFORT)
     setUltracode(seed.ultracode)
     setComputerUsePick(null)
@@ -231,7 +224,6 @@ export function useLaunchOptions({
     setAgent(next)
     const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
     setModel(seed.model)
-    setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
   }
@@ -265,7 +257,6 @@ export function useLaunchOptions({
     setAgent(next)
     setAccountKeyState(lastUsed ? accountOptionKey(lastUsed) : undefined)
     setModel(seed.model)
-    setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
     // EXP-1249: a per-DEVICE switch, so a device change drops the flip —
@@ -403,10 +394,6 @@ export function useLaunchOptions({
     agent,
     model,
     effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
-    // EXP-981: claude only, and omitted for the CLI's own default.
-    ...(subagentModel && agentSupportsSubagentModel(agent)
-      ? { subagentModel }
-      : {}),
     ultracode: ultracode && agentSupportsUltracode(agent),
     // EXP-792: omitted when nothing is picked — the server treats an absent
     // list and an empty one alike.
@@ -442,8 +429,6 @@ export function useLaunchOptions({
     switchAgent,
     model,
     setModel,
-    subagentModel,
-    setSubagentModel,
     effortValue,
     setEffortValue,
     ultracode,

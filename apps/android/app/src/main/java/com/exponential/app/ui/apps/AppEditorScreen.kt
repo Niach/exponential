@@ -975,7 +975,6 @@ private fun AppChatPane(
             codex = false,
             effortValue = null,
             effortEnabled = false,
-            subagentsValue = null,
             ultracode = false,
             mcpValue = null,
             computerUse = false,

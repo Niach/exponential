@@ -168,18 +168,8 @@ function clampLaunchDefaults(
       ) {
         entry.effort = d.effort
       }
-      // EXP-981: claude's subagent model, from the same closed vocabulary.
-      if (
-        typeof d.subagentModel === `string` &&
-        agent === `claude` &&
-        agentModelValues(agent).includes(d.subagentModel)
-      ) {
-        entry.subagentModel = d.subagentModel
-      }
-      // The dispatcher root's model (threads + team agents), per agent.
-      if (typeof d.threadModel === `string` && agentModelValues(agent).includes(d.threadModel)) {
-        entry.threadModel = d.threadModel
-      }
+      // #EXP-1734: old devices may still send subagentModel/threadModel:
+      // the settings are gone (opus everywhere), the schema strips them.
       // `typeof === boolean`, not `!== undefined`: the nullish schema lets
       // explicit-null toggles through (EXP-495) and stored jsonb must stay
       // null-free (native clients parse it off the devices shape).

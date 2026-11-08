@@ -21,9 +21,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
     public var computerUse: Bool?
     /// Claude only.
     public var ultracode: Bool?
-    /// EXP-1583: the model claude's subagents run on (claude only; a blank
-    /// is never sent).
-    public var subagentModel: String?
     /// The team MCP servers the session gets; nil = none picked.
     public var mcpServerIds: [String]?
     /// #EXP-1661: the team skills the session runs with; nil or empty = none
@@ -37,7 +34,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         effort: String? = nil,
         computerUse: Bool? = nil,
         ultracode: Bool? = nil,
-        subagentModel: String? = nil,
         mcpServerIds: [String]? = nil,
         skillIds: [String]? = nil
     ) {
@@ -47,7 +43,6 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         self.effort = effort
         self.computerUse = computerUse
         self.ultracode = ultracode
-        self.subagentModel = subagentModel
         self.mcpServerIds = mcpServerIds
         self.skillIds = skillIds
     }
@@ -129,7 +124,7 @@ public enum SessionsSendInput: Sendable, Equatable {
 extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
-        case cli, account, model, effort, computerUse, ultracode, subagentModel, mcpServerIds, skillIds
+        case cli, account, model, effort, computerUse, ultracode, mcpServerIds, skillIds
         case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId, scopeTeamIds
     }
 
@@ -151,7 +146,6 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(options.effort, forKey: .effort)
             try c.encodeIfPresent(options.computerUse, forKey: .computerUse)
             try c.encodeIfPresent(options.ultracode, forKey: .ultracode)
-            try c.encodeIfPresent(options.subagentModel.flatMap { $0.isEmpty ? nil : $0 }, forKey: .subagentModel)
             try c.encodeIfPresent(options.mcpServerIds, forKey: .mcpServerIds)
             // #EXP-1661: only while the pick is non-empty.
             try c.encodeIfPresent(options.skillIds.flatMap { $0.isEmpty ? nil : $0 }, forKey: .skillIds)

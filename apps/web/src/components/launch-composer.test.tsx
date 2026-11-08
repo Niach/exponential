@@ -98,8 +98,6 @@ function fakeLaunch(): LaunchOptions {
     switchAgent: vi.fn(),
     model: `opus`,
     setModel: vi.fn(),
-    subagentModel: ``,
-    setSubagentModel: vi.fn(),
     effortValue: `cli-default`,
     setEffortValue: vi.fn(),
     ultracode: false,
@@ -519,7 +517,6 @@ describe(`LaunchComposer + menu`, () => {
     expect(screen.queryByTestId(`agent-composer-image-button`)).toBeNull()
   })
 
-  // EXP-1583: claude takes a subagent model, so Subagents › shows.
   it(`lists the fixture's rows for claude without MCP servers or computer use`, () => {
     render(<LaunchComposer model={fakeModel()} users={[]} />)
     openPlus()
@@ -533,7 +530,6 @@ describe(`LaunchComposer + menu`, () => {
       `model`,
       `-`,
       `effort`,
-      `subagents`,
       `ultracode`,
     ])
     expect(screen.getByTestId(`agent-composer-menu-effort`).textContent).toContain(

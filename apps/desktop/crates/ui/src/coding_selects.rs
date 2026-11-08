@@ -49,12 +49,11 @@ impl SearchableListItem for ChoiceItem {
 pub type ChoiceSelect = Entity<SelectState<Vec<ChoiceItem>>>;
 
 /// THE claude model list — contract `codingModel` (fable, opus, sonnet,
-/// haiku), the ONE set every claude model pick offers: the run's Model, the
-/// Thread model a dispatcher root runs on, the Subagent model and the
-/// Computer use model. Models are explicit ALWAYS: no blank "Default" /
+/// haiku), the ONE set every claude model pick offers: the run's Model and
+/// the Computer use model. Models are explicit ALWAYS: no blank "Default" /
 /// "CLI default" row in any of them. These are the CLI's family aliases,
 /// which it resolves to the newest model of that family (Claude Code ≥
-/// 2.1.257: `fable` → `claude-fable-5-1`); the labels carry no version
+/// 2.1.257: `opus` → the newest Opus); the labels carry no version
 /// number on purpose — see `coding::settings::DEFAULT_CLAUDE_MODEL`.
 pub const MODEL_CHOICES: [(&str, &str); 4] = [
     ("Fable", "fable"),
@@ -102,7 +101,7 @@ pub fn model_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str,
 }
 
 /// THE model select — every model pick of a settings surface (Model,
-/// Thread model, Subagent model, Computer use model) is this one component
+/// Computer use model) is this one component
 /// over `agent`'s whole list ([`model_choices_for`]), never a variant with a
 /// default row.
 pub fn model_select(
@@ -426,19 +425,17 @@ pub fn selected(state: &ChoiceSelect, cx: &App) -> String {
 #[cfg(test)]
 mod tests {
     /// Every model pick offers the contract's models, explicit: no blank
-    /// row, and the computer-use / thread defaults are in the list.
+    /// row, and the computer-use / model defaults are in the list.
     #[test]
     fn model_choices_are_the_contract_models_without_a_default_row() {
         let values: Vec<&str> = super::MODEL_CHOICES.iter().map(|(_, value)| *value).collect();
         assert_eq!(values, domain::contract::CODING_MODEL_VALUES.to_vec());
         assert!(values.contains(&domain::contract::DEVICE_COMPUTER_USE_DEFAULTS_MODEL));
-        assert!(values.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_THREAD_MODEL));
-        assert!(values.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL));
+        assert!(values.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_MODEL));
         for (label, value) in super::MODEL_CHOICES {
             assert_eq!(label.to_lowercase(), value, "title-cased alias");
         }
         let codex: Vec<&str> = super::CODEX_MODEL_CHOICES.iter().map(|(_, value)| *value).collect();
-        assert!(codex.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL));
         assert!(codex.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_MODEL));
         for choices in [&super::MODEL_CHOICES[..], &super::CODEX_MODEL_CHOICES[..]] {
             assert!(choices.iter().all(|(_, value)| !value.is_empty()));

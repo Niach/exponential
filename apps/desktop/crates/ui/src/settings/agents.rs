@@ -82,12 +82,6 @@ pub struct AgentsPane {
     codex_input: Entity<InputState>,
     codex_model_select: ChoiceSelect,
     codex_effort_select: ChoiceSelect,
-    /// The model a DISPATCHER root runs on, per agent.
-    thread_model_select: ChoiceSelect,
-    codex_thread_model_select: ChoiceSelect,
-    /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on — the row web
-    /// had and the IDE did not.
-    subagent_model_select: ChoiceSelect,
     /// Which agent tab of the Agents card is showing — pure UI state, not
     /// persisted (EXP-206).
     agent_tab: CodingAgent,
@@ -115,12 +109,6 @@ impl AgentsPane {
         // ONE model select component for every model row.
         let model_select =
             crate::coding_selects::model_select(CodingAgent::Claude, &defaults.claude_model, window, cx);
-        let thread_model_select = crate::coding_selects::model_select(
-            CodingAgent::Claude,
-            &defaults.claude_thread_model,
-            window,
-            cx,
-        );
         let effort_select = choice_select(
             effort_choices_for(CodingAgent::Claude),
             &defaults.claude_effort,
@@ -129,21 +117,9 @@ impl AgentsPane {
         );
         let codex_model_select =
             crate::coding_selects::model_select(CodingAgent::Codex, &defaults.codex_model, window, cx);
-        let codex_thread_model_select = crate::coding_selects::model_select(
-            CodingAgent::Codex,
-            &defaults.codex_thread_model,
-            window,
-            cx,
-        );
         let codex_effort_select = choice_select(
             effort_choices_for(CodingAgent::Codex),
             &defaults.codex_effort,
-            window,
-            cx,
-        );
-        let subagent_model_select = crate::coding_selects::model_select(
-            CodingAgent::Claude,
-            &defaults.claude_subagent_model,
             window,
             cx,
         );
@@ -176,9 +152,6 @@ impl AgentsPane {
             &effort_select,
             &codex_model_select,
             &codex_effort_select,
-            &thread_model_select,
-            &codex_thread_model_select,
-            &subagent_model_select,
         ] {
             // EXP-694 autosave: confirming a choice IS the save (the baseline
             // guard in `save` swallows the pane's own rewrites).
@@ -198,9 +171,6 @@ impl AgentsPane {
             codex_input,
             codex_model_select,
             codex_effort_select,
-            thread_model_select,
-            codex_thread_model_select,
-            subagent_model_select,
             agent_tab: defaults.default_agent,
             claude_ultracode: defaults.claude_ultracode,
             synced: None,
@@ -252,15 +222,6 @@ impl AgentsPane {
             (&self.effort_select, settings.claude_effort.clone()),
             (&self.codex_model_select, settings.codex_model.clone()),
             (&self.codex_effort_select, settings.codex_effort.clone()),
-            (&self.thread_model_select, settings.claude_thread_model.clone()),
-            (
-                &self.codex_thread_model_select,
-                settings.codex_thread_model.clone(),
-            ),
-            (
-                &self.subagent_model_select,
-                settings.claude_subagent_model.clone(),
-            ),
         ] {
             select.update(cx, |select, cx| {
                 select.set_selected_value(&SharedString::from(value), window, cx)
@@ -297,11 +258,8 @@ impl AgentsPane {
             codex_path: value(&self.codex_input, &defaults.codex_path),
             claude_model: selected(&self.model_select, cx),
             claude_effort: selected(&self.effort_select, cx),
-            claude_subagent_model: selected(&self.subagent_model_select, cx),
             codex_model: selected(&self.codex_model_select, cx),
             codex_effort: selected(&self.codex_effort_select, cx),
-            claude_thread_model: selected(&self.thread_model_select, cx),
-            codex_thread_model: selected(&self.codex_thread_model_select, cx),
             claude_ultracode: self.claude_ultracode,
             ..defaults
         };
@@ -420,18 +378,12 @@ impl AgentsPane {
             })
             .collect();
 
-        let (path, model, effort, thread) = match agent_tab {
-            CodingAgent::Claude => (
-                &self.claude_input,
-                self.model_select.clone(),
-                self.effort_select.clone(),
-                self.thread_model_select.clone(),
-            ),
+        let (path, model, effort) = match agent_tab {
+            CodingAgent::Claude => (&self.claude_input, self.model_select.clone(), self.effort_select.clone()),
             CodingAgent::Codex => (
                 &self.codex_input,
                 self.codex_model_select.clone(),
                 self.codex_effort_select.clone(),
-                self.codex_thread_model_select.clone(),
             ),
         };
         // EXP-1232: codex is a managed download — no CLI path to set (a
@@ -460,13 +412,7 @@ impl AgentsPane {
             effort,
         )
         .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
-        .leading(leading)
-        .thread(thread);
-        // EXP-981/EXP-1020: claude's subagent model, the row the IDE was
-        // missing while web had it.
-        if agent_tab.supports_subagent_model() {
-            group = group.subagent(self.subagent_model_select.clone());
-        }
+        .leading(leading);
         if agent_tab == CodingAgent::Claude {
             group = group
                 .toggle(DefaultsToggle::new(

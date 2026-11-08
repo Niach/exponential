@@ -24,7 +24,6 @@ enum class ComposerMenuRowId(val wire: String) {
     Model("model"),
     Repository("repository"),
     Effort("effort"),
-    Subagents("subagents"),
     Ultracode("ultracode"),
     McpServers("mcp-servers"),
     /** #EXP-1661: the team's skills (skills.json `menuRow`), multi pick. */
@@ -44,7 +43,6 @@ enum class ComposerMenuCondition(val wire: String) {
     Account("account"),
     Model("model"),
     Repositories("repositories"),
-    SubagentModel("subagentModel"),
     Ultracode("ultracode"),
     Mcp("mcp"),
     /** #EXP-1661: the team has at least one skill. */
@@ -65,7 +63,6 @@ data class ComposerMenuConditions(
     val model: Boolean = false,
     /** The team has more than one repository. */
     val repositories: Boolean = false,
-    val subagentModel: Boolean = false,
     val ultracode: Boolean = false,
     val mcp: Boolean = false,
     /** #EXP-1661: the team has at least one skill. */
@@ -84,7 +81,6 @@ data class ComposerMenuConditions(
         ComposerMenuCondition.Account -> account
         ComposerMenuCondition.Model -> model
         ComposerMenuCondition.Repositories -> repositories
-        ComposerMenuCondition.SubagentModel -> subagentModel
         ComposerMenuCondition.Ultracode -> ultracode
         ComposerMenuCondition.Mcp -> mcp
         ComposerMenuCondition.Skills -> skills
@@ -200,11 +196,6 @@ object ComposerMenu {
         ComposerMenuEntry.Row(
             ComposerMenuRowId.Effort, ComposerMenuRowKind.Submenu, "Effort", codexLabel = "Reasoning",
             icon = "ui-estimate", surfaces = LAUNCH, conditions = listOf(ComposerMenuCondition.Temporary),
-        ),
-        ComposerMenuEntry.Row(
-            ComposerMenuRowId.Subagents, ComposerMenuRowKind.Submenu, "Subagents",
-            icon = "coding-subagent", surfaces = LAUNCH,
-            conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.SubagentModel),
         ),
         ComposerMenuEntry.Row(
             ComposerMenuRowId.Ultracode, ComposerMenuRowKind.Toggle, "Ultracode",
