@@ -4582,6 +4582,22 @@
           "description": "One per line, bar group or pie ring."
         },
         {
+          "name": "rows",
+          "type": "[object]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "A query's `groups`; series read their `field`."
+        },
+        {
+          "name": "categoryField",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The rows' category field."
+        },
+        {
           "name": "title",
           "type": "string",
           "required": false,
@@ -4629,6 +4645,14 @@
           "bindable": false,
           "responsive": false,
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        {
+          "name": "valueFormat",
+          "type": "valueFormat",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         {
           "name": "showAxes",

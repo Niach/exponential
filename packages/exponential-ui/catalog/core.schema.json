@@ -9833,6 +9833,14 @@
           ],
           "description": "One per line, bar group or pie ring."
         },
+        "rows": {
+          "$ref": "common_types.json#/$defs/DynamicValue",
+          "description": "A query's `groups`; series read their `field`."
+        },
+        "categoryField": {
+          "type": "string",
+          "description": "The rows' category field."
+        },
         "title": {
           "type": "string",
           "description": "A title above the chart."
@@ -9857,6 +9865,10 @@
         "max": {
           "type": "number",
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        "valueFormat": {
+          "$ref": "#/$defs/valueFormat",
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         "showAxes": {
           "type": "boolean",
@@ -24832,7 +24844,11 @@
           "items": {
             "type": "number"
           },
-          "description": "One number per category."
+          "description": "One number per category (or `field`)."
+        },
+        "field": {
+          "type": "string",
+          "description": "With `rows`: the row field each value reads."
         },
         "tone": {
           "enum": [
@@ -24847,9 +24863,33 @@
         }
       },
       "required": [
-        "name",
-        "values"
+        "name"
       ],
+      "additionalProperties": false
+    },
+    "valueFormat": {
+      "type": "object",
+      "description": "How a chart prints values.",
+      "properties": {
+        "type": {
+          "enum": [
+            "number",
+            "currency",
+            "percent",
+            "compact"
+          ],
+          "description": "The format.",
+          "default": "number"
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 code (default USD)."
+        },
+        "decimals": {
+          "type": "number",
+          "description": "Fixed fraction digits."
+        }
+      },
       "additionalProperties": false
     },
     "pageItem": {

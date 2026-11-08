@@ -579,13 +579,40 @@
           "items": {
             "type": "number"
           },
-          "required": true,
-          "description": "One number per category."
+          "description": "One number per category (or `field`)."
+        },
+        "field": {
+          "type": "string",
+          "description": "With `rows`: the row field each value reads."
         },
         "tone": {
           "type": "enum",
           "enum": "tone",
           "description": "The series' colour tone; charts default to the chart hues in order."
+        }
+      }
+    },
+    "valueFormat": {
+      "description": "How a chart prints values.",
+      "properties": {
+        "type": {
+          "type": "enum",
+          "values": [
+            "number",
+            "currency",
+            "percent",
+            "compact"
+          ],
+          "default": "number",
+          "description": "The format."
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO 4217 code (default USD)."
+        },
+        "decimals": {
+          "type": "number",
+          "description": "Fixed fraction digits."
         }
       }
     },
@@ -4140,6 +4167,18 @@
           "bindable": true,
           "description": "One per line, bar group or pie ring."
         },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true,
+          "description": "A query's `groups`; series read their `field`."
+        },
+        "categoryField": {
+          "type": "string",
+          "description": "The rows' category field."
+        },
         "title": {
           "type": "string",
           "description": "A title above the chart."
@@ -4164,6 +4203,11 @@
         "max": {
           "type": "number",
           "description": "The y-axis ceiling; defaults to the largest value."
+        },
+        "valueFormat": {
+          "type": "object",
+          "shape": "valueFormat",
+          "description": "Ticks, tooltip and values; percent takes ratios."
         },
         "showAxes": {
           "type": "boolean",
