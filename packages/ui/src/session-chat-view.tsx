@@ -4,17 +4,12 @@ import {
   useState,
   type ComponentProps,
   type ComponentType,
-  type ReactElement,
   type ReactNode,
-  type Ref,
 } from "react"
-import chatFixture from "@exp/domain-contract/fixtures/session-chat.json"
 import {
   SESSION_CARD_COPY,
   SUGGESTIONS_COPY,
-  CHAT_TEST_IDS,
   type SessionState,
-  chatStripMode,
   type SessionTabMarkState,
   type SessionXref as SessionXrefModel,
   type SuggestionRow,
@@ -27,16 +22,8 @@ import {
   chatPendingAsks,
   type PlanOption,
 } from "@exp/domain-contract/ask-dock"
+import { SESSION_SCREEN_COPY } from "@exp/domain-contract/session-screen"
 import { dockRows, suggestionSources, type DockRow, type DockSource } from "@exp/domain-contract/dock"
-import { RESULTS_TAB } from "@exp/domain-contract/results-tab"
-import {
-  WAITING_CARDS_COPY,
-  WAITING_CARDS_TEST_IDS,
-  waitingChips,
-  waitingCountLabel,
-  type WaitingCardInput,
-  type WaitingChip,
-} from "@exp/domain-contract/waiting-cards"
 import {
   CHAT_ROW_ACTION_COPY,
   CHAT_ROW_ACTION_TEST_IDS,
@@ -56,9 +43,7 @@ import {
 import {
   PLAN_PAGE_COPY,
   PLAN_PAGE_LAYOUT,
-  PLAN_PAGE_TEST_IDS,
   planRowLabel,
-  planTabGlyph,
 } from "@exp/domain-contract/plan-page"
 import {
   AskDismissButton, AskAnsweredLine, AskCard, AskDismissedCard, AskPrompt } from "./ask-card"
@@ -77,19 +62,12 @@ import {
 import { Dock, DockSheetBody, DockSheetFooter, useDockSheetMeta } from "./dock"
 import { Button } from "./button"
 import { cn } from "./cn"
-import { stripTabClass } from "./entity-chip"
 import { ListRow } from "./glass-rows"
-import { Menu, MenuRow, type MenuEntry, type MenuIcon, type MenuTargetProps } from "./menu"
-import { MENU_SEPARATOR_CLASS } from "./menu-surface"
-import { SelectionCheck } from "./combobox-core"
-import { issueSearchItems } from "./picker/issue-picker"
-import { PickerMenuRows } from "./picker/picker-menu-rows"
+import { Menu, type MenuEntry, type MenuIcon, type MenuTargetProps } from "./menu"
 import { SessionRow, SessionRowDevice } from "./session-row"
 import type { UserAvatarAgent, UserAvatarUser } from "./user-avatar"
-import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
-import { StripChip, type StripChipBoxProps } from "./strip-chip"
 import { treeGuides } from "./tree-guides"
-import { ICON_COMPONENTS, conceptIcon } from "./icons.generated"
+import { conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { MessageBubble, SenderAvatar, TranscriptRow, transcriptSenderName } from "./user-message-bubble"
 import { CHAT_BUBBLE_ENTER_CLASS, SurfaceCard, TranscriptDivider, useLiveArrivals } from "./surface-card"
@@ -109,12 +87,8 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 // + `chat-list.json`, ×4); nothing here queries: every glyph, chip,
 // renderer and handler is handed in.
 //
-//   ChatTabs           the header's ONE strip, nothing scrolls (#EXP-1433):
-//                        "+" · Conversation | the one issue chip OR the
-//                        group tab (`ChatStripGroup`: every issue and
-//                        session in THE Menu) | Results (results-tab.json);
-//                        `pager` = the phones' tabs (Conversation and
-//                        Results icon-only there)
+//   ChatSessionTree    #EXP-1732: THE session screen's Sessions tab rows
+//                        (SessionRow small + the tree guides)
 //   ChatConversation   the conversation rows: messages (a person's bubble
 //                        right, the agent's markdown, system lines muted),
 //                        THE session card per session, question and plan
@@ -130,440 +104,16 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //                        (private), the live caption under it
 //   ChannelMessageRow    an agent channel's comment-style row
 
-const ConversationIcon = conceptIcon(`action-chat`)
-const ResultsIcon = conceptIcon(`chat-results`)
-const AddIcon = conceptIcon(`ui-add`)
-const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
 const SuggestionsIcon = conceptIcon(`ui-checklist`)
 const MoreIcon = conceptIcon(`ui-more`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
-const GroupIcon = conceptIcon(`session-tree`)
-/** #EXP-1433: the group tab's open label caps here (px). */
-const STRIP_GROUP_MAX_WIDTH = chatFixture.stripGroupMaxWidth
+const AddIcon = conceptIcon(`ui-add`)
+const CloseIcon = conceptIcon(`ui-close`)
 
-// EXP-1316: THE strip tab box, shared with the issue chips' `tab` size.
-const tabClass = stripTabClass
-
-/** The add tab's accessible name (copy never names the screen): THE Menu with
- *  Link an issue › and New issue (EXP-1334). */
-export const CHAT_TABS_ADD_LABEL = `Add an issue`
-
-/** #EXP-1433: the group tab's accessible name and its Menu's headline. */
-export const CHAT_STRIP_GROUP_LABEL = chatFixture.copy.stripGroup
-
-/** #EXP-1433: ONE linked issue of the strip (every linked issue, strip
- *  order: a chip's sub-issues after it). */
-export interface ChatStripIssue {
-  issueId: string
-  identifier: string
-  title: string
-  /** S-3: null = the issue row is not synced: no glyph (never Backlog). */
-  status: StatusGlyphProps | null
-  /** The chip's box props (THE issue context menu's `menuProps`). */
-  boxProps?: StripChipBoxProps
-}
-
-/** What is open in place (the chip / the group's pick); null = neither. */
-export type ChatStripOpen = { kind: `issue` | `session`; id: string } | null
-
-/**
- * #EXP-1433 (session-chat.json STRIP, amends EXP-1334): the chat
- * header's ONE strip ×4 — NOTHING scrolls. Pinned left: the "+" (THE Menu:
- * Link an issue ›, New issue) and Conversation; pinned right: Results
- * (results-tab.json). Between them
- * `chatStripMode` (`stripModeCases`): at most ONE issue and no session =
- * that issue's chip (full title; the pager: the identifier); anything more =
- * ONE group tab (`ChatStripGroup`) opening THE Menu over every issue and
- * session. `pager` = the phones' header band: Conversation and Results
- * ICON-ONLY (the strip chip box, the label as aria-label/title).
- */
-export function ChatTabs({
-  conversation,
-  issues,
-  add,
-  sessions = [],
-  open = null,
-  onOpenIssue,
-  onOpenSession,
-  results,
-  plan,
-  waiting,
-  variant = `bar`,
-  menuOpen,
-  className,
-}: {
-  /** NEW-6 (N-1): absent on a single-session chat (no Conversation tab). */
-  conversation?: { label: string; active: boolean; onSelect: () => void }
-  /** #EXP-1662: the plan tab (plan-page.json), right after Conversation. */
-  plan?: {
-    label: string
-    active: boolean
-    waiting: boolean
-    /** #FEED-191: the plan's decision (`planTabGlyph`: approved = THE check). */
-    decision?: string | null
-    onSelect: () => void
-  }
-  /** #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
-   *  cards, Conversation order; a pick scrolls to that card. */
-  waiting?: { cards: readonly WaitingCardInput[]; onSelect: (id: string) => void; menuOpen?: boolean }
-  /** Every linked issue, strip order. */
-  issues: readonly ChatStripIssue[]
-  /** The "+" (a Menu around `ChatTabsAddButton`); absent = read-only. */
-  add?: ReactNode
-  /** The sessions under the root (THE tree rows, the root excluded). */
-  sessions?: readonly ChatTreeRow[]
-  /** The issue / session open in place. */
-  open?: ChatStripOpen
-  onOpenIssue?: (issueId: string) => void
-  onOpenSession?: (sessionId: string) => void
-  /** #FEED-191: the Results tab, pinned right (absent = none). */
-  results?: { label: string; active: boolean; onSelect: () => void }
-  /** `bar` = md+ under the title; `pager` = the phones' tabs. */
-  variant?: `bar` | `pager`
-  /** Holds the group's Menu open (the styleguide's static paint). */
-  menuOpen?: boolean
-  className?: string
-}) {
-  const pager = variant === `pager`
-  const { mode, count } = chatStripMode({ issues: issues.length, sessions: sessions.length })
-  const single = mode === `chips` ? (issues[0] ?? null) : null
-
-  const divider = <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
-
-  return (
-    <div
-      data-testid="chat-tabs"
-      data-variant={variant}
-      data-mode={mode}
-      className={cn(`relative flex min-w-0 items-center gap-1`, className)}
-    >
-      {/* The "+" is a MENU trigger, not a tab: it sits beside the tablist. */}
-      {add && <span className="flex shrink-0 items-center">{add}</span>}
-      <div role="tablist" className="flex min-w-0 flex-1 items-center gap-1">
-      {conversation && (
-        <Button
-        type="button"
-        variant="ghost"
-        role="tab"
-        aria-selected={conversation.active}
-        data-testid="chat-tab-conversation"
-        // EXP-1334: phones = an ICON-ONLY tab in the strip chip box; the
-        // label names it.
-        aria-label={pager ? conversation.label : undefined}
-        title={pager ? conversation.label : undefined}
-        className={cn(tabClass(conversation.active, pager), pager && `px-2`)}
-        onClick={conversation.onSelect}
-      >
-        <ConversationIcon className="size-3.5 shrink-0" />
-        {!pager && conversation.label}
-      </Button>
-      )}
-      {plan && (
-        <StripChip
-          role="tab"
-          aria-selected={plan.active}
-          data-testid={PLAN_PAGE_TEST_IDS.tab}
-          active={plan.active}
-          boxClassName="min-w-0 shrink"
-          boxProps={{ style: { maxWidth: PLAN_PAGE_LAYOUT.tabMaxWidth } }}
-          lead={<PlanTabLead decision={plan.decision ?? null} />}
-          label={
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span className="min-w-0 truncate">{pager ? PLAN_PAGE_COPY.title : plan.label}</span>
-              {plan.waiting && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-yellow-400" />}
-            </span>
-          }
-          onClick={plan.onSelect}
-        />
-      )}
-      {waiting && (
-        <ChatWaitingChips cards={waiting.cards} phone={pager} onSelect={waiting.onSelect} menuOpen={waiting.menuOpen} />
-      )}
-      {count > 0 && !pager && divider}
-      <div data-testid="chat-tabs-zones" className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-        {single ? (
-          <ChatIssueTab
-            identifier={single.identifier}
-            title={single.title}
-            status={single.status}
-            active={open?.kind === `issue` && open.id === single.issueId}
-            short={pager}
-            data-testid={`chat-tab-${single.identifier}`}
-            boxProps={single.boxProps}
-            onSelect={() => onOpenIssue?.(single.issueId)}
-          />
-        ) : mode === `group` ? (
-          <ChatStripGroup
-            issues={issues}
-            sessions={sessions}
-            count={count}
-            open={open}
-            menuOpen={menuOpen}
-            onOpenIssue={(issueId) => onOpenIssue?.(issueId)}
-            onOpenSession={(sessionId) => onOpenSession?.(sessionId)}
-          />
-        ) : null}
-      </div>
-      {results && (
-        <>
-          {!pager && divider}
-          <Button
-            type="button"
-            variant="ghost"
-            role="tab"
-            aria-selected={results.active}
-            data-testid={RESULTS_TAB.testIds.tab}
-            aria-label={pager ? results.label : undefined}
-            title={pager ? results.label : undefined}
-            className={cn(tabClass(results.active, pager), pager && `px-2`)}
-            onClick={results.onSelect}
-          >
-            <ResultsIcon className="size-3.5 shrink-0" />
-            {!pager && results.label}
-          </Button>
-        </>
-      )}
-      </div>
-    </div>
-  )
-}
-
-const WaitingPlanIcon = conceptIcon(`coding-plan`)
-const WaitingQuestionIcon = conceptIcon(`ui-help`)
-
-/** The kind icon in the ask-dock tint (a plan primary, a question yellow). */
-function WaitingKindIcon({ kind, className }: { kind: WaitingChip[`kind`]; className?: string }) {
-  return kind === `plan` ? (
-    <WaitingPlanIcon className={cn(`size-3.5 shrink-0 text-primary`, className)} />
-  ) : (
-    <WaitingQuestionIcon className={cn(`size-3.5 shrink-0 text-yellow-400`, className)} />
-  )
-}
-
-/** #EXP-1562 (waiting-cards.json CHIPS): the WAITING cards in the strip,
- *  right after Conversation: md+ = THE StripChip per card (the tinted kind
- *  icon, the clipped title); phones = ONE icon chip with the count opening
- *  THE Menu (the bottom sheet) of them. None waiting = nothing. */
-export function ChatWaitingChips({
-  cards,
-  phone,
-  onSelect,
-  menuOpen,
-}: {
-  cards: readonly WaitingCardInput[]
-  phone: boolean
-  onSelect: (id: string) => void
-  /** Holds the phone sheet open (the styleguide's static paint). */
-  menuOpen?: boolean
-}) {
-  const [shown, setShown] = useState(false)
-  const { layout, count, chips } = waitingChips(cards, phone)
-  if (layout === `hidden`) return null
-  const fullTitle = (id: string) => {
-    const card = cards.find((entry) => entry.id === id)
-    return card ? askDockTitle(card.text) || undefined : undefined
-  }
-  if (layout === `chips`) {
-    return (
-      <div data-slot="chat-waiting-chips" className="flex min-w-0 shrink-[2] items-center gap-1 overflow-hidden">
-        {chips.map((chip) => (
-          <StripChip
-            key={chip.id}
-            data-testid={WAITING_CARDS_TEST_IDS.chip}
-            data-kind={chip.kind}
-            boxClassName="min-w-0 shrink"
-            tooltip={fullTitle(chip.id)}
-            lead={<WaitingKindIcon kind={chip.kind} />}
-            label={<span className="block truncate">{chip.label}</span>}
-            onClick={() => onSelect(chip.id)}
-          />
-        ))}
-      </div>
-    )
-  }
-  const label = waitingCountLabel(count)
-  return (
-    <Menu
-      open={menuOpen ?? shown}
-      onOpenChange={setShown}
-      align="start"
-      title={WAITING_CARDS_COPY.waiting}
-      aria-label={WAITING_CARDS_COPY.waiting}
-      data-testid={WAITING_CARDS_TEST_IDS.menu}
-      contentClassName="w-80 p-1"
-      trigger={
-        <StripChip
-          data-testid={WAITING_CARDS_TEST_IDS.button}
-          aria-label={label}
-          tooltip={label}
-          boxClassName="shrink-0"
-          className="px-2"
-          lead={<WaitingQuestionIcon className="size-3.5 text-yellow-400" />}
-          label={<span className="text-muted-foreground tabular-nums">{count}</span>}
-        />
-      }
-      body={
-        <div data-slot="chat-waiting-rows" className="flex flex-col">
-          {chips.map((chip) => (
-            <MenuRow
-              key={chip.id}
-              data-testid={`${WAITING_CARDS_TEST_IDS.menu}-row`}
-              onSelect={() => onSelect(chip.id)}
-              className="gap-2"
-            >
-              <WaitingKindIcon kind={chip.kind} />
-              <span className="min-w-0 flex-1 truncate">{chip.label}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {chip.kind === `plan` ? ASK_DOCK_COPY.planReady : ASK_DOCK_COPY.question}
-              </span>
-            </MenuRow>
-          ))}
-        </div>
-      }
-    />
-  )
-}
-
-/** #EXP-1433: the open item's label on the group tab: the identifier, or
- *  the session's name; null = nothing of the group is open. */
-export function chatStripOpenLabel(
-  issues: readonly ChatStripIssue[],
-  sessions: readonly ChatTreeRow[],
-  open: ChatStripOpen
-): string | null {
-  if (!open) return null
-  if (open.kind === `issue`) return issues.find((issue) => issue.issueId === open.id)?.identifier ?? null
-  return sessions.find((row) => row.sessionId === open.id)?.name ?? null
-}
-
-/** #EXP-1433: THE group tab — the strip chip box, the `session-tree` glyph
- *  and the count (muted) at rest; ACTIVE with the open item's label
- *  (truncated at `stripGroupMaxWidth`) while one of its items is open. A
- *  click opens THE Menu (md+: a popover at the tab; phones: the bottom
- *  sheet) over `ChatStripGroupMenu`; a pick closes it. */
-export function ChatStripGroup({
-  issues,
-  sessions,
-  count,
-  open,
-  menuOpen,
-  onOpenIssue,
-  onOpenSession,
-}: {
-  issues: readonly ChatStripIssue[]
-  sessions: readonly ChatTreeRow[]
-  count: number
-  open: ChatStripOpen
-  /** Holds the Menu open (a static paint). */
-  menuOpen?: boolean
-  onOpenIssue: (issueId: string) => void
-  onOpenSession: (sessionId: string) => void
-}) {
-  const [shown, setShown] = useState(false)
-  const label = chatStripOpenLabel(issues, sessions, open)
-  const active = label !== null
-  return (
-    <Menu
-      open={menuOpen ?? shown}
-      onOpenChange={setShown}
-      align="start"
-      title={CHAT_STRIP_GROUP_LABEL}
-      aria-label={CHAT_STRIP_GROUP_LABEL}
-      data-testid={`${CHAT_TEST_IDS.group}-menu`}
-      contentClassName="w-96 p-1"
-      trigger={
-        <StripChip
-          // A MENU trigger, not a tab: its state rides `data-active`.
-          data-testid={CHAT_TEST_IDS.group}
-          aria-label={active ? `${CHAT_STRIP_GROUP_LABEL}: ${label}` : `${CHAT_STRIP_GROUP_LABEL} (${count})`}
-          tooltip={active ? (label ?? undefined) : CHAT_STRIP_GROUP_LABEL}
-          active={active}
-          boxClassName="shrink-0"
-          lead={<GroupIcon className="size-3.5" />}
-          label={
-            active ? (
-              <span
-                data-slot="chat-strip-group-label"
-                className="block truncate"
-                style={{ maxWidth: STRIP_GROUP_MAX_WIDTH }}
-              >
-                {label}
-              </span>
-            ) : (
-              <span data-slot="chat-strip-group-count" className="text-muted-foreground tabular-nums">
-                {count}
-              </span>
-            )
-          }
-        />
-      }
-      body={
-        <ChatStripGroupMenu
-          issues={issues}
-          sessions={sessions}
-          open={open}
-          onOpenIssue={onOpenIssue}
-          onOpenSession={onOpenSession}
-        />
-      }
-    />
-  )
-}
-
-/** #EXP-1433: the group's Menu body — the issue rows first (THE issue
- *  search list's rows: status glyph, mono identifier, title), a separator,
- *  then the session rows (THE tree rows: SessionRow small + TreeGuides, the
- *  whole tree under the root); the open row carries the check. Rows are the
- *  Menu's own (`MenuRow`), so a pick closes it on every shell. */
-export function ChatStripGroupMenu({
-  issues,
-  sessions,
-  open,
-  onOpenIssue,
-  onOpenSession,
-}: {
-  issues: readonly ChatStripIssue[]
-  sessions: readonly ChatTreeRow[]
-  open: ChatStripOpen
-  onOpenIssue: (issueId: string) => void
-  onOpenSession: (sessionId: string) => void
-}) {
-  const items = issueSearchItems(
-    issues.map((issue) => ({
-      id: issue.issueId,
-      identifier: issue.identifier,
-      title: issue.title,
-      icon: issue.status ? ICON_COMPONENTS[issue.status.icon] : undefined,
-      color: issue.status ? (issue.status.colorHex ?? issue.status.colorClass) : undefined,
-    }))
-  )
-  return (
-    <div
-      data-testid="chat-strip-group-rows"
-      className="flex max-h-[min(28rem,var(--radix-dropdown-menu-content-available-height,28rem))] flex-col overflow-y-auto"
-    >
-      {items.length > 0 && (
-        <PickerMenuRows
-          mode="single"
-          items={items}
-          value={open?.kind === `issue` ? open.id : null}
-          onChange={onOpenIssue}
-          className="h-8"
-        />
-      )}
-      {items.length > 0 && sessions.length > 0 && <div role="separator" className={MENU_SEPARATOR_CLASS} />}
-      {sessions.length > 0 && (
-        <ChatSessionTree
-          menu
-          rows={sessions}
-          activeId={open?.kind === `session` ? open.id : null}
-          onOpen={onOpenSession}
-        />
-      )}
-    </div>
-  )
-}
+/** #EXP-1732: the Issues tab's `+` accessible name (session-screen.json
+ *  `copy.linkIssue`): THE Menu with Link an issue › and New issue. */
+export const CHAT_TABS_ADD_LABEL = SESSION_SCREEN_COPY.linkIssue
 
 /** A session chip's mark state ×4 (`sessionTabMarkState`) in the run
  *  marks' words (idle = the bare mark). */
@@ -572,51 +122,6 @@ export function sessionTabRunMark(state: SessionTabMarkState): RunMarkState | un
   if (state === `working`) return `working`
   if (state === `done`) return `ended`
   return undefined
-}
-
-/** EXP-1334/#EXP-1433: the strip's ONE issue chip = THE strip chip: status
- *  glyph · mono identifier · title (`short` = the identifier alone). */
-export function ChatIssueTab({
-  identifier,
-  title,
-  status,
-  active,
-  short = false,
-  onSelect,
-  boxProps,
-  ref,
-  ...button
-}: {
-  identifier: string
-  title: string
-  status: StatusGlyphProps | null
-  active: boolean
-  short?: boolean
-  onSelect?: () => void
-  /** The box's props (THE issue context menu's `menuProps`). */
-  boxProps?: StripChipBoxProps
-  ref?: Ref<HTMLButtonElement>
-} & Omit<ComponentProps<`button`>, `ref` | `children` | `onSelect` | `title`>) {
-  return (
-    <StripChip
-      ref={ref}
-      role="tab"
-      aria-selected={active}
-      aria-label={`${identifier} ${title}`}
-      active={active}
-      lead={
-        status ? (
-          <StatusGlyph {...status} className={cn(`size-3.5 shrink-0`, status.className)} />
-        ) : null
-      }
-      identifier={identifier}
-      label={short ? null : title}
-      tooltip={`${identifier} · ${title}`}
-      boxProps={boxProps}
-      onClick={onSelect}
-      {...button}
-    />
-  )
 }
 
 export interface ChatTreeRow {
@@ -664,49 +169,17 @@ export function chatTreeRows(
   return out
 }
 
-/** A tree row inside THE Menu: the menu's own item (keyboard, highlight,
- *  close on pick) around the row, which keeps its geometry. */
-function TreeMenuRow({
-  menu,
-  onSelect,
-  testId,
-  checked,
-  children,
-}: {
-  menu: boolean
-  onSelect: () => void
-  testId: string
-  checked: boolean
-  children: ReactElement
-}) {
-  if (!menu) return children
-  return (
-    <MenuRow
-      role="menuitemradio"
-      aria-checked={checked}
-      onSelect={onSelect}
-      data-testid={testId}
-      className="h-auto p-0 [&>*]:w-full [&>*]:bg-transparent"
-    >
-      {children}
-    </MenuRow>
-  )
-}
-
 /** EXP-1316/#EXP-1433: the session tree as THE session rows (`SessionRow
  *  size="small"` + the tree guides, the Chats list's nesting), the open
- *  one washed. `menu` = inside THE Menu (the group tab's rows; the open row
- *  carries the check). */
+ *  one washed (#EXP-1732: THE session screen's Sessions tab). */
 export function ChatSessionTree({
   rows,
   activeId,
   onOpen,
-  menu = false,
 }: {
   rows: readonly ChatTreeRow[]
   activeId: string | null
   onOpen: (sessionId: string) => void
-  menu?: boolean
 }) {
   const ordered = chatTreeRows(rows)
   const guides = treeGuides(ordered.map((entry) => entry.depth))
@@ -726,41 +199,27 @@ export function ChatSessionTree({
           </span>
         ) : null
         return (
-          <TreeMenuRow
+          <SessionRow
             key={row.sessionId}
-            menu={menu}
-            checked={active}
-            testId="chat-session-tree-item"
-            onSelect={() => onOpen(row.sessionId)}
-          >
-            <SessionRow
-              size="small"
-              agent={row.agent}
-              markState={sessionTabRunMark(row.markState)}
-              title={row.name}
-              trailing={
-                word || (menu && active) ? (
-                  <>
-                    {word}
-                    {menu && <SelectionCheck state={active ? `selected` : `unselected`} className="ml-0" />}
-                  </>
-                ) : undefined
-              }
-              depth={depth}
-              guide={guides[index]}
-              active={active}
-              ringClassName="ring-popover"
-              data-testid="chat-session-tree-row"
-              onClick={menu ? undefined : () => onOpen(row.sessionId)}
-            />
-          </TreeMenuRow>
+            size="small"
+            agent={row.agent}
+            markState={sessionTabRunMark(row.markState)}
+            title={row.name}
+            trailing={word ?? undefined}
+            depth={depth}
+            guide={guides[index]}
+            active={active}
+            data-testid="chat-session-tree-row"
+            onClick={() => onOpen(row.sessionId)}
+          />
         )
       })}
     </div>
   )
 }
 
-/** The strip's "+" (the host wraps it in THE Menu). */
+/** #EXP-1732: the Issues tab's "+" (the host wraps it in THE Menu: Link an
+ *  issue ›, New issue). */
 export function ChatTabsAddButton(props: ComponentProps<typeof Button>) {
   return (
     <Button
@@ -2113,18 +1572,6 @@ export function ChatPlanSheet({
 const PlanRowIcon = conceptIcon(`coding-plan`)
 const PlanApprovedIcon = conceptIcon(`ui-check`)
 
-/** #FEED-191 (plan-page.json `planTabGlyph`): the plan chip's lead: an
- *  approved plan = THE check in emerald (its row's), else the plan glyph. */
-function PlanTabLead({ decision }: { decision: string | null }) {
-  const glyph = planTabGlyph(decision)
-  const Lead = glyph.icon === `ui-check` ? PlanApprovedIcon : PlanRowIcon
-  return (
-    <Lead
-      data-glyph={glyph.icon}
-      className={cn(`size-3.5 shrink-0`, glyph.tone === `approved` && `text-emerald-400`)}
-    />
-  )
-}
 const PlanRowChevron = conceptIcon(`ui-chevron-right`)
 
 /** A decided plan's closing lines: the decision label + the feedback. */

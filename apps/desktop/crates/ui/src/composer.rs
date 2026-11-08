@@ -31,8 +31,8 @@
 //! launcher card (a 2–8 line field, the "+" bottom-left, the round send
 //! bottom-right) on the work column. Dispatcher roots (2026-10-15): the
 //! chat screen and the agent channel no longer build a reply of their
-//! own — they host the ROOT session's composer (`session_screen::
-//! root_composer_view`), so all three paint ONE composer: the box, the `/`
+//! own — #EXP-1732: their Chat tab IS the ROOT session's view, whose
+//! composer they host (`SteerSessionView::host_root_composer`), so all three paint ONE composer: the box, the `/`
 //! menu ([`session_slash_menu`]), the run controls ([`SessionComposerControls`]:
 //! [`session_model_pin`], [`session_context_ring`]),
 //! Send⇄Stop and the queue strip.

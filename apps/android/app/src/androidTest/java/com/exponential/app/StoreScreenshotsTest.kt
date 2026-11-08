@@ -3,6 +3,7 @@ package com.exponential.app
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.issue.START_CODING_READY_TAG
 import androidx.compose.ui.test.hasText
@@ -183,23 +184,15 @@ class StoreScreenshotsTest {
         // lands.
         composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performScrollTo()
         composeRule.onAllNodes(hasTestTag("issue-chat-chip")).onFirst().performClick()
-        flow.waitFor(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION), SYNC_TIMEOUT)
-        // EXP-1323: the conversation opens at its live tail, so the child's
-        // card sits above the fold and the lazy list never composes it; drag
-        // back up to it like the styleguide suite and iOS (a real drag, a
-        // programmatic scroll is re-pinned to the tail).
-        val steeredCard = hasTestTag(SessionTree.CardCopy.TEST_ID_CARD) and
+        // #EXP-1732: the child is a row of the Sessions tab (the Chat tab is
+        // the root's own view); the row pushes its session view.
+        val sessionsTab = hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Sessions))
+        flow.waitFor(sessionsTab, SYNC_TIMEOUT)
+        composeRule.onNode(sessionsTab).performClick()
+        val steeredRow = hasTestTag("${SessionScreen.TestIds.SESSIONS}-row") and
             hasText(STEERED_SESSION_TITLE, substring = true)
-        repeat(6) {
-            val shown = runCatching { composeRule.onAllNodes(steeredCard).onFirst().assertIsDisplayed() }.isSuccess
-            if (!shown) {
-                composeRule.onNode(hasTestTag(SessionTree.ChatCopy.TEST_ID_CONVERSATION))
-                    .performTouchInput { swipeDown(startY = centerY, endY = bottom - 200f) }
-                flow.settle()
-            }
-        }
-        flow.waitFor(steeredCard, SYNC_TIMEOUT)
-        composeRule.onAllNodes(steeredCard).onFirst().performClick()
+        flow.waitFor(steeredRow, SYNC_TIMEOUT)
+        composeRule.onAllNodes(steeredRow).onFirst().performClick()
         flow.waitFor(hasTestTag("agent-feed"), NETWORK_TIMEOUT)
         // An EMPTY feed still renders the container (a relay the emulator can't
         // reach leaves the view "Reconnecting…" with nothing in it), so the tag
@@ -209,10 +202,12 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("4_steering", popRects = true)
-        // Session → issue → board: the session page is a page OF the chat
-        // (its strip stays on screen), so one Back leaves the chat.
+        // Session → chat → issue → board (#EXP-1732): a session of the chat's
+        // tree is its pushed item (Back pops it), then one Back leaves the chat.
         Espresso.pressBack()
-        flow.waitForGone(hasTestTag("chat-tabs"), NAV_TIMEOUT)
+        flow.settle()
+        if (flow.exists(hasTestTag(SessionScreen.TestIds.TABS))) Espresso.pressBack()
+        flow.waitForGone(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.settle()
 

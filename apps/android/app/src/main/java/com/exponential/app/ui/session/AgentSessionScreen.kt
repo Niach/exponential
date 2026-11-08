@@ -440,7 +440,7 @@ private val AgentPhase.isWaitingForStream: Boolean
  * content slot, one instance per shown run (`key(shownSessionId)`).
  */
 @Composable
-fun RunFace(
+internal fun RunFace(
     viewModel: AgentSessionViewModel,
     padding: PaddingValues,
     // EXP-760: a chipped identifier in the feed opens that issue.
@@ -458,6 +458,15 @@ fun RunFace(
     /** S-3: the feed's `Started by` / `Reported to` link pushes that session
      *  ([root] = open it as its chat); null = no origin line. */
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
+    /** #FEED-204 / #EXP-1738: an app editor's Device › row (pick-and-move),
+     *  passed through to THE composer; null = every other session. */
+    deviceMenu: SessionComposerDevice? = null,
+    /** #EXP-1729: an app editor's ENDED root's Account › / Model › picks. */
+    accountMenu: SessionComposerAccount? = null,
+    modelMenu: SessionComposerModel? = null,
+    /** #EXP-1732: a host's Dock over THE composer (the chat root's: its
+     *  suggested tasks + a Live child's Queue); null = [SessionDockCards]. */
+    dock: (@Composable (SessionDock) -> Unit)? = null,
 ) {
     // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
     // `exponential_sessions_show` row to draw its picture; live, so the tile
@@ -467,7 +476,7 @@ fun RunFace(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, onOpenOrigin)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, onOpenOrigin, deviceMenu, dock, accountMenu, modelMenu)
     }
 }
 
@@ -534,23 +543,40 @@ fun AgentSessionScreen(
  * [onOpenIssue] = the CHAT's handler (EXP-1347: a linked issue opens its tab).
  */
 @Composable
-fun SessionPage(
+internal fun SessionPage(
     sessionId: String,
     padding: PaddingValues,
     onOpenIssue: (issueId: String) -> Unit,
     /** S-3: the page's origin link pushes that session (null = inert line). */
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
+    /** #EXP-1738: the app editor's Device › row (pick-and-move). */
+    deviceMenu: SessionComposerDevice? = null,
+    /** #EXP-1729: an app editor's ENDED root: Account › / Model › = the
+     *  picks its next send carries; null = the session's own rows. */
+    accountMenu: SessionComposerAccount? = null,
+    modelMenu: SessionComposerModel? = null,
+    /** #EXP-1732: the host's Dock (the chat root's suggested tasks). */
+    dock: (@Composable (SessionDock) -> Unit)? = null,
+    /** #EXP-1732: the host's rows at the transcript's end / under the
+     *  empty-feed placeholder (the chat root's settled suggestions). */
+    feedFooter: (@Composable () -> Unit)? = null,
 ) {
     val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$sessionId",
     ) { factory -> factory.create(sessionId) }
-    RunFace(
-        viewModel = viewModel,
-        padding = padding,
-        onOpenIssue = onOpenIssue,
-        trailingBarSlot = null,
-        onOpenOrigin = onOpenOrigin ?: { _, _ -> },
-    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalFeedFooter provides feedFooter) {
+        RunFace(
+            viewModel = viewModel,
+            padding = padding,
+            onOpenIssue = onOpenIssue,
+            trailingBarSlot = null,
+            onOpenOrigin = onOpenOrigin ?: { _, _ -> },
+            deviceMenu = deviceMenu,
+            accountMenu = accountMenu,
+            modelMenu = modelMenu,
+            dock = dock,
+        )
+    }
 }
 
 /**
@@ -642,6 +668,10 @@ private fun RunFaceContent(
     trailingBarSlot: (@Composable () -> Unit)?,
     mergeBarSlot: (@Composable () -> Unit)?,
     onOpenOrigin: ((sessionId: String, root: Boolean) -> Unit)? = null,
+    deviceMenu: SessionComposerDevice? = null,
+    dockOverride: (@Composable (SessionDock) -> Unit)? = null,
+    accountMenu: SessionComposerAccount? = null,
+    modelMenu: SessionComposerModel? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     // S-3: who started this session, the feed's first line.
@@ -958,7 +988,7 @@ private fun RunFaceContent(
     // S-3 (dock.json, ask-dock.json): a waiting plan or question is
     // never a DockCard: no plan/question source, no auto-open; the
     // card stays inline in the transcript, answerable.
-    val dock: @Composable (SessionDock) -> Unit = { sessionDock -> SessionDockCards(sessionDock) }
+    val dock: @Composable (SessionDock) -> Unit = dockOverride ?: { sessionDock -> SessionDockCards(sessionDock) }
     // The placeholder states (no feed yet): connecting, an ended run's
     // history fetch, an old desktop (S-3: no paused host).
     val noFeedIdle = session?.let { steerNoFeedState(ended = sessionEnded, busy = it.busy) } == SteerNoFeedState.Idle
@@ -1100,12 +1130,16 @@ private fun RunFaceContent(
             // (so it scrolls with it), or sits above a placeholder.
             if (bodyPlaceholder) {
                 Spacer(Modifier.height(topInset))
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .padding(bottom = bandClearance),
-                ) { placeholderBody() }
+                ) {
+                    Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
+                    // #EXP-1732: the host's rows under the empty-feed placeholder.
+                    LocalFeedFooter.current?.invoke()
+                }
             } else {
                 ActivityFeed(
                     feed = feed,
@@ -1212,6 +1246,9 @@ private fun RunFaceContent(
             trailing = trailingBarSlot,
             merge = mergeBarSlot,
             dock = dock,
+            deviceMenu = deviceMenu,
+            accountMenu = accountMenu,
+            modelMenu = modelMenu,
             modifier = Modifier.onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
         )
         }
@@ -1840,6 +1877,7 @@ private fun ActivityFeed(
     // that card (the main stream only: feed-header · load-earlier · the head
     // cards · the rows, each row carrying the cards its calls posted).
     val cardScroll = LocalCardScrollRequest.current
+    val feedFooter = LocalFeedFooter.current
     // #FEED-191: a way in (a Needs you row) may ask before the rows load: the
     // request is live for its highlight, so a row landing in that time retries.
     LaunchedEffect(cardScroll, rows.size, sessionCards.head.size) {
@@ -2179,6 +2217,13 @@ private fun ActivityFeed(
                             agent = workingAgent,
                         )
                     }
+                }
+            }
+            // #EXP-1732: the host's rows at the end of the main transcript
+            // (a chat root's settled suggestions card).
+            if (feedFooter != null) {
+                item(key = "feed-footer") {
+                    TranscriptRow(TranscriptGap.None) { feedFooter() }
                 }
             }
             }
@@ -3887,6 +3932,11 @@ internal val LocalCardHighlight = androidx.compose.runtime.compositionLocalOf<St
 data class CardScrollRequest(val id: String, val nonce: Int)
 
 /** #EXP-1562: the pending scroll request the conversation list consumes. */
+/** #EXP-1732: rows a host draws at the END of a session view's main
+ *  transcript, and under its empty-feed placeholder (a chat root's settled
+ *  suggestions card); null = none. */
+internal val LocalFeedFooter = androidx.compose.runtime.compositionLocalOf<(@Composable () -> Unit)?> { null }
+
 internal val LocalCardScrollRequest = androidx.compose.runtime.compositionLocalOf<CardScrollRequest?> { null }
 
 /** #EXP-1562: scroll item [index] to the CENTRE of the list's viewport. */
@@ -5826,7 +5876,7 @@ internal data class SessionComposerMenu(
  * picker's rows, the value = the device's name.
  */
 @Immutable
-internal data class SessionComposerDevice(
+data class SessionComposerDevice(
     val devices: List<DevicePickerDevice>,
     val value: String?,
     val onPick: (String) -> Unit,

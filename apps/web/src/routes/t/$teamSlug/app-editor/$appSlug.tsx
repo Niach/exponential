@@ -13,8 +13,9 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 // preview, versions. `$appSlug` = the app's slug in the team. VAPP-176: a
 // draft's slug follows its new name, so the page keys the app by ID and
 // replaces the route in place (the editor never remounts: that would end
-// the editor session mid-turn). VAPP-177: `?tab=<id>` opens that tab (phones:
-// versions/settings = the menu's sheet over Chat; `editorTab`). VAPP-179:
+// the editor session mid-turn). #EXP-1732: the editor is THE session screen
+// (session-screen.json, kind `app`); `?tab=<id>` opens that tab (legacy ids
+// through `legacyTabs`; `?tab=settings` opens the gear's settings). VAPP-179:
 // `?frame=desktop|phone` opens the preview in that frame (screenshots).
 // VAPP-242 (apps.json THE EDITOR): the editor lives at
 // `/t/$teamSlug/app-editor/$appSlug`, reached from the sidebar row's gear,
@@ -23,7 +24,7 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const SYNC_GRACE_MS = 4_000
 
-type AppEditorSearch = { tab?: string; frame?: `desktop` | `phone` }
+type AppEditorSearch = { tab?: string; open?: string; session?: string; frame?: `desktop` | `phone` }
 
 export const Route = createFileRoute(`/t/$teamSlug/app-editor/$appSlug`)({
   validateSearch: (search: Record<string, unknown>): AppEditorSearch => {
@@ -31,6 +32,9 @@ export const Route = createFileRoute(`/t/$teamSlug/app-editor/$appSlug`)({
     const frame = search.frame
     return {
       ...(typeof tab === `string` && tab ? { tab } : {}),
+      // #EXP-1732: the item opened over the tab (settings, a session).
+      ...(search.open === `settings` || search.open === `session` ? { open: search.open } : {}),
+      ...(search.open === `session` && typeof search.session === `string` && search.session ? { session: search.session } : {}),
       ...(typeof frame === `string` && (APPS_PREVIEW.frames as string[]).includes(frame) ? { frame: frame as `desktop` | `phone` } : {}),
     }
   },
@@ -45,7 +49,7 @@ export const Route = createFileRoute(`/t/$teamSlug/app-editor/$appSlug`)({
 
 function AppEditorPage() {
   const { teamSlug, appSlug } = Route.useParams()
-  const { tab: requestedTab, frame: requestedFrame } = Route.useSearch()
+  const { tab: requestedTab, open: requestedOpen, session: requestedSession, frame: requestedFrame } = Route.useSearch()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const permissions = useTeamPermissions(team)
@@ -95,6 +99,13 @@ function AppEditorPage() {
       canManage={permissions.isOwner || app.createdBy === (session?.user?.id ?? null)}
       canGrant={permissions.isOwner}
       requestedTab={requestedTab ?? null}
+      requestedOpen={
+        requestedOpen === `settings`
+          ? { open: `settings` }
+          : requestedOpen === `session` && requestedSession
+            ? { open: `session`, sessionId: requestedSession }
+            : null
+      }
       requestedFrame={requestedFrame ?? null}
     />
   )

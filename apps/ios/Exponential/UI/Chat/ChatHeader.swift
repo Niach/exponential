@@ -75,8 +75,8 @@ struct ChatHeaderGhostButton: View {
 /// EXP-1373 (chats.json, the chat screen on phones): the header's leading
 /// block — the lead DISC (the agent's icon in its colour, else the run mark:
 /// amber-badged while it needs you, the working mark while busy) and the
-/// title over ONE subtitle line (the state word, the device;
-/// an agent chat: `Agent · <model>`).
+/// title over ONE subtitle line (#EXP-1732 `SessionScreen.subtitle`: the
+/// state word, the device, an agent's trigger).
 struct ChatHeaderTitle: View {
     enum Tone { case muted, working, needsYou }
 
@@ -141,26 +141,11 @@ struct ChatHeaderTitle: View {
                             .accessibilityIdentifier("chat-private")
                     }
                 }
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: CGFloat(Measures.subtitle)))
-                        .foregroundStyle(subtitleColor)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityIdentifier("chat-subtitle")
+                if let subtitle {
+                    ChatHeaderSubtitle(text: subtitle, tone: subtitleTone)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    /// Web `ChatHeaderTitle`: needs input = amber, working = the foreground,
-    /// otherwise the muted default.
-    private var subtitleColor: Color {
-        switch subtitleTone {
-        case .needsYou: DesignTokens.Semantic.yellow
-        case .working: .white
-        case .muted: .white.opacity(TextOpacity.secondary)
         }
     }
 
@@ -168,26 +153,56 @@ struct ChatHeaderTitle: View {
         rows.sessions.filter { $0.status != DomainContract.sessionStatusEnded }
     }
 
-    /// The subtitle's parts, ` · `-joined.
+    /// #EXP-1732 (session-screen.json `subtitle`): `status · device ·
+    /// trigger` for every kind — the tree's state word, the root's device,
+    /// an agent's first enabled trigger (`triggerSummary`).
     static func subtitle(rows: ChatRows) -> String {
-        if rows.isAgent {
-            return Chats.agentChatSubtitle(modelLabel: rows.root.model.map(LaunchVocabulary.modelLabel))
-        }
         let live = live(rows)
-        let state: String? = if live.contains(where: \.needsInput) {
-            ChatRowWord.needsInput.text
+        let state: String = if live.contains(where: \.needsInput) {
+            ChatRowWord.needsInput.text ?? ""
         } else if live.contains(where: \.busy) {
             Chats.Copy.Preview.working
+        } else if rows.root.status == DomainContract.sessionStatusEnded {
+            SessionState.done.word
         } else {
-            nil
+            SessionState.idle.word
         }
-        return [state, rows.rootDevice?.label].compactMap { $0 }.joined(separator: " · ")
+        let trigger = rows.agent.flatMap { agent in
+            AgentTrigger.parseList(agent.triggers).first(where: \.enabled).map { AgentSettings.triggerSummary($0) }
+        }
+        return SessionScreen.subtitle(status: state, device: rows.rootDevice?.label, trigger: trigger)
     }
 
     static func tone(rows: ChatRows) -> Tone {
-        guard !rows.isAgent else { return .muted }
         let live = live(rows)
         if live.contains(where: \.needsInput) { return .needsYou }
         return live.contains(where: \.busy) ? .working : .muted
+    }
+}
+
+/// The chat header's ONE subtitle line (web `ChatHeaderTitle`): needs input
+/// = amber, working = the foreground, otherwise the muted default; blank =
+/// none.
+struct ChatHeaderSubtitle: View {
+    let text: String
+    var tone: ChatHeaderTitle.Tone = .muted
+
+    var body: some View {
+        if !text.isEmpty {
+            Text(text)
+                .font(.system(size: CGFloat(Measures.subtitle)))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("chat-subtitle")
+        }
+    }
+
+    private var color: Color {
+        switch tone {
+        case .needsYou: DesignTokens.Semantic.yellow
+        case .working: .white
+        case .muted: .white.opacity(TextOpacity.secondary)
+        }
     }
 }

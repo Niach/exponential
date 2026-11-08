@@ -7,15 +7,11 @@ import {
   suggestionKey,
   PlanRail,
   ChatConversation,
-  ChatIssueTab,
   ChatSessionTree,
-  ChatTabs,
   ChatsListItem,
   ChatDock,
   chatDockedIds,
   chatTreeRows,
-  type ChatStripIssue,
-  type ChatTreeRow,
 } from "./session-chat-view"
 import { TooltipProvider } from "./tooltip"
 
@@ -437,191 +433,6 @@ describe(`ChatConversation`, () => {
     )
     expect(screen.queryByTestId(`chat-unqueue`)).toBeNull()
     expect(document.querySelector(`[data-slot="tooltip-content"]`)).toBeNull()
-  })
-})
-
-const CONVERSATION = { label: `Conversation`, active: false, onSelect: () => {} }
-
-const issue = (identifier: string): ChatStripIssue => ({
-  issueId: `id-${identifier}`,
-  identifier,
-  title: `Title of ${identifier}`,
-  status: { icon: `circle-dashed` },
-})
-
-const session = (sessionId: string, name: string, parentId: string | null = null): ChatTreeRow => ({
-  sessionId,
-  parentId,
-  name,
-  agent: `claude`,
-  markState: `working`,
-})
-
-const openGroup = () => {
-  act(() => {
-    fireEvent.pointerDown(screen.getByTestId(fixture.testIds.group), {
-      button: 0,
-      ctrlKey: false,
-      pointerType: `mouse`,
-    })
-  })
-}
-
-describe(`ChatTabs`, () => {
-  it(`draws Conversation icon-only on the pager, labelled; no Guide tab (S-3)`, () => {
-    render(
-      <ChatTabs variant="pager" conversation={{ ...CONVERSATION, active: true }} issues={[issue(`APP-5`)]} />
-    )
-    const conversation = screen.getByTestId(`chat-tab-conversation`)
-    expect(conversation.textContent).toBe(``)
-    expect(conversation.getAttribute(`aria-label`)).toBe(`Conversation`)
-    expect(conversation.querySelector(`svg`)).not.toBeNull()
-    expect(screen.queryByTestId(`chat-tab-guide`)).toBeNull()
-    // The pager's one issue chip = its identifier alone.
-    expect(screen.getByTestId(`chat-tab-APP-5`).textContent).toBe(`APP-5`)
-  })
-
-  it(`keeps icon + label from md up`, () => {
-    render(<ChatTabs conversation={CONVERSATION} issues={[]} />)
-    expect(screen.getByTestId(`chat-tab-conversation`).textContent).toBe(`Conversation`)
-  })
-
-  // #EXP-1433: every `stripModeCases` row picks the chip or the group tab.
-  for (const entry of fixture.stripModeCases) {
-    it(`stripModeCases: ${entry.name}`, () => {
-      const issues = Array.from({ length: entry.input.issues }, (_, index) => issue(`APP-${index + 1}`))
-      const sessions = Array.from({ length: entry.input.sessions }, (_, index) =>
-        session(`s${index}`, `Session ${index}`)
-      )
-      render(<ChatTabs conversation={CONVERSATION} issues={issues} sessions={sessions} />)
-      expect(screen.getByTestId(`chat-tabs`).getAttribute(`data-mode`)).toBe(entry.expected.mode)
-      const group = screen.queryByTestId(fixture.testIds.group)
-      if (entry.expected.mode === `chips`) {
-        expect(group).toBeNull()
-        expect(screen.queryAllByRole(`tab`).filter((tab) => tab.dataset.testid?.startsWith(`chat-tab-APP`))).toHaveLength(
-          entry.input.issues
-        )
-      } else {
-        expect(group).not.toBeNull()
-        expect(group!.querySelector(`[data-slot="chat-strip-group-count"]`)!.textContent).toBe(
-          String(entry.expected.count)
-        )
-        expect(screen.queryByTestId(`chat-tab-APP-1`)).toBeNull()
-      }
-    })
-  }
-
-  it(`pins + and Conversation left, the one issue chip, Results right`, () => {
-    const onOpenIssue = vi.fn()
-    render(
-      <ChatTabs
-        conversation={{ ...CONVERSATION, active: true }}
-        issues={[issue(`APP-5`)]}
-        add={<span data-testid="add">+</span>}
-        onOpenIssue={onOpenIssue}
-        results={{ label: `Results`, active: false, onSelect: () => {} }}
-      />
-    )
-    const order = [
-      screen.getByTestId(`add`),
-      screen.getByTestId(`chat-tab-conversation`),
-      screen.getByTestId(`chat-tab-APP-5`),
-      screen.getByRole(`tab`, { name: /Results/ }),
-    ]
-    for (let index = 1; index < order.length; index++) {
-      expect(
-        order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
-    }
-    expect(screen.getByTestId(`chat-tab-APP-5`).textContent).toContain(`Title of APP-5`)
-    fireEvent.click(screen.getByTestId(`chat-tab-APP-5`))
-    expect(onOpenIssue).toHaveBeenCalledWith(`id-APP-5`)
-  })
-
-  it(`the group lists issues, a separator, then the whole session tree; a pick opens it`, () => {
-    const onOpenIssue = vi.fn()
-    const onOpenSession = vi.fn()
-    render(
-      <ChatTabs
-        conversation={CONVERSATION}
-        issues={[issue(`APP-1`), issue(`APP-2`)]}
-        sessions={[session(`a`, `Chats impl`), session(`b`, `Android lane`, `a`)]}
-        onOpenIssue={onOpenIssue}
-        onOpenSession={onOpenSession}
-      />
-    )
-    const group = screen.getByTestId(fixture.testIds.group)
-    expect(group.closest(`[data-slot="strip-chip"]`)!.getAttribute(`data-active`)).toBeNull()
-    expect(group.textContent).toBe(`4`)
-    openGroup()
-    const rows = screen.getByTestId(`chat-strip-group-rows`)
-    const issueRows = rows.querySelectorAll(`[data-value]`)
-    expect([...issueRows].map((row) => row.getAttribute(`data-value`))).toEqual([`id-APP-1`, `id-APP-2`])
-    const separator = rows.querySelector(`[role="separator"]`)!
-    const tree = within(rows).getByTestId(`chat-session-tree`)
-    expect(issueRows[1]!.compareDocumentPosition(separator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(separator.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(within(tree).getAllByTestId(`chat-session-tree-row`).map((row) => row.textContent)).toEqual([
-      `Chats impl`,
-      `Android lane`,
-    ])
-    // Nothing open: no row carries the check.
-    expect(rows.querySelector(`[data-selected-glyph="check"]`)).toBeNull()
-    fireEvent.click(within(tree).getAllByTestId(`chat-session-tree-item`)[1]!)
-    expect(onOpenSession).toHaveBeenCalledWith(`b`)
-    openGroup()
-    fireEvent.click(screen.getByTestId(`chat-strip-group-rows`).querySelector(`[data-value="id-APP-2"]`)!)
-    expect(onOpenIssue).toHaveBeenCalledWith(`id-APP-2`)
-  })
-
-  it(`reads the open item's label while active; its row carries the check`, () => {
-    const issues = [issue(`APP-1`), issue(`APP-2`)]
-    const sessions = [session(`a`, `Chats impl`), session(`b`, `Android lane`, `a`)]
-    const view = render(
-      <ChatTabs conversation={CONVERSATION} issues={issues} sessions={sessions} open={{ kind: `issue`, id: `id-APP-2` }} />
-    )
-    let group = screen.getByTestId(fixture.testIds.group)
-    expect(group.closest(`[data-slot="strip-chip"]`)!.getAttribute(`data-active`)).toBe(`true`)
-    const label = group.querySelector<HTMLElement>(`[data-slot="chat-strip-group-label"]`)!
-    expect(label.textContent).toBe(`APP-2`)
-    expect(label.style.maxWidth).toBe(`${fixture.stripGroupMaxWidth}px`)
-    expect(group.querySelector(`[data-slot="chat-strip-group-count"]`)).toBeNull()
-    openGroup()
-    const checked = screen.getByTestId(`chat-strip-group-rows`).querySelector(`[data-selected-glyph="check"]`)!
-    expect(checked.closest(`[data-value]`)!.getAttribute(`data-value`)).toBe(`id-APP-2`)
-    view.unmount()
-
-    render(
-      <ChatTabs conversation={CONVERSATION} issues={issues} sessions={sessions} open={{ kind: `session`, id: `b` }} />
-    )
-    group = screen.getByTestId(fixture.testIds.group)
-    expect(group.textContent).toBe(`Android lane`)
-    openGroup()
-    const items = screen.getAllByTestId(`chat-session-tree-item`)
-    expect(items[1]!.getAttribute(`aria-checked`)).toBe(`true`)
-    expect(items[1]!.querySelector(`[data-selected-glyph="check"]`)).not.toBeNull()
-    expect(items[0]!.querySelector(`[data-selected-glyph="check"]`)).toBeNull()
-  })
-
-  it(`never draws a "+N", a nested chip menu or a session chip`, () => {
-    render(
-      <ChatTabs
-        conversation={CONVERSATION}
-        issues={[issue(`APP-1`), issue(`APP-2`), issue(`APP-3`), issue(`APP-4`)]}
-        sessions={[session(`a`, `One`)]}
-      />
-    )
-    expect(document.querySelector(`[data-slot="strip-overflow"]`)).toBeNull()
-    expect(document.querySelector(`[data-slot="strip-chip-chevron"]`)).toBeNull()
-    expect(screen.queryByTestId(`chat-tab-session`)).toBeNull()
-    expect(screen.getByTestId(fixture.testIds.group).textContent).toBe(`5`)
-  })
-})
-
-describe(`ChatIssueTab`, () => {
-  it(`draws no glyph for an unsynced status`, () => {
-    render(<ChatIssueTab identifier="APP-1" title="Parent" status={null} active={false} data-testid="chip" />)
-    expect(screen.getByTestId(`chip`).querySelector(`svg`)).toBeNull()
   })
 })
 
@@ -1144,40 +955,5 @@ describe(`waiting cards`, () => {
     ])
     expect(screen.queryByTestId(`card-dismiss`)).toBeNull()
     expect(screen.queryByText(`A`)).toBeNull()
-  })
-
-  const cards = [
-    { id: `p1`, kind: `plan` as const, text: `## Plan` },
-    { id: `q1`, kind: `question` as const, text: `Which layout should the header chips use on phones?` },
-  ]
-
-  it(`md+: one chip per waiting card after Conversation; a click selects it`, () => {
-    const onSelect = vi.fn()
-    render(
-      <TooltipProvider>
-        <ChatTabs conversation={CONVERSATION} issues={[]} waiting={{ cards, onSelect }} />
-      </TooltipProvider>
-    )
-    const chips = screen.getAllByTestId(`waiting-chip`)
-    expect(chips.map((chip) => chip.textContent)).toEqual([`Plan`, `Which layout should the…`])
-    fireEvent.click(chips[1]!)
-    expect(onSelect).toHaveBeenCalledWith(`q1`)
-    expect(screen.queryByTestId(`waiting-button`)).toBeNull()
-  })
-
-  it(`phones: ONE button with the count; nothing waiting = nothing`, () => {
-    const { rerender } = render(
-      <TooltipProvider>
-        <ChatTabs variant="pager" conversation={CONVERSATION} issues={[]} waiting={{ cards, onSelect: () => {} }} />
-      </TooltipProvider>
-    )
-    expect(screen.getByTestId(`waiting-button`).getAttribute(`aria-label`)).toBe(`2 waiting`)
-    expect(screen.queryByTestId(`waiting-chip`)).toBeNull()
-    rerender(
-      <TooltipProvider>
-        <ChatTabs variant="pager" conversation={CONVERSATION} issues={[]} waiting={{ cards: [], onSelect: () => {} }} />
-      </TooltipProvider>
-    )
-    expect(screen.queryByTestId(`waiting-button`)).toBeNull()
   })
 })

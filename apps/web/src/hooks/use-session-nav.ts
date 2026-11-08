@@ -44,7 +44,7 @@ export function useSessionNav({
           to: `/t/$teamSlug/sessions/$sessionId`,
           params: { teamSlug, sessionId: target.chatId },
           search: target.session
-            ? { tab: `session`, session: target.session, ...backSearch }
+            ? { tab: `sessions` as const, open: `session` as const, session: target.session, ...backSearch }
             : backSearch,
         })
       } else if (target.to === `agent`) {

@@ -7,7 +7,7 @@ import SwiftUI
 /// Do it here · Start on… (the runnable devices) · Start with… (contract `codingModel`,
 /// never a default row) · File as issue · Dismiss. A submenu swaps the
 /// sheet's rows in place; a pick hands the action back and the host runs it
-/// once the sheet has dismissed (the `ChatStripMenuSheet` rule).
+/// once the sheet has dismissed (the `ChatIssueMenuSheet` rule).
 struct SuggestionOptionsSheet: View {
     enum Action: Equatable {
         case here

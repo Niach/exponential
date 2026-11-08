@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import { viaAppCaption } from "@exp/domain-contract/via-app"
 import { useAppName } from "@/hooks/use-apps"
 import { Link } from "@tanstack/react-router"
@@ -29,10 +29,9 @@ import { cn } from "@/lib/utils"
 
 // EXP-1293 / EXP-1316: ONE session's RAW WORK. Two hosts:
 //
-//   InPlaceSession   the body of the chat page's session chip
-//                    (`?tab=session&session=<id>`) under the chat's own
-//                    header + strip (EXP-1343: phones too, a page of the
-//                    chat's pager); S-3: no Stop pill anywhere
+//   InPlaceSession   #EXP-1732: an opened session on THE session screen
+//                    (`?tab=sessions&open=session&session=<id>`, the tab
+//                    pane wide, a pushed page on phones); S-3: no Stop pill
 //   SessionScreen    sessions under a team AGENT (`/sessions/$id`): its own header,
 //                    back to the chat (or the agent's channel), the
 //                    session's name
@@ -76,7 +75,20 @@ export function BackStackButton({ onPop, className }: { onPop?: () => void; clas
 const REPLY_PLACEHOLDER = CHAT_COPY.placeholder
 
 /** The reply box under a session's feed. */
-function SessionReply({ row, opaque = false }: { row: SessionRow; opaque?: boolean }) {
+function SessionReply({
+  row,
+  opaque = false,
+  surface,
+  browseTeamId,
+}: {
+  row: SessionRow
+  opaque?: boolean
+  /** The team the viewer browses (the `/` prompts; the Assistant's lives in
+   *  their personal team). */
+  browseTeamId?: string
+  /** The + menu's surface (an agent's conversation: `agent`). */
+  surface?: `agent` | `session`
+}) {
   const { users } = useTeamUsers(row.teamId)
   const live = row.status !== `ended`
   return (
@@ -90,6 +102,8 @@ function SessionReply({ row, opaque = false }: { row: SessionRow; opaque?: boole
       opaque={opaque}
       hideReplies={opaque}
       testId="session-composer"
+      {...(surface ? { surface } : {})}
+      {...(browseTeamId ? { browseTeamId } : {})}
     />
   )
 }
@@ -100,9 +114,9 @@ function useOpenedSessionRead(sessionId: string) {
   useMarkRead(sessionId, useNewestAgentMessageAt([sessionId]))
 }
 
-/** The session open IN PLACE inside its chat: md+ under the chat's
- *  header + strip; EXP-1343 phones too — a PAGE of the chat's pager under
- *  its floating header band (`topInset` clears it), replying through THE
+/** #EXP-1732: a session's OWN view on THE session screen: the ROOT's is
+ *  the Chat tab (every kind), a descendant's the opened Sessions row (the
+ *  tab pane wide, a pushed item on phones); phones reply through THE
  *  floating composer capsule. */
 export function InPlaceSession({
   row,
@@ -110,7 +124,20 @@ export function InPlaceSession({
   floating = false,
   origin = null,
   onOpenXref,
+  surface,
+  composer,
+  browseTeamId,
+  chat,
 }: {
+  browseTeamId?: string
+  /** #EXP-1732: the Chat tab's extras (the ROOT's view): the tree, its
+   *  issues, the Dock's children, the suggestions' actions. */
+  chat?: Pick<ComponentProps<typeof AgentSessionView>, `tree` | `issues` | `dockChildren` | `suggestions` | `renderIssueRef`>
+  /** The reply box's + menu surface (an agent's conversation: `agent`). */
+  surface?: `agent` | `session`
+  /** Replaces the reply box (an app editor's, with its device menu);
+   *  `opaque` = it floats in the phone capsule. */
+  composer?: (opaque: boolean) => ReactNode
   row: SessionRow
   /** Phones: the overlay header band's height. */
   topInset?: number
@@ -140,16 +167,19 @@ export function InPlaceSession({
         composerFloats={floating}
         origin={origin}
         onOpenSession={onOpenXref}
+        {...chat}
         composer={
           floating ? (
             <FloatingComposer
               placeholder={REPLY_PLACEHOLDER}
               above={<SessionComposerReplies sessionId={row.id} />}
             >
-              <SessionReply row={row} opaque />
+              {composer ? composer(true) : <SessionReply row={row} opaque surface={surface} browseTeamId={browseTeamId} />}
             </FloatingComposer>
+          ) : composer ? (
+            composer(false)
           ) : (
-            <SessionReply row={row} />
+            <SessionReply row={row} surface={surface} browseTeamId={browseTeamId} />
           )
         }
       />

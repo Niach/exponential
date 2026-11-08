@@ -1,5 +1,5 @@
 // EXP-1293 / EXP-1316 / EXP-1733: `/sessions/$id` — a ROOT is its chat; a
-// child REDIRECTS into its root (`?tab=session&session=<id>`, `from` kept);
+// child REDIRECTS into its root (#EXP-1732: `?tab=sessions&open=session&session=<id>`, `from` kept);
 // a session under an
 // agent's conversation (NEW-2: a root with `agentId`) keeps its own screen: back to the agent, the session's name,
 // no header Stop (Chats), the feed and the reply box. Lives under a `-` prefix so
@@ -36,7 +36,9 @@ vi.mock(`@tanstack/react-router`, () => ({
       data-to={to}
       data-chat={params.sessionId}
       data-tab={search?.tab}
+      data-open={search?.open}
       data-session={search?.session}
+      data-app={params.appSlug}
       data-from={search?.from}
       data-back={search?.back}
     />
@@ -86,6 +88,10 @@ vi.mock(`@/hooks/use-agent-row`, () => ({
     isReady: true,
   }),
   useAllAgentRows: () => [],
+}))
+vi.mock(`@/hooks/use-apps`, () => ({
+  useApps: () => ({ apps: [{ id: `app-1`, slug: `working-hours` }], isReady: true }),
+  useAppName: () => null,
 }))
 vi.mock(`@/hooks/use-session`, () => ({
   useSession: () => ({ data: { user: { id: `u1` } } }),
@@ -147,7 +153,8 @@ describe(`the session page`, () => {
     const target = screen.getByTestId(`navigate`)
     expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/sessions/$sessionId`)
     expect(target.getAttribute(`data-chat`)).toBe(`s1`)
-    expect(target.getAttribute(`data-tab`)).toBe(`session`)
+    expect(target.getAttribute(`data-tab`)).toBe(`sessions`)
+    expect(target.getAttribute(`data-open`)).toBe(`session`)
     expect(target.getAttribute(`data-session`)).toBe(`s2`)
     expect(target.getAttribute(`data-from`)).toBe(`inbox`)
     expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
@@ -168,6 +175,18 @@ describe(`the session page`, () => {
     const composer = screen.getByTestId(`session-composer`)
     expect(composer.getAttribute(`data-session`)).toBe(`s2`)
     expect(composer.textContent).toBe(`Type / for commands`)
+  })
+
+  // #EXP-1732: a session under MY conversation with the agent opens in
+  // place on the agent's screen (its Sessions tab).
+  it(`sends a session of my agent conversation to the agent's Sessions tab`, () => {
+    mocks.root.current = { id: `s1`, agentId: `agent-1`, rootId: `s1`, teamId: `t1`, userId: `u1` }
+    render(<Page />)
+    const target = screen.getByTestId(`navigate`)
+    expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/agents/$agentId`)
+    expect(target.getAttribute(`data-tab`)).toBe(`sessions`)
+    expect(target.getAttribute(`data-open`)).toBe(`session`)
+    expect(target.getAttribute(`data-session`)).toBe(`s2`)
   })
 
   // Chat 58cb32df (chats.json STOP): an agent's tree has no header Stop
@@ -206,6 +225,19 @@ describe(`the session page`, () => {
     mocks.row.current = { id: `s2`, rootId: `s2`, agentId: `agent-1`, teamId: `t1` }
     render(<Page />)
     expect(screen.getByTestId(`navigate`).getAttribute(`data-to`)).toBe(`/t/$teamSlug/agents/$agentId`)
+  })
+
+  // #EXP-1732: an app's editor ROOT opens its app editor, keeping tab/open.
+  it(`sends an app's editor root to the app editor, keeping tab and open`, () => {
+    mocks.row.current = { id: `s2`, rootId: `s2`, appId: `app-1`, teamId: `t1` }
+    mocks.search.current = { tab: `sessions`, open: `session`, session: `s7` }
+    render(<Page />)
+    const target = screen.getByTestId(`navigate`)
+    expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/app-editor/$appSlug`)
+    expect(target.getAttribute(`data-app`)).toBe(`working-hours`)
+    expect(target.getAttribute(`data-tab`)).toBe(`sessions`)
+    expect(target.getAttribute(`data-open`)).toBe(`session`)
+    expect(target.getAttribute(`data-session`)).toBe(`s7`)
   })
 
   // EXP-1291: the PR body's footer links `sessions/<rootId>?view=guide`.

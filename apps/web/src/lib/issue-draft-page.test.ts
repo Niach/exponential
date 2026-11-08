@@ -152,7 +152,7 @@ describe(`draftLandingNavigation`, () => {
     ).toEqual({
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug: `acme`, sessionId: `th1` },
-      search: { tab: `issue`, issue: `iss-9`, from: `inbox` },
+      search: { tab: `issues`, open: `issue`, issue: `iss-9`, from: `inbox` },
     })
   })
 

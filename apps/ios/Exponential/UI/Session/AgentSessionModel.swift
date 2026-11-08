@@ -1376,6 +1376,14 @@ final class AgentSessionModel {
     /// EXP-820: the text is ALWAYS a message. A pending card's free answer is
     /// its own inline field (`sendAnswer` with `text`, or `answerThenSend` for
     /// a plan's feedback).
+    /// #EXP-1715: the viewer's Assistant root's Teams pick, carried by every
+    /// send as `scopeTeamIds` (set by the host view; nil = none).
+    var sendScope: TeamsScope?
+    /// #FEED-204 / #EXP-1732: an app editor's ended root revived on another
+    /// device: the next send is `sessions.send({appId, deviceId})` (set by the
+    /// host view; nil = a plain message).
+    var sendAppMove: ChatComposerDraft.AppMove?
+
     @discardableResult
     func sendMessage(_ text: String, attachmentIds: [String]? = nil) async -> Bool {
         guard !text.isEmpty || attachmentIds?.isEmpty == false, mayPost else { return false }
@@ -1386,10 +1394,21 @@ final class AgentSessionModel {
         if holdsFlag { steerSending = true }
         defer { if holdsFlag { steerSending = false } }
         do {
-            try await sessionsApi.send(
-                accountId: accountId,
-                .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds)
-            )
+            if let move = sendAppMove {
+                _ = try await sessionsApi.send(
+                    accountId: accountId,
+                    .app(
+                        appId: move.appId, deviceId: move.deviceId, text: text, attachmentIds: attachmentIds,
+                        // #EXP-1729: with the editor composer's Account and Model picks.
+                        cli: move.cli, account: move.account, model: move.model
+                    )
+                )
+            } else {
+                try await sessionsApi.send(
+                    accountId: accountId,
+                    .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds, scope: sendScope)
+                )
+            }
         } catch {
             sendError = error.trpcUserMessage
             return false

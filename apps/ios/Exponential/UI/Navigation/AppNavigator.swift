@@ -1306,7 +1306,7 @@ extension MainNavigator {
         case .devices:
             return AnyView(AgentsView().environment(\.accountId, accountId))
         case let .agentChannel(agentId):
-            return AnyView(AgentChannelScreen(agentId: agentId).id(agentId).environment(\.accountId, accountId))
+            return AnyView(AgentChatRoute(agentId: agentId).id(agentId).environment(\.accountId, accountId))
         case let .app(appId):
             return AnyView(AppRunScreen(appId: appId).id(appId).environment(\.accountId, accountId))
         case let .chat(rootId):
@@ -1333,7 +1333,7 @@ extension MainNavigator {
             SkillSettingsPage(skillId: id)
                 .environment(\.accountId, accountId)
         case let .agentChannel(accountId, agentId):
-            AgentChannelScreen(agentId: agentId)
+            AgentChatRoute(agentId: agentId)
                 .id(agentId)
                 .environment(\.accountId, accountId)
         case let .apps(accountId):

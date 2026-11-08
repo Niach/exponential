@@ -43,7 +43,6 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.InboxRoute
-import com.exponential.app.domain.ChatRowAction
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
@@ -349,10 +348,6 @@ class ChatViewModel @Inject constructor(
      *  sessions its rows name + their roots), by id. */
     @Volatile private var knownSessions: Map<String, SessionEntity> = emptyMap()
 
-    /** #EXP-1464 (chat-row-action.json): a watchdog or usage flag stands
-     *  behind [sessionId]'s `needs_you` (it opens, never expands). */
-    fun isBlocked(sessionId: String): Boolean = knownSessions[sessionId]?.blocked != null
-
     /** #EXP-1464: where a Conversation row's session opens (inbox-route.json
      *  `sessionTarget`, the S-3 rule); null = not synced. */
     fun sessionTarget(sessionId: String): InboxRoute.SessionTarget? {
@@ -368,19 +363,6 @@ class ChatViewModel @Inject constructor(
         )
     }
 
-    /** #EXP-1464: THE question / plan card an expanded session row draws
-     *  ([ChatRowAction.sessionWaitingCard] over that session's messages);
-     *  null while it has not synced. */
-    fun waitingCard(sessionId: String): Flow<SessionTree.SessionChatRow?> =
-        dbFlow.filterNotNull()
-            .flatMapLatest { it.keyedMessages(it.messageDao().observeBySession(sessionId)) }
-            .map { messages ->
-                ChatRowAction.sessionWaitingCard(sessionId, messages)
-                    ?.let { id -> messages.firstOrNull { it.id == id } }
-                    ?.let(SessionTree::askRow)
-            }
-            .distinctUntilChanged()
-            .flowOn(Dispatchers.Default)
     private val allIssues = dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }
 
     /** EXP-1334: the `parent` relations a linked sub-issue folds by. */
@@ -466,33 +448,6 @@ class ChatViewModel @Inject constructor(
      *  that posted the result. */
     fun sendTo(sessionId: String, text: String) =
         run("send", "the message") { sender.send(SessionsSendInput.message(sessionId, text)) }
-
-    /** A CHILD session under [parentId] on [deviceId] (a follow-up). */
-    fun startChild(parentId: String, deviceId: String, text: String) =
-        run("start", "the session") { sender.send(SessionsSendInput.child(parentId, deviceId, text)) }
-
-    /** Answer a `question` card ([answer]: an option or free text) in place;
-     *  EXP-1280: [answers] = the picked labels (the rich card; [answer] = them
-     *  joined, the compat string), [surfaceData] = the inline surface's data
-     *  model. [settled] = whether the call went through. */
-    fun answer(
-        messageId: String,
-        answer: String,
-        settled: (Boolean) -> Unit = {},
-        answers: List<String>? = null,
-        surfaceData: JsonObject? = null,
-    ) =
-        run("answer", "the question", settled = settled) { accountId ->
-            sessionsApi.answer(
-                accountId,
-                AnswerInput(
-                    messageId = messageId,
-                    answer = answer,
-                    answers = answers?.let(AnswerInput::questionAnswers),
-                    surfaceData = surfaceData,
-                ),
-            )
-        }
 
     /** #EXP-1561 (waiting-cards.json DISMISS): dismiss a waiting question or
      *  plan card through THE answer path (`dismissed: true` alone). */
@@ -600,13 +555,6 @@ class ChatViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /** EXP-1521: whether the chat has a live tail at all (the screen reads
-     *  this; only the tail reads [liveActivity]). */
-    val hasLiveTail: StateFlow<Boolean> = liveActivity
-        .map { it != null }
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** #EXP-1545 / #EXP-1678 (dock.json ONE CHILD STREAM): the ONE held
      *  connection on the child [Dock.chatQueueProbe] names (was one per
@@ -769,9 +717,6 @@ class ChatViewModel @Inject constructor(
             )
         }
 
-    /** Revoke one of my queued messages (the queue bar's ✕). */
-    fun unqueue(messageId: String) = run("remove", "the message") { sessionsApi.unqueue(it, messageId) }
-
     // ── session 58cb32df: the chat's menu (chats.json MENUS) ─────────────────
 
     /** Delete = `sessions.delete`; [onDeleted] closes the chat's screen back
@@ -820,12 +765,6 @@ class ChatViewModel @Inject constructor(
 
     /** The signed-in user (my queued messages can be revoked). */
     val currentUserId: StateFlow<String?> = auth.userId
-
-    /** Every synced user by id — the message rows' author names + avatars. */
-    val users: StateFlow<Map<String, UserEntity>> =
-        dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }
-            .map { rows -> rows.associateBy { it.id } }
-            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val teamId: Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
 
