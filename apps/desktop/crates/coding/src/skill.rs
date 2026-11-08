@@ -388,15 +388,17 @@ run `bun test`.\n"
         assert!(RUN_SKILL.contains("a running subagent is never messaged"));
     }
 
-    /// EXP-1292: children and root-first merges exist ONLY as playbook text
-    /// (no device machinery), so the wording is the contract.
+    /// EXP-1292: children exist ONLY as playbook text (no device
+    /// machinery), so the wording is the contract. EXP-1709: the merge train
+    /// lands every PR (a stack with it), so `merge` only queues.
     #[test]
-    fn the_playbook_teaches_children_and_root_first_merges() {
+    fn the_playbook_teaches_children_and_the_merge_train() {
         assert!(RUN_SKILL.contains("## Fan out"));
         assert!(RUN_SKILL.contains("`exponential_sessions_send {parentId: <your session>, deviceId, text}`"));
         assert!(RUN_SKILL.contains("Caps: depth 3, 10 live sessions per tree"));
-        assert!(RUN_SKILL.contains("merge a tree root first"));
-        assert!(RUN_SKILL.contains("`stack: true`"));
+        assert!(RUN_SKILL.contains("the merge train lands it"));
+        assert!(RUN_SKILL.contains("only queues it"));
+        assert!(!RUN_SKILL.contains("`stack: true`"));
         assert!(RUN_SKILL.contains(DISPATCH_HEADING));
     }
 
