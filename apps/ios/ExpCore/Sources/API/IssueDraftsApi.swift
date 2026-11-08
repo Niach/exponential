@@ -23,7 +23,7 @@ public struct IssueDraftDto: Decodable, Sendable {
     public let assigneeId: String?
     public let labelIds: [String]?
     public let dueDate: String?
-    /// EXP-1291: the root session (thread) the draft files into.
+    /// EXP-1291: the root session (chat) the draft files into.
     public let sessionId: String?
     public let createdAt: String?
     public let updatedAt: String?
@@ -169,7 +169,7 @@ public struct UpsertIssueDraftInput: Encodable, Sendable {
     public var assigneeId: String?
     public var labelIds: [String]
     public var dueDate: String?
-    /// EXP-1291: the root session (thread) the draft files into. Omitted
+    /// EXP-1291: the root session (chat) the draft files into. Omitted
     /// when nil, which KEEPS the row's session server-side (null would clear
     /// it; nothing on iOS clears it).
     public var sessionId: String?

@@ -83,7 +83,7 @@ private fun fadeMask(edge: FadeEdge): Brush = when (edge) {
  *
  * EXP-1256 (EXP-1259 D15): [ground] = the surface's OWN ground instead — the
  * page colour, opaque and unblurred: no scrim tint, no blur over what scrolls
- * under it. The run thread's edges wear it (web/desktop clip it to the content
+ * under it. The run chat's edges wear it (web/desktop clip it to the content
  * card's inner radius; a phone's card is the page itself).
  */
 @Composable

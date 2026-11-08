@@ -98,7 +98,7 @@ mod tests {
             .iter()
             .any(|c| c.name == "compact"));
         // NEW-2: compact/model/effort for both agents, none confirms
-        // (`/clear` and `/btw` are gone). Thread 58cb32df: `/new` (a fresh
+        // (`/clear` and `/btw` are gone). Chat 58cb32df: `/new` (a fresh
         // conversation in the same session) joins them, without an argument.
         for agent in [SessionAgent::Claude, SessionAgent::Codex] {
             let rows = catalog_for(agent);
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(parse_command("/effort high", SessionAgent::Codex).unwrap().command.name, "effort");
         // Not in the catalog at all.
         assert_eq!(parse_command("/cost", SessionAgent::Claude), None);
-        // Thread 58cb32df: `/new` is a catalog row now.
+        // Chat 58cb32df: `/new` is a catalog row now.
         assert_eq!(parse_command("/new", SessionAgent::Codex).unwrap().command.name, "new");
         assert_eq!(parse_command("/clear", SessionAgent::Codex), None);
         assert_eq!(parse_command("/btw why", SessionAgent::Claude), None);

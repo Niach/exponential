@@ -11667,6 +11667,48 @@
       }
     },
     {
+      "name": "MessageBubble/pressable=true",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "pressable": true
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/pressable=false",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "pressable": false
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/href",
+      "node": {
+        "id": "message-bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "in",
+          "time": "18:00",
+          "status": "read",
+          "href": "https://ui.exponential.at"
+        }
+      }
+    },
+    {
       "name": "Motion/example",
       "node": {
         "id": "motion",

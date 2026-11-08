@@ -181,7 +181,7 @@ struct MobileTabBar: View {
         switch tab {
         case .board: Chats.TestIds.tabBoard
         // The Chats tab keeps the id every suite already reaches it by.
-        case .chats: "tab-threads"
+        case .chats: "tab-chats"
         case .apps: "tab-apps"
         case .team: Chats.TestIds.tabTeam
         }
@@ -240,7 +240,7 @@ struct MobileTabBar: View {
         case .team:
             TeamAvatar(iconUrl: team?.iconUrl, size: 20)
         case .chats:
-            AppIcon(AppIcons.navThreads, size: AppIcon.Size.large)
+            AppIcon(AppIcons.navChats, size: AppIcon.Size.large)
         case .apps:
             AppIcon(AppIcons.navApps, size: AppIcon.Size.large)
         }
@@ -821,7 +821,7 @@ extension View {
     /// plus 16pt of breathing room. The bar is an ancestor OVERLAY (see
     /// MainNavigator) — ancestor safe-area insets don't reliably reach List
     /// content inside pushed destinations, so every bar-visible scrollable
-    /// (Home, Issues list, Devices, Inbox's inbox/my-issues, Threads,
+    /// (Home, Issues list, Devices, Inbox's inbox/my-issues, Chats,
     /// Actions) applies
     /// this ONE modifier directly. Detail screens (showsTabBar == false) must
     /// NOT reserve it — pass `false` when the same scrollable is reused on a

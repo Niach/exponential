@@ -50,10 +50,6 @@ function chipOf(url: string, origin: string, team: string, resolve: ProseChipRes
       kind = `session`
       id = link.sessionId
       break
-    case `thread`:
-      kind = `session`
-      id = link.threadId
-      break
     case `agent`:
       kind = `agent`
       id = link.agentId

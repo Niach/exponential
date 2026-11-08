@@ -52,7 +52,7 @@ pub struct EngineStart {
     pub personal_key: Option<String>,
     /// EXP-1292/1341: the session is PERSISTENT (`domain::session_kind`, a
     /// team agent's root). It never ends: the run's end idles the row
-    /// (`sessions.report{status: idle}`) where a thread session's ends it.
+    /// (`sessions.report{status: idle}`) where a chat session's ends it.
     pub persistent: bool,
     /// EXP-444: a foreign requester on a shared host — suppresses login
     /// affordances.
@@ -426,7 +426,7 @@ where
 }
 
 /// EXP-1134/EXP-1292: whether the adapter asks the agent to name this
-/// conversation — a FRESH thread session with nothing else to be listed
+/// conversation — a FRESH chat session with nothing else to be listed
 /// under: no linked issue, no action and no title of its own (its run
 /// record says which, as `prepare` wrote it; EXP-1316: an action run's
 /// record carries the action name as its title, so it is never named). A resume keeps the name its transcript
@@ -443,7 +443,7 @@ fn names_conversation(data_dir: &Path, prepared: &coding::PreparedLaunch) -> boo
 }
 
 /// EXP-1341: every session whose stored title is blank asks its agent CLI
-/// to name the conversation (children, issue and action threads included);
+/// to name the conversation (children, issue and action sessions included);
 /// the CLI's title is reported through `sessions.report`, which fills only a
 /// blank title. NEW-8: a persistent kind (an agent's conversation) never
 /// asks: its name is the agent DEFINITION's (`agents`), never a title.

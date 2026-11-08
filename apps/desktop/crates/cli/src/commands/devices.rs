@@ -58,9 +58,9 @@ pub fn tool_error(err: api::ApiError) -> anyhow::Error {
     }
 }
 
-/// Every running thread the caller can see (own + shared), newest first.
+/// Every running chat the caller can see (own + shared), newest first.
 /// The list tool reads ROOTS only (`exponential_sessions_list`), so a
-/// sub-session counts through its thread.
+/// sub-session counts through its chat.
 pub fn running_sessions(ctx: &Ctx) -> anyhow::Result<Vec<RemoteSession>> {
     let query = SessionsQuery {
         live: Some(true),

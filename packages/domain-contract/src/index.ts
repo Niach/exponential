@@ -58,7 +58,7 @@ export interface DomainContract {
     model: string
     codexModel: string
   }
-  /** EXP-1291: the session tree — roots are threads or team agents. */
+  /** EXP-1291: the session tree — roots are chats or team agents. */
   sessionKind: { values: readonly string[] }
   /** EXP-1291: queued → running ⇄ idle → ended (agents never end). */
   sessionStatus: { values: readonly string[] }
@@ -220,7 +220,7 @@ export interface DomainContract {
   }
   /** Who created a relation row: an explicit pick, or a `#IDENT` reference. */
   issueRelationSource: { values: readonly string[] }
-  /** EXP-1291: who linked an issue to a thread (session_issues.source). */
+  /** EXP-1291: who linked an issue to a chat (session_issues.source). */
   sessionIssueSource: { values: readonly string[] }
   /** EXP-1291: a conversation row's author — a person, the agent, the server. */
   messageAuthorKind: { values: readonly string[] }
@@ -232,7 +232,7 @@ export interface DomainContract {
   messageEventKind: { values: readonly string[] }
   /** Coding agent CLIs a desktop device may run (EXP-201; first = default). */
   codingAgent: { values: readonly string[] }
-  /** THE Claude model vocabulary for every model pick (session, subagents, thread, computer use); no blank. */
+  /** THE Claude model vocabulary for every model pick (session, subagents, chat, computer use); no blank. */
   codingModel: { values: readonly string[] }
   /** EXP-1236: a device's computer-use defaults (the subagent model, `haiku`). */
   deviceComputerUseDefaults: { model: string }
@@ -301,7 +301,7 @@ export interface DomainContract {
    * TUI-local printers (/cost, /status, /help), /model, /init, /review, the
    * login flow (EXP-430/444) and the kill path (/exit) stay out. A name is
    * the CATALOG's, not necessarily the CLI's: the desktop maps it per agent
-   * (codex has no native `/clear`; the engine rotates the thread). `agents` ⊆
+   * (codex has no native `/clear`; the engine rotates the chat). `agents` ⊆
    * codingAgent.values; `argHint` empty = the command takes no argument;
    * `confirm` = the client asks before sending (context is discarded).
    * Generated into all four clients as parallel arrays; the desktop's

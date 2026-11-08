@@ -22,7 +22,7 @@ import {
   type MenuEntry,
 } from "@exp/ui"
 
-// EXP-1334: THE one composer (start · thread · session) drawn from the real
+// EXP-1334: THE one composer (start · chat · session) drawn from the real
 // @exp/ui halves the app composes (`ComposerFrame`, `ComposerOptionsRow`
 // around the `Composer` card). N-12 (the iOS row ×4): the "+" is the only
 // tool; in a session the Device pin (its glyph alone) · the model pin · the

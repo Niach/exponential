@@ -59,7 +59,7 @@ pub fn tree_agent_id(root: &HubSession) -> Option<String> {
 }
 
 /// #EXP-1735: the team LEAD Assistant `row` reports to, or None. `row` works in a team whose lead is another
-/// member's Assistant than the one acting for its tree (the Assistant's children and the threads it started);
+/// member's Assistant than the one acting for its tree (the Assistant's children and the root sessions it started);
 /// never the Assistant's own conversation root, never a team agent's tree, never the lead's own work.
 pub fn lead_of(state: &HubState, row: &HubSession) -> Option<String> {
     let lead_id = state.leads.get(&row.team_id)?;
@@ -89,7 +89,7 @@ pub fn ask_hidden(listener: &HubSession, origin: &HubSession) -> bool {
     !origin.shared && (listener.shared || listener.user_id != origin.user_id)
 }
 
-/// The fields of a root thread `reuse_refusal` reads.
+/// The fields of a root session `reuse_refusal` reads.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReuseRoot {
@@ -114,7 +114,7 @@ impl From<&HubSession> for ReuseRoot {
     }
 }
 
-/// Whether an AGENT's message may reuse this root thread: None = reuse, else the reason.
+/// Whether an AGENT's message may reuse this root session: None = reuse, else the reason.
 pub fn reuse_refusal(root: &ReuseRoot, children: usize, now: i64, awaits_caller: bool) -> Option<String> {
     if root.needs_input || awaits_caller {
         return None;
@@ -383,7 +383,7 @@ fn bus_relay_turn(ctx: &mut Ctx, child: &HubSession, body: &str, sealed: bool, c
         return;
     }
     // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn;
-    // #FEED-194: unless it is the agent that started the thread.
+    // #FEED-194: unless it is the agent that started the root session.
     let skip = |_: &HubState, listener: &HubSession| {
         listener.agent_id.is_some() && Some(&listener.id) != child.parent_id.as_ref() && listener.agent_id != child.started_by_agent_id
     };
@@ -602,11 +602,11 @@ struct SendData {
     shared: Option<bool>,
     text: Option<String>,
     sealed: Option<bool>,
-    /// #FEED-173: what a new thread works on when it has no text: issues, a prompt, attachments.
+    /// #FEED-173: what a new root session works on when it has no text: issues, a prompt, attachments.
     issue_ids: Option<Vec<String>>,
     prompt_id: Option<String>,
     attachment_ids: Option<Vec<String>>,
-    /// The id a fresh thread or a continuation takes.
+    /// The id a fresh root session or a continuation takes.
     fresh_id: Option<String>,
     /// #EXP-1720: the team a new session starts in (one of the caller's / parent's tree teams).
     team_id: Option<String>,
@@ -637,7 +637,7 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
         caller_root.as_ref().filter(|root| tree_agent_id(root).is_some()).map(|root| root.device_id.clone())
     });
     let Some(device_id) = device_id else { return refuse(ErrorCode::Invalid, "Pick a device for the new session") };
-    // #FEED-173: a start with nothing to work on (no text, issues, prompt or attachments) is refused, never an empty thread.
+    // #FEED-173: a start with nothing to work on (no text, issues, prompt or attachments) is refused, never an empty root session.
     if js::trim(data.text.as_deref().unwrap_or("")).is_empty()
         && data.sealed != Some(true)
         && data.issue_ids.as_ref().is_none_or(Vec::is_empty)
@@ -729,7 +729,7 @@ pub fn awaits_caller(state: &HubState, caller: &HubSession, target: &HubSession)
     }
 }
 
-fn agent_fresh_thread(ctx: &mut Ctx, data: &SendData, caller: &HubSession, target: &HubSession) -> Step<Option<StepResult>> {
+fn agent_fresh_session(ctx: &mut Ctx, data: &SendData, caller: &HubSession, target: &HubSession) -> Step<Option<StepResult>> {
     if caller.root_id == target.root_id || target.parent_id.is_some() || target.agent_id.is_some() {
         return Ok(None);
     }
@@ -749,7 +749,7 @@ fn agent_fresh_thread(ctx: &mut Ctx, data: &SendData, caller: &HubSession, targe
         ..data.clone()
     };
     let outcome = start_root(ctx, &fresh, Some(caller))?;
-    Ok(Some(StepResult { warning: Some(fill(text(&["freshThread"]), &[("id", &target.id), ("reason", &reason)])), ..outcome }))
+    Ok(Some(StepResult { warning: Some(fill(text(&["freshSession"]), &[("id", &target.id), ("reason", &reason)])), ..outcome }))
 }
 
 fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> Step<StepResult> {
@@ -785,7 +785,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
         target = row.clone();
     }
     if let Some(caller) = caller {
-        if let Some(fresh) = agent_fresh_thread(ctx, data, caller, &target)? {
+        if let Some(fresh) = agent_fresh_session(ctx, data, caller, &target)? {
             return Ok(fresh);
         }
     }
@@ -799,7 +799,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
         return refuse(ErrorCode::Invalid, text(&["endedNeedsMessage"]));
     }
     let Some(parent_id) = target.parent_id.clone() else {
-        // An ended thread ROOT revives in place: the same row idles with the message pending.
+        // An ended chat ROOT revives in place: the same row idles with the message pending.
         let now = ctx.now;
         let row = ctx.row_mut(&target.id);
         row.status = Status::Idle;
@@ -1155,7 +1155,7 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
         let swept = sweep_subagents(ctx, &id);
         return Ok(if swept.is_empty() { StepResult::session(&id) } else { StepResult { ended_ids: Some(swept), ..StepResult::session(&id) } });
     }
-    // A thread ROOT that finished a turn and an agent's conversation survive their process (idle);
+    // A chat ROOT that finished a turn and an agent's conversation survive their process (idle);
     // a child, or a root that never finished a turn (a refused launch), ends.
     let status = match data.status {
         Some(Status::Ended) if row.agent_id.is_some() || (row.parent_id.is_none() && row.last_turn_at.is_some()) => Some(Status::Idle),

@@ -29,7 +29,7 @@ struct IssueDraftPageView: View {
         boardId: String,
         statusId: String? = nil,
         parentId: String? = nil,
-        threadId: String? = nil,
+        chatId: String? = nil,
         onCreated: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -38,7 +38,7 @@ struct IssueDraftPageView: View {
         self.draftId = draftId
         _vm = State(initialValue: IssueDraftViewModel(
             draftId: draftId, boardId: boardId, statusId: statusId, parentId: parentId,
-            threadId: threadId
+            chatId: chatId
         ))
     }
 
@@ -380,21 +380,21 @@ struct IssueDraftPageView: View {
                         )
                     }
 
-                    // EXP-1284: a "New issue in this thread" draft names
-                    // its thread (kept across leave + reopen from Drafts).
-                    if let thread = vm.thread {
+                    // EXP-1284: a "New issue in this chat" draft names
+                    // its chat (kept across leave + reopen from Drafts).
+                    if let chat = vm.chat {
                         HStack(spacing: 6) {
-                            Text(draftInThreadPrefix)
+                            Text(draftInChatPrefix)
                                 .font(.footnote)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .fixedSize()
-                            IssueThreadChip(thread: thread) {}
+                            IssueChatChip(chat: chat) {}
                                 .allowsHitTesting(false)
                             Spacer(minLength: 0)
                         }
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel("\(draftInThreadPrefix) \(thread.title)")
-                        .accessibilityIdentifier("issue-draft-thread")
+                        .accessibilityLabel("\(draftInChatPrefix) \(chat.title)")
+                        .accessibilityIdentifier("issue-draft-chat")
                     }
 
                     IssueTitleField(
@@ -482,6 +482,6 @@ struct IssueDraftPageView: View {
     }
 }
 
-/// EXP-1284: the lead word of a draft's `In <thread>` line (web + Android
+/// EXP-1284: the lead word of a draft's `In <chat>` line (web + Android
 /// read the same word).
-private let draftInThreadPrefix = "In"
+private let draftInChatPrefix = "In"

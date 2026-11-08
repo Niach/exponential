@@ -338,7 +338,7 @@ export function driveEnv(
     case `screen`: {
       const env: Record<string, string> = { EXP_DEV_SCREEN: value }
       // Pair the rail with the centre view, the way the app opens them itself:
-      // a thread with Support. (Reviews stopped being a rail tool in EXP-706,
+      // a chat with Support. (Reviews stopped being a rail tool in EXP-706,
       // and the Agent composer stands alone since EXP-923 — its Recent runs
       // live behind the history button, never beside it.)
       if (value.startsWith(`support:`)) env.EXP_DEV_TOOL = `support`

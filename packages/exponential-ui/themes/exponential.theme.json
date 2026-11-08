@@ -992,13 +992,15 @@
       "track": [
         {
           "style": {
-            "backgroundColor": "$color.input"
+            "width": 36,
+            "backgroundColor": "$color.accent"
           }
         }
       ],
       "thumb": [
         {
           "style": {
+            "backgroundColor": "$color.foreground",
             "boxShadow": "$shadow.none"
           }
         }

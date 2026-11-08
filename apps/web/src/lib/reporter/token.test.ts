@@ -6,7 +6,7 @@ import { mintReporterToken, verifyReporterToken } from "./token"
 // deterministic HMAC contract (EXP-132, over the issue id since SLOP-4):
 // mint/verify round-trip, stability (the same issue always yields the same
 // link), and rejection of anything forged, tampered, minted under a
-// different secret or under the retired thread context.
+// different secret or under the retired conversation-token context.
 
 const SECRET = `test-secret-test-secret-test-secret!`
 
@@ -69,7 +69,7 @@ describe(`verifyReporterToken`, () => {
     expect(verifyReporterToken(`${randomUUID()}.${mac}`)).toBeNull()
   })
 
-  it(`rejects a pre-SLOP-4 thread token (different HMAC context)`, () => {
+  it(`rejects a pre-SLOP-4 conversation token (different HMAC context)`, () => {
     const id = randomUUID()
     const legacyMac = createHmac(`sha256`, SECRET)
       .update(`exp-support-thread:v1:${id}`)

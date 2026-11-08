@@ -329,7 +329,7 @@ describe(`relay admin HTTP`, () => {
         fakeResponse(200, { ok: true, delivered: true, accepted: true })
       )
     await expect(
-      relayPostCompact(CONFIG, `session-1`, DEVICE, `open threads`, accepted)
+      relayPostCompact(CONFIG, `session-1`, DEVICE, `open chats`, accepted)
     ).resolves.toEqual({ delivered: true, accepted: true })
     expect(accepted).toHaveBeenCalledWith(
       `https://steer.example.com/sessions/session-1/compact`,
@@ -339,7 +339,7 @@ describe(`relay admin HTTP`, () => {
           "content-type": `application/json`,
           "x-relay-secret": `test-secret`,
         },
-        body: JSON.stringify({ ...DEVICE, keep: `open threads` }),
+        body: JSON.stringify({ ...DEVICE, keep: `open chats` }),
         signal: expect.any(AbortSignal),
       }
     )

@@ -3,12 +3,13 @@ import chats from "@exp/domain-contract/fixtures/chats.json"
 import {
   agentMenuEntries,
   chatSelectionActions,
-  threadMenuEntries,
+  chatMenuEntries,
   type AgentChatRow,
+  type AppChatRow,
   type ChatLead,
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
-import type { ThreadRow } from "@exp/domain-contract/session-tree"
+import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import { BoardGlyph } from "./board-glyph"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
@@ -24,14 +25,14 @@ import { AgentHeaderTitle, PhoneHeaderTitle } from "./phone-header-title"
 import { PhoneBoardMenuStrip } from "./phone-board-menu"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 import { PromptLayout } from "./prompt"
-import { ThreadConversation } from "./session-thread-view"
+import { ChatConversation } from "./session-chat-view"
 import { SurfaceCard } from "./surface-card"
 import { TeamAvatar } from "./team-avatar"
-import { agentMenuRows, chatMenuRows } from "./threads-list"
+import { agentMenuRows, chatMenuRows } from "./chats-list"
 import { TooltipProvider } from "./tooltip"
 import { useIsMobile } from "./use-mobile"
 
-// Thread 58cb32df (#EXP-1373, fixtures/chats.json): THE chat + phone-shell specimens,
+// Chat 58cb32df (#EXP-1373, fixtures/chats.json): THE chat + phone-shell specimens,
 // one source for the styleguide entries (`chat-list`, `chat-menus`,
 // #EXP-1388 `chat-selection`,
 // `chat-transcript`, `phone-tab-bar`; #EXP-1384 `phone-board-menu`,
@@ -50,6 +51,7 @@ const noop = (): void => {}
 const LIST_ROWS = chats.listCases[0]!.expected.rows as ChatRowModel[]
 /** S-3: the pinned agent rows (`agentRowCases[0]`: the Assistant first). */
 const AGENT_ROWS = chats.agentRowCases[0]!.expected as AgentChatRow[]
+const APP_ROWS = chats.appRowCases[0]!.expected as AppChatRow[]
 
 // EXP-1647: the phone column is 390px at the PHONE root (16px) = 24.375rem:
 // the wide web root is 18.5px (styles.css). #FEED-191: no rings, no chips: the
@@ -61,7 +63,7 @@ export function ChatListSpecimen() {
       className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
       <ChatsHeader inboxUnread />
-      <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} agentOf={() => `claude`} />
+      <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} appRows={APP_ROWS} agentOf={() => `claude`} />
     </div>
   )
 }
@@ -203,8 +205,8 @@ export function ChatSelectionSpecimen() {
 // THE chat menu and THE agent menu in both looks (pointer + the phone sheet
 // titled with the chat's title), plus the delete confirm.
 
-const LIVE = chatMenuRows(threadMenuEntries({ rootStatus: `running`, canSteer: true, canDelete: true }), noop)
-const ENDED = chatMenuRows(threadMenuEntries({ rootStatus: `ended`, canSteer: true, canDelete: true }), noop)
+const LIVE = chatMenuRows(chatMenuEntries({ rootStatus: `running`, canSteer: true, canDelete: true }), noop)
+const ENDED = chatMenuRows(chatMenuEntries({ rootStatus: `ended`, canSteer: true, canDelete: true }), noop)
 const AGENT_BUSY_OWNER = agentMenuRows(agentMenuEntries({ busy: true, isOwner: true }), noop)
 const AGENT_IDLE = agentMenuRows(agentMenuEntries({ busy: false, isOwner: false }), noop)
 
@@ -274,7 +276,7 @@ export function ChatMenusSpecimen() {
 }
 
 // ── chat-transcript ──────────────────────────────────────────────────────
-// The REAL `ThreadConversation` in both layouts (phone bubbles, web-wide
+// The REAL `ChatConversation` in both layouts (phone bubbles, web-wide
 // transcript): the divider pills, an agent's `SurfaceCard`, a superseded
 // plan; the enter animation replays from the checkbox.
 
@@ -323,7 +325,7 @@ const LAUNCH_SURFACE = {
 
 // The dividers' `at` carries no offset, so it parses as LOCAL time and the
 // pills read 18:20 / 09:30 in every zone (the natives' specimens, the blurb).
-const TRANSCRIPT_ROWS: ThreadRow[] = [
+const TRANSCRIPT_ROWS: SessionChatRow[] = [
   {
     type: `message`,
     id: `m1`,
@@ -363,7 +365,7 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     type: `message`,
     id: `m3`,
     author: `user`,
-    authorId: `u-dana`,
+    authorId: `u-alex`,
     body: `Anything new overnight?`,
     queued: false,
     authorSessionId: null,
@@ -379,20 +381,44 @@ const TRANSCRIPT_ROWS: ThreadRow[] = [
     authorSessionId: null,
     xref: null,
   },
+  {
+    type: `message`,
+    id: `m5`,
+    author: `agent`,
+    authorId: null,
+    body: `Started a session to fix it.`,
+    queued: false,
+    authorSessionId: null,
+    xref: null,
+  },
+  {
+    type: `report`,
+    id: `x1`,
+    sessionId: `c-fix`,
+    text: `Report from Fix the sign-in redirect`,
+    summary: `Done: the redirect keeps the return URL now. PR #412 is open, checks are green.`,
+    xref: { kind: `report`, sessionId: `c-fix`, name: `Fix the sign-in redirect`, agentId: null },
+  },
   { type: `divider`, id: `d2`, kind: `new`, at: `2026-10-24T09:30:00` },
 ]
 
-const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m4: `09:03` }
+const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m4: `09:03`, m5: `09:03` }
+
+/** #EXP-1736: the specimens' chat (a plain session) and its people. */
+const SPECIMEN_CHAT = { sessionId: `r`, title: `Reduce cold start`, agentId: null }
+const SPECIMEN_VIEWER = `u-alex`
+const specimenMember = (id: string) => (id === `u-dana` ? { id, name: `Dana Reyes` } : null)
 
 function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
   return (
-    <ThreadConversation
+    <ChatConversation
       rows={TRANSCRIPT_ROWS}
       layout={layout}
       renderText={paragraph}
       attachmentSrc={() => ``}
-      // #EXP-1553: each person's line carries ITS OWN time (m3 = 09:02, as desktop).
-      messageCaption={(row) => `Dana Reyes · ${TIMES[row.id] ?? ``}`}
+      chat={SPECIMEN_CHAT}
+      viewerId={SPECIMEN_VIEWER}
+      member={specimenMember}
       messageTime={(row) => TIMES[row.id] ?? null}
       onSurfaceReply={() => {}}
       arrived={() => false}
@@ -418,11 +444,11 @@ export function ChatTranscriptSpecimen({ single = false }: { single?: boolean })
     <TooltipProvider>
       <div data-testid="chat-transcript-specimen" className="flex flex-wrap items-start gap-6">
         <div className="w-[22rem] max-w-full rounded-3xl border border-glass-stroke-card bg-background p-4">
-          <div className="mb-3 text-xs text-muted-foreground">Phone (bubbles)</div>
+          <div className="mb-3 text-xs text-muted-foreground">Phone</div>
           <Transcript layout="bubbles" />
         </div>
         <div className="w-[32rem] max-w-full">
-          <div className="mb-3 text-xs text-muted-foreground">Web wide (transcript)</div>
+          <div className="mb-3 text-xs text-muted-foreground">Web wide</div>
           <Transcript layout="transcript" />
         </div>
         <div className="w-[24rem]">
@@ -450,8 +476,8 @@ export function ChatTranscriptSpecimen({ single = false }: { single?: boolean })
 // open (yet). In a transcript THE pill with the lock (both layouts); in the
 // list the preview line italic muted, like `working`.
 
-const LOCKED_ROWS: ThreadRow[] = [
-  { ...TRANSCRIPT_ROWS[0]!, id: `l-m1` } as ThreadRow,
+const LOCKED_ROWS: SessionChatRow[] = [
+  { ...TRANSCRIPT_ROWS[0]!, id: `l-m1` } as SessionChatRow,
   { type: `locked`, id: `l-k1`, reason: `noKey`, author: `agent` },
   {
     type: `message`,
@@ -476,13 +502,14 @@ const LOCKED_LIST_ROWS: ChatRowModel[] = LIST_ROWS.slice(0, 3).map((row, index) 
 
 function LockedTranscript({ layout }: { layout: `transcript` | `bubbles` }) {
   return (
-    <ThreadConversation
+    <ChatConversation
       rows={LOCKED_ROWS}
       layout={layout}
       renderText={paragraph}
       attachmentSrc={() => ``}
-      // #EXP-1553: each person's line carries ITS OWN time (m3 = 09:02, as desktop).
-      messageCaption={(row) => `Dana Reyes · ${TIMES[row.id.replace(`l-`, ``)] ?? ``}`}
+      chat={SPECIMEN_CHAT}
+      viewerId={SPECIMEN_VIEWER}
+      member={specimenMember}
       messageTime={(row) => TIMES[row.id.replace(`l-`, ``)] ?? null}
       onSurfaceReply={() => {}}
       arrived={() => false}
@@ -497,11 +524,11 @@ export function SealedLockedSpecimen() {
         {/* EXP-1676: a phone draws what the native phones draw: its own bubbles
             and the rows, no board around them. */}
         <div className="w-[22rem] max-w-full rounded-3xl border border-glass-stroke-card bg-background p-4 max-md:w-full max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0">
-          <div className="mb-3 text-xs text-muted-foreground max-md:hidden">Phone (bubbles)</div>
+          <div className="mb-3 text-xs text-muted-foreground max-md:hidden">Phone</div>
           <LockedTranscript layout="bubbles" />
         </div>
         <div className="w-[32rem] max-w-full max-md:hidden">
-          <div className="mb-3 text-xs text-muted-foreground">Web wide (transcript)</div>
+          <div className="mb-3 text-xs text-muted-foreground">Web wide</div>
           <LockedTranscript layout="transcript" />
         </div>
         <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:w-full max-md:rounded-none max-md:bg-transparent max-md:p-0">
@@ -522,7 +549,7 @@ export function SealedLockedSpecimen() {
 // candidate).
 
 const AppsIcon = conceptIcon(`nav-apps`)
-const ChatsIcon = conceptIcon(`nav-threads`)
+const ChatsIcon = conceptIcon(`nav-chats`)
 const BoardCaretIcon = conceptIcon(chats.shell.boardTab.caret as `nav-team-switcher`)
 const ActionChatIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)

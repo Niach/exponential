@@ -99,9 +99,9 @@ export const issueDraftsRouter = router({
         assigneeAgentId: z.string().uuid().nullish(),
         labelIds: z.array(z.string().uuid()).max(50).default([]),
         dueDate: dateOnlySchema.nullish(),
-        // EXP-1291: "New issue in this thread" — the thread (a session; its
+        // EXP-1291: "New issue in this chat" — the chat (a session; its
         // ROOT is stored) the issue files into when the draft is created.
-        // Absent = keep the row's; null clears it. Must be a thread the
+        // Absent = keep the row's; null clears it. Must be a chat the
         // caller sees in the board's team.
         sessionId: z.string().uuid().nullish(),
       })
@@ -145,16 +145,16 @@ export const issueDraftsRouter = router({
         await assertAgentInTeam(ctx.db, input.assigneeAgentId, input.teamId, ctx.session.user.id)
       }
 
-      let threadRootId: string | null | undefined = input.sessionId
+      let chatRootId: string | null | undefined = input.sessionId
       if (input.sessionId) {
-        const thread = await loadSessionForUser(userId, input.sessionId).catch(() => null)
-        if (!thread || thread.teamId !== board.teamId || thread.agentId) {
+        const chat = await loadSessionForUser(userId, input.sessionId).catch(() => null)
+        if (!chat || chat.teamId !== board.teamId || chat.agentId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: `The chat must belong to this team`,
           })
         }
-        threadRootId = thread.rootId
+        chatRootId = chat.rootId
       }
 
       // EXP-1231: consumed by a create already? Then this write is a stale
@@ -226,7 +226,7 @@ export const issueDraftsRouter = router({
           assigneeAgentId: input.assigneeAgentId ?? null,
           labelIds: input.labelIds ?? [],
           dueDate: input.dueDate ?? null,
-          sessionId: threadRootId ?? null,
+          sessionId: chatRootId ?? null,
         }
         const [draft] = await tx
           .insert(issueDrafts)
@@ -248,7 +248,7 @@ export const issueDraftsRouter = router({
                   : {}),
               labelIds: values.labelIds,
               dueDate: values.dueDate,
-              // Absent keeps the row's thread; null clears it.
+              // Absent keeps the row's chat; null clears it.
               ...(input.sessionId !== undefined ? { sessionId: values.sessionId } : {}),
             },
             // The id is client-minted, so a collision with SOMEBODY ELSE's

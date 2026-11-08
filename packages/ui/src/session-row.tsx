@@ -56,7 +56,7 @@ export interface SessionRowProps
   dimmed?: boolean
   /** EXP-1323: news the viewer has not read: a bold title. */
   unread?: boolean
-  /** EXP-1316: a trailing word on the title line (the thread tree
+  /** EXP-1316: a trailing word on the title line (the chat tree
    *  popover's state word). */
   trailing?: React.ReactNode
   /** The mark badge's ring = the ground the row sits on. */
@@ -135,7 +135,7 @@ export function SessionRow({
 
 /** Fixed, never truncated: WHERE the run is, its name on hover. The row
  *  carries its own provider so a list renders outside the app shell too.
- *  EXP-1318: the thread rows (Threads list, the rail's Active band) end on
+ *  EXP-1318: the chat rows (Chats list, the rail's Active band) end on
  *  the same glyph. */
 export function SessionRowDevice({
   icon: Icon,

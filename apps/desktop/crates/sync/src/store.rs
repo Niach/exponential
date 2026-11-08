@@ -483,7 +483,7 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 /// stale cursor must never resume a shape that comes back under the name):
 ///
 /// * the pre-SLOP-2 `automations` table;
-/// * EXP-1294 (Threads v2): `coding_sessions`, `threads` and `thread_items`
+/// * EXP-1294: `coding_sessions`, `threads` and `thread_items`
 ///   (superseded by the `sessions` tree, `messages` and `pull_requests`);
 /// * NEW-8: `actions` (prompts replaced them; the server drops the shape).
 fn migrate_legacy_schema(conn: &Connection) -> Result<()> {

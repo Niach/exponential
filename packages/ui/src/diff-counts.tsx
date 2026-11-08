@@ -86,7 +86,7 @@ export function DiffStatusLetter({
 // EXP-698: on a phone a trailing ellipsis eats the only part of a path that
 // identifies the file. The DIRECTORY gives way instead — middle-truncated, so
 // both ends of it stay readable — and the filename is never cut. `isMobile` is
-// threaded in rather than read here: a 200-file diff would otherwise register
+// passed in rather than read here: a 200-file diff would otherwise register
 // 200 matchMedia listeners, one per path label.
 const MOBILE_DIR_CHARS = 22
 

@@ -115,17 +115,17 @@ import com.exponential.app.ui.session.SessionComposerDevice
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
-import com.exponential.app.ui.thread.ThreadAgent
-import com.exponential.app.ui.thread.ThreadAnswer
-import com.exponential.app.ui.thread.ThreadDock
-import com.exponential.app.ui.thread.ThreadConversation
-import com.exponential.app.ui.thread.ThreadPlanDecision
-import com.exponential.app.ui.thread.ThreadRowMeta
-import com.exponential.app.ui.thread.ThreadUiCopy
-import com.exponential.app.ui.thread.ThreadViewModel
-import com.exponential.app.ui.thread.clockTime
-import com.exponential.app.ui.thread.ChatHeader
-import com.exponential.app.ui.thread.ChatHeaderButton
+import com.exponential.app.ui.chat.ChatAgent
+import com.exponential.app.ui.chat.ChatAnswer
+import com.exponential.app.ui.chat.ChatDock
+import com.exponential.app.ui.chat.ChatConversation
+import com.exponential.app.ui.chat.ChatPlanDecision
+import com.exponential.app.ui.chat.ChatRowMeta
+import com.exponential.app.ui.chat.ChatUiCopy
+import com.exponential.app.ui.chat.ChatViewModel
+import com.exponential.app.ui.chat.clockTime
+import com.exponential.app.ui.chat.ChatHeader
+import com.exponential.app.ui.chat.ChatHeaderButton
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.Chats
@@ -969,7 +969,7 @@ private fun AppChatPane(
                     submit = {
                         ComposerSubmitButton(
                             ExpIcons.uiSubmit,
-                            contentDescription = ThreadUiCopy.SEND,
+                            contentDescription = ChatUiCopy.SEND,
                             onClick = { viewModel.send(text) { text = "" } },
                             enabled = text.isNotBlank() && deviceId != null,
                             sending = sending,
@@ -1113,13 +1113,13 @@ private fun AppEditorConversation(
     viewModel: AppEditorViewModel,
     onOpenSession: (String) -> Unit,
 ) {
-    val thread = hiltViewModel<ThreadViewModel>(key = "app-thread:$rootId")
-    val view by thread.view.collectAsStateWithLifecycle()
-    val messages by thread.messages.collectAsStateWithLifecycle()
-    val users by thread.users.collectAsStateWithLifecycle()
-    val me by thread.currentUserId.collectAsStateWithLifecycle()
-    val failure by thread.failure.collectAsStateWithLifecycle()
-    FailedActionToast(failure, onShown = thread::clearFailure)
+    val chat = hiltViewModel<ChatViewModel>(key = "app-chat:$rootId")
+    val view by chat.view.collectAsStateWithLifecycle()
+    val messages by chat.messages.collectAsStateWithLifecycle()
+    val users by chat.users.collectAsStateWithLifecycle()
+    val me by chat.currentUserId.collectAsStateWithLifecycle()
+    val failure by chat.failure.collectAsStateWithLifecycle()
+    FailedActionToast(failure, onShown = chat::clearFailure)
     val rootSession = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$rootId",
     ) { factory -> factory.create(rootId) }
@@ -1144,15 +1144,15 @@ private fun AppEditorConversation(
     }
 
     val messagesById = remember(messages) { messages.associateBy { it.id } }
-    val meta: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta? = { row ->
+    val meta: (SessionTree.SessionChatRow.MessageRow) -> ChatRowMeta? = { row ->
         val user = row.authorId?.let { users[it] }
-        ThreadRowMeta(
+        ChatRowMeta(
             authorName = if (row.author == "user") userDisplayName(user, row.authorId) else "",
             time = messagesById[row.id]?.createdAt?.let(::clockTime).orEmpty(),
             user = user,
         )
     }
-    val agent = ThreadAgent(name = app.name, icon = app.icon, color = app.color)
+    val agent = ChatAgent(name = app.name, icon = app.icon, color = app.color)
     val v = view
     if (v == null) {
         Box(Modifier.padding(padding).fillMaxSize()) {
@@ -1160,11 +1160,11 @@ private fun AppEditorConversation(
         }
         return
     }
-    val onAnswer: ThreadAnswer = { id, answer, settled ->
-        thread.answer(id, answer.answer, settled, answer.answers, answer.surfaceData)
+    val onAnswer: ChatAnswer = { id, answer, settled ->
+        chat.answer(id, answer.answer, settled, answer.answers, answer.surfaceData)
     }
-    val onDecidePlan: ThreadPlanDecision = { id, d, settled ->
-        thread.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
+    val onDecidePlan: ChatPlanDecision = { id, d, settled ->
+        chat.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
     }
     val openSession by rememberUpdatedState(onOpenSession)
     var composerExpanded by rememberSaveable { mutableStateOf(false) }
@@ -1187,8 +1187,7 @@ private fun AppEditorConversation(
                 modifier = Modifier.padding(padding).padding(horizontal = 24.dp).align(Alignment.Center),
             )
         }
-        ThreadConversation(
-            bubbles = true,
+        ChatConversation(
             rows = v.rows,
             rootId = v.rootId,
             meta = meta,
@@ -1196,7 +1195,7 @@ private fun AppEditorConversation(
             onAnswer = onAnswer,
             onDecidePlan = onDecidePlan,
             canUnqueue = { row -> row.authorId != null && row.authorId == me },
-            onUnqueue = thread::unqueue,
+            onUnqueue = chat::unqueue,
             agent = agent,
             modifier = Modifier.fillMaxSize().detailHazeSource(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 16.dp, bottom = bandClearance + 12.dp),
@@ -1205,6 +1204,9 @@ private fun AppEditorConversation(
             // S-3: a report / another session's line links that session.
             origin = v.origin,
             onOpenXref = { id -> openSession(id) },
+            // #EXP-1736: the editor's bubbles: the app's name + mark ([agent]).
+            chat = com.exponential.app.domain.TranscriptGrouping.Chat(v.rootId, app.name, null, null),
+            viewerId = me,
         )
         FloatingBarEdge(
             bottomInset = bottomInset,
@@ -1231,7 +1233,7 @@ private fun AppEditorConversation(
                     // N-12: THE Dock: the tree's waiting cards, then the
                     // root's Queue and banners, over the composer.
                     dock = { sessionDock ->
-                        ThreadDock(
+                        ChatDock(
                             rows = v.rows,
                             sources = sessionDock.sources,
                             sessionSheet = sessionDock.sheet,

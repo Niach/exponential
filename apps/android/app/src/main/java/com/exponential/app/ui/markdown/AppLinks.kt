@@ -29,7 +29,7 @@ import java.net.URI
 import kotlinx.coroutines.flow.first
 
 /**
- * EXP-1188: links in agent prose (narration, Guide, thread) that point at THIS
+ * EXP-1188: links in agent prose (narration, Guide, chat) that point at THIS
  * instance open in the app. [origin] = the active account's instance origin
  * (`https://host[:port]`, no trailing slash); [team] = the slug `~/` links
  * expand against (#EXP-1674: the surface's team, else the active team's);
@@ -44,7 +44,7 @@ class AppLinkHandler(
 )
 
 /**
- * Provided by the agent surfaces only (the session screen, the thread screen);
+ * Provided by the agent surfaces only (the session screen, the chat screen);
  * null (the default) keeps every markdown link a plain browser link, as issue
  * descriptions and comments have always rendered.
  */
@@ -68,7 +68,7 @@ internal fun appLinkAnnotation(
     }
     return when (val link = classifyAppLink(href, handler.origin, handler.team)) {
         is AppLink.Issue, is AppLink.IssueRef, is AppLink.Board, is AppLink.Session, is AppLink.Plan,
-        is AppLink.Thread, is AppLink.Threads, is AppLink.Agent, is AppLink.AgentHome, is AppLink.Inbox,
+        is AppLink.Chats, is AppLink.Agent, is AppLink.AgentHome, is AppLink.Inbox,
         is AppLink.Devices, is AppLink.Settings, is AppLink.AppHome, is AppLink.AppScreen,
         // EXP-1188: another instance page and a web source open in the
         // in-app browser (a Custom Tab), like iOS's Safari sheet; mailto

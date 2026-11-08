@@ -91,7 +91,7 @@ impl NewAgentPane {
                 cx.notify();
             }));
         }
-        let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+        let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
         let mut this = Self {
             team_id,
             name,

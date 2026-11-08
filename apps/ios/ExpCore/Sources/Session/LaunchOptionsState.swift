@@ -220,7 +220,7 @@ public final class LaunchOptionsState {
     // MARK: - Wire
 
     /// The chosen options in `sessions.send` form — shared by every new
-    /// session (thread, agent, child).
+    /// session (chat, agent, child).
     public func buildOptions() -> SessionLaunchOptions {
         let isClaude = agent == "claude"
         return SessionLaunchOptions(

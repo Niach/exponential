@@ -9,7 +9,7 @@ import {
   type PlanPicture,
 } from "@exp/domain-contract/plan-page"
 import { askDockTitle } from "@exp/domain-contract/ask-dock"
-import type { ThreadRow } from "@exp/domain-contract/session-tree"
+import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
@@ -17,12 +17,12 @@ import { ImagePreviewDialog } from "./image-preview-dialog"
 import { Outline } from "./outline"
 import { Mosaic, PictureCarousel } from "./picture-group"
 import { PlanCardSurface } from "./plan-card"
-import { PlanRail, type ThreadPlanDecision } from "./session-thread-view"
+import { PlanRail, type ChatPlanDecision } from "./session-chat-view"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
 
 // #EXP-1493 → #EXP-1662: THE plan ×web (fixtures/plan-page.json; desktop
 // crates/ui plan_page, iOS ExpUI PlanPage, Android ui/plan/PlanPage): the BODY
-// of a thread's plan tab, under the thread's own header + strip, on its ground.
+// of a chat's plan tab, under the chat's own header + strip, on its ground.
 // Wide (md+) = THE Outline (scroll-spy) + the document (the big title, THE
 // markdown, h2 anchors, picture groups as THE Mosaic) + THE questions rail on
 // the right (#FEED-191). Phones = the document (groups as THE Carousel), the
@@ -32,7 +32,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
 
 const MenuIcon = conceptIcon(`ui-menu`)
 
-type PlanRow = Extract<ThreadRow, { type: `plan` }>
+type PlanRow = Extract<SessionChatRow, { type: `plan` }>
 
 const MARKDOWN_PICTURE = /!\[([^\]]*)\]\(([^)\s]+)\)/g
 
@@ -68,7 +68,7 @@ export function PlanPage({
   renderText: (text: string) => ReactNode
   attachmentSrc?: (attachmentId: string) => string
   busy: boolean
-  onDecide?: (input: ThreadPlanDecision) => void
+  onDecide?: (input: ChatPlanDecision) => void
   /** The phone header band over the body. */
   topInset?: number
   /** The outline's active row before any scroll (the styleguide's). */

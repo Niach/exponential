@@ -39,7 +39,7 @@ describe(`pullRequestStackConfirm`, () => {
   })
 })
 
-// EXP-1306: the thread Guide's Stack card rows, named like the desktop's.
+// EXP-1306: the chat Guide's Stack card rows, named like the desktop's.
 describe(`pullRequestStackView`, () => {
   const lower = pr(`p1`, 11, `exp/APP-14`, `main`)
   const upper = pr(`p2`, 12, `exp/APP-15`, `exp/APP-14`)

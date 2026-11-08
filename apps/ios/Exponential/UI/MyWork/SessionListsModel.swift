@@ -7,37 +7,40 @@ import GRDB
 /// of the synced `sessions` (their digests, never `messages`) /
 /// `session_issues` / `pull_requests` rows, owned by
 /// the navigator for its whole lifetime and handed down through the
-/// environment, so the Threads tab, its dot, Home's Running band and the
+/// environment, so the Chats tab, its dot, Home's Running band and the
 /// board switcher's per-team dots never disagree. Every rule is ExpCore's
 /// `SessionTree` (fixture-locked ×4); this model only maps rows and keeps
 /// the derived lists.
 @MainActor @Observable
 final class SessionListsModel {
-    /// Every team's thread groups (`partitionThreads(teamId: nil)` — phones
+    /// Every team's chat groups (`partitionChats(teamId: nil)` — phones
     /// band the rows per team).
-    private(set) var groups: [ThreadsListGroup] = []
+    private(set) var groups: [ChatsListGroup] = []
     /// Every team's agents (`listAgents(teamId: nil)`, NEW-2: the synced
     /// `agents` definitions).
     private(set) var agents: [AgentRow] = []
     /// NEW-2: my conversation session with each agent (a root with
     /// `agent_id` I started), by agent id; absent = none yet.
     private(set) var agentConversations: [String: String] = [:]
-    /// Home's Running band: my live threads — needs-you first, then running,
+    /// #EXP-1733: each team's live apps (the synced `apps` rows, trash
+    /// hidden), by team id: the Chats list's Apps section.
+    private(set) var appsByTeam: [String: [Chats.ChatApp]] = [:]
+    /// Home's Running band: my live chats — needs-you first, then running,
     /// each newest activity first.
-    private(set) var running: [ThreadsListRow] = []
-    /// A thread's first linked issue identifier (the row's mono id).
+    private(set) var running: [ChatsListRow] = []
+    /// A chat's first linked issue identifier (the row's mono id).
     private(set) var identifiers: [String: String] = [:]
     /// A session's agent CLI (the row's run mark), by session id (EXP-1323:
     /// nested child rows too).
     private(set) var clis: [String: String] = [:]
-    /// EXP-1309: a Threads row's quiet word off its pull requests, by root id
-    /// (`SessionTree.threadRowWord`).
-    private(set) var words: [String: ThreadRowWord] = [:]
-    /// NEW-41: each root's pull-request states (the Threads tab's lead glyph).
+    /// EXP-1309: a Chats row's quiet word off its pull requests, by root id
+    /// (`SessionTree.chatRowWord`).
+    private(set) var words: [String: ChatRowWord] = [:]
+    /// NEW-41: each root's pull-request states (the Chats tab's lead glyph).
     private(set) var prStates: [String: [String]] = [:]
-    /// EXP-1316: a thread row's device glyph (the ROOT's `device_id` against
+    /// EXP-1316: a chat row's device glyph (the ROOT's `device_id` against
     /// the synced devices rows), by root id; absent = no glyph.
-    private(set) var devices: [String: ThreadRowDevice] = [:]
+    private(set) var devices: [String: ChatRowDevice] = [:]
     /// The board switcher's per-team dots (`liveByTeam`).
     private(set) var liveByTeam: [String: SessionTree.TeamLiveSessions] = [:]
     /// The first emission landed (before it, lists draw skeleton rows).
@@ -65,18 +68,7 @@ final class SessionListsModel {
 
     nonisolated init() {}
 
-    /// The Threads tab's green dot: a thread runs.
-    var threadsRunning: Bool {
-        groups.contains { $0.key == .running }
-    }
-
-    /// EXP-1323: a thread row is unread (`threadsUnread`) — the Threads
-    /// tab's dot when nothing runs or waits.
-    var threadsUnread: Bool {
-        SessionTree.threadsUnread(groups)
-    }
-
-    /// The Threads tab's amber dot: a thread waits on a person (the
+    /// The Chats tab's amber dot: a chat waits on a person (the
     /// Needs-you group). Agents have their own rail rows, so they never
     /// light it (web/Android parity, EXP-1327).
     var needsYou: Bool {
@@ -100,18 +92,18 @@ final class SessionListsModel {
         Chats.chatsUnread(groups: teamGroups(teamId), reads: reads)
     }
 
-    /// `partitionThreads` narrowed to one team (empty groups dropped).
-    func teamGroups(_ teamId: String?) -> [ThreadsListGroup] {
+    /// `partitionChats` narrowed to one team (empty groups dropped).
+    func teamGroups(_ teamId: String?) -> [ChatsListGroup] {
         guard let teamId else { return groups }
         return groups.compactMap { group in
             let rows = group.rows.filter { shows($0, in: teamId) }
-            return rows.isEmpty ? nil : ThreadsListGroup(key: group.key, title: group.title, rows: rows)
+            return rows.isEmpty ? nil : ChatsListGroup(key: group.key, title: group.title, rows: rows)
         }
     }
 
     /// #EXP-1714: a row of `teamId`, or the viewer's own row of an unsynced
     /// (personal) team.
-    private func shows(_ row: ThreadsListRow, in teamId: String) -> Bool {
+    private func shows(_ row: ChatsListRow, in teamId: String) -> Bool {
         AgentSettings.inTeamOrPersonal(
             teamId: row.teamId, userId: rootStarter[row.rootId], team: teamId,
             teamIds: syncedTeamIds, me: viewerId
@@ -156,7 +148,7 @@ final class SessionListsModel {
         // EXP-1358: `derive` runs inside the observation's `map` — on GRDB's
         // reader, never the main actor (this model is `@MainActor`, so the
         // loop below is) — and an emission equal to the last one is dropped
-        // before it can re-render the Threads tab, the tab bar and Home.
+        // before it can re-render the Chats tab, the tab bar and Home.
         let observation = ValueObservation.tracking { db in
             try Self.read(db)
         }.map { rows in
@@ -177,6 +169,7 @@ final class SessionListsModel {
         boundAccountId = nil
         groups = []
         agents = []
+        appsByTeam = [:]
         running = []
         identifiers = [:]
         clis = [:]
@@ -207,6 +200,7 @@ final class SessionListsModel {
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
         var agents: [AgentLike]
+        var apps: [AppEntity]
         /// #EXP-1710: each team's merge mode and its owners (Needs you's
         /// stuck rows and the approval-only ready rows).
         var mergeModes: [String: String] = [:]
@@ -214,15 +208,16 @@ final class SessionListsModel {
     }
 
     private struct Derived: Sendable, Equatable {
-        var groups: [ThreadsListGroup]
+        var groups: [ChatsListGroup]
         var agents: [AgentRow]
         var agentConversations: [String: String]
-        var running: [ThreadsListRow]
+        var appsByTeam: [String: [Chats.ChatApp]]
+        var running: [ChatsListRow]
         var identifiers: [String: String]
         var clis: [String: String]
-        var words: [String: ThreadRowWord]
+        var words: [String: ChatRowWord]
         var prStates: [String: [String]]
-        var devices: [String: ThreadRowDevice]
+        var devices: [String: ChatRowDevice]
         var liveByTeam: [String: SessionTree.TeamLiveSessions]
         var chatMessages: [TreeMessage]
         var reads: [TreeSessionRead]
@@ -238,6 +233,7 @@ final class SessionListsModel {
         groups = derived.groups
         agents = derived.agents
         agentConversations = derived.agentConversations
+        appsByTeam = derived.appsByTeam
         running = derived.running
         identifiers = derived.identifiers
         clis = derived.clis
@@ -267,7 +263,7 @@ final class SessionListsModel {
         let issues = issueIds.isEmpty
             ? []
             : try IssueEntity.filter(issueIds.contains(Column("id"))).fetchAll(db)
-        // Thread e4a04d22 (chats.json LIST DATA): the lists never read a
+        // Session e4a04d22 (chats.json LIST DATA): the lists never read a
         // transcript — each session's server-kept digest (#EXP-1730:
         // `sessions.digest`), turned back into messages
         // (`Chats.digestMessages`, `digestCases`), stands in for them, so
@@ -289,6 +285,7 @@ final class SessionListsModel {
             pullRequests: try PullRequestEntity.fetchAll(db),
             deviceRows: try DeviceEntity.fetchAll(db),
             agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init),
+            apps: try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db),
             mergeModes: Dictionary(
                 try TeamEntity.fetchAll(db).map { ($0.id, $0.mergeMode) }, uniquingKeysWith: { a, _ in a }
             ),
@@ -299,7 +296,7 @@ final class SessionListsModel {
     }
 
     nonisolated private static func derive(_ rows: Rows, userId: String?) -> Derived {
-        let groups = SessionTree.partitionThreads(
+        let groups = SessionTree.partitionChats(
             sessions: rows.sessions,
             sessionIssues: rows.sessionIssues,
             issues: rows.issues,
@@ -328,16 +325,16 @@ final class SessionListsModel {
                 identifiers[link.sessionId] = identifier
             }
         }
-        // A stack edge may cross threads, never teams.
+        // A stack edge may cross chats, never teams.
         let prsByTeam = Dictionary(grouping: rows.pullRequests, by: \.teamId)
         let prsByRoot = Dictionary(grouping: rows.pullRequests.filter { $0.rootSessionId != nil }) {
             $0.rootSessionId ?? ""
         }
-        var words: [String: ThreadRowWord] = [:]
+        var words: [String: ChatRowWord] = [:]
         var prStates: [String: [String]] = [:]
         for row in groups.flatMap(\.rows) {
             let prs = prsByRoot[row.sessionId] ?? []
-            words[row.sessionId] = SessionTree.threadRowWord(
+            words[row.sessionId] = SessionTree.chatRowWord(
                 busy: row.busy,
                 needsYou: row.needsYou,
                 prs: prs,
@@ -354,12 +351,12 @@ final class SessionListsModel {
         let starters = Dictionary(
             rows.sessions.map { ($0.id, $0.userId) }, uniquingKeysWith: { a, _ in a }
         )
-        var devices: [String: ThreadRowDevice] = [:]
+        var devices: [String: ChatRowDevice] = [:]
         for row in groups.flatMap(\.rows) {
             guard let deviceId = row.deviceId, let candidates = deviceRowsById[deviceId] else { continue }
             guard let device = candidates.first(where: { $0.userId == starters[row.sessionId] }) ?? candidates.first
             else { continue }
-            devices[row.sessionId] = ThreadRowDevice(
+            devices[row.sessionId] = ChatRowDevice(
                 icon: DeviceIconDisplay.iconName(for: device),
                 name: device.label
             )
@@ -378,6 +375,11 @@ final class SessionListsModel {
                 },
                 uniquingKeysWith: { a, _ in a }
             ),
+            appsByTeam: Dictionary(grouping: rows.apps, by: \.teamId).mapValues { apps in
+                apps.map {
+                    Chats.ChatApp(appId: $0.id, slug: $0.slug, name: $0.name, icon: $0.icon, color: $0.color)
+                }
+            },
             running: running,
             identifiers: identifiers,
             clis: rows.clis,
@@ -498,9 +500,9 @@ struct NeedsYouInput: Equatable, Sendable {
     var owners: Set<String> = []
 }
 
-/// EXP-1316: a thread row's trailing device glyph (`DeviceIconDisplay`) and
+/// EXP-1316: a chat row's trailing device glyph (`DeviceIconDisplay`) and
 /// its accessibility label (the device's name).
-struct ThreadRowDevice: Equatable, Sendable {
+struct ChatRowDevice: Equatable, Sendable {
     let icon: String
     let name: String
 }

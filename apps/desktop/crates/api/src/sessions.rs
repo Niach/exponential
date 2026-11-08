@@ -1,4 +1,4 @@
-//! EXP-1294 (Threads v2): the people-side `sessions.*` and `pullRequests.*`
+//! EXP-1294: the people-side `sessions.*` and `pullRequests.*`
 //! tRPC calls (web `apps/web/src/lib/trpc/sessions.ts`). The device-side
 //! procedures (`brief`, `claim`, `report`, `reply`, `consume`) live with the
 //! session host, not here.
@@ -7,7 +7,7 @@
 //!   device + text/issues/prompt), a message to an AGENT (`agentId`: the
 //!   caller's own conversation session with it, NEW-2), a child
 //!   (`parentId`) or a message to an existing session (`sessionId`; to an
-//!   idle session it resumes it, to an ended thread it continues it).
+//!   idle session it resumes it, to an ended chat it continues it).
 //! - `stop` interrupts a turn, `end` ends a session (a root: its tree).
 //! - `linkIssues` / `unlinkIssue`, `answer` (a question/plan card),
 //!   `unqueue` (a queued person message).
@@ -109,7 +109,7 @@ pub struct SendInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_issue_ids: Option<Vec<String>>,
     /// EXP-1458: a root without a key gets it inline, in the send's own
-    /// transaction (a new thread, agent conversation, app editor).
+    /// transaction (a new chat, agent conversation, app editor).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seal: Option<SendSeal>,
     /// EXP-1458: `name` as a body envelope (writes `sessions.sealed_title`;
@@ -142,7 +142,7 @@ pub struct SealWrap {
 }
 
 impl SendInput {
-    /// A message to an existing session (the thread reply, the session
+    /// A message to an existing session (the chat reply, the session
     /// view, an agent channel).
     pub fn message(session_id: &str, text: &str, attachment_ids: Vec<String>) -> Self {
         Self {
@@ -223,7 +223,7 @@ struct PullRequestIdInput<'a> {
     pull_request_id: &'a str,
 }
 
-/// `sessions.stop`'s `{txid, delivered}` (thread 58cb32df): `delivered`
+/// `sessions.stop`'s `{txid, delivered}` (chat 58cb32df): `delivered`
 /// is false when the relay reached no device for a live, non-queued
 /// session; an older server sends none (`None` = delivered).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -247,7 +247,7 @@ pub fn stop(trpc: &TrpcClient, session_id: &str) -> Result<StopOutput, ApiError>
     trpc.mutation("sessions.stop", &SessionIdInput { session_id })
 }
 
-/// Thread 58cb32df: `sessions.delete` — a ROOT chat only: the server ends
+/// Chat 58cb32df: `sessions.delete` — a ROOT chat only: the server ends
 /// what is live, then deletes the tree and its messages.
 pub fn delete(trpc: &TrpcClient, session_id: &str) -> Result<TxOutput, ApiError> {
     trpc.mutation("sessions.delete", &SessionIdInput { session_id })
@@ -367,7 +367,7 @@ pub fn unqueue(trpc: &TrpcClient, message_id: &str) -> Result<TxOutput, ApiError
 }
 
 /// EXP-1323: mark `session_id` read for the viewer (`session_reads`; a
-/// root = the thread, a child = that session's view).
+/// root = the chat, a child = that session's view).
 pub fn mark_read(trpc: &TrpcClient, session_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
     trpc.mutation("sessions.markRead", &SessionIdInput { session_id })
 }

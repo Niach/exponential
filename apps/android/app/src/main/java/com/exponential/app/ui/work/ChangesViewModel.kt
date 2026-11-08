@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
 
-// EXP-1291 Threads v2: ONE pull request (a `pull_requests` row) behind a
+// EXP-1291: ONE pull request (a `pull_requests` row) behind a
 // Guide — its changed files (`pullRequests.files`) and the Merge / Close PR
 // actions (`pullRequests.merge` / `.close`). No local writes: the merge /
 // close echo arrives through the pull-requests shape.
@@ -112,7 +112,7 @@ class ChangesViewModel @AssistedInject constructor(
 
     /**
      * Squash-merge the PR; [stack] = merge THROUGH it (a native stack). A
-     * refusal lands in [actionError]; the server posts it into the thread too
+     * refusal lands in [actionError]; the server posts it into the chat too
      * (EXP-1391).
      */
     fun mergePr(stack: Boolean = false) {

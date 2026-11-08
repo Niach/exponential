@@ -113,14 +113,14 @@ class WaitingCardsTest {
     }
 
     @Test
-    fun `a dismissed question row is no thread pending ask`() {
+    fun `a dismissed question row is no chat pending ask`() {
         val rows = listOf(
-            SessionTree.ThreadRow.Question(
+            SessionTree.SessionChatRow.Question(
                 id = "q", sessionId = "r", question = "Which?", options = emptyList(), custom = true,
                 answer = null, answered = true, dismissed = true,
             ),
-            SessionTree.ThreadRow.Plan(id = "p", sessionId = "r", plan = "1.", decision = AskDock.DECISION_DISMISSED),
+            SessionTree.SessionChatRow.Plan(id = "p", sessionId = "r", plan = "1.", decision = AskDock.DECISION_DISMISSED),
         )
-        assertEquals(emptyList<AskDock.Pending>(), AskDock.threadPendingAsks(rows) { null })
+        assertEquals(emptyList<AskDock.Pending>(), AskDock.chatPendingAsks(rows) { null })
     }
 }

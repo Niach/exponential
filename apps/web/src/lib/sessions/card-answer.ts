@@ -8,7 +8,7 @@ import {
 import { dismissedCard } from "@exp/domain-contract/waiting-cards"
 import { clearCard, isSealedCard, validSealedCard } from "@/lib/sessions/sealed"
 
-// EXP-1316: ONE answered-card shape for both write paths: the thread card
+// EXP-1316: ONE answered-card shape for both write paths: the chat card
 // (`sessions.answer`, a person) and the device's write-back after a session
 // view answered over the relay (`sessions.resolveCard`). Pure.
 // EXP-1280: the rich card's answer (`answers`, `surfaceData`) is checked by

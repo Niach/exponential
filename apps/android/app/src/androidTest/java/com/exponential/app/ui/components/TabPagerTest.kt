@@ -25,7 +25,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * #EXP-1387: the thread pager's page rules. Only the SETTLED page runs its
+ * #EXP-1387: the chat pager's page rules. Only the SETTLED page runs its
  * content and holds its view models; a neighbour draws its stub. A page left
  * clears its view models, and a page view model's SavedStateHandle is its
  * page's own, never the screen's (`session:<root>` lives on both).

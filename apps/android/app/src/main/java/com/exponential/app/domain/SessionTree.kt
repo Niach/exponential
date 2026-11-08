@@ -18,13 +18,13 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 
 /**
- * EXP-1291 Threads v2: the session tree's view models — the Android mirror of
+ * EXP-1291: the session tree's view models — the Android mirror of
  * `packages/domain-contract/src/session-tree.ts` (ONE reference ×4: desktop
  * `domain::session_tree`, iOS ExpCore `SessionTree.swift`). Pure and
  * byte-locked by the fixtures `SessionTreeTest` replays:
  *   fixtures/session-card.json   → [sessionCard]
- *   fixtures/session-thread.json → [buildSessionThread], [guidePullRequest]
- *   fixtures/threads-list.json   → [partitionThreads] + [listAgents] + [treeState]
+ *   fixtures/session-chat.json → [buildSessionChat], [guidePullRequest]
+ *   fixtures/chat-list.json   → [partitionChats] + [listAgents] + [treeState]
  * The copy / icons / tones / testIds below are the fixtures' (the test
  * proves equality).
  */
@@ -66,7 +66,7 @@ object SessionTree {
         val updatedAt: String,
         /** The steer device that runs it (`devices.device_id`); null = none. */
         val deviceId: String? = null,
-        /** NEW-2: the agent whose conversation this root is (null = a thread
+        /** NEW-2: the agent whose conversation this root is (null = a chat
          *  or a child); the kind derives from it ([SessionKind.sessionKindOf]). */
         val agentId: String? = null,
         /** VAPP-110: the app this root is a member's editor session of (null = none). */
@@ -120,7 +120,7 @@ object SessionTree {
         val attachmentIds: List<String>? = null,
     )
 
-    /** #EXP-1682 (session-thread.json `$comment`, "ATTACHMENTS"): a message's
+    /** #EXP-1682 (session-chat.json `$comment`, "ATTACHMENTS"): a message's
      *  row body = its body, then a blank line and one
      *  `![image](/api/attachments/<id>)` line per [attachmentIds] entry the
      *  body does not already name (the steer image block). A sealed or
@@ -190,7 +190,7 @@ object SessionTree {
         const val BANNER_DEVICE = "Its device"
     }
 
-    object ThreadCopy {
+    object ChatCopy {
         const val UNTITLED = "Untitled"
         const val PLACEHOLDER = "Type / for commands"
         const val CONVERSATION = "Conversation"
@@ -217,15 +217,15 @@ object SessionTree {
             // `mergeOutcome` (MergeTrain.eventTemplate), this = no outcome.
             "pr_merge" to "Auto-merge of PR {pr}",
         )
-        const val TEST_ID_TABS = "thread-tabs"
-        const val TEST_ID_CONVERSATION = "thread-conversation"
-        const val TEST_ID_COMPOSER = "thread-composer"
+        const val TEST_ID_TABS = "chat-tabs"
+        const val TEST_ID_CONVERSATION = "chat-conversation"
+        const val TEST_ID_COMPOSER = "chat-composer"
         /** EXP-1306: the Guide's stack band title. */
         const val STACK = "Stack"
-        const val TEST_ID_GUIDE_STACK = "thread-guide-stack"
-        const val TEST_ID_GUIDE_MERGE = "thread-guide-merge"
+        const val TEST_ID_GUIDE_STACK = "chat-guide-stack"
+        const val TEST_ID_GUIDE_MERGE = "chat-guide-merge"
         /** EXP-1307: the header `…` on the Guide (Close PR, EXP-1338). */
-        const val TEST_ID_GUIDE_MENU = "thread-guide-menu"
+        const val TEST_ID_GUIDE_MENU = "chat-guide-menu"
         /** EXP-1323: a child's report row. */
         const val REPORT = "Report from {session}"
         /** S-3: the inter-session link's lead by [SessionXref.kind]. */
@@ -235,16 +235,16 @@ object SessionTree {
             "started" to "Started by",
             "reported" to "Reported to",
         )
-        const val TEST_ID_XREF = "thread-xref"
+        const val TEST_ID_XREF = "chat-xref"
         /** #EXP-1433: the strip's ONE group tab (its accessible name + the cap
          *  of its open label, dp). */
-        const val TEST_ID_GROUP = "thread-strip-group"
+        const val TEST_ID_GROUP = "chat-strip-group"
         const val STRIP_GROUP = "Issues and sessions"
         const val STRIP_GROUP_MAX_WIDTH = 160
     }
 
     /** S-3 inter-session links: a compact header naming ANOTHER session (the
-     *  lead [ThreadCopy.XREF], the agent's mark, the session's name, `›`); a
+     *  lead [ChatCopy.XREF], the agent's mark, the session's name, `›`); a
      *  tap opens that session on the back stack. [kind] = `message` |
      *  `report` | `started` | `reported`; [agentId] = the agent whose tree
      *  the session belongs to (its mark), else null. */
@@ -276,22 +276,22 @@ object SessionTree {
     object RepliesCopy {
         const val LABEL = "Quick replies"
         const val DISMISS = "Dismiss quick replies"
-        const val TEST_ID = "thread-replies"
+        const val TEST_ID = "chat-replies"
     }
 
     object ListCopy {
         const val TITLE = "Chats"
         const val AGENTS = "Agents"
-        val GROUPS: Map<ThreadsGroupKey, String> = mapOf(
-            ThreadsGroupKey.NeedsYou to "Needs you",
-            ThreadsGroupKey.Running to "Working",
-            ThreadsGroupKey.Recent to "Recent",
+        val GROUPS: Map<ChatsGroupKey, String> = mapOf(
+            ChatsGroupKey.NeedsYou to "Needs you",
+            ChatsGroupKey.Running to "Working",
+            ChatsGroupKey.Recent to "Recent",
         )
         const val EMPTY = "No sessions yet"
         const val AGENT_DEFAULT_ICON = "bot"
         const val AGENT_DEFAULT_COLOR = "#6366f1"
-        const val TEST_ID_LIST = "threads-list"
-        const val TEST_ID_ROW = "threads-row"
+        const val TEST_ID_LIST = "chats-list"
+        const val TEST_ID_ROW = "chats-row"
         const val TEST_ID_AGENT_ROW = "agents-row"
         /** EXP-1318: the rail band (web + IDE). */
         const val RAIL = "Active"
@@ -306,7 +306,7 @@ object SessionTree {
 
     /** S-3 (owner 2026-10-28): the FOUR display states ×4, nothing else (no
      *  running, paused, interrupted or stale in the UI). [Idle] doubles as a
-     *  thread row's `waiting` mark ([threadRowMarkState], wire `waiting`). */
+     *  chat row's `waiting` mark ([chatRowMarkState], wire `waiting`). */
     enum class SessionState(val wire: String) {
         Working("working"),
         NeedsYou("needs_you"),
@@ -370,17 +370,17 @@ object SessionTree {
         return out
     }
 
-    /** EXP-1312: a thread row's lead outside the Threads tab (the home's
+    /** EXP-1312: a chat row's lead outside the Chats tab (the home's
      *  Running band) ×4: needs you beats working, else the bare mark
-     *  (`threads-list.json` `markCases`; its `waiting` = [SessionState.Idle]). */
-    fun threadRowMarkState(needsYou: Boolean, busy: Boolean): SessionState = when {
+     *  (`chat-list.json` `markCases`; its `waiting` = [SessionState.Idle]). */
+    fun chatRowMarkState(needsYou: Boolean, busy: Boolean): SessionState = when {
         needsYou -> SessionState.NeedsYou
         busy -> SessionState.Working
         else -> SessionState.Idle
     }
 
-    /** The `markCases` wire of a [threadRowMarkState] (`waiting` for idle). */
-    fun threadRowMarkWire(state: SessionState): String =
+    /** The `markCases` wire of a [chatRowMarkState] (`waiting` for idle). */
+    fun chatRowMarkWire(state: SessionState): String =
         if (state == SessionState.Idle) "waiting" else state.wire
 
     /** Sessions of one tree in creation order (ties by id). */
@@ -553,7 +553,7 @@ object SessionTree {
     /** A session chip's lead ×4: THAT session's display state (S-3). */
     fun sessionTabMarkState(session: Session): SessionState = sessionState(session)
 
-    /** NEW-1: a thread's issues = the UNION over its tree's rows: the
+    /** NEW-1: a chat's issues = the UNION over its tree's rows: the
      *  sessions in tree order (the root first, then creation order), each
      *  one's rows by sortOrder, every issue once. */
     fun treeIssues(tree: List<Session>, sessionIssues: List<SessionIssue>, issues: List<Issue>): List<Issue> {
@@ -573,22 +573,22 @@ object SessionTree {
         return out
     }
 
-    // ── the thread screen ───────────────────────────────────────────────────
+    // ── the chat screen ───────────────────────────────────────────────────
 
     /** EXP-1334: one row of a folded chip's subtree; [depth] relative to the chip. */
     data class NestedIssue(val issueId: String, val identifier: String, val depth: Int)
 
     data class NestedSession(val sessionId: String, val name: String, val markState: SessionState, val depth: Int)
 
-    sealed interface ThreadTab {
-        data object Add : ThreadTab
-        data object Conversation : ThreadTab
+    sealed interface ChatTab {
+        data object Add : ChatTab
+        data object Conversation : ChatTab
         /** EXP-1334: a TOP-LEVEL linked issue; [nested] = the linked sub-issues folded under it. */
         data class IssueTab(
             val issueId: String,
             val identifier: String,
             val nested: List<NestedIssue> = emptyList(),
-        ) : ThreadTab
+        ) : ChatTab
         /** EXP-1334: a DIRECT child of the dispatcher; [markState] = its lead,
          *  [nested] = every deeper session folded under it. */
         data class SessionTab(
@@ -596,18 +596,18 @@ object SessionTree {
             val name: String,
             val markState: SessionState,
             val nested: List<NestedSession> = emptyList(),
-        ) : ThreadTab
+        ) : ChatTab
         /** results-tab.json: the strip's last tab, pinned right (not part of
-         *  session-thread.json `tabs`: [threadView] never emits it, the host
+         *  session-chat.json `tabs`: [chatView] never emits it, the host
          *  appends it after the last chip). */
-        data object Results : ThreadTab
+        data object Results : ChatTab
         /** #EXP-1662 (plan-page.json): the plan tab right after Conversation
-         *  while the thread holds a plan ([threadView] never emits it, the
+         *  while the chat holds a plan ([chatView] never emits it, the
          *  host inserts it). */
-        data object Plan : ThreadTab
+        data object Plan : ChatTab
     }
 
-    sealed interface ThreadRow {
+    sealed interface SessionChatRow {
         val id: String
 
         data class MessageRow(
@@ -622,9 +622,9 @@ object SessionTree {
             val authorSessionId: String? = null,
             /** S-3: posted by ANOTHER (synced) session = its `message` link. */
             val xref: SessionXref? = null,
-        ) : ThreadRow
+        ) : SessionChatRow
 
-        data class SessionRow(override val id: String, val card: SessionCard) : ThreadRow
+        data class SessionRow(override val id: String, val card: SessionCard) : SessionChatRow
 
         /** EXP-1323: a child's end on its parent: `Report from <name>` + the summary. */
         data class Report(
@@ -634,7 +634,7 @@ object SessionTree {
             val summary: String,
             /** S-3: renders AS the `Report from <chip> ›` header line. */
             val xref: SessionXref,
-        ) : ThreadRow
+        ) : SessionChatRow
 
         /** EXP-1323: ONE suggestions card; [sessionId] = the posting session. */
         data class Suggestions(
@@ -643,7 +643,7 @@ object SessionTree {
             val header: String,
             val startAll: Boolean,
             val items: List<SuggestionRow>,
-        ) : ThreadRow
+        ) : SessionChatRow
 
         data class Question(
             override val id: String,
@@ -665,7 +665,7 @@ object SessionTree {
             val surfaceData: JsonObject? = null,
             /** #EXP-1561 (waiting-cards.json): a person dismissed it; true or null (absent). */
             val dismissed: Boolean? = null,
-        ) : ThreadRow
+        ) : SessionChatRow
 
         /** One choice of a question card: the answer is the [label] (EXP-1322);
          *  [attachmentId] = its picture (EXP-1280 plan-card.json `pictureFor`). */
@@ -695,9 +695,9 @@ object SessionTree {
             val feedback: String? = null,
             /** EXP-1280: the surface's data model as the person answered it. */
             val surfaceData: JsonObject? = null,
-        ) : ThreadRow
+        ) : SessionChatRow
 
-        data class Subagent(override val id: String, val title: String, val status: String) : ThreadRow
+        data class Subagent(override val id: String, val title: String, val status: String) : SessionChatRow
 
         data class Picture(
             override val id: String,
@@ -705,27 +705,27 @@ object SessionTree {
             val width: Int?,
             val height: Int?,
             val caption: String?,
-        ) : ThreadRow
+        ) : SessionChatRow
 
         /** #EXP-1464: [sessionId] = the synced session the line is about (its
-         *  card's `sessionId`), else null; thread-row-action.json opens it. */
+         *  card's `sessionId`), else null; chat-row-action.json opens it. */
         data class Event(
             override val id: String,
             val event: String,
             val text: String,
             val sessionId: String? = null,
-        ) : ThreadRow
+        ) : SessionChatRow
 
-        /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
+        /** Session 58cb32df (chats.json): a person's `/new` or `/compact` line,
          *  painted as the centred divider pill; [kind] = `new` | `compact`. */
-        data class Divider(override val id: String, val kind: String, val at: String) : ThreadRow
+        data class Divider(override val id: String, val kind: String, val at: String) : SessionChatRow
 
         /** EXP-1459 (sealed-content.json `placeholder`): content this install
          *  cannot open (yet), whatever its kind: THE transcript pill with the
          *  lock; [reason] = `noKey` | `unreadable`, [author] user | agent | system. */
-        data class Locked(override val id: String, val reason: String, val author: String) : ThreadRow
+        data class Locked(override val id: String, val reason: String, val author: String) : SessionChatRow
 
-        /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
+        /** Session 58cb32df (chats.json): an agent's inline Exponential UI preview. */
         data class Surface(
             override val id: String,
             val sessionId: String,
@@ -733,7 +733,7 @@ object SessionTree {
             val surface: CardSurface,
             /** A result's screenshots (plan-card pictures' shape). */
             val pictures: List<PlanCard.Picture> = emptyList(),
-        ) : ThreadRow
+        ) : SessionChatRow
     }
 
     /** EXP-1323: one suggested task's state (dismissed items drop). */
@@ -754,14 +754,14 @@ object SessionTree {
 
     data class Composer(val sessionId: String, val placeholder: String)
 
-    data class ThreadView(
+    data class ChatView(
         val rootId: String,
         val title: String,
         val private: Boolean,
-        /** The session open in place (`focus`), null on the thread itself. */
+        /** The session open in place (`focus`), null on the chat itself. */
         val focusId: String?,
-        val tabs: List<ThreadTab>,
-        val rows: List<ThreadRow>,
+        val tabs: List<ChatTab>,
+        val rows: List<SessionChatRow>,
         val composer: Composer,
         val live: Boolean,
         val busy: Boolean,
@@ -769,7 +769,7 @@ object SessionTree {
         /** EXP-1323: the live tail (Tasks card + status line) reads this
          *  session's relay state; null once the root ended. */
         val liveSessionId: String? = null,
-        /** NEW-6 (N-1): a thread with ONE session (the root alone) shows that
+        /** NEW-6 (N-1): a chat with ONE session (the root alone) shows that
          *  session's raw work as the main thing: its id, and no Conversation
          *  tab. Null once a second session exists. */
         val mainSessionId: String? = null,
@@ -798,10 +798,10 @@ object SessionTree {
     // ── EXP-1280: the rich plan / question card (plan-card.json) ────────────
 
     /** A `question` / `plan` message's row (null = another kind). */
-    fun askRow(message: Message): ThreadRow? {
+    fun askRow(message: Message): SessionChatRow? {
         val card = message.card ?: return null
         return when (card.str("kind")) {
-            DomainContract.messageCardKindQuestion -> ThreadRow.Question(
+            DomainContract.messageCardKindQuestion -> SessionChatRow.Question(
                 id = message.id,
                 sessionId = message.sessionId,
                 question = card.text("question"),
@@ -815,7 +815,7 @@ object SessionTree {
                 surfaceData = card["surfaceData"] as? JsonObject,
                 dismissed = if (card.isTrue("dismissed")) true else null,
             )
-            DomainContract.messageCardKindPlan -> ThreadRow.Plan(
+            DomainContract.messageCardKindPlan -> SessionChatRow.Plan(
                 id = message.id,
                 sessionId = message.sessionId,
                 plan = card.text("plan"),
@@ -832,11 +832,11 @@ object SessionTree {
     }
 
     /** A `surface` message's row (null = another kind or no surface). */
-    fun surfaceRow(message: Message): ThreadRow.Surface? {
+    fun surfaceRow(message: Message): SessionChatRow.Surface? {
         val card = message.card ?: return null
         if (card.str("kind") != DomainContract.messageCardKindSurface) return null
         val surface = cardSurface(card["surface"]) ?: return null
-        return ThreadRow.Surface(
+        return SessionChatRow.Surface(
             id = message.id,
             sessionId = message.sessionId,
             title = card.str("title")?.trim()?.takeIf { it.isNotEmpty() },
@@ -857,7 +857,7 @@ object SessionTree {
 
     /** EXP-1398: the session view's cards ([AskDock.sessionCards]) with the
      *  rows they draw as, oldest first. */
-    fun sessionCardRows(messages: List<Message>): List<Pair<AskDock.SessionCard, ThreadRow>> {
+    fun sessionCardRows(messages: List<Message>): List<Pair<AskDock.SessionCard, SessionChatRow>> {
         val byId = messages.associateBy { it.id }
         return AskDock.sessionCards(messages).mapNotNull { card ->
             val message = byId[card.id] ?: return@mapNotNull null
@@ -870,7 +870,7 @@ object SessionTree {
      *  the parallel `optionDescriptions` sidecar (null / "" = none, EXP-1322),
      *  pictures the `optionPictures` sidecar of picture LABELS resolved through
      *  `pictures`; zipped by ORIGINAL index before non-string options drop. */
-    fun questionOptions(card: JsonObject): List<ThreadRow.QuestionChoice> {
+    fun questionOptions(card: JsonObject): List<SessionChatRow.QuestionChoice> {
         val options = card["options"] as? JsonArray ?: return emptyList()
         val descriptions = card["optionDescriptions"] as? JsonArray
         val pictureLabels = card["optionPictures"] as? JsonArray
@@ -880,13 +880,13 @@ object SessionTree {
             val description = (descriptions?.getOrNull(index) as? JsonPrimitive)
                 ?.takeIf { it.isString && it.content.isNotEmpty() }?.content
             val picture = (pictureLabels?.getOrNull(index) as? JsonPrimitive)?.takeIf { it.isString }?.content
-            ThreadRow.QuestionChoice(label, description, PlanCard.pictureFor(pictures, picture))
+            SessionChatRow.QuestionChoice(label, description, PlanCard.pictureFor(pictures, picture))
         }
     }
 
     /** A plan card's `questions`; a malformed question (no string id/prompt)
      *  or option (no string label) drops. */
-    fun planQuestions(card: JsonObject): List<ThreadRow.PlanQuestion> {
+    fun planQuestions(card: JsonObject): List<SessionChatRow.PlanQuestion> {
         val questions = card["questions"] as? JsonArray ?: return emptyList()
         val pictures = PlanCard.cardPictures(card["pictures"])
         return questions.mapNotNull { raw ->
@@ -896,13 +896,13 @@ object SessionTree {
             val options = (question["options"] as? JsonArray).orEmpty().mapNotNull { entry ->
                 val option = entry as? JsonObject ?: return@mapNotNull null
                 val label = option.str("label") ?: return@mapNotNull null
-                ThreadRow.QuestionChoice(
+                SessionChatRow.QuestionChoice(
                     label = label,
                     description = option.str("description")?.takeIf { it.isNotEmpty() },
                     attachmentId = PlanCard.pictureFor(pictures, option.str("picture")),
                 )
             }
-            ThreadRow.PlanQuestion(id, prompt, question.isTrue("multi"), !question.isFalse("custom"), options)
+            SessionChatRow.PlanQuestion(id, prompt, question.isTrue("multi"), !question.isFalse("custom"), options)
         }
     }
 
@@ -940,7 +940,7 @@ object SessionTree {
         // `mergeOutcome` (merge-train.json `copy.events`); a card without
         // one keeps the generic copy.
         var text = (if (event == DomainContract.messageEventKindPrMerge) MergeTrain.eventTemplate(card.str("mergeOutcome")) else null)
-            ?: ThreadCopy.EVENTS[event] ?: return null
+            ?: ChatCopy.EVENTS[event] ?: return null
         val issue = card.str("issueId")?.let { issues[it] }
         val pr = card.str("pullRequestId")?.let { prs[it] }
         if (text.contains("{issue}")) {
@@ -972,7 +972,7 @@ object SessionTree {
         titles: Map<String, String>,
         issues: Map<String, Issue>,
         now: String,
-    ): ThreadRow? {
+    ): SessionChatRow? {
         val raws = card["items"] as? JsonArray ?: return null
         val items = mutableListOf<SuggestionRow>()
         for (element in raws) {
@@ -1008,7 +1008,7 @@ object SessionTree {
         } else {
             SuggestionsCopy.MANY.replace("{count}", items.size.toString())
         }
-        return ThreadRow.Suggestions(
+        return SessionChatRow.Suggestions(
             id = message.id,
             sessionId = message.sessionId,
             header = if (started > 0) "$count · ${SuggestionsCopy.STARTED.replace("{count}", started.toString())}" else count,
@@ -1063,15 +1063,15 @@ object SessionTree {
     }
 
     /**
-     * The thread screen (EXP-1334: the conversation IS the dispatcher): the
+     * The chat screen (EXP-1334: the conversation IS the dispatcher): the
      * header tabs (+ · Conversation · top-level issue chips (sub-issues
      * folded) · the dispatcher's direct children (deeper sessions folded) ·
      * Guide), the root's conversation as rows (its messages oldest first plus
      * the children's own question / plan cards; a `session` /
      * `thread_started` card becomes that session's card) and the composer
-     * target (the root: a message to an ended thread continues it).
+     * target (the root: a message to an ended chat continues it).
      */
-    fun buildSessionThread(
+    fun buildSessionChat(
         root: Session,
         sessions: List<Session>,
         sessionIssues: List<SessionIssue>,
@@ -1080,7 +1080,7 @@ object SessionTree {
         pullRequests: List<PullRequest>,
         now: String,
         focus: String? = null,
-    ): ThreadView {
+    ): ChatView {
         val tree = treeOrder(sessions.filter { it.rootId == root.id || it.id == root.id }).toMutableList()
         if (tree.none { it.id == root.id }) tree.add(0, root)
         val byId = sessions.associateBy { it.id }.toMutableMap()
@@ -1115,7 +1115,7 @@ object SessionTree {
             { it.id },
             { s -> if (s.parentId == root.id || s.parentId == null || s.parentId !in treeIds) null else s.parentId },
         ).map { (top, nested) ->
-            ThreadTab.SessionTab(
+            ChatTab.SessionTab(
                 sessionId = top.id,
                 name = nameOf(top),
                 markState = sessionTabMarkState(top),
@@ -1126,7 +1126,7 @@ object SessionTree {
         }
         val linkedIds = linked.map { it.id }.toSet()
         val issueTabs = foldForest(linked, { it.id }, { issueFoldParent(it, linkedIds, issueMap) }).map { (top, nested) ->
-            ThreadTab.IssueTab(
+            ChatTab.IssueTab(
                 issueId = top.id,
                 identifier = top.identifier,
                 nested = nested.map { (item, depth) -> NestedIssue(item.id, item.identifier, depth) },
@@ -1142,7 +1142,7 @@ object SessionTree {
                 }
         }
         val conversation = (own + asks).sortedWith(messageOrder)
-        val rows = mutableListOf<ThreadRow>()
+        val rows = mutableListOf<SessionChatRow>()
         val messagesById = messages.associateBy { it.id }
         val escalated = mutableSetOf<String>()
         for (message in conversation) {
@@ -1152,7 +1152,7 @@ object SessionTree {
                     DomainContract.messageAuthorKindUser, DomainContract.messageAuthorKindAgent -> message.authorKind
                     else -> DomainContract.messageAuthorKindSystem
                 }
-                rows.add(ThreadRow.Locked(message.id, reason, author))
+                rows.add(SessionChatRow.Locked(message.id, reason, author))
                 continue
             }
             if (card == null) {
@@ -1164,11 +1164,11 @@ object SessionTree {
                 if (body.isBlank()) continue
                 val divider = if (author == DomainContract.messageAuthorKindUser) Chats.commandDivider(message.body) else null
                 if (divider != null) {
-                    rows.add(ThreadRow.Divider(message.id, divider, message.createdAt))
+                    rows.add(SessionChatRow.Divider(message.id, divider, message.createdAt))
                     continue
                 }
                 rows.add(
-                    ThreadRow.MessageRow(
+                    SessionChatRow.MessageRow(
                         id = message.id,
                         author = author,
                         authorId = message.authorId,
@@ -1185,17 +1185,17 @@ object SessionTree {
             when (card.str("kind")) {
                 DomainContract.messageCardKindSession, DomainContract.messageCardKindThreadStarted -> {
                     val target = card.str("sessionId")?.let { byId[it] } ?: continue
-                    rows.add(ThreadRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
+                    rows.add(SessionChatRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
                 }
                 DomainContract.messageCardKindQuestion, DomainContract.messageCardKindPlan ->
                     askRow(message)?.let(rows::add)
                 DomainContract.messageCardKindSubagent -> rows.add(
-                    ThreadRow.Subagent(id = message.id, title = card.text("title"), status = card.text("status")),
+                    SessionChatRow.Subagent(id = message.id, title = card.text("title"), status = card.text("status")),
                 )
                 DomainContract.messageCardKindPicture -> {
                     val attachmentId = card.str("attachmentId") ?: continue
                     rows.add(
-                        ThreadRow.Picture(
+                        SessionChatRow.Picture(
                             id = message.id,
                             attachmentId = attachmentId,
                             width = card.int("width"),
@@ -1207,10 +1207,10 @@ object SessionTree {
                 DomainContract.messageCardKindReport -> {
                     val target = card.str("sessionId")?.let { byId[it] } ?: continue
                     rows.add(
-                        ThreadRow.Report(
+                        SessionChatRow.Report(
                             id = message.id,
                             sessionId = target.id,
-                            text = ThreadCopy.REPORT.replace(
+                            text = ChatCopy.REPORT.replace(
                                 "{session}",
                                 sessionCard(target, titles[target.id] ?: "", now).name,
                             ),
@@ -1228,14 +1228,14 @@ object SessionTree {
                     }
                     if (text != null) {
                         val about = card.str("sessionId")?.takeIf { byId.containsKey(it) }
-                        rows.add(ThreadRow.Event(message.id, card.text("event"), text, about))
+                        rows.add(SessionChatRow.Event(message.id, card.text("event"), text, about))
                     }
                 }
                 DomainContract.messageCardKindSurface -> surfaceRow(message)?.let(rows::add)
                 // NEW-1: a child's ask mirrored into its parent: the child's own
                 // card already surfaces in the Conversation, the mirror draws nothing.
                 // #EXP-1399: a mirror from ANOTHER tree (an agent's conversation
-                // watching a thread, `escalate`) = the origin's session card + THE
+                // watching a chat, `escalate`) = the origin's session card + THE
                 // origin card, read from its message.
                 DomainContract.messageCardKindAsk -> {
                     val target = card.str("sessionId")?.let { byId[it] } ?: continue
@@ -1249,7 +1249,7 @@ object SessionTree {
                     ) continue
                     if (!escalated.add(origin.id)) continue
                     val ask = askRow(origin) ?: continue
-                    rows.add(ThreadRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
+                    rows.add(SessionChatRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
                     rows.add(ask)
                 }
                 else -> Unit
@@ -1257,7 +1257,7 @@ object SessionTree {
         }
 
         val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
-        // NEW-6 (N-1): the root alone = the thread IS that session.
+        // NEW-6 (N-1): the root alone = the chat IS that session.
         val single = tree.all { it.id == root.id }
         val viewed = focused ?: root
         val starter = viewed.parentId
@@ -1270,24 +1270,24 @@ object SessionTree {
             if (viewed.status == DomainContract.sessionStatusEnded) "reported" else "started",
             starter,
         )
-        return ThreadView(
+        return ChatView(
             rootId = root.id,
             title = title,
             private = !root.shared,
             focusId = focused?.id,
-            tabs = if (threadChatMode(root.agentId) == ThreadChatMode.Bubbles) {
+            tabs = if (chatMode(root.agentId) == ChatMode.Bubbles) {
                 // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation only.
-                listOf(ThreadTab.Conversation)
+                listOf(ChatTab.Conversation)
             } else buildList {
-                add(ThreadTab.Add)
+                add(ChatTab.Add)
                 // NEW-46: the Conversation tab is always in the strip; on a
-                // single-session thread it opens `mainSessionId`'s work.
-                add(ThreadTab.Conversation)
+                // single-session chat it opens `mainSessionId`'s work.
+                add(ChatTab.Conversation)
                 addAll(issueTabs)
                 addAll(sessionTabs)
             },
             rows = rows,
-            composer = Composer(root.id, ThreadCopy.PLACEHOLDER),
+            composer = Composer(root.id, ChatCopy.PLACEHOLDER),
             live = live.isNotEmpty(),
             busy = live.any { it.busy },
             needsYou = live.any { it.needsInput },
@@ -1297,15 +1297,15 @@ object SessionTree {
         )
     }
 
-    // ── the Threads list + the agents ───────────────────────────────────────
+    // ── the Chats list + the agents ───────────────────────────────────────
 
-    enum class ThreadsGroupKey(val wire: String) {
+    enum class ChatsGroupKey(val wire: String) {
         NeedsYou("needs_you"),
         Running("running"),
         Recent("recent"),
     }
 
-    data class ThreadsListRow(
+    data class ChatsListRow(
         val sessionId: String,
         val teamId: String,
         val title: String,
@@ -1325,15 +1325,15 @@ object SessionTree {
         val offline: Boolean = false,
     )
 
-    data class ThreadsListGroup(val key: ThreadsGroupKey, val title: String, val rows: List<ThreadsListRow>)
+    data class ChatsListGroup(val key: ChatsGroupKey, val title: String, val rows: List<ChatsListRow>)
 
     /**
-     * The Threads page list: roots of kind `thread` in scope ([teamId] = the
+     * The Chats page list: roots of kind `thread` in scope ([teamId] = the
      * ACTIVE team; null = every team, phones band rows per team), grouped
      * Needs you · Running · Recent, each by the tree's newest `updatedAt`
      * desc. Empty groups are omitted.
      */
-    fun partitionThreads(
+    fun partitionChats(
         sessions: List<Session>,
         sessionIssues: List<SessionIssue>,
         issues: List<Issue>,
@@ -1344,7 +1344,7 @@ object SessionTree {
         /** NEW-1: the clock for Recent's window (null = no window: the last
          *  [ListCopy.RECENT_MAX] only). */
         now: String? = null,
-    ): List<ThreadsListGroup> {
+    ): List<ChatsListGroup> {
         val readAt = reads.associate { it.sessionId to (ms(it.readAt) ?: 0L) }
         val rootOf = sessions.associate { it.id to it.rootId }
         val newestAgentInTree = HashMap<String, Long>()
@@ -1362,7 +1362,7 @@ object SessionTree {
         fun titleOf(s: Session) = SessionTitle.sessionTitle(titleSession(s), titleLinks, titleIssues, titleMessages)
         val roots = sessions.filter {
             it.parentId == null &&
-                // NEW-2: an agent's conversation (a root with `agentId`) is no thread;
+                // NEW-2: an agent's conversation (a root with `agentId`) is no chat;
                 // VAPP-110: neither is an app's editor session (`appId`).
                 it.agentId.isNullOrEmpty() &&
                 it.appId.isNullOrEmpty() &&
@@ -1370,10 +1370,10 @@ object SessionTree {
         }
         val byRoot = LinkedHashMap<String, MutableList<Session>>()
         for (session in sessions) byRoot.getOrPut(session.rootId) { mutableListOf() }.add(session)
-        val buckets = linkedMapOf<ThreadsGroupKey, MutableList<ThreadsListRow>>(
-            ThreadsGroupKey.NeedsYou to mutableListOf(),
-            ThreadsGroupKey.Running to mutableListOf(),
-            ThreadsGroupKey.Recent to mutableListOf(),
+        val buckets = linkedMapOf<ChatsGroupKey, MutableList<ChatsListRow>>(
+            ChatsGroupKey.NeedsYou to mutableListOf(),
+            ChatsGroupKey.Running to mutableListOf(),
+            ChatsGroupKey.Recent to mutableListOf(),
         )
         for (root in roots) {
             val tree = byRoot[root.id] ?: listOf(root)
@@ -1384,7 +1384,7 @@ object SessionTree {
                 if ((ms(s.updatedAt) ?: 0L) > (ms(latest) ?: 0L)) s.updatedAt else latest
             }
             val title = titleOf(root)
-            val row = ThreadsListRow(
+            val row = ChatsListRow(
                 sessionId = root.id,
                 teamId = root.teamId,
                 title = title,
@@ -1402,13 +1402,13 @@ object SessionTree {
             // child sessions, only the root ones'): a row is a ROOT, never a
             // child; the tree's state (needs you, working, unread) rolls up.
             val key = when {
-                needsYou -> ThreadsGroupKey.NeedsYou
-                running -> ThreadsGroupKey.Running
-                else -> ThreadsGroupKey.Recent
+                needsYou -> ChatsGroupKey.NeedsYou
+                running -> ChatsGroupKey.Running
+                else -> ChatsGroupKey.Recent
             }
             buckets.getValue(key).add(row)
         }
-        val order = compareByDescending<ThreadsListRow> { ms(it.activityAt) ?: 0L }
+        val order = compareByDescending<ChatsListRow> { ms(it.activityAt) ?: 0L }
             .thenBy { it.sessionId }
         // NEW-1: Recent = every tree active in the last `recent.hours`, filled
         // up to the last `recent.max` by activity. Ended trees stay openable.
@@ -1417,13 +1417,13 @@ object SessionTree {
         return buckets.entries
             .map { (key, rows) ->
                 var sorted = rows.sortedWith(order)
-                if (key == ThreadsGroupKey.Recent) {
+                if (key == ChatsGroupKey.Recent) {
                     sorted = sorted.filterIndexed { index, row ->
                         index < ListCopy.RECENT_MAX ||
                             (at != null && at - (ms(row.activityAt) ?: 0L) <= windowMs)
                     }
                 }
-                ThreadsListGroup(key, ListCopy.GROUPS.getValue(key), sorted)
+                ChatsListGroup(key, ListCopy.GROUPS.getValue(key), sorted)
             }
             .filter { it.rows.isNotEmpty() }
     }
@@ -1432,7 +1432,7 @@ object SessionTree {
      * NEW-1 / S-3: a tree's derived state = the session's four. `needs_you` =
      * a live session waits on a person (needsInput: a card, a usage wall or a
      * watchdog flag); `working` = any live session queued or busy; `done` =
-     * every session ended, or every PR of the thread merged (none = never
+     * every session ended, or every PR of the chat merged (none = never
      * done this way); else `idle`. [now] is kept for the signature.
      */
     @Suppress("UNUSED_PARAMETER")
@@ -1447,8 +1447,8 @@ object SessionTree {
         return SessionState.Idle
     }
 
-    /** EXP-1323: the Threads nav dot = any thread row is unread (`unreadCases`). */
-    fun threadsUnread(groups: List<ThreadsListGroup>): Boolean =
+    /** EXP-1323: the Chats nav dot = any chat row is unread (`unreadCases`). */
+    fun chatsUnread(groups: List<ChatsListGroup>): Boolean =
         groups.any { group -> group.rows.any { it.depth == 0 && it.unread } }
 
     data class AgentRow(
@@ -1532,12 +1532,12 @@ object SessionTree {
             }
     }
 
-    /** S-3 (session-thread.json `chatModeCases`): THE thread screen's mode:
-     *  an agent conversation paints chat bubbles, a thread its transcript. */
-    enum class ThreadChatMode(val wire: String) { Bubbles("bubbles"), Transcript("transcript") }
+    /** S-3 (session-chat.json `chatModeCases`): THE chat screen's mode:
+     *  an agent conversation paints chat bubbles, a chat its transcript. */
+    enum class ChatMode(val wire: String) { Bubbles("bubbles"), Transcript("transcript") }
 
-    fun threadChatMode(rootAgentId: String?): ThreadChatMode =
-        if (!rootAgentId.isNullOrEmpty()) ThreadChatMode.Bubbles else ThreadChatMode.Transcript
+    fun chatMode(rootAgentId: String?): ChatMode =
+        if (!rootAgentId.isNullOrEmpty()) ChatMode.Bubbles else ChatMode.Transcript
 
     /** EXP-1686 (chats.json `agentChat`): the line under an agent's name on a
      *  phone header ([modelLabel] = the model's display name). */
@@ -1573,10 +1573,10 @@ object SessionTree {
     // ── the Guide's PR + the session composer (EXP-1306) ────────────────────
 
     /**
-     * The ONE pull request the thread's Guide speaks for (its stack rail + the
+     * The ONE pull request the chat's Guide speaks for (its stack rail + the
      * bottom Merge capsule): the newest OPEN one, else the newest MERGED one
      * (createdAt, ties by the higher number); a closed PR never counts.
-     * Replays `session-thread.json` `guidePullRequestCases`.
+     * Replays `session-chat.json` `guidePullRequestCases`.
      */
     fun guidePullRequest(pullRequests: List<PullRequestEntity>): PullRequestEntity? {
         fun newest(state: String): PullRequestEntity? = pullRequests
@@ -1621,7 +1621,7 @@ object SessionTree {
         return if (items.isEmpty()) null else ComposerReplies(newest.id, items)
     }
 
-    // ── EXP-1334: the thread strip never scrolls ────────────────────────────
+    // ── EXP-1334: the chat strip never scrolls ────────────────────────────
 
     /**
      * Which chips get drawn, in order; the rest collapse into one "+N" (the
@@ -1663,23 +1663,23 @@ object SessionTree {
     enum class StripMode(val wire: String) { Chips("chips"), Group("group") }
 
     /** #EXP-1433: [count] = the issues + sessions the group menu lists. */
-    data class ThreadStripMode(val mode: StripMode, val count: Int)
+    data class ChatStripMode(val mode: StripMode, val count: Int)
 
     /**
-     * #EXP-1433 (session-thread.json `stripModeCases`): the strip between
+     * #EXP-1433 (session-chat.json `stripModeCases`): the strip between
      * Conversation and Results. `chips` = at most one issue and no session
      * (that issue keeps its chip); `group` = ONE icon tab for every issue and
-     * session, [ThreadStripMode.count] of them, opening THE menu of their rows.
+     * session, [ChatStripMode.count] of them, opening THE menu of their rows.
      */
-    fun threadStripMode(issues: Int, sessions: Int): ThreadStripMode = ThreadStripMode(
+    fun chatStripMode(issues: Int, sessions: Int): ChatStripMode = ChatStripMode(
         mode = if (issues <= 1 && sessions == 0) StripMode.Chips else StripMode.Group,
         count = issues + sessions,
     )
 
-    /** EXP-1309/1318 (`threads-list.json` `copy.words`): a Threads row's ONE
+    /** EXP-1309/1318 (`chat-list.json` `copy.words`): a Chats row's ONE
      *  quiet word ([wire] = the fixture key). EXP-1339: [Merged] has NO text
      *  (null), it only turns the lead pr-merged violet. */
-    enum class ThreadRowWord(val wire: String, val text: String?) {
+    enum class ChatRowWord(val wire: String, val text: String?) {
         Stack("stack", "stack"),
         ReadyToMerge("readyToMerge", "ready to merge"),
         Merged("merged", null),
@@ -1692,15 +1692,15 @@ object SessionTree {
         NeedsInput("needsInput", "needs input"),
     }
 
-    /** A PR's stack edge (`threads-list.json` `stackCases`). */
+    /** A PR's stack edge (`chat-list.json` `stackCases`). */
     data class StackPr(val id: String, val state: String, val basePullRequestId: String?)
 
     /**
-     * An open PR of the thread sits in an open stack: based on another open
+     * An open PR of the chat sits in an open stack: based on another open
      * PR, or another open PR is based on it. [teamPrs] = the team's PRs (a
-     * stack edge may cross threads). Replays `stackCases`.
+     * stack edge may cross chats). Replays `stackCases`.
      */
-    fun threadInStack(pullRequests: List<StackPr>, teamPrs: List<StackPr> = pullRequests): Boolean {
+    fun chatInStack(pullRequests: List<StackPr>, teamPrs: List<StackPr> = pullRequests): Boolean {
         val openIds = teamPrs.filter { it.state == DomainContract.prStateOpen }.map { it.id }.toSet()
         return pullRequests.filter { it.state == DomainContract.prStateOpen }.any { pr ->
             (pr.basePullRequestId != null && pr.basePullRequestId in openIds) ||
@@ -1709,26 +1709,26 @@ object SessionTree {
     }
 
     /**
-     * Word order (`wordCases`): an open PR in a stack → [ThreadRowWord.Stack];
-     * an open PR while nothing works → [ThreadRowWord.ReadyToMerge] (working =
-     * no word); no open PR but a merged one → [ThreadRowWord.Merged]; else
-     * waiting on a person → [ThreadRowWord.Question] (#EXP-1703: [offline] =
-     * [treeOffline] → [ThreadRowWord.Offline]); else none. [states] = the
+     * Word order (`wordCases`): an open PR in a stack → [ChatRowWord.Stack];
+     * an open PR while nothing works → [ChatRowWord.ReadyToMerge] (working =
+     * no word); no open PR but a merged one → [ChatRowWord.Merged]; else
+     * waiting on a person → [ChatRowWord.Question] (#EXP-1703: [offline] =
+     * [treeOffline] → [ChatRowWord.Offline]); else none. [states] = the
      * root's PR states.
      */
-    fun threadRowWord(
+    fun chatRowWord(
         states: List<String>,
         busy: Boolean,
         needsYou: Boolean,
         inStack: Boolean,
         offline: Boolean = false,
-    ): ThreadRowWord? {
+    ): ChatRowWord? {
         if (states.any { it == DomainContract.prStateOpen }) {
-            if (inStack) return ThreadRowWord.Stack
-            return if (busy) null else ThreadRowWord.ReadyToMerge
+            if (inStack) return ChatRowWord.Stack
+            return if (busy) null else ChatRowWord.ReadyToMerge
         }
-        if (states.any { it == DomainContract.prStateMerged }) return ThreadRowWord.Merged
-        if (needsYou) return if (offline) ThreadRowWord.Offline else ThreadRowWord.Question
+        if (states.any { it == DomainContract.prStateMerged }) return ChatRowWord.Merged
+        if (needsYou) return if (offline) ChatRowWord.Offline else ChatRowWord.Question
         return null
     }
 
@@ -1742,18 +1742,18 @@ object SessionTree {
 
     private fun stackPr(row: PullRequestEntity) = StackPr(row.id, row.state, row.basePullRequestId)
 
-    /** [threadRowWord] off synced PR rows. */
-    fun threadRowWord(
+    /** [chatRowWord] off synced PR rows. */
+    fun chatRowWord(
         busy: Boolean,
         needsYou: Boolean,
         prs: List<PullRequestEntity>,
         teamPrs: List<PullRequestEntity> = prs,
         offline: Boolean = false,
-    ): ThreadRowWord? = threadRowWord(
+    ): ChatRowWord? = chatRowWord(
         states = prs.map { it.state },
         busy = busy,
         needsYou = needsYou,
-        inStack = threadInStack(prs.map(::stackPr), teamPrs.map(::stackPr)),
+        inStack = chatInStack(prs.map(::stackPr), teamPrs.map(::stackPr)),
         offline = offline,
     )
 
@@ -1762,12 +1762,12 @@ object SessionTree {
      * every Running row, then the Recent rows whose word still asks for a
      * merge (ready to merge or stack), in group order.
      */
-    fun railThreads(groups: List<ThreadsListGroup>, wordOf: (ThreadsListRow) -> ThreadRowWord?): List<ThreadsListRow> =
+    fun railChats(groups: List<ChatsListGroup>, wordOf: (ChatsListRow) -> ChatRowWord?): List<ChatsListRow> =
         groups.flatMap { group ->
-            if (group.key == ThreadsGroupKey.Recent) {
+            if (group.key == ChatsGroupKey.Recent) {
                 group.rows.filter {
                     val word = wordOf(it)
-                    word == ThreadRowWord.ReadyToMerge || word == ThreadRowWord.Stack
+                    word == ChatRowWord.ReadyToMerge || word == ChatRowWord.Stack
                 }
             } else {
                 group.rows

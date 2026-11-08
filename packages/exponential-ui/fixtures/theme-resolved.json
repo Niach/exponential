@@ -11334,7 +11334,8 @@
             },
             {
               "style": {
-                "backgroundColor": "$color.input"
+                "width": 36,
+                "backgroundColor": "$color.accent"
               }
             }
           ],
@@ -11373,6 +11374,7 @@
             },
             {
               "style": {
+                "backgroundColor": "$color.foreground",
                 "boxShadow": "$shadow.none"
               }
             }
@@ -28100,7 +28102,8 @@
             },
             {
               "style": {
-                "backgroundColor": "$color.input"
+                "width": 36,
+                "backgroundColor": "$color.accent"
               }
             }
           ],
@@ -28139,6 +28142,7 @@
             },
             {
               "style": {
+                "backgroundColor": "$color.foreground",
                 "boxShadow": "$shadow.none"
               }
             }

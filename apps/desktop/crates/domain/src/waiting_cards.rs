@@ -1,7 +1,7 @@
 //! #EXP-1561 / #EXP-1562: WAITING question and plan cards ×4
 //! (`packages/domain-contract/src/waiting-cards.ts`'s twin, iOS ExpCore
 //! `WaitingCards.swift`, Android `domain/WaitingCards.kt`): a card's state
-//! (waiting / answered / dismissed / superseded) and the thread header's
+//! (waiting / answered / dismissed / superseded) and the chat header's
 //! waiting chips. Byte-locked by `fixtures/waiting-cards.json`; pure.
 
 use std::sync::LazyLock;
@@ -90,7 +90,7 @@ pub fn card_state(card: &Value, answered_at: Option<&str>) -> Option<CardState> 
     Some(if answered { CardState::Answered } else { CardState::Waiting })
 }
 
-/// One waiting card (a thread's `thread_pending_asks`, the session view's
+/// One waiting card (a chat's `chat_pending_asks`, the session view's
 /// waiting `session_cards`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct WaitingCardInput {

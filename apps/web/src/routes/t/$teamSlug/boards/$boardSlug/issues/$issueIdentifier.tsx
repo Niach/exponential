@@ -33,7 +33,7 @@ export const Route = createFileRoute(
   // EXP-1241: `?comment=<id>` scrolls the timeline to that comment and briefly
   // highlights it (`IssueTimeline`).
   // EXP-1293: ONE face. No Issue|Session|Guide toggle and no `?view=` /
-  // `section` / `file` params: a session is its thread's, the Guide too.
+  // `section` / `file` params: a session is its chat's, the Guide too.
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,

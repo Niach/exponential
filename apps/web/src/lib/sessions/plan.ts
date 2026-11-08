@@ -950,7 +950,7 @@ export async function publishCardPicture(
     await rollbackSessionImage(prepared.storageKey)
     throw error
   }
-  // A shown picture is a PR picture: the thread's live PR bodies
+  // A shown picture is a PR picture: the chat's live PR bodies
   // re-render (lib/pull-requests.ts, lazily: it imports this module's peers).
   // A card flagged off (`result: false`, an engine ask) is no PR picture.
   if (isPrPictureCard(published.card)) void import(`@/lib/pull-requests`)

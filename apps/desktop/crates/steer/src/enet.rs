@@ -724,7 +724,7 @@ fn keyring_path(spec: &InstallSpec) -> std::path::PathBuf {
 }
 
 /// #EXP-1483: the key holder's view of a device's installs (the MCP
-/// gateway wraps a new thread's key for its target device): off the last
+/// gateway wraps a new chat's key for its target device): off the last
 /// allowlist pass ([`target_device_installs`]).
 fn device_readers(inner: &Arc<Inner>) -> crate::seal_keys::DeviceReaders {
     let weak = Arc::downgrade(inner);
@@ -924,7 +924,7 @@ mod tests {
         .unwrap()
     }
 
-    /// #EXP-1483: a new thread's target device installs, the caller's own
+    /// #EXP-1483: a new chat's target device installs, the caller's own
     /// first (the server's reader rule), never another device's.
     #[test]
     fn target_device_installs_prefer_the_callers_own() {

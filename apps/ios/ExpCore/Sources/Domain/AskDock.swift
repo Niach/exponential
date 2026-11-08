@@ -5,7 +5,7 @@ import Foundation
 /// viewer is a DockCard of THE Dock (ExpCore `Dock`, fixtures/dock.json); the
 /// composer never leaves. This keeps the cards' own words and models: the
 /// row's label and title, the plan options ONE list ×4 (`planOptions`), a
-/// thread's waiting cards. `AskDockTests` replays every fixture case.
+/// chat's waiting cards. `AskDockTests` replays every fixture case.
 public enum AskDock {
     public enum Kind: String, Equatable, Sendable {
         case plan, question
@@ -18,7 +18,7 @@ public enum AskDock {
         public let kind: Kind
         /// The plan, or the question's text (markdown).
         public let text: String
-        /// The asking session's name in a thread; nil in the session view.
+        /// The asking session's name in a chat; nil in the session view.
         public let sessionName: String?
         /// Stack order, oldest first.
         public let createdAt: Double
@@ -146,11 +146,11 @@ public enum AskDock {
         return ""
     }
 
-    /// A thread's waiting cards, in Conversation order: every `plan` row with
+    /// A chat's waiting cards, in Conversation order: every `plan` row with
     /// no decision and every unanswered `question` row, of ANY session in the
     /// tree. `sessionName` names the asking session (nil = unnamed).
-    public static func threadPendingAsks(
-        _ rows: [ThreadRow], sessionName: (String) -> String?
+    public static func chatPendingAsks(
+        _ rows: [SessionChatRow], sessionName: (String) -> String?
     ) -> [Pending] {
         var pending: [Pending] = []
         for (index, row) in rows.enumerated() {
@@ -300,9 +300,9 @@ public enum AskDock {
         return (anchors, unanchored)
     }
 
-    /// A thread's card captions: each session TAB's name (nested ones
+    /// A chat's card captions: each session TAB's name (nested ones
     /// included); the root (no tab) = nil.
-    public static func threadSessionNames(_ tabs: [ThreadTab]) -> (String) -> String? {
+    public static func chatSessionNames(_ tabs: [ChatTab]) -> (String) -> String? {
         var names: [String: String] = [:]
         for tab in tabs {
             guard case let .session(sessionId, name, _, nested) = tab else { continue }

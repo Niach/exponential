@@ -867,10 +867,10 @@ describe(`comment #IDENT references (EXP-736)`, () => {
   })
 })
 
-// EXP-741: threading is ONE level deep and `source` is stamped by the
+// EXP-741: nesting is ONE level deep and `source` is stamped by the
 // context, never by input. The parent lookup rides the non-tx db (the same
 // stored-row probe loadCommentForMutation uses).
-describe(`comment threads (EXP-741)`, () => {
+describe(`comment replies (EXP-741)`, () => {
   const PARENT_ID = COMMENT_ID
   const ROOT_ID = `66666666-6666-4666-8666-666666666666`
   const REPLY_ID = `77777777-7777-4777-8777-777777777777`
@@ -953,7 +953,7 @@ describe(`comment threads (EXP-741)`, () => {
 
   // EXP-741 + EXP-398: `comments.parent_id` is ON DELETE SET NULL, so deleting
   // a root leaves every reply standing (it flattens to a top-level card via
-  // threadComments) — nobody's words, attachments or references are destroyed
+  // nestComments) — nobody's words, attachments or references are destroyed
   // by someone else's delete. The delete path therefore names the ONE row.
   it(`deleting a root leaves its replies and their attachments alone`, async () => {
     state.previousBody = `root #EXP-1`
@@ -993,7 +993,7 @@ describe(`comment threads (EXP-741)`, () => {
       },
     ])
     expect(h.syncReferenceRelations).toHaveBeenCalledTimes(1)
-    // Nothing ever looks up the replies: there is no thread-wide pass left.
+    // Nothing ever looks up the replies: there is no replies-wide pass left.
     expect(
       state.selectWheres.some(
         (entry) =>

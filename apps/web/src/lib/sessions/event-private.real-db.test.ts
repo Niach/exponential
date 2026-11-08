@@ -127,13 +127,13 @@ async function world() {
         .values({ teamId, name: `Agent ${id8()}`, deviceId, ownerId, triggers })
         .returning()
     )[0]!
-  /** A thread with `SECRET` as its prompt (so its title) and a branch. */
-  const thread = async (userId: string, deviceId: string) => {
+  /** A chat with `SECRET` as its prompt (so its title) and a branch. */
+  const chat = async (userId: string, deviceId: string) => {
     const id = (await sendSession({ userId, input: { teamId, deviceId, text: SECRET } })).sessionId
     await db.update(sessions).set({ branch: BRANCH, title: SECRET }).where(eq(sessions.id, id))
     return id
   }
-  return { owner, mate, teamId, ownerDev, teamDev, mateDev, agent, thread }
+  return { owner, mate, teamId, ownerDev, teamDev, mateDev, agent, chat }
 }
 
 const endedEvents = (sessionId: string) =>
@@ -156,22 +156,22 @@ describe.skipIf(!ready.ok)(`#EXP-1409: a private session's session.ended event`,
     const mateAgent = await w.agent(w.mate, w.mateDev)
     const sharedAgent = await w.agent(w.owner, w.teamDev)
     const privateAgent = await w.agent(w.owner, w.ownerDev)
-    const thread = await w.thread(w.owner, w.ownerDev)
-    expect((await row(thread)).shared).toBe(false)
-    await endSession({ userId: w.owner, sessionId: thread })
+    const chat = await w.chat(w.owner, w.ownerDev)
+    expect((await row(chat)).shared).toBe(false)
+    await endSession({ userId: w.owner, sessionId: chat })
 
-    const [event] = await endedEvents(thread)
-    expect(event!.payload).toEqual({ sessionId: thread, rootId: thread })
+    const [event] = await endedEvents(chat)
+    expect(event!.payload).toEqual({ sessionId: chat, rootId: chat })
     expect(JSON.stringify(event)).not.toContain(`xyz-123`)
 
     // Another member's agent and a shared conversation: the ids-only row.
     for (const agent of [mateAgent, sharedAgent]) {
       const [fired] = await firings(agent.id)
       expect(fired!.body).toBe(TRIGGER_COPY.event(event!))
-      expect(fired!.body).toContain(thread)
+      expect(fired!.body).toContain(chat)
       expect(fired!.body).not.toContain(`xyz-123`)
     }
-    // The owner's own private conversation may see the thread: the full payload.
+    // The owner's own private conversation may see the chat: the full payload.
     const [own] = await firings(privateAgent.id)
     expect(own!.body).toContain(SECRET)
     expect(own!.body).toContain(BRANCH)
@@ -187,52 +187,52 @@ describe.skipIf(!ready.ok)(`#EXP-1409: a private session's session.ended event`,
   it(`a session visible to the whole team keeps its title and branch, in the row and every firing`, async () => {
     const w = await world()
     const mateAgent = await w.agent(w.mate, w.mateDev)
-    const thread = await w.thread(w.owner, w.teamDev)
-    expect((await row(thread)).shared).toBe(true)
-    await endSession({ userId: w.owner, sessionId: thread })
-    const [event] = await endedEvents(thread)
-    expect(event!.payload).toEqual({ sessionId: thread, rootId: thread, title: SECRET, branch: BRANCH })
+    const chat = await w.chat(w.owner, w.teamDev)
+    expect((await row(chat)).shared).toBe(true)
+    await endSession({ userId: w.owner, sessionId: chat })
+    const [event] = await endedEvents(chat)
+    expect(event!.payload).toEqual({ sessionId: chat, rootId: chat, title: SECRET, branch: BRANCH })
     const [fired] = await firings(mateAgent.id)
     expect(fired!.body).toBe(TRIGGER_COPY.event(event!))
     expect(fired!.body).toContain(BRANCH)
   })
 
-  it(`a private child of a private thread names its ids only too`, async () => {
+  it(`a private child of a private chat names its ids only too`, async () => {
     const w = await world()
-    const thread = await w.thread(w.owner, w.ownerDev)
-    const child = (await sendSession({ userId: w.owner, input: { parentId: thread, text: SECRET } })).sessionId
-    await endSession({ userId: w.owner, sessionId: thread })
+    const chat = await w.chat(w.owner, w.ownerDev)
+    const child = (await sendSession({ userId: w.owner, input: { parentId: chat, text: SECRET } })).sessionId
+    await endSession({ userId: w.owner, sessionId: chat })
     const [event] = await endedEvents(child)
-    expect(event!.payload).toEqual({ sessionId: child, rootId: thread })
+    expect(event!.payload).toEqual({ sessionId: child, rootId: chat })
   })
 })
 
 describe.skipIf(!ready.ok)(`#EXP-1409: a private listener owned by a different member`, () => {
   it(`gets the neutral reply, report and ask lines (the userId side of askHidden)`, async () => {
     const w = await world()
-    const thread = await w.thread(w.owner, w.ownerDev)
+    const chat = await w.chat(w.owner, w.ownerDev)
     const listener = (await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.mateDev, text: `watch` } }))
       .sessionId
     expect((await row(listener)).shared).toBe(false)
-    await db.execute(sql`UPDATE sessions SET wake_on = ${JSON.stringify([thread])}::jsonb WHERE id = ${listener}`)
+    await db.execute(sql`UPDATE sessions SET wake_on = ${JSON.stringify([chat])}::jsonb WHERE id = ${listener}`)
     const host = sessionsRouter.createCaller(ctx(w.owner))
-    await host.claim({ sessionId: thread, deviceId: w.ownerDev })
-    await host.reply({ sessionId: thread, body: SECRET })
+    await host.claim({ sessionId: chat, deviceId: w.ownerDev })
+    await host.reply({ sessionId: chat, body: SECRET })
     const card = buildQuestionCard({ question: SECRET, options: [{ label: `yes` }] })
-    await postAskCard({ userId: w.owner, sessionId: thread, card })
-    await endSession({ userId: w.owner, sessionId: thread, summary: SECRET })
+    await postAskCard({ userId: w.owner, sessionId: chat, card })
+    await endSession({ userId: w.owner, sessionId: chat, summary: SECRET })
     const lines = await db
       .select()
       .from(messages)
-      .where(and(inSession(listener), eq(messages.authorSessionId, thread)))
+      .where(and(inSession(listener), eq(messages.authorSessionId, chat)))
     const kinds = lines.map((m) => (m.card as { kind?: string } | null)?.kind ?? null)
     expect(kinds).toEqual(expect.arrayContaining([null, `ask`, `report`]))
-    expect(lines.find((m) => m.card === null)!.body).toBe(privateText({ id: thread }, PRIVATE_REPLY_LEAD))
+    expect(lines.find((m) => m.card === null)!.body).toBe(privateText({ id: chat }, PRIVATE_REPLY_LEAD))
     expect(lines.find((m) => (m.card as { kind?: string } | null)?.kind === `ask`)!.body).toBe(
-      askHiddenText({ id: thread }, card)
+      askHiddenText({ id: chat }, card)
     )
     expect(lines.find((m) => (m.card as { kind?: string } | null)?.kind === `report`)).toMatchObject({
-      body: privateText({ id: thread }, PRIVATE_REPORT_LEAD),
+      body: privateText({ id: chat }, PRIVATE_REPORT_LEAD),
       card: { summary: PRIVATE_REPORT_LEAD },
     })
     expect(JSON.stringify(lines)).not.toContain(`xyz-123`)
@@ -262,7 +262,7 @@ async function openPr(teamId: string, rootSessionId: string, actorUserId: string
 }
 
 describe.skipIf(!ready.ok)(`#FEED-194: turn replies and team agents`, () => {
-  it(`the agent that started a thread wakes on each turn; another agent that only watches it does not`, async () => {
+  it(`the agent that started a chat wakes on each turn; another agent that only watches it does not`, async () => {
     const w = await world()
     const starter = await w.agent(w.owner, w.ownerDev)
     const other = await w.agent(w.owner, w.ownerDev)
@@ -270,7 +270,7 @@ describe.skipIf(!ready.ok)(`#FEED-194: turn replies and team agents`, () => {
       (await sendSession({ userId: w.owner, input: { agentId, text: `hello` } })).sessionId
     const starting = await conversationOf(starter.id)
     const watching = await conversationOf(other.id)
-    const thread = (
+    const chat = (
       await sendSession({
         userId: w.owner,
         callerSessionId: starting,
@@ -278,19 +278,19 @@ describe.skipIf(!ready.ok)(`#FEED-194: turn replies and team agents`, () => {
         input: { teamId: w.teamId, deviceId: w.ownerDev, text: `Make the PDF` },
       })
     ).sessionId
-    expect((await row(thread)).startedByAgentId).toBe(starter.id)
-    await sendSession({ userId: w.owner, callerSessionId: watching, viaMcp: true, input: { wakeOn: [thread] } })
-    expect((await row(watching)).wakeOn).toContain(thread)
+    expect((await row(chat)).startedByAgentId).toBe(starter.id)
+    await sendSession({ userId: w.owner, callerSessionId: watching, viaMcp: true, input: { wakeOn: [chat] } })
+    expect((await row(watching)).wakeOn).toContain(chat)
 
     const host = sessionsRouter.createCaller(ctx(w.owner))
-    await host.claim({ sessionId: thread, deviceId: w.ownerDev })
-    await host.reply({ sessionId: thread, body: `The PDF is done.` })
+    await host.claim({ sessionId: chat, deviceId: w.ownerDev })
+    await host.reply({ sessionId: chat, body: `The PDF is done.` })
 
     const turnsIn = (sessionId: string) =>
       db
         .select()
         .from(messages)
-        .where(and(eq(messages.rootId, sessionId), eq(messages.authorSessionId, thread), sql`${messages.card} IS NULL`))
+        .where(and(eq(messages.rootId, sessionId), eq(messages.authorSessionId, chat), sql`${messages.card} IS NULL`))
     expect(await turnsIn(starting)).toMatchObject([{ authorKind: `agent`, body: `The PDF is done.`, consumedAt: null }])
     expect(await turnsIn(watching)).toEqual([])
   })
@@ -302,7 +302,7 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     const agent = await w.agent(w.owner, w.ownerDev)
     const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent.id, text: `watch it` } }))
       .sessionId
-    const thread = (
+    const chat = (
       await sendSession({
         userId: w.owner,
         callerSessionId: conversation,
@@ -310,14 +310,14 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
         input: { teamId: w.teamId, deviceId: w.ownerDev, text: SECRET },
       })
     ).sessionId
-    await db.update(sessions).set({ branch: BRANCH }).where(eq(sessions.id, thread))
+    await db.update(sessions).set({ branch: BRANCH }).where(eq(sessions.id, chat))
     expect((await row(conversation)).shared).toBe(false)
     const host = sessionsRouter.createCaller(ctx(w.owner))
-    await host.claim({ sessionId: thread, deviceId: w.ownerDev })
-    await host.reply({ sessionId: thread, body: SECRET })
-    await postAskCard({ userId: w.owner, sessionId: thread, card: buildQuestionCard({ question: SECRET, options: [{ label: `yes` }] }) })
-    await openPr(w.teamId, thread, w.owner)
-    await endSession({ userId: w.owner, sessionId: thread, summary: SECRET })
+    await host.claim({ sessionId: chat, deviceId: w.ownerDev })
+    await host.reply({ sessionId: chat, body: SECRET })
+    await postAskCard({ userId: w.owner, sessionId: chat, card: buildQuestionCard({ question: SECRET, options: [{ label: `yes` }] }) })
+    await openPr(w.teamId, chat, w.owner)
+    await endSession({ userId: w.owner, sessionId: chat, summary: SECRET })
     const inConversation = () =>
       db.select().from(messages).where(eq(messages.rootId, conversation)).orderBy(asc(messages.createdAt))
     // Same member, private conversation: everything arrived in full.
@@ -329,19 +329,19 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     expect((await row(conversation)).shared).toBe(true)
     const after = await inConversation()
     expect(JSON.stringify(after)).not.toContain(`xyz-123`)
-    const from = after.filter((m) => m.authorSessionId === thread)
-    // #FEED-194: the agent that started the thread heard its turn; the move
+    const from = after.filter((m) => m.authorSessionId === chat)
+    // #FEED-194: the agent that started the chat heard its turn; the move
     // made that line neutral too.
     expect(from.find((m) => m.card === null && m.authorKind === `agent`)!.body).toBe(
-      privateText({ id: thread }, PRIVATE_REPLY_LEAD)
+      privateText({ id: chat }, PRIVATE_REPLY_LEAD)
     )
     expect(from.find((m) => (m.card as { kind?: string } | null)?.kind === `report`)!.body).toBe(
-      privateText({ id: thread }, PRIVATE_REPORT_LEAD)
+      privateText({ id: chat }, PRIVATE_REPORT_LEAD)
     )
     const prLine = from.find((m) => (m.card as { event?: string } | null)?.event === `pr_opened`)!
-    expect(prLine.body).toBe(privateText({ id: thread }, PRIVATE_PR_LEAD))
+    expect(prLine.body).toBe(privateText({ id: chat }, PRIVATE_PR_LEAD))
     expect(prLine.card).not.toHaveProperty(`pullRequestId`)
-    const [event] = await endedEvents(thread)
+    const [event] = await endedEvents(chat)
     expect(after.find((m) => (m.card as { event?: string } | null)?.event === `trigger_fired`)!.body).toBe(
       TRIGGER_COPY.event(event!)
     )
@@ -355,9 +355,9 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
   it(`#EXP-1410: a firing older than the event retention is still scrubbed, its ids read from its own body`, async () => {
     const w = await world()
     const agent = await w.agent(w.owner, w.ownerDev)
-    const thread = await w.thread(w.owner, w.ownerDev)
-    await endSession({ userId: w.owner, sessionId: thread })
-    const [event] = await endedEvents(thread)
+    const chat = await w.chat(w.owner, w.ownerDev)
+    await endSession({ userId: w.owner, sessionId: chat })
+    const [event] = await endedEvents(chat)
     const [fired] = await firings(agent.id)
     expect(fired!.body).toContain(`xyz-123`)
     // The retention pruned the row; the firing stays.
@@ -377,7 +377,7 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     const agent = await w.agent(w.owner, w.ownerDev)
     const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent.id, text: `watch it` } }))
       .sessionId
-    const thread = (
+    const chat = (
       await sendSession({
         userId: w.owner,
         callerSessionId: conversation,
@@ -385,12 +385,12 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
         input: { teamId: w.teamId, deviceId: w.ownerDev, text: `go` },
       })
     ).sessionId
-    await sendSession({ userId: w.owner, callerSessionId: thread, viaMcp: true, input: { sessionId: conversation, text: SECRET } })
+    await sendSession({ userId: w.owner, callerSessionId: chat, viaMcp: true, input: { sessionId: conversation, text: SECRET } })
 
     await agentsRouter.createCaller(ctx(w.owner)).update({ id: agent.id, deviceId: w.teamDev })
 
     const kept = await db.select().from(messages).where(eq(messages.rootId, conversation))
-    expect(kept.some((m) => m.body === SECRET && m.authorSessionId === thread)).toBe(true)
+    expect(kept.some((m) => m.body === SECRET && m.authorSessionId === chat)).toBe(true)
   })
 
   it(`#FEED-177: a move from a shared device to a private one drops the teammates' tree-key wraps`, async () => {
@@ -425,7 +425,7 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     const agent = await w.agent(w.owner, w.ownerDev, [])
     const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent.id, text: `watch it` } }))
       .sessionId
-    const thread = (
+    const chat = (
       await sendSession({
         userId: w.owner,
         callerSessionId: conversation,
@@ -433,7 +433,7 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
         input: { teamId: w.teamId, deviceId: w.ownerDev, text: SECRET },
       })
     ).sessionId
-    await endSession({ userId: w.owner, sessionId: thread, summary: SECRET })
+    await endSession({ userId: w.owner, sessionId: chat, summary: SECRET })
     await agentsRouter.createCaller(ctx(w.owner)).update({ id: agent.id, deviceId: otherDev })
     expect((await row(conversation)).shared).toBe(false)
     const report = (await db.select().from(messages).where(inSession(conversation))).find(

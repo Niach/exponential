@@ -180,16 +180,16 @@ async function world() {
   await db.insert(boards).values({ teamId, name: `Core`, slug: `core-${id8()}`, prefix: `MT` })
   const deviceId = `dev-${id8()}`
   await db.insert(devices).values({ userId: owner, deviceId, label: `box`, kind: `server` })
-  const thread = (await sendSession({ userId: owner, input: { teamId, deviceId, text: `work` } })).sessionId
+  const chat = (await sendSession({ userId: owner, input: { teamId, deviceId, text: `work` } })).sessionId
   const fullName = `o/mt-${id8()}`
   const [repo] = await db.insert(repositories).values({ teamId, fullName, defaultBranch: `main` }).returning({ id: repositories.id })
   const children: Record<number, string> = {}
   async function pr(number: number, opts: { base?: string } = {}) {
-    const child = (await sendSession({ userId: owner, input: { parentId: thread, text: `part ${number}` } })).sessionId
+    const child = (await sendSession({ userId: owner, input: { parentId: chat, text: `part ${number}` } })).sessionId
     children[number] = child
     const { pullRequest } = await recordPullRequestOpened({
       teamId,
-      rootSessionId: thread,
+      rootSessionId: chat,
       sessionId: child,
       repositoryId: repo!.id,
       repoFullName: fullName,
@@ -205,8 +205,8 @@ async function world() {
     return pullRequest.id
   }
   // Every session idle: the opener's subtree does not hold the PR back.
-  const idle = () => db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.rootId, thread))
-  return { owner, teamId, deviceId, thread, repoId: repo!.id, fullName, pr, idle, children }
+  const idle = () => db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.rootId, chat))
+  return { owner, teamId, deviceId, chat, repoId: repo!.id, fullName, pr, idle, children }
 }
 
 const prRow = async (id: string) => (await db.select().from(pullRequests).where(eq(pullRequests.id, id)))[0]!

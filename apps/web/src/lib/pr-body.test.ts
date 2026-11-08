@@ -42,7 +42,7 @@ describe(`renderPrBody`, () => {
   })
 })
 
-// EXP-1291: the thread's Guide → one PR's body.
+// EXP-1291: the chat's Guide → one PR's body.
 describe(`prBodyFromGuide`, () => {
   const entry = (topic: string, text: string, prUrl?: string) => ({
     topic,

@@ -10,7 +10,7 @@ it.
 | --- | --- | --- |
 | **1 Style** | the values the controls are made of: colour, shape, type, motion and the icon registry | `@exp/design-tokens` and `packages/icons` |
 | **2 General components** | the Exponential app's own controls any screen reuses (the typed pickers, the search list, toasts, the strip chip, feedback states, Trace, CodeBlock …); the generic set (buttons, fields, rows, pills, dialogs, meters and the layout macros Page, Toolbar, SplitView, FieldGroup, FormActions, StatTile) lives on [exponential.at](https://exponential.at/docs/sdk/genui/reference/components/), VAPP-93 | rendered live at build time: the REAL `@exp/ui` component (EXP-698 / EXP-887) |
-| **3 Special components** | compositions with ONE owner: a dialog, a tree, a settings surface, the session thread, THE Dock and its cards (`dock-card`, `ask-dock`, `plan-card`) | rendered live, same as section 2 |
+| **3 Special components** | compositions with ONE owner: a dialog, a tree, a settings surface, the session chat, THE Dock and its cards (`dock-card`, `ask-dock`, `plan-card`) | rendered live, same as section 2 |
 | **4 Views** | every screen in `@exp/view-catalog` (bar the site-owned `exponential-ui-catalog` group), with its web / web-mobile / desktop / iOS / Android shots side by side | photographs in `shots/` (EXP-566) |
 
 Rule of thumb: a whole screen is a **View** (section 4, a `views.json` entry

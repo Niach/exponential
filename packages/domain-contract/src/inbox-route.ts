@@ -41,11 +41,11 @@ export function inboxRowTarget(row: InboxRouteRow): InboxRowTarget {
 
 export type SessionTarget =
   | { kind: `agent`; agentId: string }
-  | { kind: `thread`; threadId: string; sessionId: string | null }
+  | { kind: `chat`; chatId: string; sessionId: string | null }
   | { kind: `session`; sessionId: string }
 
 /** Where a session opens (S-3): the viewer's own agent conversation root =
- *  the agent's page, a thread's root or child = the thread, anything else
+ *  the agent's page, a chat's root or child = the chat, anything else
  *  under an agent = the session itself. `agentId` + `userId` are the root's. */
 export function sessionTarget(
   session: { id: string; rootId: string | null; agentId: string | null; userId: string | null },
@@ -57,5 +57,5 @@ export function sessionTarget(
       ? { kind: `agent`, agentId: session.agentId }
       : { kind: `session`, sessionId: session.id }
   }
-  return { kind: `thread`, threadId: rootId, sessionId: rootId === session.id ? null : session.id }
+  return { kind: `chat`, chatId: rootId, sessionId: rootId === session.id ? null : session.id }
 }

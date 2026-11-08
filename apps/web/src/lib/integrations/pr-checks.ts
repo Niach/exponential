@@ -204,7 +204,7 @@ const sessionCols = {
 }
 
 /** The live session a PR's CI line wakes: its opener while live, else the
- *  thread's root; null when both ended (nobody to tell). */
+ *  chat's root; null when both ended (nobody to tell). */
 async function wakeTarget(
   tx: Tx,
   pr: { rootSessionId: string | null; sessionId: string | null }
@@ -622,7 +622,7 @@ export const CHECKS_SWEEP_BATCH = 50
 /**
  * Batch 3 (CI wake reliability): the App's check_run/check_suite/
  * workflow_run deliveries are an install-time grant a person accepts, and
- * without them the ONLY writer was the next `exponential_pr` op: a thread
+ * without them the ONLY writer was the next `exponential_pr` op: a chat
  * that ended its turn as told never heard its CI go green (0f6fb188: #1714
  * green 02:34, its line 03:00 off a merge call). So every watchdog tick
  * repairs the unsettled live PRs itself (throttled per PR, skipped on a low

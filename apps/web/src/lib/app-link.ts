@@ -17,8 +17,7 @@ export type AppLink =
   | { kind: `board`; teamSlug: string; boardSlug: string }
   | { kind: `session`; teamSlug: string; sessionId: string }
   | { kind: `plan`; teamSlug: string; sessionId: string; messageId: string }
-  | { kind: `thread`; teamSlug: string; threadId: string }
-  | { kind: `threads`; teamSlug: string }
+  | { kind: `chats`; teamSlug: string }
   | { kind: `agent`; teamSlug: string; agentId: string }
   | { kind: `agentHome`; teamSlug: string }
   | { kind: `inbox`; teamSlug: string }
@@ -80,9 +79,7 @@ function classifyPath(path: string): AppLink {
     if (kind === `sessions` && a && b === `plan` && c && n === 6)
       return { kind: `plan`, teamSlug, sessionId: a, messageId: c }
     if (kind === `sessions` && a && n === 4) return { kind: `session`, teamSlug, sessionId: a }
-    // EXP-1284: a thread (its `?child=` is dropped like every route query).
-    if (kind === `threads` && a && n === 4) return { kind: `thread`, teamSlug, threadId: a }
-    if (kind === `threads` && n === 3) return { kind: `threads`, teamSlug }
+    if (kind === `chats` && n === 3) return { kind: `chats`, teamSlug }
     if (kind === `agents` && a && n === 4) return { kind: `agent`, teamSlug, agentId: a }
     if (kind === `agent` && n === 3) return { kind: `agentHome`, teamSlug }
     if (kind === `inbox` && n === 3) return { kind: `inbox`, teamSlug }
@@ -234,10 +231,8 @@ export function appLinkPath(link: AppLink): string | null {
       return `${t}/sessions/${e(link.sessionId)}`
     case `plan`:
       return `${t}/sessions/${e(link.sessionId)}/plan/${e(link.messageId)}`
-    case `thread`:
-      return `${t}/threads/${e(link.threadId)}`
-    case `threads`:
-      return `${t}/threads`
+    case `chats`:
+      return `${t}/chats`
     case `agent`:
       return `${t}/agents/${e(link.agentId)}`
     case `agentHome`:

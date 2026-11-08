@@ -30,7 +30,7 @@ describe(`screenFromPath`, () => {
     // NEW-2: the retired action pages are no list of their own.
     expect(screenFromPath(`/t/acme/actions/a1`)).toEqual({ kind: `other` })
     expect(screenFromPath(`/t/acme/actions`)).toEqual({ kind: `other` })
-    expect(screenFromPath(`/t/acme/threads`)).toEqual({ kind: `threads` })
+    expect(screenFromPath(`/t/acme/chats`)).toEqual({ kind: `chats` })
     expect(screenFromPath(`/t/acme/sessions/s1`)).toEqual({ kind: `session` })
     expect(screenFromPath(`/t/acme/boards/web`)).toEqual({
       kind: `board`,
@@ -56,7 +56,7 @@ describe(`screenFromPath`, () => {
     // A list or a detail is NOT context-free.
     for (const path of [
       `/t/acme/inbox`,
-      `/t/acme/threads`,
+      `/t/acme/chats`,
       `/t/acme/sessions/s1`,
       `/t/acme/boards/web`,
       `/t/acme/boards/web/issues/MET-12`,
@@ -88,13 +88,13 @@ describe(`deriveOrigin`, () => {
         kind: `session`,
       })
     ).toEqual(board)
-    // EXP-1293: Threads is a list context — a thread opened from it
+    // EXP-1293: Chats is a list context — a chat opened from it
     // returns there.
     expect(
-      deriveOrigin(screenFromPath(`/t/acme/threads`), { kind: `threads` }, {
+      deriveOrigin(screenFromPath(`/t/acme/chats`), { kind: `chats` }, {
         kind: `session`,
       })
-    ).toEqual({ kind: `threads` })
+    ).toEqual({ kind: `chats` })
     // Devices (context-free) → a session: no origin at all, so the sidebar's
     // main menu stays put.
     expect(
@@ -102,13 +102,13 @@ describe(`deriveOrigin`, () => {
         kind: `session`,
       })
     ).toBeNull()
-    // Threads → an issue: the list's own origin stays.
+    // Chats → an issue: the list's own origin stays.
     expect(
-      deriveOrigin(screenFromPath(`/t/acme/threads`), { kind: `threads` }, {
+      deriveOrigin(screenFromPath(`/t/acme/chats`), { kind: `chats` }, {
         kind: `issue`,
         boardSlug: `web`,
       })
-    ).toEqual({ kind: `threads` })
+    ).toEqual({ kind: `chats` })
     // A deep link at boot (nothing before) → issue: its board…
     expect(
       deriveOrigin(null, inbox, { kind: `issue`, boardSlug: `web` })
@@ -124,8 +124,8 @@ describe(`capturedOrigin`, () => {
   it(`reads the origin in force on a screen`, () => {
     expect(capturedOrigin(screenFromPath(`/t/acme/inbox`))).toEqual(inbox)
     expect(capturedOrigin(screenFromPath(`/t/acme/boards/web`))).toEqual(board)
-    expect(capturedOrigin(screenFromPath(`/t/acme/threads`))).toEqual({
-      kind: `threads`,
+    expect(capturedOrigin(screenFromPath(`/t/acme/chats`))).toEqual({
+      kind: `chats`,
     })
     expect(capturedOrigin(screenFromPath(`/t/acme/agent`))).toBeNull()
     // The Agent page hands on the origin the composer was opened with.
@@ -161,7 +161,7 @@ describe(`formatOrigin / parseOrigin`, () => {
       { kind: `inbox`, tab: `my-issues` },
       { kind: `inbox`, tab: `drafts` },
       board,
-      { kind: `threads` },
+      { kind: `chats` },
       { kind: `drafts` },
     ]
     for (const origin of origins) {
@@ -188,7 +188,7 @@ describe(`originLabel / originBoardSlug`, () => {
   it(`names the list the back row returns to`, () => {
     expect(originLabel(inbox)).toBe(`Inbox`)
     expect(originLabel({ kind: `inbox`, tab: `my-issues` })).toBe(`Inbox`)
-    expect(originLabel({ kind: `threads` })).toBe(`Chats`)
+    expect(originLabel({ kind: `chats` })).toBe(`Chats`)
     expect(originLabel(board, `Web`)).toBe(`Web`)
     // The board's name has to sync in first — never an empty row.
     expect(originLabel(board)).toBe(`Board`)
@@ -197,7 +197,7 @@ describe(`originLabel / originBoardSlug`, () => {
   it(`names the board a list nav renders`, () => {
     expect(originBoardSlug(board)).toBe(`web`)
     expect(originBoardSlug(inbox)).toBeNull()
-    expect(originBoardSlug({ kind: `threads` })).toBeNull()
+    expect(originBoardSlug({ kind: `chats` })).toBeNull()
   })
 })
 
@@ -254,8 +254,8 @@ describe(`originListNavigation`, () => {
       params: { teamSlug: `acme` },
       search: { tab: `my-issues` },
     })
-    expect(originListNavigation(`acme`, { kind: `threads` })).toEqual({
-      to: `/t/$teamSlug/threads`,
+    expect(originListNavigation(`acme`, { kind: `chats` })).toEqual({
+      to: `/t/$teamSlug/chats`,
       params: { teamSlug: `acme` },
       search: {},
     })

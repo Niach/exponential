@@ -10,9 +10,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-// EXP-1291 Threads v2: THE session router (apps/web/src/lib/trpc/sessions.ts)
+// EXP-1291: THE session router (apps/web/src/lib/trpc/sessions.ts)
 // and the PR router beside it. ONE entrypoint starts and messages every
-// session: `sessions.send` (a new thread root, a child, a message to an
+// session: `sessions.send` (a new chat root, a child, a message to an
 // existing session, or NEW-2 a message to an agent = into the caller's own
 // conversation session with it), landing in the ACTIVE team. The DB is
 // the bus: the answer carries ids + a txid this client never awaits; the
@@ -44,7 +44,7 @@ data class SessionsSendInput(
     // The message.
     val text: String? = null,
     val attachmentIds: List<String>? = null,
-    // Facets of a NEW root thread.
+    // Facets of a NEW root chat.
     val issueIds: List<String>? = null,
     // NEW-2: a new root run from a saved prompt (its body + [text]).
     val promptId: String? = null,
@@ -74,7 +74,7 @@ data class SessionsSendInput(
             picked?.let { ids -> JsonArray(ids.map(::JsonPrimitive)) } ?: JsonNull
 
         /**
-         * A NEW thread root in [teamId] (the ACTIVE team) on [deviceId]: text,
+         * A NEW chat root in [teamId] (the ACTIVE team) on [deviceId]: text,
          * issues or a saved prompt ([promptId]) — at least one of them.
          */
         fun root(
@@ -165,7 +165,7 @@ data class SessionsSendInput(
 
         /**
          * A message to an existing session (resumes an idle one; an ENDED
-         * thread continues server-side). Needs text or attachments.
+         * chat continues server-side). Needs text or attachments.
          */
         fun message(
             sessionId: String,
@@ -219,13 +219,13 @@ data class SessionsSendResult(
 @Serializable
 private data class SessionIdInput(val sessionId: String)
 
-/** Thread 58cb32df: `sessions.stop`'s answer. [delivered] = false when the
+/** Session 58cb32df: `sessions.stop`'s answer. [delivered] = false when the
  *  relay reached no device for a live, non-queued session (chats.json
  *  `copy.toasts.stopNotDelivered`); absent on an older server = delivered. */
 @Serializable
 data class SessionStopResult(val txid: Long? = null, val delivered: Boolean = true)
 
-/** Thread 58cb32df: `sessions.delete`'s answer. */
+/** Session 58cb32df: `sessions.delete`'s answer. */
 @Serializable
 data class SessionDeleteResult(val txid: Long? = null)
 
@@ -366,7 +366,7 @@ class SessionsApi @Inject constructor(
             .getOrDefault(SessionStopResult())
     }
 
-    /** Thread 58cb32df (chats.json): delete a ROOT chat — the server ends what
+    /** Session 58cb32df (chats.json): delete a ROOT chat — the server ends what
      *  is live, then deletes the tree and its messages. FORBIDDEN / NOT_FOUND /
      *  BAD_REQUEST (not a root chat) surface as a [TrpcException]. */
     suspend fun delete(accountId: String, sessionId: String): SessionDeleteResult {
@@ -385,7 +385,7 @@ class SessionsApi @Inject constructor(
     suspend fun end(accountId: String, sessionId: String) =
         unit(accountId, "sessions.end", sessionId)
 
-    /** Link issues to a thread (lands on the ROOT). 1–30 ids. */
+    /** Link issues to a chat (lands on the ROOT). 1–30 ids. */
     suspend fun linkIssues(accountId: String, sessionId: String, issueIds: List<String>) {
         trpc.mutationUnit(
             accountId,
@@ -445,7 +445,7 @@ class SessionsApi @Inject constructor(
         )
     }
 
-    /** EXP-1323: stamp the viewer's read of a session (a thread = its root). */
+    /** EXP-1323: stamp the viewer's read of a session (a chat = its root). */
     suspend fun markRead(accountId: String, sessionId: String) =
         unit(accountId, "sessions.markRead", sessionId)
 
@@ -493,7 +493,7 @@ class SessionsApi @Inject constructor(
     suspend fun dismissSuggestion(accountId: String, messageId: String, itemId: String) =
         suggestionItem(accountId, "sessions.dismissSuggestion", messageId, itemId)
 
-    /** EXP-1323: File as issue — the item becomes an issue of the thread. */
+    /** EXP-1323: File as issue — the item becomes an issue of the chat. */
     suspend fun fileSuggestion(accountId: String, messageId: String, itemId: String) =
         suggestionItem(accountId, "sessions.fileSuggestion", messageId, itemId)
 

@@ -1,6 +1,6 @@
 import { cn } from "./cn"
 
-// Thread e4a04d22 (owner 2026-10-24: "the mentions should also get a proper
+// Chat e4a04d22 (owner 2026-10-24: "the mentions should also get a proper
 // ui everywhere") — THE mention pill, presentational half. ONE round pill for
 // every surface that names a member by `@<email>`: the comment and
 // description editors (a ProseMirror DECORATION, the app's

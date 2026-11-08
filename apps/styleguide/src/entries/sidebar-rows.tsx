@@ -28,7 +28,7 @@ import type { StyleguideEntry } from "./types.ts"
 // the same on web and the IDE.
 
 const NavInboxIcon = conceptIcon(`nav-inbox`)
-const NavThreadsIcon = conceptIcon(`nav-threads`)
+const NavChatsIcon = conceptIcon(`nav-chats`)
 const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const UiAddIcon = conceptIcon(`ui-add`)
 
@@ -59,7 +59,7 @@ function SidebarRowsSpecimen() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton density="compact">
-                  <NavThreadsIcon className="h-4 w-4" />
+                  <NavChatsIcon className="h-4 w-4" />
                   <span>Chats</span>
                 </SidebarMenuButton>
                 <Dot tone="needsYou" />

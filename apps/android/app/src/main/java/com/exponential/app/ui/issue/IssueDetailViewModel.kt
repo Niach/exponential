@@ -319,7 +319,7 @@ class IssueDetailViewModel @AssistedInject constructor(
     // Every synced attachment row of this issue — the ONE query behind both the
     // probed-dimension map (inline images) and the Files section (everything
     // else, EXP-297). Comment attachments belong to the same issue, so this
-    // covers the description AND the whole thread.
+    // covers the description AND the whole comment list.
     private val attachmentsFlow: StateFlow<List<AttachmentEntity>> =
         dbFlow.scopedQuery(emptyList()) { it.attachmentDao().observeByIssue(issueId) }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -564,8 +564,8 @@ class IssueDetailViewModel @AssistedInject constructor(
         }
     }
 
-    /** One thread this issue sits in (the issue page's `Threads` row). */
-    data class IssueThread(
+    /** One chat this issue sits in (the issue page's `Chats` row). */
+    data class IssueChat(
         val rootId: String,
         val title: String,
         val live: Boolean,
@@ -574,9 +574,9 @@ class IssueDetailViewModel @AssistedInject constructor(
         val cli: String? = null,
     )
 
-    // EXP-1291: the THREADS (root sessions) linking this issue, newest
-    // activity first, titled by `SessionTree.threadTitle`.
-    val threads: StateFlow<List<IssueThread>> = dbFlow.flatMapLatest { db ->
+    // EXP-1291: the CHATS (root sessions) linking this issue, newest
+    // activity first, titled by `SessionTree.chatTitle`.
+    val chats: StateFlow<List<IssueChat>> = dbFlow.flatMapLatest { db ->
         if (db == null) {
             flowOf(emptyList())
         } else {
@@ -596,11 +596,11 @@ class IssueDetailViewModel @AssistedInject constructor(
                 val treeIssues = issues.map(SessionTree::issue)
                 val treeLinks = links.map(SessionTree::sessionIssue)
                 // Release train 2026-10-23 (VAPP-110): an app editor's session is the
-                // editor's chat, never a thread on the issue (iOS IssueThreadsStrip).
+                // editor's chat, never a chat on the issue (iOS IssueChatsStrip).
                 roots.filter { it.parentId == null && !it.isAgent && it.appId.isNullOrEmpty() }.map { root ->
                     val tree = all.filter { it.rootId == root.id || it.id == root.id }
                     val treeRoot = SessionTree.session(root)
-                    IssueThread(
+                    IssueChat(
                         rootId = root.id,
                         title = SessionTree.sessionTitle(
                             treeRoot,

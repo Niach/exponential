@@ -3,7 +3,7 @@ import Foundation
 /// #EXP-1623 (Android #EXP-1522): one viewer frame off the steer feed, read
 /// ONCE into plain values. A join replay is thousands of frames in one burst,
 /// and the JSON parse plus the activity decode of each one ran on the main
-/// thread; `AgentSessionModel` now parses a burst off main with this and
+/// chat; `AgentSessionModel` now parses a burst off main with this and
 /// folds only the decoded events there. Pure and `Sendable`, so it can.
 public struct SteerWireFrame: Equatable, Sendable {
     /// One decoded activity event and the raw `at` stamp its edge carried

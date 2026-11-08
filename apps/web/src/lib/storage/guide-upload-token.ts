@@ -1,6 +1,6 @@
 import crypto from "node:crypto"
 
-// EXP-879/1291: short-lived signed UPLOAD URLs for a thread's Guide pictures
+// EXP-879/1291: short-lived signed UPLOAD URLs for a chat's Guide pictures
 // — the inverse of EXP-704's download token (attachment-token.ts).
 //
 // `writeGuide({label})` (MCP `sessions_guide`) and `sessions_show` hand the

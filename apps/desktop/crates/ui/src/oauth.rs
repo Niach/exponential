@@ -277,8 +277,8 @@ fn open_session_deep_link(link: SessionDeepLink, cx: &mut App) {
     let _ = window.update(cx, |_, window, cx| {
         match (link.opens.as_deref(), link.message_id.as_deref()) {
             (Some("plan"), Some(message_id)) => return crate::plan_page::open(&link.session_id, message_id, window, cx),
-            (Some("card"), Some(message_id)) => crate::thread_screen::request_thread_card(&root_id, message_id, cx),
-            (Some("results"), _) => crate::thread_screen::request_thread_results(&root_id, cx),
+            (Some("card"), Some(message_id)) => crate::session_chat::request_chat_card(&root_id, message_id, cx),
+            (Some("results"), _) => crate::session_chat::request_chat_results(&root_id, cx),
             _ => {
                 let screen = crate::plan_page::screen_for_session(&link.session_id, cx);
                 crate::plan_page::prime_session(&link.session_id, cx);

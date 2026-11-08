@@ -248,7 +248,7 @@ private fun ScheduleTimeRow(
 }
 
 /** The rows in their grouped card, for the styleguide's `schedule-picker`
- *  specimen (thread 58cb32df: the `minutes` repeat). */
+ *  specimen (session 58cb32df: the `minutes` repeat). */
 @Composable
 fun ScheduleFieldsSpecimen(draft: ScheduleDraft, onChange: (ScheduleDraft) -> Unit) {
     OptionGroup { ScheduleFields(draft, onChange) }

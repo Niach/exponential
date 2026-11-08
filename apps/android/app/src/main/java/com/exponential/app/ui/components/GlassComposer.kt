@@ -29,7 +29,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * The ONE composer shell (EXP-698) — the issue detail's docked comment box,
- * the steer screen's "message the agent" box and the support thread's reply
+ * the steer screen's "message the agent" box and the support chat's reply
  * box. All three drew the same thing by hand with different corner radii (24
  * / 24 / none), different fills and a different tool row; they are this now.
  *
@@ -41,7 +41,7 @@ import com.exponential.app.ui.theme.TextEmphasis
  * hairline is the edge.
  *
  * Slots, top to bottom: [leading] (a row above the field — the support
- * thread's Reply / Internal-note pills), [strip] (queued attachments),
+ * chat's Reply / Internal-note pills), [strip] (queued attachments),
  * [field], and a bottom row of [tools] (ghost glyph buttons) with [submit]
  * pushed to the end. EXP-893: [footer] REPLACES that bottom row's layout when
  * given — the steer composer's `Plan mode · + · … · model · ring` strip owns

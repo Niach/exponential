@@ -2558,7 +2558,7 @@ async function main(): Promise<number> {
 
     ids = await fetchDemoIds()
     console.log(
-      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.sessionId ? `` : ` · NO demo session (steering/session will skip)`}${ids.threadId ? `` : ` · NO demo thread (thread will skip)`}${ids.agentId ? `` : ` · NO demo agent (agent-channel will skip)`}`
+      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.sessionId ? `` : ` · NO demo session (steering/session will skip)`}${ids.chatId ? `` : ` · NO demo chat (chat will skip)`}${ids.agentId ? `` : ` · NO demo agent (agent-channel will skip)`}`
     )
   }
 

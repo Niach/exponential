@@ -20,7 +20,7 @@ export type DockSource =
       id: string
       /** The plan (markdown). */
       text: string
-      /** The asking session's name in a thread; null in the session view. */
+      /** The asking session's name in a chat; null in the session view. */
       sessionName: string | null
       /** How many questions the card asks. */
       questions: number
@@ -30,7 +30,7 @@ export type DockSource =
   | { kind: `question`; id: string; text: string; sessionName: string | null; createdAt: number }
   | {
       kind: `tasks`
-      /** #EXP-1545: a thread's Live child carrying the card (its name leads
+      /** #EXP-1545: a chat's Live child carrying the card (its name leads
        *  the caption); absent or null = the root / the session view. */
       sessionName?: string | null
       /** THE Queue (task-queue.json `taskQueue`), or null when nothing is to do. */
@@ -227,10 +227,10 @@ export function dockRows(sources: readonly DockSource[]): DockRow[] {
     .map((entry) => entry.row)
 }
 
-/** #EXP-1545: a session of a thread's tree that may carry the Dock's ONE
+/** #EXP-1545: a session of a chat's tree that may carry the Dock's ONE
  *  `tasks` card. `activeAt` = epoch ms of its last turn (else its start),
  *  null = no activity yet; `open` = its Queue has a todo item to show. */
-export interface ThreadQueueCandidate {
+export interface ChatQueueCandidate {
   sessionId: string
   name: string
   root: boolean
@@ -239,16 +239,16 @@ export interface ThreadQueueCandidate {
   open: boolean
 }
 
-/** #EXP-1545: whose Queue the thread's Dock shows: the root's while it is
+/** #EXP-1545: whose Queue the chat's Dock shows: the root's while it is
  *  open, else the most recently active Live child's (ties by id), else
  *  none. An ended session contributes nothing. */
-export function threadDockQueue(
-  candidates: readonly ThreadQueueCandidate[]
+export function chatDockQueue(
+  candidates: readonly ChatQueueCandidate[]
 ): { sessionId: string; sessionName: string | null } | null {
   const live = candidates.filter((candidate) => candidate.open && !candidate.ended)
   const root = live.find((candidate) => candidate.root)
   if (root) return { sessionId: root.sessionId, sessionName: null }
-  let best: ThreadQueueCandidate | null = null
+  let best: ChatQueueCandidate | null = null
   for (const candidate of live) {
     if (
       !best ||
@@ -261,21 +261,21 @@ export function threadDockQueue(
   return best ? { sessionId: best.sessionId, sessionName: best.name } : null
 }
 
-/** #EXP-1678 (ONE CHILD STREAM): what a thread knows of one Live child's
+/** #EXP-1678 (ONE CHILD STREAM): what a chat knows of one Live child's
  *  Queue before it pays for that child's stream. */
-export type ThreadQueueChildState = `open` | `closed` | `unknown`
-export interface ThreadQueueProbe {
+export type ChatQueueChildState = `open` | `closed` | `unknown`
+export interface ChatQueueProbe {
   sessionId: string
   activeAt: number | null
-  state: ThreadQueueChildState
+  state: ChatQueueChildState
 }
-export const THREAD_QUEUE_PROBE_DEADLINE_MS: number = fixture.probeDeadlineMs
-export const THREAD_QUEUE_CLOSED_TTL_MS: number = fixture.closedQueueTtlMs
+export const CHAT_QUEUE_PROBE_DEADLINE_MS: number = fixture.probeDeadlineMs
+export const CHAT_QUEUE_CLOSED_TTL_MS: number = fixture.closedQueueTtlMs
 
-/** #EXP-1678: the ONE Live child a thread holds a stream on for THE THREAD
+/** #EXP-1678: the ONE Live child a chat holds a stream on for THE CHAT
  *  QUEUE: none while the root's Queue is open, else the first child in
- *  `threadDockQueue`'s order that is not known closed. */
-export function threadQueueProbe(rootOpen: boolean, children: readonly ThreadQueueProbe[]): string | null {
+ *  `chatDockQueue`'s order that is not known closed. */
+export function chatQueueProbe(rootOpen: boolean, children: readonly ChatQueueProbe[]): string | null {
   if (rootOpen) return null
   const ordered = [...children].sort((a, b) => {
     const x = a.activeAt ?? -Infinity
@@ -285,18 +285,18 @@ export function threadQueueProbe(rootOpen: boolean, children: readonly ThreadQue
   return ordered.find((child) => child.state !== `closed`)?.sessionId ?? null
 }
 
-/** #EXP-1678: one Live child's state for [threadQueueProbe]. */
-export function threadQueueChildState(input: {
+/** #EXP-1678: one Live child's state for [chatQueueProbe]. */
+export function chatQueueChildState(input: {
   open: boolean
   remembered: boolean
   stream: { phase: `connecting` | `live` | `starting` | `closed` | `ended`; replayed: boolean; attachedMs: number } | null
-}): ThreadQueueChildState {
+}): ChatQueueChildState {
   if (input.open) return `open`
   if (input.remembered) return `closed`
   const stream = input.stream
   if (!stream) return `unknown`
   if (stream.phase === `starting` || stream.phase === `closed` || stream.phase === `ended`) return `closed`
-  if (stream.replayed || stream.attachedMs >= THREAD_QUEUE_PROBE_DEADLINE_MS) return `closed`
+  if (stream.replayed || stream.attachedMs >= CHAT_QUEUE_PROBE_DEADLINE_MS) return `closed`
   return `unknown`
 }
 

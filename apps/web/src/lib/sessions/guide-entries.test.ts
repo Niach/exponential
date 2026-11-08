@@ -21,7 +21,7 @@ import {
   upsertGuideText,
 } from "@/lib/sessions/guide-entries"
 
-// EXP-1291: the thread Guide's list algebra (ported from the EXP-879/933/
+// EXP-1291: the chat Guide's list algebra (ported from the EXP-879/933/
 // 1154/1251 results writes): ordering, per-writer ownership, caps.
 
 const A = `session-a`

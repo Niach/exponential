@@ -7,14 +7,14 @@ import {
   commandDivider,
 } from "@exp/domain-contract/chats"
 import {
-  THREAD_QUEUE_CLOSED_TTL_MS,
-  THREAD_QUEUE_PROBE_DEADLINE_MS,
-  threadDockQueue,
-  threadQueueChildState,
-  threadQueueProbe,
+  CHAT_QUEUE_CLOSED_TTL_MS,
+  CHAT_QUEUE_PROBE_DEADLINE_MS,
+  chatDockQueue,
+  chatQueueChildState,
+  chatQueueProbe,
   type DockRow,
   type DockSource,
-  type ThreadQueueProbe,
+  type ChatQueueProbe,
 } from "@exp/domain-contract/dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
@@ -49,8 +49,8 @@ import {
   DockSheetBody,
   markDockOpen,
   AskPrompt,
-  ThreadDock,
-  ThreadConversation,
+  ChatDock,
+  ChatConversation,
   TranscriptDivider,
   useLiveArrivals,
   ASK_CARD_COPY,
@@ -92,8 +92,20 @@ import {
   ScriptCard,
   STARTING_COPY,
   SkeletonRows,
+  MessageBubble,
+  SenderAvatar,
+  TranscriptRow,
+  transcriptSenderName,
   type WorkCardLaneTarget,
 } from "@exp/ui"
+import {
+  crossSessionInput,
+  transcriptLayout,
+  type TranscriptItem,
+  type TranscriptRowLayout,
+} from "@exp/domain-contract/transcript-grouping"
+import { useXrefAgent } from "@/hooks/use-session-nav"
+import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
 import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -155,10 +167,10 @@ import {
 } from "@/lib/agent-feed"
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { useSessionMessages } from "@/hooks/use-session-tree"
+import { useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage } from "@/hooks/use-answer-message"
 import { useOpenPlan } from "@/hooks/use-open-plan"
-import { renderThreadText } from "@/components/thread/thread-markdown"
+import { renderChatText } from "@/components/chat/chat-markdown"
 import { FeedText } from "@/components/feed-text"
 import { workingCaption, type WorkingWriting } from "@/lib/working-caption"
 import {
@@ -188,24 +200,23 @@ import { ReadMarkdown } from "@/components/read-markdown"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { SessionAccountSwitchButton } from "@/components/session-account-switch"
-import { sendAgentLine } from "@/components/thread/chat-menu"
+import { sendAgentLine } from "@/components/chat/chat-menu"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
-  buildSessionThread,
+  buildSessionChat,
   sessionBanner,
   toTreeMessage,
   toTreeSession,
   type SessionRow,
-  type ThreadRow,
+  type SessionChatRow,
 } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 import { STEER_ENET_NO_FEED_IDLE, steerNoFeedAway, steerNoFeedState } from "@exp/domain-contract/steer-enet"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
-const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const DeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
@@ -231,10 +242,10 @@ const TASK_QUEUE_TEST_IDS = taskQueueSpec.testIds
 // Work / Script / Tasks cards — never raw PTY bytes. Question and plan
 // answers ride the semantic `answer` frame (steer protocol v2, EXP-249).
 //
-// EXP-1293 Threads v2: this is the RAW WORK of one session, opened from its
+// EXP-1293: this is the RAW WORK of one session, opened from its
 // session card (`/t/$teamSlug/sessions/$sessionId`). It ALWAYS shows the work
 // (no Show work, no faces, no Guide, no merge, no issue header, no run
-// switching): the route owns the header (back to the thread, the title,
+// switching): the route owns the header (back to the chat, the title,
 // Stop) and the reply box (`SessionComposer`), handed in as slots.
 
 // ── Transcript rhythm (EXP-787) ──────────────────────────────────────────────
@@ -305,10 +316,17 @@ export function AgentSessionView({
   header,
   composer,
   composerFloats = false,
+  onOpenSession,
+  origin = null,
 }: {
   /** The synced `sessions` row (any node of a tree). */
   session: SessionRow
-  /** The route's header (back to the thread, the title, Stop). */
+  /** #EXP-1736: a cross-session bubble was pressed (the host's back stack). */
+  onOpenSession?: (sessionId: string) => void
+  /** S-3 / #EXP-1736: who started the session (from the synced rows): the
+   *  feed's first prompt reads as that session's bubble. */
+  origin?: SessionXrefModel | null
+  /** The route's header (back to the chat, the title, Stop). */
   header?: ReactNode
   /** The reply box under the feed (`SessionComposer`). */
   composer?: ReactNode
@@ -358,7 +376,7 @@ export function AgentSessionView({
   ) => store.answerQuestion(item, keys, labels, text)
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
-  // (`useFollowScroll`, shared with the thread Conversation, EXP-1316).
+  // (`useFollowScroll`, shared with the chat Conversation, EXP-1316).
   const follow = useFollowScroll([feed, phase.kind, session.needsInput, compactingNow])
   const { scrollRef, atBottom, jumpToBottom } = follow
 
@@ -390,7 +408,7 @@ export function AgentSessionView({
   )
   /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
    *  off the synced `messages` (`isToolPostedCard`): the relay holds no
-   *  open ask for them, so they render as THE thread card and answer via
+   *  open ask for them, so they render as THE chat card and answer via
    *  `sessions.answer` only. A waiting one takes the ask dock when no relay
    *  card does; the rest sit after the call that posted them. */
   const sessionMessages = useSessionMessages(session.id)
@@ -403,7 +421,7 @@ export function AgentSessionView({
   const [dockHeight, setDockHeight] = useState(0)
   const sessionDock = useSessionDock(session)
   const { answer: answerCard, pending: cardsPending } = useAnswerMessage()
-  // Thread 58cb32df (chats.json SURFACE CARD): an agent's inline preview
+  // Chat 58cb32df (chats.json SURFACE CARD): an agent's inline preview
   // (`session_self_show`) sits right after the call that posted it, like a
   // tool-posted card; a `reply` press sends its text as the next message.
   const surfaceCards = useMemo(() => surfaceCardRows(session, sessionMessages), [session, sessionMessages])
@@ -427,9 +445,9 @@ export function AgentSessionView({
         if (!row) return null
         return (
           <div key={`${keyPrefix}-${id}`} className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-tool-card">
-            <ThreadConversation
+            <ChatConversation
               rows={[row]}
-              renderText={renderThreadText}
+              renderText={renderChatText}
               attachmentSrc={attachmentUrl}
               onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
               onDecide={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
@@ -506,6 +524,31 @@ export function AgentSessionView({
   const agentCommands = useMemo(
     () => steerCommandsFor(catalogAgent),
     [catalogAgent]
+  )
+  // #EXP-1736 (transcript-grouping.json): ONE transcript: the agent's prose
+  // and the session inputs are bubbles under their sender's avatar + name
+  // (the session itself, its agent, a parent or child), the work rows sit
+  // in the agent's column, the cards across.
+  const sessionCardModel = useSessionCard(session)
+  const xrefAgent = useXrefAgent()
+  const feedLayouts = useMemo(
+    () =>
+      feedTranscriptLayout(
+        rows,
+        {
+          sessionId: session.id,
+          title: sessionCardModel?.name ?? session.title ?? ``,
+          agentId: session.agentId ?? null,
+        },
+        // ONE origin rule (data first): the feed's first prompt is the
+        // origin's while the window holds the feed's start.
+        {
+          origin,
+          fromStart: windowStart === 0 && !snapshotCanLoadEarlier,
+          isCommand: (text) => parseSteerCommand(text, agentCommands) !== null,
+        }
+      ),
+    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, windowStart, snapshotCanLoadEarlier, agentCommands]
   )
   /** EXP-389/848: the agent is EXECUTING a turn. */
   const working = sessionIsWorking({
@@ -600,14 +643,28 @@ export function AgentSessionView({
       index === 0 ? null : rowClass(list[index - 1]),
       rowClass(row)
     )
+    // #EXP-1736: the sender's column; two bubbles in a row take the
+    // grouping's gap, everything else keeps the ladder (EXP-787).
+    const layout = feedLayouts.get(feedRowKey(row))
+    const isBubble = (r: (typeof list)[number]) =>
+      isBubbleRow(r) && feedLayouts.get(feedRowKey(r))?.side !== `full`
+    const bubbles = index > 0 && isBubble(row) && isBubble(list[index - 1]!)
+    const sender = layout?.sender ?? null
     const wrap = (content: ReactNode) => (
-      <div
+      <TranscriptRow
         key={row.kind === `single` ? row.item.id : row.id}
-        className={gap}
+        layout={layout ? { ...layout, gap: bubbles ? layout.gap : 0 } : null}
+        avatar={
+          sender ? (
+            <SenderAvatar sender={sender} agent={sender.kind === `agent` ? xrefAgent(sender.id) : null} />
+          ) : null
+        }
+        className={bubbles ? undefined : gap}
       >
         {content}
-      </div>
+      </TranscriptRow>
     )
+    const bubbleName = layout?.name ? transcriptSenderName(sender) : null
     // EXP-916: a run of consecutive edits IS the edited-files card.
     if (row.kind === `edits`) {
       return wrap(
@@ -673,7 +730,7 @@ export function AgentSessionView({
     switch (item.kind) {
       case `narration`:
         // EXP-1676: the run view's row on every form factor.
-        return wrap(<NarrationBubble text={item.text} />)
+        return wrap(<NarrationBubble text={item.text} author={bubbleName} />)
       case `thought`:
         // EXP-1324: the reasoning line; still open only while the run lives.
         return wrap(
@@ -705,7 +762,7 @@ export function AgentSessionView({
         return wrap(<ToolRow item={item} flush live={item.id === liveRowId} />)
       }
       case `user_message`: {
-        // Thread 58cb32df (chats.json TRANSCRIPT): `/new` and `/compact`
+        // Chat 58cb32df (chats.json TRANSCRIPT): `/new` and `/compact`
         // are THE divider pill, never a bubble.
         const divider = commandDivider(item.text)
         if (divider) {
@@ -718,12 +775,18 @@ export function AgentSessionView({
         }
         // EXP-724: a steered slash command renders as a compact pill.
         const command = parseSteerCommand(item.text, agentCommands)
+        if (command) return wrap(<CommandRow name={command.command.name} args={command.args} />)
+        // #EXP-1736: another session's input = that session's bubble.
+        // (ONE origin rule: the first prompt may be the origin's.)
+        const cross = crossSessionInput(item.text)
+        const link = layout?.side === `other` ? (sender?.link ?? null) : null
         return wrap(
-          command ? (
-            <CommandRow name={command.command.name} args={command.args} />
-          ) : (
-            <UserMessageBubble text={item.text} />
-          )
+          <UserMessageBubble
+            text={cross ? cross.body : item.text}
+            side={layout?.side === `other` ? `in` : `out`}
+            author={bubbleName}
+            onPress={link && onOpenSession ? () => onOpenSession(link) : undefined}
+          />
         )
       }
       case `compaction`:
@@ -990,10 +1053,10 @@ export function AgentSessionView({
               cards (the relay's, the tool-posted ones), THE Queue, the
               queued messages and the status banners, then the composer (a
               phone's floats in the work bar instead). */}
-          <ThreadDock
+          <ChatDock
             rows={NO_ROWS}
             sessionName={noSessionName}
-            renderText={renderThreadText}
+            renderText={renderChatText}
             attachmentSrc={attachmentUrl}
             pending={cardsPending}
             onAnswer={(rowId, input) => void answerCard(rowId, input)}
@@ -1019,12 +1082,12 @@ export function AgentSessionView({
 /** EXP-1280: a tool-posted card's pictures resolve against the app. */
 const attachmentUrl = (attachmentId: string) => `/api/attachments/${attachmentId}`
 const noSessionName = () => null
-const NO_ROWS: ThreadRow[] = []
+const NO_ROWS: SessionChatRow[] = []
 const NO_DOCK_SLOTS: SteerDockSlots = { taskList: [], backgroundTasks: [], queue: [], compacting: null, rateLimit: null }
 
 /** EXP-1280: this session's TOOL-posted cards (ask-dock.json
- *  `sessionCards`) in THE thread row form, oldest first. */
-function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]): ThreadRow[] {
+ *  `sessionCards`) in THE chat row form, oldest first. */
+function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]): SessionChatRow[] {
   const ids = new Set(
     sessionCards(messages.map(toTreeMessage))
       .filter((card) => card.kind !== `surface`)
@@ -1032,7 +1095,7 @@ function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]):
   )
   const cards = messages.filter((message) => ids.has(message.id))
   if (cards.length === 0) return []
-  return buildSessionThread({
+  return buildSessionChat({
     root: toTreeSession(session),
     sessions: [],
     sessionIssues: [],
@@ -1045,11 +1108,11 @@ function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]):
 
 type MessageRowLike = Parameters<typeof toTreeMessage>[0]
 
-/** Thread 58cb32df: this session's `surface` cards as THE thread rows. */
-function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[]): ThreadRow[] {
+/** Chat 58cb32df: this session's `surface` cards as THE chat rows. */
+function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[]): SessionChatRow[] {
   const cards = messages.filter((message) => (message.card as { kind?: unknown } | null)?.kind === `surface`)
   if (cards.length === 0) return []
-  return buildSessionThread({
+  return buildSessionChat({
     root: toTreeSession(session),
     sessions: [],
     sessionIssues: [],
@@ -1061,12 +1124,84 @@ function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[
 }
 
 /** The feed item ids a transcript row draws. */
+/** A raw feed row as the transcript sees it (#EXP-1736). */
+type FeedRowLike = { kind: string; id?: string | number; item?: { id: number; kind: string; text?: string; workflowId?: string | null } }
+
+/** The key a feed row's layout is stored under. */
+function feedRowKey(row: FeedRowLike): string {
+  return row.kind === `single` ? `i${row.item!.id}` : `r${String(row.id)}`
+}
+
+/** The feed rows that paint as a bubble: the agent's prose, a session input. */
+function isBubbleRow(row: FeedRowLike): boolean {
+  if (row.kind !== `single`) return false
+  const item = row.item!
+  if (item.kind === `narration`) return true
+  return item.kind === `user_message` && !commandDivider(item.text ?? ``)
+}
+
+/** The viewer stands in for whoever typed into the raw feed (it carries no
+ *  author): a typed turn is the viewer's own. */
+const FEED_VIEWER = `viewer`
+
+/** #EXP-1736 (transcript-grouping.json): the raw feed's rows as transcript
+ *  items: prose and session inputs are messages, the work rows the agent's
+ *  trace, the rest full rows. */
+export function feedTranscriptLayout(
+  rows: readonly FeedRowLike[],
+  chat: { sessionId: string; title: string; agentId: string | null },
+  options: { origin?: SessionXrefModel | null; fromStart?: boolean; isCommand?: (text: string) => boolean } = {}
+): Map<string, TranscriptRowLayout> {
+  const sessions = new Map<string, { id: string; title: string; agentId: string | null }>()
+  const origin = options.origin ?? null
+  if (origin) sessions.set(origin.sessionId, { id: origin.sessionId, title: origin.name, agentId: origin.agentId })
+  const items: TranscriptItem[] = rows.map((row) => {
+    const id = feedRowKey(row)
+    if (row.kind === `toolRun` || row.kind === `expRun` || row.kind === `edits` || row.kind === `subagent`) {
+      return { id, kind: `trace` }
+    }
+    if (row.kind !== `single`) return { id, kind: `full` }
+    const item = row.item!
+    switch (item.kind) {
+      case `narration`:
+        return { id, kind: `message`, authorKind: `agent` }
+      case `user_message`: {
+        if (commandDivider(item.text ?? ``) || options.isCommand?.(item.text ?? ``)) return { id, kind: `full` }
+        const cross = crossSessionInput(item.text ?? ``)
+        if (cross) {
+          if (!sessions.has(cross.sessionId)) {
+            sessions.set(cross.sessionId, { id: cross.sessionId, title: cross.name, agentId: null })
+          }
+          return { id, kind: `message`, authorKind: `agent`, authorSessionId: cross.sessionId }
+        }
+        return { id, kind: `message`, authorKind: `user`, authorId: FEED_VIEWER }
+      }
+      case `thought`:
+      case `subagent`:
+        return { id, kind: `trace` }
+      case `tool`:
+        return { id, kind: item.workflowId ? `full` : `trace` }
+      default:
+        return { id, kind: `full` }
+    }
+  })
+  const layouts = transcriptLayout({
+    viewerId: FEED_VIEWER,
+    chat: { ...chat, originSessionId: origin?.sessionId ?? null, fromStart: options.fromStart ?? true },
+    members: [],
+    agents: [],
+    sessions: [...sessions.values()],
+    items,
+  })
+  return new Map(layouts.map((layout) => [layout.id, layout]))
+}
+
 function rowItemIds(row: { kind: string; item?: { id: number }; items?: readonly { id: number }[] }): number[] {
   if (row.item) return [row.item.id]
   return row.items ? row.items.map((item) => item.id) : []
 }
 
-/** EXP-1323 (#EXP-1333): a THREAD's live tail ×4 — while the root's session
+/** EXP-1323 (#EXP-1333): a CHAT's live tail ×4 — while the root's session
  *  works the Conversation ends on ONE status line (the "Working…" row).
  *  N-12: THE Queue left the transcript for the Dock (`useSessionDock`).
  *  Same relay store as the raw view (one connection per session, shared). */
@@ -1097,7 +1232,7 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
   })
   if (!working) return null
   return (
-    <div data-testid="thread-live-tail" className="flex flex-col gap-2">
+    <div data-testid="chat-live-tail" className="flex flex-col gap-2">
       {working && (
         <WorkingIndicatorRow
           agent={session.cli}
@@ -1475,22 +1610,22 @@ function LaneRows({
 // markdown of unchanged text is the one cost worth avoiding here.
 export const NarrationBubble = memo(function NarrationBubble({
   text,
+  author = null,
 }: {
   text: string
+  /** #EXP-1736: the sender's name (the group's first bubble). */
+  author?: string | null
 }) {
   // #VAPP-258: a live turn's prose paints as a growing prefix.
   const streaming = useContext(TranscriptStreamingContext)
   return (
-    // EXP-696: no bubble, matching the natives (EXP-274) — a small assistant
-    // glyph and the agent's prose running the full width of the feed.
-    <div className="flex items-start gap-2">
-      <CodingAssistantIcon className="mt-1.5 size-3 shrink-0 text-muted-foreground/60" />
-      <div
-        className={cn(`min-w-0 flex-1 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}
-      >
+    // #EXP-1736: THE message bubble on every client (was a bare paragraph
+    // here, a bubble on iOS).
+    <MessageBubble side="in" author={author}>
+      <div className={cn(`min-w-0 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}>
         <FeedText text={text} ariaLabel="Agent message" hardBreaks streaming={streaming} />
       </div>
-    </div>
+    </MessageBubble>
   )
 })
 
@@ -1597,13 +1732,20 @@ function MarkerText({
  *  below it. */
 const UserMessageBubble = memo(function UserMessageBubble({
   text,
+  side = `out`,
+  author = null,
+  onPress,
 }: {
   text: string
+  /** #EXP-1736: `in` = another session's input (its bubble, its name). */
+  side?: `in` | `out`
+  author?: string | null
+  onPress?: () => void
 }) {
   const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
   const hasImages = attachmentIds.length > 0
   // Wave D: file lines are peeled off like the embeds and drawn as the
-  // comment thread's file chips, never as broken images or raw links.
+  // comment chat's file chips, never as broken images or raw links.
   const hasAttachments = hasImages || files.length > 0
   // Clamp the PROSE, never the wire message: four embed lines are four more
   // "lines" of nothing, and they used to push a two-line steer into the fold
@@ -1616,16 +1758,11 @@ const UserMessageBubble = memo(function UserMessageBubble({
     if (index >= 1 && index <= attachmentIds.length) setPreview(index - 1)
   }
   return (
-    <div className="flex justify-end pl-8">
-      {/* EXP-696: the natives' neutral glass bubble, not a primary tint —
-          slightly brighter than the assistant's glass sections so the
-          sender's own turn reads apart from the feed. */}
-      <div
-        className={cn(
-          `min-w-0 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-2 text-foreground/90`,
-          TRANSCRIPT_BODY_TEXT
-        )}
-      >
+    <>
+      {/* #EXP-1736: THE message bubble (EXP-696's neutral glass for the
+          viewer's own turn). */}
+      <MessageBubble side={side} author={author} onPress={onPress}>
+      <div className={TRANSCRIPT_BODY_TEXT}>
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}
         <div
@@ -1685,6 +1822,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
           </div>
         )}
       </div>
+      </MessageBubble>
       {preview !== null && attachmentIds[preview] && (
         <ImagePreviewDialog
           open
@@ -1695,7 +1833,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
           label={`Image ${preview + 1}`}
         />
       )}
-    </div>
+    </>
   )
 })
 
@@ -1801,7 +1939,7 @@ function QuestionPrompt({
     (editing || item.resolved !== true)
 
   // EXP-1316: THE card's prompt (`@exp/ui` AskPrompt, shared with the
-  // thread conversation); a plan reject's typed feedback follows as the next
+  // chat conversation); a plan reject's typed feedback follows as the next
   // message (`freeAnswerFor`).
   const answer = (keys: string[], labels: string[], text?: string) => {
     if (item.planMode && text !== undefined) {
@@ -1926,8 +2064,8 @@ export function useAgentHintDock(session: SessionRow | null): {
  *  account switch, EXP-724 the compaction strip, EXP-784 the rate-limit
  *  window, the starting line), as `DockSource`s with their sheets and
  *  actions (dock.json `banner`: the host's words). The session view and
- *  the thread's Conversation share it (one relay store per session). */
-/** #EXP-1545: a thread's children (each with the name its tabs show). */
+ *  the chat's Conversation share it (one relay store per session). */
+/** #EXP-1545: a chat's children (each with the name its tabs show). */
 export interface DockChild {
   session: SessionRow
   name: string
@@ -1936,7 +2074,7 @@ export interface DockChild {
 const NO_CHILDREN: readonly DockChild[] = []
 
 /** #EXP-1678 (dock.json ONE CHILD STREAM): children read closed, by session
- *  id, keyed by their activeAt then; kept across thread mounts. */
+ *  id, keyed by their activeAt then; kept across chat mounts. */
 const closedQueueReads = new Map<string, { activeAt: number | null; at: number }>()
 const NO_SUBSCRIBE = () => () => {}
 const NO_SNAPSHOT = () => null
@@ -1956,10 +2094,10 @@ function snapshotQueueOpen(snapshot: SteerSessionSnapshot): boolean {
   return Boolean(sessionTaskQueue({ taskList, backgroundTasks, feed, now: Date.now() })?.todo.items.length)
 }
 
-/** #EXP-1545 (dock.json THREAD QUEUE) + #EXP-1678 (ONE CHILD STREAM): the
- *  relay snapshot of the ONE Live child `threadQueueProbe` names (LOCAL
+/** #EXP-1545 (dock.json CHAT QUEUE) + #EXP-1678 (ONE CHILD STREAM): the
+ *  relay snapshot of the ONE Live child `chatQueueProbe` names (LOCAL
  *  FIRST: the per-session store's last-known slots while it dials); the
- *  thread never opens a stream per Live child (a burst of joins to one
+ *  chat never opens a stream per Live child (a burst of joins to one
  *  device). An ended child is not read at all. */
 function useChildSnapshots(
   children: readonly DockChild[],
@@ -1976,16 +2114,16 @@ function useChildSnapshots(
   const snapshot = useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, store?.getSnapshot ?? NO_SNAPSHOT)
   const heldOpen = useMemo(() => (snapshot ? snapshotQueueOpen(snapshot) : false), [snapshot])
   const now = Date.now()
-  const probes: ThreadQueueProbe[] = live.map((child) => {
+  const probes: ChatQueueProbe[] = live.map((child) => {
     const id = child.session.id
     const at = activeAt(child.session)
     const seen = closedQueueReads.get(id)
-    const remembered = !!seen && seen.activeAt === at && now - seen.at < THREAD_QUEUE_CLOSED_TTL_MS
+    const remembered = !!seen && seen.activeAt === at && now - seen.at < CHAT_QUEUE_CLOSED_TTL_MS
     const mine = held && held.id === id && snapshot ? snapshot : null
     const stream = mine && held ? { phase: streamPhase(mine.phase), replayed: mine.replayed, attachedMs: now - held.at } : null
-    return { sessionId: id, activeAt: at, state: threadQueueChildState({ open: !!mine && heldOpen, remembered, stream }) }
+    return { sessionId: id, activeAt: at, state: chatQueueChildState({ open: !!mine && heldOpen, remembered, stream }) }
   })
-  const wanted = threadQueueProbe(rootOpen, probes)
+  const wanted = chatQueueProbe(rootOpen, probes)
   const closedKey = probes
     .filter((probe) => probe.state === `closed`)
     .map((probe) => `${probe.sessionId}:${probe.activeAt}`)
@@ -1995,7 +2133,7 @@ function useChildSnapshots(
     for (const probe of probes) {
       if (probe.state !== `closed`) continue
       const seen = closedQueueReads.get(probe.sessionId)
-      if (!seen || seen.activeAt !== probe.activeAt || at - seen.at >= THREAD_QUEUE_CLOSED_TTL_MS) {
+      if (!seen || seen.activeAt !== probe.activeAt || at - seen.at >= CHAT_QUEUE_CLOSED_TTL_MS) {
         closedQueueReads.set(probe.sessionId, { activeAt: probe.activeAt, at })
       }
     }
@@ -2004,7 +2142,7 @@ function useChildSnapshots(
   }, [wanted, heldId, closedKey])
   // Re-read once the probe deadline passes, and (every child read closed)
   // once the closed memory runs out.
-  const rearmMs = held ? THREAD_QUEUE_PROBE_DEADLINE_MS : wanted === null && live.length > 0 && !rootOpen ? THREAD_QUEUE_CLOSED_TTL_MS : null
+  const rearmMs = held ? CHAT_QUEUE_PROBE_DEADLINE_MS : wanted === null && live.length > 0 && !rootOpen ? CHAT_QUEUE_CLOSED_TTL_MS : null
   useEffect(() => {
     if (rearmMs === null) return
     const timer = setTimeout(() => setTick((n) => n + 1), rearmMs)
@@ -2062,7 +2200,7 @@ export function useSessionDock(
     () => sessionTaskQueue({ taskList, backgroundTasks, feed, now: tick.getTime() }),
     [taskList, backgroundTasks, feed, tick]
   )
-  // #EXP-1545 (dock.json THREAD QUEUE): ONE tasks card, the root's while it
+  // #EXP-1545 (dock.json CHAT QUEUE): ONE tasks card, the root's while it
   // is open, else the most recently active Live child's, named.
   const queueOwner = useMemo(() => {
     const models = new Map(
@@ -2071,7 +2209,7 @@ export function useSessionDock(
         { child, snap, model: sessionTaskQueue({ taskList: snap.taskList, backgroundTasks: snap.backgroundTasks, feed: snap.feed, now: tick.getTime() }) },
       ])
     )
-    const chosen = threadDockQueue([
+    const chosen = chatDockQueue([
       { sessionId: session.id, name: ``, root: true, ended: sessionEnded, activeAt: null, open: Boolean(rootQueueModel?.todo.items.length) },
       ...[...models.values()].map(({ child, model }) => ({
         sessionId: child.session.id,

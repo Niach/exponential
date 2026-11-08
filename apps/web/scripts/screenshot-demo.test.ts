@@ -47,7 +47,7 @@ describe(`pinned demo invite expiry (EXP-668)`, () => {
  * change what it renders.
  *
  * The gap that matters is seed -> shutter, and the last lane to photograph this
- * thread is a native styleguide suite several lanes after the seed. Eight hours
+ * chat is a native styleguide suite several lanes after the seed. Eight hours
  * is far past any real run and still inside the 12-hour budget the fleet's
  * bucket boundaries allow, so a failure here means an offset was moved to a bad
  * place rather than that runs got slower.
@@ -99,7 +99,7 @@ describe(`pinned showcase comment offsets (EXP-669)`, () => {
     }
   )
 
-  it(`keeps the thread in order, newest last`, () => {
+  it(`keeps the chat in order, newest last`, () => {
     const hours = offsets.map(([, value]) => value)
     expect(hours).toStrictEqual([...hours].sort((a, b) => b - a))
     expect(new Set(hours).size).toBe(hours.length)

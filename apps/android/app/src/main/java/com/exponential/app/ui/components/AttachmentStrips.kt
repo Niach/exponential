@@ -207,7 +207,7 @@ fun CommentAttachmentsStrip(
  * strip survives in the composer and the edit form, where the tiles are a
  * queue rather than content.
  *
- * The probed `width`/`height` pre-size each image so the thread doesn't jump
+ * The probed `width`/`height` pre-size each image so the chat doesn't jump
  * when the bitmap lands; rows without them just cap at 480dp.
  */
 @Composable
@@ -318,7 +318,7 @@ private fun MediaThumbTile(attachment: AttachmentEntity) {
 }
 
 /** A non-image tile: type icon over a truncated name (and size, when known).
- *  Wave D: also a steer message's file line in the run thread. */
+ *  Wave D: also a steer message's file line in the run chat. */
 @Composable
 internal fun FileTile(
     filename: String,

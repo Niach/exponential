@@ -55,10 +55,10 @@ final class ShareChatSubmitter {
         do {
             try await post(accountId: accountId, destination: destination, text: wire, attachmentIds: attachmentIds)
         } catch {
-            let isThread = if case .newThread = destination { true } else { false }
+            let isNewChat = if case .newChat = destination { true } else { false }
             throw ShareChatError(
                 title: FeedbackStates.Errors.title(
-                    verb: isThread ? "start" : "send", thing: isThread ? "the session" : "the message"
+                    verb: isNewChat ? "start" : "send", thing: isNewChat ? "the session" : "the message"
                 ),
                 underlying: error
             )
@@ -74,7 +74,7 @@ final class ShareChatSubmitter {
                 accountId: accountId, sessionId: root.id,
                 data: attachment.data, filename: attachment.filename, contentType: attachment.contentType
             )
-        case let .agent(_, teamId, _), let .newThread(teamId, _, _):
+        case let .agent(_, teamId, _), let .newChat(teamId, _, _):
             try await deps.attachmentsApi.uploadTeamSessionImage(
                 accountId: accountId, teamId: teamId,
                 data: attachment.data, filename: attachment.filename, contentType: attachment.contentType
@@ -96,12 +96,12 @@ final class ShareChatSubmitter {
         case let .chat(chat):
             input = .message(sessionId: chat.id, text: text, attachmentIds: attachments)
             root = chat.sealRoot
-        case let .newThread(teamId, deviceId, ids):
+        case let .newChat(teamId, deviceId, ids):
             rows = ids
             // EXP-993: a phone never picks a free request's repository: the
             // team's FIRST one anchors it (none = the agent's scratch dir).
             let repositories = try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)
-            input = .newThread(
+            input = .newChat(
                 teamId: teamId, deviceId: deviceId, text: text, attachmentIds: attachments,
                 repositoryId: repositories?.first?.id
             )

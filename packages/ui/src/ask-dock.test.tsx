@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import type { ThreadRow } from "@exp/domain-contract/session-tree"
-import { ThreadDock } from "./session-thread-view"
+import type { SessionChatRow } from "@exp/domain-contract/session-tree"
+import { ChatDock } from "./session-chat-view"
 
-const plan = (id: string, text: string, sessionId: string): ThreadRow => ({
+const plan = (id: string, text: string, sessionId: string): SessionChatRow => ({
   type: `plan`,
   id,
   sessionId,
@@ -17,7 +17,7 @@ const plan = (id: string, text: string, sessionId: string): ThreadRow => ({
   surfaceData: null,
 })
 
-const ROWS: ThreadRow[] = [
+const ROWS: SessionChatRow[] = [
   plan(`p1`, `# Fold the composer\n\n1. One`, `a`),
   plan(`p2`, `1. Two`, `b`),
   {
@@ -36,12 +36,12 @@ const ROWS: ThreadRow[] = [
   },
 ]
 
-function renderDock(rows = ROWS, props: Partial<Parameters<typeof ThreadDock>[0]> = {}) {
+function renderDock(rows = ROWS, props: Partial<Parameters<typeof ChatDock>[0]> = {}) {
   const onDecide = vi.fn()
   const onAnswer = vi.fn()
-  const names: Record<string, string> = { a: `Ask dock`, b: `Thread list` }
+  const names: Record<string, string> = { a: `Ask dock`, b: `Chat list` }
   render(
-    <ThreadDock
+    <ChatDock
       rows={rows}
       sessionName={(id) => names[id] ?? null}
       renderText={(text) => <p>{text}</p>}
@@ -54,7 +54,7 @@ function renderDock(rows = ROWS, props: Partial<Parameters<typeof ThreadDock>[0]
   return { onDecide, onAnswer }
 }
 
-describe(`ThreadDock (N-12)`, () => {
+describe(`ChatDock (N-12)`, () => {
   it(`piles several waiting cards oldest first, the newest in front, their words hidden until fanned`, () => {
     renderDock()
     const dock = screen.getByTestId(`dock`)
@@ -63,7 +63,7 @@ describe(`ThreadDock (N-12)`, () => {
     expect(cards.map((card) => card.dataset.id)).toEqual([`p1`, `p2`, `q1`])
     expect(cards.map((card) => card.textContent)).toEqual([
       `Plan readyAsk dockFold the composer`,
-      `Plan readyThread listTwo`,
+      `Plan readyChat listTwo`,
       `QuestionWhich branch?`,
     ])
     expect(cards[0]!.getAttribute(`aria-hidden`)).toBe(`true`)
@@ -93,7 +93,7 @@ describe(`ThreadDock (N-12)`, () => {
     const { onAnswer } = renderDock([ROWS[2]!], { initialOpenId: `q1` })
     const sheet = screen.getByTestId(`dock-sheet`)
     fireEvent.click(screen.getAllByTestId(`plan-card-option`)[0]!)
-    fireEvent.click(screen.getByTestId(`thread-question-answer`))
+    fireEvent.click(screen.getByTestId(`chat-question-answer`))
     expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `main`, answers: [`main`] })
     expect(sheet).toBeTruthy()
   })
@@ -104,14 +104,14 @@ describe(`ThreadDock (N-12)`, () => {
   })
 })
 
-describe(`ThreadDock rich plan (EXP-1280, N-12 pages)`, () => {
-  const rich: ThreadRow = {
+describe(`ChatDock rich plan (EXP-1280, N-12 pages)`, () => {
+  const rich: SessionChatRow = {
     ...plan(`p1`, `# Plan`, `a`),
     questions: [
       { id: `q`, prompt: `Which layout?`, multi: false, custom: false, options: [{ label: `One`, description: null, attachmentId: null }, { label: `Two`, description: null, attachmentId: null }] },
       { id: `r`, prompt: `Ship it?`, multi: false, custom: false, options: [{ label: `Yes`, description: null, attachmentId: null }] },
     ],
-  } as ThreadRow
+  } as SessionChatRow
 
   it(`pages through the plan and the questions; approving waits on every answer`, () => {
     const { onDecide } = renderDock([rich], { initialOpenId: `p1` })

@@ -1,15 +1,15 @@
-// EXP-1291 Threads v2: the session tree's view models, ONE reference ×4.
+// EXP-1291: the session tree's view models, ONE reference ×4.
 // Pure and byte-locked by the fixtures every mirror replays:
 //   fixtures/session-card.json   → sessionCard()
-//   fixtures/session-thread.json → buildSessionThread()
-//   fixtures/threads-list.json   → partitionThreads() + listAgents()
+//   fixtures/session-chat.json → buildSessionChat()
+//   fixtures/chat-list.json   → partitionChats() + listAgents()
 // Mirrors: desktop `domain::session_tree`, iOS ExpCore `SessionTree.swift`,
 // Android `domain/SessionTree.kt`. The fixtures' `$comment`s hold the rules;
 // this file is the reference.
 
 import cardFixture from "../fixtures/session-card.json" with { type: "json" }
-import threadFixture from "../fixtures/session-thread.json" with { type: "json" }
-import listFixture from "../fixtures/threads-list.json" with { type: "json" }
+import chatFixture from "../fixtures/session-chat.json" with { type: "json" }
+import listFixture from "../fixtures/chat-list.json" with { type: "json" }
 import chats from "../fixtures/chats.json" with { type: "json" }
 import mergeTrainFixture from "../fixtures/merge-train.json" with { type: "json" }
 import { sessionTitle, sessionTitles } from "./session-title"
@@ -102,7 +102,7 @@ export interface TreeMessage {
   attachmentIds?: readonly string[] | null
 }
 
-/** #EXP-1682 (session-thread.json `$comment`, "ATTACHMENTS"): a message's
+/** #EXP-1682 (session-chat.json `$comment`, "ATTACHMENTS"): a message's
  *  row body = its body, then a blank line and one
  *  `![image](/api/attachments/<id>)` line per `attachmentIds` entry the body
  *  does not already name (the steer image block, the shape the device
@@ -127,9 +127,9 @@ export interface TreePullRequest {
 
 export const SESSION_CARD_COPY = cardFixture.copy
 export const SESSION_CARD_ICONS = cardFixture.icons
-export const THREAD_COPY = threadFixture.copy
-export const THREAD_TEST_IDS = threadFixture.testIds
-export const THREADS_LIST_COPY = listFixture.copy
+export const CHAT_COPY = chatFixture.copy
+export const CHAT_TEST_IDS = chatFixture.testIds
+export const CHATS_LIST_COPY = listFixture.copy
 
 const ms = (iso: string | null | undefined): number | null => {
   if (!iso) return null
@@ -169,7 +169,7 @@ export function sessionState(
 
 /** S-3: a NESTED session (a child row, a strip chip) shows while it works or
  *  needs you, or while its last activity (ended: endedAt, else updatedAt) is
- *  within `threads-list.json` `recentChildMinutes` of `now` (null = never). */
+ *  within `chat-list.json` `recentChildMinutes` of `now` (null = never). */
 export function visibleChild(
   session: Pick<TreeSession, `status` | `needsInput` | `busy` | `endedAt` | `updatedAt`>,
   now: string | null | undefined
@@ -320,7 +320,7 @@ export function sessionBanner(
   }
 }
 
-/** NEW-1: a thread's issues = the UNION over its tree's rows: the sessions
+/** NEW-1: a chat's issues = the UNION over its tree's rows: the sessions
  *  in tree order (the root first, then creation order), each one's rows by
  *  sortOrder, every issue once. */
 export function treeIssues(
@@ -360,33 +360,33 @@ export function sessionTabMarkState(
 /** EXP-1334: one row of a folded chip's subtree (the chip's dropdown =
  *  the chip itself, then these, THE tree rows with their guides). `depth`
  *  is relative to the chip (its children = 1). */
-export interface ThreadTabNestedIssue {
+export interface ChatTabNestedIssue {
   issueId: string
   identifier: string
   depth: number
 }
-export interface ThreadTabNestedSession {
+export interface ChatTabNestedSession {
   sessionId: string
   name: string
   markState: SessionTabMarkState
   depth: number
 }
 
-export type ThreadTab =
+export type ChatTab =
   | { kind: `add` }
   | { kind: `conversation` }
-  | { kind: `issue`; issueId: string; identifier: string; nested: ThreadTabNestedIssue[] }
+  | { kind: `issue`; issueId: string; identifier: string; nested: ChatTabNestedIssue[] }
   | {
       kind: `session`
       sessionId: string
       name: string
       markState: SessionTabMarkState
-      nested: ThreadTabNestedSession[]
+      nested: ChatTabNestedSession[]
     }
 
 /** EXP-1322: a question row's option, label + description like the session
  *  view's card (an undescribed card option → description null). */
-export interface ThreadQuestionOption {
+export interface ChatQuestionOption {
   label: string
   description: string | null
   /** EXP-1280: the option's picture (plan-card.json `pictureFor`); null = a text option. */
@@ -394,18 +394,18 @@ export interface ThreadQuestionOption {
 }
 
 /** EXP-1280: one choice question of a plan card in the row form. */
-export interface ThreadPlanQuestion {
+export interface ChatPlanQuestion {
   id: string
   prompt: string
   multi: boolean
   custom: boolean
-  options: ThreadQuestionOption[]
+  options: ChatQuestionOption[]
 }
 
 /** A synced card option (a plain label) in the row form; anything else =
  *  null (dropped). The sidecar description (see `questionOptions`) is zipped
  *  in by the caller. */
-export function questionOption(raw: unknown): ThreadQuestionOption | null {
+export function questionOption(raw: unknown): ChatQuestionOption | null {
   return typeof raw === `string` ? { label: raw, description: null, attachmentId: null } : null
 }
 
@@ -419,11 +419,11 @@ export function questionOptions(card: {
   optionDescriptions?: unknown
   optionPictures?: unknown
   pictures?: unknown
-}): ThreadQuestionOption[] {
+}): ChatQuestionOption[] {
   if (!Array.isArray(card.options)) return []
   const descriptions = Array.isArray(card.optionDescriptions) ? card.optionDescriptions : []
   const pictureLabels = Array.isArray(card.optionPictures) ? card.optionPictures : []
-  const rows: ThreadQuestionOption[] = []
+  const rows: ChatQuestionOption[] = []
   card.options.forEach((raw, index) => {
     const option = questionOption(raw)
     if (!option) return
@@ -458,15 +458,15 @@ export function cardPictures(raw: unknown): PlanCardPicture[] {
 
 /** EXP-1280: a plan card's `questions` in the row form; a malformed
  *  question (no string id/prompt) or option drops. */
-export function planQuestions(card: { questions?: unknown; pictures?: unknown }): ThreadPlanQuestion[] {
+export function planQuestions(card: { questions?: unknown; pictures?: unknown }): ChatPlanQuestion[] {
   if (!Array.isArray(card.questions)) return []
   const pictures = cardPictures(card.pictures)
-  const rows: ThreadPlanQuestion[] = []
+  const rows: ChatPlanQuestion[] = []
   for (const raw of card.questions) {
     if (!raw || typeof raw !== `object`) continue
     const question = raw as Record<string, unknown>
     if (typeof question.id !== `string` || typeof question.prompt !== `string`) continue
-    const options: ThreadQuestionOption[] = []
+    const options: ChatQuestionOption[] = []
     for (const entry of Array.isArray(question.options) ? question.options : []) {
       if (!entry || typeof entry !== `object`) continue
       const option = entry as Record<string, unknown>
@@ -529,7 +529,7 @@ export interface SessionXref {
   agentId: string | null
 }
 
-export type ThreadRow =
+export type SessionChatRow =
   | {
       type: `message`
       id: string
@@ -560,7 +560,7 @@ export type ThreadRow =
        *  own question surfaces in the Conversation). */
       sessionId: string
       question: string
-      options: ThreadQuestionOption[]
+      options: ChatQuestionOption[]
       custom: boolean
       /** EXP-1280: several picks allowed. */
       multi: boolean
@@ -581,7 +581,7 @@ export type ThreadRow =
       sessionId: string
       plan: string
       /** EXP-1280: the choice questions, the inline surface. */
-      questions: ThreadPlanQuestion[]
+      questions: ChatPlanQuestion[]
       surface: CardSurface | null
       decision: string | null
       /** An approval that started in a fresh context (ask-dock.json). */
@@ -601,29 +601,29 @@ export type ThreadRow =
       caption: string | null
     }
   /** #EXP-1464: `sessionId` = the synced session the line is about (its
-   *  card's `sessionId`), else null; thread-row-action.json opens it. */
+   *  card's `sessionId`), else null; chat-row-action.json opens it. */
   | { type: `event`; id: string; event: string; text: string; sessionId: string | null }
-  /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line. */
+  /** Chat 58cb32df (chats.json): a person's `/new` or `/compact` line. */
   | { type: `divider`; id: string; kind: `new` | `compact`; at: string }
   /** EXP-1459 (sealed-content.json `placeholder`): content this install
    *  cannot open (yet), whatever its kind: THE transcript pill. */
   | { type: `locked`; id: string; reason: LockedReason; author: `user` | `agent` | `system` }
-  /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
+  /** Chat 58cb32df (chats.json): an agent's inline Exponential UI preview. */
   | { type: `surface`; id: string; sessionId: string; title: string | null; surface: CardSurface }
 
 /** #EXP-1464: a `question` / `plan` message as THE card's row (an expanded
- *  session row's waiting card, thread-row-action.json), else null. */
-export function threadAskRow(message: TreeMessage): Extract<ThreadRow, { type: `question` | `plan` }> | null {
+ *  session row's waiting card, chat-row-action.json), else null. */
+export function chatAskRow(message: TreeMessage): Extract<SessionChatRow, { type: `question` | `plan` }> | null {
   const card = message.card
   return card && (card.kind === `question` || card.kind === `plan`) ? askRow(message, card) : null
 }
 
-/** A `question` / `plan` card's Conversation row (its own thread, or an
+/** A `question` / `plan` card's Conversation row (its own chat, or an
  *  escalated card read from its origin message). */
 function askRow(
   message: TreeMessage,
   card: NonNullable<TreeMessage[`card`]>
-): Extract<ThreadRow, { type: `question` | `plan` }> {
+): Extract<SessionChatRow, { type: `question` | `plan` }> {
   if (card.kind === `question`) {
     return {
       type: `question`,
@@ -669,7 +669,7 @@ export interface SuggestionRow {
   identifier: string | null
 }
 
-export const SUGGESTIONS_COPY = threadFixture.copy.suggestions
+export const SUGGESTIONS_COPY = chatFixture.copy.suggestions
 
 function suggestionsRow(
   message: TreeMessage,
@@ -678,7 +678,7 @@ function suggestionsRow(
   titles: ReadonlyMap<string, string>,
   issues: ReadonlyMap<string, TreeIssue>,
   now: string
-): ThreadRow | null {
+): SessionChatRow | null {
   if (!Array.isArray(card.items)) return null
   const items: SuggestionRow[] = []
   for (const raw of card.items as Record<string, unknown>[]) {
@@ -723,13 +723,13 @@ function suggestionsRow(
   }
 }
 
-export interface SessionThreadView {
+export interface SessionChatView {
   rootId: string
   title: string
   private: boolean
   focusId: string | null
-  tabs: ThreadTab[]
-  rows: ThreadRow[]
+  tabs: ChatTab[]
+  rows: SessionChatRow[]
   composer: { sessionId: string; placeholder: string }
   live: boolean
   /** EXP-1323: the live tail (THE Queue, task-queue.json, + the status line) reads this
@@ -737,7 +737,7 @@ export interface SessionThreadView {
   liveSessionId: string | null
   busy: boolean
   needsYou: boolean
-  /** NEW-6 (N-1): a thread with ONE session (the root alone, no child yet)
+  /** NEW-6 (N-1): a chat with ONE session (the root alone, no child yet)
    *  shows that session's raw work as the main thing: its id, and the
    *  strip carries no Conversation tab. Null once a second session exists
    *  (the Conversation tab appears, the chips name the children). */
@@ -763,7 +763,7 @@ function eventText(
   const outcome = event === `pr_merge` && typeof card.mergeOutcome === `string` ? card.mergeOutcome : null
   const template =
     (outcome ? (MERGE_TRAIN_EVENTS as Record<string, string>)[outcome] : undefined) ??
-    (THREAD_COPY.events as Record<string, string>)[event]
+    (CHAT_COPY.events as Record<string, string>)[event]
   if (!template) return null
   const issue = typeof card.issueId === `string` ? issues.get(card.issueId) : undefined
   const pr = typeof card.pullRequestId === `string` ? prs.get(card.pullRequestId) : undefined
@@ -800,7 +800,7 @@ export interface GuidePullRequestLike {
   createdAt: string
 }
 
-/** EXP-1306: the ONE pull request the thread's Guide speaks for (its stack
+/** EXP-1306: the ONE pull request the chat's Guide speaks for (its stack
  *  rail + the bottom Merge capsule): the newest open one, else the newest
  *  merged one (createdAt, ties by the higher number); a closed PR never counts. */
 export function guidePullRequest<T extends GuidePullRequestLike>(
@@ -817,7 +817,7 @@ export function guidePullRequest<T extends GuidePullRequestLike>(
   return newest(`open`) ?? newest(`merged`)
 }
 
-export const REPLIES_COPY = threadFixture.copy.replies
+export const REPLIES_COPY = chatFixture.copy.replies
 
 export interface ComposerReplies {
   messageId: string
@@ -905,17 +905,17 @@ function issueFoldParent(
 }
 
 /**
- * The thread screen (EXP-1334): the header strip (`+` · Conversation · one
+ * The chat screen (EXP-1334): the header strip (`+` · Conversation · one
  * chip per TOP-LEVEL linked issue, its linked sub-issues folded under it ·
  * one chip per DIRECT child of the dispatcher, every deeper session folded
  * under its top-level ancestor · Guide), the dispatcher's conversation as
  * rows (no card of its own: its messages oldest first, a
  * `session`/`thread_started` card becoming that session's card, a child's
  * open question/plan card surfacing here) and the composer target (the root:
- * a message to an ended thread continues it server-side). `focus` = the
+ * a message to an ended chat continues it server-side). `focus` = the
  * session open in place (`focusId`); the chips stay the dispatcher's.
  */
-export function buildSessionThread(input: {
+export function buildSessionChat(input: {
   root: TreeSession
   sessions: readonly TreeSession[]
   sessionIssues: readonly TreeSessionIssue[]
@@ -928,7 +928,7 @@ export function buildSessionThread(input: {
   /** #EXP-1380 (web): the sessions' titles when `messages` is only the
    *  newest of the tree (a first prompt may be older); absent = from them. */
   titles?: ReadonlyMap<string, string>
-} = {}): SessionThreadView {
+} = {}): SessionChatView {
   const { root, now } = input
   const tree = treeOrder(input.sessions.filter((s) => s.rootId === root.id || s.id === root.id))
   if (!tree.some((s) => s.id === root.id)) tree.unshift(root)
@@ -967,7 +967,7 @@ export function buildSessionThread(input: {
   // S-3: only the VISIBLE sessions get chips (`visibleTree`), the focused
   // one always; the rest stay reachable through their cards.
   const shown = visibleTree(tree.filter((s) => s.id !== root.id), now)
-  const sessionTabs: ThreadTab[] = foldForest(
+  const sessionTabs: ChatTab[] = foldForest(
     tree.filter((s) => s.id !== root.id && (shown.has(s.id) || s.id === focus?.id)),
     (s) => s.id,
     (s) => (s.parentId === root.id || !s.parentId || !treeIds.has(s.parentId) ? null : s.parentId)
@@ -984,7 +984,7 @@ export function buildSessionThread(input: {
     })),
   }))
   const linkedIds = new Set(issues.map((issue) => issue.id))
-  const issueTabs: ThreadTab[] = foldForest(
+  const issueTabs: ChatTab[] = foldForest(
     issues,
     (issue) => issue.id,
     (issue) => issueFoldParent(issue, linkedIds, issueMap)
@@ -1012,7 +1012,7 @@ export function buildSessionThread(input: {
       (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0) ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   )
-  const rows: ThreadRow[] = []
+  const rows: SessionChatRow[] = []
   const messagesById = new Map(input.messages.map((m) => [m.id, m]))
   const escalated = new Set<string>()
   for (const message of conversation) {
@@ -1104,7 +1104,7 @@ export function buildSessionThread(input: {
           type: `report`,
           id: message.id,
           sessionId: target.id,
-          text: THREAD_COPY.report.replace(
+          text: CHAT_COPY.report.replace(
             `{session}`,
             sessionCard(target, titles.get(target.id) ?? ``, now).name
           ),
@@ -1131,7 +1131,7 @@ export function buildSessionThread(input: {
       // NEW-1: a child's ask mirrored into its parent (`ask`): the child's
       // own card already surfaces in the Conversation (`asks`), so the
       // mirror draws nothing here. #EXP-1399: a mirror from ANOTHER tree
-      // (an agent's conversation watching a thread, `escalate`) = the
+      // (an agent's conversation watching a chat, `escalate`) = the
       // origin's session card + THE origin card, read from its message.
       case `ask`: {
         const target = typeof card.sessionId === `string` ? byId.get(card.sessionId) : undefined
@@ -1152,7 +1152,7 @@ export function buildSessionThread(input: {
   }
 
   const live = tree.filter((s) => s.status !== `ended`)
-  // NEW-6 (N-1): the root alone = the thread IS that session: the
+  // NEW-6 (N-1): the root alone = the chat IS that session: the
   // Conversation tab opens its raw work in place (`mainSessionId`); a
   // second session turns the tab into the dispatcher's conversation and
   // brings the chips. NEW-46: the tab itself is ALWAYS in the strip.
@@ -1173,11 +1173,11 @@ export function buildSessionThread(input: {
     focusId: focus?.id ?? null,
     // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation only.
     tabs:
-      threadChatMode(root) === `bubbles`
+      chatMode(root) === `bubbles`
         ? [{ kind: `conversation` as const }]
         : [{ kind: `add` }, { kind: `conversation` as const }, ...issueTabs, ...sessionTabs],
     rows,
-    composer: { sessionId: root.id, placeholder: THREAD_COPY.placeholder },
+    composer: { sessionId: root.id, placeholder: CHAT_COPY.placeholder },
     live: live.length > 0,
     liveSessionId: root.status === `ended` ? null : root.id,
     busy: live.some((s) => s.busy),
@@ -1187,17 +1187,17 @@ export function buildSessionThread(input: {
   }
 }
 
-export interface ThreadsListRow {
+export interface ChatsListRow {
   sessionId: string
   teamId: string
-  /** EXP-1323: 0 = the thread (opens the thread), >0 = a nested child
+  /** EXP-1323: 0 = the chat (opens the chat), >0 = a nested child
    *  (opens that session); `parentId` null on a root. */
   depth: number
   parentId: string | null
   rootId: string
   title: string
   /** EXP-1318: the ROOT's device (the row's trailing device icon);
-   *  `partitionThreads` always sets it, hand-built rows may omit it (= null). */
+   *  `partitionChats` always sets it, hand-built rows may omit it (= null). */
   deviceId?: string | null
   busy: boolean
   needsYou: boolean
@@ -1209,10 +1209,10 @@ export interface ThreadsListRow {
   offline?: boolean
 }
 
-/** EXP-1312: a thread row's lead outside the Threads tab (home Running band,
+/** EXP-1312: a chat row's lead outside the Chats tab (home Running band,
  *  rail Running rows, work tabs) ×4: needs you beats working, else the bare
- *  mark (`threads-list.json` `markCases`). */
-export function threadRowMarkState(row: {
+ *  mark (`chat-list.json` `markCases`). */
+export function chatRowMarkState(row: {
   needsYou: boolean
   busy: boolean
 }): `needs_you` | `working` | `waiting` {
@@ -1221,20 +1221,20 @@ export function threadRowMarkState(row: {
   return `waiting`
 }
 
-/** NEW-41 ×4: the PR glyph a thread row leads with once threadRowMarkState
+/** NEW-41 ×4: the PR glyph a chat row leads with once chatRowMarkState
  *  is `waiting`, off the ROOT's PR states (never the word, so a stacked open
  *  PR still leads emerald): any open → `open`, else any merged → `merged`,
- *  else none (`threads-list.json` `leadCases`). */
-export function threadRowLeadPr(prStates: readonly string[]): `open` | `merged` | null {
+ *  else none (`chat-list.json` `leadCases`). */
+export function chatRowLeadPr(prStates: readonly string[]): `open` | `merged` | null {
   if (prStates.includes(`open`)) return `open`
   if (prStates.includes(`merged`)) return `merged`
   return null
 }
 
-export interface ThreadsListGroup {
+export interface ChatsListGroup {
   key: `needs_you` | `running` | `recent`
   title: string
-  rows: ThreadsListRow[]
+  rows: ChatsListRow[]
 }
 
 /** S-3: a tree's display state = the session's four (`SessionState`). */
@@ -1244,7 +1244,7 @@ export type TreeState = SessionState
  * NEW-1 / S-3: a tree's derived state. `needs_you` = a live session waits on
  * a person (`needsInput`, a usage wall or a watchdog flag included);
  * `working` = any live session queued or busy; `done` = every session ended,
- * or every PR of the thread merged (none = never done this way); else
+ * or every PR of the chat merged (none = never done this way); else
  * `idle`. `now` is kept for the signature (no stale state any more).
  */
 export function treeState(
@@ -1261,13 +1261,13 @@ export function treeState(
 }
 
 /**
- * The Threads page/rail list: roots of kind `thread` in scope (`teamId` =
+ * The Chats page/rail list: roots of kind `thread` in scope (`teamId` =
  * the ACTIVE team; null = every team, phones band rows per team), grouped
  * Needs you (a live session of the tree waits on a person) · Running (any
  * session queued or running) · Recent (the rest), each by the tree's newest
  * `updatedAt` desc. Empty groups are omitted.
  */
-export function partitionThreads(input: {
+export function partitionChats(input: {
   sessions: readonly TreeSession[]
   sessionIssues: readonly TreeSessionIssue[]
   issues: readonly TreeIssue[]
@@ -1278,7 +1278,7 @@ export function partitionThreads(input: {
   /** NEW-1: the clock for Recent's window (absent = no window: every
    *  recent tree, up to `recent.max`). */
   now?: string | null
-}): ThreadsListGroup[] {
+}): ChatsListGroup[] {
   const readAt = new Map((input.reads ?? []).map((read) => [read.sessionId, ms(read.readAt) ?? 0]))
   const rootOf = new Map(input.sessions.map((s) => [s.id, s.rootId]))
   const newestAgentInTree = new Map<string, number>()
@@ -1293,7 +1293,7 @@ export function partitionThreads(input: {
   const roots = input.sessions.filter(
     (s) =>
       s.parentId === null &&
-      // NEW-2: an agent's conversation (a root with `agentId`) is no thread;
+      // NEW-2: an agent's conversation (a root with `agentId`) is no chat;
       // VAPP-110: neither is an app's editor session (`appId`).
       !s.agentId &&
       !s.appId &&
@@ -1305,7 +1305,7 @@ export function partitionThreads(input: {
     list.push(session)
     byRoot.set(session.rootId, list)
   }
-  const buckets: Record<ThreadsListGroup[`key`], ThreadsListRow[]> = {
+  const buckets: Record<ChatsListGroup[`key`], ChatsListRow[]> = {
     needs_you: [],
     running: [],
     recent: [],
@@ -1320,7 +1320,7 @@ export function partitionThreads(input: {
       root.updatedAt
     )
     const title = sessionTitle(root, input.sessionIssues, input.issues, input.messages)
-    const row: ThreadsListRow = {
+    const row: ChatsListRow = {
       sessionId: root.id,
       teamId: root.teamId,
       depth: 0,
@@ -1339,7 +1339,7 @@ export function partitionThreads(input: {
     // the tree's state (needs you, working, unread) rolls up into it.
     buckets[needsYou ? `needs_you` : running ? `running` : `recent`].push(row)
   }
-  const sorted = (rows: ThreadsListRow[]) =>
+  const sorted = (rows: ChatsListRow[]) =>
     rows.sort(
       (a, b) => (ms(b.activityAt) ?? 0) - (ms(a.activityAt) ?? 0) || (a.sessionId < b.sessionId ? -1 : 1)
     )
@@ -1352,17 +1352,17 @@ export function partitionThreads(input: {
       index < recentRules.max ||
       (at !== null && at - (ms(row.activityAt) ?? 0) <= recentRules.hours * 60 * 60 * 1000)
   )
-  return (Object.keys(buckets) as ThreadsListGroup[`key`][])
+  return (Object.keys(buckets) as ChatsListGroup[`key`][])
     .map((key) => ({
       key,
-      title: THREADS_LIST_COPY.groups[key],
+      title: CHATS_LIST_COPY.groups[key],
       rows: key === `recent` ? recent : sorted(buckets[key]),
     }))
     .filter((group) => group.rows.length > 0)
 }
 
-/** EXP-1323: the Threads nav dot = any thread row is unread. */
-export function threadsUnread(groups: readonly ThreadsListGroup[]): boolean {
+/** EXP-1323: the Chats nav dot = any chat row is unread. */
+export function chatsListUnread(groups: readonly ChatsListGroup[]): boolean {
   return groups.some((group) => group.rows.some((row) => row.depth === 0 && row.unread))
 }
 
@@ -1439,12 +1439,12 @@ export function listAgents(
     })
 }
 
-/** EXP-1309/1318: the ONE quiet trailing word of a thread row ×4. Keys;
- *  `THREAD_ROW_WORDS` = the copy (EXP-1339: `merged` has none, it only
+/** EXP-1309/1318: the ONE quiet trailing word of a chat row ×4. Keys;
+ *  `CHAT_ROW_WORDS` = the copy (EXP-1339: `merged` has none, it only
  *  turns the lead violet). */
-export type ThreadRowWord = `stack` | `readyToMerge` | `merged` | `offline` | `question`
+export type ChatRowWord = `stack` | `readyToMerge` | `merged` | `offline` | `question`
 
-export const THREAD_ROW_WORDS: Partial<Record<ThreadRowWord | `needsInput`, string>> =
+export const CHAT_ROW_WORDS: Partial<Record<ChatRowWord | `needsInput`, string>> =
   listFixture.copy.words
 
 export interface StackPr {
@@ -1453,10 +1453,10 @@ export interface StackPr {
   basePullRequestId: string | null
 }
 
-/** An open PR of the thread sits in an open stack: based on another open
+/** An open PR of the chat sits in an open stack: based on another open
  *  PR, or another open PR is based on it. `teamPrs` = the team's PRs (a
- *  stack edge may cross threads). */
-export function threadInStack(
+ *  stack edge may cross chats). */
+export function chatInStack(
   pullRequests: readonly StackPr[],
   teamPrs: readonly StackPr[] = pullRequests
 ): boolean {
@@ -1473,14 +1473,14 @@ export function threadInStack(
 /** Word order: an open PR in a stack → `stack`; an open PR while nothing
  *  works → `readyToMerge` (working = no word); no open PR but a merged one
  *  → `merged`; else waiting on a person → `question`; else none. */
-export function threadRowWord(input: {
+export function chatRowWord(input: {
   pullRequests: readonly { state: string }[]
   busy: boolean
   needsYou: boolean
   inStack: boolean
   /** #EXP-1703: `treeOffline` (absent = false). */
   offline?: boolean
-}): ThreadRowWord | null {
+}): ChatRowWord | null {
   if (input.pullRequests.some((pr) => pr.state === `open`)) {
     if (input.inStack) return `stack`
     return input.busy ? null : `readyToMerge`
@@ -1502,10 +1502,10 @@ export function treeOffline(
 /** The rail's Active band ×web+IDE (`copy.rail`): every Needs you row, every
  *  Running row, then the Recent rows whose word still asks for a merge
  *  (`readyToMerge` or `stack`), in group order. */
-export function railThreads(
-  groups: readonly ThreadsListGroup[],
-  wordOf: (row: ThreadsListRow) => ThreadRowWord | null
-): ThreadsListRow[] {
+export function railChats(
+  groups: readonly ChatsListGroup[],
+  wordOf: (row: ChatsListRow) => ChatRowWord | null
+): ChatsListRow[] {
   return groups.flatMap((group) =>
     group.key === `recent`
       ? group.rows.filter((row) => {
@@ -1516,7 +1516,7 @@ export function railThreads(
   )
 }
 
-// ── EXP-1334: the thread strip never scrolls ─────────────────────────────────
+// ── EXP-1334: the chat strip never scrolls ─────────────────────────────────
 
 /**
  * Which chips get drawn, in order; the rest collapse into one "+N". A port
@@ -1557,15 +1557,15 @@ export function partitionTabs(
   return visible
 }
 
-/** #EXP-1433 (session-thread.json `stripModeCases`): the strip between
+/** #EXP-1433 (session-chat.json `stripModeCases`): the strip between
  *  Conversation and Results. `chips` = at most one issue and no session (that
  *  issue keeps its chip); `group` = ONE icon tab for every issue and session,
  *  `count` of them, opening THE Menu of their rows. */
-export interface ThreadStripMode {
+export interface ChatStripMode {
   mode: `chips` | `group`
   count: number
 }
-export function threadStripMode(input: { issues: number; sessions: number }): ThreadStripMode {
+export function chatStripMode(input: { issues: number; sessions: number }): ChatStripMode {
   const count = input.issues + input.sessions
   return { mode: input.issues <= 1 && input.sessions === 0 ? `chips` : `group`, count }
 }
@@ -1589,9 +1589,9 @@ export function agentChatPage(selected: string, holdsPlan: boolean): string {
   return agentChatTabs(holdsPlan).includes(selected) ? selected : `conversation`
 }
 
-/** S-3 (session-thread.json `chatModeCases`): THE thread screen's mode: an
- *  agent conversation paints chat bubbles, a thread its transcript. */
-export type ThreadChatMode = `bubbles` | `transcript`
-export function threadChatMode(root: { agentId?: string | null }): ThreadChatMode {
+/** S-3 (session-chat.json `chatModeCases`): THE chat screen's mode: an
+ *  agent conversation paints chat bubbles, a chat its transcript. */
+export type ChatMode = `bubbles` | `transcript`
+export function chatMode(root: { agentId?: string | null }): ChatMode {
   return root.agentId ? `bubbles` : `transcript`
 }

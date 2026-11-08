@@ -14,7 +14,7 @@ import androidx.benchmark.perfetto.PerfettoTraceProcessor
  * 0.2–0.8 s depending on its GPU mode and runs no session code at all.
  *
  * This metric reads only the main thread's frames that START after the last
- * input event, the session card's tap (the thread's scrolls come first):
+ * input event, the session card's tap (the chat's scrolls come first):
  *
  * - `sessionOpenFrameMaxMs`: the longest of them, wall time (includes the
  *   main thread waiting on the RenderThread, i.e. the emulator's GL).
@@ -30,22 +30,22 @@ class SessionOpenFrameMetric : TraceMetric() {
     ): List<Measurement> {
         val pkg = captureInfo.targetPackageName
         val main = """
-            (select t.utid from thread t join process p using(upid)
+            (select t.utid from chat t join process p using(upid)
              where p.name = '$pkg' and t.tid = p.pid order by t.utid desc limit 1)
         """.trimIndent()
         val frames = """
-            select s.ts, s.dur from slice s join thread_track tt on s.track_id = tt.id
+            select s.ts, s.dur from slice s join chat_track tt on s.track_id = tt.id
             where tt.utid = $main and s.depth = 0 and s.name like 'Choreographer#doFrame%'
         """.trimIndent()
         val tap = """
-            (select max(s.ts) from slice s join thread_track tt on s.track_id = tt.id
+            (select max(s.ts) from slice s join chat_track tt on s.track_id = tt.id
              where tt.utid = $main and s.name like 'deliverInputEvent%')
         """.trimIndent()
         val rows = traceSession.query(
             """
             select f.dur as dur,
               (select coalesce(sum(min(st.ts + st.dur, f.ts + f.dur) - max(st.ts, f.ts)), 0)
-               from thread_state st
+               from chat_state st
                where st.utid = $main and st.state = 'Running'
                  and st.ts < f.ts + f.dur and st.ts + st.dur > f.ts) as running
             from ($frames) f where f.ts > $tap
